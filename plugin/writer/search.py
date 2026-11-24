@@ -1771,9 +1771,9 @@ class AdvancedSearch(ToolBaseDummy):
             "query": {"type": "string", "description": ("Search query. Examples: 'climate change', 'energy AND renewable', 'solar OR wind', 'climate NOT politics', 'ocean NEAR/3 warming'")},
             "max_results": {"type": "integer", "description": "Maximum results to return (default: 20)"},
             "context_paragraphs": {"type": "integer", "description": "Paragraphs of context around each match (default: 1)"},
-            "around_page": {"type": "integer", "description": ("Restrict results to paragraphs near this 0-based page index (first page = 0; optional). Enables page numbers in results.")},
+            "around_page": {"type": "integer", "description": ("Restrict results to paragraphs near this 0-based page index (the user's page 2 is page=1; optional). Enables page numbers in results.")},
             "page_radius": {"type": "integer", "description": ("Page radius for around_page filter (default: 1, meaning +/-1 page)")},
-            "include_pages": {"type": "boolean", "description": ("Add 0-based page numbers (first page = 0) to results. Automatic when around_page is set. (default: false)")},
+            "include_pages": {"type": "boolean", "description": ("Add 0-based page numbers (the user's page 2 is page=1) to results. Automatic when around_page is set. (default: false)")},
         },
         "required": ["query"],
     }

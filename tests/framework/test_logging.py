@@ -1949,3 +1949,27 @@ def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
         if handler is not None:
             handler.close()
         logging_mod._debug_slot()["handler"] = saved_handler
+
+
+def test_failed_rename_keeps_backup(tmp_path) -> None:
+    import plugin.framework.logging as logging_mod
+
+    log_path = str(tmp_path / "test_failed_rename.log")
+    backup = log_path + ".1"
+    Path(backup).write_text("previous backup", encoding="utf-8")
+
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    try:
+        oversized = "A" * (logging_mod._MAX_DEBUG_LOG_BYTES + 1024)
+        assert handler.stream is not None
+        handler.stream.write(oversized)
+        logging.FileHandler.flush(handler)
+
+        with patch("os.replace", side_effect=PermissionError("file in use")):
+            handler._rotate_if_large()
+
+        assert Path(backup).read_text(encoding="utf-8") == "previous backup"
+        assert handler.stream is not None
+    finally:
+        if handler.stream is not None:
+            handler.close()
