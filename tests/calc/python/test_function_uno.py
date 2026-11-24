@@ -515,6 +515,7 @@ def test_py_addin_token_formula_errors(ctx, doc):
                 sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
             sheet.getCellByPosition(0, 2).setFormula('=PY("result=calc.na()")')
             sheet.getCellByPosition(0, 3).setFormula('=PY("result=calc.xmatch(9,[1,2])")')
+            sheet.getCellByPosition(0, 4).setFormula('=PY("result = \'Err:502\'")')
             sheet.getCellByPosition(1, 2).setFormula("=ISNA(A3)")
             sheet.getCellByPosition(1, 3).setFormula("=ISNA(A4)")
             sheet.getCellByPosition(2, 2).setFormula('=IFNA(A3;"na")')
@@ -522,6 +523,7 @@ def test_py_addin_token_formula_errors(ctx, doc):
             doc.calculateAll()
             for row_idx, (_token, expected_err) in enumerate(cases):
                 assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
+            assert sheet.getCellByPosition(0, 4).getError() == 502
             a3 = sheet.getCellByPosition(0, 2)
             a4 = sheet.getCellByPosition(0, 3)
             assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
@@ -582,22 +584,76 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
 
         na_nan = calc_formula_error_double(ERR_NA)
         cell_d1 = sheet.getCellByPosition(3, 0)
-        cell_d1.setFormula('=PY("result = [[1, calc.na()]]")')
+        cell_d1.setFormula('=PY("result = [[1, calc.na(), \'Err:502\']]")')
         perform_deferred_spill(
             sheet_name,
             0,
             3,
-            [[1, na_nan]],
+            [[1, na_nan, "Err:502"]],
             doc=doc,
             sheet=sheet,
-            code="result = [[1, calc.na()]]",
+            code="result = [[1, calc.na(), 'Err:502']]",
             key=WorkbookState.for_doc(doc).key,
         )
         sheet.getCellByPosition(4, 1).setFormula("=ISNA(E1)")
+        sheet.getCellByPosition(5, 1).setFormula("=ISERROR(F1)")
         doc.calculateAll()
         cell_e1 = sheet.getCellByPosition(4, 0)
         assert cell_e1.getError() == 32767
         assert sheet.getCellByPosition(4, 1).getValue() == 1.0
+        cell_f1 = sheet.getCellByPosition(5, 0)
+        assert cell_f1.getError() == 502
+        assert sheet.getCellByPosition(5, 1).getValue() == 1.0
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_deferred_spill_late_collision_uno(ctx, doc):
+    """Late collision between prepare_auto_spill and perform_deferred_spill preserves the user cell."""
+    from com.sun.star.table.CellContentType import EMPTY
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import prepare_auto_spill
+
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    clear_python_addin_cache()
+    code = "result = [[1, 2, 3]]"
+    try:
+        cell_m1 = sheet.getCellByPosition(12, 0)
+        cell_m1.setFormula(f'=PY("{code}")')
+        state = WorkbookState.for_doc(doc)
+        assert state is not None
+        prep = prepare_auto_spill(
+            ctx,
+            doc,
+            state,
+            FormulaOrigin(sheet, cell_m1, sheet_name, 0, 12),
+            code,
+            [[1, 2, 3]],
+        )
+        assert not isinstance(prep, str) and prep is not None
+
+        cell_o1 = sheet.getCellByPosition(14, 0)
+        cell_o1.setFormula("=1+1")
+        perform_deferred_spill(
+            prep.sheet_name,
+            prep.formula_row,
+            prep.formula_col,
+            [[1, 2, 3]],
+            doc=doc,
+            sheet=sheet,
+            code=prep.code,
+            key=prep.key,
+        )
+        doc.calculateAll()
+
+        assert cell_o1.getFormula() == "=1+1"
+        assert cell_o1.getValue() == 2.0
+        assert sheet.getCellByPosition(13, 0).getType() == EMPTY
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

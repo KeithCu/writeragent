@@ -25,6 +25,7 @@ from plugin.framework.scratch_writer import (
     close_scratch_document,
     is_scratch_document,
     load_scratch_document,
+    page_preview_view_prop,
 )
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.framework.thread_guard import assert_main_thread, guard_uno
@@ -599,6 +600,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         desktop = get_desktop(ctx)
         load_props: list[Any] = [
             create_property_value("ReadOnly", True),
+            page_preview_view_prop(),
         ]
         if os.path.splitext(path)[1].lower() in _HTML_EXTENSIONS:
             # Without FilterName, LibreOffice loads Writer/Web, which get_document_type reports as UNKNOWN.

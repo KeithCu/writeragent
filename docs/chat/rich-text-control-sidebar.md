@@ -355,10 +355,13 @@ conversions. `new_blank_writer` empties the result (`clear_writer_body`: tables,
 drawing shapes as well as the text — a letterhead is often just an empty table or a logo, whose
 body string is "").
 
+Scratch Writers from `new_blank_writer` load with `page_preview_view_prop()` (`ViewId=7`, `SwPagePreview`) by default: closing a normal `SwView` clears Writer's global active-view pointer (`~SwViewGlueDocShell`), which causes LibreOffice's Manage Changes dialog (`SwRedlineAcceptDlg`) to dereference null and abort. Page-preview controllers have no `getViewCursor`.
+
 **Now shared:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) also creates its hidden
-Writer through `new_blank_writer` and reuses it from an idle list, calling
+Writer through `new_blank_writer(..., page_preview=False)` and reuses it from an idle list, calling
 `clear_writer_body(..., keep_chars=1)` between pastes so a default-template letterhead
-is not pasted into the cell and previous paste formatting does not carry over.
+is not pasted into the cell and previous paste formatting does not carry over (it keeps the
+default `SwView` because it needs `XSelectionSupplier.select` and `getTransferable`).
 
 ### Smaller cleanups
 

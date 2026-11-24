@@ -63,7 +63,9 @@ def _take_hidden_writer(uno_ctx: Any) -> Any:
         ):
             return doc
         log.debug("insert_cell_html_rich: dropping an unusable hidden Writer")
-    doc = new_blank_writer(uno_ctx)
+    # Keep the default SwView (page_preview=False): this helper needs
+    # XSelectionSupplier.select and getTransferable, which SwPagePreview lacks.
+    doc = new_blank_writer(uno_ctx, page_preview=False)
     if doc is None:
         raise ToolExecutionError("Could not create temporary Writer document")
     doc.getText().setString(_GUARD_TEXT)

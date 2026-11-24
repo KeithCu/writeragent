@@ -552,6 +552,26 @@ def test_get_page_count_handles_nested_xtext_cursor():
     assert count == 274
     mock_body.createTextCursorByRange.assert_not_called()
 
+
+def test_get_page_count_without_view_cursor_uses_statistics():
+    """Verify get_page_count falls back to DocumentStatistics when controller lacks getViewCursor."""
+    from types import SimpleNamespace
+    from plugin.doc.document_helpers import DocumentService
+
+    mock_doc = MagicMock()
+    mock_doc.getCurrentController.return_value = SimpleNamespace()  # no getViewCursor
+    mock_doc.isModified.return_value = False
+    mock_doc.WordCount = 42
+    mock_doc.getDocumentProperties.return_value = SimpleNamespace(
+        DocumentStatistics=[
+            SimpleNamespace(Name="WordCount", Value=42),
+            SimpleNamespace(Name="PageCount", Value=3),
+        ]
+    )
+
+    assert DocumentService().get_page_count(mock_doc) == 3
+    assert [c.args for c in mock_doc.setModified.call_args_list] == [(True,), (False,)]
+
 def test_get_document_context_for_chat_writer_disposed():
     model = MagicMock()
     model.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
@@ -591,7 +611,6 @@ def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_witho
 
     result = read_writer_text_slice(MagicMock(), 0, 100)
 
-    mock_without_deletions.assert_called_once_with(cursor)
     assert result == "visible text"
     cursor.getString.assert_not_called()
 

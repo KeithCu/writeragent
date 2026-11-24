@@ -25,6 +25,7 @@ from typing import Any
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
 from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
+from plugin.calc.python.addin_values import published_err_code
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
 
@@ -97,10 +98,9 @@ ERROR_TYPES: dict[int, dict[str, str]] = {
     },
 }
 
-# One case-insensitive map: keys are uppercased tokens; values keep canonical spelling (#ERROR!, Err:502, …).
+# One case-insensitive map for # tokens: keys are uppercased tokens; values keep canonical spelling.
 _ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
     "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
-    "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
 )}
 
 
@@ -111,9 +111,14 @@ def truncation_hint(shown: int, total: int) -> str:
 
 def is_calc_error_display(value: object) -> str | None:
     """Canonical Calc error token when *value* is an error display string."""
-    if isinstance(value, str):
-        return _ERROR_PATTERN_BY_UPPER.get(value.strip().upper())
-    return None
+    if not isinstance(value, str):
+        return None
+    token = value.strip()
+    mapped = _ERROR_PATTERN_BY_UPPER.get(token.upper())
+    if mapped is not None:
+        return mapped
+    code = published_err_code(token)
+    return f"Err:{code}" if code is not None else None
 
 
 def formula_error_cells(sheet: Any, cell_range: Any, limit: int | None = None) -> tuple[list[dict[str, Any]], int]:

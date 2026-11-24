@@ -599,6 +599,7 @@ def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture)
         ({"status": "error", "code": "#REF!", "message": "x"}, 524),
         ({"status": "error", "code": "#NAME?", "message": "x"}, 525),
         ({"status": "error", "code": "#NULL!", "message": "x"}, 521),
+        ({"status": "error", "code": "Err:502", "message": "x"}, 502),
         ({"status": "error", "code": "ZeroDivisionError", "message": "x"}, 532),
         ({"status": "error", "code": "OverflowError", "message": "x"}, 503),
         ({"status": "error", "code": "FloatingPointError", "message": "x"}, 503),
@@ -654,3 +655,39 @@ def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture)
         assert val == str(err)
         assert isinstance(val, str)
         assert caplog.text == ""
+
+
+def test_published_err_tokens_and_coerce_parity() -> None:
+    from plugin.scripting.venv import calc_functions, coerce
+
+    for token, expected_code in (("Err:502", 502), (" err:504 ", 504)):
+        val = addin_values.py_addin_cell_value(token)
+        assert isinstance(val, float) and not math.isfinite(val)
+        assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFF) == expected_code
+        spill_val = addin_values.coerce_spill_value(token)
+        assert spill_val.kind == "err"
+        assert spill_val.registry_value == expected_code
+
+    for non_err in ("Err:505", "Err:537", "Err:999", "Err:5020", "Err:502 x"):
+        assert addin_values.py_addin_cell_value(non_err) == non_err
+        spill_val = addin_values.coerce_spill_value(non_err)
+        assert spill_val.kind == "s"
+        assert spill_val.calc_value == non_err
+
+    expected_published = frozenset({*range(501, 505), *range(507, 526), *range(530, 534), *range(538, 541)})
+    for code in range(500, 600):
+        token = f"Err:{code}"
+        got = addin_values.calc_error_code_for_token(token)
+        if code in expected_published:
+            assert got == code
+            assert coerce.is_error_token(token)
+        else:
+            assert got is None
+
+    for fn_res in (
+        calc_functions.textjoin(",", True, ["Err:502"]),
+        calc_functions.xor(["Err:502"]),
+    ):
+        cell_val = addin_values.py_addin_cell_value(fn_res)
+        assert isinstance(cell_val, float) and not math.isfinite(cell_val)
+        assert (struct.unpack("Q", struct.pack("d", cell_val))[0] & 0xFFFF) == 502

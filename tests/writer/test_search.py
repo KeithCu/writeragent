@@ -832,7 +832,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     odd.getText.side_effect = RuntimeException("uno")
     odd.getString.return_value = "raw"
     assert describe_match_location(odd, MagicMock()) == "body"
-    assert enclosing_paragraph_text(odd) == "raw"
+    assert enclosing_paragraph_text(MagicMock(), odd) == "raw"
 
     # getName/getPropertyValue failures still fall back to the attribute.
     obj = MagicMock()
@@ -2121,4 +2121,41 @@ def test_crlf_normalized_for_search_and_chain_matching():
     assert hits == [chain_hit]
     assert seen_candidates == ["Line1\nLine2"]
     assert chain_calls == [(["Line1", "Line2"], 0)]
+
+
+def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
+    from unittest.mock import patch
+    from plugin.writer.search import SearchInDocument, _iter_descriptor_hits, find_text_ranges
+
+    covered_hit = MagicMock(getString=lambda: "gone")
+    live_hit = MagicMock(getString=lambda: "live")
+    live_hit.getText.return_value.createTextCursor.return_value.getString.return_value = ""
+
+    doc = MagicMock()
+    doc.findFirst.return_value = covered_hit
+    doc.findNext.side_effect = [covered_hit, live_hit, None]
+
+    with patch("plugin.writer.search.TrackedDeletions") as td_cls, \
+         patch("plugin.writer.search.uno_same", return_value=True), \
+         patch("plugin.writer.search.enclosing_paragraph_text", return_value="live line"), \
+         patch("plugin.writer.search.LocationLabeler") as labeler_cls, \
+         patch("plugin.writer.search.iter_shape_hits", return_value=iter(())), \
+         patch("plugin.writer.search.iter_comment_hits", return_value=iter(())):
+        td = td_cls.return_value
+        td.covers.side_effect = lambda r: r is covered_hit
+        labeler_cls.return_value.describe.return_value = "body"
+
+        assert list(_iter_descriptor_hits(doc, MagicMock())) == [live_hit]
+
+        doc.findNext.side_effect = [covered_hit, live_hit, None]
+        ranges = find_text_ranges(doc, "x")
+        assert len(ranges) == 1
+        assert ranges[0]["text"] == "live"
+
+        doc.findFirst.return_value = covered_hit
+        doc.findNext.side_effect = [live_hit, None]
+        ctx = MagicMock(doc=doc)
+        res = SearchInDocument().execute(ctx, pattern="x")
+        assert res["count"] == 1
+        assert res["matches"][0]["text"] == "live"
 
