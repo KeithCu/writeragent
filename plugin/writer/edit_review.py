@@ -64,6 +64,7 @@ from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
+from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
 from plugin.writer.record_changes import is_recording_changes, record_changes
 from plugin.writer.review_view_attachment import refresh_review_toolbar
@@ -1035,7 +1036,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     for se in result.sub_edits:
         if _select_verified(se) is None:
-            # split_change offsets are Python code points. goRight counts UNO characters (UTF-16 code units). A mismatch falls back to a whole-block replace. Do not convert the offsets.
+            # split_change offsets count code points, as goRight does (breakiterator_unicode.cxx: nextCharacters). A mismatch (field, hidden text) falls back to a whole-block replace.
             log.debug("edit_review: surgical pre-flight offset mismatch; falling back to whole-block")
             _whole()
             return
@@ -1307,6 +1308,7 @@ class _WriterStreamedSessionBase:
     track_reviewable: bool
     was_recording: bool
     last_write_error: Exception | None
+    _headings: list[tuple[int, str]] | None
     _compound_undo: WriterCompoundUndo
     _record_cm: Any
 
@@ -1316,7 +1318,22 @@ class _WriterStreamedSessionBase:
         self.original_text = original_text
         self.track_reviewable = track_reviewable
         self.last_write_error = None
+        self._headings = headings_if_touched(doc, [text_range])
         self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
+
+    def _retarget_links(self) -> str | None:
+        """Point links at a heading this edit renamed. Returns a warning for links left stale."""
+        if not self._headings:
+            return None
+        try:
+            with record_changes(self.doc, self.was_recording or self.track_reviewable), \
+                 EditReviewSession(self.doc, get_ctx(), enabled=self.track_reviewable) as session:
+                detail = ", ".join(retarget_renamed_links(session, self.doc, self._headings)[1])
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.exception("streamed edit: heading link update failed")
+            detail = str(exc)
+        return _("Links to the renamed heading could not all be updated: {0}").format(detail) if detail else None
 
     def _exit_stream_recording(self) -> None:
         """Exit the stream's record_changes(False) context, restoring prior recording state."""
@@ -1337,8 +1354,9 @@ class _WriterStreamedSessionBase:
         """Finalize the streamed edit, collapsing it into a single tracked change."""
         try:
             if not (self.was_recording or self.track_reviewable):
+                link_warning = self._retarget_links()
                 self._exit_stream_recording()
-                return _stream_write_warning(self.last_write_error)
+                return _stream_write_warning(self.last_write_error) or link_warning
 
             try:
                 before_ids = None
@@ -1366,7 +1384,7 @@ class _WriterStreamedSessionBase:
                     except Exception:
                         log.debug("%s: redline tagging failed", label, exc_info=True)
                 # restore prior recording so the user's later typing isn't tracked
-                return None
+                return self._retarget_links()
             except Exception as exc:
                 # A closed document is not "the text was kept".
                 reraise_if_disposed(exc)

@@ -761,7 +761,7 @@ def test_field_link_while_recording_warns_uno(ctx, doc) -> None:
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_recorded_full_document_lists_no_deleted_headings_uno(ctx, doc) -> None:
-    from plugin.writer.apply_document_content import _document_headings
+    from plugin.writer.heading_links import document_headings
 
     tool_ctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
@@ -786,7 +786,7 @@ def test_recorded_full_document_lists_no_deleted_headings_uno(ctx, doc) -> None:
         ],
     )
     assert res.get("status") == "ok", res
-    assert _document_headings(doc) == [(1, "New One"), (2, "Deux")]
+    assert document_headings(doc) == [(1, "New One"), (2, "Deux")]
 
 
 @native_test
@@ -808,3 +808,175 @@ def test_body_edit_leaves_links_alone_uno(ctx, doc) -> None:
     assert res.get("status") == "ok", res
     assert "links_retargeted" not in res, res
     assert _read_portion_urls(doc) == [("link", "#Keep Heading|outline")]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_selection_target_heading_rename_retargets_links_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Old Heading</h1>',
+            '<p>See <a href="#Old Heading|outline">go</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEndOfParagraph(True)
+    doc.getCurrentController().select(cur)
+    res = tool.execute(tool_ctx, target="selection", content="New Heading")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 1, res
+    assert _read_portion_urls(doc) == [("go", "#New Heading|outline")]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_numbered_and_encoded_outline_urls_retargeted_and_jump_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Old title</h1>',
+            "<p>Body</p>",
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    for label, url in (
+        ("L1", "#1.Old title|outline"),
+        ("L2", "#Old%20title|outline"),
+        ("L3", "#1.Old%20title|outline"),
+        ("L4", "#Old%20title%7Coutline"),
+    ):
+        text.insertString(cur, " ", False)
+        text.insertString(cur, label, True)
+        cur.setPropertyValue("HyperLinkURL", url)
+        cur.collapseToEnd()
+
+    res = tool.execute(tool_ctx, target="search", old_content="Old title", content="New title")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 4, res
+    assert _read_portion_urls(doc) == [
+        ("L1", "#1.New title|outline"),
+        ("L2", "#New%20title|outline"),
+        ("L3", "#1.New%20title|outline"),
+        ("L4", "#New%20title%7Coutline"),
+    ]
+    _jump_to_mark(ctx, doc, "1.New%20title|outline")
+    assert _view_cursor_paragraph_text(doc) == "New title"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_unrecorded_rename_undo_restores_heading_and_link_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Old Heading</h1>',
+            '<p>See link here.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    search = doc.createSearchDescriptor()
+    search.SearchString = "link"
+    found = doc.findFirst(search)
+    found.setPropertyValue("HyperLinkURL", "#Old Heading|outline")
+    found.setPropertyValue("HyperLinkName", "lnk")
+    found.setPropertyValue("HyperLinkTarget", "_top")
+    found.setPropertyValue("CharColor", 0x112233)
+
+    res = tool.execute(tool_ctx, target="search", old_content="Old Heading", content="New Heading")
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [("link", "#New Heading|outline")]
+
+    doc.getUndoManager().undo()
+    assert _read_portion_urls(doc) == [("link", "#Old Heading|outline")]
+    found = doc.findFirst(search)
+    assert found.getPropertyValue("HyperLinkName") == "lnk"
+    assert found.getPropertyValue("HyperLinkTarget") == "_top"
+    assert found.getPropertyValue("CharColor") == 0x112233
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) -> None:
+    from plugin.writer.edit_review import WriterStreamedAppendSession, WriterStreamedRewriteSession
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    helper = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+
+    def _setup(heading_text: str):
+        res = tool.execute(
+            tool_ctx,
+            target="full_document",
+            content=[
+                f'<h1 data-lo-style="Heading 1">{heading_text}</h1>',
+                f'<p>See <a href="#{heading_text}|outline">go</a>.</p>',
+            ],
+        )
+        assert res.get("status") == "ok", res
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEndOfParagraph(True)
+        return cur
+
+    def _first_para() -> str:
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEndOfParagraph(True)
+        return str(cur.getString() or "")
+
+    for kind, cls, chunk, expected in (
+        ("rewrite", WriterStreamedRewriteSession, "New Head", "New Head"),
+        ("append", WriterStreamedAppendSession, " Two", "Old Head Two"),
+    ):
+        for mode in ("plain", "recording", "review"):
+            outcomes = ("plain",) if mode == "plain" else ("accept", "reject", "undo")
+            for outcome in outcomes:
+                cur = _setup("Old Head")
+                if mode == "recording":
+                    doc.setPropertyValue("RecordChanges", True)
+                try:
+                    sess = cls(doc, cur, "Old Head", track_reviewable=(mode == "review"))
+                    sess.append_chunk(chunk)
+                    warn = sess.finish()
+                    assert warn is None, (kind, mode, outcome, warn)
+                    assert doc.getPropertyValue("RecordChanges") is (mode == "recording")
+                    if outcome == "plain":
+                        assert _first_para() == expected
+                        assert _read_portion_urls(doc) == [("go", f"#{expected}|outline")]
+                        doc.getUndoManager().undo()
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                    elif outcome == "accept":
+                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+                        assert _first_para() == expected
+                        assert _read_portion_urls(doc) == [("go", f"#{expected}|outline")]
+                    elif outcome == "reject":
+                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                    else:
+                        doc.getUndoManager().undo()
+                        assert _first_para() == "Old Head"
+                        assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
+                finally:
+                    doc.setPropertyValue("RecordChanges", False)
