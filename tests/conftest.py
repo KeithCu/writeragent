@@ -598,10 +598,14 @@ class MockXJob: pass
 class MockXDispatch: pass
 class MockXDispatchProvider: pass
 class MockXStatusListener: pass
+class MockXInteractionHandler: pass
+class MockChangedByOthersRequest(Exception): pass
+class MockLockedOnSavingRequest(Exception): pass
 
 task = _create_mock_module("com.sun.star.task")
 setattr(task, "XJobExecutor", MockXJobExecutor)
 setattr(task, "XJob", MockXJob)
+setattr(task, "XInteractionHandler", MockXInteractionHandler)
 
 frame = _create_mock_module("com.sun.star.frame")
 setattr(frame, "DispatchDescriptor", MockBase)
@@ -612,7 +616,9 @@ setattr(frame, "XTerminateListener", MockBase)
 
 # Shared UNO mock modules loaded once for the session. Module-level
 # setup_uno_mocks() is a no-op when these shells are already present.
-_create_mock_module("com.sun.star.document")
+document = _create_mock_module("com.sun.star.document")
+setattr(document, "ChangedByOthersRequest", MockChangedByOthersRequest)
+setattr(document, "LockedOnSavingRequest", MockLockedOnSavingRequest)
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")
 _create_mock_module("com.sun.star.ui.UIElementType")

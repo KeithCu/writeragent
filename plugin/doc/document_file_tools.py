@@ -15,12 +15,22 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
+import uno
+import unohelper
+from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest
+from com.sun.star.task import XInteractionHandler
+
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.doc.document_research import HTML_WRITER_FILTER, document_entry, resolve_file_target
 from plugin.framework.doc_type import DOCUMENT_SERVICES, doc_type_label_for_enum, get_document_type
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.uno_context import create_property_value, get_desktop, resolve_document_by_url
+from plugin.framework.uno_context import (
+    create_property_value,
+    get_desktop,
+    resolve_document_by_url,
+    uno_same,
+)
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.document_file_tools")
@@ -225,6 +235,45 @@ def _export_sheet_csv(doc: Any, sheet_number: int, path: str) -> None:
         shutil.copyfile(os.path.join(tmp, written), path)
 
 
+class _AbortPrompts(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
+    """Answer every question LibreOffice asks during a save with Abort, so no dialog opens.
+
+    A document opened from LibreOffice's UI keeps the UI's interaction handler, whose modal
+    dialog would block the main thread (handleChangedByOthersRequest_ and
+    handleLockedDocumentRequest_ in uui/source/iahndl-locking.cxx). A handler passed to the
+    save call replaces it for that call only (SfxObjectShell::DoSave_Impl and
+    CommonSaveAs_Impl in sfx2/source/doc/objstor.cxx).
+    """
+
+    def __init__(self) -> None:
+        self.request: Any = None
+
+    def handle(self, Request: Any) -> None:
+        self.request = Request.getRequest()
+        abort_type = uno.getTypeByName("com.sun.star.task.XInteractionAbort")
+        for continuation in Request.getContinuations():
+            if continuation.queryInterface(abort_type) is not None:
+                continuation.select()
+                return
+
+
+def _save_failure(prompts: _AbortPrompts, exc: Exception, path: str, fallback_code: str) -> _FilterError:
+    """Explain a failed save from the question LibreOffice asked, else from *exc*. Call from the except block."""
+    if isinstance(prompts.request, ChangedByOthersRequest):
+        return _FilterError(
+            "FILE_CHANGED_ON_DISK",
+            f"{path} changed on disk or was removed after LibreOffice opened it, so it was not saved. "
+            "Pass a new path to document_save, or ask the user to save in LibreOffice, which asks before overwriting.",
+        )
+    if isinstance(prompts.request, LockedOnSavingRequest):
+        return _FilterError(
+            "FILE_LOCKED",
+            f"{path} is in use by {prompts.request.UserInfo or 'another user'}, so it was not overwritten; use a different path.",
+        )
+    log.exception("%s for %s", fallback_code, path)
+    return _FilterError(fallback_code, f"Failed to write {path}: {exc}")
+
+
 class DocumentOpen(ToolBase):
     """Open a document file or instantiate an untitled copy from a template."""
 
@@ -337,7 +386,27 @@ class DocumentSave(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         raw_path = kwargs.get("path")
-        if not str(raw_path or "").strip():
+        path = url = filter_name = ""
+        in_place = not str(raw_path or "").strip()
+        if not in_place:
+            resolved = _resolve_save_target(doc, raw_path, save=True)
+            if isinstance(resolved, _FilterError):
+                return self._tool_error(resolved.message, code=resolved.code)
+            path, url, filter_name = resolved
+            open_doc = resolve_document_by_url(ctx.ctx, url)[0]
+            if open_doc is not None and not uno_same(open_doc, doc):
+                return self._tool_error(
+                    f"{path} is open in LibreOffice as another document; save to a different path.",
+                    code="PATH_IS_OPEN",
+                )
+            # storeAsURL to the document's own file drops its password, and after an aborted
+            # attempt the next one overwrites a changed file without asking
+            # (SfxObjectShell::PreDoSaveAs_Impl in sfx2/source/doc/objstor.cxx).
+            in_place = open_doc is not None
+
+        prompts = _AbortPrompts()
+        handler = create_property_value("InteractionHandler", prompts)
+        if in_place:
             if not doc.hasLocation():
                 return self._tool_error(
                     "Untitled document has no file location; pass path to save it.",
@@ -351,27 +420,16 @@ class DocumentSave(ToolBase):
             err = _sheet_required(doc, _current_filter(doc))
             if err is not None:
                 return self._tool_error(err.message, code=err.code)
-            try:
-                doc.store()
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                log.exception("document_save in-place failed")
-                return self._tool_error(f"Failed to save document: {exc}", code="SAVE_FAILED")
-            return _save_result(doc)
-
-        resolved = _resolve_save_target(doc, raw_path, save=True)
-        if isinstance(resolved, _FilterError):
-            return self._tool_error(resolved.message, code=resolved.code)
-        path, url, filter_name = resolved
-
         try:
-            doc.storeAsURL(url, (create_property_value("FilterName", filter_name),))
+            if in_place:
+                doc.storeSelf((handler,))
+            else:
+                doc.storeAsURL(url, (create_property_value("FilterName", filter_name), handler))
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            log.exception("document_save failed for %s", path)
-            return self._tool_error(f"Failed to save to {path}: {exc}", code="SAVE_FAILED")
+            failure = _save_failure(prompts, exc, path or doc.getURL(), "SAVE_FAILED")
+            return self._tool_error(failure.message, code=failure.code)
         return _save_result(doc)
 
 
@@ -416,27 +474,36 @@ class DocumentExport(ToolBase):
             return self._tool_error(resolved.message, code=resolved.code)
         path, url, filter_name = resolved
 
+        # Overwriting an open document's file makes its next save fail or prompt
+        # (SfxMedium::CheckFileDate in sfx2/source/doc/docfile.cxx). LibreOffice refuses only
+        # for visible documents whose URL is spelled the same (SfxObjectShell::CommonSaveAs_Impl).
+        if resolve_document_by_url(ctx.ctx, url)[0] is not None:
+            return self._tool_error(
+                f"{path} is open in LibreOffice; export to a different path, or use document_save to save it in place.",
+                code="PATH_IS_OPEN",
+            )
+
         sheet_number: int | None = None
         if sheet is not None:
-            # Copying over an open document's file makes its next store() fail with ERRCODE_ABORT
-            # or prompt in a visible window via SfxMedium::CheckFileDate (sfx2/source/doc/docfile.cxx).
-            if resolve_document_by_url(ctx.ctx, url)[0] is not None:
-                return self._tool_error(
-                    f"{path} is open in LibreOffice; export the sheet to a different path.",
-                    code="PATH_IS_OPEN",
-                )
             # Keep outside the try block so UnoObjectError (with available and similar sheet names)
             # reaches execute_safe instead of becoming EXPORT_FAILED.
             sheet_number = CalcBridge(doc).get_sheet(sheet).getRangeAddress().Sheet + 1
 
+        prompts = _AbortPrompts()
         try:
             if sheet_number is not None:
                 _export_sheet_csv(doc, sheet_number, path)
             else:
-                doc.storeToURL(url, (create_property_value("FilterName", filter_name),))
+                doc.storeToURL(
+                    url,
+                    (
+                        create_property_value("FilterName", filter_name),
+                        create_property_value("InteractionHandler", prompts),
+                    ),
+                )
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            log.exception("document_export failed for %s", path)
-            return self._tool_error(f"Failed to export to {path}: {exc}", code="EXPORT_FAILED")
+            failure = _save_failure(prompts, exc, path, "EXPORT_FAILED")
+            return self._tool_error(failure.message, code=failure.code)
         return {"status": "ok", "path": path, "url": url, "document": document_entry(doc)}

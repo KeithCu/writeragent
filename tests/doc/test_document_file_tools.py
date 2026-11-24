@@ -8,6 +8,8 @@ from plugin.doc.document_file_tools import (
     DocumentExport,
     DocumentOpen,
     DocumentSave,
+    _AbortPrompts,
+    _save_failure,
     export_filter,
 )
 from plugin.doc.document_research import resolve_file_target
@@ -220,12 +222,12 @@ def test_document_save_in_place_and_errors():
     untitled = _make_model(url="")
     res_untitled = DocumentSave().execute(_make_ctx(untitled))
     assert res_untitled["code"] == "NO_LOCATION"
-    untitled.store.assert_not_called()
+    untitled.storeSelf.assert_not_called()
 
     ro_doc = _make_model(read_only=True)
     res_ro = DocumentSave().execute(_make_ctx(ro_doc))
     assert res_ro["code"] == "READ_ONLY"
-    ro_doc.store.assert_not_called()
+    ro_doc.storeSelf.assert_not_called()
 
     saved_doc = _make_model(url="file:///tmp/ok.odt", uid="uid-saved")
     with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/ok.odt"):
@@ -233,7 +235,7 @@ def test_document_save_in_place_and_errors():
         res_empty = DocumentSave().execute(_make_ctx(saved_doc), path="")
     assert res_ok["status"] == "ok"
     assert res_empty["status"] == "ok"
-    assert saved_doc.store.call_count == 2
+    assert saved_doc.storeSelf.call_count == 2
 
 
 def test_document_save_as_formats(tmp_path):
@@ -243,15 +245,17 @@ def test_document_save_as_formats(tmp_path):
         assert res_pdf["code"] == "EXPORT_ONLY_FORMAT"
 
         docx_path = tmp_path / "out.docx"
-        prop = SimpleNamespace(Name="FilterName", Value="MS Word 2007 XML")
-        with patch("plugin.doc.document_file_tools.create_property_value", return_value=prop) as mock_cpv, \
+        with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+             patch("plugin.doc.document_file_tools.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)), \
              patch("plugin.doc.document_research.system_path_from_url", return_value=str(docx_path)):
             res_docx = DocumentSave().execute(_make_ctx(doc), path=str(docx_path))
 
     assert res_docx["status"] == "ok"
     assert "warning" not in res_docx
-    mock_cpv.assert_called_once_with("FilterName", "MS Word 2007 XML")
-    doc.storeAsURL.assert_called_once_with(docx_path.as_uri(), (prop,))
+    doc.storeAsURL.assert_called_once()
+    call_url, call_props = doc.storeAsURL.call_args.args
+    assert call_url == docx_path.as_uri()
+    assert next(p.Value for p in call_props if p.Name == "FilterName") == "MS Word 2007 XML"
 
 
 def test_document_save_lossy_warning(tmp_path):
@@ -270,15 +274,17 @@ def test_document_export(tmp_path):
         assert res_bad["code"] == "UNKNOWN_FORMAT"
 
         pdf_path = tmp_path / "out.pdf"
-        prop = SimpleNamespace(Name="FilterName", Value="writer_pdf_Export")
-        with patch("plugin.doc.document_file_tools.create_property_value", return_value=prop) as mock_cpv, \
+        with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+             patch("plugin.doc.document_file_tools.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)), \
              patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/src.odt"):
             res_pdf = DocumentExport().execute(_make_ctx(doc), path=str(pdf_path))
 
     assert res_pdf["status"] == "ok"
     assert res_pdf["path"] == str(pdf_path)
-    mock_cpv.assert_called_once_with("FilterName", "writer_pdf_Export")
-    doc.storeToURL.assert_called_once_with(pdf_path.as_uri(), (prop,))
+    doc.storeToURL.assert_called_once()
+    call_url, call_props = doc.storeToURL.call_args.args
+    assert call_url == pdf_path.as_uri()
+    assert next(p.Value for p in call_props if p.Name == "FilterName") == "writer_pdf_Export"
 
 
 def test_document_save_and_export_missing_folder(tmp_path):
@@ -334,13 +340,13 @@ def test_inplace_save_single_sheet_format_checks_sheet_count(filter_name):
     res_err = DocumentSave().execute(_make_ctx(doc_multi))
     assert res_err["status"] == "error"
     assert res_err["code"] == "SHEET_REQUIRED"
-    doc_multi.store.assert_not_called()
+    doc_multi.storeSelf.assert_not_called()
 
     doc_one = _make_calc_doc(("One",), filter_name=filter_name)
     with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/book.ods"):
         res_ok = DocumentSave().execute(_make_ctx(doc_one))
     assert res_ok["status"] == "ok"
-    doc_one.store.assert_called_once()
+    doc_one.storeSelf.assert_called_once()
 
 
 def test_document_export_sheet_not_supported(tmp_path):
@@ -357,12 +363,16 @@ def test_document_export_sheet_not_supported(tmp_path):
     assert res_txt["code"] == "SHEET_NOT_SUPPORTED"
 
 
-def test_document_export_sheet_refuses_open_path(tmp_path):
+@pytest.mark.parametrize(("filename", "sheet"), [("open.csv", "One"), ("open.xlsx", None)])
+def test_document_export_sheet_refuses_open_path(tmp_path, filename, sheet):
     doc = _make_calc_doc(("One", "Two"))
-    csv_path = tmp_path / "open.csv"
+    target_path = tmp_path / filename
     with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
          patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(MagicMock(), "calc")):
-        res = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="One")
+        kwargs = {"path": str(target_path)}
+        if sheet is not None:
+            kwargs["sheet"] = sheet
+        res = DocumentExport().execute(_make_ctx(doc), **kwargs)
 
     assert res["status"] == "error"
     assert res["code"] == "PATH_IS_OPEN"
@@ -387,3 +397,51 @@ def test_document_export_sheet_missing_output_leaves_existing_file_intact(tmp_pa
     assert res["status"] == "error"
     assert res["code"] == "EXPORT_FAILED"
     assert csv_path.read_text(encoding="utf-8") == "keep-me\n"
+
+
+def test_document_save_refuses_path_of_another_open_document(tmp_path):
+    doc = _make_model(url="file:///tmp/src.odt", uid="uid-1")
+    other = _make_model(url=(tmp_path / "other.odt").as_uri(), uid="uid-2")
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.WRITER), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(other, "writer")):
+        res = DocumentSave().execute(_make_ctx(doc), path=str(tmp_path / "other.odt"))
+
+    assert res["status"] == "error"
+    assert res["code"] == "PATH_IS_OPEN"
+    doc.storeSelf.assert_not_called()
+    doc.storeAsURL.assert_not_called()
+
+
+def test_document_save_own_path_saves_in_place(tmp_path):
+    own_path = tmp_path / "own.odt"
+    doc = _make_model(url=own_path.as_uri(), uid="uid-own")
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.WRITER), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(doc, "writer")), \
+         patch("plugin.doc.document_research.system_path_from_url", return_value=str(own_path)):
+        res = DocumentSave().execute(_make_ctx(doc), path=str(own_path))
+
+    assert res["status"] == "ok"
+    doc.storeSelf.assert_called_once()
+    doc.storeAsURL.assert_not_called()
+
+
+def test_save_failure_explains_refused_prompt():
+    from com.sun.star.document import ChangedByOthersRequest, LockedOnSavingRequest
+
+    prompts = _AbortPrompts()
+    prompts.request = ChangedByOthersRequest()
+    err_changed = _save_failure(prompts, RuntimeError("boom"), "/tmp/a.odt", "SAVE_FAILED")
+    assert err_changed.code == "FILE_CHANGED_ON_DISK"
+    assert "/tmp/a.odt" in err_changed.message
+
+    locked_req = LockedOnSavingRequest()
+    locked_req.UserInfo = "Alice"  # type: ignore[attr-defined]
+    prompts.request = locked_req
+    err_locked = _save_failure(prompts, RuntimeError("boom"), "/tmp/a.odt", "EXPORT_FAILED")
+    assert err_locked.code == "FILE_LOCKED"
+    assert "Alice" in err_locked.message
+
+    prompts.request = None
+    err_fallback = _save_failure(prompts, RuntimeError("disk full"), "/tmp/a.odt", "SAVE_FAILED")
+    assert err_fallback.code == "SAVE_FAILED"
+    assert "Failed to write /tmp/a.odt: disk full" == err_fallback.message
