@@ -1104,6 +1104,8 @@ def test_cancel_during_publish_is_not_lost(
         if spawned and cancel_thread is None:
             cancel_thread = threading.Thread(target=scope.cancel)
             cancel_thread.start()
+            # kill must block on _lifecycle_lock, which publish holds here, so this join times out.
+            # With an unlocked kill it returns, the child is stored afterwards, and the lease below is live.
             cancel_thread.join(timeout=0.2)
         return refusal
 

@@ -219,7 +219,7 @@ class ChildSlot:
 
     ``WarmChild`` and the compute pool's ``BaseProcessWorker`` subclass this.
     ``_lifecycle_lock`` guards publish, drop, and each subclass's stop flags, so a
-    stops, so a publish either sees a stop or stores a child the stopper's ``kill`` still
+    publish either sees a stop or stores a child the stopper's ``kill`` still
     signals. The lock is never held across ``start()``, the handshake read, or the signal
     and reap in ``kill()``: it only covers reading, storing or dropping the pointer and the
     stop flags, and the handshake can block for the whole spawn budget.
