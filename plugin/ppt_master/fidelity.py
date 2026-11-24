@@ -22,6 +22,7 @@ from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executa
 from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.queue_executor import main
+from plugin.framework.scratch_writer import close_scratch_document
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
@@ -408,9 +409,9 @@ def evaluate_slide_fidelity(
     doc, page = imported
 
 
-    # doc.close(True) runs in finally after the document is loaded. Early
-    # returns (missing reference PDF, PDF export failure, PNG rasterize
-    # failure) must not leave the hidden Impress document open.
+    # close_scratch_document runs in finally after the document is loaded so
+    # early returns (missing reference PDF, PDF export failure, PNG rasterize
+    # failure) do not leave the hidden Impress document open or registered.
     try:
         result.structural = structural_metrics_pptx(page, pptx_path=pptx_path, slide_index=slide_index)
         result.artifacts["imported_odp"] = str(odp_path)
@@ -468,7 +469,7 @@ def evaluate_slide_fidelity(
 
         return result
     finally:
-        best_effort(lambda: doc.close(True), "close impress doc")
+        best_effort(lambda: close_scratch_document(doc), "close impress doc")
 
 
 def run_project_fidelity(

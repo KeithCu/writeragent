@@ -933,7 +933,7 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | `_insert_mixed_html_and_math_at_cursor`, `insert_content_at_position` |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | `_place_formulas`, `insert_content_at_position` |
 | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) | `$…$`, `$$…$$`, `\(...\)`, `\[...\]`, MathML segments |
 | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) | LaTeX/MathML → StarMath (shared with menu) |
 

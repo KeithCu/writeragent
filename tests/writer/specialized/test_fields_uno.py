@@ -123,3 +123,74 @@ def test_fields_insert_page_number_visible_default(ctx, doc):
     # Must be visible (renders '1' on page 1), not blank
     assert page_field.getPresentation(False) == "1"
 
+
+@native_test
+@with_native_doc("writer")
+def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
+    """PageCount, Input, and merge fields record cleanly in RecordChanges and Record mode."""
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.specialized.mail_merge import InsertField
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    # 1. User recording: PageCount and Input Accept/Reject cleanly
+    for field_name, props in (("PageCount", {}), ("Input", {"Content": "prompt"})):
+        _set_body(doc, "hello MATCH world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = FieldsInsert().execute(
+                tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
+            )
+            assert res["status"] == "ok", res
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert doc.getText().getString() == "hello MATCH world"
+            assert _count_text_fields(doc) == 0
+
+            res2 = FieldsInsert().execute(
+                tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
+            )
+            assert res2["status"] == "ok", res2
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            body_accept = doc.getText().getString()
+            assert "MATCH" not in body_accept
+            assert "hello " in body_accept and " world" in body_accept
+            assert _count_text_fields(doc) == 1
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    # 2. Record mode tags agent token for PageCount, Input, and merge field
+    with (
+        __import__("unittest.mock").mock.patch(
+            "plugin.writer.edit_review.review_recording_enabled", return_value=True
+        ),
+        __import__("unittest.mock").mock.patch(
+            "plugin.writer.edit_review.edit_review_wait_seconds", return_value=0
+        ),
+    ):
+        for field_name, props in (("PageCount", {}), ("Input", {"Content": "prompt"})):
+            _set_body(doc, "hello MATCH world")
+            res_f = FieldsInsert().execute(
+                tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
+            )
+            assert res_f["status"] == "ok", res_f
+            redlines = doc.getRedlines()
+            comments = [
+                str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "")
+                for i in range(redlines.getCount())
+            ]
+            assert any(c.startswith("wa-review:") for c in comments), (field_name, comments)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert doc.getText().getString() == "hello MATCH world"
+
+        _set_body(doc, "dear NAME,")
+        res_m = InsertField().execute(
+            tool_ctx, column_name="First", data_source_name="Bib", table_name="biblio",
+            target="search", old_content="NAME",
+        )
+        assert res_m["status"] == "ok", res_m
+        redlines = doc.getRedlines()
+        assert redlines.getCount() >= 1
+        comments = [str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "") for i in range(redlines.getCount())]
+        assert any(c.startswith("wa-review:") for c in comments), comments
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getText().getString() == "dear NAME,"
+

@@ -78,6 +78,7 @@ from plugin.writer.heading_links import (
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
+    hyperlink_fields,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_links,
@@ -462,7 +463,7 @@ class ApplyDocumentContent(ToolBase):
       when ``hyperlink_url`` is passed for that one link. ``content`` may equal
       ``old_content`` when only the URL is stale. A repeated title is left
       unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
-      ``hyperlink_url_after`` is empty when the replace left no link.
+      In ``hyperlinks``, ``hyperlink_url_after`` is empty when the replace left no link.
       To replace a range between landmarks without copying the middle, use
       target='search' with start_anchor and end_anchor instead of old_content.
       The range runs from the start of start_anchor through the end of the first
@@ -609,18 +610,7 @@ class ApplyDocumentContent(ToolBase):
             return {}
         if override and len(reports) != 1:
             raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
-        fields = dict(reports[0])
-        if len(reports) > 1:
-            fields["hyperlinks"] = reports
-        return fields
-
-    def _attach_hyperlink_reports(self, resp: Any, reports: list[dict[str, Any]]) -> dict[str, Any]:
-        if not reports:
-            return resp
-        resp["hyperlinks"] = reports
-        if len(reports) == 1:
-            resp.update(reports[0])
-        return resp
+        return hyperlink_fields(reports)
 
     def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> list[dict[str, Any]]:
         """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
@@ -1356,7 +1346,7 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         html_import.raise_if_hidden_start(ctx.doc)
-        html_import.raise_if_protected_start(ctx.doc)
+        html_import.raise_if_protected_sections(ctx.doc)
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1571,7 +1561,7 @@ class ApplyDocumentContent(ToolBase):
         html_import_styles.attach_write_report(
             resp, report, total_matches=count,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
-        self._attach_hyperlink_reports(resp, link_reports)
+        resp.update(hyperlink_fields(link_reports))
         return attach_edited_context(resp, anchor)
 
     def _anchor_miss(
@@ -1719,7 +1709,7 @@ class ApplyDocumentContent(ToolBase):
 
         def _insert_next_to_match() -> None:
             if not is_block:
-                html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
+                report.math.extend(html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content)))
                 report.unapplied_para.extend(html_import_styles.unapplied_para_names_for_content(str(content)))
             elif position != "after":
                 # A block import at the start of the match's paragraph adds paragraphs before it
@@ -1807,5 +1797,5 @@ class ApplyDocumentContent(ToolBase):
         html_import_styles.attach_write_report(
             resp, report, total_matches=1,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
-        self._attach_hyperlink_reports(resp, reports)
+        resp.update(hyperlink_fields(reports))
         return attach_edited_context(resp, anchor)

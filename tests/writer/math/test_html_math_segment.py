@@ -341,3 +341,32 @@ class TestHtmlMarkupIsNotMath:
         assert [s.text for s in segs5 if s.kind == "tex"] == ["x", "y"]
 
 
+class TestMathPlaceholders:
+    def test_tokens_and_order(self):
+        from plugin.writer.math.html_math_segment import math_placeholders
+
+        html = r"<p>a \(x\) b \(y\) c <math><mi>z</mi></math></p>"
+        out, formulas = math_placeholders(html, "n1")
+        assert out == "<p>a [[WA-MATH:n1:0]] b [[WA-MATH:n1:1]] c [[WA-MATH:n1:2]]</p>"
+        assert [(f.kind, f.text, f.display_block) for f in formulas] == [
+            ("tex", "x", False),
+            ("tex", "y", False),
+            ("math", "<math><mi>z</mi></math>", False),
+        ]
+
+    def test_whitespace_beside_display_math(self):
+        from plugin.writer.math.html_math_segment import math_placeholders
+
+        out_single, _ = math_placeholders("a\n$$x$$\nb", "n1")
+        assert out_single == "a[[WA-MATH:n1:0]]b"
+
+        out_blank, _ = math_placeholders("a\n\n$$x$$\n\nb", "n1")
+        assert out_blank == "a\n\n[[WA-MATH:n1:0]]\n\nb"
+
+    def test_inline_spaces_kept(self):
+        from plugin.writer.math.html_math_segment import math_placeholders
+
+        out, _ = math_placeholders(r"pre \(x\) post", "n1")
+        assert out == "pre [[WA-MATH:n1:0]] post"
+
+

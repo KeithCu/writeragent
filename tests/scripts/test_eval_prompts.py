@@ -16,10 +16,7 @@ from scripts.prompt_optimization.eval_prompts import (
     _stub_calc,
     _stub_draw,
     _stub_writer,
-    get_calc_eval_chat_system_prompt,
-    get_draw_eval_chat_system_prompt,
     get_eval_system_prompt,
-    get_writer_eval_chat_system_prompt,
     replace_prompt_slice,
 )
 
@@ -34,7 +31,7 @@ def _register_prompt_hooks_for_eval_prompt_tests():
 def test_writer_eval_prompt_equals_production_plus_note() -> None:
     stub = _stub_writer()
     production = get_chat_system_prompt_for_document(stub, "", ctx=None)
-    eval_p = get_writer_eval_chat_system_prompt()
+    eval_p = get_eval_system_prompt("table_from_mess")
     assert eval_p == get_chat_system_prompt_for_document(stub, EVAL_HARNESS_NOTE, ctx=None)
     assert eval_p.startswith(production)
     assert EVAL_HARNESS_NOTE in eval_p
@@ -48,10 +45,10 @@ def test_flag_prompt_requires_python_domain() -> None:
 
 
 def test_calc_draw_eval_prompts_use_production_builder() -> None:
-    assert get_calc_eval_chat_system_prompt() == get_chat_system_prompt_for_document(
+    assert get_eval_system_prompt("data_sorting") == get_chat_system_prompt_for_document(
         _stub_calc(), EVAL_HARNESS_NOTE, ctx=None
     )
-    assert get_draw_eval_chat_system_prompt() == get_chat_system_prompt_for_document(
+    assert get_eval_system_prompt("flowchart_gen") == get_chat_system_prompt_for_document(
         _stub_draw(), EVAL_HARNESS_NOTE, ctx=None
     )
 
@@ -59,7 +56,7 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 def test_calc_eval_sort_line_omits_formula_tools() -> None:
     # Naming write_range / =PY in the because-clause primed weak
     # models to call the tool we want them to avoid (glm-5.3-flash; see docs/eval/oss-20b-eval.md).
-    calc = get_calc_eval_chat_system_prompt()
+    calc = get_eval_system_prompt("data_sorting")
     sort_line = next(line for line in calc.splitlines() if "To reorder rows" in line)
     assert "write_range" not in sort_line
     assert "=PY" not in sort_line
@@ -73,13 +70,13 @@ def test_replace_prompt_slice_swaps_once_and_ignores_missing() -> None:
 
 def test_eval_prompts_match_kind_builder_without_document_model() -> None:
     """Eval assembly must not need a MagicMock document (LoLane is off UNO thread)."""
-    assert get_writer_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
+    assert get_eval_system_prompt("table_from_mess") == get_chat_system_prompt_for_kind(
         "writer", EVAL_HARNESS_NOTE
     )
-    assert get_calc_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
+    assert get_eval_system_prompt("data_sorting") == get_chat_system_prompt_for_kind(
         "calc", EVAL_HARNESS_NOTE
     )
-    assert get_draw_eval_chat_system_prompt() == get_chat_system_prompt_for_kind(
+    assert get_eval_system_prompt("flowchart_gen") == get_chat_system_prompt_for_kind(
         "draw", EVAL_HARNESS_NOTE
     )
 

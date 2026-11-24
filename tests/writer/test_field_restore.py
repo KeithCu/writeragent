@@ -789,3 +789,34 @@ def test_restore_field_placeholders_remaining_cell_token_raises_tool_execution_e
         pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
         restore_field_placeholders(model, body, nonce=nonce)
+
+
+def test_find_tokens_prefilter_skips_non_matching_paragraphs_and_walks_unreadable():
+    import re
+    from plugin.writer.field_restore import find_tokens
+
+    prefix = "[[WA-MATH:n1:"
+    token_re = re.compile(r"\[\[WA-MATH:([a-zA-Z0-9]+):(\d+)\]\]")
+
+    para_skip = MagicMock()
+    para_skip.getString.return_value = "plain paragraph without token"
+
+    para_unreadable = MagicMock()
+    para_unreadable.getString.side_effect = RuntimeError("table has no getString")
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = "Text"
+    portion.getString.return_value = "[[WA-MATH:n1:0]]"
+    para_unreadable.createEnumeration.return_value = _Enum([portion])
+
+    xtext = MagicMock()
+    xtext.getString.return_value = "[[WA-MATH:n1:0]]"
+    xtext.createEnumeration.return_value = _Enum([para_skip, para_unreadable])
+    cur = MagicMock()
+    cur.goRight.return_value = True
+    cur.getString.return_value = "[[WA-MATH:n1:0]]"
+    xtext.createTextCursorByRange.return_value = cur
+
+    hits = find_tokens(xtext, prefix, token_re)
+    assert len(hits) == 1
+    para_skip.createEnumeration.assert_not_called()
+    para_unreadable.createEnumeration.assert_called_once()

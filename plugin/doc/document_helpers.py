@@ -345,7 +345,7 @@ def _unresolved_locator(locator: str) -> ToolExecutionError:
     return ToolExecutionError(
         "Cannot resolve locator '%s'. Use type:value such as paragraph:N, "
         "heading:1.2, chapter_number:3.1, bookmark:NAME, heading_text:Title, "
-        "section:NAME, or page:N (0-based page)." % locator
+        "section:NAME, or page:N (0-based: the user's page 2 is page:1)." % locator
     )
 
 

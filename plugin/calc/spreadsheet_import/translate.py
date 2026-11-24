@@ -177,14 +177,14 @@ def _emit_switch(args: list[str]) -> str:
     if len(pairs) % 2 == 1:
         default, cases = pairs[-1], pairs[:-1]
     else:
-        default, cases = "None", pairs
+        default, cases = "calc.na()", pairs
     return _fold_if(cases, default, lambda val: f"{expr} == {val}")
 
 
 def _emit_ifs(args: list[str]) -> str:
     if len(args) % 2 != 0:
         raise TranslationError("UNSUPPORTED_ARITY", "IFS arity")
-    return _fold_if(args, "None", lambda cond: cond)
+    return _fold_if(args, "calc.na()", lambda cond: cond)
 
 
 def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
@@ -339,8 +339,8 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VARP": _at_least_one("VARP", "np.var({0}, ddof=0)"),
     "TRANSPOSE": _exact("TRANSPOSE", 1, "np.asarray({0}).T.tolist()"),
     # Lookup & Reference (P2)
-    "VLOOKUP": _arity("VLOOKUP", 3, 4, lambda a: f"next((r[np.int64({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)"),
-    "HLOOKUP": _arity("HLOOKUP", 3, 4, lambda a: f"next((np.asarray({a[1]})[np.int64({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)"),
+    "VLOOKUP": _arity("VLOOKUP", 3, 4, lambda a: f"next((r[np.int64({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), calc.na())"),
+    "HLOOKUP": _arity("HLOOKUP", 3, 4, lambda a: f"next((np.asarray({a[1]})[np.int64({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), calc.na())"),
     "INDEX": _arity("INDEX", 2, 4, lambda a: f"np.asarray({a[0]})[np.int64({a[1]})-1, np.int64({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[np.int64({a[1]})-1]"),
     "MATCH": _arity("MATCH", 2, 3, _emit_match),
     # Logical (P2)

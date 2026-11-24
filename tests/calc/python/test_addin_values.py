@@ -188,36 +188,35 @@ def test_format_addin_error_for_display_keeps_host_wording() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "expected_calc", "expected_kind", "expected_cat", "expected_err", "expected_reg"),
+    ("raw", "expected_calc", "expected_kind", "expected_cat", "expected_err"),
     [
-        (None, "", "e", None, None, None),
-        ("", "", "e", None, None, None),
-        ("  ", "", "e", None, None, None),
-        (True, 1.0, "n", None, None, 1.0),
-        (7, 7.0, "n", None, None, 7.0),
-        (10**400, str(10**400), "s", None, None, str(10**400)),
-        (123.45, 123.45, "n", None, None, 123.45),
-        ("Hello World", "Hello World", "s", None, None, "Hello World"),
-        ("#N/A", None, "err", None, 32767, 32767),
-        ("#VALUE!", "", "err", None, 519, 519),
-        (datetime.date(2026, 8, 8), 46242.0, "n", "date", None, 46242.0),
-        (datetime.datetime(2026, 8, 8, 12), 46242.5, "n", "datetime", None, 46242.5),
+        (None, "", "e", None, None),
+        ("", "", "e", None, None),
+        ("  ", "", "e", None, None),
+        (True, 1.0, "n", None, None),
+        (7, 7.0, "n", None, None),
+        (10**400, str(10**400), "s", None, None),
+        (123.45, 123.45, "n", None, None),
+        ("Hello World", "Hello World", "s", None, None),
+        ("#N/A", None, "err", None, 32767),
+        ("#VALUE!", "", "err", None, 519),
+        (datetime.date(2026, 8, 8), 46242.0, "n", "date", None),
+        (datetime.datetime(2026, 8, 8, 12), 46242.5, "n", "datetime", None),
         (
             datetime.datetime(2026, 8, 8, 12, tzinfo=datetime.timezone.utc),
             46242.5,
             "n",
             "datetime",
             None,
-            46242.5,
         ),
-        (datetime.time(12), 0.5, "n", "time", None, 0.5),
-        (datetime.timedelta(hours=30), 1.25, "n", "duration", None, 1.25),
-        ("2026-08-08", 46242.0, "n", "date", None, 46242.0),
-        ("2026-08-08T12:00:00", 46242.5, "n", "datetime", None, 46242.5),
-        ("2026-08-08 12:00:00", 46242.5, "n", "datetime", None, 46242.5),
-        ("12:30:00", 45000.0 / 86400.0, "n", "time", None, 45000.0 / 86400.0),
-        ("PT30H", 1.25, "n", "duration", None, 1.25),
-        ("2026-02-30", "2026-02-30", "s", None, None, "2026-02-30"),
+        (datetime.time(12), 0.5, "n", "time", None),
+        (datetime.timedelta(hours=30), 1.25, "n", "duration", None),
+        ("2026-08-08", 46242.0, "n", "date", None),
+        ("2026-08-08T12:00:00", 46242.5, "n", "datetime", None),
+        ("2026-08-08 12:00:00", 46242.5, "n", "datetime", None),
+        ("12:30:00", 45000.0 / 86400.0, "n", "time", None),
+        ("PT30H", 1.25, "n", "duration", None),
+        ("2026-02-30", "2026-02-30", "s", None, None),
     ],
 )
 def test_coerce_spill_value_record(
@@ -226,15 +225,12 @@ def test_coerce_spill_value_record(
     expected_kind: str,
     expected_cat: str | None,
     expected_err: int | None,
-    expected_reg: Any,
 ) -> None:
     rec = addin_values.coerce_spill_value(raw)
     if isinstance(expected_calc, float):
         assert rec.calc_value == pytest.approx(expected_calc, rel=1e-9, abs=1e-9)
-        assert rec.registry_value == pytest.approx(expected_reg, rel=1e-9, abs=1e-9)
     else:
         assert rec.calc_value == expected_calc
-        assert rec.registry_value == expected_reg
     assert rec.kind == expected_kind
     assert rec.temporal_category == expected_cat
     assert rec.error_code == expected_err
@@ -519,7 +515,6 @@ def test_na_nan_spill_and_round_trip() -> None:
     for code in (1, 505, 529, 534, 537, 999, 1954):
         unpub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
         assert unpub_rec.error_code == 503
-        assert unpub_rec.registry_value == 503
         assert unpub_rec.calc_value == ""
     for code in (502, 533):
         pub_rec = addin_values.coerce_spill_value(addin_values.calc_formula_error_double(code))
@@ -676,7 +671,7 @@ def test_published_err_tokens_and_coerce_parity() -> None:
         assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFF) == expected_code
         spill_val = addin_values.coerce_spill_value(token)
         assert spill_val.kind == "err"
-        assert spill_val.registry_value == expected_code
+        assert spill_val.error_code == expected_code
 
     for non_err in ("Err:505", "Err:537", "Err:999", "Err:5020", "Err:502 x"):
         assert addin_values.py_addin_cell_value(non_err) == non_err
@@ -752,3 +747,41 @@ def test_accepts_returned_any_propagates_other_errors(monkeypatch: pytest.Monkey
 
     with pytest.raises(ValueError, match="unexpected"):
         addin_values.accepts_returned_any(_BrokenCtx())
+
+
+def test_is_failed_run_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    for res in (
+        {"code": "VENV_NOT_FOUND"},
+        {"code": "EXECUTION_TIMEOUT"},
+        {"code": "USER_STOPPED", "message": "stopped"},
+    ):
+        text = addin_values.addin_result_for_worker_status(res)
+        assert isinstance(text, str) and addin_values.is_failed_run_text(text)
+
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(RuntimeError("boom")))
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(TimeoutError("5s")))
+    assert addin_values.is_failed_run_text("Error: no calling document")
+
+    for non_failure in ("", "#SPILL!", "Errors: 3", "hello world"):
+        assert not addin_values.is_failed_run_text(non_failure)
+
+    translations = {
+        "Error: Python venv not found. Open Settings → Python, set the venv path, then Test.": "Puudub: venv.",
+        "Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.": "Aegus: python.",
+        "Error: Main-thread execution timed out ({0})": "Lõim: aegus ({0})",
+        "Error: {0}": "Viga: {0}",
+    }
+    monkeypatch.setattr(addin_values, "_", lambda s: translations.get(s, s))
+    for res in (
+        {"code": "VENV_NOT_FOUND"},
+        {"code": "EXECUTION_TIMEOUT"},
+        {"code": "USER_STOPPED", "message": "katkestatud"},
+    ):
+        text = addin_values.addin_result_for_worker_status(res)
+        assert isinstance(text, str) and addin_values.is_failed_run_text(text)
+    assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(TimeoutError("5s")))
+    assert not addin_values.is_failed_run_text("ok")
+
+    # An empty prefix after stripping {0} must be filtered out rather than matching every string.
+    monkeypatch.setattr(addin_values, "_", lambda s: "{0}" if s == "Error: {0}" else s)
+    assert not addin_values.is_failed_run_text("ok")

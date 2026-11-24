@@ -149,9 +149,15 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     RuntimeUID is checked first, and the desktop's current text component is the
     fallback. Otherwise use the only open Writer. Several Writers and no id match
     is not a guess.
+
+    WriterAgent's hidden scratch Writers are left out: LibreOffice proofreads
+    only documents with a visible view (``sw/source/core/doc/docnew.cxx``
+    ``SwDoc::StartGrammarChecking``), and a scratch Writer's ``RuntimeUID``
+    can equal a document id.
     """
     if not main.is_current():
         return None
+    from plugin.framework.scratch_writer import is_scratch_document
     from plugin.framework.uno_context import get_desktop, get_runtime_uid, iter_open_models
 
     try:
@@ -161,7 +167,11 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         return None
     if desktop is None:
         return None
-    writers = [model for model in iter_open_models(desktop) if _is_text_document(model)]
+    writers = [
+        model
+        for model in iter_open_models(desktop)
+        if _is_text_document(model) and not is_scratch_document(model)
+    ]
 
     for model in writers:
         uid = get_runtime_uid(model)

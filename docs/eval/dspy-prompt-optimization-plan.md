@@ -7,7 +7,7 @@ isProject: false
 
 # DSPy for optimal DEFAULT_CHAT_SYSTEM_PROMPT
 
-**Shipped (2026-09):** MIPROv2 default student is `program_llm.LiveEvalStudent` wrapping `llm_chat_eval` (same loop as `run_eval_multi`), optimizing a **named slice** — see [`scripts/prompt_optimization/README.md`](../../scripts/prompt_optimization/README.md). This file is the original ReAct-mock plan; `--student react-mock` still runs that path. Do not put ReAct on the sidebar.
+**Shipped (2026-09):** MIPROv2 student is `program_llm.LiveEvalStudent` wrapping `llm_chat_eval` (same loop as `run_eval_multi`), optimizing a **named slice** — see [`scripts/prompt_optimization/README.md`](../../scripts/prompt_optimization/README.md). This file is the original ReAct-mock plan (that path has been removed). Do not put ReAct on the sidebar.
 
 ## Can DSPy help? Yes.
 

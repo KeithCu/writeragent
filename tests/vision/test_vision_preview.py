@@ -27,7 +27,7 @@ def test_preview_uses_first_selected_image_and_dialog_values():
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image2", MagicMock()), ("Image3", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image2", MagicMock()), ("Image3", MagicMock())]),
         patch(
             "plugin.vision.vision_preview.run_trusted_vision",
             return_value={"status": "ok", "helper": "extract_structure", "html": "<p>hello</p>", "full_text": "hello"},
@@ -51,7 +51,7 @@ def test_preview_error_result_raises_tool_error():
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
         patch(
             "plugin.vision.vision_preview.run_trusted_vision",
             return_value={"status": "error", "code": "DOCLING_UNAVAILABLE", "message": "Install docling"},
@@ -68,7 +68,7 @@ def test_load_models_hook_sends_exported_params_with_format():
     reports: list[str] = []
     expected = PreviewImage(MagicMock(), 1600, 2000, "Done: 2 characters.")
 
-    def fake_run_trusted(_ctx, _doc, *, helper, params=None, cancel=None, on_exported=None):
+    def fake_run_trusted(_ctx, _doc, *, helper, params=None, cancel=None, on_exported=None, graphic=None):
         on_exported({"lang": "en", "layout_model": "heron"}, b"\x89PNG\r\n\x1a\n")
         return {"status": "ok", "helper": helper, "html": "<p>hi</p>", "full_text": "hi"}
 
@@ -76,7 +76,7 @@ def test_load_models_hook_sends_exported_params_with_format():
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
         patch("plugin.vision.vision_preview.run_trusted_vision", side_effect=fake_run_trusted),
         patch("plugin.vision.vision_preview.run_vision", return_value={"status": "ok"}) as mock_rpc,
         patch("plugin.vision.vision_preview.render_preview_page", return_value=expected),
@@ -117,7 +117,7 @@ def test_preview_with_delete_image_after_insert_never_inserts_or_deletes():
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
         patch(
             "plugin.vision.vision_preview.run_trusted_vision",
             return_value={"status": "ok", "helper": "extract_structure", "html": "<p>hello</p>", "full_text": "hello"},
@@ -142,7 +142,7 @@ def test_run_vision_insert_inserts_all_images_and_warms_models_once():
     res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1"}
     res2 = {"status": "ok", "helper": "extract_structure", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2"}
 
-    def fake_selection(c, d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None):
+    def fake_selection(c, d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
         assert insert_into_document is False
         on_exported({**(params or {}), "image_name": "Img1"}, b"\x89PNG\r\n\x1a\n")
         on_exported({**(params or {}), "image_name": "Img2"}, b"\x89PNG\r\n\x1a\n")
@@ -333,7 +333,7 @@ def test_preview_empty_ocr_reports_no_text_without_rendering(ocr_result):
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
         patch("plugin.vision.vision_preview.run_trusted_vision", return_value=ocr_result),
         patch("plugin.vision.vision_preview.render_preview_page") as mock_render,
     ):
@@ -480,13 +480,83 @@ def test_preview_closed_document_raises_document_disposed():
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_preview.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Image1", MagicMock())]),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
-        patch("plugin.vision.vision_runner._get_graphic_object", side_effect=DisposedException("SwXTextDocument not valid")),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=DisposedException("SwXTextDocument not valid")),
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
     ):
         with pytest.raises(DocumentDisposedError):
             run_vision_preview(ctx, {}, cancel, lambda _t: None)
 
     mock_run_vision.assert_not_called()
+
+
+def test_preview_exports_discovered_unnamed_shape_after_selection_changes():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    shape_a = MagicMock()
+    shape_b = MagicMock()
+    exported_objs: list[object] = []
+    expected = PreviewImage(MagicMock(), 1600, 2000, "Done: 2 characters.")
+
+    def fake_export(_ctx, obj):
+        exported_objs.append(obj)
+        return b"\x89PNG\r\n\x1a\n"
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("", shape_a)]),
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
+        patch("plugin.framework.i18n.get_lo_locale", return_value="en-US"),
+        patch(
+            "plugin.vision.vision_runner.run_vision",
+            return_value={"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi"},
+        ),
+        patch("plugin.vision.vision_preview.render_preview_page", return_value=expected),
+    ):
+        out = run_vision_preview(ctx, {}, cancel, lambda _t: None)
+
+    assert out is expected
+    assert exported_objs == [shape_a]
+
+
+def test_run_vision_insert_passes_discovered_unnamed_shape_to_insert():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    shape_a = MagicMock()
+    inserted_graphics: list[object] = []
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("", shape_a)])
+        return {
+            "status": "ok",
+            "images_processed": 1,
+            "full_text": "hi",
+            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": ""}],
+        }
+
+    def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
+        del params
+        inserted_graphics.append(graphic)
+        return "inserted"
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert),
+    ):
+        status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
+
+    assert status == "Inserted: 2 characters."
+    assert inserted_graphics == [shape_a]
 

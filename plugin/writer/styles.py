@@ -1721,7 +1721,7 @@ def apply_to_cursors(
                     "Applied %s to %d match(es), but the undo step could not be closed (%s). "
                     "The changes are in the document and the undo context is still open."
                     % (label, len(reports), err.get("message")),
-                    code="TOOL_EXECUTION_ERROR",
+                    code="UNDO_CONTEXT_LEAK",
                 )
             if err.get("code") == "ROLLBACK_FAILED":
                 return [], tool._tool_error(

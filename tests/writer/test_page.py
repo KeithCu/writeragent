@@ -1097,7 +1097,7 @@ def test_region_graphics_report_counts_and_skips():
 
     with patch(
         "plugin.writer.page._region_shapes",
-        side_effect=[[(g1, MagicMock()), (g2, MagicMock()), (frame, MagicMock())], [(dest_g, MagicMock())]],
+        side_effect=[([(g1, MagicMock()), (g2, MagicMock()), (frame, MagicMock())], False), ([(dest_g, MagicMock())], False)],
     ):
         copied, skipped = _region_graphics_report(doc, src, dest)
 
@@ -1866,8 +1866,9 @@ def test_region_shapes_snapshot_skips_page_anchored_shape():
     draw_page.getCount.return_value = 2
     draw_page.getByIndex.side_effect = lambda i: [page_shape, anchored_shape][i]
     doc.getDrawPage.return_value = draw_page
-    shapes = _region_shapes(doc, text_obj)
+    shapes, struck = _region_shapes(doc, text_obj)
     assert isinstance(shapes, list)
+    assert struck is False
     assert len(shapes) == 1
     assert shapes[0][0] is anchored_shape
 
@@ -2204,3 +2205,108 @@ def test_page_set_style_properties_invalid_back_color_writes_nothing():
 
     assert exc_info.value.code == "INVALID_PARAM"
     style.setPropertyValue.assert_not_called()
+
+
+def _cursor_portion(kind: str, text: str = "", *, is_start: bool = False):
+    p = MagicMock()
+    p.getPropertyValue.side_effect = lambda name: (
+        kind if name == "TextPortionType"
+        else ("Delete" if name == "RedlineType" else is_start)
+    )
+    p.getString.return_value = text
+    return p
+
+
+def _cursor_para(portions, *, is_table: bool = False):
+    para = MagicMock()
+    para.supportsService.side_effect = lambda svc: is_table and svc == "com.sun.star.text.TextTable"
+    if is_table:
+        para.createEnumeration.side_effect = AssertionError("TextTable has no createEnumeration")
+    else:
+        para.createEnumeration.return_value = _enum_of(portions)
+    return para
+
+
+def test_replace_header_footer_skips_struck_portions():
+    from plugin.writer.page import _find_region_matches
+
+    # Case 1: live "Annex ", struck "Annex", live " Annex" in one paragraph, driven through the tool.
+    portions = [
+        _cursor_portion("Text", "Annex "),
+        _cursor_portion("Redline", is_start=True),
+        _cursor_portion("Text", "Annex"),
+        _cursor_portion("Redline", is_start=False),
+        _cursor_portion("Text", " Annex"),
+    ]
+    hay = "Annex Annex Annex"
+    doc, text_obj = _replace_doc(portions, hay=hay)
+    seen = _cursors_for(text_obj, hay)
+    res = _replace(doc, old_content="Annex", content="Appendix", all_matches=True)
+    assert res["status"] == "ok" and res["replaced_count"] == 2
+    assert [(c.anchor, c.pos, c.written) for c in seen] == [
+        (0, 5, "Appendix"),
+        (12, 17, "Appendix"),
+    ]
+
+    # Case 2: deletion opens in paragraph 1 and closes in paragraph 2.
+    doc2 = MagicMock()
+    doc2.getRedlines.return_value.hasElements.return_value = False
+    p2a = _cursor_para([
+        _cursor_portion("Text", "Annex "),
+        _cursor_portion("Redline", is_start=True),
+        _cursor_portion("Text", "Annex"),
+    ])
+    p2b = _cursor_para([
+        _cursor_portion("Text", "Annex"),
+        _cursor_portion("Redline", is_start=False),
+        _cursor_portion("Text", " Annex"),
+    ])
+    t2 = MagicMock()
+    t2.createEnumeration.return_value = _enum_of([p2a, p2b])
+    hits2, _ = _find_region_matches(doc2, t2, "Annex", True)
+    assert [(h[0], h[1]) for h in hits2] == [(p2a, 0), (p2b, 6)]
+
+    # Case 3: a TextTable before the paragraph is skipped without createEnumeration().
+    tbl = _cursor_para([], is_table=True)
+    p3 = _cursor_para([_cursor_portion("Text", "Annex")])
+    t3 = MagicMock()
+    t3.createEnumeration.return_value = _enum_of([tbl, p3])
+    hits3, _ = _find_region_matches(doc2, t3, "Annex", True)
+    assert [(h[0], h[1]) for h in hits3] == [(p3, 0)]
+
+
+def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
+    from types import SimpleNamespace
+    from plugin.writer.page import _region_holds_content, _scan_region_content
+
+    text_obj = MagicMock()
+    text_obj.getString.return_value = ""
+    text_obj.createEnumeration.side_effect = lambda: _enum_of([])
+
+    shape = MagicMock()
+    shape.getName.return_value = "StruckLogo"
+    anchor = MagicMock()
+    anchor.getText.return_value = text_obj
+    shape.getAnchor.return_value = anchor
+    shape.getPropertyValue.return_value = SimpleNamespace(value="AT_PARAGRAPH")
+
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 1
+    draw_page.getByIndex.return_value = shape
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value = draw_page
+    rl = MagicMock()
+    rl.getPropertyValue.side_effect = lambda name: (
+        "Delete" if name == "RedlineType" else SimpleNamespace(getText=lambda: text_obj, getStart=lambda: MagicMock())
+    )
+    doc.getRedlines.return_value.hasElements.return_value = True
+    doc.getRedlines.return_value.createEnumeration.side_effect = lambda: _enum_of([rl])
+    # _deletion_removes_anchor: AT_PARAGRAPH covering the whole text_obj.
+    text_obj.compareRegionStarts.return_value = 0
+    text_obj.compareRegionEnds.return_value = 0
+
+    scan = _scan_region_content(doc, text_obj)
+    assert scan["images"] == []
+    assert scan["has_struck"] is True
+    assert _region_holds_content(doc, text_obj) is True

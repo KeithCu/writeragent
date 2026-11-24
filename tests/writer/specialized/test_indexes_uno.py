@@ -215,14 +215,14 @@ def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
     assert "Alpha title" in preview.get("text", ""), preview
     assert "Alpha renamed" in preview.get("text_after", ""), preview
     assert page.strip() in preview.get("text_after", ""), preview
-    assert preview.get("hyperlink_url") == outline, preview
-    assert preview.get("hyperlink_url_after") == "#1.Alpha renamed|outline", preview
+    assert preview["hyperlinks"][0]["hyperlink_url"] == outline, preview
+    assert preview["hyperlinks"][0]["hyperlink_url_after"] == "#1.Alpha renamed|outline", preview
     assert "Alpha renamed" not in doc.getText().getString()
 
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="Alpha title", content="Alpha renamed")
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlink_url_after") == "#1.Alpha renamed|outline", edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == "#1.Alpha renamed|outline", edited
     assert "Alpha title" in edited.get("text", ""), edited
     assert "Alpha renamed" in edited.get("text_after", ""), edited
     assert page.strip() in edited.get("text_after", ""), edited
@@ -322,7 +322,7 @@ def test_refresh_toc_entry_keeps_black_and_no_underline_uno(ctx, doc):
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="Alpha title", content=renamed)
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlink_url_after") == "#1." + renamed + "|outline", edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == "#1." + renamed + "|outline", edited
     assert page.strip() in edited.get("text_after", ""), edited
     body = doc.getText().getString()
     assert renamed in body, body
@@ -410,9 +410,9 @@ def test_refresh_toc_entry_page_digits_keep_look(ctx, doc):
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="278", content="247")
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlink_updated") is False, edited
-    assert edited.get("hyperlink_url") == outline, edited
-    assert edited.get("hyperlink_url_after") == outline, edited
+    assert edited["hyperlinks"][0]["hyperlink_updated"] is False, edited
+    assert edited["hyperlinks"][0]["hyperlink_url"] == outline, edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == outline, edited
     body = doc.getText().getString()
     assert "247" in body, body
     assert "278" not in body, body
@@ -1049,3 +1049,245 @@ def test_refresh_toc_entry_recorded_two_links_reports_no_update_uno(ctx, doc):
         if str(p.getString() or ""):
             urls.append(str(p.getPropertyValue("HyperLinkURL") or ""))
     assert "#1.Q|outline" not in urls, urls
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_create_recorded_search_and_pending_change_guard_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.specialized.indexes import IndexesCreate
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+
+    # 1. Recorded search replace: Accept keeps hello / world, Reject restores all text
+    text.setString("hello MATCH world")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is False and "warning" in res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert "MATCH" in text.getString()
+        assert "hello " in text.getString() and " world" in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    text.setString("hello MATCH world")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res2 = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+        )
+        assert res2["status"] == "ok", res2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        body_acc = text.getString()
+        assert "MATCH" not in body_acc
+        assert "hello " in body_acc and " world" in body_acc
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 2. Unrecorded ["a", "head MATCH", "b"] gives no extra empty paragraph
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+    text.setString("")
+    cur2 = text.createTextCursor()
+    text.insertString(cur2, "a", False)
+    text.insertControlCharacter(cur2, PARAGRAPH_BREAK, False)
+    text.insertString(cur2, "head MATCH", False)
+    text.insertControlCharacter(cur2, PARAGRAPH_BREAK, False)
+    text.insertString(cur2, "b", False)
+    res3 = IndexesCreate().execute(
+        tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+    )
+    assert res3["status"] == "ok", res3
+    paras = [p.getString() for p in iter_elements(text.createEnumeration()) if hasattr(p, "getString")]
+    assert "a" in paras and any(p.startswith("head") for p in paras) and "b" in paras, paras
+    assert "" not in paras, paras
+
+    # 3. Pending insertion before the point is refused with text and redline count unchanged
+    text.setString("hello world")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(6, False)
+        text.insertString(cur, "INS ", False)
+        rl_before = doc.getRedlines().getCount()
+        text_before = text.getString()
+        refused = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="world"
+        )
+        assert refused["status"] == "error"
+        assert refused["code"] == "INDEX_IN_TRACKED_CHANGE"
+        assert doc.getRedlines().getCount() == rl_before
+        assert text.getString() == text_before
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+def _body_paragraphs(text):
+    from plugin.doc.text_helpers import iter_elements
+
+    return [p.getString() for p in iter_elements(text.createEnumeration()) if hasattr(p, "getString")]
+
+
+def _clear_indexes(doc):
+    indexes = doc.getDocumentIndexes()
+    while indexes.getCount() > 0:
+        indexes.getByIndex(0).dispose()
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
+    from unittest.mock import patch
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        text.setString("hello MATCH world")
+        res = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is False and "warning" in res
+        assert doc.getPropertyValue("RecordChanges") is False
+        redlines = doc.getRedlines()
+        assert redlines.getCount() == 1
+        rl = redlines.getByIndex(0)
+        assert rl.RedlineType == "Delete"
+        assert str(rl.RedlineComment).startswith("wa-review:")
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert _body_paragraphs(text) == ["hello ", "TOC", " world"]
+
+        _clear_indexes(doc)
+        text.setString("hello MATCH world")
+        res2 = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+        )
+        assert res2["status"] == "ok", res2
+        execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+        assert _body_paragraphs(text) == ["hello ", "TOC", "MATCH world"]
+
+        _clear_indexes(doc)
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "a", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertString(cur, "MATCH", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertString(cur, "b", False)
+        res3 = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="MATCH"
+        )
+        assert res3["status"] == "ok", res3
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        paras3 = _body_paragraphs(text)
+        assert "a" in paras3 and "b" in paras3 and "TOC" in paras3, paras3
+        assert "MATCH" not in text.getString()
+
+        # Refusal with review on and document recording off
+        _clear_indexes(doc)
+        text.setString("hello world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(6, False)
+            text.insertString(cur, "INS ", False)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        rl_before = doc.getRedlines().getCount()
+        text_before = text.getString()
+        refused = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="world"
+        )
+        assert refused["status"] == "error", refused
+        assert refused["code"] == "INDEX_IN_TRACKED_CHANGE", refused
+        assert text.getString() == text_before
+        assert doc.getRedlines().getCount() == rl_before
+        assert doc.getPropertyValue("RecordChanges") is False
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_add_mark_in_record_mode_accept_and_reject_uno(ctx, doc):
+    from unittest.mock import patch
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    cases = [
+        ("alphabetical", {"kind": "alphabetical", "text": "Key"}, "DocumentIndexMark", "Key\t1"),
+        ("user", {"kind": "user", "text": "Key", "index_name": "MyUserIndex"}, "DocumentIndexMark", None),
+        (
+            "bibliography",
+            {"kind": "bibliography", "text": "Key", "author": "", "title": "", "year": ""},
+            "TextField",
+            "Key: , , ",
+        ),
+    ]
+
+    with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        for kind, extra, expected_portion, expected_entry in cases:
+            text.setString("hello MATCH world")
+            res = IndexesAddMark().execute(tctx, target="search", old_content="MATCH", **extra)
+            assert res["status"] == "ok", (kind, res)
+            assert doc.getPropertyValue("RecordChanges") is False
+            redlines = doc.getRedlines()
+            assert redlines.getCount() == 1, (kind, redlines.getCount())
+            rl = redlines.getByIndex(0)
+            assert rl.RedlineType == "Insert", kind
+            assert str(rl.RedlineComment).startswith("wa-review:"), kind
+
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            para = text.createEnumeration().nextElement()
+            portions = []
+            pe = para.createEnumeration()
+            while enum_has_more(pe):
+                p = pe.nextElement()
+                portions.append((p.TextPortionType, p.getString()))
+            idx = next(i for i, (ptype, _) in enumerate(portions) if ptype == expected_portion)
+            assert idx + 1 < len(portions) and portions[idx + 1][1].startswith("MATCH"), (kind, portions)
+
+            text.setString("hello MATCH world")
+            res2 = IndexesAddMark().execute(tctx, target="search", old_content="MATCH", **extra)
+            assert res2["status"] == "ok", (kind, res2)
+            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+            para2 = text.createEnumeration().nextElement()
+            ptypes = [p.TextPortionType for p in iter_elements(para2.createEnumeration())]
+            assert expected_portion not in ptypes, (kind, ptypes)
+            assert text.getString() == "hello MATCH world", kind
+
+            if expected_entry is not None:
+                _clear_indexes(doc)
+                text.setString("")
+                cur = text.createTextCursor()
+                text.insertString(cur, "hello MATCH world", False)
+                text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+                text.insertString(cur, "after", False)
+                res3 = IndexesAddMark().execute(tctx, target="search", old_content="MATCH", **extra)
+                assert res3["status"] == "ok", (kind, res3)
+                created = IndexesCreate().execute(
+                    tctx, kind=kind, title="Idx", target="end", create_from_outline=True
+                )
+                assert created["status"] == "ok", (kind, created)
+                assert expected_entry in text.getString(), (kind, text.getString())
+                execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+                upd = IndexesUpdateAll().execute(tctx)
+                assert upd["status"] == "ok", (kind, upd)
+                assert expected_entry not in text.getString(), (kind, text.getString())
+                _clear_indexes(doc)

@@ -294,7 +294,7 @@ def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
     strike_all_after_leading_table(doc, ctx)
     text = doc.getText()
     assert visible_range_text(doc, text) == "\n\n"
-    assert get_document_length(doc) == 1
+    assert get_document_length(doc) == 2
 
     enum = text.createEnumeration()
     els = []
@@ -332,8 +332,143 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
         doc.setPropertyValue("RecordChanges", False)
 
     assert visible_range_text(doc, text) == "cellA1\n\nthree"
-    # get_document_length uses a cursor from body.getStart(), which skips the leading table.
-    assert get_document_length(doc) == len("\nthree")
+    assert get_document_length(doc) == len("cellA1\n\nthree")
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_range_text
+
+    body = doc.getText()
+    for cell_val, add_para in (("cA1", "Fin"), ("zA1", "")):
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_val)
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        if add_para:
+            body.insertString(cur, add_para, False)
+
+    text, offsets, _ = read_visible_body(doc, [body.getEnd()])
+    assert text == visible_range_text(doc, body)
+    assert text == "cA1\nFin\nzA1\n"
+    assert offsets == [len(text)]
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_range_round_trips_uno(ctx, doc):
+    from plugin.doc.text_helpers import (
+        DeletionState,
+        TrackedDeletions,
+        is_text_table,
+        iter_elements,
+        normalize_linebreaks,
+        read_visible_body,
+        table_visible_text,
+        visible_body_range,
+        visible_range_text,
+    )
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.tests.testing_utils import (
+        strike_across_paragraphs,
+        strike_across_table,
+        strike_all_after_leading_table,
+    )
+
+    def _clear():
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        doc.getText().setString("")
+
+    def _build_rich_layout():
+        _clear()
+        body = doc.getText()
+        lead = doc.createInstance("com.sun.star.text.TextTable")
+        lead.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), lead, False)
+        lead.getCellByName("A1").setString("cA1")
+
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        body.insertString(cur, "ab😀", False)
+        field = doc.createInstance("com.sun.star.text.TextField.DateTime")
+        body.insertTextContent(cur, field, False)
+        fn = doc.createInstance("com.sun.star.text.Footnote")
+        fn.setLabel("1")
+        body.insertTextContent(cur, fn, False)
+        body.insertControlCharacter(cur, 1, False)  # LINE_BREAK
+        body.insertString(cur, "漢字", False)
+        cur.goLeft(2, True)
+        cur.setPropertyValue("RubyText", "かんじ")
+        cur.collapseToEnd()
+        body.insertString(cur, "STRUCK", False)
+        cur.goLeft(len("STRUCK"), True)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        assert doc.getRedlines().getCount() == 1
+        cur.gotoEnd(False)
+        body.insertString(cur, "ef", False)
+
+        tail = doc.createInstance("com.sun.star.text.TextTable")
+        tail.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tail, False)
+        tail.getCellByName("A1").setString("zA1")
+
+    layouts = [
+        _build_rich_layout,
+        lambda: (_clear(), strike_across_paragraphs(doc, doc.getText())),
+        lambda: (_clear(), strike_across_table(doc, doc.getText())),
+        lambda: (_clear(), strike_all_after_leading_table(doc, ctx)),
+    ]
+
+    for setup in layouts:
+        setup()
+        body = doc.getText()
+        text, _, _ = read_visible_body(doc)
+        assert text == visible_range_text(doc, body)
+        state = DeletionState(TrackedDeletions(doc).state_at(body).in_delete)
+        table_ranges = []
+        pos = 0
+        for el in iter_elements(body.createEnumeration()):
+            if is_text_table(el):
+                chunk = normalize_linebreaks(table_visible_text(el, state.in_delete))
+                table_ranges.append((pos, pos + len(chunk)))
+            else:
+                chunk = normalize_linebreaks(visible_range_text(doc, el))
+                # Update state across paragraphs by scanning el's portions
+                from plugin.doc.text_helpers import visible_portions
+                for _p in visible_portions(el, state=state):
+                    pass
+            pos += len(chunk) + 1
+
+        def _in_table(off: int) -> bool:
+            return any(ts <= off <= te for ts, te in table_ranges)
+
+        pairs = [(i, i + 1) for i in range(len(text))]
+        non_table = [i for i in range(len(text) + 1) if not _in_table(i)]
+        if len(non_table) >= 2:
+            pairs.append((non_table[0], non_table[-1]))
+            pairs.append((non_table[0], non_table[len(non_table) // 2]))
+            pairs.append((non_table[len(non_table) // 2], non_table[-1]))
+
+        for start, end in pairs:
+            if _in_table(start) or _in_table(end):
+                try:
+                    visible_body_range(doc, start, end)
+                except ToolExecutionError:
+                    continue
+                raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
+            found = visible_body_range(doc, start, end)
+            assert found is not None
+            _, got_offsets, _ = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+            assert got_offsets == [found.start, found.end]
+            assert text[found.start:found.end] == found.text
 
 
 @native_test
@@ -365,3 +500,189 @@ def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ct
     text.insertTextContent(text.getEnd(), tbl, False)
     controller.select(tbl.getCellRangeByName("A1:B2"))
     assert get_selection_text(doc) is None
+
+
+@native_test
+@with_native_doc("writer")
+def test_removes_anchored_matches_accept_all_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.text_helpers import TrackedDeletions
+    from plugin.framework.uno_context import execute_dispatch
+
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png_bytes)
+    try:
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        from com.sun.star.beans import PropertyValue
+        pv = PropertyValue()
+        pv.Name = "URL"
+        pv.Value = "file://" + img_path
+        graphic = provider.queryGraphic((pv,))
+
+        def _check(name, expected, setup_fn, *, target_fn=None):
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText() if target_fn is None else target_fn()
+            text.setString("")
+            gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            gfx.setPropertyValue("Graphic", graphic)
+            gfx.setPropertyValue("Width", 200)
+            gfx.setPropertyValue("Height", 200)
+            setup_fn(text, gfx)
+            gfx.setName(name)
+            predicted = TrackedDeletions(doc).removes_anchored(gfx)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            actual = not doc.getGraphicObjects().hasByName(name)
+            assert predicted is expected and actual is expected, (
+                f"{name}: expected={expected}, predicted={predicted}, actual={actual}"
+            )
+
+        def _delete_range(text, start_para, start_off, end_para, end_off):
+            enum = text.createEnumeration()
+            paras = []
+            while enum.hasMoreElements():
+                paras.append(enum.nextElement())
+            c = text.createTextCursorByRange(paras[start_para].getStart())
+            if start_off:
+                c.goRight(start_off, False)
+            end_c = text.createTextCursorByRange(paras[end_para].getStart())
+            if end_off:
+                end_c.goRight(end_off, False)
+            c.gotoRange(end_c, True)
+            doc.setPropertyValue("RecordChanges", True)
+            c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _set_paras(text, lines):
+            text.setString("")
+            c = text.createTextCursor()
+            for idx, line in enumerate(lines):
+                if idx:
+                    text.insertControlCharacter(c, 0, False)
+                if line:
+                    text.insertString(c, line, False)
+
+        # AT_PARAGRAPH cases
+        def _para_mid(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 2, 1, 2)
+
+        def _para_first_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_last_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            _delete_range(text, 0, 1, 1, 3)
+
+        def _para_break_only(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 3, 1, 0)
+
+        def _para_empty_first(text, gfx):
+            _set_paras(text, ["", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_single_whole(text, gfx):
+            _set_paras(text, ["one"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 3)
+
+        def _para_single_not_whole(text, gfx):
+            _set_paras(text, ["aa", "bb"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 2)
+
+        # AT_CHARACTER cases
+        def _at_char(offset):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AT_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                _delete_range(text, 0, 1, 0, 3)
+            return _fn
+
+        def _header_text():
+            styles = doc.getStyleFamilies().getByName("PageStyles")
+            s_name = "Standard" if styles.hasByName("Standard") else styles.getElementNames()[0]
+            style = styles.getByName(s_name)
+            style.setPropertyValue("HeaderIsOn", True)
+            return style.getPropertyValue("HeaderText")
+
+        def _para_table_then_struck(text, gfx):
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getStart(), tbl, False)
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "Acme", False)
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            del_c = text.createTextCursorByRange(text.getStart())
+            del_c.gotoEnd(True)
+            doc.setPropertyValue("RecordChanges", True)
+            del_c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _para_two_empty_break(text, gfx):
+            _set_paras(text, ["", ""])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 0)
+
+        # AS_CHARACTER cases
+        def _as_char(offset, del_end=4):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AS_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                # Anchor sits before the character at `offset`, shifting remaining chars by 1.
+                _delete_range(text, 0, 1, 0, del_end)
+            return _fn
+
+        _check("p_mid", False, _para_mid)
+        _check("p_first", True, _para_first_of_multi)
+        _check("p_last", True, _para_last_of_multi)
+        _check("p_break", False, _para_break_only)
+        _check("p_empty_first", True, _para_empty_first)
+        _check("p_single_whole", True, _para_single_whole)
+        _check("p_single_whole_hdr", True, _para_single_whole, target_fn=_header_text)
+        _check("p_single_not_whole", False, _para_single_not_whole)
+        _check("p_table_then_struck_hdr", False, _para_table_then_struck, target_fn=_header_text)
+        _check("p_two_empty_break", True, _para_two_empty_break)
+        _check("at_char_inside", True, _at_char(2))
+        _check("at_char_start", False, _at_char(1))
+        _check("at_char_end", False, _at_char(3))
+        _check("as_char_start", True, _as_char(1))
+        _check("as_char_end", True, _as_char(3))
+        _check("as_char_after", False, _as_char(4, del_end=4))
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)

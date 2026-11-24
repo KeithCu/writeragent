@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from dataclasses import dataclass, field
 
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
-from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
+from plugin.doc import visual_helpers
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
@@ -48,30 +48,24 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     return {"params": merge_vision_params(ctx, raw_params)}
 
 
-def no_image_selected_error() -> ToolExecutionError:
-    return ToolExecutionError(
-        _("Select an embedded image (or a range containing images), then Run again."),
-        code="NO_IMAGE_SELECTED",
-    )
+def discover_vision_images(doc: Any) -> list[tuple[str, Any | None]]:
+    """Return ``(name, graphic_or_none)`` pairs for the current selection.
 
-
-def resolve_vision_image(ctx: Any, doc: Any, image_name: str) -> tuple[Any, bytes]:
-    """Return the graphic to OCR and its PNG bytes; the only image lookup for a vision run.
-
-    *image_name* names a graphic; an empty name means the selected graphic.
+    An unnamed image cannot be found again by name, so its shape is kept; named
+    images are looked up by name.
     """
-    if image_name:
-        graphic_obj = _get_graphic_object(doc, image_name)
-        if graphic_obj is None:
-            raise ToolExecutionError(
-                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=image_name),
-                code="IMAGE_NOT_FOUND",
-                details={"image_name": image_name},
-            )
-    else:
-        graphic_obj = selected_graphic_object(doc)
-        if graphic_obj is None:
-            raise no_image_selected_error()
+    pairs = visual_helpers.graphic_objects_in_selection(doc)
+    if not pairs:
+        raise visual_helpers.no_image_selected_error()
+    return [(name, None if name else graphic) for name, graphic in pairs]
+
+
+def resolve_vision_image(ctx: Any, doc: Any, image_name: str, graphic: Any | None = None) -> tuple[Any, bytes]:
+    """Return the graphic to OCR and its PNG bytes.
+
+    Uses *graphic* when given, else looks up *image_name*, else reads the selected graphic.
+    """
+    graphic_obj = visual_helpers.find_image(doc, image_name, graphic)
     try:
         png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj)
     except Exception as exc:
@@ -83,7 +77,7 @@ def resolve_vision_image(ctx: Any, doc: Any, image_name: str) -> tuple[Any, byte
         raise ToolExecutionError(message, code="IMAGE_EXPORT_FAILED", details={"image_name": image_name}) from exc
     if not png_bytes:
         if not image_name:
-            raise no_image_selected_error()
+            raise visual_helpers.no_image_selected_error()
         raise ToolExecutionError(
             _("Image '{name}' could not be exported.").format(name=image_name),
             code="IMAGE_NOT_FOUND",
@@ -129,6 +123,7 @@ def run_trusted_vision(
     params: dict[str, Any] | None = None,
     cancel: SendCancellation | None = None,
     on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+    graphic: Any | None = None,
 ) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv.
 
@@ -136,6 +131,7 @@ def run_trusted_vision(
     the UNO component context, which never carries the tool's stop flag.
     *on_exported*, if given, runs on the calling thread after the export and
     size check with the exact params dict the OCR call sends and the PNG bytes.
+    *graphic* is the shape discovery found for an unnamed image.
     """
     name = _validate_helper(helper)
     params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
@@ -144,7 +140,7 @@ def run_trusted_vision(
         # Graphic lookup, PNG export, and locale are UNO. OCR itself is not.
         local_params = dict(params_dict)
         image_name = str(local_params.get("image_name") or "").strip()
-        graphic_obj, png_bytes = resolve_vision_image(ctx, doc, image_name)
+        graphic_obj, png_bytes = resolve_vision_image(ctx, doc, image_name, graphic)
         if not local_params.get("lang"):
             local_params["lang"] = _resolve_locale_language(ctx, graphic_obj)
         context: dict[str, Any] = {"source": "graphic_name", "image_name": image_name} if image_name else {"source": "selection"}
@@ -285,13 +281,17 @@ def run_and_insert_vision_for_selection(
     insert_into_document: bool = True,
     cancel: SendCancellation | None = None,
     on_exported: Callable[[dict[str, Any], bytes], None] | None = None,
+    on_discovered: Callable[[list[tuple[str, Any | None]]], None] | None = None,
 ) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
-    Discovers named graphics while the selection is intact, then OCRs and inserts
-    by ``image_name`` so a text-range selection is collapsed before any edit and
-    intervening text is never replaced.
+    Discovers graphics while the selection is intact, then OCRs and inserts by
+    ``image_name`` (or the kept discovered shape for an unnamed Calc/Draw/Impress
+    image) so a text-range selection is collapsed before any edit and intervening
+    text is never replaced.
 
+    *on_discovered*, if given, runs on the calling thread with the discovered
+    ``(name, graphic_or_none)`` list and must not touch UNO.
     UNO discovery and insert are marshaled to the main thread. The venv OCR call
     inside ``run_trusted_vision`` is not.
     """
@@ -300,27 +300,25 @@ def run_and_insert_vision_for_selection(
     params_dict = dict(params) if params is not None else {}
     explicit_name = str(params_dict.get("image_name") or "").strip()
 
-    def _discover_names() -> list[str]:
+    def _discover() -> list[tuple[str, Any | None]]:
         if explicit_name:
-            return [explicit_name]
-        # Capture names before any insert collapses/clears the selection.
-        from plugin.doc.visual_helpers import graphic_objects_in_selection
-
-        pairs = graphic_objects_in_selection(doc)
-        if not pairs:
-            raise no_image_selected_error()
-        return [name for name, _unused in pairs]
+            return [(explicit_name, None)]
+        # Capture names (and shapes for unnamed images) before any insert collapses/clears the selection.
+        return discover_vision_images(doc)
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)
     try:
-        batch.target_names = main.call(_discover_names)
+        discovered = main.call(_discover)
+        batch.target_names = [img_name for img_name, _unused in discovered]
+        if on_discovered is not None:
+            on_discovered(discovered)
 
-        def _insert_one(res: dict[str, Any], per_insert: dict[str, Any]) -> VisionInsertOutcome:
+        def _insert_one(res: dict[str, Any], per_insert: dict[str, Any], graphic: Any | None) -> VisionInsertOutcome:
             from plugin.vision.vision_egress import insert_vision_result
 
-            return insert_vision_result(ctx, doc, res, params=per_insert)
+            return insert_vision_result(ctx, doc, res, params=per_insert, graphic=graphic)
 
-        for image_name in batch.target_names:
+        for image_name, graphic in discovered:
             if is_cancelled(cancel):
                 if batch.results:
                     batch.stopped_early = True
@@ -332,9 +330,9 @@ def run_and_insert_vision_for_selection(
             per_params["image_name"] = image_name
             outcome: VisionInsertOutcome | None = None
             try:
-                result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported)
+                result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel, on_exported=on_exported, graphic=graphic)
                 if result.get("status") != "error" and insert_into_document:
-                    outcome = main.call(lambda: _insert_one(result, per_params), bound_scope=None)
+                    outcome = main.call(lambda: _insert_one(result, per_params, graphic), bound_scope=None)
             except SendCancelled:
                 raise
             except ToolExecutionError as exc:

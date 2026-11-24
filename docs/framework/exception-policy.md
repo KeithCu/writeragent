@@ -79,11 +79,11 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `SELECTION_SPANS_TABLE` | error | Selection starts in a table and ends outside it (`html_import.py`) | None |
 | `SELECTION_NOT_TEXT` | error | Selection is an object (image, frame, shape, OLE, or cell block) rather than text, or the view has no caret (Print Preview) (`html_import.py`) | None |
 | `HIDDEN_LEADING_SECTION` | error | `full_document` on a document starting with a hidden section (`html_import.py`) | None |
-| `PROTECTED_LEADING_SECTION` | error | `full_document` on a document starting with a protected non-index section (`html_import.py`) | None |
+| `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
-| `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; `page.py` rewords the message and keeps the code, `styles.py` rewords both, `commit_or_rollback_mutation` returns it as-is | None |
+| `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; `page.py` and `styles.py` reword the message and keep the code, `commit_or_rollback_mutation` returns it as-is | None |
 | `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` after `coerce_call_args`, only for missing required, unknown, or values coercion cannot settle before `execute` (applies on sub-agent paths too). Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
 | `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_content` parameter conflicts/empty strings; Calc argument refusals, including `range_args` and the sheet-filter criteria | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |

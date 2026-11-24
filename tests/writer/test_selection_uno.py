@@ -45,3 +45,86 @@ def test_set_selection_updates_pin_for_later_apply_content_uno(ctx, doc):
     body = text.getString().replace("\r\n", "\n").replace("\r", "\n")
     assert "Beta two." in body, repr(body)
     assert "FINAL" in body and "Outro" not in body, repr(body)
+
+
+def _build_cross_tool_doc(doc):
+    text = doc.getText()
+    lead = doc.createInstance("com.sun.star.text.TextTable")
+    lead.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), lead, False)
+    lead.getCellByName("A1").setString("LeadA1")
+
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    field = doc.createInstance("com.sun.star.text.TextField.DateTime")
+    text.insertTextContent(cur, field, False)
+    text.insertString(cur, " ", False)
+    fn = doc.createInstance("com.sun.star.text.Footnote")
+    fn.setLabel("1")
+    text.insertTextContent(cur, fn, False)
+    text.insertString(cur, " ", False)
+    text.insertString(cur, "DeletedWord ", False)
+    cur.goLeft(len("DeletedWord "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert doc.getRedlines().getCount() == 1
+    cur.gotoEnd(False)
+    text.insertString(cur, "TargetOne", False)
+
+    mid = doc.createInstance("com.sun.star.text.TextTable")
+    mid.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), mid, False)
+    mid.getCellByName("A1").setString("MidA1")
+
+    cur.gotoEnd(False)
+    text.insertString(cur, "TargetTwo", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_cross_tool_offsets_search_select_content_and_length_uno(ctx, doc):
+    import re
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.search import SearchInDocument
+
+    _build_cross_tool_doc(doc)
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+
+    full = GetDocumentContent().execute(tctx, scope="full")
+    assert full["document_length"] == len(visible_range_text(doc, doc.getText()))
+
+    for word in ("TargetOne", "TargetTwo"):
+        s_res = SearchInDocument().execute(tctx, pattern=word, return_offsets=True)
+        assert s_res["status"] == "ok" and len(s_res["ranges"]) == 1, s_res
+        r = s_res["ranges"][0]
+        assert r["text"] == word
+
+        sel_res = SetSelection().execute(tctx, char_start=r["start"], char_end=r["end"])
+        assert sel_res["status"] == "ok", sel_res
+        assert controller.getSelection().getByIndex(0).getString() == word
+
+        c_res = GetDocumentContent().execute(tctx, scope="range", start=r["start"], end=r["end"])
+        assert c_res["status"] == "ok", c_res
+        plain = re.sub(r"<[^>]+>", "", c_res["content"]).strip()
+        assert plain == word
+
+
+@native_test
+@with_native_doc("writer")
+def test_set_selection_offset_in_leading_table_errors_and_preserves_selection_uno(ctx, doc):
+    _build_cross_tool_doc(doc)
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+
+    ok = SetSelection().execute(tctx, search_text="TargetOne")
+    assert ok["status"] == "ok", ok
+
+    err = SetSelection().execute_safe(tctx, char_start=0, char_end=3)
+    assert err["status"] == "error"
+    assert err["code"] == "INVALID_PARAM"
+    assert controller.getSelection().getByIndex(0).getString() == "TargetOne"

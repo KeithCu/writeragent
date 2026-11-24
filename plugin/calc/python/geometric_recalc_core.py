@@ -85,23 +85,34 @@ def same_cell_ref(left: str, right: str) -> bool:
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
-def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
-    """True when a data-arg token (cell or range) includes *target_a1*."""
+def arg_overlaps_box(arg: str, box: tuple[int, int, int, int], *, sheet_name: str | None = None) -> bool:
+    """True when a data-arg token (cell or range) shares a cell with the inclusive (left, top, right, bottom) *box*."""
     sheet, _rest = split_sheet_prefix(arg or "")
     if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
         return False
     local = local_a1(arg)
-    if not local or not target_a1:
+    if not local:
         return False
     try:
-        tcol, trow = parse_address(target_a1)
         bounds = axis_range_bounds(local)
         (c0, r0), (c1, r1) = bounds if bounds is not None else parse_range_string(local)
     except (TypeError, ValueError):
         return False
     c_lo, c_hi = (c0, c1) if c0 <= c1 else (c1, c0)
     r_lo, r_hi = (r0, r1) if r0 <= r1 else (r1, r0)
-    return c_lo <= tcol <= c_hi and r_lo <= trow <= r_hi
+    left, top, right, bottom = box
+    return c_lo <= right and c_hi >= left and r_lo <= bottom and r_hi >= top
+
+
+def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
+    """True when a data-arg token (cell or range) includes *target_a1*."""
+    if not target_a1:
+        return False
+    try:
+        tcol, trow = parse_address(target_a1)
+    except (TypeError, ValueError):
+        return False
+    return arg_overlaps_box(arg, (tcol, trow, tcol, trow), sheet_name=sheet_name)
 
 
 def formula_data_args(formula: str) -> list[str] | None:

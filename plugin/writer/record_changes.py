@@ -71,9 +71,11 @@ def record_changes(doc: Any, on: bool) -> Generator[bool, None, None]:
 
 def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> None:
     """Insert *content* into *host* at *cursor*, recording an Insert redline when tracking is on."""
-    # insertTextContent adds no redline, but text inside an Insert redline belongs to it;
-    # deleting our own insertion removes it outright. Do not position from content.getAnchor():
-    # its end maps before the object, so deleting the tail marker would delete the object.
+    # An embedded object gets no redline of its own, and an Input field gets one that covers
+    # only its first character, so Reject would delete the wrong text. Text inside an Insert
+    # redline belongs to it, so deleting our own insertion markers removes them outright.
+    # Do not position from content.getAnchor(): its end maps before the object, so deleting
+    # the tail marker would delete the object.
     if not is_recording_changes(model):
         host.insertTextContent(cursor, content, False)
         return
@@ -131,4 +133,33 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
         except Exception as exc:
             reraise_if_disposed(exc)
             return True
+    return False
+
+
+def tracked_change_before_point(doc: Any, point: Any) -> bool:
+    """True when a pending Insert or Delete redline would be split by inserting at *point*."""
+    prev_end = None
+    cur = point.getText().createTextCursorByRange(point.getStart())
+    if cur.isStartOfParagraph() and cur.goLeft(1, False):
+        prev_end = cur.getStart()
+
+    redlines = doc.getRedlines()
+    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+        kind = rl.getPropertyValue("RedlineType")
+        if kind not in ("Insert", "Delete"):
+            continue
+        try:
+            text, start, end = redline_bounds(rl)
+            if text.compareRegionStarts(start, point) != 1:
+                continue
+            end_cmp = text.compareRegionEnds(end, point)
+            # A Delete ending at a mid-paragraph point does not stretch on insert; at a
+            # paragraph start, a redline ending at the previous paragraph's end still does.
+            if end_cmp == -1 or (kind == "Insert" and end_cmp == 0):
+                return True
+            if prev_end is not None and text.compareRegionEnds(end, prev_end) <= 0:
+                return True
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue  # another text object, or not comparable
     return False

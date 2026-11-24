@@ -73,7 +73,7 @@ _PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "0-based pag
 class NavGotoPage(ToolWriterStructuralBase):
     name: str | None = "nav_goto_page"
     is_mutation: bool | None = False
-    description: str = "Navigate the view cursor to the start of a page. page is 0-based (first page = 0)."
+    description: str = "Navigate the view cursor to the start of a page."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": ["page"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
@@ -95,7 +95,7 @@ class GetPageObjects(ToolBase):
     name: str | None = "page_get_objects"
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
-        "page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
+        "page, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "
         "anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is "
         "the object top's offset from the text baseline (negative = above)."
     )

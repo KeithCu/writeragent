@@ -19,6 +19,7 @@ from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _U
 def mock_ctx():
     # Fields APIs (getTextFields, etc.) stay MagicMock; factory owns ToolContext wiring.
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False
     mgr = MagicMock()
     mgr.isLocked.return_value = False
     entered = {}

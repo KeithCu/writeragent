@@ -102,7 +102,7 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
     assert all(row not in (0, 1) for _col, row, _formula in written)
 
 
-def _make_measure_probe_sheet(own_error: int):
+def _make_measure_probe_sheet(own_error: int, own_text: str = "5"):
     cleared: list[tuple[int, int]] = []
     written: dict[tuple[int, int], str] = {}
 
@@ -142,7 +142,7 @@ def _make_measure_probe_sheet(own_error: int):
             err = self.Error
             if err == 504:
                 return "Err:504"
-            return f"Err:{err}" if err else "5"
+            return f"Err:{err}" if err else own_text
 
     class _Sheet:
         def createCursor(self) -> _Cursor:
@@ -165,11 +165,77 @@ def test_measure_array_single_value_is_1x1():
     assert cleared == [(2, 0), (2, 1)]
 
 
-def test_measure_array_reports_the_formulas_own_error():
-    sheet, cleared = _make_measure_probe_sheet(532)
-    with pytest.raises(CalcError, match="code 532"):
+@pytest.mark.parametrize(
+    ("err", "expected_sub", "absent_sub"),
+    [
+        (532, "code 532", "FILTER"),
+        (533, "FILTER", None),
+        (525, "unknown function", "FILTER"),
+    ],
+)
+def test_measure_array_reports_the_formulas_own_error(err: int, expected_sub: str, absent_sub: str | None):
+    sheet, cleared = _make_measure_probe_sheet(err)
+    with pytest.raises(CalcError) as exc_info:
         CellManipulator(MagicMock())._measure_array(sheet, "=1/0", avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+    msg = str(exc_info.value)
+    assert expected_sub in msg
+    if absent_sub is not None:
+        assert absent_sub not in msg
     assert cleared == [(2, 0), (2, 1)]
+
+
+def test_measure_array_refuses_py_failure_text_and_allows_native_text():
+    failure = "Error: Python venv not found. Open Settings → Python, set the venv path, then Test."
+    sheet_py, cleared_py = _make_measure_probe_sheet(0, own_text=failure)
+    with pytest.raises(CalcError, match="Python venv not found"):
+        CellManipulator(MagicMock())._measure_array(sheet_py, '=PY("result = 1")', avoid_col=0, avoid_start_row=0, avoid_end_row=0)
+    assert cleared_py == [(2, 0), (2, 1)]
+
+    sheet_native, cleared_native = _make_measure_probe_sheet(0, own_text=failure)
+    assert CellManipulator(MagicMock())._measure_array(sheet_native, "=A1", avoid_col=0, avoid_start_row=0, avoid_end_row=0) == (1, 1)
+    assert cleared_native == [(2, 0), (2, 1)]
+
+
+def test_write_array_formula_reads_error_before_clearing():
+    class _Anchor:
+        def __init__(self) -> None:
+            self.Error = 522
+            self._text = "Err:522"
+
+        def getString(self) -> str:
+            return self._text
+
+    anchor = _Anchor()
+
+    class _Range:
+        def setArrayFormula(self, formula: str) -> None:
+            if not formula:
+                anchor.Error = 0
+                anchor._text = ""
+
+        def clearContents(self, _flags: int) -> None:
+            anchor.Error = 0
+            anchor._text = ""
+
+        def getArrayFormula(self) -> str:
+            return ""
+
+    class _Sheet:
+        def getCellRangeByPosition(self, *_args):
+            return _Range()
+
+        def getCellByPosition(self, *_args):
+            return anchor
+
+        def createCursorByRange(self, _rng):
+            cur = MagicMock()
+            cur.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+            return cur
+
+    manipulator = CellManipulator(MagicMock())
+    with patch("plugin.calc.manipulator.refuse_occupied_cells"):
+        with pytest.raises(CalcError, match="code 522"):
+            manipulator._write_array_formula(_Sheet(), "=SUM(A1:A3)", (0, 0), (0, 0), premeasured_array_size=(1, 1))
 
 
 def test_write_formula_range_rejects_wide_array():
@@ -1162,6 +1228,123 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert (exc_uni.value.details or {})["data_range"] == "'Données'.A1:A2"
 
 
+def test_plan_write_refuses_py_array_inside_its_data_range():
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",), ("",))
+
+    ranges = {
+        "A1": SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0),
+        "F1:G2": SimpleNamespace(StartColumn=5, EndColumn=6, StartRow=0, EndRow=1, Sheet=0),
+        "C1": SimpleNamespace(StartColumn=2, EndColumn=2, StartRow=0, EndRow=0, Sheet=0),
+    }
+
+    def _resolve(range_str: str):
+        cell_range = MagicMock()
+        cell_range.getSpreadsheet.return_value = sheet
+        cell_range.getRangeAddress.return_value = ranges[range_str]
+        return cell_range
+
+    bridge.resolve_range_or_address.side_effect = _resolve
+    manipulator = CellManipulator(bridge)
+
+    f_a1 = '=PY("result = data"; A1:A2)'
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        with patch.object(manipulator, "_probe_array_formula") as probe:
+            with pytest.raises(CalcError) as exc_a1:
+                manipulator.plan_write("A1", f_a1, array=True)
+            probe.assert_not_called()
+    assert exc_a1.value.code == "PY_CIRCULAR"
+    assert exc_a1.value.details == {
+        "data_range": "A1:A2",
+        "suggested_call": {
+            "tool": "write_range",
+            "arguments": {"range": ["Sheet1.B1"], "values": f_a1, "array": True},
+        },
+    }
+
+    f_block = '=PY("result = data"; G2:G9)'
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        with patch.object(manipulator, "_probe_array_formula") as probe:
+            with pytest.raises(CalcError) as exc_block:
+                manipulator.plan_write("F1:G2", f_block, array=True)
+            probe.assert_not_called()
+    assert exc_block.value.code == "PY_CIRCULAR"
+    assert "F1:G2" in str(exc_block.value)
+    assert exc_block.value.details == {
+        "data_range": "G2:G9",
+        "suggested_call": {
+            "tool": "write_range",
+            "arguments": {"range": ["Sheet1.H2:I3"], "values": f_block, "array": True},
+        },
+    }
+
+    f_grow = '=PY("result = data"; D1:D5)'
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        with patch.object(manipulator, "_probe_array_formula", return_value=(2, 2)):
+            with pytest.raises(CalcError) as exc_grow:
+                manipulator.plan_write("C1", f_grow, array=True, premeasured_array_size=(2, 2))
+    assert exc_grow.value.code == "PY_CIRCULAR"
+    assert exc_grow.value.details == {
+        "data_range": "D1:D5",
+        "suggested_call": {
+            "tool": "write_range",
+            "arguments": {"range": ["Sheet1.E1:F2"], "values": f_grow, "array": True},
+        },
+    }
+
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=False):
+        with pytest.raises(CalcError) as exc_old:
+            manipulator.plan_write("A1", f_a1, array=True)
+    assert exc_old.value.code == "PY_CIRCULAR"
+    assert "array" not in (exc_old.value.details or {})["suggested_call"]["arguments"]
+
+
+def test_plan_write_py_suggestion_skips_column_occupied_below_top_row():
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    def _range(left: int, top: int, right: int, bottom: int):
+        rng = MagicMock()
+        rows = bottom - top + 1
+        cols = right - left + 1
+        if left <= 1 <= right and top <= 1 <= bottom:
+            grid = tuple(
+                tuple("x" if (top + r == 1 and left + c == 1) else "" for c in range(cols))
+                for r in range(rows)
+            )
+        else:
+            grid = tuple(("",) * cols for _ in range(rows))
+        rng.getFormulaArray.return_value = grid
+        return rng
+
+    sheet.getCellRangeByPosition.side_effect = _range
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    manipulator = CellManipulator(bridge)
+    formula = '=PY("result = data * 2"; A1:A5)'
+
+    with pytest.raises(CalcError) as exc_ordinary:
+        manipulator.plan_write("A1", formula)
+    assert exc_ordinary.value.code == "PY_CIRCULAR"
+    assert (exc_ordinary.value.details or {})["suggested_call"]["arguments"]["range"] == ["Sheet1.C1"]
+
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        with pytest.raises(CalcError) as exc_array:
+            manipulator.plan_write("A1", formula, array=True)
+    assert exc_array.value.code == "PY_CIRCULAR"
+    assert (exc_array.value.details or {})["suggested_call"]["arguments"] == {
+        "range": ["Sheet1.C1"],
+        "values": formula,
+        "array": True,
+    }
+
+
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store
 
@@ -1238,6 +1421,16 @@ def test_commit_quotes_the_py_run_error():
             res_spill = manipulator.commit_write(plan_spill)
     assert "B1 shows #SPILL!" in res_spill["message"]
     assert "Sheet1.B1:C1" in res_spill["message"]
+
+    # Error 0 with setup failure text emits a warning quoting the cell text.
+    cell.Error = 0
+    cell.setFormula.side_effect = None
+    cell.getString.return_value = "Error: Python venv not found. Open Settings → Python, set the venv path, then Test."
+    plan_text = manipulator.plan_write("B1", '=PY("result = 1")')
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+        res_text = manipulator.commit_write(plan_text)
+    assert "shows an error message instead of a result" in res_text["message"]
+    assert "Python venv not found" in res_text["message"]
 
 
 def test_number_format_key_malformed_code_is_invalid_param():
