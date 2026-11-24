@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.doc.visual_helpers import color_param
 from plugin.doc.text_helpers import (
+    DeletionState,
+    TrackedDeletions,
     iter_elements_limited,
     record_walk_cap,
     visible_range_text,
@@ -45,7 +47,7 @@ from .edit_review import flag_style_unreviewed, next_agent_edit_undo_title
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
 from .html_import import replace_xtext_with_html
 from .html_import_styles import attach_write_report
-from .range_copy import copy_flow_into_xtext, iter_nested_texts
+from .range_copy import copy_flow_into_xtext, iter_nested_texts, table_is_struck
 from .search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     MatchMode,
@@ -220,7 +222,9 @@ def _region_holds_content(
     does not silently wipe, which is the same idea as LibreOffice's delete-header prompt.
     Clear via ``page_set`` first, then turn off.
     ``getString()`` misses logos and can hide tables; ``_scan_region_content``
-    (fields, images, tables) covers those. Every read raises on failure rather than passing
+    (fields, images, tables) covers those. Content pending a tracked deletion counts
+    too, because turning the region off would drop it and the user could no longer
+    reject the deletion. Every read raises on failure rather than passing
     for "no content", so the guard fails closed.
     """
     if text_obj is None:
@@ -230,7 +234,7 @@ def _region_holds_content(
         return True
     scan = _scan_region_content(doc, text_obj)
     has_images = bool(scan["images"]) if include_images else False
-    return bool(scan["fields"] or has_images or scan["has_table"])
+    return bool(scan["fields"] or has_images or scan["has_table"] or scan["has_struck"])
 
 
 def _region_mirrors_shared(style: Any, region: str) -> bool:
@@ -308,7 +312,7 @@ def _region_shapes(
     doc: Any,
     text_obj: Any,
 ) -> list[tuple[Any, Any]]:
-    """Return (shape, anchor) pairs for shapes anchored in text_obj or its table cells.
+    """Return (shape, anchor) pairs for shapes anchored in text_obj or the cells of its live tables.
 
     Snapshots shapes from the draw page first so copy's insertTextContent does
     not mutate the list being iterated. A read failure raises and each caller
@@ -318,7 +322,7 @@ def _region_shapes(
     draw_page = doc.getDrawPage()
     count = int(draw_page.getCount())
     shapes = [draw_page.getByIndex(i) for i in range(min(count, _SCAN_SHAPE_LIMIT))]
-    texts = list(iter_nested_texts(text_obj))
+    texts = list(iter_nested_texts(doc, text_obj, TrackedDeletions(doc).state_at(text_obj)))
     out: list[tuple[Any, Any]] = []
     for shape in shapes:
         anchor = shape.getAnchor()
@@ -335,35 +339,44 @@ def _empty_scan() -> dict[str, Any]:
     A function provides a fresh dictionary per call because callers may mutate
     the nested lists or fields.
     """
-    return {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
+    return {"fields": [], "images": [], "has_table": False, "has_struck": False, "paragraph_count": 0}
 
 
-def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
-    """Report fields and anchored images in a header/footer as get-side extras.
-
-    HTML ``content`` already carries structure; these lists are machine-readable so a
-    caller can see logos and live fields without parsing the markup. Returns
-    ``{"fields": [...], "images": [...], "has_table": bool, "paragraph_count": int}``. Raises on a read
-    failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
-    """
-    out = _empty_scan()
-    para_enum = text_obj.createEnumeration()
-    notes: list[str] = []
+def _scan_xtext(doc: Any, xtext: Any, state: DeletionState, out: dict[str, Any], notes: list[str]) -> int:
+    """Add the live fields of *xtext* and its tables to *out*; return its live element count."""
+    para_enum = xtext.createEnumeration()
+    seen = live = 0
     # `is True` and the hard cap from `iter_elements_limited` (plugin/doc/text_helpers.py, the capped
     # walk the text helpers share) stop here: a UNO enumeration that misbehaves otherwise spins forever.
     for para in iter_elements_limited(para_enum, _SCAN_PARA_LIMIT):
-        out["paragraph_count"] += 1
-        is_table = para.supportsService("com.sun.star.text.TextTable") is True
-        if is_table:
+        seen += 1
+        if para.supportsService("com.sun.star.text.TextTable") is True:
             # A TextTable is in the region XText but has no createEnumeration();
             # walking it made the disable guard report a read failure.
+            if table_is_struck(doc, para, state):
+                out["has_struck"] = True
+                continue
+            live += 1
             out["has_table"] = True
+            for name in para.getCellNames():
+                _scan_xtext(doc, para.getCellByName(name), DeletionState(), out, notes)
             continue
+        # Accepting joins a paragraph that starts inside a deletion to the one before it;
+        # the first paragraph has none before it.
+        if not state.in_delete or not live:
+            live += 1
         portions = para.createEnumeration()
         seen_portions = 0
         for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
             seen_portions += 1
-            if portion.getPropertyValue("TextPortionType") != "TextField":
+            kind = portion.getPropertyValue("TextPortionType")
+            if kind == "Redline":
+                state.apply_marker(portion)
+                continue
+            if kind != "TextField":
+                continue
+            if state.in_delete:
+                out["has_struck"] = True
                 continue
             field = portion.getPropertyValue("TextField")
             # Same argument sense as field_list: presentation is what the reader sees
@@ -378,8 +391,28 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
                     {"presentation": "", "content": ""},
                 )
             )
-        record_walk_cap(portions, seen_portions, _SCAN_PORTION_LIMIT, "text portions", notes)
-    record_walk_cap(para_enum, out["paragraph_count"], _SCAN_PARA_LIMIT, "paragraphs", notes)
+        if record_walk_cap(portions, seen_portions, _SCAN_PORTION_LIMIT, "text portions", notes):
+            # The end marker was not read, and an open state would hide the rest of the region.
+            state.in_delete = False
+    record_walk_cap(para_enum, seen, _SCAN_PARA_LIMIT, "paragraphs", notes)
+    return live
+
+
+def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
+    """Report live fields and anchored images in a header/footer as get-side extras.
+
+    HTML ``content`` already carries structure; ``fields`` and ``paragraph_count`` describe
+    the region as Accept All would leave it (cell fields included, struck tables and struck
+    fields left out), and ``images`` leaves out logos inside struck tables (logos struck in
+    plain paragraphs are still listed). ``has_struck`` is set when something was left out,
+    for the disable guard. Returns
+    ``{"fields": [...], "images": [...], "has_table": bool, "has_struck": bool, "paragraph_count": int}``.
+    Raises on a read failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
+    """
+    out = _empty_scan()
+    notes: list[str] = []
+    state = TrackedDeletions(doc).state_at(text_obj)
+    out["paragraph_count"] = _scan_xtext(doc, text_obj, state, out, notes)
     if notes:
         out["warning"] = notes[0]
     # Images anchored in the region live on the draw page, whatever their anchor type, so they are
@@ -454,9 +487,10 @@ def _region_graphics_report(doc: Any, src_text: Any, dest_text: Any) -> tuple[in
     return copied, skipped
 
 
-def _region_all_struck(doc: Any, text_obj: Any) -> bool:
-    """True when the region has text and all of it is tracked-deleted."""
-    return bool(text_obj.getString().strip()) and not visible_range_text(doc, text_obj).strip()
+def _region_has_live_flow(doc: Any, text_obj: Any) -> bool:
+    """True when text, a field or a table remains once pending tracked deletions are left out."""
+    scan = _scan_region_content(doc, text_obj)
+    return bool(visible_range_text(doc, text_obj).strip() or scan["fields"] or scan["has_table"])
 
 
 def _copy_page_regions(
@@ -512,7 +546,7 @@ def _copy_page_regions(
                 and fields_copied == 0
                 and uno_read(lambda: _region_holds_content(doc, src_text, include_images=False), False)
                 and not uno_read(lambda: _scan_region_content(doc, dest_text)["has_table"], False)
-                and not _region_all_struck(doc, src_text)
+                and _region_has_live_flow(doc, src_text)
             ):
                 raise RuntimeError(
                     "Page style clone: copied %s flow content was empty." % region
@@ -1187,9 +1221,10 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     return None
 
 
-def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
-    """setString from the last match backward. Returns (error, fields, shapes).
+def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int]:
+    """setString from the last match backward. Returns (fields, shapes).
 
+    A failed replace raises ToolExecutionError with the undo layer's code.
     A failed before-scan raises before anything is written; a failed after-scan
     is a mutate error and rolls back.
     """
@@ -1209,35 +1244,36 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
         outcome = commit_or_rollback(doc, title, mutate)
     except UndoUnavailable:
         if len(cursors) > 1:
-            return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
+            raise ToolExecutionError(
+                "Cannot replace every match in one undo step. Nothing was changed.", code="UNDO_UNAVAILABLE"
+            )
         try:
             mutate()
-            after = after_box[0]
-            return None, len(after["fields"]), len(after["images"])
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            return "the replacement was written and could not be rolled back: " + str(exc), 0, 0
-    if outcome.mutate_error is not None:
+            raise ToolExecutionError(
+                "the replacement was written and could not be rolled back: " + str(exc), code="ROLLBACK_FAILED"
+            ) from exc
+    else:
         mut_exc = outcome.mutate_error
-        err_msg = str(mut_exc)
-        if not outcome.rolled_back:
-            err_msg = "the replacement was written and could not be rolled back: " + err_msg
-        return err_msg, 0, 0
-
-    err = outcome.error
-    if err is not None:
-        if err.get("code") == "UNDO_CONTEXT_LEAK":
+        if mut_exc is not None:
+            if outcome.rolled_back:
+                raise ToolExecutionError(str(mut_exc)) from mut_exc
+            raise ToolExecutionError(
+                "the replacement was written and could not be rolled back: " + str(mut_exc), code="ROLLBACK_FAILED"
+            ) from mut_exc
+        err = outcome.error
+        if err is not None:
             # The text is already in the header or footer and the undo group is still open,
             # so the message must not read as "nothing was replaced".
-            return "the replacement was written, but its undo step could not be closed (%s)" % err.get("message"), 0, 0
-        err_msg = str(err.get("message", "undo error"))
-        if not outcome.rolled_back:
-            err_msg = "the replacement was written and could not be rolled back: " + err_msg
-        return err_msg, 0, 0
-
+            if err["code"] == "UNDO_CONTEXT_LEAK":
+                message = "the replacement was written, but its undo step could not be closed (%s)" % err["message"]
+            else:
+                message = "the replacement was written and could not be rolled back: " + err["message"]
+            raise ToolExecutionError(message, code=err["code"])
     after = after_box[0]
-    return None, len(after["fields"]), len(after["images"])
+    return len(after["fields"]), len(after["images"])
 
 
 class PageReplaceHeaderFooterText(ToolWriterPageBase):
@@ -1406,12 +1442,13 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "the image. Nothing was changed." % (blocked, old_content)
             )
 
-        error, fields_preserved, shapes_preserved = _apply_match_cursors(
-            doc, text_obj, cursors, new_text,
-        )
-        if error:
+        try:
+            fields_preserved, shapes_preserved = _apply_match_cursors(
+                doc, text_obj, cursors, new_text,
+            )
+        except ToolExecutionError as e:
             return self._tool_error(
-                "Could not replace '%s' in the %s: %s" % (old_content, region, error)
+                "Could not replace '%s' in the %s: %s" % (old_content, region, e), code=e.code
             )
         result: dict[str, Any] = {
             "status": "ok",
