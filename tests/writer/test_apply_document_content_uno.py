@@ -1602,3 +1602,58 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
     assert doc.getTextTables().getCount() == 1
     assert doc.getTextSections().getCount() == 1
     assert doc.getTextTables().getByIndex(0).getCellByName("A1").getString() == "Cell"
+
+
+@native_test
+@with_native_doc("writer")
+def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+
+        # (a) Replacement equal to match leaves zero redlines and no pending_review flag.
+        _clear_body(doc)
+        text.setString("hello MATCH world")
+        res_noop = tool.execute(tctx, target="search", old_content="MATCH", content="MATCH")
+        assert res_noop["status"] == "ok", res_noop
+        assert "pending_review" not in res_noop
+        assert doc.getRedlines().getCount() == 0
+        assert text.getString() == "hello MATCH world"
+
+        # (b) Real replacement leaves a redline and pending_review=True.
+        res_edit = tool.execute(tctx, target="search", old_content="MATCH", content="OTHER")
+        assert res_edit["status"] == "ok", res_edit
+        assert res_edit["pending_review"] is True
+        assert doc.getRedlines().getCount() > 0
+
+        # (c) Delete stacked on a user-recorded insertion stays untagged but still reports pending_review.
+        _clear_body(doc)
+        text.setString("hello world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(5, False)
+            text.insertString(cur, " USERINS", False)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        res_stack = tool.execute(tctx, target="search", old_content=" USERINS", content="")
+        assert res_stack["status"] == "ok", res_stack
+        assert res_stack["pending_review"] is True
+        redlines = doc.getRedlines()
+        deletes = [
+            redlines.getByIndex(i)
+            for i in range(redlines.getCount())
+            if redlines.getByIndex(i).RedlineType == "Delete"
+        ]
+        assert deletes
+        assert all(not str(rl.RedlineComment or "").startswith("wa-review:") for rl in deletes)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

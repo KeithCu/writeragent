@@ -26,7 +26,7 @@ from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 
 from ..edit_review import next_agent_edit_undo_title
-from ..record_changes import insert_recorded_content
+from ..record_changes import insert_recorded_content, is_recording_changes
 from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import insert_at_target
@@ -315,17 +315,33 @@ class FieldsInsert(ToolWriterFieldBase):
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
         # Resolve target and insert as one undo step (insert_at_target).
+        recorded = False
+
+        def insert(cursor: Any) -> None:
+            nonlocal recorded
+            # The review session has already turned recording on in Record/Wait.
+            recorded = is_recording_changes(doc)
+            insert_recorded_content(doc, cursor.getText(), cursor, field)
+
         err = insert_at_target(
             self,
             ctx,
             kwargs,
-            lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
+            insert,
             what="the field",
         )
         if err is not None:
             return err
 
-        return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}
+        result: dict[str, Any] = {
+            "status": "ok",
+            "message": f"Successfully inserted {field_type} field.",
+            "applied_properties": properties,
+        }
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
 
 _EXCEL_PY_DAG_META = "ExcelPyDagMeta"

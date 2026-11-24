@@ -194,7 +194,9 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
     review-modes topic, or the sidebar prompt) is stale — that text is static while the user
     can toggle the mode mid-session. Only annotates the non-wait path:
     with recording on but no blocking wait, the edit landed as a tracked change the agent must
-    not resolve and whose accept/reject outcome it will not be told."""
+    not resolve and whose accept/reject outcome it will not be told. ``apply_content`` calls
+    this only when ``EditReviewSession.left_tracked_changes()`` is true, so a no-op edit is
+    not reported as pending."""
     if not isinstance(result, dict) or result.get("status") != "ok":
         return result
     try:
@@ -465,6 +467,7 @@ class EditReviewSession:
         self._was_recording = False
         self._record_cm: Any = None
         self._prior_author: tuple[str, str] | None = None
+        self._first_snapshot: tuple[set[Any], bool] | None = None
 
     # -- context manager --------------------------------------------------------------------
 
@@ -516,6 +519,8 @@ class EditReviewSession:
         try:
             # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
             before, before_ok = self._redline_idents()
+            if self._first_snapshot is None:
+                self._first_snapshot = (before, before_ok)
             result = apply_fn()
 
             # A failed tag or a failed missing-bookmark clear can leave
@@ -644,6 +649,22 @@ class EditReviewSession:
         result = apply_fn()
         tag_agent_redlines(self.doc, before, before_reliable=reliable)
         return result
+
+    def left_tracked_changes(self) -> bool:
+        """Return True when this session left a tracked change in the document.
+
+        A registered change counts. So does an untagged redline the edits produced,
+        such as a Delete stacked on another author's pending insertion (which
+        ``new_redlines_since`` leaves untagged) or a change whose tagging failed.
+        An edit that changed nothing leaves no new redline key. Main thread only.
+        """
+        if self.changes:
+            return True
+        if self._first_snapshot is None:
+            return False
+        before, before_ok = self._first_snapshot
+        after, after_ok = self._redline_idents()
+        return not (before_ok and after_ok) or bool(after - before)
 
     # -- review ------------------------------------------------------------------------------
 

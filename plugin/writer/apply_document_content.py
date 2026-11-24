@@ -703,7 +703,7 @@ class ApplyDocumentContent(ToolBase):
                                       "formatting preserved)." % shape_name),
                           "replaced_count": 1, "review_bypassed": True},
                         None)
-                    return annotate_review_status(result)
+                    return result
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -1069,16 +1069,17 @@ class ApplyDocumentContent(ToolBase):
         wait_seconds = self._review_wait_seconds()
         session_box: list[Any] = []
 
-        def _do_edit() -> tuple[dict[str, Any], Any]:
+        def _do_edit() -> tuple[dict[str, Any], Any, bool]:
             parsed = self._parse_edit_params(ctx, kwargs)
             if isinstance(parsed, dict):
-                return parsed, None
+                return parsed, None, False
             parsed, diags = self._resolve_heading_links(ctx.doc, parsed)
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
-            return result, session
+            pending = result.get("status") == "ok" and session.left_tracked_changes()
+            return result, session, pending
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
@@ -1090,8 +1091,8 @@ class ApplyDocumentContent(ToolBase):
             # bookmarks are released in `finally` even if the edit raises mid-way (e.g. the 2nd
             # of 3 replace-all matches fails after the 1st).
             try:
-                result = _run_on_main_thread(_do_edit)[0]
-                return annotate_review_status(result)
+                result, _session, pending = _run_on_main_thread(_do_edit)
+                return annotate_review_status(result) if pending else result
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
@@ -1104,7 +1105,7 @@ class ApplyDocumentContent(ToolBase):
             # 60s edit budget: matches the synchronous MCP path's processing timeout; the
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
-            result, session = _run_on_main_thread(_do_edit)
+            result, session, pending = _run_on_main_thread(_do_edit)
         except Exception as e:
             if session_box:
                 self._release_review_session(session_box[0])
@@ -1114,7 +1115,7 @@ class ApplyDocumentContent(ToolBase):
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
                 self._release_review_session(session)
-            return result
+            return annotate_review_status(result) if pending else result
 
         # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
         # The callback marshals onto the chat drain queue, so it is safe from this worker thread.

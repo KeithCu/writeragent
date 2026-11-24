@@ -1367,7 +1367,10 @@ class IndexesCreate(ToolWriterIndexBase):
         if index_kind == "toc":
             index.CreateFromOutline = create_from_outline
 
+        replaced_pending = False
+
         def mutate(cursor: Any) -> dict[str, Any] | None:
+            nonlocal replaced_pending
             if tracked_change_before_point(doc, cursor.getStart()):
                 return self._tool_error(
                     "The index would split a pending tracked change, and accepting or rejecting it "
@@ -1382,6 +1385,7 @@ class IndexesCreate(ToolWriterIndexBase):
                 cursor.getText().insertTextContent(cursor, index, False)
                 if strike:
                     cursor.setString("")
+                replaced_pending = strike
             else:
                 if strike:
                     cursor.setString("")
@@ -1398,11 +1402,23 @@ class IndexesCreate(ToolWriterIndexBase):
             "message": f"Created '{index_kind}' index successfully",
             "title": title,
         }
-        flag_untracked(
-            res,
-            doc,
-            _("The index itself is not a tracked change: rejecting changes does not remove it."),
-        )
+        if replaced_pending:
+            res["pending_review"] = True
+            flag_untracked(
+                res,
+                doc,
+                _(
+                    "The index itself is not a tracked change: rejecting changes does not remove it. "
+                    "The text it replaced is a tracked deletion pending the user's review, so that text "
+                    "is still in the document until the user accepts it. Do not accept or reject it yourself."
+                ),
+            )
+        else:
+            flag_untracked(
+                res,
+                doc,
+                _("The index itself is not a tracked change: rejecting changes does not remove it."),
+            )
         return res
 
 
@@ -1475,18 +1491,44 @@ class IndexesAddMark(ToolWriterIndexBase):
             mark.setPropertyValue("PrimaryKey", primary_key or "")
             mark.setPropertyValue("SecondaryKey", secondary_key or "")
 
+        return self._insert_kept(
+            ctx,
+            kwargs,
+            mark,
+            "the index mark",
+            {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"},
+        )
+
+    def _insert_kept(
+        self,
+        ctx: Any,
+        kwargs: Any,
+        content: Any,
+        what: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        recorded = False
+
+        def mutate(cursor: Any) -> None:
+            nonlocal recorded
+            # The review session has already turned recording on in Record/Wait.
+            recorded = is_recording_changes(ctx.doc)
+            cursor.getText().insertTextContent(cursor, content, False)
+
         err = insert_at_target(
             self,
             ctx,
             kwargs,
-            lambda cursor: cursor.getText().insertTextContent(cursor, mark, False),
-            what="the index mark",
+            mutate,
+            what=what,
             replace_match=False,
         )
         if err is not None:
             return err
-
-        return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
     def _insert_bibliography_cite(self, ctx: Any, kwargs: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
@@ -1503,20 +1545,16 @@ class IndexesAddMark(ToolWriterIndexBase):
         # Fields must be set on the descriptor before insert. A plain tuple is
         # dropped; set_bibliography_field_values uses a typed Any via uno.invoke.
         set_bibliography_field_values(field, pairs)
-        err = insert_at_target(
-            self,
+        return self._insert_kept(
             ctx,
             kwargs,
-            lambda cursor: cursor.getText().insertTextContent(cursor, field, False),
-            what="the bibliography cite",
-            replace_match=False,
+            field,
+            "the bibliography cite",
+            {
+                "status": "ok",
+                "message": "Added bibliography cite '%s'" % identifier,
+                "kind": "bibliography",
+                "identifier": identifier,
+                "fields": dict(pairs),
+            },
         )
-        if err is not None:
-            return err
-        return {
-            "status": "ok",
-            "message": "Added bibliography cite '%s'" % identifier,
-            "kind": "bibliography",
-            "identifier": identifier,
-            "fields": dict(pairs),
-        }

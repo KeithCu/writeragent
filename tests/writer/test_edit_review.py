@@ -1407,3 +1407,55 @@ def test_streamed_plain_mode_retargets_even_after_write_error():
     assert warning is not None and "chunk failed" in warning
 
 
+def test_left_tracked_changes_false_when_edit_left_no_redline():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    keys = {("a", "Insert", "WriterAgent", None, "")}
+    with (
+        patch.object(session, "_redline_idents", side_effect=[(keys, True), (keys, True)]),
+        patch("plugin.writer.edit_review._review_scan.new_redlines_since", return_value=([], True)),
+    ):
+        session.record_mutation(lambda: None)
+        assert session.left_tracked_changes() is False
+
+
+def test_left_tracked_changes_true_for_untagged_stacked_redline():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    before = {("a", "Insert", "Unknown Author", None, "")}
+    after = before | {("a", "Delete", "WriterAgent (deletions)", None, "")}
+    with (
+        patch.object(session, "_redline_idents", side_effect=[(before, True), (after, True)]),
+        patch("plugin.writer.edit_review._review_scan.new_redlines_since", return_value=([], True)),
+    ):
+        session.record_mutation(lambda: None)
+        assert session.changes == []
+        assert session.left_tracked_changes() is True
+
+
+def test_left_tracked_changes_true_on_unreliable_scan():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    keys = {("a", "Insert", "WriterAgent", None, "")}
+    with (
+        patch.object(session, "_redline_idents", side_effect=[(keys, True), (keys, False)]),
+        patch("plugin.writer.edit_review._review_scan.new_redlines_since", return_value=([], True)),
+    ):
+        session.record_mutation(lambda: None)
+        assert session.left_tracked_changes() is True
+
+
+def test_left_tracked_changes_false_without_record_mutation():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=False)
+    session.record_mutation(lambda: None)
+    assert session.left_tracked_changes() is False
+
+
