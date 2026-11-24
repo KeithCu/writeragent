@@ -175,6 +175,7 @@ def _make_env(
     doc = SimpleNamespace(
         getCurrentController=lambda: controller,
         getDrawPage=lambda: draw_page,
+        getUndoManager=lambda: SimpleNamespace(lock=lambda: None, unlock=lambda: None),
     )
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=uno_ctx)
     return tool_ctx, helper, state, draw_page, dispatch

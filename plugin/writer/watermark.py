@@ -185,11 +185,18 @@ def _update_inactive_watermarks(doc: Any, text: str) -> None:
             and shape.getString() == text
         ):
             model = shape
+    if not inactive:
+        return
     active_model = cast("Any", model)
-    for shape in inactive:
-        shape.setString(text)
-        for name in _WATERMARK_LOOK_PROPS:
-            shape.setPropertyValue(name, active_model.getPropertyValue(name))
+    undo_mgr = doc.getUndoManager()
+    undo_mgr.lock()
+    try:
+        for shape in inactive:
+            shape.setString(text)
+            for name in _WATERMARK_LOOK_PROPS:
+                shape.setPropertyValue(name, active_model.getPropertyValue(name))
+    finally:
+        undo_mgr.unlock()
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:

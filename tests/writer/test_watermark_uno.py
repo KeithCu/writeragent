@@ -297,6 +297,7 @@ def test_set_watermark_updates_inactive_first_and_even_headers_uno(ctx: Any, doc
         text_body.insertControlCharacter(text_body.getEnd(), 0, False)
         text_body.getEnd().setPropertyValue("BreakType", PAGE_BEFORE)
 
+    doc.getUndoManager().clear()
     res = PageSetWatermark().execute(
         tool_ctx,
         text="FINAL",
