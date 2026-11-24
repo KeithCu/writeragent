@@ -152,16 +152,19 @@ class _Enum:
 
 
 class _Portion:
-    def __init__(self, text="", portion_type="Text", redline_type=None):
+    def __init__(self, text="", portion_type="Text", redline_type=None, is_start=True):
         self._text = text
         self._portion_type = portion_type
         self._redline_type = redline_type
+        self._is_start = is_start
 
     def getPropertyValue(self, name):
         if name == "TextPortionType":
             return self._portion_type
         if name == "RedlineType":
             return self._redline_type
+        if name == "IsStart":
+            return self._is_start
         raise Exception(name)
 
     def getString(self):
@@ -198,9 +201,9 @@ def test_get_string_without_tracked_deletions_skips_deleted_portions():
             _Paragraph(
                 [
                     _Portion("Keep "),
-                    _Portion(portion_type="Redline", redline_type="Delete"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
                     _Portion("remove me"),
-                    _Portion(portion_type="Redline", redline_type="Delete"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
                     _Portion("text"),
                 ],
                 fallback_text="Keep remove metext",
@@ -211,6 +214,17 @@ def test_get_string_without_tracked_deletions_skips_deleted_portions():
     )
 
     assert get_string_without_tracked_deletions(text_range) == "Keep text\nNext line"
+
+
+def test_get_string_without_tracked_deletions_leading_end_marker_keeps_text():
+    para = _Paragraph(
+        [
+            _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+            _Portion("Keep after"),
+        ],
+        fallback_text="Keep after",
+    )
+    assert get_string_without_tracked_deletions(para) == "Keep after"
 
 
 class _ParagraphService(_Paragraph):
@@ -708,9 +722,9 @@ def test_get_string_without_tracked_deletions_table_cell_redline():
         "A1": _TextRange([
             _Paragraph([
                 _Portion("A1 "),
-                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
                 _Portion("hidden"),
-                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
                 _Portion("cell"),
             ], fallback_text="A1 cell"),
         ]),

@@ -577,3 +577,35 @@ def test_fast_travel_visits_across_text_objects_uno(ctx, doc):
         "next must visit across text objects: %r vs order %r" % (visited, order)
     )
 
+
+@native_test
+@with_native_doc("writer")
+def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ctx, doc):
+    from plugin.writer.edit_review import EditReviewSession, record_html_atomically
+    from plugin.writer.html_import import replace_single_range_with_content
+    from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
+
+    _body(doc, ctx, "Intro", "Replace me", "Outro")
+    session = EditReviewSession(doc, ctx, enabled=True)
+    with session:
+        rng = _find(doc, "Replace me")
+        assert rng is not None
+        record_html_atomically(
+            session,
+            doc,
+            lambda: replace_single_range_with_content(doc, rng, "<table><tr><td>Cell</td></tr></table>", ctx),
+        )
+    assert len(session.changes) == 1
+    token = session.changes[0].token
+    redlines_before = _redline_count(doc)
+    text_before = doc.getText().getString()
+
+    result, _after = resolve_agent_change(doc, ctx, token, accept=True)
+    assert result.status == ResolveStatus.NOT_ELIGIBLE, result
+    assert _redline_count(doc) == redlines_before
+    assert doc.getText().getString() == text_before
+
+    resolved, _msg = resolve_all_with_feedback(doc, ctx, True)
+    assert resolved == 1
+    assert agent_change_presence(doc, stop_at_first=True)[0] == 0
+

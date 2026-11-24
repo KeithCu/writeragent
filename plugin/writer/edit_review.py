@@ -322,7 +322,7 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
                     portion_type = portion.getPropertyValue("TextPortionType")
                     if portion_type == "Redline":
                         if str(portion.getPropertyValue("RedlineType")) == skip_type:
-                            skipping = not skipping
+                            skipping = bool(portion.getPropertyValue("IsStart"))
                         continue
                     if skipping:
                         continue
@@ -453,34 +453,38 @@ class EditReviewSession:
             # Built with cursor.gotoRange(range, expand=True): XTextRangeCompare is unreliable on
             # redline ranges (a tracked DELETE's text sits outside the normal flow), so comparing
             # starts/ends can collapse the span for replace changes.
-            ranges = []
+            points: list[Any] = []
+            at_table = False
             for rl in new_redlines:
                 try:
-                    s = rl.getPropertyValue("RedlineStart")
-                    e = rl.getPropertyValue("RedlineEnd")
+                    ends = (rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd"))
                 except Exception:
                     log.debug("EditReviewSession: redline span unreadable", exc_info=True)
                     continue
-                if s is not None and e is not None:
-                    ranges.append((s, e))
+                for end in ends:
+                    # An end that sits on a table or section is an SwXTextTable/SwXTextSection, not a text range.
+                    if uno_read(lambda: end.getText(), None) is None:
+                        at_table = True
+                    else:
+                        points.append(end)
             bookmark_name = ""
             accepted_text = rejected_text = ""
-            if ranges:
+            if points:
                 try:
-                    span = ranges[0][0].getText().createTextCursorByRange(ranges[0][0])
-                    for s, e in ranges:
-                        span.gotoRange(s, True)  # expand=True grows the span in either direction
-                        span.gotoRange(e, True)
+                    span = points[0].getText().createTextCursorByRange(points[0])
+                    for point in points[1:]:
+                        span.gotoRange(point, True)  # expand=True grows the span in either direction
                     # Scope the captured states AND the anchor bookmark to the CHANGE's own redline
                     # span, not the whole paragraph -- so when several changes share a paragraph each
                     # one's outcome/final_text reflects only itself, and a change deep in a long
                     # paragraph is never truncated out of the preview.
                     accepted_text = _string_skipping_redline(span, "Delete")
                     rejected_text = _string_skipping_redline(span, "Insert")
-                    bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
-                    bm = self.doc.createInstance("com.sun.star.text.Bookmark")
-                    bm.setName(bookmark_name)
-                    span.getText().insertTextContent(span, bm, True)
+                    if not at_table or accepted_text != rejected_text:
+                        bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
+                        bm = self.doc.createInstance("com.sun.star.text.Bookmark")
+                        bm.setName(bookmark_name)
+                        span.getText().insertTextContent(span, bm, True)
                 except Exception:
                     bookmark_name = ""
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
@@ -596,6 +600,14 @@ class EditReviewSession:
             return "accepted"
         if current == record.rejected_text:
             return "rejected"
+        # The anchored region can gain or lose an edge paragraph break when the paragraph mark itself was part of the change.
+        accepted = record.accepted_text.strip("\n")
+        rejected = record.rejected_text.strip("\n")
+        if accepted != rejected:
+            if current.strip("\n") == accepted:
+                return "accepted"
+            if current.strip("\n") == rejected:
+                return "rejected"
         return "modified"
 
     @contextlib.contextmanager
