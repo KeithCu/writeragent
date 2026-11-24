@@ -2399,3 +2399,95 @@ def test_html_import_math_with_style_while_recording_leaves_no_format_redline_un
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, doc: Any) -> None:
+    """Recorded insert at an empty paragraph (caret or beginning) restores style and margin on Reject."""
+    from plugin.writer.html_import import insert_content_at_position
+
+    def _paras_snapshot() -> list[tuple[str, str, int]]:
+        out: list[tuple[str, str, int]] = []
+        enum = doc.getText().createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                out.append((
+                    el.getString(),
+                    el.getPropertyValue("ParaStyleName"),
+                    el.getPropertyValue("ParaLeftMargin"),
+                ))
+            elif el.supportsService("com.sun.star.text.TextTable"):
+                out.append(("<table>", "", 0))
+        return out
+
+    def _setup_empty_middle() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "Omega", False)
+        enum = text.createEnumeration()
+        enum.nextElement()  # Alpha
+        mid = enum.nextElement()
+        cur = text.createTextCursorByRange(mid.getStart())
+        cur.setPropertyValue("ParaStyleName", "Heading 2")
+        cur.setPropertyValue("ParaLeftMargin", 700)
+        doc.getCurrentController().select(cur)
+        doc.setPropertyValue("RecordChanges", True)
+
+    try:
+        for html in (
+            "<p>Body</p>",
+            "<h1>H</h1><p>b</p>",
+            "<table><tr><td>c</td></tr></table>",
+            "<p>a</p><table><tr><td>c</td></tr></table>",
+        ):
+            _setup_empty_middle()
+            insert_content_at_position(doc, ctx, html, "selection")
+            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            snap = _paras_snapshot()
+            assert len(snap) == 3, (html, snap)
+            assert snap[0][0] == "Alpha"
+            assert snap[1][0] == ""
+            assert snap[1][1] == "Heading 2"
+            assert abs(snap[1][2] - 700) <= 2
+            assert snap[2][0] == "Omega"
+            assert doc.getRedlines().getCount() == 0
+
+        # Accept and single-undo check for <p>Body</p> via ApplyDocumentContent
+        from plugin.writer.apply_document_content import ApplyDocumentContent
+        from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+        _setup_empty_middle()
+        doc.getUndoManager().clear()
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="selection", content=["<p>Body</p>"]
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        assert [s[0] for s in _paras_snapshot()] == ["Alpha", "", "Body", "Omega"]
+        doc.getUndoManager().undo()  # undo Accept
+        doc.getUndoManager().undo()  # undo insert (single step)
+        snap = _paras_snapshot()
+        assert [s[0] for s in snap] == ["Alpha", "", "Omega"]
+        assert snap[1][1] == "Heading 2"
+        assert abs(snap[1][2] - 700) <= 2
+
+        # Blank Quotations document with target='beginning'
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("ParaStyleName", "Quotations")
+        doc.setPropertyValue("RecordChanges", True)
+        insert_content_at_position(doc, ctx, "<p>Body</p>", "beginning")
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert [(s[0], s[1]) for s in _paras_snapshot()] == [("", "Quotations")]
+        assert doc.getRedlines().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
