@@ -277,7 +277,7 @@ def test_py_plot_joins_formula_undo_step_uno(ctx, doc):
         place(2)
         assert list(um.getAllUndoActionTitles()) == undo_titles
         assert draw_page.getCount() == 2
-        assert [draw_page.getByIndex(i).getPropertyValue("Name") for i in range(2)] == [
+        assert [draw_page.getByIndex(i).getPropertyValue("Name").split(" ")[0] for i in range(2)] == [
             "WriterAgentPlot",
             "WriterAgentPlot_2",
         ]
@@ -313,7 +313,7 @@ def test_py_plot_joins_formula_undo_step_uno(ctx, doc):
         um.undo()
         pump_main_thread_work_queue(max_items=20)
         assert draw_page.getCount() == 1
-        assert draw_page.getByIndex(0).getPropertyValue("Name") == "WriterAgentPlot"
+        assert draw_page.getByIndex(0).getPropertyValue("Name").startswith("WriterAgentPlot ")
 
         # Step 6: Undo the formula: no shapes.
         um.undo()
@@ -441,7 +441,7 @@ def test_tool_plot_insert_is_one_undo_step_uno(ctx, doc):
 
         um.undo()
         assert draw_page.getCount() == 1
-        assert draw_page.getByIndex(0).getPropertyValue("Name") == "WriterAgentPlot"
+        assert draw_page.getByIndex(0).getPropertyValue("Name").startswith("WriterAgentPlot ")
 
         um.undo()
         assert draw_page.getCount() == 0
@@ -690,11 +690,75 @@ def test_spill_plot_stands_past_spill_row_and_xlsx_uno(ctx, doc):
                 try:
                     reloaded_sheet = reloaded.getSheets().getByIndex(0)
                     reloaded_b3 = reloaded_sheet.getCellByPosition(1, 2)
-                    assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3, 3)) == 1
-                    if not rtl:
-                        assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3)) == 0
+                    assert len(_anchored_plot_slots(reloaded_sheet, reloaded_b3)) == 1
                 finally:
                     reloaded.close(True)
+    finally:
+        sheet.setPropertyValue("TableLayout", 0)
+        b3.setFormula("")
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_plot_slots_survive_xlsx_reload_uno(ctx, doc):
+    """Three plot slots (LTR and RTL) reuse existing shapes across XLSX reloads without duplicating."""
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    um = doc.getUndoManager()
+    code = "result = [f1, f2, f3]"
+    payloads = [
+        {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20 + i, 10 + i)}
+        for i in range(3)
+    ]
+    b3 = sheet.getCellByPosition(1, 2)
+    desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    hidden_prop = PropertyValue()
+    hidden_prop.Name = "Hidden"
+    hidden_prop.Value = True
+    save_prop = PropertyValue()
+    save_prop.Name = "FilterName"
+    save_prop.Value = "Calc MS Excel 2007 XML"
+
+    def _insert_three(target_doc):
+        for idx, p in enumerate(payloads):
+            _insert_image_result_on_sheet_impl(p, code=code, doc=target_doc, image_index=idx, image_count=3)
+
+    try:
+        for rtl in (False, True):
+            while draw_page.getCount():
+                draw_page.remove(draw_page.getByIndex(0))
+            sheet.setPropertyValue("TableLayout", 1 if rtl else 0)
+            b3.setFormula(f'=PY("{code}")')
+            _insert_three(doc)
+            assert draw_page.getCount() == 3
+
+            with tempfile.TemporaryDirectory(prefix="wa-plot-xlsx-slots-") as tmpdir:
+                xlsx_1 = uno.systemPathToFileUrl(os.path.join(tmpdir, "slots1.xlsx"))
+                doc.storeToURL(xlsx_1, (save_prop,))
+                reloaded_1 = desktop.loadComponentFromURL(xlsx_1, "_blank", 0, (hidden_prop,))
+                try:
+                    _insert_three(reloaded_1)
+                    assert reloaded_1.getSheets().getByIndex(0).getDrawPage().getCount() == 3
+                    if not rtl:
+                        xlsx_2 = uno.systemPathToFileUrl(os.path.join(tmpdir, "slots2.xlsx"))
+                        reloaded_1.storeToURL(xlsx_2, (save_prop,))
+                        reloaded_2 = desktop.loadComponentFromURL(xlsx_2, "_blank", 0, (hidden_prop,))
+                        try:
+                            _insert_three(reloaded_2)
+                            assert reloaded_2.getSheets().getByIndex(0).getDrawPage().getCount() == 3
+                        finally:
+                            reloaded_2.close(True)
+                finally:
+                    reloaded_1.close(True)
     finally:
         sheet.setPropertyValue("TableLayout", 0)
         b3.setFormula("")

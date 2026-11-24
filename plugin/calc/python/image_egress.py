@@ -44,9 +44,7 @@ MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 # anchors a moved shape to the cell under its top-left corner (ScDrawView adjustAnchoredPosition,
 # drawvie3.cxx); exactly on the edge that is the next column, and smaller insets round onto the
 # next column for some widths (2: 89 of 228 LTR; 5: 1 of 160 RTL; 10: none). For a single-column
-# result, anchoring on the cell lets the plot follow a cut and pasted formula and keeps its owner
-# in XLSX (which drops the wa-plot tag); for a multi-column spill, the inset keeps the anchor on
-# the last spilled cell, which the untagged XLSX match needs.
+# result, anchoring on the cell lets the plot follow a cut and pasted formula.
 _PLOT_EDGE_INSET = 10
 
 # Only shapes we created for a plot are replaced on the next insert. A user
@@ -61,9 +59,17 @@ _IMAGE_ANNOTATION_PREFIX = "WriterAgent image: "
 # of its image. Recording the anchor lets a later recalc distinguish a plot that shifted with
 # its formula (row/column insert or delete) from one moved by the user. It lives in
 # UserDefinedAttributes, which ODF keeps as a namespaced attribute on the shape, so the
-# shape's Description (alt text) stays the user's.
+# shape's Description (alt text) stays the user's. Because XLSX drops UserDefinedAttributes,
+# the tag without the digest is also stored at the end of the shape's Name.
 _PLOT_TAG_ATTR = "wa:plot"
 _PLOT_TAG_NAMESPACE = "urn:writeragent:plot"
+
+# XLSX drops UserDefinedAttributes but keeps shape names, so the tag (without the digest) is also
+# the end of the name. Anything else after the slot, such as the " 1" MakeNameUnique gives a pasted
+# copy, is not a slot.
+_PLOT_NAME_RE = re.compile(
+    rf"{re.escape(_PLOT_SHAPE_NAME_PREFIX)}(?:_([2-9]|[1-9][0-9]+))?(?: (wa-plot:\d+,\d+(?:@\d+,\d+)?))?"
+)
 
 
 class _PlotTag(NamedTuple):
@@ -78,15 +84,13 @@ def _plot_slot_name(image_index: int) -> str:
 
 
 def _plot_slot_index(name: str) -> int | None:
-    """Slot index: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2).
+    """Slot index: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2), with optional wa-plot tag.
 
-    Only WriterAgentPlot or WriterAgentPlot_N (N≥2, no sign/underscore/leading zero) are slots;
-    loose int() parsing mis-reads names like WriterAgentPlot_1_0.
+    Only WriterAgentPlot or WriterAgentPlot_N (N≥2, no sign/underscore/leading zero), optionally
+    followed by a space and a wa-plot tag, are slots; loose int() parsing mis-reads names like
+    WriterAgentPlot_1_0 or pasted copies like WriterAgentPlot 1.
     """
-    match = re.fullmatch(
-        rf"{re.escape(_PLOT_SHAPE_NAME_PREFIX)}(?:_([2-9]|[1-9][0-9]+))?",
-        name,
-    )
+    match = _PLOT_NAME_RE.fullmatch(name)
     if match is None:
         return None
     suffix = match.group(1)
@@ -221,18 +225,20 @@ def _parse_plot_tag(desc: Any) -> _PlotTag | None:
 
 
 def _read_plot_tag(shape: Any) -> _PlotTag | None:
-    """Return the shape's parsed wa-plot tag, or None when it has none."""
+    """Return the shape's parsed wa-plot tag from UserDefinedAttributes or Name, or None."""
     try:
         attrs = shape.getPropertyValue("UserDefinedAttributes")
-        if attrs is None or not attrs.hasByName(_PLOT_TAG_ATTR):
-            return None
-        return _parse_plot_tag(attrs.getByName(_PLOT_TAG_ATTR).Value)
+        if attrs is not None and attrs.hasByName(_PLOT_TAG_ATTR):
+            return _parse_plot_tag(attrs.getByName(_PLOT_TAG_ATTR).Value)
+        name = shape.getPropertyValue("Name")
+        match = _PLOT_NAME_RE.fullmatch(name) if isinstance(name, str) else None
+        return _parse_plot_tag(match.group(2)) if match is not None else None
     except (AttributeError, TypeError):
         return None
 
 
 def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
-    """Store the owner formula cell, anchor cell at write time, and image digest in UserDefinedAttributes.
+    """Store the owner formula cell, anchor cell at write time, and image digest in UserDefinedAttributes, and the tag without digest on Name.
 
     Recording the anchor cell lets a later recalc tell a formula+plot move apart from a
     user drag (see ``_shape_matches_target_cell``). Edits to the attribute container take
@@ -244,8 +250,14 @@ def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return
-    tag = _format_plot_tag((addr_key[1], addr_key[2]), _anchor_cell(shape), sha)
+    owner = (addr_key[1], addr_key[2])
+    anchor = _anchor_cell(shape)
+    tag = _format_plot_tag(owner, anchor, sha)
     try:
+        old_name = shape.getPropertyValue("Name")
+        name = f"{old_name.partition(' ')[0]} {_format_plot_tag(owner, anchor)}"
+        if name != old_name:
+            shape.setPropertyValue("Name", name)
         attrs = shape.getPropertyValue("UserDefinedAttributes")
         data = AttributeData()
         data.Namespace = _PLOT_TAG_NAMESPACE
@@ -359,15 +371,16 @@ def _holds_py_formula(sheet: Any, cell: tuple[int, int]) -> bool:
     return isinstance(formula, str) and match_py_alias(normalize_formula_string(formula), require_equals=True) is not None
 
 
-def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any, spill_cols: int = 1) -> bool:
+def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool:
     """True when the plot shape belongs to the formula cell *target_cell*.
 
     Positioning a cell-anchored shape makes stock Calc move its anchor to the cell under
     the shape's top-left corner (``ScDrawView::adjustAnchoredPosition``, ``drawvie3.cxx:175-224``,
     calling ``ScDrawLayer::SetCellAnchoredFromPosition``). Slots after the first (and slot 0
     past a multi-column spill) lie beyond the formula cell, so they end up anchored to other
-    cells, and LibrePy cannot pin the anchor back. The ``wa-plot`` tag therefore decides
-    ownership; only a shape without a tag is matched by its anchor.
+    cells, and LibrePy cannot pin the anchor back. The ``wa-plot`` tag (in
+    ``UserDefinedAttributes`` or at the end of ``Name``) therefore decides ownership; only a
+    shape without a tag is matched by its anchor.
 
     When a tagged shape's anchor has moved since the tag was written:
     - If the owner shifted by the same delta equals *target_cell*, the formula and plot moved
@@ -382,20 +395,7 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any, spill_c
     """
     tag = _read_plot_tag(shape)
     if tag is None:
-        if _shape_anchor_matches_cell(shape, target_cell):
-            return True
-        if spill_cols > 1 and uno_read(lambda: shape.getPropertyValue("Name"), "") == _PLOT_SHAPE_NAME_PREFIX:
-            # XLSX drops the tag; a blocked spill can have another formula in the row, so that
-            # formula keeps its plot. In RTL the reloaded anchor is one column nearer.
-            anchor = _anchor_cell(shape)
-            addr_key = _cell_address_key(target_cell)
-            if anchor is not None and addr_key is not None:
-                return (
-                    anchor[1] == addr_key[2]
-                    and addr_key[1] <= anchor[0] < addr_key[1] + spill_cols
-                    and not _holds_py_formula(sheet, anchor)
-                )
-        return False
+        return _shape_anchor_matches_cell(shape, target_cell)
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return False
@@ -408,7 +408,7 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any, spill_c
     return tag.owner == here and not _holds_py_formula(sheet, moved)
 
 
-def _anchored_plot_slots(sheet: Any, target_cell: Any, spill_cols: int = 1) -> list[tuple[Any, int]]:
+def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
     """Return (shape, slot_index) for all plot shapes belonging to target_cell, in draw-page order."""
     try:
         draw_page = sheet.DrawPage
@@ -421,7 +421,7 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any, spill_cols: int = 1) -> l
             slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
             if slot_idx is None:
                 continue
-            if not _shape_matches_target_cell(sheet, shape, target_cell, spill_cols):
+            if not _shape_matches_target_cell(sheet, shape, target_cell):
                 continue
             slots.append((shape, slot_idx))
         return slots
@@ -923,7 +923,7 @@ def _insert_image_result_on_sheet_impl(
         aspect = _intrinsic_aspect(data_bytes) if data_bytes else None
         aspect_size = _aspect_size(aspect)
 
-        slots = _anchored_plot_slots(sheet, target_cell, spill_cols) if target_cell is not None else []
+        slots = _anchored_plot_slots(sheet, target_cell) if target_cell is not None else []
         shape = _resolve_slot(slots, image_index)
         rtl = sheet_is_rtl(sheet)
 

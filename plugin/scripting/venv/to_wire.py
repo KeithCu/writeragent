@@ -298,11 +298,6 @@ def to_wire(
             if kind in ("M", "m"):
                 py_tree = _temporal_ndarray_to_python(val, pd_mod)
                 return _walk(py_tree, depth, is_packing_root=True)
-            if kind == "O":
-                packed = child_pack_result(val, force=force)
-                if isinstance(packed, dict):
-                    return packed
-                return _walk(packed, depth, is_packing_root=False)
             if kind is not None and is_numeric_wire_kind(kind):
                 return child_pack_result(val, force=force)
             return _walk(val.tolist(), depth, is_packing_root=True)

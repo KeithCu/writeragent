@@ -402,14 +402,14 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sheet modify pass cleans up spilled cells when formula is removed."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    # Listener cleanup asserts clearContents call args; keep a MagicMock sheet for that.
-    sheet = MagicMock()
-    doc = CalcDocStub(url="file:///fake_cleanup.ods")
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///fake_cleanup.ods")
 
     saved = []
     monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda d, st: saved.append(d))
-
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -419,31 +419,21 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
         cells=[_spill.SpillCell(2, 1, "n", 20.0)],
     )
 
-    cell_B2 = MagicMock()
-    cell_B3 = MagicMock()
-    cell_B3.getType.return_value = 1
-    cell_B3.getValue.return_value = 20.0
+    cell_B2 = sheet.getCellByPosition(1, 1)
+    cell_B3 = sheet.getCellByPosition(1, 2)
+    cell_B2.setFormula('=PYTHON("some_code")')
+    cell_B3.setValue(20.0)
 
-    def get_cell(c, r):
-        if r == 1 and c == 1:
-            return cell_B2
-        if r == 2 and c == 1:
-            return cell_B3
-        return MagicMock()
-
-    sheet.getCellByPosition.side_effect = get_cell
-
-    cell_B2.getFormula.return_value = '=PYTHON("some_code")'
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
     assert key in SPILL_REGISTRY
-    cell_B3.clearContents.assert_not_called()
+    assert cell_B3.getValue() == 20.0
 
-    cell_B2.getFormula.return_value = ''
+    cell_B2.setFormula("")
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
     assert key not in SPILL_REGISTRY
-    cell_B3.clearContents.assert_called_once_with(55)
+    assert cell_B3.getType() == 0
     assert len(saved) == 1
 
 
@@ -486,11 +476,12 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
 def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeypatch: pytest.MonkeyPatch) -> None:
     """=PYMT and other formulas that merely contain PY/PYTHON must drop stale spills."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    sheet = MagicMock()
-    doc = CalcDocStub(url="file:///fake_pymt.ods")
-    monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda d, st: None)
-
     from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///fake_pymt.ods")
+    monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda d, st: None)
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -500,29 +491,19 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
         cells=[_spill.SpillCell(2, 1, "n", 20.0)],
     )
 
-    origin = MagicMock()
-    spilled = MagicMock()
-    spilled.getType.return_value = 1
-    spilled.getValue.return_value = 20.0
-
-    def get_cell(c, r):
-        if r == 1 and c == 1:
-            return origin
-        if r == 2 and c == 1:
-            return spilled
-        return MagicMock()
-
-    sheet.getCellByPosition.side_effect = get_cell
+    origin = sheet.getCellByPosition(1, 1)
+    spilled = sheet.getCellByPosition(1, 2)
+    origin.setFormula('=PY("keep")')
+    spilled.setValue(20.0)
     try:
-        origin.getFormula.return_value = '=PY("keep")'
         _fire_sheet_modify(MagicMock(), doc, sheet)
         assert key in SPILL_REGISTRY
-        spilled.clearContents.assert_not_called()
+        assert spilled.getValue() == 20.0
 
-        origin.getFormula.return_value = "=PYMT(0.05, 12, 1000)"
+        origin.setFormula("=PYMT(0.05, 12, 1000)")
         _fire_sheet_modify(MagicMock(), doc, sheet)
         assert key not in SPILL_REGISTRY
-        spilled.clearContents.assert_called_once_with(55)
+        assert spilled.getType() == 0
     finally:
         SPILL_REGISTRY.pop(key, None)
 
@@ -917,102 +898,31 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
     assert sheet.getCellByPosition(0, 2).getString() == ""
 
 
-def test_cell_matches_stored_value_type_gate() -> None:
-    """Direct _cell_matches_stored_value cases for VALUE/TEXT gate and PyUNO enum compatibility."""
-    from plugin.calc.python.spill import SpillCell, _cell_matches_stored_value
-    from plugin.tests.testing_utils import CalcSheetStub
-
-    sheet = CalcSheetStub("Sheet1")
-    sheet.getCellByPosition(0, 0).setValue(0.0)
-    assert _cell_matches_stored_value(sheet, 0, 0, SpillCell(0, 0, "n", 0.0)) is True
-
-    sheet.getCellByPosition(0, 1).setString("0.0")
-    assert _cell_matches_stored_value(sheet, 1, 0, SpillCell(1, 0, "n", 0.0)) is False
-
-    class _PyUnoEnum:
-        def __init__(self, value: str) -> None:
-            self.value = value
-
-        def __eq__(self, other: object) -> bool:
-            return isinstance(other, _PyUnoEnum) and self.value == other.value
-
-    class _StandInCell:
-        def __init__(self, enum_val: str, value: float = 0.0, text: str = "") -> None:
-            self._type = _PyUnoEnum(enum_val)
-            self._value = value
-            self._text = text
-
-        def getType(self) -> _PyUnoEnum:
-            return self._type
-
-        def getValue(self) -> float:
-            return self._value
-
-        def getString(self) -> str:
-            return self._text
-
-    class _StandInSheet:
-        def __init__(self, cell: _StandInCell) -> None:
-            self._cell = cell
-
-        def getCellByPosition(self, _col: int, _row: int) -> _StandInCell:
-            return self._cell
-
-    # Stand-in whose getType returns object with .value == "VALUE" and __eq__ false for ints
-    val_cell = _StandInCell("VALUE", value=123.0, text="123.0")
-    val_sheet = _StandInSheet(val_cell)
-    assert _cell_matches_stored_value(val_sheet, 0, 0, SpillCell(0, 0, "n", 123.0)) is True
-    assert _cell_matches_stored_value(val_sheet, 0, 0, SpillCell(0, 0, "s", "123.0")) is False
-
-    # The same stand-in with .value == "TEXT" and getString() equal to the stored string matches kind "s"
-    text_cell = _StandInCell("TEXT", value=0.0, text="hello")
-    text_sheet = _StandInSheet(text_cell)
-    assert _cell_matches_stored_value(text_sheet, 0, 0, SpillCell(0, 0, "s", "hello")) is True
-
-    # A VALUE stand-in whose getString() equals a stored string does not match kind "s"
-    val_with_str = _StandInCell("VALUE", value=0.0, text="target")
-    val_str_sheet = _StandInSheet(val_with_str)
-    assert _cell_matches_stored_value(val_str_sheet, 0, 0, SpillCell(0, 0, "s", "target")) is False
-
-
-def test_cell_matches_stored_value_err() -> None:
-    fake_cell_519 = SimpleNamespace(getError=lambda: 519, getFormula=lambda: "=#VALUE!")
-    fake_cell_na = SimpleNamespace(getError=lambda: 32767, getFormula=lambda: "#N/A")
-    fake_cell_user_formula = SimpleNamespace(getError=lambda: 532, getFormula=lambda: "=1/0")
-    fake_cell_no_err = SimpleNamespace()
-    rec_519 = _spill.SpillCell(row=0, col=0, kind="err", value=519)
-    rec_na = _spill.SpillCell(row=0, col=0, kind="err", value=32767)
-    rec_532 = _spill.SpillCell(row=0, col=0, kind="err", value=532)
-
-    class FakeSheet:
-        def __init__(self, cell):
-            self._cell = cell
-        def getCellByPosition(self, col, row):
-            return self._cell
-
-    sheet_519 = FakeSheet(fake_cell_519)
-    assert _spill._cell_matches_stored_value(sheet_519, 0, 0, rec_519) is True
-    assert _spill._cell_matches_stored_value(sheet_519, 0, 0, rec_532) is False
-
-    assert _spill._cell_matches_stored_value(FakeSheet(fake_cell_na), 0, 0, rec_na) is True
-    assert _spill._cell_matches_stored_value(FakeSheet(fake_cell_user_formula), 0, 0, rec_532) is False
-
-    sheet_no_err = FakeSheet(fake_cell_no_err)
-    assert _spill._cell_matches_stored_value(sheet_no_err, 0, 0, rec_519) is False
-
-
-def test_cell_matches_stored_value_empty_rejects_formula() -> None:
-    formula_cell = SimpleNamespace(
-        getType=lambda: 3,
-        getString=lambda: "",
-        getFormula=lambda: '=""',
-    )
-
-    class FakeSheet:
-        def getCellByPosition(self, col, row):
-            return formula_cell
-
-    assert _spill._cell_matches_stored_value(FakeSheet(), 0, 0, _spill.SpillCell(0, 0, "e", "")) is False
+@pytest.mark.parametrize(
+    ("formula", "rec", "expected"),
+    [
+        ("0", _spill.SpillCell(0, 0, "n", 0.0), True),
+        ("'0.0", _spill.SpillCell(0, 0, "n", 0.0), False),
+        ("1_000", _spill.SpillCell(0, 0, "n", 1000.0), False),
+        ("inf", _spill.SpillCell(0, 0, "n", float("inf")), False),
+        ("12345678901", _spill.SpillCell(0, 0, "n", 12345678900.0), False),
+        ("0.3", _spill.SpillCell(0, 0, "n", 0.30000000000000004), True),
+        ("1E+300", _spill.SpillCell(0, 0, "n", 1e300), True),
+        ("nan", _spill.SpillCell(0, 0, "n", float("nan")), False),
+        ("a\nb", _spill.SpillCell(0, 0, "s", "a\r\nb"), True),
+        ("'123", _spill.SpillCell(0, 0, "s", "123"), True),
+        ("123", _spill.SpillCell(0, 0, "s", "123"), True),
+        ("=#VALUE!", _spill.SpillCell(0, 0, "err", 519), True),
+        ("=#ERR511!", _spill.SpillCell(0, 0, "err", 521), True),
+        ("#N/A", _spill.SpillCell(0, 0, "err", 32767), True),
+        ("=NA()", _spill.SpillCell(0, 0, "err", 503), True),
+        ("=1/0", _spill.SpillCell(0, 0, "err", 532), False),
+        ("", _spill.SpillCell(0, 0, "e", ""), True),
+        ('=""', _spill.SpillCell(0, 0, "e", ""), False),
+    ],
+)
+def test_matches_stored_value(formula: str, rec: _spill.SpillCell, expected: bool) -> None:
+    assert _spill._matches_stored_value(formula, rec) is expected
 
 
 def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1267,6 +1177,101 @@ def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: 
         assert sheet.getCellByPosition(1, 0).getValue() == 10
         assert sheet.getCellByPosition(1, 1).getValue() == 99
         assert state.spills[("Sheet1", 0, 0)] is old_record
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_perform_deferred_spill_keeps_user_value_over_spilled_cell(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-user-edit.ods", props={"RuntimeUID": "uid-spill-user-edit"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_user_edit")')
+    sheet.getCellByPosition(1, 0).setValue(99)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(
+        code="code_user_edit",
+        cells=[_spill.SpillCell(row=0, col=1, kind="n", value=10)],
+    )
+    doc_id = "uid-spill-user-edit"
+    try:
+        prep = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "code_user_edit",
+            [[1, 20]],
+        )
+        assert prep == "#SPILL!"
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), "code_user_edit")
+        assert entry is not None and "B1" in entry.message
+
+        _spill.perform_deferred_spill(
+            "Sheet1",
+            0,
+            0,
+            [[1, 20]],
+            doc=doc,
+            sheet=sheet,
+            code="code_user_edit",
+            key=state.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getValue() == 99
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_perform_deferred_spill_shrink_leaves_user_cell(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda _d, _st: None)
+    doc = CalcDocStub(url="file:///spill-shrink-user.ods", props={"RuntimeUID": "uid-spill-shrink-user"})
+    sheet = doc.getSheets().getByIndex(0)
+    sheet.getCellByPosition(0, 0).setFormula('=PY("code_shrink")')
+    # B1 (col=1, row=0) is kept as emptied (EMPTY -> refilled), C1 (col=2, row=0) is user-edited (outside new 1x2 grid),
+    # D1 (col=3, row=0) is unchanged (cleared).
+    sheet.getCellByPosition(2, 0).setString("user")
+    sheet.getCellByPosition(3, 0).setValue(30)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(
+        code="code_shrink",
+        cells=[
+            _spill.SpillCell(row=0, col=1, kind="n", value=10),
+            _spill.SpillCell(row=0, col=2, kind="n", value=20),
+            _spill.SpillCell(row=0, col=3, kind="n", value=30),
+        ],
+    )
+    doc_id = "uid-spill-shrink-user"
+    try:
+        _spill.perform_deferred_spill(
+            "Sheet1",
+            0,
+            0,
+            [[1, 99]],
+            doc=doc,
+            sheet=sheet,
+            code="code_shrink",
+            key=state.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getValue() == 99
+        assert sheet.getCellByPosition(2, 0).getString() == "user"
+        assert sheet.getCellByPosition(3, 0).getType() == 0
+        rec = state.spills[("Sheet1", 0, 0)]
+        assert (0, 2) not in rec.spills
     finally:
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
             SPILL_REGISTRY.pop(key, None)

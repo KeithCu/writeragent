@@ -841,3 +841,72 @@ def test_inf_spill_neighbour_survives_ods_reload_uno(ctx, doc):
                 reloaded.close(True)
     finally:
         WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_keeps_user_edits_uno(ctx, doc):
+    """Spilled values remain owned across ;;; formatting, ODS and XLSX reload, while user edits block respill."""
+    import datetime
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import _unchanged_cells, perform_deferred_spill, prepare_auto_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[1, '123', 'q', 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
+        origin_cell = sheet.getCellByPosition(0, 0)
+        origin_cell.setFormula(f'=PY("{code}")')
+        grid = [[1, "123", "q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True]]
+        perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
+        rec = st.spills[(sheet.Name, 0, 0)]
+
+        # Apply ;;; number format across spilled neighbors; second spill still succeeds.
+        formats = doc.getNumberFormats()
+        locale = doc.getPropertyValue("CharLocale")
+        hidden_key = formats.queryKey(";;;", locale, True)
+        if hidden_key == -1:
+            hidden_key = formats.addNew(";;;", locale)
+        sheet.getCellRangeByPosition(1, 0, 7, 0).setPropertyValue("NumberFormat", int(hidden_key))
+
+        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
+
+        # ODS and XLSX reloads keep every record cell recognizable.
+        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        hidden_prop = PropertyValue()
+        hidden_prop.Name = "Hidden"
+        hidden_prop.Value = True
+        with tempfile.TemporaryDirectory(prefix="wa-spill-reload-") as tmpdir:
+            for fname, flt in (("spill.ods", None), ("spill.xlsx", "Calc MS Excel 2007 XML")):
+                path = uno.systemPathToFileUrl(os.path.join(tmpdir, fname))
+                props = ()
+                if flt is not None:
+                    sp = PropertyValue()
+                    sp.Name = "FilterName"
+                    sp.Value = flt
+                    props = (sp,)
+                doc.storeToURL(path, props)
+                reloaded = desktop.loadComponentFromURL(path, "_blank", 0, (hidden_prop,))
+                try:
+                    rsheet = reloaded.getSheets().getByIndex(0)
+                    assert len(_unchanged_cells(rsheet, rec.cells)) == len(rec.cells)
+                finally:
+                    reloaded.close(True)
+
+        # User formula and user text over one spilled cell each block the next spill and stay untouched.
+        sheet.getCellByPosition(1, 0).setFormula("=1+1")
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+        assert sheet.getCellByPosition(1, 0).getFormula() == "=1+1"
+
+        sheet.getCellByPosition(1, 0).setString("user text")
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+        assert sheet.getCellByPosition(1, 0).getFormula() == "user text"
+    finally:
+        WorkbookState.forget_key(st.key)
