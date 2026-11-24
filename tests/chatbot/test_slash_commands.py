@@ -1105,11 +1105,12 @@ def test_slash_local_messages_omitted_from_llm_view():
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
 
     session = SimpleNamespace(
+        compaction=None,
         messages=[
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "help text", SLASH_LOCAL: True},
-        ]
+        ],
     )
     view = messages_for_llm(session)
     assert all(not m.get(SLASH_LOCAL) for m in view)

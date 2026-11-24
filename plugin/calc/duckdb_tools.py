@@ -154,7 +154,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
         try:
             parsed = parse_table_source_spec(spec, default_headers=headers)
             grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
-            preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
+            preloaded[str(tbl_name)] = {"grid": grid, "headers": parsed["headers"]}
         except CalcError as exc:
             raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
         except ToolExecutionError as exc:
@@ -228,7 +228,10 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
     if not isinstance(spec, dict):
         raise ToolExecutionError(f"Table spec must be a string range or an object with sheet, named_range, or range; got {type(spec).__name__}", code="INVALID_PARAM")
 
-    headers = bool(spec.get("headers", default_headers))
+    headers = spec.get("headers", default_headers)
+    # The schema gate already converted boolean words and dropped null; anything else is not a yes/no.
+    if not isinstance(headers, bool):
+        raise ToolExecutionError(f"Table spec headers must be true or false; got {headers!r}", code="INVALID_PARAM")
     file_spec = str(spec.get("file") or "").strip() or None
     sheet = str(spec.get("sheet") or "").strip() or None
     named_range = str(spec.get("named_range") or "").strip() or None

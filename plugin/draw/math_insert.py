@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.draw.base import ToolDrawMathBase
+from plugin.draw.base import DRAW_REQUIRED_PAGE_PROPERTY, ToolDrawMathBase
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
@@ -122,7 +122,7 @@ class InsertMathDraw(ToolDrawMathBase):
         "properties": {
             "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
             "formula": {"type": "string", "description": "LaTeX or MathML formula text, per formula_type."},
-            "page": {"type": "integer", "description": "0-based index of the draw page or slide."},
+            "page": DRAW_REQUIRED_PAGE_PROPERTY,
             "x": {"type": "integer", "description": "X position, 1/100 mm."},
             "y": {"type": "integer", "description": "Y position, 1/100 mm."},
         },

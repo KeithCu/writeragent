@@ -139,8 +139,12 @@ class SearchNearbyFiles(ToolBase):
                 if candidates and not indexable:
                     # An empty hit list would read as "the text is not in that file".
                     return {"error": f"{str(file_subset)!r} is not a document that can be searched."}
+                # The index holds only files directly inside listing_root (guess_indexable_paths).
+                indexed = [c for c in indexable if os.path.dirname(c["path"]) == listing_root]
+                if indexable and not indexed:
+                    return {"error": f"{str(file_subset)!r} is outside the indexed folder {listing_root}, so it is not searched here. Read it with research_delegate_read."}
                 allowed_urls = set()
-                for c in indexable:
+                for c in indexed:
                     url = str(c.get("url") or "")
                     if not url:
                         path = c.get("path")

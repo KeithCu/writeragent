@@ -21,6 +21,7 @@ To copy a page style (direct properties, header/footer content, and floating gra
 - **`Height`** (`int`): The height of the page.
 - **`IsLandscape`** (`bool`): Indicates if the page orientation is landscape. `page_set_style_properties` sets the `IsLandscape` flag only and does not swap dimensions; pass `width_mm` and `height_mm` to change dimensions (written after the flag).
 - **`LeftMargin`**, **`RightMargin`**, **`TopMargin`**, **`BottomMargin`** (`int`): Page margins.
+- **`BackColor`** (`int`): Page background color. `page_set_style_properties` accepts hex (`#FF0000`), color names, `rgb()`, `-1`/`transparent`/`none`/`automatic` (no fill), or an integer (written unchanged so transparency in the high byte is preserved).
 - Note: `page_set_style_properties` reports `updated` when a later property throws, and those earlier properties stay applied.
 
 ### Python Example: Retrieving and Modifying Page Dimensions

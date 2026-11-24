@@ -1318,3 +1318,37 @@ def test_read_table_source_grid_missing_file_and_scoped_dir_codes(tmp_path: Path
     with pytest.raises(ToolExecutionError) as exc_missing_file:
         read_table_source_grid(None, None, str(tmp_path), {"file": "gone.xlsx"})
     assert exc_missing_file.value.code == "MISSING_FILE"
+
+
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_query_folder_sql_table_headers_null_uses_tool_default(
+    _mock_resolve, mock_read, mock_run, mock_exec
+):
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.return_value = [["a", "b"], [1, 2]]
+    mock_run.return_value = {"status": "ok", "rows": []}
+
+    _run(_mk_ctx(), sql="SELECT * FROM t", tables={"t": {"sheet": "Actuals", "headers": None}})
+    assert mock_run.call_args.kwargs["preloaded"]["t"]["headers"] is True
+
+    _run(_mk_ctx(), sql="SELECT * FROM t", headers=False, tables={"t": {"sheet": "Actuals", "headers": None}})
+    assert mock_run.call_args.kwargs["preloaded"]["t"]["headers"] is False
+
+
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
+def test_query_folder_sql_table_headers_non_bool_is_invalid_param(
+    _mock_resolve, mock_run, mock_exec
+):
+    mock_exec.side_effect = lambda fn: fn()
+
+    res = _run(_mk_ctx(), sql="SELECT * FROM t", tables={"t": {"sheet": "Actuals", "headers": "maybe"}})
+
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "t" in res["message"]
+    mock_run.assert_not_called()
