@@ -1007,13 +1007,13 @@ def test_writer_agent_grammar_status_config_change_emits_cleared() -> None:
 
     bus.subscribe("grammar:status", _on_status)
     try:
-        sink = go.WriterAgentGrammarStatus()
+        # The event bus holds the sink weakly, so this reference keeps it subscribed.
+        sink = go.WriterAgentGrammarStatus()  # noqa: F841
         bus.emit("config:changed", keys=["unrelated_key"])
         assert events == []
         bus.emit("config:changed", keys=["doc.grammar_proofreader_enabled"])
         assert events
         assert all(e.get("phase") == "cleared" for e in events)
-        del sink
     finally:
         bus.unsubscribe("grammar:status", _on_status)
 

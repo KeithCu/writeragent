@@ -1747,7 +1747,6 @@ def test_partial_turn_double_finish_preserves_earlier_and_grades_skipped():
     ],
 )
 def test_partial_turn_rejected_finish_then_max_steps_is_incomplete(turn_calls):
-    from plugin.contrib.smolagents.models import ChatMessage, MessageRole
     from plugin.doc.specialized_catalog import normalize_inner_result
 
     mock_model = MagicMock()
