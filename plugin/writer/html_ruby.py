@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, Iterator, NamedTuple, Sequence
 
-from plugin.doc.text_helpers import FAILED, go_right
+from plugin.doc.text_helpers import FAILED, DeletionState, go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 import plugin.writer.range_copy as range_copy
 
@@ -139,7 +139,9 @@ def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
 
 
 
-def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
+def _iter_ruby_spans_in_paragraph(
+    para: Any, state: DeletionState | None = None
+) -> Iterator[RubySpan]:
     """Yield ``RubySpan`` for each Ruby start/end pair in *para*.
 
     Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
@@ -150,7 +152,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
     portion_enum = uno_read(lambda: para.createEnumeration(), FAILED)
     if portion_enum is FAILED:
         return
-    in_delete = False
+    if state is None:
+        state = DeletionState()
     in_ruby = False
     reading = ""
     is_above = True
@@ -159,13 +162,9 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
     offset = 0
     for portion, kind in range_copy.iter_portions(portion_enum):
         if kind == "Redline":
-            try:
-                if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = bool(portion.getPropertyValue("IsStart"))
-            except Exception as exc:
-                log.debug("_iter_ruby_spans: RedlineType unreadable: %s", exc)
+            state.apply_marker(portion)
             continue
-        if in_delete:
+        if state.in_delete:
             continue
         if kind == "Ruby":
             if not in_ruby:
@@ -189,11 +188,13 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[RubySpan]:
 
 
 
-def ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[RubySpan]:
+def ruby_spans_in_window(
+    para: Any, trim_start: int, trim_end: int, state: DeletionState
+) -> list[RubySpan]:
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
     return [
         span
-        for span in _iter_ruby_spans_in_paragraph(para)
+        for span in _iter_ruby_spans_in_paragraph(para, state=state)
         if span.start >= trim_start and span.end <= trim_end
     ]
 
@@ -209,14 +210,16 @@ def inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None 
         return content
     if fodt_has_ruby is False:
         return content
-    spans = best_effort(
-        lambda: [
+
+    def _collect() -> list[RubySpan]:
+        state = DeletionState()
+        return [
             span
             for para in range_copy.iter_xtext_paragraphs(model.getText())
-            for span in _iter_ruby_spans_in_paragraph(para)
-        ],
-        "inject_ruby_from_model: portion walk failed",
-    )
+            for span in _iter_ruby_spans_in_paragraph(para, state=state)
+        ]
+
+    spans = best_effort(_collect, "inject_ruby_from_model: portion walk failed")
     if spans is None:
         return content
     return inject_ruby_into_html(content, spans)
