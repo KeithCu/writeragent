@@ -908,3 +908,40 @@ def test_grep_nearby_files_stop_during_listing_is_user_stopped(mock_open):
             result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", cancel=scope)
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
     mock_open.assert_not_called()
+
+
+def test_resolve_grep_candidates_quoted_path():
+    with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as f:
+        path = f.name
+    try:
+        with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_scan:
+            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=f'"{path}"')
+        mock_scan.assert_not_called()
+        assert err is None
+        assert truncated is False
+        assert len(candidates) == 1
+        assert candidates[0]["path"] == os.path.normpath(os.path.abspath(path))
+    finally:
+        os.unlink(path)
+
+
+def test_resolve_grep_candidates_subset_miss_returns_error():
+    with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_scan:
+        mock_scan.return_value = {"status": "ok", "files": [], "truncated": False}
+        candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset="missing")
+    assert candidates == []
+    assert truncated is False
+    assert err == "No file matching 'missing'"
+
+
+def test_grep_nearby_files_no_files_scanned():
+    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=([], False, None)):
+        res_empty = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4")
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "NO_FILES_SCANNED"
+
+    unsupported = [{"path": "/tmp/photo.png", "name": "photo.png", "url": "file:///tmp/photo.png", "doc_type_guess": "image"}]
+    with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=(unsupported, False, None)):
+        res_unsupported = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="photo.png")
+    assert res_unsupported["status"] == "error"
+    assert res_unsupported["code"] == "NO_FILES_SCANNED"

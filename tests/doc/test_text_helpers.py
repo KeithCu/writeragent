@@ -5,7 +5,6 @@ import pytest
 from plugin.doc.text_helpers import (
     DeletionState,
     visible_portions,
-    writer_char_count,
     apply_chapter_number,
     chapter_number_from_para,
     clone_text_range,
@@ -365,89 +364,58 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_get_text_cursor_at_range_ignores_the_short_character_count():
+def test_get_text_cursor_at_range_reached_ignores_the_short_character_count():
     """#37: CharacterCount leaves out paragraph breaks and tracked deletions, so clamping to it
     cut a real offset from search(return_offsets) down to nothing."""
-    from plugin.doc.text_helpers import get_text_cursor_at_range
+    from plugin.doc.text_helpers import get_text_cursor_at_range_reached
 
     model = MagicMock()
     model.CharacterCount = 5  # far shorter than the offsets asked for
     cursor = model.getText.return_value.createTextCursor.return_value
-    got = get_text_cursor_at_range(model, 3338, 3358)
+    cursor.goRight.return_value = True
+    got, reached = get_text_cursor_at_range_reached(model, 3338, 3358)
     assert got is cursor
+    assert reached is True
     assert cursor.goRight.call_args_list[0].args == (3338, False)
     assert cursor.goRight.call_args_list[-1].args == (20, True)
 
 
-def test_get_text_cursor_at_range_stops_at_the_end_of_the_text():
+def test_get_text_cursor_at_range_reached_stops_at_the_end_of_the_text():
     """Without the clamp, char_end=10**12 would run ~10**8 goRight calls; stop once one runs
     out of text (it has already moved to the end)."""
-    from plugin.doc.text_helpers import get_text_cursor_at_range
+    from plugin.doc.text_helpers import get_text_cursor_at_range_reached
 
     model = MagicMock()
     cursor = model.getText.return_value.createTextCursor.return_value
     cursor.goRight.return_value = False
-    assert get_text_cursor_at_range(model, 10**12, 10**12 + 5) is cursor
+    got, reached = get_text_cursor_at_range_reached(model, 10**12, 10**12 + 5)
+    assert got is cursor
+    assert reached is False
     assert cursor.goRight.call_count == 1
 
 
-class _WalkCursor:
-    """Model cursor over a body of *n* cursor steps: goRight stops at the end and says False."""
-
-    def __init__(self, text, pos):
-        self.text, self.pos = text, pos
-
-    def gotoStart(self, expand):
-        self.pos = 0
-
-    def getStart(self):
-        return self
-
-    def goRight(self, n, expand):
-        if self.pos + n <= self.text.n:
-            self.pos += n
-            return True
-        self.pos = self.text.n
-        return False
-
-
-class _WalkText:
-    def __init__(self, n):
-        self.n = n
-
-    def createTextCursor(self):
-        return _WalkCursor(self, 0)
-
-    def createTextCursorByRange(self, rng):
-        return _WalkCursor(self, rng.pos)
-
-
-@pytest.mark.parametrize("n", [0, 5, 8192, 20001])
-def test_writer_char_count_walks_the_real_length_not_character_count(n):
-    """CharacterCount leaves out paragraph breaks and tracked deletions (54 read as 53), so the
-    chat excerpt lost the end of the document."""
-    from types import SimpleNamespace
-
-    from plugin.doc.text_helpers import writer_char_count
-
-    text = _WalkText(n)
-    assert writer_char_count(SimpleNamespace(getText=lambda: text, CharacterCount=1)) == n
+def _make_body_cursor(paragraphs):
+    cursor = _TextRange(paragraphs)
+    cursor.gotoStart = lambda _expand=False: None  # type: ignore[attr-defined]
+    cursor.gotoEnd = lambda _expand=False: None  # type: ignore[attr-defined]
+    return cursor
 
 
 def test_get_document_length_is_the_visible_writer_text():
-    """document_length and scope='range' share one space: the visible text as
-    get_string_without_tracked_deletions reads it (a field or footnote number is several
-    characters there but one cursor step; CharacterCount cut a range read at the end: "o dan")."""
+    """document_length and scope='range' share one space: the visible text with LF-normalised
+    breaks and tracked deletions hidden."""
     from plugin.doc import text_helpers
 
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([
+        _Paragraph([_Portion("ab\r\ncd")]),
+        _Paragraph([_Portion("ef")]),
+    ])
     model = MagicMock()
-    with (
-        patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER),
-        patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd"),
-    ):
-        assert text_helpers.get_document_length(model) == 5
-    whole = model.getText.return_value.createTextCursor.return_value
-    whole.gotoEnd.assert_called_once_with(True)
+    model.getText.return_value = body
+    with patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER):
+        # "ab\ncd" (5) + "\n" (1) + "ef" (2) = 8
+        assert text_helpers.get_document_length(model) == 8
 
 
 def test_get_document_length_propagates_disposal():
@@ -476,27 +444,6 @@ def test_build_heading_tree_propagates_disposal_and_uno_error():
     broken.getText.side_effect = RuntimeError("boom")
     with pytest.raises(UnoObjectError):
         build_heading_tree(broken)
-
-
-def test_char_offset_of_other_xtext_is_not_zero():
-    from plugin.doc.text_helpers import _char_offset_of_position
-
-    class _Text(MagicMock):
-        pass
-
-    class _Pos:
-        def __init__(self, text):
-            self._text = text
-
-        def getText(self):
-            return self._text
-
-    body = _Text()
-    other = _Text()
-    model = MagicMock()
-    model.getText.return_value = body
-    assert _char_offset_of_position(model, _Pos(other), 10) == -1
-    model.getText.return_value.createTextCursor.assert_not_called()
 
 
 def test_with_view_cursor_does_not_jump_when_clone_fails():
@@ -540,14 +487,6 @@ def test_visible_text_midwalk_failure_keeps_deletion_free_prefix():
     got = get_string_without_tracked_deletions(_BoomRange())
     assert got == "Keep "
     assert "DELETED" not in got
-
-def test_writer_char_count_disposed():
-    model = MagicMock()
-    model.getText.side_effect = DocumentDisposedError("stale")
-
-    with pytest.raises(DocumentDisposedError):
-        writer_char_count(model)
-
 
 def _make_selection_range(*, compare: int = 0, is_shape: bool = False) -> MagicMock:
     rng = MagicMock()
@@ -608,97 +547,6 @@ def test_selected_text_range_disposed_raises():
 
     with pytest.raises(DocumentDisposedError):
         selected_text_range(ctrl)
-
-
-class _BsearchCursor:
-    def __init__(self, text, offset=0):
-        self.text = text
-        self.offset = offset
-
-    def gotoStart(self, expand=False):
-        self.offset = 0
-
-    def getStart(self):
-        return self
-
-    def getText(self):
-        return self.text
-
-    def goRight(self, n, expand=False):
-        self.text.go_right_calls += 1
-        self.offset = min(self.offset + n, self.text.doc_len)
-        return True
-
-    def goLeft(self, n, expand=False):
-        self.text.go_left_calls += 1
-        self.offset = max(self.offset - n, 0)
-        return True
-
-
-class _BsearchText:
-    def __init__(self, doc_len):
-        self.doc_len = doc_len
-        self.go_right_calls = 0
-        self.go_left_calls = 0
-
-    def createTextCursor(self):
-        return _BsearchCursor(self, 0)
-
-    def createTextCursorByRange(self, start_pos):
-        return _BsearchCursor(self, getattr(start_pos, "offset", 0))
-
-    def compareRegionStarts(self, a, b):
-        a_off = getattr(a, "offset", 0)
-        b_off = getattr(b, "offset", 0)
-        if a_off < b_off:
-            return 1
-        if a_off > b_off:
-            return -1
-        return 0
-
-
-def test_char_offset_of_position_binary_search():
-    from plugin.doc.text_helpers import _char_offset_of_position
-
-    doc_len = 20000
-    text = _BsearchText(doc_len)
-    model = MagicMock()
-    model.getText.return_value = text
-
-    target = _BsearchCursor(text, 12345)
-    offset = _char_offset_of_position(model, target, doc_len)
-    assert offset == 12345
-    assert text.go_left_calls == 0
-    assert text.go_right_calls < 40
-
-    # Target at 0
-    text.go_right_calls = 0
-    text.go_left_calls = 0
-    target_0 = _BsearchCursor(text, 0)
-    assert _char_offset_of_position(model, target_0, doc_len) == 0
-    assert text.go_left_calls == 0
-    assert text.go_right_calls < 40
-
-    # Target at doc_len (end)
-    text.go_right_calls = 0
-    text.go_left_calls = 0
-    target_end = _BsearchCursor(text, doc_len)
-    assert _char_offset_of_position(model, target_end, doc_len) == doc_len
-    assert text.go_left_calls == 0
-    assert text.go_right_calls < 40
-
-
-def test_char_offset_of_position_error_returns_negative_one():
-    from plugin.doc.text_helpers import _char_offset_of_position
-
-    text = MagicMock()
-    text.createTextCursor.side_effect = RuntimeError("cursor creation failed")
-    model = MagicMock()
-    model.getText.return_value = text
-
-    target = MagicMock()
-    target.getText.return_value = text
-    assert _char_offset_of_position(model, target, 1000) == -1
 
 
 class _FakeTable:
@@ -777,6 +625,94 @@ def test_get_string_without_tracked_deletions_table_error_returns_empty():
         _Paragraph([_Portion("After")], fallback_text="After"),
     ])
     assert get_string_without_tracked_deletions(rng) == "Before\n\nAfter"
+
+
+def test_read_visible_body_hides_deletion_across_paragraphs_and_table():
+    from plugin.doc.text_helpers import read_visible_body
+
+    table = _FakeTable({
+        "A1": _TextRange([_Paragraph([_Portion("CellGone")])]),
+    })
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([
+        _Paragraph([
+            _Portion("Keep "),
+            _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+            _Portion("gone"),
+        ]),
+        table,
+        _Paragraph([
+            _Portion("also gone"),
+            _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+            _Portion("After"),
+        ]),
+    ])
+    model = MagicMock()
+    model.getText.return_value = body
+    text, offsets = read_visible_body(model)
+    assert text == "Keep \n\nAfter"
+    assert offsets == []
+
+
+def test_read_visible_body_position_in_other_text_is_none():
+    from plugin.doc.text_helpers import read_visible_body
+
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([_Paragraph([_Portion("Hello")])])
+    other = MagicMock()
+    pos = MagicMock()
+    pos.getText.return_value = other
+    model = MagicMock()
+    model.getText.return_value = body
+    text, offsets = read_visible_body(model, [pos])
+    assert text == "Hello"
+    assert offsets == [None]
+
+
+def test_read_visible_body_position_after_last_paragraph_is_text_end():
+    from plugin.doc.text_helpers import read_visible_body
+
+    para = _Paragraph([_Portion("Hello")])
+    para.getEnd = lambda: "para_end"  # type: ignore[attr-defined]
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([para])
+    body.compareRegionStarts.return_value = 1
+    pos = MagicMock()
+    pos.getText.return_value = body
+    model = MagicMock()
+    model.getText.return_value = body
+    text, offsets = read_visible_body(model, [pos])
+    assert text == "Hello"
+    assert offsets == [5]
+
+
+def test_read_visible_body_disposed():
+    from plugin.doc.text_helpers import read_visible_body
+
+    model = MagicMock()
+    model.getText.side_effect = DocumentDisposedError("stale")
+    with pytest.raises(DocumentDisposedError):
+        read_visible_body(model)
+
+
+def test_read_visible_body_measure_failure_returns_none_and_full_text():
+    from plugin.doc.text_helpers import read_visible_body
+
+    para = _Paragraph([_Portion("Hello world")])
+    para.getStart = lambda: "para_start"  # type: ignore[attr-defined]
+    para.getEnd = lambda: "para_end"  # type: ignore[attr-defined]
+    body = MagicMock()
+    body.createTextCursor.return_value = _make_body_cursor([para])
+    body.compareRegionStarts.return_value = 0
+    body.createTextCursorByRange.side_effect = RuntimeError("cursor failed")
+    pos = MagicMock()
+    pos.getText.return_value = body
+    model = MagicMock()
+    model.getText.return_value = body
+
+    text, offsets = read_visible_body(model, [pos])
+    assert text == "Hello world"
+    assert offsets == [None]
 
 
 def test_get_document_length_non_writer_is_zero():

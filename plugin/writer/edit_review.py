@@ -67,7 +67,12 @@ from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
-from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
+from plugin.writer.record_changes import (
+    is_recording_changes,
+    overlaps_foreign_insertion,
+    record_changes,
+    redline_kinds_covering,
+)
 from plugin.writer.review_view_attachment import refresh_review_toolbar
 from plugin.writer.word_diff_split import split_change
 
@@ -108,6 +113,29 @@ def review_recording_enabled() -> bool:
     raw config key.
     """
     return get_agent_edit_review_mode() in ("record", "wait")
+
+
+@contextlib.contextmanager
+def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
+    """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
+
+    LibreOffice folds a format into a pending insertion only when both have the same author;
+    otherwise rejecting keeps the inserted text (PreAppendFormatRedline in
+    DocumentRedlineManager.cxx). So the office author stays when *ranges* overlap an insertion
+    that is not WriterAgent's.
+    """
+    if (
+        not review_recording_enabled()
+        or not is_recording_changes(doc)
+        or overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
+    ):
+        yield
+        return
+    prior = review_authors.begin(ctx)
+    try:
+        yield
+    finally:
+        review_authors.end(ctx, prior)
 
 
 def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> None:

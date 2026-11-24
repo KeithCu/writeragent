@@ -1012,3 +1012,40 @@ def test_index_update_all_refuses_with_pending_redline_and_updates_clean_uno(ctx
         assert res_clean["status"] == "ok" and res_clean["count"] == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_refresh_toc_entry_recorded_two_links_reports_no_update_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.record_changes import record_changes
+
+    text, tctx, toc, protected, alpha, _beta = _toc_fixture(ctx, doc)
+    # Replace alpha's text with two distinct links: "Alpha " -> #1.Alpha title|outline, "title" -> #9.Other|outline.
+    cur = text.createTextCursorByRange(alpha.getStart())
+    cur.gotoRange(alpha.getEnd(), True)
+    cur.setString("")
+    text.insertString(cur, "Alpha ", False)
+    left_sel = text.createTextCursorByRange(cur.getEnd())
+    left_sel.goLeft(len("Alpha "), True)
+    left_sel.setPropertyValue("HyperLinkURL", "#1.Alpha title|outline")
+    text.insertString(cur, "title", False)
+    right_sel = text.createTextCursorByRange(cur.getEnd())
+    right_sel.goLeft(len("title"), True)
+    right_sel.setPropertyValue("HyperLinkURL", "#9.Other|outline")
+    if protected:
+        toc.IsProtected = True
+
+    with record_changes(doc, True):
+        res = IndexesRefreshTocEntry().execute(tctx, old_content="Alpha title", content="Q")
+    assert res.get("status") == "ok", res
+    links = res.get("hyperlinks") or []
+    assert len(links) == 2, res
+    assert all(entry["hyperlink_updated"] is False for entry in links), links
+    portions = alpha.createEnumeration()
+    urls = []
+    while enum_has_more(portions):
+        p = portions.nextElement()
+        if str(p.getString() or ""):
+            urls.append(str(p.getPropertyValue("HyperLinkURL") or ""))
+    assert "#1.Q|outline" not in urls, urls

@@ -10,6 +10,7 @@ import pytest
 
 from plugin.writer.edit_review import (
     WriterStreamedRewriteSession,
+    agent_format_author,
     annotate_review_status,
     edit_review_wait_seconds,
     flag_style_unreviewed,
@@ -1262,6 +1263,49 @@ def test_record_mutation_multi_text_anchors_in_changing_cell():
     assert session.changes[0].rejected_text == "old"
     text_changed.insertTextContent.assert_called_once()
     text_unchanged.insertTextContent.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "review_on,recording,foreign",
+    [
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_agent_format_author_skips_when_disabled_not_recording_or_foreign(review_on, recording, foreign):
+    doc = MagicMock()
+    ctx = MagicMock()
+    ranges = [MagicMock()]
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=review_on),
+        patch("plugin.writer.edit_review.is_recording_changes", return_value=recording),
+        patch("plugin.writer.edit_review.overlaps_foreign_insertion", return_value=foreign),
+        patch("plugin.writer.edit_review.review_authors") as mock_authors,
+    ):
+        with agent_format_author(doc, ctx, ranges):
+            pass
+        mock_authors.begin.assert_not_called()
+        mock_authors.end.assert_not_called()
+
+
+def test_agent_format_author_begins_and_ends_even_on_error():
+    doc = MagicMock()
+    ctx = MagicMock()
+    ranges = [MagicMock()]
+    token = ("old-first", "old-last")
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=True),
+        patch("plugin.writer.edit_review.is_recording_changes", return_value=True),
+        patch("plugin.writer.edit_review.overlaps_foreign_insertion", return_value=False),
+        patch("plugin.writer.edit_review.review_authors") as mock_authors,
+    ):
+        mock_authors.begin.return_value = token
+        with pytest.raises(RuntimeError, match="boom"):
+            with agent_format_author(doc, ctx, ranges):
+                raise RuntimeError("boom")
+        mock_authors.begin.assert_called_once_with(ctx)
+        mock_authors.end.assert_called_once_with(ctx, token)
 
 
 def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
