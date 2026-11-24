@@ -406,7 +406,7 @@ def test_find_all_pages_status_is_not_blank():
         cache_path="",
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_url=None,
+        browser=None,
         status_callback=statuses.append,
         append_thinking_callback=None,
         approval_callback=None,
@@ -569,24 +569,33 @@ def test_cdp_launch_failure_releases_the_run(monkeypatch):
 
     monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.get_local_chrome_cdp_url", fake_url)
     try:
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
             with pytest.raises(RuntimeError, match="no browser"):
                 wr._begin_shared_browser(object(), "chrome")
             # The only run failed to launch. Teardown still runs, and the count is released.
             cleanup.assert_called_once()
+            mock_rm_pid.assert_called_once_with()
         assert wr._cdp_refcount.runs == 0
 
         mode["fail"] = False
-        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup:
+        with (
+            patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
+        ):
             assert isinstance(wr._begin_shared_browser(object(), "chrome"), wr.CdpPageDriver)
             mode["fail"] = True
             with pytest.raises(RuntimeError, match="no browser"):
                 wr._begin_shared_browser(object(), "brave")
             # The first run still holds the browser, so the failed launch must not kill it.
             cleanup.assert_not_called()
+            mock_rm_pid.assert_not_called()
             assert wr._cdp_refcount.runs == 1
             wr._cdp_refcount.finish()
             cleanup.assert_called_once()
+            mock_rm_pid.assert_called_once_with()
         assert wr._cdp_refcount.runs == 0
         assert wr._cdp_refcount.closing is False
     finally:
@@ -603,14 +612,64 @@ def test_firefox_begin_dispatches_to_bidi_and_finish_closes_it():
             patch("plugin.chatbot.web_research_firefox.begin_firefox_bidi", return_value=fake_client) as mock_begin,
             patch("plugin.chatbot.web_research_firefox.close_firefox_bidi") as mock_close_bidi,
             patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome") as mock_cleanup,
+            patch("plugin.chatbot.web_research_firefox.remove_pidfile") as mock_rm_pid,
         ):
             assert wr._begin_shared_browser(object(), "firefox") is fake_client
             mock_begin.assert_called_once_with()
             wr._cdp_refcount.finish()
             mock_close_bidi.assert_called_once_with()
             mock_cleanup.assert_called_once_with()
+            mock_rm_pid.assert_called_once_with()
     finally:
         wr._cdp_refcount.reset_for_tests()
+
+
+@pytest.mark.parametrize(
+    "exc, expect_warning",
+    [
+        (ImportError("No module named 'websockets'"), True),
+        (RuntimeError("Firefox refused"), False),
+    ],
+)
+def test_firefox_import_error_warns_chat_while_runtime_error_is_silent(exc, expect_warning):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    chat_lines: list[str] = []
+    ctx.chat_append_callback = chat_lines.append
+    ctx.send_cancellation = None
+
+    def _cfg(key: str):
+        if key == "chatbot.web_research_browser":
+            return "firefox"
+        if key == "chatbot.max_tool_rounds":
+            return 2
+        if key == "chat_max_tokens":
+            return 2048
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=32_000),
+        patch("plugin.chatbot.web_research._begin_shared_browser", side_effect=exc),
+        patch("plugin.chatbot.web_research._run_web_agent", return_value="ok"),
+    ):
+        WebResearchTool().execute(ctx, query="test")
+
+    if expect_warning:
+        assert len(chat_lines) == 1
+        assert "make vendor" in chat_lines[0]
+    else:
+        assert chat_lines == []
 
 
 def test_web_search_prompt_shows_preview_even_when_matches_outer_query():

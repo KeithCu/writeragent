@@ -175,7 +175,7 @@ If the sub-agent needs to render JS-heavy search result pages, we can avoid heav
 - **Pydoll**: Lightweight, CDP-based, async alternative.
 
 ### C) Lightweight option for Firefox
-Firefox removed CDP in v141. WriterAgent drives Firefox over WebDriver BiDi (`plugin/chatbot/web_research_firefox.py`): one session per process at `ws://127.0.0.1:9222/session`, with a dedicated reader thread (`firefox-bidi-reader`) correlating command IDs so concurrent workers can share the socket; a dropped socket kills and relaunches the process because Firefox keeps the session reserved.
+Firefox removed CDP in v141. WriterAgent drives Firefox over WebDriver BiDi (`plugin/chatbot/web_research_firefox.py`, requires vendored `websockets` via `make vendor` when deploying from source): one session per process at `ws://127.0.0.1:9222/session`, with a dedicated reader thread (`firefox-bidi-reader`) correlating command IDs so concurrent workers can share the socket; a dropped socket kills and relaunches the process because Firefox keeps the session reserved.
 
 *Phase 2 roadmap*: Local browser rendering (`plugin/contrib/cdp/browser_cdp_tool.py`, `plugin/chatbot/web_research_firefox.py`, `VisitWebpageBrowserTool` in `plugin/chatbot/web_research.py`) is shipped for JS-heavy pages. Connecting to the user's already-running Chrome (CDP) or Firefox with their cookies for authenticated or deeply embedded SPAs remains open as an opt-in launch-script feature.
 
