@@ -20,6 +20,7 @@ import numpy as np
 
 from .calc_functions_util import (
     NA_NAN,
+    approx_floor,
     as_nonzero,
     build_holiday_set,
     clean_paired_arrays,
@@ -86,7 +87,7 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
     val = float(x)
     # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
     # passed through to the t distribution.
-    d = math.floor(float(df))
+    d = approx_floor(float(df))
     # ``t`` is the public T() function, so the local is tail_count. A text
     # tails raises ValueError (#VALUE!) and inf raises OverflowError (#NUM!)
     # in the worker; any other count outside 1 or 2 is NaN.
@@ -376,7 +377,7 @@ def tinv(prob: Any, df: Any) -> float:
     except OverflowError:
         return float("nan")
     # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
-    d = math.floor(float(df))
+    d = approx_floor(float(df))
     if p <= 0 or p > 1 or d < 1:
         return float("nan")
     st = scipy_stats()

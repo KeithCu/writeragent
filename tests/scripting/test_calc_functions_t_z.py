@@ -654,3 +654,8 @@ def test_xlookup_invalid_match_mode_returns_value_error():
     assert calc.xlookup(2, [1, 2], [10, 20], search_mode=-2) == 20
     assert calc.xlookup(2, [1, 2], [10, 20], search_mode=2.6) == 20
 
+
+def test_t_z_approx_floor_df():
+    assert calc.tdist(1, 0.29 * 100, 1) == calc.tdist(1, 29, 1)
+    assert calc.tinv(0.5, 0.29 * 100) == calc.tinv(0.5, 29)
+
