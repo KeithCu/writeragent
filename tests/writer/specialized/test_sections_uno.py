@@ -394,3 +394,26 @@ def test_section_get_info_nesting_and_index_uno(ctx, doc):
     toc_info = SectionGetInfo().execute(tctx, name="Table of Contents1")
     assert toc_info["status"] == "ok"
     assert toc_info["is_index"] is True
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_read_hides_multi_para_tracked_deletion_uno(ctx, doc):
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.specialized.sections import SectionRead
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+
+    sec_cur = text.createTextCursor()
+    sec_cur.gotoStart(False)
+    sec_cur.gotoEnd(True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("StruckSec")
+    text.insertTextContent(sec_cur, sec, True)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    res = SectionRead().execute(tctx, name="StruckSec")
+    assert res["status"] == "ok", res
+    assert "gone" not in res["content"], res
+    assert "Keep" in res["content"] and "Tail" in res["content"] and "After" in res["content"]
