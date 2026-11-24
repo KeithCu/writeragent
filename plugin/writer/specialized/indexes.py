@@ -1376,6 +1376,8 @@ class IndexesCreate(ToolWriterIndexBase):
                     code="INDEX_IN_TRACKED_CHANGE",
                 )
             strike = kwargs.get("target", "selection") == "search"
+            # Insert first while recording so the Delete redline does not stretch over the index;
+            # delete first otherwise so a match at paragraph end leaves no extra empty paragraph.
             if is_recording_changes(doc):
                 cursor.getText().insertTextContent(cursor, index, False)
                 if strike:

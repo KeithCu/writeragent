@@ -157,8 +157,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
-    # 2. Record mode tags agent token and records merge field
-    _set_body(doc, "dear NAME,")
+    # 2. Record mode tags agent token for PageCount, Input, and merge field
     with (
         __import__("unittest.mock").mock.patch(
             "plugin.writer.edit_review.review_recording_enabled", return_value=True
@@ -167,6 +166,22 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
             "plugin.writer.edit_review.edit_review_wait_seconds", return_value=0
         ),
     ):
+        for field_name, props in (("PageCount", {}), ("Input", {"Content": "prompt"})):
+            _set_body(doc, "hello MATCH world")
+            res_f = FieldsInsert().execute(
+                tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
+            )
+            assert res_f["status"] == "ok", res_f
+            redlines = doc.getRedlines()
+            comments = [
+                str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "")
+                for i in range(redlines.getCount())
+            ]
+            assert any(c.startswith("wa-review:") for c in comments), (field_name, comments)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+            assert doc.getText().getString() == "hello MATCH world"
+
+        _set_body(doc, "dear NAME,")
         res_m = InsertField().execute(
             tool_ctx, column_name="First", data_source_name="Bib", table_name="biblio",
             target="search", old_content="NAME",

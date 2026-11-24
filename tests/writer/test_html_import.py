@@ -235,10 +235,10 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>muito</b> ")
     text.insertString.assert_called_once_with(cursor, " ", False)
-    cursor.goLeft.assert_called_once_with(1, False)
     frag.assert_called_once()
     assert frag.call_args.args[1] == "<b>muito</b>"
     assert frag.call_args.kwargs["wrap"] is False
+    assert frag.call_args.kwargs["advance"] is True
 
 
 def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
@@ -267,22 +267,18 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
 
 
 @pytest.mark.parametrize(
-    "fn_name, fragment, extra_patches",
+    "fn_name, fragment",
     [
-        pytest.param("insert_inline_at_cursor", "<b>x</b>", {}, id="inline"),
-        pytest.param("_insert_mixed_or_plain_html", "<p>hi</p>", {}, id="mixed_or_plain"),
+        pytest.param("insert_inline_at_cursor", "<b>x</b>", id="inline"),
+        pytest.param("_insert_mixed_or_plain_html", "<p>hi</p>", id="mixed_or_plain"),
     ],
 )
-def test_insert_skips_prefix_count_without_ruby(fn_name, fragment, extra_patches):
-    from contextlib import ExitStack
+def test_insert_skips_prefix_count_without_ruby(fn_name, fragment):
     from plugin.writer import html_import, range_copy
 
     cursor = MagicMock()
-    with ExitStack() as stack:
-        count = stack.enter_context(patch.object(range_copy, "prefix_char_count"))
-        stack.enter_context(patch.object(html_import, "insert_html_fragment_at_cursor"))
-        for attr, val in extra_patches.items():
-            stack.enter_context(patch.object(html_import, attr, return_value=val))
+    with patch.object(range_copy, "prefix_char_count") as count, \
+         patch.object(html_import, "insert_html_fragment_at_cursor"):
         getattr(html_import, fn_name)(MagicMock(), MagicMock(), cursor, fragment)
     count.assert_not_called()
 

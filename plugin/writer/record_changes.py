@@ -139,14 +139,11 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
 
 
 def tracked_change_before_point(doc: Any, point: Any) -> bool:
-    """True when a pending Insert or Delete redline covers *point* or ends right before it."""
+    """True when a pending Insert or Delete redline would be split by inserting at *point*."""
     prev_end = None
-    try:
-        cur = point.getText().createTextCursorByRange(point.getStart())
-        if cur.isStartOfParagraph() and cur.goLeft(1, False):
-            prev_end = cur.getStart()
-    except Exception as exc:
-        reraise_if_disposed(exc)
+    cur = point.getText().createTextCursorByRange(point.getStart())
+    if cur.isStartOfParagraph() and cur.goLeft(1, False):
+        prev_end = cur.getStart()
 
     redlines = doc.getRedlines()
     for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
@@ -158,6 +155,8 @@ def tracked_change_before_point(doc: Any, point: Any) -> bool:
             if text.compareRegionStarts(start, point) != 1:
                 continue
             end_cmp = text.compareRegionEnds(end, point)
+            # A Delete ending at a mid-paragraph point does not stretch on insert; at a
+            # paragraph start, a redline ending at the previous paragraph's end still does.
             if end_cmp == -1 or (kind == "Insert" and end_cmp == 0):
                 return True
             if prev_end is not None and text.compareRegionEnds(end, prev_end) <= 0:

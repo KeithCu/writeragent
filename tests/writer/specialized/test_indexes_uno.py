@@ -215,14 +215,14 @@ def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
     assert "Alpha title" in preview.get("text", ""), preview
     assert "Alpha renamed" in preview.get("text_after", ""), preview
     assert page.strip() in preview.get("text_after", ""), preview
-    assert preview.get("hyperlinks", [{}])[0].get("hyperlink_url") == outline, preview
-    assert preview.get("hyperlinks", [{}])[0].get("hyperlink_url_after") == "#1.Alpha renamed|outline", preview
+    assert preview["hyperlinks"][0]["hyperlink_url"] == outline, preview
+    assert preview["hyperlinks"][0]["hyperlink_url_after"] == "#1.Alpha renamed|outline", preview
     assert "Alpha renamed" not in doc.getText().getString()
 
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="Alpha title", content="Alpha renamed")
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlinks", [{}])[0].get("hyperlink_url_after") == "#1.Alpha renamed|outline", edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == "#1.Alpha renamed|outline", edited
     assert "Alpha title" in edited.get("text", ""), edited
     assert "Alpha renamed" in edited.get("text_after", ""), edited
     assert page.strip() in edited.get("text_after", ""), edited
@@ -322,7 +322,7 @@ def test_refresh_toc_entry_keeps_black_and_no_underline_uno(ctx, doc):
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="Alpha title", content=renamed)
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlinks", [{}])[0].get("hyperlink_url_after") == "#1." + renamed + "|outline", edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == "#1." + renamed + "|outline", edited
     assert page.strip() in edited.get("text_after", ""), edited
     body = doc.getText().getString()
     assert renamed in body, body
@@ -410,9 +410,9 @@ def test_refresh_toc_entry_page_digits_keep_look(ctx, doc):
     edited = IndexesRefreshTocEntry().execute(
         tctx, old_content="278", content="247")
     assert edited.get("status") == "ok", edited
-    assert edited.get("hyperlinks", [{}])[0].get("hyperlink_updated") is False, edited
-    assert edited.get("hyperlinks", [{}])[0].get("hyperlink_url") == outline, edited
-    assert edited.get("hyperlinks", [{}])[0].get("hyperlink_url_after") == outline, edited
+    assert edited["hyperlinks"][0]["hyperlink_updated"] is False, edited
+    assert edited["hyperlinks"][0]["hyperlink_url"] == outline, edited
+    assert edited["hyperlinks"][0]["hyperlink_url_after"] == outline, edited
     body = doc.getText().getString()
     assert "247" in body, body
     assert "278" not in body, body

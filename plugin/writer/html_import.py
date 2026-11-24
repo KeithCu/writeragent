@@ -125,10 +125,13 @@ def html_to_plain_text(html_string: str) -> str:
 def _parked_cursor(cursor: Any) -> Any:
     """A cursor parked at *cursor*'s end, in the same ``XText``.
 
+    Callers must not move *cursor* to the end of the body instead: a mid-document
+    insert would orphan later operations at the body end, and a cursor in a frame,
+    cell, or header raises an empty RuntimeException on a range in another text.
     HTML import, ``insertString``, and ``insertTextContent`` all leave a cursor
     parked at the insert point AFTER what they insert (while *cursor* itself
     stays BEFORE it), so returning to the parked cursor continues right after
-    the imported content in any text (body, cell, frame, header, or footer).
+    the imported content in any text.
     """
     return cursor.getText().createTextCursorByRange(cursor.getEnd())
 
@@ -146,8 +149,7 @@ def insert_html_fragment_at_cursor(
 
     When *wrap* is True, wraps bare fragments in a full HTML document.
     *extra_css* is injected into ``<head>`` (e.g. sidebar list margins).
-    When *advance* is True, moves *cursor* past the imported content
-    (multi-segment Writer inserts).
+    When *advance* is True, moves *cursor* past the imported content.
     """
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
@@ -204,7 +206,11 @@ def _place_formulas(
     formulas: list[MathSegment],
     nonce: str,
 ) -> list[dict[str, Any]]:
-    """Replace ``[[WA-MATH:<nonce>:<i>]]`` placeholders in *text_obj* with Math formulas."""
+    """Replace ``[[WA-MATH:<nonce>:<i>]]`` placeholders in *text_obj* with Math formulas.
+
+    Must run after style/ruby application (offsets are measured before formulas change the
+    text) and after ``restore_style`` (a style write resets a centred display-math paragraph).
+    """
     if not formulas:
         return []
     prefix = f"[[WA-MATH:{nonce}:"
@@ -407,6 +413,7 @@ def _insert_mixed_or_plain_html(
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+    # Run after styles and ruby so offsets are measured before formulas change the text.
     math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
     return html_import_styles.WriteReport(
         unapplied_para=failures,
@@ -690,6 +697,24 @@ def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str
     return inline_html, ruby_spans, formulas, nonce
 
 
+def _insert_raw_inline_html(text: Any, cursor: Any, inline_html: str) -> None:
+    """Import *inline_html* raw at *cursor*, keeping edge whitespace and leaving *cursor* at the end."""
+    core = inline_html.strip()
+    if not core:
+        if inline_html:
+            text.insertString(cursor, inline_html, False)
+        return
+    # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
+    # its trailing space and fuse with the next word. Put edge whitespace in as text.
+    lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
+    trail = inline_html[len(inline_html.rstrip()):]
+    if lead:
+        text.insertString(cursor, lead, False)
+    insert_html_fragment_at_cursor(cursor, core, wrap=False, advance=True)
+    if trail:
+        text.insertString(cursor, trail, False)
+
+
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> list[dict[str, Any]]:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
@@ -709,22 +734,9 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
             cursor.getText().insertString(cursor, swapped, False)
             return []
         inline_html, ruby_spans, formulas, nonce = _prep_inline_html(swapped)
-        # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
-        # its trailing space and fuse with the next word. Put edge whitespace in as text.
-        core = inline_html.strip()
-        lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
-        trail = inline_html[len(inline_html.rstrip()):]
         text = cursor.getText()
         ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
-        if lead:
-            text.insertString(cursor, lead, False)
-        if trail:
-            # The fragment import does not leave the cursor after the imported text, so the
-            # trailing whitespace goes in first and the fragment is imported just before it.
-            text.insertString(cursor, trail, False)
-            cursor.goLeft(len(trail), False)
-        if core:
-            insert_html_fragment_at_cursor(cursor, core, wrap=False)
+        _insert_raw_inline_html(text, cursor, inline_html)
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
         return _place_formulas(model, ctx, text, formulas, nonce)
 
@@ -1186,9 +1198,10 @@ def replace_single_range_with_content(
 
         # Preserve the target paragraph style for INLINE replacements. The StarWriter
         # HTML import resets the paragraph to a default body style, silently demoting
-        # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
-        # block-level tags, no math), insert without jumping the cursor to the document
-        # end so we can reapply the original paragraph style across the inserted range.
+        # headings (e.g. "Heading 3" -> "Text body"). Inline content (including inline
+        # math unless content_is_block is True — one token import would wrap it in <p>
+        # and split the host paragraph) is inserted without jumping to the document end
+        # so we can reapply the original paragraph style across the inserted range.
         inline_preserve = not (
             content_has_block_markup(prepared)
             or (html_fragment_contains_mixed_math(prepared) and content_is_block(prepared))
@@ -1222,7 +1235,7 @@ def replace_single_range_with_content(
             # INSERTED content (not the document end), so [anchor, cursor] bounds it.
             inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
             ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
-            insert_html_fragment_at_cursor(cursor, inline_html, wrap=False)
+            _insert_raw_inline_html(text_obj, cursor, inline_html)
             _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
@@ -1237,6 +1250,7 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
+            # Run after restore_style so a style write cannot reset a centred display-math paragraph.
             math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
             # Inline content has no blocks, so data-lo-para exists only on stripped inline tags.
             _clean, _styles, _paras, skipped = html_import_styles.extract_block_lo_styles(prepared)

@@ -781,12 +781,15 @@ def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
 @with_native_doc("writer")
 def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    # 1. Header merge A1:B1 in 3-col table -> col 0 refused
+    # 1. Header merge A1:B1 in 3-col table -> col 0 refused, cells unchanged
     t1 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t1, cell_range="A1:B1")
+    tbl1 = doc.getTextTables().getByName(t1)
+    before1 = {n: tbl1.getCellByName(n).getString() for n in tbl1.getCellNames()}
     res1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
     assert res1["status"] == "error"
     assert res1["code"] == "COLUMN_HAS_SPANNING_CELL"
+    assert {n: tbl1.getCellByName(n).getString() for n in tbl1.getCellNames()} == before1
 
     # 2. Full-width row A3:C3 in 3-col table, col 1 -> refused tracked and untracked; table survives
     t2 = TableInsert().execute(
@@ -813,8 +816,9 @@ def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
     assert del_res["status"] == "ok", del_res
     tbl3 = doc.getTextTables().getByName(t3)
-    texts3 = {tbl3.getCellByName(n).getString() for n in tbl3.getCellNames()}
-    assert any("b2" in t for t in texts3) and any("c" in t for t in texts3)
+    assert tbl3.getColumns().getCount() == 2
+    texts3 = {n: tbl3.getCellByName(n).getString() for n in tbl3.getCellNames()}
+    assert texts3 == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}, texts3
 
 
 @native_test
