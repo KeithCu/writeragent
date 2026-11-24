@@ -1649,6 +1649,7 @@ def test_struck_paragraph_flags_full_and_range_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, doc: Any) -> None:
     import base64
+    import os
     import tempfile
     from plugin.doc.text_helpers import read_visible_body
     from plugin.framework.uno_context import enum_has_more
@@ -1661,36 +1662,39 @@ def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, d
         f.write(png)
         img_path = f.name
 
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    text.insertString(cur, "AA", False)
-    text.insertControlCharacter(cur, 0, False)
-    text.insertString(cur, "BB", False)
-    graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
-    graphic.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
-    graphic.setPropertyValue(
-        "AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH")
-    )
-    cur.gotoStartOfParagraph(False)
-    text.insertTextContent(cur, graphic, False)
+    try:
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "AA", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "BB", False)
+        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        graphic.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        graphic.setPropertyValue(
+            "AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH")
+        )
+        cur.gotoStartOfParagraph(False)
+        text.insertTextContent(cur, graphic, False)
 
-    enum = text.createEnumeration()
-    paras = []
-    while enum_has_more(enum):
-        paras.append(enum.nextElement())
-    sel = text.createTextCursorByRange(paras[1].getStart())
-    sel.gotoEndOfParagraph(True)
-    doc.setPropertyValue("RecordChanges", True)
-    sel.setString("")
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        sel = text.createTextCursorByRange(paras[1].getStart())
+        sel.gotoEndOfParagraph(True)
+        doc.setPropertyValue("RecordChanges", True)
+        sel.setString("")
 
-    full_html = document_to_content(doc, ctx, scope="full")
-    doc_len = len(read_visible_body(doc)[0])
-    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
-    assert 'data-lo-deleted="true"' not in full_html
-    assert 'data-lo-deleted="true"' not in range_html
-    assert "<img" in range_html
-    assert read_visible_body(doc)[2] == []
+        full_html = document_to_content(doc, ctx, scope="full")
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        assert 'data-lo-deleted="true"' not in full_html
+        assert 'data-lo-deleted="true"' not in range_html
+        assert "<img" in range_html
+        assert read_visible_body(doc)[2] == []
+    finally:
+        os.unlink(img_path)
 
 
 @native_test

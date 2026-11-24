@@ -505,10 +505,16 @@ class DeletionState:
         )
         if not struck:
             return False
+        if opened and self.in_delete:
+            # Middle of a multi-paragraph deletion: any anchored content is inside the deletion too.
+            return True
         # AT_PARAGRAPH frames/images are not portions (SwXParagraph::createContentEnumeration,
         # unoparagraph.cxx:1356), so a paragraph holding one is still live on the FODT side.
-        contents = uno_read(lambda: para.createContentEnumeration("com.sun.star.text.TextContent"), None)
-        return not enum_has_more(contents)
+        has_anchored = uno_read(
+            lambda: enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent")),
+            False,
+        )
+        return not has_anchored
 
 
 def visible_portions(

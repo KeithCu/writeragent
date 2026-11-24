@@ -181,6 +181,8 @@ class _Paragraph:
         return _Enum(self._portions)
 
     def createContentEnumeration(self, _service):
+        if callable(self._contents):
+            return self._contents()
         return _Enum(self._contents)
 
     def getString(self):
@@ -815,6 +817,36 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
             "AA\n\nCC",
             [],
             id="live_para_anchored_content",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=MagicMock(side_effect=RuntimeError("enum failed"))),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [3],
+            id="content_enum_error_marks_and_continues",
+        ),
+        pytest.param(
+            [
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("AA"),
+                ], fallback_text="AA"),
+                _Paragraph([_Portion("BB")], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([
+                    _Portion("CC"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="CC"),
+            ],
+            "\n\n",
+            [0, 1, 2],
+            id="middle_of_deletion_ignores_anchored_content",
         ),
     ],
 )
