@@ -687,9 +687,24 @@ def test_catalog_broaden_propagates_schema_failure():
 
 def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
     """Writer's sidebar-only tools stay out of direct_flat when reached by broadening (tier unlisted)."""
-    handler = _handler_real("direct_flat", _real_registry())
+    class _WriterCoreTool(ToolBase):
+        name = "writer_only_core"
+        description = "a writer-only core tool"
+        tier = "core"
+        is_mutation = False
+        uno_services = ["com.sun.star.text.TextDocument"]
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def execute(self, ctx, **kwargs):
+            return {}
+
+    reg = _real_registry()
+    reg.register(_WriterCoreTool())
+    handler = _handler_real("direct_flat", reg)
     calc_doc = MagicMock()
+    calc_doc.supportsService = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
     writer_doc = MagicMock()
+    writer_doc.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
     handler.services.document.get_active_document.return_value = calc_doc
     handler.services.document.detect_doc_type.return_value = "calc"
     handler.services.document.open_documents_by_type.return_value = {
@@ -698,7 +713,7 @@ def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
     }
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
-    assert "apply_content" in names
+    assert "writer_only_core" in names
     assert "brainstorming_search_web" not in names
 
 def test_tools_list_does_not_swallow_get_ctx(monkeypatch):

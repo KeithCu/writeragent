@@ -283,12 +283,13 @@ class ToolBase(_ToolErrorMixin, ABC):
         tier:        Main chat and MCP default lists use ``"core"``. Nested
                      specialized toolsets use ``"specialized"`` or
                      ``"specialized_control"`` (hidden from default lists via
-                     ``exclude_tiers``). A tool reached only by a delegate
-                     domain, a sidebar mode, or a ``wa.*`` script (for example
-                     ``web_research`` or ``brainstorming_search_web``) uses ``"unlisted"``, which is on no chat
-                     or MCP tool list, cannot be called over MCP, and is run by
-                     name by host code. Sidebar-only tools use ``"chat"``
-                     (on the chat wire; hidden from MCP). Default ``"core"``.
+                     ``exclude_tiers``). A tool reached only by ``active_domain``
+                     (sidebar modes such as ``brainstorming_search_web``), a
+                     ``wa.*`` script, or host code by name (``web_research``)
+                     uses ``"unlisted"``, which is on no chat or MCP tool list
+                     and cannot be called over MCP. Tools on the main sidebar
+                     chat list that MCP must not see (``peer_send_*``) use
+                     ``"chat"``. Default ``"core"``.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,
                      ``list_``, …) or a later domain-verb token

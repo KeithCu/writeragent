@@ -286,7 +286,7 @@ def test_catalog_domains_have_tools_or_marker_allowlist(label, _initialized_app_
         )
 
 
-def test_sidebar_only_domain_tools_are_unlisted(_initialized_app_modules):
+def test_sidebar_only_domain_tools_are_unlisted():
     """Every tool in a sidebar-only domain must be tier 'unlisted' so MCP hides and refuses it."""
     import plugin.app
 
@@ -296,7 +296,7 @@ def test_sidebar_only_domain_tools_are_unlisted(_initialized_app_modules):
         domain = getattr(tool, "specialized_domain", None)
         if domain in sidebar_only:
             seen_domains.add(domain)
-            assert getattr(tool, "tier", None) == "unlisted", (
+            assert tool.tier == "unlisted", (
                 f"Sidebar-only tool {tool.name!r} (domain={domain!r}) must be tier 'unlisted'"
             )
     assert seen_domains == sidebar_only
