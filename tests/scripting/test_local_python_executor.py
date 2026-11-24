@@ -3159,6 +3159,10 @@ def _refuse_sigalrm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(signal, "signal", refuse_sigalrm)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGALRM path; thread-pool timeouts print without the chain",
+)
 def test_user_traceback_survives_timeout_in_str_during_chain() -> None:
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
