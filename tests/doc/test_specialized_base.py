@@ -1044,16 +1044,35 @@ def test_delegate_shapes_reports_created_counts(
 def test_delegate_shapes_user_stop_keeps_counts(
     writer_gateway: DelegateToSubagent,
 ) -> None:
+    from plugin.writer.specialized_base import ToolWriterShapeBase
+
+    class _WarningUpsert(ToolWriterShapeBase):
+        name = "shape_upsert"
+        description = "Fake upsert."
+        parameters = {"type": "object", "properties": {}}
+        is_mutation = True
+
+        def execute(self, ctx, **kw):
+            return {
+                "status": "ok",
+                "action": "create",
+                "name": "Box",
+                "page": 0,
+                "index": 0,
+                "warning": "Font fell back",
+            }
+
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
         return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
 
-    result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
+    result = _run_shapes_delegation(writer_gateway, [_WarningUpsert()], _run_inner)
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
     assert result["shapes_created"] == 1
     assert result["edits"] == {"shape_upsert": 1}
+    assert result["warnings"] == ["Font fell back"]
     assert "note" not in result
 
 

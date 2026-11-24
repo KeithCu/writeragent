@@ -2329,9 +2329,12 @@ def test_respawn_killed_after_ready_leaves_slot_empty(monkeypatch: pytest.Monkey
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _p: None)
     monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _kill_on_ready)
 
+    worker.tasks_executed = 7
+    worker.pending_exit = True
     try:
         worker.respawn()
         assert worker.process is None
-        assert worker.tasks_executed == 0
+        assert worker.tasks_executed == 7
+        assert worker.pending_exit is True
     finally:
         worker.kill()

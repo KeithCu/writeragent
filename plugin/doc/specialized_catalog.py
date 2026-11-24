@@ -347,10 +347,11 @@ def start_inner_payload(
 ) -> dict[str, Any]:
     """Shape the inner loop's final answer into the payload apply_inner_outcome then grades.
 
-    An error dict (user stop, crash) is returned as the same object; the caller keeps its
-    status, code and message and may add edit counts. A dict with a status is copied. Anything else is the
-    loop's plain text: {"status": "ok", "result": text} (None -> ""), plus
-    "message": text_message when given. Every non-error payload gets "domains".
+    An error dict (user stop, crash) is returned as the same object; the caller
+    keeps its status, code and message and may add edit counts. A dict with a
+    status is copied. Anything else is the loop's plain text:
+    {"status": "ok", "result": text} (None -> ""), plus "message": text_message
+    when given. Every non-error payload gets "domains".
     """
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans

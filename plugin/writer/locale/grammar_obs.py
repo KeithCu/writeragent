@@ -390,9 +390,6 @@ class StatusBarGrammarStatus(GrammarStatus):
 
     def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
-        # Grammar was turned off while this check was in flight: no later cycle would end the line, so end silently.
-        if phase == "failed" and not grammar_settings.is_grammar_enabled():
-            routine = True
         prefix = self._label
         msg = f"{prefix}: {result or 'Checking...'}"
         if phase == "done":
@@ -406,6 +403,9 @@ class StatusBarGrammarStatus(GrammarStatus):
         # self._indicator is updated before each of those calls so a nested _paint sees
         # the current indicator and never starts a second one that nothing ends.
         try:
+            # Grammar was turned off while this check was in flight: no later cycle would end the line, so end silently.
+            if phase == "failed" and not grammar_settings.is_grammar_enabled():
+                routine = True
             if routine or phase in _ENDING_STATUS_PHASES:
                 indicator = self._indicator
                 self._indicator = None
@@ -443,9 +443,9 @@ def _should_paint_writeragent_status_bar(
 
     Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
     sidebar drops the event), paint so progress is still visible. For any
-    terminal phase, paint when a bar indicator is already active or a paint that opens one is queued so a prior
-    failure or progress line can end cleanly instead of leaving a stale bar
-    (issue #768).
+    terminal phase, paint when a bar indicator is already active or a paint
+    that opens one is queued so a prior failure or progress line can end
+    cleanly instead of leaving a stale bar (issue #768).
 
     ``bus_has_subscribers`` can change before delivery; an extra or missed bar
     paint is benign.

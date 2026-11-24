@@ -477,7 +477,7 @@ def test_run_inner_domain_tool_agent_finish_only_and_read_only_note(
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
-def test_run_inner_domain_tool_agent_user_stop_passes_through(mock_executor_cls, mock_build):
+def test_run_inner_domain_tool_agent_user_stop_keeps_code_and_reports_no_edits(mock_executor_cls, mock_build):
     mock_build.return_value = MagicMock()
     mock_executor_cls.return_value.execute_safe.return_value = {
         "status": "error",

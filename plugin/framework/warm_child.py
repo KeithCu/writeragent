@@ -355,7 +355,9 @@ class ChildSlot:
                     self.kill()
             finally:
                 self._end_child_io(spawned)
-            # A kill after the last was_signaled() check in the handshake still kills this child.
+            # Check after end_io so a kill after the last handshake check still kills this child.
+            # was_signaled(), not self.child is not spawned: signal_from sets the flag first, and
+            # the killer may not have dropped the child yet.
             if tag == "ready" and spawned.was_signaled():
                 self._drop_child(spawned)
                 tag, detail = "interrupted", None
@@ -509,6 +511,7 @@ class WarmChild(ChildSlot):
 
     def _killed_before_lease(self) -> dict[str, Any]:
         return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} was killed before the request started.")
+
     def _publish_refusal(self) -> dict[str, Any] | None:
         if self._retired or self._supervisor.is_shutting_down():
             return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
