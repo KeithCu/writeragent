@@ -237,11 +237,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         trainset_raw, valset_raw = get_trainset_valset(split=0.8, seed=42, examples=filtered)
 
-    trainset = to_dspy_examples(trainset_raw, with_inputs=True)
-    valset = to_dspy_examples(valset_raw, with_inputs=True)
+    trainset = to_dspy_examples(trainset_raw)
+    valset = to_dspy_examples(valset_raw)
 
     if len(trainset) < 2 or len(valset) < 1:
-        all_ex = to_dspy_examples(filtered or ALL_EXAMPLES, with_inputs=True)
+        all_ex = to_dspy_examples(filtered or ALL_EXAMPLES)
         trainset = all_ex
         valset = all_ex[: max(1, len(all_ex) // 2)]
 
