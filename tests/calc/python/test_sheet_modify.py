@@ -20,7 +20,6 @@ from plugin.calc.python.sheet_modify import (
     schedule_sheet_modify_pass,
 )
 from plugin.calc.python.spill import (
-    SpillCell,
     SpillRecord,
     perform_deferred_spill,
 )
@@ -152,8 +151,12 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
 
     SPILL_REGISTRY[("uid-rename", "Sheet1", 0, 0)] = SpillRecord(
         code='result = [1, 2]',
-        cells=[SpillCell(0, 1, "n", 2.0)],
+        rows=1,
+        cols=2,
     )
+    st_rename = WorkbookState.for_doc(doc)
+    assert st_rename is not None
+    st_rename.used_ends["Sheet1"] = (0, 1)
 
     sheet.setName("SheetRenamed")
     doc.getSheets()._sheets["SheetRenamed"] = sheet
@@ -167,12 +170,16 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     assert ("uid-rename", "SheetRenamed") in SHEET_MODIFY_LISTENERS
     assert ("uid-rename", "Sheet1", 0, 0) not in SPILL_REGISTRY
     assert ("uid-rename", "SheetRenamed", 0, 0) in SPILL_REGISTRY
-    assert SPILL_REGISTRY[("uid-rename", "SheetRenamed", 0, 0)].spills == [(0, 1)]
+    rec_renamed = SPILL_REGISTRY[("uid-rename", "SheetRenamed", 0, 0)]
+    assert (rec_renamed.rows, rec_renamed.cols) == (1, 2)
+    assert "Sheet1" not in st_rename.used_ends
+    assert "SheetRenamed" in st_rename.used_ends
     assert listener.sheet_name == "SheetRenamed"
 
     # Now clear formula cell and run modify pass
     cell_formula.setFormula("")
     cell_formula.setString("")
+    st_rename.used_ends["SheetRenamed"] = (0, 1)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet, sheet_name="SheetRenamed")
 
     assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY
@@ -182,7 +189,8 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
 def test_rename_without_identity_does_not_touch_other_workbooks():
     SPILL_REGISTRY[("uid-other", "Sheet1", 0, 0)] = SpillRecord(
         code="result = 1",
-        cells=[SpillCell(0, 1, "n", 1.0)],
+        rows=1,
+        cols=2,
     )
 
     doc_no_id = CalcDocStub(url="", props={})
@@ -200,7 +208,8 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     sheet.getCellByPosition(0, 0).setFormula('=PY("result = [1, 2]")')
     WorkbookState.for_doc(doc).spills[("Sheet1", 0, 0)] = SpillRecord(
         code="result = [1, 2]",
-        cells=[SpillCell(0, 2, "n", 9.0)],
+        rows=1,
+        cols=3,
     )
 
     scheduled_calls = 0
@@ -336,7 +345,7 @@ def test_rename_of_one_sheet_keeps_other_sheets_spills(monkeypatch: pytest.Monke
     sheet1.getCellByPosition(0, 0).setFormula('=PY("x")')
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="x", cells=[SpillCell(1, 0, "n", 2.0)])
+    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="x", rows=2, cols=1)
 
     ensure_sheet_modify_listener("ctx", doc, sheet1)
     ensure_sheet_modify_listener("ctx", doc, sheet2)

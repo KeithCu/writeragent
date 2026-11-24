@@ -282,7 +282,12 @@ class ChildSlot:
             self._drop_child(child)
 
     def _publish_refusal(self) -> dict[str, Any] | None:
-        """Why this slot may not start a child now, or None. ``_publish`` calls it under ``_lifecycle_lock``, and that answer is final; an earlier unlocked call only saves a wasted spawn."""
+        """Return why this slot may not start a child now, or None.
+
+        ``_publish`` calls this under ``_lifecycle_lock`` and that answer decides
+        whether the child is stored. Unlocked calls before a spawn save a wasted
+        process, and after a failed one they report the stop as the reason.
+        """
         return None
 
     def _publish(self, child: Child) -> dict[str, Any] | None:
@@ -560,7 +565,7 @@ class WarmChild(ChildSlot):
         ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``refuse`` is consulted
         only while waiting for the lock—not after it is held, because ``begin_io`` makes this
         thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
-        ``cancel`` is checked again once the lock is held, before any spawn, and when a spawned child is published.
+        ``cancel`` is checked again once the lock is held, before any spawn, when a spawned child is published, and when a spawn fails.
         """
         acquire_end: float | None = None
         if wait is not None and wait > 0:
@@ -713,6 +718,11 @@ class WarmChild(ChildSlot):
             return None
         if outcome.tag == "refused":
             return outcome.detail
+        # A stop sets its flag before it signals the child, so whatever the spawn saw, the stop is the reason.
+        # Ahead of the OSError re-raise: a stopped lease must not start venv_worker's systemd-run retry.
+        refusal = self._publish_refusal()
+        if refusal is not None:
+            return refusal
         if outcome.tag == "budget_exhausted":
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         if outcome.tag == "interrupted":

@@ -586,12 +586,13 @@ def test_frequency_bincount():
     assert calc.frequency(["a"], []) == [0]
 
 
-def test_frequency_conversion_error_is_value():
+def test_frequency_conversion_error_raises():
     class BadArray:
         def __array__(self, *args: Any, **kwargs: Any) -> Any:
             raise ValueError("conversion failed")
 
-    assert calc.frequency(BadArray(), [1, 2]) == "#VALUE!"
+    with pytest.raises(ValueError, match="conversion failed"):
+        calc.frequency(BadArray(), [1, 2])
 
 
 def test_filter_criteria_truthiness():
@@ -681,5 +682,28 @@ def test_d_h_approx_floor_counts_and_df():
     assert calc.fdist(1, 0.29 * 100, 5) == calc.fdist(1, 29, 5)
     assert math.isclose(calc.fdist(1, 1e20, 5), calc.fdist(1, 1e10, 5), rel_tol=1e-6)
     assert calc.finv(0.5, 2.5, 5) == calc.finv(0.5, 2, 5)
+
+
+def test_d_number_criterion_matches_text():
+    db = [["K", "V"], ["1", 1], [1, 10], [True, 100], ["TRUE", 1000], [2, 10000], ["1.0", 100000]]
+    assert calc.dsum(db, "V", [["K"], [1]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], ["1"]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], [True]]) == 111.0
+    assert calc.dsum(db, "V", [["K"], ["TRUE"]]) == 1110.0
+    assert calc.dsum(db, "V", [["K"], [False]]) == 0.0
+
+
+def test_d_matched_error_is_result():
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
+
+    db = [["K", "V"], ["a", 1], ["a", "#DIV/0!"], ["b", "#N/A"]]
+    assert calc.dsum(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dcount(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dcounta(db, "V", [["K"], ["a"]]) == "#DIV/0!"
+    assert calc.dsum(db, "V", [["K"], ["c"]]) == 0.0
+    db_nan = [["K", "V"], ["a", 1], ["a", DIV0_NAN], ["b", float("nan")]]
+    res = calc.dsum(db_nan, "V", [["K"], ["a"]])
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+    assert calc.dsum(db_nan, "V", [["K"], ["b"]]) == 0.0
 
 

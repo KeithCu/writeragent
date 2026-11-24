@@ -321,7 +321,6 @@ class FieldsInsert(ToolWriterFieldBase):
             kwargs,
             lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
             what="the field",
-            review=True,
         )
         if err is not None:
             return err
