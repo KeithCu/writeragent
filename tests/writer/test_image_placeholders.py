@@ -459,3 +459,10 @@ def test_capture_placeholder_images_keeps_horizontal_space_before_closing_a():
     )
     assert [k.linked for k in kept_nl] == [True]
     assert swapped_nl.endswith("</a>caption")
+
+    swapped_crlf, kept_crlf = capture_placeholder_images(
+        _graphics_doc("Pic1"),
+        '<a href="https://a/8"><span id="Pic1"><img src=""/></span>\r\n</a>caption',
+    )
+    assert [k.linked for k in kept_crlf] == [True]
+    assert swapped_crlf.endswith("</a>caption")

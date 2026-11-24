@@ -72,7 +72,7 @@ _LINK_PROPS = ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
 # stay outside when only the wrapper is linked, and are dropped with it.
 _LINKED_MARKERS_RE = re.compile(
     _FRAME_HEAD
-    + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(?:[^\S\r\n]*\n\s*|([^\S\r\n]*))</a>"
+    + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(\s*)</a>"
     + _FRAME_TAIL,
     re.IGNORECASE,
 )
@@ -198,7 +198,8 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
 
     def _note_link(match: re.Match[str]) -> str:
         linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", match.group(2)))
-        return match.group(1) + match.group(2) + "</a>" + (match.group(3) or "")
+        trail = match.group(3)
+        return match.group(1) + match.group(2) + "</a>" + ("" if "\n" in trail or "\r" in trail else trail)
 
     swapped = _LINKED_MARKERS_RE.sub(_note_link, swapped)
     return swapped, [k._replace(linked=k.marker in linked) for k in kept]
