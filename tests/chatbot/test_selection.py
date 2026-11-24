@@ -603,7 +603,7 @@ def test_selection_client_reads_key_on_request_worker(fake_keystore, locked: boo
 
     endpoint = "https://openrouter.ai/api"
     fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
-    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    fw_config.save({"api_keys_by_endpoint": {endpoint: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = locked
 
@@ -649,7 +649,7 @@ def test_stopped_selection_client_does_not_read_key(fake_keystore) -> None:
 
     endpoint = "https://openrouter.ai/api"
     fw_config.save({"endpoint": endpoint, "text_model": "vendor/model"})
-    fw_config.set_api_key_for_endpoint(endpoint, "sk-1")
+    fw_config.save({"api_keys_by_endpoint": {endpoint: "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.locked = True
 

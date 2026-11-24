@@ -24,7 +24,7 @@ from oracles import (  # noqa: E402
     _ORG_CHART_CONN_FLOOR,
     _org_chart_labeled_boxes,
     check_oracle,
-    draw_connector_count,
+    draw_connectors,
     draw_nodes,
     parse_json_export,
 )
@@ -32,7 +32,7 @@ from oracles import (  # noqa: E402
 ORG_CHART_TASK_ID = "org_chart_gen"
 _STRING_FAILURE = (
     "org_chart_gen requires the headless LO backend; "
-    "the string simulator does not export production connector nodes"
+    "the string simulator has no connector routing or page layout"
 )
 _WANT_BOXES = 10
 _WANT_CONNECTORS = 9
@@ -63,7 +63,7 @@ def score_org_chart_example(
     data = parse_json_export(final_document or "") or {}
     nodes = draw_nodes(data)
     boxes = len(_org_chart_labeled_boxes(nodes))
-    connectors = draw_connector_count(data, nodes)
+    connectors = len(draw_connectors(nodes))
     soft: list[str] = []
     if boxes != _WANT_BOXES and boxes >= _ORG_CHART_BOX_FLOOR:
         soft.append(

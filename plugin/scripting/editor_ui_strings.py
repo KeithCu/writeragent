@@ -106,9 +106,6 @@ def _run_script_ui_strings() -> dict[str, str]:
             "delete_label": _("Delete"),
             "scripts_fallback": _("Scripts"),
             "my_scripts_fallback": _("My Scripts"),
-            "builtin_readonly": _(
-                "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
-            ),
             "document_stale": _(
                 "Document changed — close and reopen Run Python Script to edit document scripts."
             ),

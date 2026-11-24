@@ -116,7 +116,7 @@ def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
 # Chat hides specialized, mcp, and unlisted (_DEFAULT_EXCLUDE_TIERS in tool.py).
 # MCP differs on purpose: it keeps mcp-tier tools, and lists specialized ones only in direct_flat.
 # Tiers MCP never lists or calls: control tools, sidebar-chat tools (peer_send_*), and
-# unlisted tools that host code runs by name (web_research).
+# unlisted tools that host code runs by name (web_research, sidebar-mode tools).
 MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat", "unlisted"})
 # delegate mode and the direct_discovery list also hide specialized tools.
 MCP_DELEGATE_EXCLUDE_TIERS = MCP_DIRECT_FLAT_EXCLUDE_TIERS | {"specialized"}
@@ -730,31 +730,16 @@ class MCPProtocolHandler:
         doc_type = doc_svc.detect_doc_type(doc) if doc is not None else None
         return doc, doc_type
 
-    def _schemas_for(self, doc: Any, doc_type: str | None, exclude_tiers: Any, *, broaden: bool = False, document_url: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _schemas_for(self, doc: Any, doc_type: str | None, exclude_tiers: Any, *, broaden: bool = False, document_url: str | None = None) -> list[dict[str, Any]]:
         doc_filter = {"filter_doc_type": False} if broaden else {}
         uno_services = uno_services_for_document(doc, doc_type) if doc is not None else frozenset()
         schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type, uno_services_supported=uno_services, exclude_tiers=exclude_tiers, **doc_filter)
 
-        broadened: dict[str, Any] = {}
         if doc is not None and not document_url:
-            schemas, broadened = self._add_other_open_doc_schemas(schemas, doc_type, exclude_tiers)
-        docs_by_type = {doc_type: doc, **broadened} if doc is not None and doc_type else broadened
+            schemas = self._add_other_open_doc_schemas(schemas, doc_type, exclude_tiers)
 
         uno_ctx = uno_context.get_ctx()
-        schemas = drop_unavailable_domains(schemas, self.tool_registry, uno_ctx)
-        return schemas, docs_by_type
-
-    def _hide_sidebar_only(self, schemas: list[dict[str, Any]], docs_by_type: dict[str, Any]) -> list[dict[str, Any]]:
-        from plugin.doc.find_tools_tool import sidebar_only_tool_names
-
-        targets = docs_by_type.items() if docs_by_type else [(None, None)]
-        sidebar_only: set[str] = set()
-        for dtype, d in targets:
-            uno_services = uno_services_for_document(d, dtype) if d is not None else frozenset()
-            sidebar_only |= sidebar_only_tool_names(self.tool_registry, d, doc_type=dtype, uno_services_supported=uno_services)
-        if sidebar_only:
-            return [s for s in schemas if s.get("name") not in sidebar_only]
-        return schemas
+        return drop_unavailable_domains(schemas, self.tool_registry, uno_ctx)
 
     def _mcp_tools_list(self, params: Any, document_url: str | None = None) -> Any:
         mode = self._tool_exposure_mode()
@@ -763,10 +748,7 @@ class MCPProtocolHandler:
         def _collect() -> list[dict[str, Any]]:
             doc, doc_type = self._resolve_target(document_url)
             broaden = mode == "direct_flat" and doc is None and not document_url
-            schemas, docs_by_type = self._schemas_for(doc, doc_type, exclude_tiers, broaden=broaden, document_url=document_url)
-            if mode == "direct_flat":
-                schemas = self._hide_sidebar_only(schemas, docs_by_type)
-            return schemas
+            return self._schemas_for(doc, doc_type, exclude_tiers, broaden=broaden, document_url=document_url)
 
         schemas = self.queue_executor.call(_collect, timeout=10.0)
 
@@ -1015,11 +997,9 @@ class MCPProtocolHandler:
                     timeout=_PROCESS_TIMEOUT,
                 )
 
-    def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> list[dict[str, Any]]:
         """Append tools for the other open document types, active type first.
 
-        Returns ``(schemas, {doc_type: doc})`` for the types that were added, so the
-        caller can apply the per-doc-type filters (sidebar-only flows) to them too.
         Main-thread only (touches UNO). open_documents already skips a bad
         component. A failure here propagates so tools/list does not omit a family.
         """
@@ -1027,10 +1007,10 @@ class MCPProtocolHandler:
         # A raise here is a catalog bug; swallowing it hid a document type.
         by_type = self.services.document.open_documents_by_type()
         if not isinstance(by_type, dict):
-            return schemas, {}
+            return schemas
         others = {k: v for k, v in by_type.items() if k != active_doc_type}
         if not others:
-            return schemas, {}
+            return schemas
 
         seen = {sch.get("name") for sch in schemas}
         for other_type, other_doc in others.items():
@@ -1042,7 +1022,7 @@ class MCPProtocolHandler:
                     seen.add(name)
                     schemas.append(sch)
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
-        return schemas, others
+        return schemas
 
     def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, *, cancel: SendCancellation, session: Any = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.

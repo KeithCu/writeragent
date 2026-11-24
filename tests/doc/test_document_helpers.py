@@ -1113,3 +1113,18 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
     desktop_docs.append(user_writer)
     listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=user_writer))
     assert seen[-1] == frozenset({"calc", "writer"})
+
+
+def test_print_preview_controller_without_view_cursor(monkeypatch):
+    from types import SimpleNamespace
+
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.errors import UnoObjectError
+
+    model = SimpleNamespace(getCurrentController=lambda: SimpleNamespace())
+    ds = DocumentService()
+    monkeypatch.setattr(ds, "find_paragraph_element", lambda _model, _idx: object())
+
+    assert ds.get_page_count(model) == 0
+    with pytest.raises(UnoObjectError, match="Get view cursor failed"):
+        ds.get_page_for_paragraph(model, 0)

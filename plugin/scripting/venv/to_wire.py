@@ -379,6 +379,10 @@ def to_wire(
         if isinstance(val, HOST_PICKLE_LEAF_TYPES) and not (np_mod is not None and isinstance(val, np_mod.generic)):
             return val
 
+        # pd.NaT is an instance of datetime and its isoformat() is the text "NaT". It is missing, like pd.NA.
+        if pd_mod is not None and val is pd_mod.NaT:
+            return None
+
         if isinstance(val, datetime.datetime):
             return _strip_datetime_tz(val).isoformat()
         if isinstance(val, datetime.date):

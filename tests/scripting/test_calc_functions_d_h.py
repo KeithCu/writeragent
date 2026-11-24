@@ -15,6 +15,7 @@ import math
 from typing import Any
 
 import pytest
+import numpy as np
 
 import plugin.scripting.calc_functions as calc
 
@@ -165,6 +166,29 @@ def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
 
 
+def test_growth_multivariate_and_edge_cases():
+    y = [3, 5, 20, 25, 90]
+    x = [[1, 2], [2, 1], [3, 5], [4, 4], [5, 7]]
+    expected = [3.21355929722245, 4.63419579784973, 18.7720997753485, 27.0707890689699, 89.1926991956556]
+    assert np.allclose(calc.growth(y, x), expected, rtol=1e-9)
+
+    expected_no_const = [2.810252397287496, 4.285489818390781, 18.102529009635457, 27.60542214386022, 95.11224845211227]
+    assert np.allclose(calc.growth(y, x, None, False), expected_no_const, rtol=1e-9)
+
+    pred_const = calc.growth(y, x, [[6, 8]])
+    assert len(pred_const) == 1
+    assert math.isclose(pred_const[0], 194.418475572597, rel_tol=1e-9)
+
+    assert np.allclose(
+        calc.growth(y, [100000001, 100000002, 100000003, 100000004, 100000005]),
+        calc.growth(y, [1, 2, 3, 4, 5]),
+        rtol=1e-9,
+    )
+    assert calc.growth([1, 2, 4], [7, 7, 7]) == "#VALUE!"
+    assert calc.growth([1, 2, 4], [0, 0, 0], None, False) == "#VALUE!"
+    assert calc.growth([1, 2, 4, 8], [[1, 2], [3, 4]]) == "#VALUE!"
+
+
 def test_days360_us_february_month_end():
     # US NASD treats a February month-end start as day 30. European does not.
     assert calc.days360(_serial(2023, 2, 28), _serial(2023, 3, 1), False) == 1.0
@@ -313,7 +337,8 @@ _D_H_BAD_INPUTS = [
     ("expondist-blank-flag", "expondist", (1, 1, None), 0.36787944117144233),
     ("expondist-omitted-flag", "expondist", (1, 1), 0.6321205588285577),
     ("expondist-zero", "expondist", (1, 0), _NAN),
-    ("expondist-oor", "expondist", (-1, 1), _NAN),
+    ("expondist-oor", "expondist", (-1, 1), 0.0),
+    ("expondist-oor-pdf", "expondist", (-1, 1, 0), 0.0),
     ("fact-text", "fact", ("x",), ValueError),
     ("fact-blank", "fact", ("",), ValueError),
     ("fact-oor", "fact", (-1,), _NAN),
@@ -357,7 +382,8 @@ _D_H_BAD_INPUTS = [
     ("gammadist-blank-flag", "gammadist", (1, 2, 1, None), 0.36787944117144233),
     ("gammadist-omitted-flag", "gammadist", (1, 2, 1), 0.2642411176571153),
     ("gammadist-zero", "gammadist", (1, 0, 1), _NAN),
-    ("gammadist-oor", "gammadist", (-1, 2, 1), _NAN),
+    ("gammadist-oor", "gammadist", (-1, 2, 1), 0.0),
+    ("gammadist-oor-pdf", "gammadist", (-1, 2, 1, 0), 0.0),
     ("gammainv-text", "gammainv", ("x", 2, 1), ValueError),
     ("gammainv-blank", "gammainv", ("", 2, 1), ValueError),
     ("gammainv-zero", "gammainv", (0.5, 0, 1), _NAN),
@@ -622,5 +648,10 @@ def test_dget_zero_row_database():
     assert calc.dget([], "x", [["x"], [1]]) == "#VALUE!"
     assert calc.dget([[]], "x", [["x"], [1]]) == "#VALUE!"
 
+
+def test_dsum_error_text_criteria_not_blank():
+    db = [["K", "V"], ["Err:502", 1], ["#DIV/0!", 2], [None, 4], [3, 8], ["x", 16]]
+    assert calc.dsum(db, "V", [["K"], ["Err:502"]]) == 1.0
+    assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 2.0
 
 

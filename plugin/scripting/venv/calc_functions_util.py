@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what the letter files import; underscore names are used only inside this module.
 
+Where Calc and Excel differ, helpers follow Calc: it is what the sheet shows and what spreadsheet-import verification compares against.
+
 How a helper reports a sheet error. Each function uses one of these, and its tests pin which:
 
 1. Raise. The exception reaches the =PY() worker, which picks the cell error from its type
@@ -38,7 +40,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from .coerce import LO_ERROR_TOKENS, is_missing_value
+from .coerce import is_blank_value, is_error_token, is_missing_value
 
 def formula_error_nan(code: int) -> float:
     """Quiet NaN carrying a LibreOffice FormulaError code in its low bits (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
@@ -347,13 +349,13 @@ def parse_weekend(weekend: Any = 1) -> set[int] | float:
 
 
 def is_calc_error(val: Any) -> bool:
-    """Return True if val is a Calc error (NaN or a recognized error token string like #VALUE!)."""
+    """Return True if val is a Calc error (NaN or a Calc error token such as #VALUE! or Err:502)."""
     if isinstance(val, (bool, np.bool_)):
         return False
     if isinstance(val, (float, np.floating)):
         return math.isnan(float(val))
     if isinstance(val, str):
-        return val.strip() in LO_ERROR_TOKENS
+        return is_error_token(val)
     return False
 
 
@@ -409,6 +411,45 @@ def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
     if arr.ndim == 2 and arr.shape[axis] != size and arr.shape[1 - axis] == size:
         return arr.T
     return arr
+
+
+def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.ndarray:
+    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
+
+    Same-shaped known_y and known_x are one x variable (CheckMatrix nCase 1); with one variable
+    new_x may have any shape. Inputs Calc rejects raise ValueError.
+    """
+    n = known_y.size
+    y = known_y.ravel()
+    if known_x is None:
+        x = np.arange(1, n + 1, dtype=float).reshape(-1, 1)
+    else:
+        x = np.asarray(known_x, dtype=float)
+        x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
+    # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
+    if x.ndim != 2 or x.shape[0] != n or np.any(np.isnan(x)) or np.any(np.isnan(y)):
+        raise ValueError
+    k = x.shape[1]
+    with_intercept = as_nonzero(const)
+    require_samples(n, k, with_intercept)
+    if new_x is None:
+        at = x
+    else:
+        at = np.asarray(new_x, dtype=float)
+        at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
+    # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
+    if at.ndim != 2 or at.shape[1] != k or np.any(np.isnan(at)):
+        raise ValueError
+    # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the
+    # intercept column indistinguishable to lstsq.
+    center = x.mean(axis=0) if with_intercept else np.zeros(k)
+    base = y.mean() if with_intercept else 0.0
+    # A constant column (or an all-zero one without intercept) has no slope: PushNoValue.
+    spread = np.ptp(x, axis=0) if with_intercept else np.abs(x).max(axis=0)
+    if np.any(spread == 0):
+        raise ValueError
+    slopes = np.linalg.lstsq((x - center) / spread, y - base, rcond=None)[0]
+    return (at - center) / spread @ slopes + base
 
 
 def scipy_stats() -> Any | None:
@@ -508,10 +549,15 @@ def _to_float_or_none(value: Any) -> float | None:
         return None
 
 
+def is_criteria_blank(value: Any) -> bool:
+    """None, blank text, NaN, NaT or pd.NA. Error text is not blank: criteria compare an error cell by its displayed text (ScQueryEvaluator::getCellString, sc/source/core/data/queryevaluator.cxx)."""
+    return is_blank_value(value) if isinstance(value, str) else is_missing_value(value)
+
+
 def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     """Parse an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=') into a matcher callable."""
-    if is_missing_value(crit):
-        return lambda val: is_missing_value(val) or val == "" or val is None
+    if is_criteria_blank(crit):
+        return is_criteria_blank
 
     if isinstance(crit, str):
         m = re.match(r"^(<=|>=|<>|<|>|==|=)(?![<>=])(.*)$", crit)
@@ -541,7 +587,7 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     c_pattern = val_str if val_str is not None else str(crit)
 
     def matcher(val: Any) -> bool:
-        val_is_blank = val is None or val == "" or is_missing_value(val)
+        val_is_blank = is_criteria_blank(val)
         if val_str == "":
             if op == "=":
                 return val_is_blank
@@ -579,6 +625,9 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":
             return not wildcard_fullmatch(c_pattern, v_str)
+        # In Calc an error cell matches no ordering criterion (COUNTIF(…;">a") skips it).
+        if is_error_token(v_str):
+            return False
         return _CMP[op](v_str.casefold(), c_pattern.casefold())
 
     return matcher
