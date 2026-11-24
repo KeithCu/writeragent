@@ -1112,3 +1112,47 @@ def test_heading_rename_next_to_added_and_removed_uno(ctx, doc) -> None:
         w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Old annex|outline"
         for w in warnings
     ), warnings
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_lost_heading_warns_only_for_live_link_while_recording_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Deleted Live</h1>',
+            '<h1 data-lo-style="Heading 1">Deleted Struck</h1>',
+            '<h1 data-lo-style="Heading 1">Kept Heading</h1>',
+            '<p>Live <a href="#Deleted Live|outline">link1</a> and Struck <a href="#Deleted Struck|outline">link2</a>.</p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        search = doc.createSearchDescriptor()
+        search.SearchString = "link2"
+        found = doc.findFirst(search)
+        assert found is not None
+        found.setString("")
+
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoNextParagraph(True)
+        cur.gotoEndOfParagraph(True)
+        doc.getCurrentController().select(cur)
+        res = tool.execute(tool_ctx, target="selection", content="<p>Replacement</p>")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert res.get("status") == "ok", res
+    warnings = res.get("warnings") or []
+    stale_targets = [w.get("link_target") for w in warnings if w.get("code") == "LINK_TARGET_STALE"]
+    assert stale_targets == ["#Deleted Live|outline"], warnings
+    assert _read_portion_urls(doc) == [
+        ("link1", "#Deleted Live|outline"),
+        ("link2", "#Deleted Struck|outline"),
+    ]

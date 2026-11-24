@@ -694,6 +694,46 @@ def test_restore_keeps_inherited_look_without_direct_color():
         ),
         # Ambiguous 1-to-2 split leaves A unpaired and lost
         ([(1, "A")], [(1, "A2"), (1, "A3")], {}, ["A"]),
+        # Shared "Chapter N:" prefix must not dominate unrelated in-place retitles
+        (
+            [
+                (1, "Chapter 1: Introduction"),
+                (1, "Chapter 2: Literature Review"),
+                (1, "Chapter 3: Methodology"),
+                (1, "Chapter 4: Results"),
+            ],
+            [
+                (1, "Chapter 1: Background"),
+                (1, "Chapter 2: Related Work"),
+                (1, "Chapter 3: Approach"),
+                (1, "Chapter 4: Findings"),
+            ],
+            {
+                "Chapter 1: Introduction": "Chapter 1: Background",
+                "Chapter 2: Literature Review": "Chapter 2: Related Work",
+                "Chapter 3: Methodology": "Chapter 3: Approach",
+                "Chapter 4: Results": "Chapter 4: Findings",
+            },
+            [],
+        ),
+        # Shared "Article N." prefix must not dominate unrelated in-place retitles
+        (
+            [(1, "Article 1. Definitions"), (1, "Article 2. Term"), (1, "Article 3. Fees")],
+            [(1, "Article 1. Interpretation"), (1, "Article 2. Duration"), (1, "Article 3. Charges")],
+            {
+                "Article 1. Definitions": "Article 1. Interpretation",
+                "Article 2. Term": "Article 2. Duration",
+                "Article 3. Fees": "Article 3. Charges",
+            },
+            [],
+        ),
+        # Renumbered "Step N:" headings still follow their body text when a step is inserted
+        (
+            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
+            [(1, "Step 1: Download"), (1, "Step 2: Install"), (1, "Step 3: Configure")],
+            {"Step 1: Install": "Step 2: Install", "Step 2: Configure": "Step 3: Configure"},
+            [],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):

@@ -94,6 +94,8 @@ log = logging.getLogger("writeragent.writer.hyperlink")
 _OUTLINE_SUFFIX = "|outline"
 # Lowest SequenceMatcher ratio that counts as "the same title, reworded".
 _SIMILAR_TITLE = 0.6
+# Shared numbering is not evidence of the same title; strip "word + short number" labels before comparing.
+_LEADING_LABEL_RE = re.compile(r"^\w+\s+\w{1,4}\s*[:.\-\u2013\u2014]\s+(?=\w)")
 # Why a link still names an old heading title.
 StaleReason = Literal["field", "no_heading"]
 _URL = "HyperLinkURL"
@@ -748,14 +750,16 @@ def _similar_titles(
     Headings that kept their title compete too: "Q1 results" resembles the kept "Q2 results"
     as much as the added "Q4 results", so it is left unpaired.
     """
+    old_keys = [_LEADING_LABEL_RE.sub("", old.casefold(), count=1) for _lv, old in before]
+    new_keys = [_LEADING_LABEL_RE.sub("", new.casefold(), count=1) for _lv, new in after]
     scores: dict[tuple[int, int], float] = {}
     matcher = SequenceMatcher(autojunk=False)
-    for j, (new_level, new) in enumerate(after):
-        matcher.set_seq2(new.casefold())  # SequenceMatcher caches seq2, so it changes least often
-        for i, (old_level, old) in enumerate(before):
+    for j, ((new_level, new), new_key) in enumerate(zip(after, new_keys)):
+        matcher.set_seq2(new_key)  # SequenceMatcher caches seq2, so it changes least often
+        for i, ((old_level, old), old_key) in enumerate(zip(before, old_keys)):
             if old_level != new_level or (old not in old_free and new not in new_free):
                 continue
-            matcher.set_seq1(old.casefold())
+            matcher.set_seq1(old_key)
             # The two quick ratios are cheap upper bounds of ratio().
             if matcher.real_quick_ratio() < _SIMILAR_TITLE or matcher.quick_ratio() < _SIMILAR_TITLE:
                 continue

@@ -654,8 +654,9 @@ class WriteReport:
     reported): False when the import added nothing (e.g. ``<p></p>``), so
     ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
     outline hyperlinks updated after a heading rename, and ``stale_links`` maps
-    each ``|outline`` URL still naming an old title to its reason. ``tables_added`` is internal (not reported): tables the import
-    added, or None when not measured. all_matches merges one report per match with ``extend``.
+    each ``|outline`` URL still naming an old title to its reason. ``tables_added``
+    is internal (not reported): tables the import added, or None when not measured.
+    all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)

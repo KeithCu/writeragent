@@ -87,7 +87,7 @@ def retarget_renamed_links(
     doc: Any,
     before: list[tuple[int, str]] | None,
 ) -> tuple[int, dict[str, StaleReason]]:
-    """Retarget outline links when *before* headings were renamed, returning ``(count, stale)``."""
+    """Retarget outline links when *before* headings were renamed or removed, returning ``(count, stale)`` where *stale* maps URL to reason."""
     if not before:
         return 0, {}
     renames, lost = heading_renames(before, document_headings(doc))
