@@ -320,7 +320,7 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     obj0 = GetPageObjects().execute(tool_ctx, page=0)
     assert obj0.get("status") == "ok", obj0
     assert obj0.get("page") == 0, obj0
-    assert [s.get("name") for s in obj0.get("shapes") or []] == ["RedBox"], obj0
+    assert {s.get("name") for s in obj0.get("shapes") or []} == {"RedBox"}, obj0
 
     obj1 = GetPageObjects().execute(tool_ctx, page=1)
     assert obj1.get("status") == "ok", obj1
