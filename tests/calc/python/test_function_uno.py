@@ -613,7 +613,6 @@ def test_py_deferred_spill_late_collision_uno(ctx, doc):
 
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [[1, 2, 3]]"
     try:
         cell_m1 = sheet.getCellByPosition(12, 0)
