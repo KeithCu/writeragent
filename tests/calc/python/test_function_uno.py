@@ -477,8 +477,10 @@ def test_py_addin_token_formula_errors(ctx, doc):
         doc.calculateAll()
         for row_idx, (_token, expected_err) in enumerate(cases):
             assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
-        assert sheet.getCellByPosition(0, 2).getError() == 32767
-        assert sheet.getCellByPosition(0, 3).getError() == 32767
+        a3 = sheet.getCellByPosition(0, 2)
+        a4 = sheet.getCellByPosition(0, 3)
+        assert a3.getError() == 32767, (a3.getError(), a3.getString(), a3.getValue())
+        assert a4.getError() == 32767, (a4.getError(), a4.getString(), a4.getValue())
         assert sheet.getCellByPosition(1, 2).getValue() == 1.0
         assert sheet.getCellByPosition(1, 3).getValue() == 1.0
         assert sheet.getCellByPosition(2, 2).getString() == "na"
@@ -531,15 +533,16 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
         assert "PY" in cell_a1.getFormula()
 
         # Spill neighbour with NA_NAN (e.g. calc.na()) -> error 32767 and ISNA 1.
-        from plugin.scripting.venv.calc_functions_util import NA_NAN
+        from plugin.calc.python.addin_values import ERR_NA, calc_formula_error_double
 
+        na_nan = calc_formula_error_double(ERR_NA)
         cell_d1 = sheet.getCellByPosition(3, 0)
         cell_d1.setFormula('=PY("result = [[1, calc.na()]]")')
         perform_deferred_spill(
             sheet_name,
             0,
             3,
-            [[1, NA_NAN]],
+            [[1, na_nan]],
             doc=doc,
             sheet=sheet,
             code="result = [[1, calc.na()]]",
