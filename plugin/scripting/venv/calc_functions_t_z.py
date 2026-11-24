@@ -209,7 +209,8 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         inst = int(float(instance_num))
         if inst == 0:
             return NA_NAN
-        # An empty delimiter is skipped in ScTextBeforeOrAfter (interpr1.cxx), returning if_not_found (default #N/A).
+        # ScTextBeforeOrAfter (interpr1.cxx) skips an empty delimiter and returns if_not_found (default #N/A);
+        # re.finditer("") would otherwise match at every position.
         if not delim:
             return if_not_found
         # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
@@ -239,9 +240,8 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
     except (ValueError, TypeError, OverflowError):
-        # int(float(instance_num)) of an infinite instance raises OverflowError,
-        # which this handler did not catch, so TEXTAFTER and TEXTBEFORE raised
-        # instead of the NaN used for any other invalid instance.
+        # int(float(instance_num)) of an infinite instance raises OverflowError;
+        # return plain NaN (#NUM!), as for a text instance.
         return float("nan")
 
 
@@ -804,14 +804,14 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
 
 
-# ScXLookup / ScXMatch (interpr1.cxx) modes supported here; Calc also has 3 (regex).
+# ScXLookup / ScXMatch (interpr1.cxx) modes supported here.
 _MATCH_MODES = (-1, 0, 1, 2)
 _SEARCH_MODES = (-2, -1, 1, 2)
 
 
 def _modes_supported(match_mode: int | float, search_mode: int | float) -> bool:
     # ScXLookup / ScXMatch (interpr1.cxx) validate match_mode and search_mode before searching (callers return Err:504);
-    # mode 3 (regex) is valid in Calc but not supported here.
+    # mode 3 (regex) is valid in Calc but gets Err:504 here because it is not supported.
     return int(float(match_mode)) in _MATCH_MODES and int(float(search_mode)) in _SEARCH_MODES
 
 
@@ -823,7 +823,7 @@ def _find_match_index(
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
     # dtype=object keeps numbers as numbers. Text matches case-insensitively.
-    # bad match_mode or search_mode is left to the worker exception path, which returns #VALUE!
+    # A text match_mode or search_mode is left to the worker exception path, which returns #VALUE!.
     l_flat = np.asarray(lookup_arr, dtype=object).ravel()
     indices = list(range(len(l_flat)))
     if int(float(search_mode)) == -1:

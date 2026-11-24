@@ -298,7 +298,6 @@ def test_rank_small_extract_numeric():
     assert calc.rank(0, [1, 2, 3], 1) == "#N/A"
     assert calc.rank(2, [1, 3]) == "#N/A"
     assert math.isnan(calc.rank(float("nan"), [1, 2, 3]))
-    import struct
     na_rank = calc.rank(calc.na(), [1])
     assert isinstance(na_rank, float) and math.isnan(na_rank)
     assert (struct.unpack("Q", struct.pack("d", na_rank))[0] & 0xFFFFFFFF) == 0x7FFF

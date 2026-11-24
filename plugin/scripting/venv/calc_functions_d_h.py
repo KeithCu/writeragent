@@ -951,10 +951,10 @@ def gestep(number: Any, step: Any = 0) -> float:
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
         y = np.asarray(known_y, dtype=float)
-        # Calc GROWTH returns #NUM! for non-finite y and Err:502 for y <= 0 (CheckMatrix with _bLOG, interpr5.cxx).
-        if y.size and not np.all(np.isfinite(y)):
+        # A blank or non-finite y is #NUM! here; y <= 0 is Err:502 (CheckMatrix with _bLOG, interpr5.cxx).
+        if not np.all(np.isfinite(y)):
             return "#NUM!"
-        if y.size and np.any(y <= 0):
+        if np.any(y <= 0):
             return "Err:502"
         return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
     except RegressionError as exc:

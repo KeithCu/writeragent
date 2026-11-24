@@ -24,8 +24,8 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
 3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", "Err:502", "Err:504",
    or a propagated Err:<n> token). The add-in shows that error. Used where the cell must show
    a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
-   and regression helpers: xlookup bad mode, growth, trend), and the first error of a range
-   (first_error: npv, sumsq, sumproduct, subtotal).
+   and regression helpers), and the first error of a range (first_error: npv, sumsq,
+   sumproduct, subtotal). "Err:502" / "Err:504" come from xlookup bad mode, growth and trend.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -66,7 +66,11 @@ def is_na_nan(val: float) -> bool:
 
 
 class RegressionError(ValueError):
-    """A regression input Calc rejects. str(exc) is the error token the cell shows."""
+    """A regression input Calc rejects. str(exc) is the error token the cell shows.
+
+    Subclasses ValueError so linest/logest, which call require_samples and catch ValueError,
+    keep returning #VALUE!, and why growth/trend must catch RegressionError before ValueError.
+    """
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
