@@ -522,3 +522,51 @@ def test_visit_webpage_browser_tool_reports_driver_errors(monkeypatch):
     out = VisitWebpageBrowserTool(driver).forward("https://bad.invalid")
     assert out == "Error visiting webpage via browser: NS_ERROR_UNKNOWN_HOST"
     driver.close_tab.assert_called_once_with("tab-1")
+
+
+def test_begin_refuses_while_another_process_is_launching(tmp_path):
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+
+    def on_send(msg, ws):
+        ws.push_json({"type": "success", "id": msg["id"], "result": {}})
+
+    ws = _FakeWebSocket(on_send=on_send)
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", return_value=ws) as mock_connect,
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            with wrf._profile_launch_lock(str(profile_dir)):
+                with pytest.raises(RuntimeError, match="another WriterAgent is starting Firefox"):
+                    begin_firefox_bidi()
+                mock_connect.assert_not_called()
+                mock_spawn.assert_not_called()
+
+            client = begin_firefox_bidi()
+            assert client is wrf._CLIENT
+            mock_connect.assert_called_once()
+    finally:
+        close_firefox_bidi()
+
+
+def test_failed_launch_releases_the_launch_lock(tmp_path):
+    profile_dir = tmp_path / ".config" / "writeragent" / "firefox_profile"
+    profile_dir.mkdir(parents=True)
+    wrf._CLIENT = None
+    try:
+        with (
+            patch("websockets.sync.client.connect", side_effect=ConnectionRefusedError("refused")),
+            patch("plugin.chatbot.web_research_firefox.find_browser_executable", return_value="/usr/bin/firefox"),
+            patch("plugin.chatbot.web_research_firefox.spawn_local_browser") as mock_spawn,
+        ):
+            mock_spawn.return_value.pid = 11111
+            mock_spawn.return_value.popen.poll.return_value = 1
+            with pytest.raises(RuntimeError, match="Firefox exited during startup \\(code 1\\)"):
+                begin_firefox_bidi()
+
+        with wrf._profile_launch_lock(str(profile_dir)):
+            pass
+    finally:
+        close_firefox_bidi()
