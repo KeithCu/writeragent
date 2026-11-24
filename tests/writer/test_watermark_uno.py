@@ -263,3 +263,101 @@ def test_remove_watermark_clears_inactive_first_and_even_headers_uno(ctx: Any, d
         for path in (src_docx, mod_docx, out_docx):
             if os.path.exists(path):
                 os.unlink(path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_set_watermark_updates_inactive_first_and_even_headers_uno(ctx: Any, doc: Any) -> None:
+    import uno
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+
+    standard = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    standard.setPropertyValue("HeaderIsShared", False)
+    standard.setPropertyValue("FirstIsShared", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx)
+    first = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert first["status"] == "ok", first
+
+    standard.setPropertyValue("HeaderIsShared", True)
+    standard.setPropertyValue("FirstIsShared", True)
+
+    inactive = [
+        s
+        for s in iter_draw_shapes(doc.getDrawPage())
+        if s.getName().startswith("PowerPlusWaterMarkObject")
+        and s.getAnchor() is not None
+        and s.getAnchor().getText() is None
+    ]
+    assert len(inactive) == 2
+
+    text_body = doc.getText()
+    for _idx in range(2):
+        text_body.insertControlCharacter(text_body.getEnd(), 0, False)
+        text_body.getEnd().setPropertyValue("BreakType", PAGE_BEFORE)
+
+    res = PageSetWatermark().execute(
+        tool_ctx,
+        text="FINAL",
+        font="DejaVu Serif",
+        angle=30,
+        color="#ff0000",
+        transparency=50,
+    )
+    assert res["status"] == "ok", res
+    assert doc.getUndoManager().getAllUndoActionTitles() == ()
+
+    fd_docx, docx_path = tempfile.mkstemp(suffix=".docx")
+    os.close(fd_docx)
+    try:
+        doc.storeToURL(
+            uno.systemPathToFileUrl(docx_path),
+            (create_property_value("FilterName", "MS Word 2007 XML"),),
+        )
+        with zipfile.ZipFile(docx_path, "r") as zf:
+            header_names = sorted(
+                n for n in zf.namelist() if n.startswith("word/header") and n.endswith(".xml")
+            )
+            assert len(header_names) == 3, header_names
+            for name in header_names:
+                xml = zf.read(name).decode("utf-8", errors="ignore")
+                assert 'string="FINAL"' in xml, name
+                assert "rotation:330" in xml, name
+                assert 'fillcolor="red"' in xml, name
+                assert "DejaVu Serif" in xml, name
+                assert 'string="DRAFT"' not in xml, name
+
+        standard.setPropertyValue("HeaderIsShared", False)
+        standard.setPropertyValue("FirstIsShared", False)
+        doc.getCurrentController().getViewCursor().gotoEnd(False)
+
+        wm_shapes = [
+            s
+            for s in iter_draw_shapes(doc.getDrawPage())
+            if s.getName().startswith("PowerPlusWaterMarkObject")
+        ]
+        by_header: dict[str, Any] = {}
+        for prop_name in ("HeaderText", "HeaderTextFirst", "HeaderTextLeft"):
+            hdr_text = standard.getPropertyValue(prop_name)
+            matches = [
+                s
+                for s in wm_shapes
+                if s.getAnchor() is not None and s.getAnchor().getText() == hdr_text
+            ]
+            assert len(matches) == 1, (prop_name, matches)
+            shape = matches[0]
+            assert shape.getString() == "FINAL", prop_name
+            assert shape.getPropertyValue("RotateAngle") == 3000, prop_name
+            assert shape.getPropertyValue("FillColor") == 0xFF0000, prop_name
+            by_header[prop_name] = shape.getPropertyValue("BoundRect")
+
+        base_rect = by_header["HeaderText"]
+        assert base_rect.Width > 0 and base_rect.Height > 0
+        for prop_name in ("HeaderTextFirst", "HeaderTextLeft"):
+            rect = by_header[prop_name]
+            assert abs(rect.Width - base_rect.Width) <= 5, (prop_name, rect.Width, base_rect.Width)
+            assert abs(rect.Height - base_rect.Height) <= 5, (prop_name, rect.Height, base_rect.Height)
+    finally:
+        if os.path.exists(docx_path):
+            os.unlink(docx_path)
