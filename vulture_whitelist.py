@@ -385,7 +385,6 @@ _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
 _.clear_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:926
 _.clear_research_fluff_words_cache  # function: plugin/chatbot/web_research_cache.py:165
-_.clear_session  # function: plugin/ppt_master/venv/runner.py:332
 _.clear_sidebar_chat  # function: plugin/chatbot/sidebar_test_hooks.py:2499
 _.close_calc_document  # function: plugin/chatbot/sidebar_test_hooks.py:1579
 _.dispatch_undo  # function: plugin/chatbot/sidebar_test_hooks.py:3116

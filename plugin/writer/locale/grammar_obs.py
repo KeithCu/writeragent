@@ -472,9 +472,10 @@ class WriterAgentGrammarStatus(GrammarStatus):
         get_event_bus().subscribe("config:changed", self._on_config_changed, weak=True)
 
     def _on_config_changed(self, **data: Any) -> None:
-        """End the status-bar line when the grammar engine, model, LLM endpoint, or API key changes; the old result no longer applies."""
+        """Clear the sidebar grammar line and end the status-bar line when the grammar engine, model, LLM endpoint, or API key changes; the old result no longer applies."""
         if grammar_settings.engine_settings_changed(data.get("keys") or ()):
             self._status_bar.done("", routine=True)
+            self._sidebar.relay_status_update("cleared", "")
 
     def _deliver(
         self,

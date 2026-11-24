@@ -172,12 +172,18 @@ class _Portion:
 
 
 class _Paragraph:
-    def __init__(self, portions, fallback_text=""):
+    def __init__(self, portions, fallback_text="", contents=()):
         self._portions = portions
         self._fallback_text = fallback_text
+        self._contents = contents
 
     def createEnumeration(self):
         return _Enum(self._portions)
+
+    def createContentEnumeration(self, _service):
+        if callable(self._contents):
+            return self._contents()
+        return _Enum(self._contents)
 
     def getString(self):
         return self._fallback_text
@@ -649,9 +655,10 @@ def test_read_visible_body_hides_deletion_across_paragraphs_and_table():
     ])
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model)
+    text, offsets, struck = read_visible_body(model)
     assert text == "Keep \n\nAfter"
     assert offsets == []
+    assert struck == []
 
 
 def test_read_visible_body_position_in_other_text_is_none():
@@ -664,9 +671,10 @@ def test_read_visible_body_position_in_other_text_is_none():
     pos.getText.return_value = other
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello"
     assert offsets == [None]
+    assert struck == []
 
 
 def test_read_visible_body_position_after_last_paragraph_is_text_end():
@@ -681,9 +689,10 @@ def test_read_visible_body_position_after_last_paragraph_is_text_end():
     pos.getText.return_value = body
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello"
     assert offsets == [5]
+    assert struck == []
 
 
 def test_read_visible_body_disposed():
@@ -710,9 +719,149 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
     model = MagicMock()
     model.getText.return_value = body
 
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello world"
     assert offsets == [None]
+    assert struck == []
+
+
+@pytest.mark.parametrize(
+    "paragraphs, expected_text, expected_struck",
+    [
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [3],
+            id="whole_paragraph",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                ], fallback_text="BB"),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text=""),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\n\nCC",
+            [3],
+            id="whole_paragraph_plus_real_blank",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                ], fallback_text="BB"),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text=""),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\nBB\n\nCC",
+            [6],
+            id="backspace_on_blank",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion("B"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("B"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\nB\nCC",
+            [],
+            id="partial_deletion",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                    _Portion("", portion_type="Frame"),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [],
+            id="live_frame_in_deleted_line",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [],
+            id="live_para_anchored_content",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=MagicMock(side_effect=RuntimeError("enum failed"))),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [3],
+            id="content_enum_error_marks_and_continues",
+        ),
+        pytest.param(
+            [
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("AA"),
+                ], fallback_text="AA"),
+                _Paragraph([_Portion("BB")], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([
+                    _Portion("CC"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="CC"),
+            ],
+            "\n\n",
+            [0, 1, 2],
+            id="middle_of_deletion_ignores_anchored_content",
+        ),
+    ],
+)
+def test_read_visible_body_struck_offsets(paragraphs, expected_text, expected_struck):
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions, read_visible_body
+
+    body = MagicMock()
+    body.createTextCursor.side_effect = lambda: _make_body_cursor(paragraphs)
+    model = MagicMock()
+    model.getText.return_value = body
+    text, offsets, struck = read_visible_body(model)
+    assert text == expected_text
+    assert offsets == []
+    assert struck == expected_struck
+    assert text == get_string_without_tracked_deletions(body.createTextCursor())
 
 
 def test_get_document_length_non_writer_is_zero():
@@ -1176,11 +1325,15 @@ def test_tracked_deletions_state_at_and_covers():
 
     class _Text:
         def compareRegionStarts(self, a, b):
+            a = a.getStart()
+            b = b.getStart()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
 
         def compareRegionEnds(self, a, b):
+            a = a.getEnd()
+            b = b.getEnd()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
@@ -1253,6 +1406,34 @@ def test_tracked_deletions_state_at_and_covers():
     assert td.covers(_Range(3, 4)) is True
     assert td.covers(_Range(1, 3)) is False
     assert td.covers(_Range(4, 6)) is False
+
+
+def test_bounds_cover():
+    from plugin.doc.text_helpers import bounds_cover
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class _Text:
+        def compareRegionStarts(self, a, b):
+            if b == "disposed":
+                raise DisposedException("gone")
+            if isinstance(b, str):
+                raise RuntimeError("foreign")
+            return 1 if a < b[0] else (0 if a == b[0] else -1)
+
+        def compareRegionEnds(self, a, b):
+            return 1 if a[1] < b else (0 if a[1] == b else -1)
+
+    bounds = (_Text(), 5, 10)
+    assert bounds_cover(bounds, (6, 9)) is True
+    assert bounds_cover(bounds, (5, 10)) is True
+    assert bounds_cover(bounds, (4, 10)) is False
+    assert bounds_cover(bounds, (5, 11)) is False
+    assert bounds_cover(bounds, "other_text") is False
+    with pytest.raises(DocumentDisposedError):
+        bounds_cover(bounds, "disposed")
 
 
 def test_visible_portions_resets_state_when_enumeration_fails():

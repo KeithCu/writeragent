@@ -316,7 +316,7 @@ Observation: {"status": "ok", "slides": 5}
 Action:
 {
   "name": "ppt_master_finished",
-  "arguments": {"message": "<p>Exported 5 slides as native Impress shapes.</p>", "exported": true}
+  "arguments": {"message": "<p>Exported 5 slides as native Impress shapes.</p>"}
 }
 Observation: {"status": "finished"}
 

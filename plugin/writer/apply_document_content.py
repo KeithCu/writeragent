@@ -77,6 +77,7 @@ from plugin.writer.heading_links import (
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
+    hyperlink_fields,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_links,
@@ -457,7 +458,7 @@ class ApplyDocumentContent(ToolBase):
       when ``hyperlink_url`` is passed for that one link. ``content`` may equal
       ``old_content`` when only the URL is stale. A repeated title is left
       unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
-      ``hyperlink_url_after`` is empty when the replace left no link.
+      In ``hyperlinks``, ``hyperlink_url_after`` is empty when the replace left no link.
       To replace a range between landmarks without copying the middle, use
       target='search' with start_anchor and end_anchor instead of old_content.
       The range runs from the start of start_anchor through the end of the first
@@ -604,18 +605,7 @@ class ApplyDocumentContent(ToolBase):
             return {}
         if override and len(reports) != 1:
             raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
-        fields = dict(reports[0])
-        if len(reports) > 1:
-            fields["hyperlinks"] = reports
-        return fields
-
-    def _attach_hyperlink_reports(self, resp: Any, reports: list[dict[str, Any]]) -> dict[str, Any]:
-        if not reports:
-            return resp
-        resp["hyperlinks"] = reports
-        if len(reports) == 1:
-            resp.update(reports[0])
-        return resp
+        return hyperlink_fields(reports)
 
     def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> list[dict[str, Any]]:
         """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
@@ -810,7 +800,7 @@ class ApplyDocumentContent(ToolBase):
             if headings is None:
                 with session:
                     return run()
-            with session, UndoStepOrRollback(doc, next_agent_edit_undo_title()):
+            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 return run()
 
         def once() -> list[dict[str, Any]]:
@@ -1361,7 +1351,7 @@ class ApplyDocumentContent(ToolBase):
         captured = image_placeholders.capture_placeholder_images(ctx.doc, content)
         headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
-        with session, UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()):
+        with UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()), session:
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
@@ -1430,7 +1420,7 @@ class ApplyDocumentContent(ToolBase):
         rng = request_selection_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
-        with session, (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()):
+        with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             def mutate() -> html_import_styles.WriteReport:
                 rep = html_import.insert_content_at_position(
@@ -1566,7 +1556,7 @@ class ApplyDocumentContent(ToolBase):
         html_import_styles.attach_write_report(
             resp, report, total_matches=count,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
-        self._attach_hyperlink_reports(resp, link_reports)
+        resp.update(hyperlink_fields(link_reports))
         return attach_edited_context(resp, anchor)
 
     def _anchor_miss(
@@ -1709,7 +1699,7 @@ class ApplyDocumentContent(ToolBase):
 
         def _insert_next_to_match() -> None:
             if not is_block:
-                html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
+                report.math.extend(html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content)))
                 report.unapplied_para.extend(html_import_styles.unapplied_para_names_for_content(str(content)))
             elif position != "after":
                 # A block import at the start of the match's paragraph adds paragraphs before it
@@ -1772,7 +1762,7 @@ class ApplyDocumentContent(ToolBase):
         # review session.
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
-            # Rollback must stay outside the session: undo cannot run while its undo context is open.
+            # The undo step is outermost, so a rollback runs after the session restores RecordChanges and the author.
             with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
@@ -1797,5 +1787,5 @@ class ApplyDocumentContent(ToolBase):
         html_import_styles.attach_write_report(
             resp, report, total_matches=1,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
-        self._attach_hyperlink_reports(resp, reports)
+        resp.update(hyperlink_fields(reports))
         return attach_edited_context(resp, anchor)

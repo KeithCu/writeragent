@@ -81,3 +81,52 @@ def test_draw_vision_unnamed_selected_graphic(ctx, doc):
             os.remove(path)
         except OSError:
             pass
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_vision_unnamed_keeps_discovered_shape_across_selection_change_uno(ctx, doc):
+    """Draw exports the discovered unnamed shape even when selection changes before export."""
+    import plugin.vision.vision_runner as vr
+
+    path_a = _write_temp_png(10, 20, 30)
+    path_b = _write_temp_png(200, 100, 50)
+    try:
+        shape_a = insert_image_at_locator(ctx, doc, path_a, page_index=0, x_mm=10, y_mm=10, width_mm=20, height_mm=20)
+        shape_b = insert_image_at_locator(ctx, doc, path_b, page_index=0, x_mm=50, y_mm=10, width_mm=20, height_mm=20)
+        assert shape_a is not None and shape_b is not None
+        shape_a.setName("")
+        shape_b.setName("")
+        _select_shape(doc, shape_a)
+
+        real_export = vr.export_graphic_object_to_bytes
+        exported_objs: list[Any] = []
+
+        def wrapped_export(c: Any, obj: Any) -> bytes:
+            exported_objs.append(obj)
+            return real_export(c, obj)
+
+        def fake_run_vision(_ctx: Any, _spec: dict[str, Any], _png: bytes, context: dict[str, Any] | None = None, cancel: Any = None):
+            del context, cancel
+            return {"status": "ok", "helper": "extract_text", "full_text": "draw ocr", "html": "<p>draw ocr</p>"}
+
+        with (
+            patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=wrapped_export),
+            patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision),
+        ):
+            result = run_and_insert_vision_for_selection(
+                ctx,
+                doc,
+                helper="extract_text",
+                insert_into_document=False,
+                on_discovered=lambda _discovered: _select_shape(doc, shape_b),
+            )
+
+        assert result.get("status") == "ok", result
+        assert exported_objs == [shape_a]
+    finally:
+        for path in (path_a, path_b):
+            try:
+                os.remove(path)
+            except OSError:
+                pass

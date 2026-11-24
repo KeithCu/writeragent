@@ -24,7 +24,7 @@ from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_re
 import uno
 
 from plugin.doc.paragraph_search import paragraph_entries
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
@@ -66,10 +66,11 @@ def _annotation_reader(ctx: Any) -> Any:
     text_obj = doc.getText()
     entries = paragraph_entries(para_ranges)
     labeler = LocationLabeler(doc) if doc is not None else None
+    deletions = TrackedDeletions(doc)
 
     def reader(field: Any) -> dict[str, Any]:
         return _read_annotation(
-            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, labeler=labeler
+            field, para_ranges, text_obj, doc_svc, deletions, doc=doc, entries=entries, labeler=labeler
         )
 
     return reader
@@ -697,6 +698,7 @@ def _read_annotation(
     para_ranges: Any,
     text_obj: Any,
     doc_svc: Any,
+    deletions: TrackedDeletions,
     doc: Any = None,
     entries: Any = None,
     labeler: Any = None,
@@ -765,7 +767,7 @@ def _read_annotation(
             except Exception:
                 preview = ""
             if not preview:
-                ptxt = (enclosing_paragraph_text(doc, anchor) or "").strip()
+                ptxt = (enclosing_paragraph_text(anchor, deletions) or "").strip()
                 if ptxt:
                     preview = ptxt[:120]
                     entry["anchor_is_paragraph_context"] = True

@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.chatbot.module_config_dialog import PreviewImage
-from plugin.doc.visual_helpers import graphic_objects_in_selection
+from plugin.doc.visual_helpers import no_image_selected_error
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.i18n import _
@@ -29,7 +29,7 @@ from plugin.vision.vision_egress import (
     vision_html_from_result,
 )
 from plugin.vision.vision_runner import (
-    no_image_selected_error,
+    discover_vision_images,
     run_and_insert_vision_for_selection,
     run_trusted_vision,
     supports_vision_manual,
@@ -48,12 +48,12 @@ _PREVIEW_MARGIN = 500        # 1/100 mm (5 mm) so the bitmap is mostly content
 
 
 @main_thread_only
-def _preview_target(ctx: Any) -> tuple[Any, str]:
+def _preview_target(ctx: Any) -> tuple[Any, str, Any | None]:
     doc = get_active_document(ctx)
-    pairs = graphic_objects_in_selection(doc) if doc is not None and supports_vision_manual(doc) else []
-    if not pairs:
+    if doc is None or not supports_vision_manual(doc):
         raise no_image_selected_error()
-    return doc, pairs[0][0]  # first image, same discovery as Insert; "" (unnamed Calc image) falls back to the selection
+    image_name, graphic = discover_vision_images(doc)[0]
+    return doc, image_name, graphic
 
 
 def _make_load_models_hook(
@@ -88,7 +88,7 @@ def run_vision_preview(
     report: Callable[[str], None],
 ) -> PreviewImage | str:
     """Run OCR on the active document's first selected image and render page 1 for preview."""
-    doc, image_name = main.call(_preview_target, ctx)
+    doc, image_name, graphic = main.call(_preview_target, ctx)
 
     result = run_trusted_vision(
         ctx,
@@ -97,6 +97,7 @@ def run_vision_preview(
         params={**values, "image_name": image_name},
         cancel=cancel,
         on_exported=_make_load_models_hook(ctx, cancel, report),
+        graphic=graphic,
     )
     if not ocr_found_content(result):
         return _("No text detected.")
@@ -127,6 +128,7 @@ def run_vision_insert(
 ) -> str:
     """Run OCR on the active document's selected image(s) and insert into Writer or Calc."""
     doc = main.call(_run_target, ctx)
+    found: list[tuple[str, Any | None]] = []
     result = run_and_insert_vision_for_selection(
         ctx,
         doc,
@@ -135,6 +137,7 @@ def run_vision_insert(
         insert_into_document=False,
         cancel=cancel,
         on_exported=_make_load_models_hook(ctx, cancel, report),
+        on_discovered=found.extend,
     )
     if result.get("code") == "USER_STOPPED":
         raise SendCancelled("Vision run cancelled")
@@ -142,12 +145,13 @@ def run_vision_insert(
     indiv_results = result.get("individual_results") or []
     outcomes: list[VisionInsertOutcome] = []
     if indiv_results:
+        graphics = dict(found)
         report(_("Inserting…"))
         for indiv_res in indiv_results:
             def _insert_one(res: dict[str, Any] = indiv_res) -> VisionInsertOutcome:
                 if is_cancelled(cancel):
                     raise SendCancelled("Vision run cancelled")
-                return insert_vision_item(ctx, doc, res, values)
+                return insert_vision_item(ctx, doc, res, values, graphics)
 
             outcomes.append(main.call(_insert_one))
 

@@ -693,3 +693,14 @@ def test_native_test_per_test_timeout(monkeypatch) -> None:
 
     monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "120")
     assert tr._native_test_timeout_sec(getattr(slow, "_timeout_sec", None)) == 120
+
+
+def test_run_module_suite_fails_test_that_imports_a_missing_module() -> None:
+    """Missing modules (such as pytest under LibreOffice Python) must FAIL, not SKIP."""
+    def test_missing_mod(ctx=None):
+        raise ModuleNotFoundError("No module named 'pytest'", name="pytest")
+
+    module = _make_module(test_missing_mod=test_missing_mod)
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "writer.missing")
+    assert (passed, failed) == (0, 1)
+    assert any("FAIL (ModuleNotFoundError" in line for line in suite_log), suite_log

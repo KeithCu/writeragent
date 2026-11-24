@@ -1021,3 +1021,47 @@ def test_delete_graphic_disposes_page_anchored_picture():
 
     assert visual_helpers.delete_graphic(MagicMock(), doc, graphic) is False
     graphic.dispose.assert_called_once_with()
+
+
+def test_find_image_precedence_and_errors():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.errors import ToolExecutionError
+
+    doc = MagicMock()
+    kept_shape = MagicMock()
+    named_shape = MagicMock()
+    selected_shape = MagicMock()
+
+    with (
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=named_shape) as mock_by_name,
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=selected_shape) as mock_selected,
+    ):
+        # Kept shape wins over both name and selection, and skips any lookup.
+        assert visual_helpers.find_image(doc, "Pic1", kept_shape) is kept_shape
+        mock_by_name.assert_not_called()
+        mock_selected.assert_not_called()
+
+        # Non-empty name wins over selection.
+        assert visual_helpers.find_image(doc, "Pic1") is named_shape
+        mock_by_name.assert_called_once_with(doc, "Pic1")
+        mock_selected.assert_not_called()
+
+        # Empty name with no kept shape uses selection.
+        assert visual_helpers.find_image(doc, "") is selected_shape
+        mock_selected.assert_called_once_with(doc)
+
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None):
+        with pytest.raises(ToolExecutionError) as exc_missing:
+            visual_helpers.find_image(doc, "Missing")
+        assert exc_missing.value.code == "IMAGE_NOT_FOUND"
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None):
+        with pytest.raises(ToolExecutionError) as exc_default:
+            visual_helpers.find_image(doc, "")
+        assert exc_default.value.code == "NO_IMAGE_SELECTED"
+        assert "range containing images" in str(exc_default.value)
+
+        with pytest.raises(ToolExecutionError) as exc_custom:
+            visual_helpers.find_image(doc, "", no_selection="Custom pick message.")
+        assert exc_custom.value.code == "NO_IMAGE_SELECTED"
+        assert str(exc_custom.value) == "Custom pick message."

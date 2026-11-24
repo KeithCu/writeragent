@@ -123,6 +123,9 @@ class _FakePoint:
     def getText(self):
         return self._text
 
+    def getStart(self):
+        return self
+
 
 class _FakeRange:
     def __init__(self, lo, hi, *, text=None):
@@ -298,3 +301,46 @@ def test_redline_kinds_covering_table_start():
     assert redline_kinds_covering(doc, MagicMock()) == {"Delete"}
     text.compareRegionStarts.assert_called_once()
     assert text.compareRegionStarts.call_args[0][0] is anchor
+
+
+@pytest.mark.parametrize(
+    ("kind", "start_pos", "end_pos", "point_pos", "at_para_start", "prev_end_pos", "expected"),
+    [
+        # Insert/Delete starting at or after point -> False
+        ("Insert", 5, 8, 5, False, None, False),
+        ("Delete", 5, 8, 5, False, None, False),
+        # Insert starting before point: ends before -> False, at -> True, after -> True
+        ("Insert", 1, 4, 5, False, None, False),
+        ("Insert", 1, 5, 5, False, None, True),
+        ("Insert", 1, 7, 5, False, None, True),
+        # Delete starting before point: ends before -> False, at (mid-para) -> False, after -> True
+        ("Delete", 1, 4, 5, False, None, False),
+        ("Delete", 1, 5, 5, False, None, False),
+        ("Delete", 1, 7, 5, False, None, True),
+        # Previous-paragraph arm when point is at paragraph start
+        ("Insert", 1, 4, 5, True, 4, True),
+        ("Delete", 1, 4, 5, True, 4, True),
+        ("Insert", 1, 3, 5, True, 4, False),
+        # Format redlines are ignored
+        ("Format", 1, 7, 5, False, None, False),
+    ],
+)
+def test_tracked_change_before_point(
+    kind, start_pos, end_pos, point_pos, at_para_start, prev_end_pos, expected
+):
+    from plugin.writer.record_changes import tracked_change_before_point
+
+    text = _FakeText()
+    point = _FakePoint(point_pos, text=text)
+    cur = MagicMock()
+    cur.isStartOfParagraph.return_value = at_para_start
+    if prev_end_pos is not None:
+        cur.goLeft.return_value = True
+        cur.getStart.return_value = _FakePoint(prev_end_pos, text=text)
+    else:
+        cur.goLeft.return_value = False
+    text.createTextCursorByRange = lambda _r: cur
+
+    rl = _FakeRL(kind, _FakePoint(start_pos, text=text), _FakePoint(end_pos, text=text), author="Alice")
+    doc = _FakeRedlineDoc([rl])
+    assert tracked_change_before_point(doc, point) is expected

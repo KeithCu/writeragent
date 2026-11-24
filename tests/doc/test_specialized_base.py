@@ -377,27 +377,6 @@ def test_domain_declared_after_gateway_creation_is_accepted() -> None:
     assert "zz_late" not in gw.domains_for_services(svcs)
 
 
-def test_delegate_completed_message_uses_static_msgid(
-    writer_gateway: DelegateToSubagent,
-) -> None:
-    from unittest.mock import patch
-
-    ctx = _structural_registry(writer_gateway)
-
-    def fake_run_inner(ctx, tools, **kwargs):
-        tool_map = {t.name: t for t in tools}
-        tool_map["dummy_structural_tool"]()
-        tool_map["workflow_finished"](answer="Done")
-        return "All done."
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-        with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
-            result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
-
-    assert result["status"] == "ok"
-    assert result["message"] == "Specialized task (structural) completed."
-
-
 def test_delegate_finish_only_stays_ok(
     writer_gateway: DelegateToSubagent,
 ) -> None:

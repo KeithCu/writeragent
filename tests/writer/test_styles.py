@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
-import sys
 from contextlib import contextmanager
 
 import pytest
 from plugin.writer.search import MatchMode
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
+from plugin.writer import styles
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleFormatText,
     StyleCreate, StyleClone, StyleImport, StyleUpdate,
@@ -676,12 +676,8 @@ def test_create_style_conditional():
 
 @patch("os.path.isfile", return_value=True)
 @patch("plugin.writer.styles.uno")
-@patch("plugin.writer.styles.PropertyValue")
-def test_import_styles(mock_pv, mock_uno, mock_isfile, mock_ctx):
+def test_import_styles(mock_uno, mock_isfile, mock_ctx):
     mock_uno.systemPathToFileUrl.return_value = "file:///path/to/doc.ott"
-
-    pv_instance = MagicMock()
-    mock_pv.return_value = pv_instance
 
     tool = StyleImport()
     # abspath adds a drive letter on Windows, where "/path/..." alone is not absolute.
@@ -806,7 +802,7 @@ def _fake_uno_struct_factory():
     __dict__, and test_tracking's "Date struct missing" case depends on it being
     absent. Restore the attribute's presence, not just its value.
     """
-    uno_mod = sys.modules["uno"]
+    uno_mod = styles.uno
     had = "createUnoStruct" in uno_mod.__dict__
     previous = uno_mod.__dict__.get("createUnoStruct")
     uno_mod.createUnoStruct = lambda _name: _FakeLineSpacing()
@@ -820,8 +816,6 @@ def _fake_uno_struct_factory():
 
 
 def _normalize_with_fake_struct(updates):
-    from plugin.writer import styles
-
     with _fake_uno_struct_factory():
         return styles._normalize_property_updates(updates)
 
@@ -900,11 +894,9 @@ def test_simple_values_read_back_unchanged():
 
 
 def test_tab_stops_are_set_through_a_typed_sequence():
-    from plugin.writer import styles
-
     style = MagicMock()
     value = (object(),)
-    with patch("uno.invoke") as invoke, patch("uno.Any") as any_:
+    with patch.object(styles.uno, "invoke") as invoke, patch.object(styles.uno, "Any") as any_:
         styles._set_style_property(style, "ParaTabStops", value)
     any_.assert_called_once_with("[]com.sun.star.style.TabStop", value)
     assert invoke.call_args.args[1] == "setPropertyValue"
@@ -912,8 +904,6 @@ def test_tab_stops_are_set_through_a_typed_sequence():
 
 
 def test_plain_properties_use_set_property_value():
-    from plugin.writer import styles
-
     style = MagicMock()
     styles._set_style_property(style, "CharWeight", 150)
     style.setPropertyValue.assert_called_once_with("CharWeight", 150)
@@ -2130,6 +2120,56 @@ def test_style_format_text_invalid_color_and_para_adjust_int_are_invalid_param()
     resolve.assert_not_called()
 
 
+@pytest.mark.parametrize(("word", "expected_word", "expected_int"), [("start", "left", 0), ("end", "right", 1)])
+def test_style_format_text_maps_para_adjust_start_end_to_left_right_when_enum_missing(
+    word, expected_word, expected_int
+):
+    import sys
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    cursor = _noncollapsed_cursor()
+    written = {}
+
+    def _set_values(names, values):
+        for n, v in zip(names, values):
+            written[n] = v
+
+    cursor.setPropertyValues.side_effect = _set_values
+    cursor.getPropertyValue.side_effect = lambda n: written.get(n)
+    with (
+        patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")),
+        patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+    ):
+        res = StyleFormatText().execute(_font_ctx(), properties={"ParaAdjust": word})
+    assert res["status"] == "ok"
+    assert res["after"] == {"ParaAdjust": expected_word}
+    cursor.setPropertyValues.assert_called_once_with(("ParaAdjust",), (expected_int,))
+
+
+def test_style_update_maps_para_adjust_start_to_left_when_enum_missing():
+    import sys
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    props = {"ParaAdjust": 3}
+    style = MagicMock()
+    style.getPropertyValue.side_effect = lambda n: props.get(n)
+    style.getParentStyle.return_value = "Standard"
+    style.setPropertyValue.side_effect = lambda n, v: props.__setitem__(n, v)
+    family = _style_family({"MyStyle": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+        res = StyleUpdate().execute(
+            mock_ctx,
+            style="MyStyle",
+            family="ParagraphStyles",
+            property_updates={"ParaAdjust": "start"},
+        )
+    assert res["status"] == "ok"
+    style.setPropertyValue.assert_called_once_with("ParaAdjust", 0)
+    assert res["after"]["ParaAdjust"] == "left"
+
+
 def test_style_format_text_reset_uses_default_and_one_undo_bracket():
     from plugin.doc.compound_undo import UndoOutcome
 
@@ -2281,15 +2321,15 @@ def test_style_format_text_warns_when_font_not_installed():
 
 def test_style_format_text_tab_stops_use_typed_sequence():
     cursor = _noncollapsed_cursor()
-    uno_mod = sys.modules["uno"]
+    uno_mod = styles.uno
     had = "createUnoStruct" in uno_mod.__dict__
     previous = uno_mod.__dict__.get("createUnoStruct")
     uno_mod.createUnoStruct = lambda _name: _FakeStruct(Position=0, Alignment="LEFT", DecimalChar=".", FillChar=" ")
     try:
         with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
              patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
-             patch("uno.invoke") as invoke, \
-             patch("uno.Any") as any_:
+             patch.object(styles.uno, "invoke") as invoke, \
+             patch.object(styles.uno, "Any") as any_:
             res = StyleFormatText().execute(_font_ctx(), properties={"ParaTabStops": [{"Position": 2000}]})
         assert res["status"] == "ok"
         any_.assert_called_once()
@@ -2511,15 +2551,8 @@ def test_apply_style_recording_passes_author_and_toggles_record_changes():
     assert rec[0] is True
 
 
-def test_record_paragraph_formats_failure_and_disposal(monkeypatch: pytest.MonkeyPatch):
-    from types import SimpleNamespace
+def test_record_paragraph_formats_failure_and_disposal():
     from plugin.framework.errors import DocumentDisposedError
-
-    monkeypatch.setitem(
-        sys.modules,
-        "uno",
-        SimpleNamespace(Any=lambda _t, v: v, createUnoStruct=lambda _name: SimpleNamespace()),
-    )
 
     def _empty_enum():
         e = MagicMock()
@@ -2725,16 +2758,39 @@ def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
     assert "undo step could not be closed" in err["message"]
 
 
-def test_paragraph_revert_states_skips_void_values_and_names_unrestorable(monkeypatch: pytest.MonkeyPatch):
+def test_coerce_uno_field_builds_enum_and_char_from_strings():
+    class _FakeEnum:
+        def __init__(self, type_name: str, value: str) -> None:
+            if value not in {"LEFT", "CENTER", "RIGHT"}:
+                raise ValueError(f"unknown enum member: {value}")
+            self.typeName = type_name
+            self.value = value
+
+    class _FakeChar:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class _Struct:
+        Alignment = _FakeEnum("com.sun.star.style.TabAlign", "LEFT")
+        FillChar = _FakeChar(" ")
+
+    struct = _Struct()
+    with patch.object(styles.uno, "Enum", _FakeEnum), patch.object(styles.uno, "Char", _FakeChar):
+        aligned = styles._coerce_uno_field(struct, "Alignment", " right ")
+        assert isinstance(aligned, _FakeEnum)
+        assert aligned.typeName == "com.sun.star.style.TabAlign"
+        assert aligned.value == "RIGHT"
+
+        fill = styles._coerce_uno_field(struct, "FillChar", "..")
+        assert isinstance(fill, _FakeChar)
+        assert fill.value == "."
+
+        assert styles._coerce_uno_field(struct, "Alignment", "SIDEWAYS") == "SIDEWAYS"
+
+
+def test_paragraph_revert_states_skips_void_values_and_names_unrestorable():
     from types import SimpleNamespace
     from typing import Any
-    from plugin.writer import styles as fmt
-
-    monkeypatch.setitem(
-        sys.modules,
-        "uno",
-        SimpleNamespace(Any=lambda _t, v: v, createUnoStruct=lambda _name: SimpleNamespace()),
-    )
 
     info_names = (
         "ParaStyleName",
@@ -2795,8 +2851,9 @@ def test_paragraph_revert_states_skips_void_values_and_names_unrestorable(monkey
     enum1.nextElement.return_value = para1
     cursor1.createEnumeration.return_value = enum1
 
-    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()):
-        states, incomplete = fmt._paragraph_revert_states(cursor1, "Heading 1")
+    with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
+         patch("plugin.writer.styles.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)):
+        states, incomplete = styles._paragraph_revert_states(cursor1, "Heading 1")
 
     assert incomplete is False
     assert len(states) == 1
@@ -2820,7 +2877,7 @@ def test_paragraph_revert_states_skips_void_values_and_names_unrestorable(monkey
     cursor2.createEnumeration.return_value = enum2
 
     with patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()):
-        states2, incomplete2 = fmt._paragraph_revert_states(cursor2, "Standard")
+        states2, incomplete2 = styles._paragraph_revert_states(cursor2, "Standard")
 
     assert incomplete2 is False
     assert states2 == []

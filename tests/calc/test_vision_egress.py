@@ -21,7 +21,7 @@ from plugin.tests.testing_utils import FakeUndoManager
 
 
 def test_calc_output_anchor_from_graphic_no_selection():
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=None):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
         assert exc.value.code == "NO_IMAGE_SELECTED"
@@ -35,7 +35,7 @@ def test_calc_output_anchor_from_graphic_returns_row_below():
     anchor.getCellAddress.return_value = MagicMock(Sheet=0, Column=2, Row=4)
     shape.getPropertyValue.return_value = anchor
 
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape):
         sheet_name, col, row = calc_output_anchor_from_graphic(doc)
     assert (sheet_name, col, row) == ("Sheet1", 2, 5)
 
@@ -47,8 +47,8 @@ def test_calc_output_anchor_uses_named_graphic_not_selection():
     anchor = MagicMock()
     anchor.getCellAddress.return_value = MagicMock(Sheet=0, Column=0, Row=1)
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress.get_graphic_object_by_name", return_value=shape) as by_name, patch(
-        "plugin.calc.vision_egress.selected_graphic_object"
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=shape) as by_name, patch(
+        "plugin.doc.visual_helpers.selected_graphic_object"
     ) as selected:
         sheet_name, col, row = calc_output_anchor_from_graphic(doc, image_name="Photo1")
     assert (sheet_name, col, row) == ("Sheet1", 0, 2)
@@ -75,7 +75,7 @@ def test_insert_html_activates_anchor_sheet():
 
 
 def test_calc_output_anchor_missing_name_raises_image_not_found():
-    with patch("plugin.calc.vision_egress.get_graphic_object_by_name", return_value=None):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock(), image_name="Missing")
     assert exc.value.code == "IMAGE_NOT_FOUND"
@@ -87,7 +87,7 @@ def test_calc_anchor_disposed_property_raises_document_disposed():
 
     shape = MagicMock()
     shape.getPropertyValue.side_effect = DisposedException("gone")
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape):
         with pytest.raises(DocumentDisposedError):
             calc_output_anchor_from_graphic(MagicMock())
 
@@ -100,7 +100,7 @@ def test_calc_anchor_disposed_cell_address_is_not_no_output_anchor():
     anchor = MagicMock()
     anchor.getCellAddress.side_effect = DisposedException("gone")
     shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape):
         with pytest.raises(DocumentDisposedError):
             calc_output_anchor_from_graphic(MagicMock())
 
@@ -125,7 +125,7 @@ def test_calc_anchor_non_disposed_error_stays_no_output_anchor(target, exc_facto
         anchor = MagicMock()
         anchor.getCellAddress.side_effect = exc_factory()
         shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
     assert exc.value.code == "NO_OUTPUT_ANCHOR"
@@ -378,3 +378,27 @@ def test_insert_vision_structure_merge_failure_undoes_write(mock_anchor, mock_br
 
     assert fake_undo.entered == ["WriterAgent: Insert extracted tables"]
     assert fake_undo.undone == 1
+
+
+def test_calc_output_anchor_uses_kept_graphic_not_selection():
+    doc = MagicMock()
+    doc.getSheets.return_value.getByIndex.return_value.getName.return_value = "Sheet1"
+    kept_shape = MagicMock()
+    anchor = MagicMock()
+    anchor.getCellAddress.return_value = MagicMock(Sheet=0, Column=1, Row=3)
+    kept_shape.getPropertyValue.return_value = anchor
+    other_shape = MagicMock()
+
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=other_shape) as mock_selected:
+        sheet_name, col, row = calc_output_anchor_from_graphic(doc, graphic=kept_shape)
+
+    assert (sheet_name, col, row) == ("Sheet1", 1, 4)
+    mock_selected.assert_not_called()
+
+
+def test_calc_output_anchor_deleted_kept_shape_raises_no_output_anchor():
+    shape = MagicMock()
+    shape.getPropertyValue.return_value = None
+    with pytest.raises(ToolExecutionError) as exc_info:
+        calc_output_anchor_from_graphic(MagicMock(), graphic=shape)
+    assert exc_info.value.code == "NO_OUTPUT_ANCHOR"
