@@ -1347,3 +1347,100 @@ def test_fast_travel_next_visits_across_different_text_objects():
     assert next_tok == t_cell
 
 
+def test_multi_text_foreign_redline_in_second_cell_refuses_before_dispatch():
+    t1 = FakeText()
+    t2 = FakeText()
+
+    class R1(FakeRange):
+        def getText(self):
+            return t1
+
+    class R2(FakeRange):
+        def getText(self):
+            return t2
+
+    tok = TOKEN_PREFIX + "s:1"
+    rl1 = FakeRedline(tok, 0, 5)
+    rl1._props["RedlineStart"] = R1(0, 0)
+    rl1._props["RedlineEnd"] = R1(5, 5)
+    rl2 = FakeRedline(tok, 0, 5)
+    rl2._props["RedlineStart"] = R2(0, 0)
+    rl2._props["RedlineEnd"] = R2(5, 5)
+    foreign = FakeRedline(None, 2, 4)
+    foreign._props["RedlineStart"] = R2(2, 2)
+    foreign._props["RedlineEnd"] = R2(4, 4)
+
+    model = _ViewModel(FakeRedlines([rl1, rl2, foreign]))
+    with patch("plugin.writer.inline_review.execute_dispatch") as disp:
+        res, _view = resolve_agent_change(model, MagicMock(), tok, accept=True)
+    assert res.status == ResolveStatus.REFUSED_FOREIGN
+    disp.assert_not_called()
+
+
+def test_multi_text_no_progress_stops_loop_as_no_op():
+    t1 = FakeText()
+    t2 = FakeText()
+
+    class R1(FakeRange):
+        def getText(self):
+            return t1
+
+    class R2(FakeRange):
+        def getText(self):
+            return t2
+
+    tok = TOKEN_PREFIX + "s:1"
+    rl1 = FakeRedline(tok, 0, 5)
+    rl1._props["RedlineStart"] = R1(0, 0)
+    rl1._props["RedlineEnd"] = R1(5, 5)
+    rl2 = FakeRedline(tok, 0, 5)
+    rl2._props["RedlineStart"] = R2(0, 0)
+    rl2._props["RedlineEnd"] = R2(5, 5)
+
+    model = _ViewModel(FakeRedlines([rl1, rl2]))
+    with patch("plugin.writer.inline_review.execute_dispatch") as disp:
+        res, _view = resolve_agent_change(model, MagicMock(), tok, accept=True)
+    assert disp.call_count == 1
+    assert res.status == ResolveStatus.NO_OP
+
+
+def test_overlapping_resolve_ignores_multi_text_token_elsewhere():
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    body = FakeText()
+    cell = FakeText()
+
+    class BodyR(FakeRange):
+        def getText(self):
+            return body
+
+    class CellR(FakeRange):
+        def getText(self):
+            return cell
+
+    t1 = TOKEN_PREFIX + "s:1"
+    t2 = TOKEN_PREFIX + "s:2"
+    t_cell = TOKEN_PREFIX + "s:3"
+
+    r1 = FakeRedline(t1, 10, 20)
+    r1._props["RedlineStart"] = BodyR(10, 10)
+    r1._props["RedlineEnd"] = BodyR(20, 20)
+    r2 = FakeRedline(t2, 15, 25)
+    r2._props["RedlineStart"] = BodyR(15, 15)
+    r2._props["RedlineEnd"] = BodyR(25, 25)
+    rc = FakeRedline(t_cell, 0, 3)
+    rc._props["RedlineStart"] = CellR(0, 0)
+    rc._props["RedlineEnd"] = CellR(3, 3)
+
+    redlines = FakeRedlines([r1, r2, rc])
+    model = _ViewModel(redlines)
+
+    def clear_body(*_args):
+        redlines._items = [rc]
+
+    with patch("plugin.writer.inline_review.execute_dispatch", side_effect=clear_body):
+        res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, accept=True)
+    assert res.status == ResolveStatus.RESOLVED
+    assert res.resolved_count == 2
+
+

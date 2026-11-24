@@ -80,7 +80,7 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 | `image_default_aspect` | Default aspect ratio for the tool. |
 | `image_steps` | Steps passed to the endpoint when &gt; 0. |
 | `image_auto_gallery` | Add generated images to Media Gallery. |
-| `image_insert_frame` | Wrap inserted images in a frame. |
+| `image_insert_frame` | Wrap inserted images in a frame (anchored `AS_CHARACTER` while Track Changes recording is on so Reject removes the frame and its content). |
 | `request_timeout` | Read/stall budget for `image_completion` and generated-URL downloads (same Settings knob as chat). Connect uses the shorter shared connect timeout. |
 | `seed` | Reserved for future local generation backends. |
 

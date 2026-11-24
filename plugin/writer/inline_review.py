@@ -310,30 +310,38 @@ def _span_for_rows(text: Any, rows: list[RedlineRow] | tuple[RedlineRow, ...]) -
         return None
 
 
-def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> tuple[Any | None, Any | None]:
-    """Bounding (start, end) text ranges spanning all redlines of token in view, or (None, None)."""
+def _spans_by_text(view: RedlineView, token: str | frozenset[str]) -> list[tuple[Any, Any, Any]]:
+    """Return ``(text, start, end)`` per text object for *token*, or ``[]`` if unusable."""
     if not view.reliable:
-        return None, None
+        return []
     wanted = frozenset([token]) if isinstance(token, str) else token
     matching = [r for r in view.rows if r.token in wanted]
     if not matching:
-        return None, None
+        return []
     # Half a change (a replace's delete OR insert) must not be resolved: no bounds, caller refuses.
     if any(r.start is None or r.end is None for r in matching):
-        return None, None
+        return []
 
     groups = _group_rows_by_text(matching)
     # A row that starts at a table has no text range, and the other half alone must not be resolved.
     if sum(len(rows) for _text, rows in groups) != len(matching):
-        return None, None
-    if len(groups) != 1:
-        if len(groups) > 1:
-            log.warning("inline_review: change %s spans multiple text objects; reporting no bounds", token)
-        return None, None
+        return []
 
-    text, group_rows = groups[0]
-    bounds = _span_for_rows(text, group_rows)
-    return bounds or (None, None)
+    spans: list[tuple[Any, Any, Any]] = []
+    for text, group_rows in groups:
+        bounds = _span_for_rows(text, group_rows)
+        if bounds is None:
+            return []
+        spans.append((text, bounds[0], bounds[1]))
+    return spans
+
+
+def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> tuple[Any | None, Any | None]:
+    """Bounding (start, end) text ranges spanning all redlines of token in view, or (None, None)."""
+    spans = _spans_by_text(view, token)
+    if len(spans) == 1:
+        return spans[0][1], spans[0][2]
+    return None, None
 
 
 def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
@@ -635,17 +643,20 @@ def resolve_agent_change(
     if token not in agent_tokens(before):
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE), before
 
-    left, right = _build_bounds_from_view(before, token)
-    if left is None or right is None:
+    spans = _spans_by_text(before, token)
+    if not spans:
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE), before
+    refuse_sibling = (policy is ResolvePolicy.EXACT_THEN_PARAGRAPH)
+    if len(spans) > 1:
+        # The policy does not widen a multi-text change; exact bounds are always used.
+        return _resolve_multi_text_change(model, ctx, token, accept, before, spans, refuse_sibling)
+    text, left, right = spans[0]
 
     dispatched = False
     try:
         command = _tracked_change_command(accept)
-        text = left.getText()
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
-        refuse_sibling = (policy is ResolvePolicy.EXACT_THEN_PARAGRAPH)
 
         # 1) Precise path: select EXACTLY this change's marks and dispatch -- resolves only it.
         if policy is not ResolvePolicy.PARAGRAPH_ONLY:
@@ -741,6 +752,68 @@ def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
         yield
 
 
+def _resolve_multi_text_change(
+    model: Any,
+    ctx: Any,
+    token: str,
+    accept: bool,
+    before: RedlineView,
+    spans: list[tuple[Any, Any, Any]],
+    refuse_sibling: bool,
+) -> tuple[ResolveResult, RedlineView]:
+    """Accept/reject a change spanning several text objects (e.g. table cells) one cell at a time."""
+    dispatched = False
+    try:
+        for text, left, right in spans:
+            span = text.createTextCursorByRange(left)
+            span.gotoRange(right, True)
+            refusal = _refusal_for_span(
+                before,
+                text,
+                span,
+                token,
+                refuse_sibling,
+                "multi-text",
+                strict_sibling_edges=True,
+            )
+            if refusal is not None:
+                return ResolveResult(refusal), before
+
+        command = _tracked_change_command(accept)
+        controller = model.getCurrentController()
+        view_cursor = controller.getViewCursor()
+        cur_view = before
+        cur_spans = spans
+        failed = False
+
+        with _grouped_resolve_undo(model):
+            while cur_spans:
+                _text, left, right = cur_spans[0]
+                view_cursor.gotoRange(left, False)
+                view_cursor.gotoRange(right, True)
+                dispatched = True
+                cur_view, failed = _dispatch_and_scan(ctx, controller, model, command, token)
+                if failed or not cur_view.reliable:
+                    break
+                next_spans = _spans_by_text(cur_view, token)
+                if len(next_spans) >= len(cur_spans):
+                    break
+                cur_spans = next_spans
+
+        removed, foreign_safe = _token_delta(before, cur_view)
+        if token in removed and cur_view.reliable and foreign_safe:
+            return ResolveResult(ResolveStatus.RESOLVED, len(removed)), cur_view
+        if not failed and not removed and cur_view.reliable and foreign_safe and len(cur_spans) == len(spans):
+            return ResolveResult(ResolveStatus.NO_OP), cur_view
+        return ResolveResult(ResolveStatus.PARTIAL), cur_view
+    except Exception as exc:
+        if is_disposal(exc) and not dispatched:
+            log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
+            return ResolveResult(ResolveStatus.UNRELIABLE), before
+        log.exception("inline_review: resolve_agent_change failed")
+        return ResolveResult(ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE), before
+
+
 def _resolve_overlapping_agent_changes(
     model: Any, ctx: Any, token: str, accept: bool, before: RedlineView | None = None
 ) -> ResolveResult:
@@ -753,10 +826,18 @@ def _resolve_overlapping_agent_changes(
     if token not in before_tokens:
         return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
 
-    token_bounds: dict[str, tuple[Any, Any]] = {}
-    for tok in before_tokens:
+    t_left, t_right = _build_bounds_from_view(before, token)
+    if t_left is None or t_right is None:
+        return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
+    text = t_left.getText()
+
+    token_bounds: dict[str, tuple[Any, Any]] = {token: (t_left, t_right)}
+    for tok in before_tokens - {token}:
         b_left, b_right = _build_bounds_from_view(before, tok)
         if b_left is None or b_right is None:
+            tok_rows = [r for r in before.rows if r.token == tok]
+            if tok_rows and all(r.start is not None and _in_other_text(r.start, text) for r in tok_rows):
+                continue
             return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
         token_bounds[tok] = (b_left, b_right)
 
@@ -765,13 +846,12 @@ def _resolve_overlapping_agent_changes(
     dispatched = False
     has_foreign = False
     try:
-        text = token_bounds[token][0].getText()
         while True:
             left, right = _build_bounds_from_view(before, group)
             if left is None or right is None:
                 return ResolveResult(ResolveStatus.NOT_ELIGIBLE, 0)
             grew = False
-            for other in sorted(before_tokens - group):
+            for other in sorted(token_bounds.keys() - group):
                 o_left, o_right = token_bounds[other]
                 try:
                     # Strict overlap (shared text, not just a touching edge): an independent

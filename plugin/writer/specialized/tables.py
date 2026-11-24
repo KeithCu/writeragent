@@ -40,6 +40,8 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
+# LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
+_UNO_TABLE_COLUMN_SUM = 10000
 
 
 def _tables(doc: Any) -> Any:
@@ -362,6 +364,62 @@ def _delete_writer_table_tracked(
     raise RuntimeError("the table was removed but no tracked change was recorded")
 
 
+def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
+    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
+    if any("." in name for name in positions):
+        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
+        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+    rows = table.getRows()
+    n_rows = int(rows.getCount())
+    edges: list[list[int]] = []
+    for r_idx in range(n_rows):
+        seps = rows.getByIndex(r_idx).getPropertyValue("TableColumnSeparators")
+        edges.append([0, *(int(s.Position) for s in seps), _UNO_TABLE_COLUMN_SUM])
+    if not edges or idx < 0 or idx + 1 >= len(edges[0]):
+        return []
+    lo, hi = edges[0][idx], edges[0][idx + 1]
+    mid = (lo + hi) // 2
+    first, last = lo, hi
+    picked: set[tuple[int, int]] = set()
+    for r_idx, row_edges in enumerate(edges):
+        for c_idx in range(len(row_edges) - 1):
+            left, right = row_edges[c_idx], row_edges[c_idx + 1]
+            if right <= lo:
+                continue
+            hit = (
+                (left >= lo or right >= mid or right - lo > lo - left)
+                if right <= hi
+                else (left <= mid or right - hi < hi - left)
+            )
+            if hit:
+                picked.add((c_idx, r_idx))
+                first = min(first, left)
+                last = max(last, right)
+            if right >= hi:
+                break
+    for r_idx, row_edges in enumerate(edges):
+        for c_idx in range(len(row_edges) - 1):
+            left, right = row_edges[c_idx], row_edges[c_idx + 1]
+            # 1-unit slack accounts for rounding of relative TableColumnSeparators positions.
+            if left >= first - 1 and right <= last + 1:
+                picked.add((c_idx, r_idx))
+    return [name for name, pos in positions.items() if pos in picked]
+
+
+def _band_cell_names(table: Any, axis: str, idx: int) -> list[str]:
+    """Cell names in row or column *idx* of *table*."""
+    positions = {
+        name: pos
+        for name in _writer_named_cells(table)
+        if (pos := writer_cell_position(name)) is not None
+    }
+    if axis == "row":
+        in_row = [(pos[0], name) for name, pos in positions.items() if pos[1] == idx]
+        in_row.sort()
+        return [name for _col, name in in_row]
+    return _column_band_cells(table, positions, idx)
+
+
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
     """Return leading *names* whose own creation is a pending Insert redline.
 
@@ -440,21 +498,25 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
     """Delete one Writer row or column as a tracked change via ``.uno:DeleteRows`` / ``.uno:DeleteColumns``."""
     band = table.getRows() if axis == "row" else table.getColumns()
     check_table_band(band, "delete", idx, axis)
-    band_names: list[str] = []
-    target_cell: str | None = None
-    for cell_name in _writer_named_cells(table):
-        pos = writer_cell_position(cell_name)
-        if pos is None:
-            continue
-        col_idx, row_idx = pos
-        if (row_idx == idx) if axis == "row" else (col_idx == idx):
-            band_names.append(cell_name)
-        if (axis == "row" and col_idx == 0 and row_idx == idx) or (
-            axis == "column" and col_idx == idx and row_idx == 0
-        ):
-            target_cell = cell_name
-    if target_cell is None:
+    band_names = _band_cell_names(table, axis, idx)
+    if not band_names:
         raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+    if axis == "row":
+        target_cell = band_names[0]
+        # swnewtable.cxx:CreateSelection grows nBottom by the RowSpan of the row's end boxes.
+        for edge_name in dict.fromkeys((band_names[0], band_names[-1])):
+            row_span = int(table.getCellByName(edge_name).getPropertyValue("RowSpan"))
+            if row_span > 1:
+                raise ToolExecutionError(
+                    "Cell '%s' spans %d rows, so LibreOffice would also mark the rows below for deletion. "
+                    "Split that cell first or turn off Track Changes." % (edge_name, row_span),
+                    code="TABLE_DELETE_NOT_TRACKABLE",
+                )
+    else:
+        col_target = next((n for n in band_names if writer_cell_position(n) == (idx, 0)), None)
+        if col_target is None:
+            raise ValueError("Cannot locate %s %d in table '%s'." % (axis, idx, name))
+        target_cell = col_target
 
     err_msg = (
         "LibreOffice did not record deleting this %s as a tracked change, so it was left in place. "
@@ -550,19 +612,15 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Scan ``getCellNames()`` (``_writer_named_cells`` says why) and keep names on
-    that row or column. Column index uses the Writer base-52 parser, not
-    spreadsheet ``parse_a1``.
+    Cell names renumber per row after a merge, so a column is found from row
+    geometry rather than column index alone.
     """
     hosted: list[str] = []
-    for cell_name in _writer_named_cells(table):
-        pos = writer_cell_position(cell_name)
-        if pos is None:
-            continue
-        col_idx, row_idx = pos
-        if (row_idx if axis_arg == "row" else col_idx) != idx:
-            continue
-        cell = uno_read(lambda: table.getCellByName(cell_name), FAILED)
+    for cell_name in _band_cell_names(table, axis_arg, idx):
+        def _read_cell(c: str = cell_name) -> Any:
+            return table.getCellByName(c)
+
+        cell = uno_read(_read_cell, FAILED)
         if cell is not FAILED:
             hosted.extend(cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))

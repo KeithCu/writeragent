@@ -393,7 +393,7 @@ class ImageGenerate(ToolWriterImageBase):
 
         img_path = paths[0]
 
-        def _insert_or_replace() -> str:
+        def _insert_or_replace() -> dict[str, Any]:
             # Bytes are already in hand. Stop may abort the network wait above;
             # it does not skip this document insert.
             if source is not None:
@@ -433,7 +433,9 @@ class ImageGenerate(ToolWriterImageBase):
                             size_units=size_units,
                         ),
                     )
-                return "Image edited and inserted from endpoint."
+                    res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
+                    return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
+                return {"status": "ok", "message": "Image edited and inserted from endpoint."}
             _record_for_review(
                 ctx.ctx,
                 ctx.doc,
@@ -449,13 +451,14 @@ class ImageGenerate(ToolWriterImageBase):
                     add_frame=add_frame,
                 ),
             )
-            return "Image generated and inserted from endpoint."
+            res = {"status": "ok", "message": "Image generated and inserted from endpoint."}
+            return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
 
         # main.call defaults bound_scope to the current send scope, so Stop would
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
         # Stop after the download must not turn a finished insert into an error.
         try:
-            msg = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
+            result = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
             unlink_temp_paths(paths)
 
@@ -464,7 +467,7 @@ class ImageGenerate(ToolWriterImageBase):
             endpoint = str(get_config("endpoint") or "").strip()
             update_lru_history(image_model_used, "image_model_lru", endpoint)
 
-        return {"status": "ok", "message": msg}
+        return result
 
 
 def _download_for_tool(
@@ -1495,7 +1498,8 @@ class ImageDelete(ToolWriterImageBase):
                 "status": "ok",
                 "deleted": image_name,
                 "tracked": True,
-                "message": "Image marked for deletion as a tracked change: it stays in the document until the user accepts the change. Do not accept or reject it yourself.",
+                "pending_review": True,
+                "message": visual_helpers.TRACKED_IMAGE_DELETE_MESSAGE,
             }
         return {"status": "ok", "deleted": image_name}
 

@@ -147,6 +147,7 @@ def test_display_math_restores_paragraph_alignment() -> None:
     text = _FakeMathText()
     cur = _FakeMathCursor(text, initial_adjust=1)
     model = MagicMock()
+    model.getPropertyValue.return_value = False
 
     insert_writer_math_formula(model, cur, "x = y", display_block=True)
 
@@ -158,6 +159,7 @@ def test_inline_math_leaves_paragraph_alignment_alone() -> None:
     text = _FakeMathText()
     cur = _FakeMathCursor(text, initial_adjust=2)
     model = MagicMock()
+    model.getPropertyValue.return_value = False
 
     insert_writer_math_formula(model, cur, "x = y", display_block=False)
 
