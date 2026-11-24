@@ -1904,7 +1904,7 @@ class _NavProxy:
         return _result(call_host_tool("nav_get_surroundings", locator=locator, radius=radius, include=include))
 
     def goto_page(self, page: int) -> _Item:
-        """Navigate the view cursor to the start of a page. page is 0-based (first page = 0).
+        """Navigate the view cursor to the start of a page.
 
         Args:
             page (required): 0-based page index: the user's page 2 is page=1.
@@ -1948,7 +1948,7 @@ class _PageProxy:
         return _result(call_host_tool("page_get_header_footer_text", style=style, region=region, include_images=include_images))
 
     def get_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> _Item:
-        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
+        """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
 
         Args:
             page (optional): 0-based page index: the user's page 2 is page=1.

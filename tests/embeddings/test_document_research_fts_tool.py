@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
 from plugin.framework.send_cancellation import SendCancellation
 
@@ -314,3 +316,41 @@ def test_search_nearby_files_outside_folder_is_an_error():
     assert result["status"] == "error"
     assert "/tmp/folder" in result["message"]
     rpc_mock.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "file_subset,grep_return,expected_fragment",
+    [
+        ("x", ([], False, "No file matching 'x'"), "No file matching 'x'"),
+        (
+            "photo.png",
+            ([{"url": "file:///tmp/folder/photo.png", "path": "/tmp/folder/photo.png"}], False, None),
+            "not a document that can be searched",
+        ),
+        (
+            "/tmp/other/notes.odt",
+            ([{"url": "file:///tmp/other/notes.odt", "path": "/tmp/other/notes.odt"}], False, None),
+            "/tmp/folder",
+        ),
+    ],
+)
+def test_search_nearby_files_bad_subset_on_empty_index_is_an_error(file_subset, grep_return, expected_fragment):
+    tool = SearchNearbyFiles()
+    with _patched_fts_env(index_empty=True, hybrid_kwargs={}, grep_return=grep_return) as env:
+        result = tool.execute(_ctx(), query="test", file_subset=file_subset)
+
+    assert result["status"] == "error"
+    assert expected_fragment in result["message"]
+    env.rpc.assert_not_called()
+    env.wakeup.assert_called_once()
+
+
+def test_search_nearby_files_valid_subset_on_empty_index_is_indexing():
+    tool = SearchNearbyFiles()
+    grep_return = ([{"url": "file:///tmp/folder/notes.odt", "path": "/tmp/folder/notes.odt"}], False, None)
+    with _patched_fts_env(index_empty=True, hybrid_kwargs={}, grep_return=grep_return) as env:
+        result = tool.execute(_ctx(), query="test", file_subset="notes.odt")
+
+    assert result["status"] == "indexing"
+    env.rpc.assert_not_called()
+    env.wakeup.assert_called_once()

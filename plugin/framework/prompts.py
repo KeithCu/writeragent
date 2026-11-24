@@ -57,7 +57,7 @@ RESEARCH_COMPLETION_INSTRUCTION_WRITER = _RESEARCH_REPORT_PREFIX + (
     "If the user asked a standalone conversational question without requesting document edits, answer directly in the chat."
 )
 RESEARCH_COMPLETION_INSTRUCTION_CALC = _RESEARCH_REPORT_PREFIX + (
-    "If the user requested writing data or tables into the spreadsheet, call write_cell_range to insert the values. "
+    "If the user requested writing data or tables into the spreadsheet, call write_range to insert the values. "
     "If the user asked a standalone conversational question without requesting sheet edits, answer directly in the chat."
 )
 RESEARCH_COMPLETION_INSTRUCTION_DRAW = _RESEARCH_REPORT_PREFIX + (
@@ -467,7 +467,7 @@ WRITER_IMAGES_RULES = f"""IMAGES:
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To paste an excerpt of a picture and mark a passage on it (yellow highlight, red box, underline), use image_crop_and_highlight with boxes in the picture's own pixels (or units='percent'), then check it with image_get. Do not cut it with crop_*_mm or draw loose shapes over it: those are placed in page millimetres and drift.
-- To actually SEE an image (vision-capable models), call image_get — by graphic name, selection=true, or page=N (0-based) to render that whole page.
+- To actually SEE an image (vision-capable models), call image_get — by graphic name, selection=true, or page=N (0-based: the user's page 2 is page=1) to render that whole page.
   For a bulk read with pictures embedded, pass include_images=true to get_content."""
 
 

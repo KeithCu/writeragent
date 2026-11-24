@@ -102,8 +102,8 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         sql = kwargs["sql"].strip()
         if not sql:
             return self._tool_error("sql is required", code="INVALID_PARAM")
-        # files is {SQL table name: basename or basename#Sheet}; nested values are not schema-checked, hence str().
-        file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if str(v).strip()]
+        # files is {SQL table name: basename or basename#Sheet}. Nested values are not schema-checked, hence str(); a null or blank value means no file.
+        file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if v is not None and str(v).strip()]
         data_range = str(kwargs.get("data_range") or "").strip() or None
         headers: bool = kwargs["headers"]
         tables = dict(kwargs.get("tables") or {})
