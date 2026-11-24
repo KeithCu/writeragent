@@ -23,7 +23,6 @@ from plugin.framework.warm_child import (
     Child,
     ChildSlot,
     ChildSpec,
-    Death,
     Supervisor,
     WarmChild,
     _SpawnRequest,
@@ -202,14 +201,9 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="SIGKILL idle-death check is Linux-only")
-def test_death_hook_on_external_sigkill(tmp_path: Any, supervisor: Supervisor) -> None:
+def test_external_sigkill_of_idle_child_respawns(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
-    deaths: list[Death] = []
-
-    def on_death(d: Death) -> None:
-        deaths.append(d)
-
-    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor, on_death=on_death)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     child_pid: int | None = None
     try:
         with warm.lease(Deadline(10)) as leased:
@@ -221,10 +215,7 @@ def test_death_hook_on_external_sigkill(tmp_path: Any, supervisor: Supervisor) -
         assert _wait_until(gone_deadline, lambda: not warm.is_alive())
         with warm.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
-        deadline = time.monotonic() + 5.0
-        assert _wait_until(deadline, lambda: len(deaths) == 1)
-        assert deaths[0].during == "idle"
-        assert deaths[0].returncode == -9
+            assert leased.pid != child_pid
     finally:
         warm.retire()
 

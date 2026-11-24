@@ -413,3 +413,86 @@ def test_editor_shell_requested_named_save_locks_until_load_and_updates_dropdown
     assert norm_out["text"] == "still_editable"
     norm_saves = [m for m in norm_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
     assert norm_saves == [{"type": "save_script", "name": "A", "code": "ab", "origin": "user", "requested": False}]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_editor_shell_saved_load_follows_ignores_stale_session_and_save_targets_active_script() -> None:
+    sections_a = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0", "B": "b0", "R": "r_user"}}]
+    sections_doc = [
+        {"id": "user", "title": "My Scripts", "scripts": {"A": "a0", "B": "b0", "R": "r_user"}},
+        {"id": "document", "title": "This Document", "scripts": {"[Doc] X": "x0"}},
+    ]
+
+    # 1. saved with load_follows followed by load in one batch: no notify_dirty carries ended session s1.
+    batch_out = _run_shell_scenario(
+        """
+        win.pywebview.api.notify_dirty = (dirty, sid) => {
+          sent.push({type: "dirty", dirty, sid});
+        };
+        await deliver({type: "load", mode: "calc_cell", code: "a0", session_id: "s1"});
+        type("a1");
+        await deliverBatch([
+          {type: "saved", session_id: "s1", code: "a1", load_follows: true},
+          {type: "load", mode: "calc_cell", code: "b0", session_id: "s2"},
+        ]);
+        """,
+    )
+    assert [(m["dirty"], m["sid"]) for m in batch_out["sent"] if isinstance(m, dict) and m.get("type") == "dirty"] == [(True, "s1"), (False, "s2")]
+
+    # 2. Save between load B and its scripts_list saves B; [Doc] X saves with origin document;
+    #    a load with no script sends the plain notify_save_script.
+    load_save_out = _run_shell_scenario(
+        """
+        win.pywebview.api.notify_save_script = (code) => sent.push({type: "save_script_plain", code});
+        await deliver({type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"});
+        await deliver({type: "scripts_list", session_id: "s1", sections: %s, selected_script_name: "A"});
+        await deliver({type: "load", mode: "run_script", code: "b0", selected_script_name: "B", session_id: "s2"});
+        el("btn-save").click();
+        await deliver({type: "load", mode: "run_script", code: "x0", selected_script_name: "[Doc] X", session_id: "s3"});
+        el("btn-save").click();
+        await deliver({type: "load", mode: "run_script", code: "anon", selected_script_name: "", session_id: "s4"});
+        el("btn-save").click();
+        """
+        % json.dumps(sections_doc),
+        include_scripts_manager=True,
+    )
+    saves = [m for m in load_save_out["sent"] if isinstance(m, dict) and m.get("type") in ("save_script", "save_script_plain")]
+    assert saves == [
+        {"type": "save_script", "name": "B", "code": "b0", "origin": "user", "requested": False},
+        {"type": "save_script", "name": "[Doc] X", "code": "x0", "origin": "document", "requested": False},
+        {"type": "save_script_plain", "code": "anon"},
+    ]
+
+    # 3. New "R" attached to document while My Scripts has "R", then Save before scripts_list:
+    #    targets ("[Doc] R", "document").
+    new_doc_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", document_available: true, sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "R";
+        el("new-script-attach-check").checked = true;
+        el("btn-new-script-create").click();
+        type("doc_r");
+        el("btn-save").click();
+        """,
+        include_scripts_manager=True,
+    )
+    new_saves = [(m["name"], m["origin"]) for m in new_doc_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert new_saves == [("R", "document"), ("[Doc] R", "document")]
+
+    # 4. Delete A then Save before scripts_list: targets A and never the plain path.
+    del_out = _run_shell_scenario(
+        f"""
+        win.pywebview.api.delete_script = (name, origin) => sent.push({{type: "delete_script", name, origin}});
+        ctx.confirm = () => true;
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        el("btn-delete-script").click();
+        el("btn-save").click();
+        """,
+        include_scripts_manager=True,
+    )
+    del_saves = [m for m in del_out["sent"] if isinstance(m, dict) and m.get("type") in ("save_script", "save_script_plain")]
+    assert del_saves == [{"type": "save_script", "name": "A", "code": "a0", "origin": "user", "requested": False}]

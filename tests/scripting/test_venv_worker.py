@@ -310,6 +310,40 @@ def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
     finally:
         mgr._terminate_worker()
 
+
+@pytest.mark.skipif(sys.platform != "linux", reason="SIGKILL idle-death check is Linux-only")
+def test_idle_worker_sigkill_recovers_on_next_execute(monkeypatch):
+    """Killing an idle real worker with SIGKILL respawns a fresh worker on the next execute."""
+    import signal
+
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    try:
+        first = mgr.execute(ExecRequest(code='result = 0', timeout_sec=10))
+        assert first['status'] == 'ok'
+        assert first['result'] == 0
+        proc = _mgr_proc(mgr)
+        assert proc is not None
+        old_pid = proc.pid
+
+        os.kill(old_pid, signal.SIGKILL)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and mgr._is_worker_alive():
+            time.sleep(0.05)
+        assert not mgr._is_worker_alive()
+
+        second = mgr.execute(ExecRequest(code='result = 1', timeout_sec=10))
+        assert second['status'] == 'ok'
+        assert second['result'] == 1
+        new_proc = _mgr_proc(mgr)
+        assert new_proc is not None
+        assert new_proc.pid != old_pid
+    finally:
+        mgr._terminate_worker()
+
+
 def test_worker_child_dies_without_response_fails_promptly(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A child that dies without writing a response returns promptly with an error and retries once."""
     shutdown_venv_workers_for_tests()

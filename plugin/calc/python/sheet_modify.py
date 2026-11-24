@@ -34,7 +34,6 @@ from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseModifyListener
-from plugin.scripting.session_manager import calc_workbook_base_session_id
 
 log = logging.getLogger(__name__)
 
@@ -168,13 +167,16 @@ def migrate_sheet_rename(
     try:
         # Lazy: geometric_recalc imports this module at its top.
         from plugin.calc.python.geometric_recalc import (
+            load_geometric_registry_for_doc,
             records_for_sheet,
             replace_records_for_sheet,
             save_geometric_registry_for_doc,
         )
 
         if doc is not None:
-            workbook_key = calc_workbook_base_session_id(doc)
+            # The save below writes every in-memory record, and the maps are empty after File > Reload:
+            # the old document's unload clears the key the new document shares.
+            workbook_key = load_geometric_registry_for_doc(doc)
             if workbook_key:
                 old_records = records_for_sheet(workbook_key, old_sheet_name)
                 if old_records:

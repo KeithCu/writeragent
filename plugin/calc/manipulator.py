@@ -63,6 +63,7 @@ from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, r
 from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
+from plugin.calc.python.addin_values import accepts_returned_any
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_edit import repair_py_code_newlines
@@ -1600,6 +1601,17 @@ class CellManipulator:
                         details=details,
                     )
 
+    def _refuse_py_array_block(self, sheet: Any, formula: str, start: tuple[int, int]) -> None:
+        """Refuse a =PY array formula where =PY returns only its top-left value (before LibreOffice 26.8)."""
+        if py_formula_or_none(formula) is None or accepts_returned_any(unwrap_uno(get_ctx())):
+            return
+        raise CalcError(
+            "This LibreOffice (before 26.8) shows only the first value of a =PY result in every cell of an array formula. "
+            "Write it to one cell without array=true; the result spills from there when Python auto-spill is on.",
+            code="INVALID_PARAM",
+            details={"suggested_call": suggest_call("write_range", range=[qualify_a1(sheet.getName(), format_address(*start))], values=formula)},
+        )
+
     def plan_write(
         self,
         range_str: str,
@@ -1642,6 +1654,7 @@ class CellManipulator:
             if formulas_on and _requests_array_formula(values, array):
                 # Repair literal \n in model-written =PY() code before probing or planning.
                 values = repair_py_code_newlines(values)
+                self._refuse_py_array_block(sheet, values, start)
                 return WritePlan(
                     "array",
                     range_str,
@@ -1916,7 +1929,7 @@ class CellManipulator:
         in two scratch cells to the right of the used area (and the target),
         read, then cleared. When that column would fall inside the used
         area (sheet already at XFD), the scratch cells move below it.
-        Raises ``CalcError`` when the formula itself fails.
+        A single value measures 1 x 1; raises ``CalcError`` when the formula itself fails.
         """
         cursor = sheet.createCursor()
         cursor.gotoEndOfUsedArea(False)
@@ -1929,8 +1942,15 @@ class CellManipulator:
                 probe = sheet.getCellRangeByPosition(col, row, col, row)
                 probe.setArrayFormula("=%s(%s)" % (fn, expr))
                 cell = sheet.getCellByPosition(col, row)
-                err = int(cell.Error)
-                if err:
+                if int(cell.Error):
+                    # ROWS and COLUMNS reject a plain value (ScInterpreter::ScRows / ScColumns,
+                    # sc/source/core/tool/interpr1.cxx), so evaluate the formula alone: without an
+                    # error it returned one value. The parentheses keep a =PY here from being
+                    # located as a formula cell that spills beside the scratch cell.
+                    probe.setArrayFormula("=(%s)" % expr)
+                    err = int(cell.Error)
+                    if not err:
+                        return 1, 1
                     shown = cell.getString()
                     # #NAME? (525) means an unknown function, not an empty FILTER.
                     if err == 525:
@@ -1964,7 +1984,7 @@ class CellManipulator:
         must be empty except the origin (an array formula already anchored
         there is replaced). On an explicit range, that range is used as
         given; the answer says if the result is larger (rows cut) or
-        smaller (#N/A padding).
+        smaller (a single row or column repeats, otherwise #N/A).
         """
         c1, r1 = start
         c2, r2 = end

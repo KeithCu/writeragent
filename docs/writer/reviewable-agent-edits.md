@@ -34,7 +34,7 @@ What is implemented today (not every Writer mutation tool):
 | `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
-| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; row deletes refuse any row where a cell spanning multiple rows starts, both tracked and untracked) | No | No |
+| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; headings, list items, empty paragraphs, `BreakType`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets) | No | No |
@@ -158,8 +158,10 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses a hidden
-  leading section (`HIDDEN_LEADING_SECTION`), and `selection` refuses a range starting in a table
-  and ending outside it (`SELECTION_SPANS_TABLE`).
+  leading section (`HIDDEN_LEADING_SECTION`) or a protected non-index leading section
+  (`PROTECTED_LEADING_SECTION`), places new content outside a visible leading section or TOC,
+  and `selection` refuses a range starting in a table and ending outside it
+  (`SELECTION_SPANS_TABLE`) or a non-text selection (`SELECTION_NOT_TEXT`).
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

@@ -535,3 +535,52 @@ def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_forma
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:p>A</text:p><text:p>B</text:p><text:p>C</text:p></office:text></office:body>'
     )
+
+
+def test_xhtml_to_semantic_html_drops_frame_titles_and_keeps_following_text():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    raw_xhtml = (
+        "<html><body>"
+        '<p>Before <span id="Frame1" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        '<div id="Frame1_box"><p>Box text</p></div>'
+        "SpanFrameTitle</span> After</p>"
+        '<div id="Frame2" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        '<div><p>Outer <span id="Inner" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        "<div><p>Inner</p></div>InnerTitle</span></p></div>"
+        "Outer&amp;Title</div>"
+        "<p>Real trailing text</p>"
+        "</body></html>"
+    )
+    out = xhtml_to_semantic_html(raw_xhtml)
+    assert "SpanFrameTitle" not in out
+    assert "InnerTitle" not in out
+    assert "Outer&amp;Title" not in out
+    assert "Outer&Title" not in out
+    assert "Before" in out and "After" in out
+    assert "Box text" in out and "Inner" in out
+    assert "Real trailing text" in out
+
+
+def test_xhtml_to_semantic_html_para_div_keeps_text_and_self_closing_box_drops_title():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    para_div = (
+        '<div class="paragraph-P1"><div id="F" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        "<div>box</div>TITLE</div>real text</div>"
+    )
+    out1 = xhtml_to_semantic_html(para_div)
+    assert "TITLE" not in out1
+    assert "real text" in out1
+
+    self_closing = (
+        '<div id="F"><!--Next \'div\' was a \'draw:text-box\'.--><div/>TITLE</div>'
+        '<p>After <span class="text-T1">kept</span></p>'
+    )
+    out2 = xhtml_to_semantic_html(self_closing)
+    assert "TITLE" not in out2
+    assert "kept" in out2

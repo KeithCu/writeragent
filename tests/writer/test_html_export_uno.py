@@ -1558,3 +1558,22 @@ def test_full_html_struck_range_with_comment_stays_one_paragraph_uno(ctx, doc):
     p_texts = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
     assert len(p_texts) == 1, html
     assert "Keep" in p_texts[0] and "rest" in p_texts[0], html
+
+
+@native_test
+@with_native_doc("writer")
+def test_titled_frame_omits_title_from_content_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("TitledFrame")
+    frame.setPropertyValue("Title", "SecretFrameTitle")
+    frame.setPropertyValue("Width", 2000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.getText().setString("FrameBody")
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "FrameBody" in html
+    assert "SecretFrameTitle" not in html

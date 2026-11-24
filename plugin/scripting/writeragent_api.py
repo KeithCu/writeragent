@@ -1396,7 +1396,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type))
 
     def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> _Item:
-        """Resize, re-anchor, or set the orientation of a text frame.
+        """Resize, re-anchor, or set the orientation of a text frame. Not for Word text boxes (frame_list entries with shape_index): resize those with shape_upsert.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -2919,7 +2919,7 @@ class _TableProxy:
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a cell spanning several rows starts; when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); when Track Changes or review mode is on, delete is recorded as a tracked change.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.

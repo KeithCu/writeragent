@@ -1251,6 +1251,7 @@ class ApplyDocumentContent(ToolBase):
         # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
         use_preserve = (not html_import.content_needs_html_import(content)) and anchor is None
+        decoded = ""
 
         if not html_import.content_needs_html_import(content):
             content = html_import_styles.expand_escapes(content)
@@ -1259,14 +1260,14 @@ class ApplyDocumentContent(ToolBase):
                     lines = [line for line in content.split("\n") if line.strip()]
                     content = "\n".join("<p>%s</p>" % line for line in lines)
             elif use_preserve:
-                # HTML entry points decode complete references once, and the StarWriter
-                # filter decodes what remains in markup. This format-preserving path must
-                # do the same, or content lands verbatim. content_has_markup() sees no tag
-                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path.
-                # Decode ONLY complete references (decode_complete_character_references;
-                # ";" required); unescaping the whole string also expands semicolon-less
-                # names ("&sect 2o" -> "§ 2o"). A bare "&" in "Banco & Cia" is never touched.
-                content = html_import_styles.decode_complete_character_references(content)
+                # Decode complete references once for plain text: literal search-replace
+                # writes via setString (no HTML parser), while other targets go through
+                # html_import where < > & " ' must stay escaped so they are not parsed as markup.
+                decoded = html_import_styles.decode_complete_character_references(content)
+                if target == "search" and position == "replace":
+                    content = decoded
+                else:
+                    content = html_import_styles.normalize_character_references(content)
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
@@ -1291,8 +1292,8 @@ class ApplyDocumentContent(ToolBase):
                 # so there's no replaced_count to report — use the standard tool error shape.
                 return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
 
-        plain = content if use_preserve else self._replacement_plain(content)
-        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
+        plain = decoded if use_preserve else self._replacement_plain(content)
+        has_table = not use_preserve and bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         all_matches = bool(kwargs.get("all_matches", False))
 
         if target == "search" and not has_anchors:
@@ -1355,6 +1356,7 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         html_import.raise_if_hidden_start(ctx.doc)
+        html_import.raise_if_protected_start(ctx.doc)
         content = params.content
         plain = params.plain
         has_table = params.has_table
