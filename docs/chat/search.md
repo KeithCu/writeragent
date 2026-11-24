@@ -25,14 +25,14 @@ The original `smolagents` web tools (`DuckDuckGoSearchTool` and `VisitWebpageToo
 - **Parsing**: Replaced `beautifulsoup4` and `markdownify` with custom subclasses of standard `html.parser.HTMLParser` to extract search results and strip tags for page content reading.
 
 ### LlmClient Wrapper
-To ensure the sub-agent uses the exact same model, endpoint, and API keys as the rest of WriterAgent, we created `WriterAgentSmolModel` (in [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)). This class extends the `smolagents` base `Model` class but overrides `generate()` to proxy all requests directly to WriterAgent's existing `LlmClient`. For CLI testing without LibreOffice we also provide `OpenRouterSmolModel` in `scripts/test_search_web.py`, which talks directly to OpenRouter’s OpenAI-compatible HTTP API.
+To ensure the sub-agent uses the exact same model, endpoint, and API keys as the rest of WriterAgent, we created `WriterAgentSmolModel` (in [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)). This class extends the `smolagents` base `Model` class but overrides `generate()` to proxy all requests directly to WriterAgent's existing `LlmClient`.
 
 ### The `web_research` Tool
 In [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.py), `WebResearchTool` has tier `"specialized"`, so the main chat and MCP (`delegate` and `direct_discovery` modes) reach it only through `delegate_to_subagent(domain="web_research")`. The sidebar Web Research mode and `wa.web.research` call it by name, and MCP `direct_flat` still lists it. It accepts a research `query` and optional history. When invoked:
 1. It builds a `WriterAgentSmolModel` via [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py).
 2. It initializes a `ToolCallingAgent` equipped with the zero-dependency DuckDuckGo and Webpage Visitor tools.
-3. It kicks off the `smolagents` run loop, which autonomously researches the query until it calls the `final_answer` tool or hits a timeout/max-steps limit.
-4. It catches the final answer and returns it to the main agent as JSON: `{"status": "ok", "result": "<answer>"}` (or `{"status": "error", "message": "..."}` on failure/timeout).
+3. It kicks off the `smolagents` run loop, which autonomously researches the query until it calls the `final_answer` tool or reaches its step limit (`chatbot.max_tool_rounds`).
+4. It catches the final answer and returns it to the main agent as JSON: `{"status": "ok", "result": "<answer>"}` (or `{"status": "error", "message": "..."}` on failure).
 
 `web_search` accepts an optional `recency` (`day`/`week`/`month`/`year`/`any`) that maps to DuckDuckGo Lite's `df` time filter. Search-cache keys include that token so filtered hits do not collide with evergreen ones. Today's date is injected by [`LlmClient`](../../plugin/framework/client/llm_client.py), not a second research prompt.
 
@@ -82,7 +82,7 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 
 ---
 
-## 4. Current Status & Testing
+## 4. Current Status
 
 **What is Done:**
 - **Vendoring core files**: Copied `agents.py`, `models.py`, `tools.py`, `default_tools.py`, etc. to `plugin/contrib/smolagents`.
@@ -92,15 +92,7 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 - **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The search_web path no longer depends on Jinja2.
 - **Optional Rich/logging**: `monitoring.py` and `agents.py` use lightweight stubs when `rich` is absent; the search_web path logs to stderr/stdout only, and our `Console` stub ignores Rich-only kwargs like `style=...`.
 - **Optional heavy deps (PIL/requests/audio)**: `agent_types.py` treats Pillow and requests as optional; image/audio types only require them if actually used. This keeps the vendored package importable on a minimal Python install while search_web (text only) continues to work.
-- **Error handling and timeout**: `tool_search_web` catches all exceptions and returns JSON `{"status": "error", "message": "..."}`; optional config key `search_web_timeout` (default 120 s) wraps the sub-agent in a `ThreadPoolExecutor` so long-running searches do not block the UI indefinitely.
-- **CLI harness (OpenRouter)**: `scripts/test_search_web.py` provides a standalone CLI that uses `OpenRouterSmolModel` + `ToolCallingAgent` + `DuckDuckGoSearchTool` + `VisitWebpageTool` against OpenRouter. It defaults to `nvidia/nemotron-3-nano-30b-a3b` and falls back to a plain completion if the model does not emit JSON tool-calls.
-
-**Manual Testing Notes:**
-- From the repo root:
-  - `export OPENROUTER_API_KEY="sk-or-..."`  
-  - `python -m scripts.test_search_web "What is the latest stable Python release and when was it released?"`
-- You can pass `--model some/other-model` or `--max-tokens 4096` to experiment.
-- Models that fully support OpenAI tool-calling will drive the ReAct loop (web_search + visit_webpage + final_answer). Models that ignore tools will still produce a useful answer via the direct-completion fallback.
+- **Errors and time limits**: `SmolAgentExecutor.execute_safe` ([`smol_agent.py`](../../plugin/chatbot/smol_agent.py)) turns sub-agent failures into the standard error payload (`Web search failed: ...`), and Stop into a `USER_STOPPED` payload. The tool is async, so the sidebar runs it on a background worker and the UI stays responsive. There is no overall time limit: a shallow run is bounded by `chatbot.max_tool_rounds` agent steps, after which the model is asked for a final answer, and each network call has its own limit (LLM reads use `request_timeout`, default 120 s; each search attempt allows 5 s to connect and 10 s to read; static page fetches use a 20 s socket timeout).
 
 ---
 

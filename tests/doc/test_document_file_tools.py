@@ -9,7 +9,7 @@ from plugin.doc.document_file_tools import (
     export_filter,
 )
 from plugin.doc.document_research import resolve_file_target
-from plugin.framework.doc_type import DocumentType
+from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE, DocumentType
 from plugin.framework.tool import ToolRegistry
 
 
@@ -115,6 +115,7 @@ def test_document_open_fresh_file(tmp_path):
     desktop.loadComponentFromURL.return_value = model
 
     with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools._detect_load_filter", return_value=("writer8", TEXT_DOCUMENT_SERVICE)), \
          patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop), \
          patch("plugin.doc.document_research.system_path_from_url", return_value=str(target)):
         res = DocumentOpen().execute(_make_ctx(), path=str(target))
@@ -134,6 +135,7 @@ def test_document_open_as_template(tmp_path):
     prop = SimpleNamespace(Name="AsTemplate", Value=True)
 
     with patch("plugin.doc.document_file_tools.resolve_document_by_url") as mock_resolve, \
+         patch("plugin.doc.document_file_tools._detect_load_filter", return_value=("writer8", TEXT_DOCUMENT_SERVICE)), \
          patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop), \
          patch("plugin.doc.document_file_tools.create_property_value", return_value=prop) as mock_cpv, \
          patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.WRITER):
@@ -170,11 +172,46 @@ def test_document_open_load_returns_none(tmp_path):
     desktop.loadComponentFromURL.return_value = None
 
     with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools._detect_load_filter", return_value=("writer8", TEXT_DOCUMENT_SERVICE)), \
          patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop):
         res = DocumentOpen().execute(_make_ctx(), path=str(target))
 
     assert res["status"] == "error"
     assert res["code"] == "OPEN_FAILED"
+
+
+def test_document_open_refuses_unsupported_type(tmp_path):
+    target = tmp_path / "book.odm"
+    target.write_text("x", encoding="utf-8")
+    desktop = MagicMock()
+
+    with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch(
+             "plugin.doc.document_file_tools._detect_load_filter",
+             return_value=("writerglobal8", "com.sun.star.text.GlobalDocument"),
+         ), \
+         patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop):
+        res = DocumentOpen().execute(_make_ctx(), path=str(target))
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNSUPPORTED_DOCUMENT"
+    desktop.loadComponentFromURL.assert_not_called()
+
+
+def test_document_open_already_open_unsupported(tmp_path):
+    target = tmp_path / "page.html"
+    target.write_text("<html></html>", encoding="utf-8")
+    existing = _make_model(url=target.as_uri(), uid="uid-web")
+    desktop = MagicMock()
+
+    with patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(existing, "unknown")), \
+         patch("plugin.doc.document_file_tools.get_desktop", return_value=desktop):
+        res = DocumentOpen().execute(_make_ctx(), path=str(target))
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNSUPPORTED_DOCUMENT"
+    desktop.loadComponentFromURL.assert_not_called()
+    existing.close.assert_not_called()
 
 
 def test_document_save_in_place_and_errors():
@@ -210,8 +247,18 @@ def test_document_save_as_formats(tmp_path):
             res_docx = DocumentSave().execute(_make_ctx(doc), path=str(docx_path))
 
     assert res_docx["status"] == "ok"
+    assert "warning" not in res_docx
     mock_cpv.assert_called_once_with("FilterName", "MS Word 2007 XML")
     doc.storeAsURL.assert_called_once_with(docx_path.as_uri(), (prop,))
+
+
+def test_document_save_lossy_warning(tmp_path):
+    doc = _make_model(url="file:///tmp/notes.txt", uid="uid-txt")
+    doc.getArgs.return_value = (SimpleNamespace(Name="FilterName", Value="Text"),)
+    with patch("plugin.doc.document_research.system_path_from_url", return_value="/tmp/notes.txt"):
+        res = DocumentSave().execute(_make_ctx(doc))
+    assert res["status"] == "ok"
+    assert "warning" in res
 
 
 def test_document_export(tmp_path):

@@ -1706,7 +1706,7 @@ def test_memo_text_models_or_fetch_cold_one_job_posts_all_waiters():
         cfg._catalog_fetch_waiters.clear()
 
 
-def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
+def test_memo_text_models_or_fetch_failed_fetch_waits_before_retry():
     import plugin.framework.client.model_fetcher as cfg
 
     endpoint = "http://localhost:11434"
@@ -1727,11 +1727,84 @@ def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
             jobs[0]()
             assert posted == []
 
+            # Both text and image calls wait during the retry backoff window.
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
+            assert cfg.memo_image_models_or_fetch(endpoint, lambda _ids: None, task_name="t3") is None
+            assert len(jobs) == 1
+
+            cfg._catalog_memos[cfg._catalog_memo_key(endpoint)].fetch_failed_at -= cfg.CATALOG_RETRY_S
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t4") is None
+            assert len(jobs) == 2
+    finally:
+        cfg._catalog_memos.clear()
+        cfg._catalog_fetch_waiters.clear()
+
+
+def test_failed_fetch_wait_is_per_key_and_cleared_by_test_connection():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "https://openrouter.ai/api"
+    cfg._catalog_memos.clear()
+    cfg._catalog_fetch_waiters.clear()
+    jobs = []
+    key = {"val": "sk-key-1"}
+
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", side_effect=lambda _ep: key["val"]), \
+             patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=True), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t1") is None
+            assert len(jobs) == 1
+            jobs[0]()
+
+            # Different key on the same host starts its own job.
+            key["val"] = "sk-key-2"
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
+            assert len(jobs) == 2
+            jobs[1]()
+
+            # Back on the first key: still held off until Test Connection clears the cache.
+            key["val"] = "sk-key-1"
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t3") is None
+            assert len(jobs) == 2
+
+            cfg.clear_settings_catalog_cache(endpoint)
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t4") is None
+            assert len(jobs) == 3
+    finally:
+        cfg._catalog_memos.clear()
+        cfg._catalog_fetch_waiters.clear()
+
+
+def test_clear_during_failing_fetch_discards_the_failure():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "http://localhost:11434"
+    cfg._catalog_memos.clear()
+    cfg._catalog_fetch_waiters.clear()
+    jobs = []
+
+    def _clear_and_fail(_ep: str) -> None:
+        cfg.clear_settings_catalog_cache(endpoint)
+        return None
+
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models", side_effect=_clear_and_fail):
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t1") is None
+            assert len(jobs) == 1
+            jobs[0]()
+
             assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
             assert len(jobs) == 2
     finally:
         cfg._catalog_memos.clear()
-        # Reset in case an assertion fails before the job runs.
         cfg._catalog_fetch_waiters.clear()
 
 

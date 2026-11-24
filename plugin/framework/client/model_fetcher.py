@@ -35,6 +35,7 @@ import ipaddress
 import logging
 import re
 import threading
+import time
 from typing import Any, Callable
 
 from plugin.framework.constants import ModelCapability
@@ -68,6 +69,11 @@ log = logging.getLogger(__name__)
 # Catalog / show probes are short and unrelated to LLM generate time.
 # Written at each sync_request call site (timeout is required, no default).
 _MODEL_FETCH_TIMEOUT = 10
+
+# How long the sidebar and eval combos leave a failed endpoint+key alone. Every
+# config:changed repopulates the sidebar, and each retry on a dead host is a 10 s GET.
+# Settings and Test Connection fetch directly and always retry.
+CATALOG_RETRY_S = 30.0
 
 # Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; get_api_version_suffix adds /v1, /api (OpenWebUI), or /api/paas/v4 (Z.ai).
 ENDPOINT_PRESETS = [
@@ -103,6 +109,8 @@ class CatalogMemo:
     stt_ids: list[str] | None = None
     together_voices: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     ollama_show: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Monotonic time of the last failed background fetch, guarded by _catalog_fetch_lock.
+    fetch_failed_at: float | None = None
 
     def is_warm(self, provider: str | None) -> bool:
         """True when this memo has the catalogs Settings would show."""
@@ -752,8 +760,8 @@ def _memo_models_or_fetch(
     reads and caches the key off-thread before computing the memo key and
     fetching ``/v1/models``. At most one fetch per endpoint runs in flight;
     concurrent text and image callers share the waiter list and receive one
-    ``main.post`` with their respective slice. A failed fetch is not memoized;
-    the next populate retries.
+    ``main.post`` with their respective slice. A failed fetch is held off for
+    ``CATALOG_RETRY_S`` seconds per endpoint and key.
     """
     from plugin.framework.client.auth import provider_requires_api_key
 
@@ -765,7 +773,9 @@ def _memo_models_or_fetch(
     if api_key_locked_for_endpoint(endpoint):
         return None
 
+    memo: CatalogMemo | None = None
     if not api_key_needs_keystore_read(_key_slot_base(endpoint)):
+        memo = _get_catalog_memo(endpoint)
         if kind == "text":
             cached = cached_text_models(endpoint)
             if cached is not None:
@@ -780,13 +790,23 @@ def _memo_models_or_fetch(
         if waiter_key in _catalog_fetch_waiters:
             _catalog_fetch_waiters[waiter_key].append((kind, on_fetched))
             return None
+        if (
+            memo is not None
+            and memo.fetch_failed_at is not None
+            and time.monotonic() - memo.fetch_failed_at < CATALOG_RETRY_S
+        ):
+            return None
         _catalog_fetch_waiters[waiter_key] = [(kind, on_fetched)]
 
     def _job() -> None:
         text_ids: list[str] | None = None
         image_ids: list[str] | None = None
+        job_memo: CatalogMemo | None = None
         done: list[tuple[str, Callable[[list[str]], None]]] = []
         try:
+            # Taken before the GET so the key is not reread after it, and so a Test
+            # Connection that clears the memo during the GET also discards this failure.
+            job_memo = _get_catalog_memo(endpoint)
             if kind == "text":
                 text_ids = fetch_available_models(endpoint)
             else:
@@ -794,6 +814,8 @@ def _memo_models_or_fetch(
         finally:
             with _catalog_fetch_lock:
                 done = _catalog_fetch_waiters.pop(waiter_key, [])
+                if job_memo is not None and text_ids is None and image_ids is None:
+                    job_memo.fetch_failed_at = time.monotonic()
 
         provider = get_provider_from_endpoint(endpoint)
         # Non-OpenRouter hosts populate both slices from one /v1/models GET, so a miss

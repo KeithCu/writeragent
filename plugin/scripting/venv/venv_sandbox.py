@@ -993,17 +993,24 @@ def _returned_figures(obj: Any) -> list[Any]:
 
 
 def _is_mpl_artist_result(obj: Any) -> bool:
-    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns)."""
+    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns), or a list or tuple mixing both, such as the `(fig, axs)` that `plt.subplots(1, 2)` returns.
+
+    Checks one level deep only; recursion would overflow on a self-referential list that `to_wire` reports cleanly.
+    """
     artist_mod = sys.modules.get("matplotlib.artist")
     if artist_mod is None:
         return False
     artist = artist_mod.Artist
-    if isinstance(obj, artist):
-        return True
     # matplotlib imports numpy, so numpy is loaded whenever matplotlib.artist is.
-    if isinstance(obj, sys.modules["numpy"].ndarray):
-        return obj.dtype == object and obj.size > 0 and all(isinstance(item, artist) for item in obj.flat)
-    return isinstance(obj, (list, tuple)) and bool(obj) and all(isinstance(item, artist) for item in obj)
+    ndarray = sys.modules["numpy"].ndarray
+
+    def holds_artists(item: Any) -> bool:
+        if isinstance(item, ndarray):
+            return item.dtype == object and item.size > 0 and all(isinstance(element, artist) for element in item.flat)
+        return isinstance(item, artist)
+
+    items = obj if isinstance(obj, (list, tuple)) else (obj,)
+    return bool(items) and all(holds_artists(item) for item in items)
 
 
 def _close_open_figures() -> None:

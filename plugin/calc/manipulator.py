@@ -314,6 +314,15 @@ def _grid_mismatch_message(
 SortKey = tuple[int, bool]  # (0-based column inside the range, ascending)
 
 
+class SortPlan(NamedTuple):
+    """One range's sort, checked by ``CellManipulator.plan_sort`` before any row moves."""
+
+    range_str: str
+    cell_range: Any
+    height: int
+    keys: Sequence[SortKey]
+
+
 def parse_then_by(then_by: Any) -> list[SortKey] | None:
     """Validate and normalize ``then_by`` tie-break items; shared with the string harness."""
     if not isinstance(then_by, list):
@@ -334,12 +343,12 @@ def parse_then_by(then_by: Any) -> list[SortKey] | None:
     return parsed
 
 
-def _sort_keys_width_error(keys: Sequence[SortKey], width: int) -> str | None:
+def _sort_keys_width_error(range_str: str, keys: Sequence[SortKey], width: int) -> str | None:
     """Return the first out-of-range key error for a range of *width* columns; shared with the string harness."""
     for idx, (col, _unused) in enumerate(keys):
         if not 0 <= col < width:
             label = "sort_column" if idx == 0 else "then_by column"
-            return f"{label} must be an integer from 0 to {width - 1} for this range ({width} columns)."
+            return f"{label} must be an integer from 0 to {width - 1} for range {range_str} ({width} columns)."
     return None
 
 
@@ -1074,28 +1083,25 @@ class CellManipulator:
         hidden_cells = [qualify_a1(sheet_name, format_address(c, r)) for c, r in occupied[:_MAX_REPORTED_CELLS]]
         return MergeOutcome(True, len(occupied), hidden_cells)
 
-    def range_sort(self, range_str: str, keys: Sequence[SortKey], has_header: bool) -> str:
-        """Sort a range by one or more ``(column, ascending)`` keys.
-
-        Args:
-            range_str: Range to sort (e.g. "A1:D10").
-            keys: Non-empty sequence of ``(0-based column inside range, ascending)`` pairs.
-            has_header: Whether the first row is a header.
-
-        Returns:
-            Description string reporting whether any row moved.
-        """
+    def plan_sort(self, range_str: str, keys: Sequence[SortKey]) -> SortPlan:
+        """Resolve *range_str* and validate *keys* against its width before any sort runs."""
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
-        # Every key column is checked against the range width here, because the tool cannot know the width.
-        width_error = _sort_keys_width_error(keys, width)
+        height = int(addr.EndRow) - int(addr.StartRow) + 1
+        # The schema's minimum is not enforced and the tool cannot know the width, so both
+        # bounds for every key are checked here before any undo group exists (a refusal must
+        # not sort an earlier range or clear Redo).
+        width_error = _sort_keys_width_error(range_str, keys, width)
         if width_error is not None:
-            raise CalcError(width_error)
+            raise CalcError(width_error, code="INVALID_PARAM")
+        return SortPlan(range_str, cell_range, height, keys)
 
+    def range_sort(self, plan: SortPlan, has_header: bool) -> str:
+        """Execute a ``SortPlan`` produced by ``plan_sort`` and report whether any row moved."""
         import uno
 
-        height = int(addr.EndRow) - int(addr.StartRow) + 1
+        range_str, cell_range, height, keys = plan
         first_data_row = 1 if has_header else 0
         key_cols = list(dict.fromkeys(col for col, _unused in keys))
 

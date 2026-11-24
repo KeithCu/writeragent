@@ -446,6 +446,21 @@ def test_resolve_path_or_name_no_match_does_not_fall_back_to_only_file():
     assert err == "No file matching 'Report'"
 
 
+def test_resolve_path_or_name_expands_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    budget = tmp_path / "Budget.ods"
+    budget.write_bytes(b"")
+
+    with patch("plugin.doc.document_research.scan_nearby_files") as mock_scan:
+        path, url = resolve_path_or_name(MagicMock(), MagicMock(), "~/Budget.ods")
+
+    mock_scan.assert_not_called()
+    expected = os.path.normpath(os.path.abspath(str(budget)))
+    assert path == expected
+    assert url == path_to_file_url(expected)
+
+
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, mock_resolve):

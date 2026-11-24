@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import uno  # noqa: F401
+from typing import Any
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -334,3 +335,78 @@ def test_page_get_objects_and_image_get_agree_on_first_page_uno(ctx, doc):
     assert resolve_locator(doc, "page:1")["para_index"] == 1
     with pytest.raises(ToolExecutionError, match="2 page\\(s\\)"):
         resolve_locator(doc, "page:2")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_page_get_objects_frames_include_text_boxes_uno(ctx, doc):
+    from com.sun.star.awt import Point, Size
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PAGE, AT_PARAGRAPH
+
+    from plugin.writer.specialized.textframes import FrameGetInfo
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Page zero body", False)
+
+    def _add_box(name: str, box_text: str, anchor_type: Any, anchor_range: Any = None, page_no: int | None = None) -> None:
+        shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
+        shape.setSize(Size(4000, 2000))
+        shape.setPosition(Point(1000, 1000))
+        shape.Name = name
+        if anchor_range is not None:
+            shape.setPropertyValue("AnchorType", anchor_type)
+            anchor_range.getText().insertTextContent(anchor_range, shape, False)
+        else:
+            doc.getDrawPage().add(shape)
+            shape.setPropertyValue("AnchorType", anchor_type)
+            if page_no is not None:
+                shape.setPropertyValue("AnchorPageNo", page_no)
+        shape.setPropertyValue("TextBox", True)
+        shape.setString(box_text)
+
+    _add_box("ParaBox0", "Box on page 0", AT_PARAGRAPH)
+
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    cur.setPropertyValue("BreakType", PAGE_BEFORE)
+    text.insertString(cur, "Page one body ", False)
+    cur.gotoEnd(False)
+
+    _add_box("AsCharBox1", "AsChar box", AS_CHARACTER, anchor_range=cur)
+    _add_box("AtPageBox1", "AtPage box", AT_PAGE, page_no=2)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    cell_cur = cell.createTextCursor()
+    _add_box("CellBox1", "Cell box", AT_PARAGRAPH, anchor_range=cell_cur)
+
+    plain = doc.createInstance("com.sun.star.text.TextFrame")
+    plain.setName("PlainFrame1")
+    plain.setSize(Size(4000, 2000))
+    plain.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    text.insertTextContent(text.getEnd(), plain, False)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    p0 = GetPageObjects().execute(tctx, page=0)
+    assert p0.get("status") == "ok", p0
+    assert {f.get("shape_name") for f in p0["frames"]} == {"ParaBox0"}, p0
+
+    p1 = GetPageObjects().execute(tctx, page=1)
+    assert p1.get("status") == "ok", p1
+    plain_entries = [f for f in p1["frames"] if f["name"] == "PlainFrame1"]
+    assert len(plain_entries) == 1, p1
+    assert "shape_index" not in plain_entries[0], plain_entries[0]
+
+    box_entries = [f for f in p1["frames"] if "shape_name" in f]
+    assert {f["shape_name"] for f in box_entries} == {"AsCharBox1", "AtPageBox1", "CellBox1"}, p1
+
+    target_name = next(f["name"] for f in box_entries if f["shape_name"] == "AtPageBox1")
+    info = FrameGetInfo().execute(tctx, name=target_name)
+    assert info.get("status") == "ok", info
+    # AT_PAGE text boxes have no body anchor (getAnchor() is None), so paragraph_index is None.
+    assert info.get("paragraph_index") is None, info
+    assert "AtPage box" in info.get("content", ""), info

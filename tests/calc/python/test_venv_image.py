@@ -1916,3 +1916,22 @@ def test_same_image_adds_anchor_to_old_tag():
     # Revert target: _record_plot_tag in _refresh_existing_plot's same-digest branch
     assert [c for c in set_calls if c[0] == "GraphicURL"] == []
     assert _get_tag(shape) == f"wa-plot:1,2@1,2:{sha}"
+
+
+def test_drop_plots_of_undone_formula_keeps_array_py_and_removes_empty():
+    """Array-entered {=PY("x")} keeps its plot; an empty cell has its plot removed."""
+    from plugin.calc.python.image_egress import _drop_plots_of_undone_formula
+
+    cell = CalcCellStub(col=0, row=0)
+    plot = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    page = _DrawPage([plot])
+    doc = MagicMock()
+    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
+
+    array_sheet = _SheetStub(page, formulas={(0, 0): '{=PY("x")}'})
+    _drop_plots_of_undone_formula(doc, array_sheet, cell, page)
+    assert plot in page.shapes
+
+    empty_sheet = _SheetStub(page, formulas={(0, 0): ""})
+    _drop_plots_of_undone_formula(doc, empty_sheet, cell, page)
+    assert plot not in page.shapes

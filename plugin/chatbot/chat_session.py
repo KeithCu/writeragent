@@ -196,7 +196,8 @@ class ChatSession:
             if isinstance(content, str):
                 new_content = f"{content}\n\n{tail}" if content else tail
             elif isinstance(content, list):
-                new_content = list(content) + [{"type": "text", "text": tail}]
+                # Many chat templates join text parts with no separator; keep the same blank line as the user branch.
+                new_content = list(content) + [{"type": "text", "text": f"\n\n{tail}"}]
             else:
                 new_content = f"{content}\n\n{tail}" if content is not None else tail
             new_last = dict(last, content=new_content)

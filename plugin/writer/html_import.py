@@ -425,6 +425,13 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() != "":
         return
+    # A trailing inline picture or formula stays in this paragraph and has no text.
+    # Joining the paragraph keeps its bookmarks, so they need not block it.
+    if any(
+        _paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
+        for para in iter_elements(leftover.createEnumeration())
+    ):
+        return
     # Join the leftover onto the last imported block by deleting that block's break.
     # While recording, the break belongs to our own tracked insertion, so deleting it
     # removes it rather than adding a Delete redline.
@@ -503,8 +510,9 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
         return
     if not _uno_service_true(next_elem, "com.sun.star.text.TextTable"):
         return
-    # Redline portions are change-tracking markers from the tracked import, not real content.
-    if _paragraph_has_non_text_portion(first_para, ignore_redlines=True):
+    # Redline and SoftPageBreak portions carry no content. A bookmark does count here:
+    # dispose() would delete it.
+    if _paragraph_has_non_text_portion(first_para, ignore_markers=True):
         return
     first_para.dispose()
 
@@ -539,15 +547,28 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 
 
-def _paragraph_has_non_text_portion(para: Any, *, ignore_redlines: bool = False) -> bool:
+def _paragraph_has_non_text_portion(
+    para: Any,
+    *,
+    ignore_markers: bool = False,
+    ignore_bookmarks: bool = False,
+) -> bool:
     """True when *para* holds an image, field, frame, or other non-text portion.
 
     ``getString()`` is empty for those, so a paragraph holding only a picture
     would look empty and the import would merge its first block into it. When
-    *ignore_redlines* is True, ``Redline`` portions are ignored because they
-    are change-tracking markers and carry no content.
+    *ignore_markers* is True, ``Redline`` and ``SoftPageBreak`` markers are
+    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions
+    (``_drop_leftover_paragraph`` joins the paragraph, which keeps its
+    bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes the
+    paragraph and must keep user bookmarks). ``ReferenceMark`` and
+    ``DocumentIndexMark`` always count as content.
     """
-    ignored = ("Text", "Redline") if ignore_redlines else ("Text",)
+    ignored: tuple[str, ...] = ("Text",)
+    if ignore_markers:
+        ignored += ("Redline", "SoftPageBreak")
+    if ignore_bookmarks:
+        ignored += ("Bookmark",)
     try:
         portions = para.createEnumeration()
         for portion in iter_elements(portions):
@@ -587,7 +608,7 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
       imported ``<p>`` *merges* into that paragraph, so applying ``data-lo-style`` would restyle
       neighbor text. Insert ``PARAGRAPH_BREAK`` first; LibreOffice leaves the cursor in the new
       empty trailing paragraph, which the import then absorbs (no leftover empty absorb para).
-      A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
+      StarWriter leaves a trailing empty paragraph after import here.
     - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
@@ -684,6 +705,33 @@ def _without_trailing_break(rng: Any) -> Any:
     return start
 
 
+def _import_and_drop_leftover(
+    model: Any,
+    ctx: Any,
+    cursor: Any,
+    content: str,
+    *,
+    apply_styles: bool = True,
+) -> html_import_styles.WriteReport:
+    """Import *content* into an emptied range and drop the leftover empty paragraph.
+
+    ``SwHTMLParser::CallParser`` places every imported block before the emptied
+    paragraph, leaving a blank paragraph behind unless dropped.
+    """
+    text_obj = cursor.getText()
+    leftover = text_obj.createTextCursorByRange(cursor.getStart())
+    report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+    # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
+    if report.added_content:
+        # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
+        # delete of it joins paragraphs on Accept. After a trailing table the helper merges
+        # the leftover forward into the first deleted paragraph, which Accept then empties:
+        # the same end state as without recording.
+        with record_changes.record_changes(model, False):
+            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
+    return report
+
+
 def _replace_whole_paragraphs(
     model: Any,
     ctx: Any,
@@ -726,13 +774,7 @@ def _replace_whole_paragraphs(
     if recording:
         text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.goLeft(1, False)
-    leftover = text_obj.createTextCursorByRange(cursor.getStart())
-    report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
-    # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
-    if report.added_content:
-        with record_changes.record_changes(model, False):
-            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
-    return report
+    return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
 def _lo_style_for_replaced_range(
@@ -963,7 +1005,7 @@ def _deletion_author() -> Any:
 
 
 def _drop_absorb_paragraph_props(cursor: Any) -> None:
-    """Drop direct paragraph formatting from the absorb paragraph before HTML import.
+    """Drop direct paragraph and character formatting from the absorb paragraph before HTML import.
 
     In LibreOffice's HTML parser (`SwHTMLParser::CallParser` and `SetTextCollAttrs`
     in `sw/source/filter/html/swhtml.cxx`), `GetParaAttr` captures direct paragraph
@@ -973,13 +1015,19 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     (`RES_PARATR_TABSTOP`), those must be reset to default before `SetTextCollAttrs`
     stamps them onto every imported paragraph. Direct borders (`RES_BOX`) and
     `NumberingStyleName` (`RES_PARATR_NUMRULE`) sit outside that stamped range and
-    otherwise remain on the reused first paragraph. Clearing direct paragraph properties
-    ensures imported paragraphs take values from their own style; direct formatting
-    from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES` remains the
-    clear-direct subset for Ctrl+M / `clear_direct`.
+    otherwise remain on the reused first paragraph. Character formatting left on the
+    emptied paragraph would likewise become direct formatting on every imported
+    paragraph. Clearing direct paragraph and character properties ensures imported
+    paragraphs take values from their own style (while keeping language); direct
+    formatting from `data-lo-para` is applied later. `CLEARABLE_PARA_PROPERTIES`
+    remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
     # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
-    from .styles import CLEARABLE_PARA_PROPERTIES, reset_properties_to_default
+    from .styles import (
+        CLEARABLE_PARA_PROPERTIES,
+        reset_direct_char_formatting,
+        reset_properties_to_default,
+    )
 
     reset_properties_to_default(
         cursor,
@@ -995,6 +1043,7 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
         ),
     )
     clear_direct_numbering(cursor)
+    reset_direct_char_formatting(cursor)
 
 
 def replace_full_document(
@@ -1013,7 +1062,7 @@ def replace_full_document(
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
             _drop_absorb_paragraph_props(cursor)
-            return _insert_mixed_or_plain_html(model, ctx, cursor, content)
+            return _import_and_drop_leftover(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
         # paragraph as direct formatting -- a document opening with an 18pt
@@ -1029,15 +1078,7 @@ def replace_full_document(
         # direct props for Reject.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
-        leftover = text.createTextCursorByRange(cursor.getStart())
-        report = _insert_mixed_or_plain_html(model, ctx, cursor, content)
-        # Untracked: the leftover break is part of the fresh absorb paragraph, and a tracked
-        # delete of it joins paragraphs on Accept ('initiativeproject'). After a trailing
-        # table the helper merges the leftover forward into the first deleted paragraph,
-        # which Accept then empties: the same end state as without recording.
-        with record_changes.record_changes(model, False):
-            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
-        return report
+        return _import_and_drop_leftover(model, ctx, cursor, content)
 
 
 

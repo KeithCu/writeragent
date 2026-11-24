@@ -641,3 +641,24 @@ def test_coerce_enum_leaves_ambiguous_or_short():
     assert coerce_call_args({"k": {"type": "string", "enum": ["alpha1", "alpha2"]}}, {"k": "alpha3"})["k"] == "alpha3"
     assert coerce_call_args({"k": {"type": "string", "enum": ["ordered", "unordered"]}}, {"k": "deordered"})["k"] == "deordered"
     assert coerce_call_args({"k": {}}, {"k": "7"})["k"] == "7"
+
+
+@pytest.mark.parametrize(
+    ("prop", "raw", "expected"),
+    [
+        ({"type": "array", "items": {"type": "integer"}}, "3", [3]),
+        ({"type": "array", "items": {"type": "integer"}}, '["3"]', [3]),
+        ({"type": "array", "items": {"type": "integer"}}, 3.0, [3]),
+        ({"type": "array", "items": {"type": "integer"}}, "x", ["x"]),
+        ({"type": "array", "items": {"type": "integer"}}, ["3"], ["3"]),
+        ({"type": "array", "items": {"type": "string"}}, 5, ["5"]),
+        ({"type": "array", "items": {"type": ["integer", "string"]}}, "3", ["3"]),
+        ({"type": "array", "items": {"type": "array"}}, "x", ["x"]),
+    ],
+)
+def test_coerce_converts_elements_of_wrapped_list(prop, raw, expected):
+    from plugin.framework.tool_schema import coerce_call_args
+
+    out = coerce_call_args({"v": prop}, {"v": raw})
+    assert out["v"] == expected
+    assert [type(x) for x in out["v"]] == [type(x) for x in expected]

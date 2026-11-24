@@ -1078,3 +1078,46 @@ def test_shape_upsert_arrowheads_line_and_connector(ctx, doc):
     assert tree_after[0]["style"]["LineStartName"] == "Arrow"
     assert "LineEndName" not in tree_after[0]["style"]
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_connect_arrowhead_uno(ctx, doc):
+    from plugin.draw.shapes import ConnectShapes
+    from plugin.draw.tree import build_shape_tree
+    from plugin.framework.tool import prepare_tool_call
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    upsert = UpsertShape()
+    for x in (1000, 6000):
+        res = upsert.execute(
+            tctx,
+            action="create",
+            shape_type="rectangle",
+            page=0,
+            x=x,
+            y=1000,
+            width=2000,
+            height=1000,
+        )
+        assert res.get("status") == "ok", res
+
+    connect = ConnectShapes()
+    prep = prepare_tool_call(connect, tctx, "shape_connect", {"start": 0, "end": 1, "line_end": "arrow"})
+    assert prep.error is None, prep.error
+    assert not prep.ignored, prep.ignored
+    res_conn = connect.execute(tctx, **prep.kwargs)
+    assert res_conn.get("status") == "ok", res_conn
+
+    conn_shape = page.getByIndex(res_conn["index"])
+    assert conn_shape.getPropertyValue("LineEndName") == "Arrow"
+    assert len(conn_shape.getPropertyValue("LineEnd").Coordinates) > 0
+    assert conn_shape.getPropertyValue("LineStartName") == ""
+    assert conn_shape.getPropertyValue("StartShape") is not None
+    assert conn_shape.getPropertyValue("EndShape") is not None
+
+    tree = build_shape_tree(page)
+    conn_node = tree[res_conn["index"]]
+    assert conn_node["style"]["LineEndName"] == "Arrow"
+    assert "LineStartName" not in conn_node["style"]
+

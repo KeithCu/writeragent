@@ -22,10 +22,11 @@ import yaml
 
 from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv.vision_docling import export_docling_to_html, extract_structure, extract_text
+from plugin.vision.vision_common import DOCLING_MIN_VERSION, DOCLING_REQUIREMENT
 
 
 def _require_supported_docling() -> None:
-    """Skip unless Docling is installed and meets _DOCLING_MIN_VERSION."""
+    """Skip unless Docling is installed and meets DOCLING_MIN_VERSION."""
     pytest.importorskip("docling.document_converter")
     try:
         docling_mod._check_docling_version()
@@ -276,6 +277,7 @@ def _is_missing_weight_or_network_error(result: dict) -> bool:
         "filenotfound",
         "model not found",
         "could not find",
+        "ocr_models_missing",
         "unreachable",
         "max retries",
         "temporary failure",
@@ -695,14 +697,7 @@ def test_from_params_ru_gets_iso_prefix():
 
 
 def test_installed_ocr_backend_missing_module_names_install_line():
-    real_find_spec = importlib.util.find_spec
-
-    def fake_find_spec(name, *args):
-        if name == "easyocr":
-            return None
-        return real_find_spec(name, *args)
-
-    with patch("importlib.util.find_spec", side_effect=fake_find_spec):
+    with patch.dict(sys.modules, {"easyocr": None}):
         with pytest.raises(docling_mod.OcrBackendError, match="pip install easyocr"):
             docling_mod._installed_ocr_backend("easyocr")
 
@@ -773,7 +768,7 @@ def test_resolve_ocr_options_real_docling_builds_each_backend(
     )
     with (
         patch.object(sys, "platform", "darwin"),
-        patch("importlib.util.find_spec", return_value=object()),
+        patch.object(docling_mod, "_import_engine_module"),
         patch("shutil.which", return_value="/usr/bin/tesseract"),
     ):
         opts = docling_mod._resolve_ocr_options(norm)
@@ -800,7 +795,7 @@ def test_resolve_ocr_options_easyocr_gets_text_score_as_confidence_threshold():
     norm = docling_mod.DoclingPipelineParams.from_params({"ocr_backend": "easyocr", "text_score": 0.3})
     with (
         patch.dict(sys.modules, {"docling.datamodel.pipeline_options": fake_mod}),
-        patch("importlib.util.find_spec", return_value=object()),
+        patch.object(docling_mod, "_import_engine_module"),
     ):
         opts = docling_mod._resolve_ocr_options(norm)
 
@@ -813,7 +808,7 @@ def test_resolve_ocr_options_easyocr_gets_text_score_as_confidence_threshold():
 def test_installed_ocr_backend_ocrmac_needs_macos(monkeypatch, platform):
     monkeypatch.setattr(sys, "platform", platform)
     with (
-        patch("importlib.util.find_spec", return_value=object()),
+        patch.object(docling_mod, "_import_engine_module"),
         pytest.raises(docling_mod.OcrBackendError, match=r"does not run on this system.*macOS"),
     ):
         docling_mod._installed_ocr_backend("ocrmac")
@@ -821,7 +816,7 @@ def test_installed_ocr_backend_ocrmac_needs_macos(monkeypatch, platform):
 
 def test_installed_ocr_backend_ocrmac_on_darwin(monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
-    with patch("importlib.util.find_spec", return_value=object()):
+    with patch.object(docling_mod, "_import_engine_module"):
         row, program = docling_mod._installed_ocr_backend("ocrmac")
     assert row == docling_mod.OCR_BACKENDS["ocrmac"]
     assert program == ""
@@ -838,7 +833,7 @@ def test_resolve_ocr_options_ocrmac_gets_recognition(monkeypatch):
     )
     with (
         patch.dict(sys.modules, {"docling.datamodel.pipeline_options": fake_mod}),
-        patch("importlib.util.find_spec", return_value=object()),
+        patch.object(docling_mod, "_import_engine_module"),
     ):
         opts = docling_mod._resolve_ocr_options(norm)
 
@@ -941,8 +936,8 @@ def test_extract_text_real_tesseract_cli():
     assert result["status"] == "ok"
 
 
-_DOCLING_BELOW = "%d.%d.0" % (docling_mod._DOCLING_MIN_VERSION[0], docling_mod._DOCLING_MIN_VERSION[1] - 1)
-_DOCLING_FLOOR = "%d.%d.0" % docling_mod._DOCLING_MIN_VERSION
+_DOCLING_BELOW = "%d.%d.0" % (DOCLING_MIN_VERSION[0], DOCLING_MIN_VERSION[1] - 1)
+_DOCLING_FLOOR = "%d.%d.0" % DOCLING_MIN_VERSION
 
 
 @pytest.mark.parametrize(
@@ -966,7 +961,7 @@ def test_check_docling_version(dists, should_raise):
             with pytest.raises(docling_mod.DoclingApiMismatchError) as exc_info:
                 docling_mod._check_docling_version()
             assert _DOCLING_BELOW in str(exc_info.value)
-            assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in str(exc_info.value)
+            assert f'pip install -U "{DOCLING_REQUIREMENT}"' in str(exc_info.value)
         else:
             docling_mod._check_docling_version()
 
@@ -983,7 +978,7 @@ def test_extract_text_old_docling_reports_upgrade():
     assert result["status"] == "error"
     assert result["code"] == "DOCLING_API_MISMATCH"
     assert _DOCLING_BELOW in result["message"]
-    assert f'pip install -U "{docling_mod._DOCLING_REQUIREMENT}"' in result["message"]
+    assert f'pip install -U "{DOCLING_REQUIREMENT}"' in result["message"]
 
 
 def test_resolve_layout_model_spec_real_docling():
@@ -1077,18 +1072,6 @@ def test_installed_ocr_backend_finds_tesseract_outside_path():
     assert program == "/opt/homebrew/bin/tesseract"
 
 
-def _make_ocrmac_broken_import_error() -> ImportError:
-    try:
-        try:
-            raise ModuleNotFoundError("No module named 'Vision'")
-        except ImportError:
-            raise ImportError(
-                "ocrmac is not correctly installed. Please install it via `pip install ocrmac` to use this OCR engine."
-            )
-    except ImportError as exc:
-        return exc
-
-
 def _make_ocrmac_no_languages_error() -> RuntimeError:
     try:
         try:
@@ -1121,11 +1104,6 @@ def _make_nemotron_broken_import_error() -> ImportError:
         ),
         (
             "ocrmac",
-            _make_ocrmac_broken_import_error(),
-            ("'Vision'", "pip install ocrmac"),
-        ),
-        (
-            "ocrmac",
             _make_ocrmac_no_languages_error(),
             ("did not report any recognition language", "VNRecognizeTextRequest"),
         ),
@@ -1140,7 +1118,7 @@ def _make_nemotron_broken_import_error() -> ImportError:
             ("nemotron_ocr.inference", "pip install nemotron-ocr"),
         ),
     ],
-    ids=["tesseract", "ocrmac-broken-import", "ocrmac-no-languages", "nemotron-runtime", "nemotron-broken-import"],
+    ids=["tesseract", "ocrmac-no-languages", "nemotron-runtime", "nemotron-broken-import"],
 )
 def test_engine_startup_failure_maps_to_backend_unavailable(backend_id, err, expected_fragments):
     with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=err):
@@ -1175,3 +1153,93 @@ def test_extract_text_real_tesseract_cli_off_path(tmp_path, monkeypatch):
         pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
     assert result["status"] == "ok"
     assert "hello" in result["full_text"].lower()
+
+
+@pytest.mark.parametrize("backend_id", ["easyocr", "rapidocr", "ocrmac"])
+def test_installed_ocr_backend_broken_import_is_cannot_start(tmp_path, monkeypatch, backend_id):
+    if backend_id == "easyocr":
+        (tmp_path / "easyocr.py").write_text("import wa_no_such_dep\n", encoding="utf-8")
+        expected_reason = "wa_no_such_dep"
+        expected_hint = "pip install easyocr"
+    elif backend_id == "rapidocr":
+        pkg = tmp_path / "rapidocr"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "def __getattr__(name):\n    raise ImportError('libGL.so.1')\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "onnxruntime.py").write_text("", encoding="utf-8")
+        expected_reason = "libGL.so.1"
+        expected_hint = "pip install rapidocr onnxruntime"
+    else:
+        monkeypatch.setattr(sys, "platform", "darwin")
+        pkg = tmp_path / "ocrmac"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "ocrmac.py").write_text(
+            "raise ModuleNotFoundError(\"No module named 'Vision'\", name='Vision')\n",
+            encoding="utf-8",
+        )
+        expected_reason = "Vision"
+        expected_hint = "pip install ocrmac"
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    names = ("easyocr", "wa_no_such_dep", "rapidocr", "onnxruntime", "ocrmac", "ocrmac.ocrmac")
+    saved = {n: sys.modules.pop(n) for n in names if n in sys.modules}
+    try:
+        importlib.invalidate_caches()
+        with pytest.raises(docling_mod.OcrBackendError) as exc_info:
+            docling_mod._installed_ocr_backend(backend_id)
+    finally:
+        for n in names:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+
+    msg = str(exc_info.value)
+    assert "cannot start" in msg
+    assert expected_reason in msg
+    assert expected_hint in msg
+
+
+class _LocalEntryNotFound(FileNotFoundError, ValueError):
+    pass
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        FileNotFoundError("tm_config.json not found"),
+        _LocalEntryNotFound("Cannot find the requested files in the disk cache"),
+    ],
+)
+def test_missing_model_files_map_to_ocr_models_missing(exc):
+    res = docling_mod._docling_error(exc, "extract_text")
+    assert res["status"] == "error"
+    assert res["code"] == "OCR_MODELS_MISSING"
+    assert str(exc) in res["message"]
+
+
+def test_artifacts_path_not_a_folder_is_models_missing(tmp_path):
+    missing_dir = tmp_path / "does_not_exist"
+    norm = docling_mod.DoclingPipelineParams.from_params({"artifacts_path": str(missing_dir)})
+    with pytest.raises(FileNotFoundError) as exc_info:
+        docling_mod._apply_pipeline_params(MagicMock(), norm)
+    res = docling_mod._docling_error(exc_info.value, "extract_text")
+    assert res["code"] == "OCR_MODELS_MISSING"
+    assert str(missing_dir) in res["message"]
+
+
+@pytest.mark.timeout(300)
+def test_extract_text_real_docling_empty_artifacts_path(tmp_path):
+    _require_supported_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("css_inline")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"ocr_backend": "rapidocr", "artifacts_path": str(tmp_path)},
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "OCR_MODELS_MISSING"
