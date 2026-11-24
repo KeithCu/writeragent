@@ -1110,3 +1110,110 @@ def test_jump_view_cursor_to_page_missing_page_returns_count():
     vc.jump_calls.clear()
     assert jump_view_cursor_to_page(vc, 40000) == 3
     assert vc.jump_calls == []
+
+
+class _DeletionFakeTable:
+    def __init__(self, cells):
+        self._cells = cells
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+    def getCellNames(self):
+        return tuple(self._cells.keys())
+
+    def getCellByName(self, name):
+        return self._cells[name]
+
+
+class _DeletionFakeRange:
+    def __init__(self, elements):
+        self._elements = elements
+
+    def supportsService(self, name):
+        return False
+
+    def createEnumeration(self):
+        from tests.testing_utils import FakeUnoEnum
+
+        return FakeUnoEnum(self._elements)
+
+
+def test_deletion_state_across_three_paragraphs():
+    from plugin.doc.text_helpers import DeletionState
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Start "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "gone1"),
+    ])
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "gone2")])
+    p3 = FakeUnoPara([
+        FakeUnoPortion("Text", "gone3 "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "Tail"),
+    ])
+    state = DeletionState()
+    assert get_string_without_tracked_deletions(p1, state) == "Start "
+    assert state.in_delete is True
+    assert get_string_without_tracked_deletions(p2, state) == ""
+    assert state.in_delete is True
+    assert get_string_without_tracked_deletions(p3, state) == "Tail"
+    assert state.in_delete is False
+
+
+def test_struck_table_in_multi_paragraph_range_reads_empty():
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Keep "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+    ])
+    table = _DeletionFakeTable({"A1": _DeletionFakeRange([FakeUnoPara([FakeUnoPortion("Text", "cellA")])])})
+    p2 = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "End"),
+    ])
+    rng = _DeletionFakeRange([p1, table, p2])
+    assert get_string_without_tracked_deletions(rng) == "Keep \n\nEnd"
+
+
+def test_visible_portions_cap_hit_resets_open_deletion_state():
+    from plugin.doc.text_helpers import DeletionState
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "gone"),
+    ])
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "Next")])
+    state = DeletionState()
+    truncated: list[int] = []
+    assert list(visible_portions(p1, limit=1, truncated_out=truncated, state=state)) == []
+    assert truncated == [1]
+    assert state.in_delete is False
+    assert [c for _p, c in visible_portions(p2, state=state)] == ["Next"]
+
+
+def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
+    from plugin.doc.text_helpers import paragraph_deletion_flags
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "A"),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+    ])
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "B")])
+    p3 = FakeUnoPara([
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "C"),
+    ])
+
+    no_rl_model = MagicMock()
+    no_rl_model.getRedlines.return_value.hasElements.return_value = False
+    assert paragraph_deletion_flags(no_rl_model, [p1, p2, p3]) == [False, False, False]
+
+    rl_model = MagicMock()
+    rl_model.getRedlines.return_value.hasElements.return_value = True
+    assert paragraph_deletion_flags(rl_model, [p1, p2, p3]) == [False, True, True]

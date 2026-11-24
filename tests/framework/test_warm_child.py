@@ -130,10 +130,13 @@ def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any, supervisor:
         warm.retire()
 
 
-def test_handshake_timeout_returns_error(tmp_path: Any, supervisor: Supervisor) -> None:
+def test_handshake_timeout_returns_error(tmp_path: Any, supervisor: Supervisor, monkeypatch: Any) -> None:
+    import plugin.framework.warm_child as warm_child_mod
+
+    monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 0.4)
     script = tmp_path / "slow_ready.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=0.4), supervisor=supervisor)
+    warm = WarmChild(_spec(tmp_path, str(script)), supervisor=supervisor)
     try:
         with warm.lease(Deadline(5)) as leased:
             assert isinstance(leased, dict)
@@ -159,7 +162,7 @@ def test_garbage_ready_frame_not_adopted(tmp_path: Any, supervisor: Supervisor) 
         ),
         encoding="utf-8",
     )
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=5), supervisor=supervisor)
+    warm = WarmChild(_spec(tmp_path, str(script)), supervisor=supervisor)
     try:
         with warm.lease(Deadline(10)) as leased:
             assert isinstance(leased, dict)
@@ -172,7 +175,7 @@ def test_garbage_ready_frame_not_adopted(tmp_path: Any, supervisor: Supervisor) 
 def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor) -> None:
     script = tmp_path / "hang_ready.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=30), supervisor=supervisor)
+    warm = WarmChild(_spec(tmp_path, str(script)), supervisor=supervisor)
     err: list[dict[str, Any] | None] = [None]
 
     def lease_thread() -> None:

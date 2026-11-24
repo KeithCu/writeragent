@@ -49,6 +49,10 @@ def test_numeric_headers_and_mixed_columns_keep_their_text():
     assert float(mixed.df.loc[0, "mix"]) == 10.0
     assert str(mixed.df["mix"].dtype) == "object"
 
+    err_num = grid_to_dataframe([["x"], [1.0], ["Err:502"], [3.0]], header_row=0)
+    assert str(err_num.df["x"].dtype) == "float64"
+    assert err_num.df["x"].mean() == pytest.approx(2.0)
+
 
 def test_is_missing_value_covers_pandas_and_numpy():
     """is_missing_value recognizes None, strings/errors, float NaN, numpy NaN, pd.NA and pd.NaT."""
@@ -63,6 +67,12 @@ def test_is_missing_value_covers_pandas_and_numpy():
     assert is_missing_value("#DIV/0!") is True
     assert is_missing_value("#div/0!") is True
     assert is_missing_value("#VALUE!") is True
+    assert is_missing_value("Err:502") is True
+    assert is_missing_value("err:502") is True
+    assert is_missing_value("Err:502 ") is True
+    assert is_missing_value("Err:5") is False
+    assert is_missing_value("Err:5020") is False
+    assert is_missing_value("Error: 502") is False
     assert is_missing_value(math.nan) is True
     assert is_missing_value(float("nan")) is True
 

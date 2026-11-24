@@ -464,7 +464,7 @@ def oracle_comment_management(doc: str) -> list[str]:
 
 
 def is_draw_connector(node: dict[str, Any]) -> bool:
-    """Production Draw tree uses ConnectorShape nodes; DrawWorld does not."""
+    """True for a ConnectorShape tree node (a flowchart-connector preset is a CustomShape)."""
     return "connector" in str(node.get("type") or "").casefold()
 
 
@@ -493,19 +493,8 @@ def draw_nodes(data: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def draw_connector_count(data: dict[str, Any], nodes: list[dict[str, Any]]) -> int:
-    """Connector nodes, or DrawWorld's connections list when the tree has none."""
-    connectors = draw_connectors(nodes)
-    if connectors:
-        return len(connectors)
-    conns = data.get("connections")
-    return len(conns) if isinstance(conns, list) else 0
-
-
-def draw_edges(
-    data: dict[str, Any], nodes: list[dict[str, Any]]
-) -> list[tuple[str, str]]:
-    """Return (start_text, end_text) pairs from production connectors or DrawWorld."""
+def draw_edges(nodes: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Return (start_text, end_text) pairs from linked connector nodes."""
     edges: list[tuple[str, str]] = []
     for node in draw_connectors(nodes):
         start = node.get("connected_start")
@@ -515,40 +504,6 @@ def draw_edges(
                 (
                     str(start.get("text") or "").casefold(),
                     str(end.get("text") or "").casefold(),
-                )
-            )
-    if edges:
-        return edges
-    # String DrawWorld: top-level connections + tree texts by index.
-    by_idx_text: dict[int, str] = {}
-    for i, node in enumerate(nodes):
-        by_idx_text[i] = str(node.get("text") or "").casefold()
-        if "index" in node:
-            try:
-                by_idx_text[int(node["index"])] = by_idx_text[i]
-            except (TypeError, ValueError):
-                pass
-    conns = data.get("connections")
-    if isinstance(conns, list):
-        for conn in conns:
-            if not isinstance(conn, dict):
-                continue
-            try:
-                frm = int(conn.get("from_index"))
-                to = int(conn.get("to_index"))
-            except (TypeError, ValueError):
-                continue
-            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
-    if edges:
-        return edges
-    # DrawWorld also annotates connected_end on the start shape.
-    for node in nodes:
-        dest = node.get("connected_end")
-        if isinstance(dest, dict):
-            edges.append(
-                (
-                    str(node.get("text") or "").casefold(),
-                    str(dest.get("text") or "").casefold(),
                 )
             )
     return edges
@@ -587,7 +542,7 @@ def oracle_flowchart_gen(doc: str) -> list[str]:
 
     nodes = draw_nodes(data or {})
 
-    edges = draw_edges(data or {}, nodes)
+    edges = draw_edges(nodes)
 
     if not _has_edge(edges, "start", "process") and not _has_edge(edges, "start", "login"):
         fails.append("missing Start→Process edge")
@@ -668,7 +623,7 @@ def oracle_org_chart_gen(doc: str) -> list[str]:
 
     boxes = _org_chart_labeled_boxes(nodes)
     connectors = draw_connectors(nodes)
-    conn_count = draw_connector_count(data or {}, nodes)
+    conn_count = len(connectors)
 
     if len(boxes) < _ORG_CHART_BOX_FLOOR:
         fails.append(
@@ -695,7 +650,7 @@ def oracle_org_chart_gen(doc: str) -> list[str]:
             f"org chart linked connectors {len(linked)} < {_ORG_CHART_CONN_FLOOR}"
         )
 
-    edges = draw_edges(data or {}, nodes)
+    edges = draw_edges(nodes)
 
     for src_key, dst_key in _ORG_CHART_EDGES:
         if not _has_edge(edges, src_key, dst_key):
@@ -1270,7 +1225,7 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
     nodes = draw_nodes(data or {})
 
     boxes = _solar_labeled_boxes(nodes)
-    conn_count = draw_connector_count(data or {}, nodes)
+    conn_count = len(draw_connectors(nodes))
 
     if nodes and len(boxes) < _SOLAR_BOX_FLOOR:
         fails.append(
@@ -1281,7 +1236,7 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
             f"solar SLD connectors {conn_count} < {_SOLAR_CONN_FLOOR} (~7+)"
         )
 
-    edges = draw_edges(data or {}, nodes)
+    edges = draw_edges(nodes)
     role_edges = _solar_edge_roles(edges)
 
     # Partial-home: Utility/Meter → Main panel → Solar AC Disconnect → MID →

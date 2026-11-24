@@ -80,12 +80,14 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | Symbol | Purpose |
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
-| `get_string_without_tracked_deletions` | Skip redline Delete portions. A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` and descends into table cells (nested included). Shares `visible_portions` with the `html_export._visible_portions` paint walk used by range copy (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
+| `DeletionState` | Carries `in_delete` across consecutive paragraphs of one `XText` (`visible_portions` / `get_string_without_tracked_deletions`). Redline markers exist only in start/end paragraphs (`lcl_FillRedlineArray`), so middle paragraphs and struck tables need the shared state. |
+| `get_string_without_tracked_deletions` | Skip redline Delete portions (accepts optional `state: DeletionState` for multi-paragraph walks). A paragraph concatenates visible portions without a mid-`\n`; a document or multi-para range still joins with `\n` (keeping deleted paragraph breaks) and descends into table cells (nested included) unless the table is inside an open deletion. Shares `visible_portions` with the `html_export._visible_portions` paint walk used by range copy (paint aborts on portion-enum failure to avoid offset drift; the helper continues). Draw shapes (`com.sun.star.drawing.Shape`, also `shape.getText()`, including Writer shapes with an attached text box) return `getString()`; editeng has no redlines and discarded editeng proxies corrupt the heap over URP. |
+| `paragraph_deletion_flags` | Returns `list[bool]` for a text enumeration indicating whether each element starts inside a tracked deletion (all `False` without portion walks when the document has no redlines). |
 | `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
-| `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
+| `build_heading_tree` | Outline tree (`HeadingTreeNode`) skipping tracked-deleted heading text (uses `paragraph_deletion_flags`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). `set_selection` offsets use this cursor-step space (the `writer_char_count` space), not `get_content`'s `document_length` space. |
 | `jump_view_cursor_to_page` | Move a Writer view cursor to 0-based *page*; returns `None` on hit or the page count on miss (guards `0 <= page < 0x7FFF` and compares `vc.getPage()` because `jumpToPage` clamps to the last page). |
@@ -293,7 +295,7 @@ There is **no** single shared converter. Live implementations:
 | `url_utils.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
 | sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. Stay local (no UNO). |
 
-`resolve_document_by_url` compares `normalize_doc_url(model.getURL())` to the request. A request of `file:/home/a.odt` will **not** match an open `file:///home/a.odt` unless something else repaired it first. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
+`resolve_document_by_url` compares `_doc_identity_url(model.getURL())` to `_doc_identity_url(url)`, which repairs `file:/` to `file:///` and unifies `file:` percent-encoding before `normalize_doc_url`. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
 
 Tests: `tests/doc/test_document.py` (`normalize_doc_url` trailing slash), `tests/doc/test_text_helpers.py` (`file:/` repair + `get_document_path`).
 

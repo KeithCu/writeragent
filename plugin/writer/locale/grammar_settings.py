@@ -91,13 +91,14 @@ def checker_identity(name: str | None = None) -> str:
 
 
 def engine_settings_changed(keys: Collection[str]) -> bool:
-    """Return True when *keys* change the active grammar engine, model, or LLM endpoint."""
+    """Return True when *keys* change the active grammar engine, model, or the LLM endpoint or its API key."""
     if not _GRAMMAR_ENGINE_KEYS.isdisjoint(keys):
         return True
-    # Only the LLM engine uses the endpoint, and it falls back to text_model only when
-    # no grammar model is set (get_grammar_model).
+    # Only the LLM engine uses the endpoint and its key, and it falls back to text_model
+    # only when no grammar model is set (get_grammar_model). Settings writes the key slot
+    # of the endpoint it saves, so the key name alone is enough and no keyring read is needed.
     if provider() != "llm":
         return False
-    return "endpoint" in keys or (
+    return "endpoint" in keys or "api_keys_by_endpoint" in keys or (
         "text_model" in keys and not str(config.get_config("doc.grammar_proofreader_model") or "").strip()
     )

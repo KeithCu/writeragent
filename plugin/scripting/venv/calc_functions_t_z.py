@@ -37,7 +37,7 @@ from .calc_functions_util import (
     wildcard_fullmatch,
     yearfrac,
 )
-from .coerce import LO_ERROR_TOKENS, is_blank_value
+from .coerce import is_blank_value, is_error_token
 
 
 __all__ = [
@@ -1017,7 +1017,7 @@ def xor(*args: Any) -> bool | float | str:
                 if math.isnan(number):
                     return float("nan")
                 bit = number != 0.0
-            elif isinstance(val, str) and val.strip() in LO_ERROR_TOKENS:
+            elif isinstance(val, str) and is_error_token(val):
                 return val.strip()
             elif in_range and (val is None or isinstance(val, str)):
                 continue
