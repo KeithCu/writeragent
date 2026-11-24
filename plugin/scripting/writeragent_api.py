@@ -2425,7 +2425,7 @@ class _ShapeProxy:
             index (optional): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.
             page (optional): 0-based page (slide) index; the active page if omitted.
-            shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
+            shape_type (optional): Type of shape. Basic types: rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position, 1/100 mm (required only for action='create').
             y (optional): Y position, 1/100 mm (required only for action='create').
             width (optional): Width, 1/100 mm (required only for action='create'; negative values are allowed, and for lines x,y is the start point).
@@ -2444,8 +2444,8 @@ class _ShapeProxy:
             italic (optional): Italic text (false removes italic).
             h_align (optional): Horizontal text alignment inside the shape. Custom shapes, rectangle and ellipse default to center. One of: left, center, right, justify.
             v_align (optional): Vertical text alignment inside the shape. Custom shapes, rectangle and ellipse default to center. One of: top, center, bottom.
-            wrap_text (optional): Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); on by default. Text boxes (text) always wrap. rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label.
-            corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle (round-rectangle already has rounded corners).
+            wrap_text (optional): Wrap text at the shape width (on by default). Text boxes (text) always wrap.
+            corner_radius (optional): Corner radius, 1/100 mm. Only for rectangle and round-rectangle.
             rotation_angle (optional): Rotation angle in degrees.
         """
         return _result(call_host_tool("shape_upsert", action=action, index=index, name=name, page=page, shape_type=shape_type, x=x, y=y, width=width, height=height, text=text, fill_color=fill_color, fill_style=fill_style, line_color=line_color, line_width=line_width, line_start=line_start, line_end=line_end, text_color=text_color, font_size=font_size, font_name=font_name, bold=bold, italic=italic, h_align=h_align, v_align=v_align, wrap_text=wrap_text, corner_radius=corner_radius, rotation_angle=rotation_angle))

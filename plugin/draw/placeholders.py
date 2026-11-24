@@ -16,6 +16,7 @@ from typing import Any
 
 from plugin.draw.base import DRAW_PAGE_PROPERTY
 from plugin.draw.bridge import DrawBridge
+from plugin.draw.shapes import set_shape_string
 from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -249,5 +250,5 @@ class SetPlaceholderText(ToolBase):
         if not hasattr(shape, "setString"):
             return self._tool_error("Shape does not support text.")
 
-        shape.setString(text)
+        set_shape_string(shape, text)
         return {"status": "ok", "text": text, "role": role, "index": shape_index}
