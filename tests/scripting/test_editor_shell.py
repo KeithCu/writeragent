@@ -89,6 +89,15 @@ vm.runInNewContext(src, {{
 }});
 const tick = () => new Promise((r) => setImmediate(r));
 async function deliver(m) {{ queue.push(m); poll(); await tick(); await tick(); }}
+const snaps = {{}};
+function snap(name) {{
+  snaps[name] = {{
+    text,
+    readOnly,
+    dataDisabled: !!el("data-binding-input").disabled,
+    plainDisabled: !!el("chk-plain-text").disabled,
+  }};
+}}
 (async () => {{
   await tick();
   {script_body}
@@ -100,6 +109,7 @@ async function deliver(m) {{ queue.push(m); poll(); await tick(); await tick(); 
     dataDisabled: !!el("data-binding-input").disabled,
     plainDisabled: !!el("chk-plain-text").disabled,
     dataBinding: el("data-binding-input").value,
+    snaps,
   }}));
 }})();
 """
@@ -206,12 +216,22 @@ def test_editor_shell_request_save_locks_until_load() -> None:
         type("ab");
         await deliver({type: "request_save", session_id: "s1"});
         type("typed_while_locked");
+        snap("after_request_save");
         await deliver({type: "saved", session_id: "s1", load_follows: true});
         type("typed_before_load");
+        snap("after_saved");
         await deliver({type: "load", mode: "calc_cell", code: "next", session_id: "s2"});
         type("next_edited");
         """
     )
+    expected_locked = {
+        "text": "ab",
+        "readOnly": True,
+        "dataDisabled": True,
+        "plainDisabled": True,
+    }
+    assert out["snaps"]["after_request_save"] == expected_locked
+    assert out["snaps"]["after_saved"] == expected_locked
     assert out["text"] == "next_edited"
     assert out["readOnly"] is False
     assert out["dataDisabled"] is False
@@ -242,12 +262,33 @@ def test_editor_shell_saved_without_load_follows_unlocks_and_normal_save_does_no
         await deliver({type: "load", mode: "calc_cell", code: "a", session_id: "s1"});
         type("ab");
         await deliver({type: "request_save", session_id: "s1"});
+        type("ignored");
+        snap("before_saved");
         await deliver({type: "saved", session_id: "s1"});
         type("after_saved");
         """
     )
+    assert locked_then_unlocked["snaps"]["before_saved"]["readOnly"] is True
+    assert locked_then_unlocked["snaps"]["before_saved"]["text"] == "ab"
     assert locked_then_unlocked["text"] == "after_saved"
     assert locked_then_unlocked["readOnly"] is False
+
+    run_script_locked = _run_shell_scenario(
+        """
+        await deliver({type: "load", mode: "run_script", code: "a", session_id: "s1"});
+        type("ab");
+        await deliver({type: "request_save", session_id: "s1"});
+        type("ignored");
+        snap("before_saved");
+        await deliver({type: "saved", session_id: "s1"});
+        type("after_saved");
+        """
+    )
+    assert run_script_locked["snaps"]["before_saved"]["readOnly"] is True
+    assert run_script_locked["snaps"]["before_saved"]["text"] == "ab"
+    assert "save_script" in run_script_locked["sent"]
+    assert run_script_locked["text"] == "after_saved"
+    assert run_script_locked["readOnly"] is False
 
     normal_save = _run_shell_scenario(
         """

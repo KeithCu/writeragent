@@ -889,6 +889,7 @@ class PersistentEditor:
                 if saved:
                     captured.dirty = False
                     if captured.pending_load is not None:
+                        # Tell the child not to unlock on saved when load is about to replace the buffer.
                         result = {**result, "load_follows": True}
                 _send_save(result)
                 pending = captured.pending_load

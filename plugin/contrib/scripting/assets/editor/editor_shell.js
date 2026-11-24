@@ -262,9 +262,11 @@
     }
   }
 
+  // The host answers a requested save with load, which replaces the text, so anything typed
+  // after the save was sent would be lost; lock in the same turn we send because a host ack leaves a gap.
   function setSavePendingLoad(on) {
     savePendingLoad = !!on;
-    if (editor && editor.setReadOnly) {
+    if (editor) {
       editor.setReadOnly(savePendingLoad);
     }
     updateDataBindingEnabled();
@@ -302,6 +304,8 @@
               } else if (msg.type === "request_save") {
                 var saveBtn = document.getElementById("btn-save");
                 if (saveBtn) {
+                  // Lock only in this shell's handler: a named Run Script save is taken by the capture
+                  // listener in scripts_manager.js and gets no saved reply, so locking here would stick.
                   requestedSave = true;
                   saveBtn.click();
                   requestedSave = false;

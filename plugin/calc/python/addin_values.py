@@ -437,9 +437,10 @@ _SPILL_EMPTY = SpillValue("", "e")
 
 
 def _spill_error(code: int) -> SpillValue:
-    # setDataArray of None maps in PyUNO to an empty Any (UNO void), which Calc's
-    # lcl_PutDataArray handles via SetError(NotAvailable) for #N/A.
-    # #ERR32767! is not a published constant, so we cannot use setFormula for #N/A.
+    # A NaN written via SetValue becomes a plain numeric cell with ISERROR 0 and
+    # reloads from ODS as 0. setDataArray of None maps in PyUNO to UNO void, which
+    # Calc's lcl_PutDataArray handles via SetError(NotAvailable) for #N/A;
+    # #ERR32767! is not a published constant so we cannot use setFormula for #N/A.
     # For other codes, "" serves as an empty placeholder in setDataArray and
     # perform_deferred_spill assigns the formula f"=#ERR{code}!".
     return SpillValue(None if code == ERR_NA else "", "err", error_code=code)

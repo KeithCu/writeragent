@@ -748,7 +748,8 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
             (crit.ndim == 1 and crit.size == arr.shape[1])
             or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
         )
-        # ScFilter (interpr1.cxx) refuses a two-dimensional include (NoValue) and an empty mask.
+        # ScFilter (interpr1.cxx:8258-8263) refuses a two-dimensional include (NoValue);
+        # an empty mask would otherwise select nothing and return if_empty.
         if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
             return "#VALUE!"
         # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric
@@ -948,7 +949,8 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             x = np.arange(1, len(y) + 1, dtype=float)
         else:
             x = np.asarray(known_x, dtype=float).ravel()
-        # CheckMatrix (interpr5.cxx) requires known_x to match known_y's element count.
+        # CheckMatrix (interpr5.cxx:2350-2373) refuses a scalar x against a vector y;
+        # numpy would broadcast it when const is FALSE, and this helper does not fit several x variables.
         if x.size != y.size:
             raise ValueError
         if new_x is None:
