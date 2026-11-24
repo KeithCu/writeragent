@@ -50,6 +50,7 @@ from plugin.doc.specialized_catalog import (
     expects_edits,
     format_domain_catalog,
     format_specialized_domains_description,
+    get_specialized_domain_catalog,
     loop_hint,
     start_inner_payload,
 )
@@ -276,30 +277,31 @@ class DelegateToSpecializedBase(ToolBase):
     is_mutation: bool | None = True
     long_running: bool = True
 
-    def __init__(self) -> None:
-        super().__init__()
-        # ctx=None and for_discovery=False: same exclusions as the chat enum.
-        # for_discovery=True would put Calc-hidden domains back into the schema.
-        self._domains: list[str] = sorted({
-            e["domain"]
-            for e in catalog_entries_from_base(
-                agent_label=self._agent_label,
-                ctx=None,
-                for_discovery=False,
-            )
-        })
+    # The domain enum is not stored here: get_parameters builds it from the live catalog on each call.
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "domain": {"type": "string", "description": "The specialized domain to activate."},
+            # python_tool_domain stays off this schema on purpose. python_delegate_domains
+            # (plugin/doc/python_domain_specialized.py) sets ToolContext.python_tool_domain
+            # (delegated domains plus core, including "" during =PY()). A property here would be a second API.
+            "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
+        },
+        "required": ["domain", "task"],
+    }
 
-        self.parameters: dict[str, Any] | None = {
-            "type": "object",
-            "properties": {
-                "domain": {"type": "string", "enum": self._domains, "description": "The specialized domain to activate."},
-                # python_tool_domain stays off this schema on purpose. python_delegate_domains
-                # (plugin/doc/python_domain_specialized.py) sets ToolContext.python_tool_domain
-                # (delegated domains plus core, including "" during =PY()). A property here would be a second API.
-                "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
-            },
-            "required": ["domain", "task"],
-        }
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        """Return the schema with the domain enum for *doc_type*; every app's domains when it is unknown.
+
+        The enum is read from the catalog per call, so it holds every domain whose base class is
+        imported by then. No ctx or services are passed: domains that cannot run yet (no venv, no MCP
+        server) stay valid here and are hidden by the schema filters. for_discovery stays False:
+        True would put Calc-hidden domains back and drop the chat-only ones (mcp).
+        """
+        label = self.agent_label_for(doc_type=doc_type) if doc_type else None
+        params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
+        params["properties"]["domain"]["enum"] = [e["domain"] for e in get_specialized_domain_catalog(agent_label=label)]
+        return params
 
     def agent_label_for(
         self,
@@ -318,8 +320,7 @@ class DelegateToSpecializedBase(ToolBase):
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
         agent_label = self.agent_label_for(uno_services=uno_services)
-        bound = {e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)}
-        return [d for d in self._domains if d in bound]
+        return sorted({e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)})
 
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Optional narrowed tool description for *uno_services* (None keeps the class description)."""
@@ -411,7 +412,8 @@ class DelegateToSpecializedBase(ToolBase):
             # means it is bound to another document type (for example, Impress-only slide domains
             # in a Draw document).
             services = ctx.uno_services_supported
-            if services and domain in self._domains:
+            known = {e["domain"] for e in get_specialized_domain_catalog(agent_label=None)}
+            if services and domain in known:
                 available = self.domains_for_services(services)
                 if domain not in available:
                     return self._tool_error(
@@ -618,19 +620,6 @@ class DelegateToSubagent(DelegateToSpecializedBase):
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
     _agent_label: ClassVar[str] = "Writer"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._domains_by_agent: dict[str, list[str]] = {
-            label: sorted({
-                e["domain"]
-                for e in catalog_entries_from_base(agent_label=label, ctx=None, for_discovery=False)
-            })
-            for label in ("Writer", "Calc", "Draw")
-        }
-        self._domains: list[str] = sorted({d for domains in self._domains_by_agent.values() for d in domains})
-        assert self.parameters is not None
-        self.parameters["properties"]["domain"]["enum"] = self._domains
-
     def agent_label_for(
         self,
         *,
@@ -671,23 +660,6 @@ class DelegateToSubagent(DelegateToSpecializedBase):
             return _WRITER_DELEGATE_DESCRIPTION
         return self.description
 
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        """Return parameters with the domain enum narrowed for *doc_type* when known."""
-        if self.parameters is None or not doc_type:
-            return self.parameters
-        label = self.agent_label_for(doc_type=doc_type)
-        params = copy.deepcopy(self.parameters)
-        params["properties"]["domain"]["enum"] = list(self._domains_by_agent.get(label, self._domains))
-        return params
-
-    def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
-        """Sorted enum domains for the app and *uno_services*."""
-        assert uno_services, "caller must skip narrowing when services are unknown"
-        label = self.agent_label_for(uno_services=uno_services)
-        allowed = set(self._domains_by_agent.get(label, self._domains))
-        bound = {e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services)}
-        return [d for d in self._domains if d in allowed and d in bound]
-
     def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Return the app-specific description narrowed to *uno_services*.
 
@@ -697,10 +669,8 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         """
         label = self.agent_label_for(uno_services=uno_services)
         if not for_mcp:
-            # Sidebar chat reads the domain catalog only here: one "domain: purpose" entry per
-            # value of the narrowed enum, so the list cannot name a domain the enum rejects.
-            bound = set(self.domains_for_services(uno_services))
-            entries = [e for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services) if e["domain"] in bound]
+            # Sidebar chat reads the domain catalog only here; domains_for_services reads the same entries, so the list cannot name a domain the enum rejects.
+            entries = catalog_entries_from_base(agent_label=label, uno_services=uno_services)
             return f"{self.get_description(label.lower())} Domains: {format_domain_catalog(entries)}."
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION

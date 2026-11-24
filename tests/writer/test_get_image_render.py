@@ -286,12 +286,18 @@ def test_execute_named_image_uses_visual_helpers_not_graphic_objects():
     assert base64.b64decode(res["_mcp_image"]["data"]) == raw
 
 
-def test_execute_named_image_missing_is_clear_error():
+@pytest.mark.parametrize(
+    ("doc_type", "expected_source"),
+    [("draw", "shape_get_tree"), ("writer", "get_content"), ("calc", "image_list")],
+)
+def test_execute_named_image_missing_is_clear_error(doc_type, expected_source):
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=None):
-        res = GetImage().execute(_tctx(FakeDrawDoc()), image="Missing")
+        res = GetImage().execute(_tctx(FakeDrawDoc(), doc_type=doc_type), image="Missing")
     assert res["status"] == "error"
     assert "Missing" in res["message"]
-    assert "image_list" in res["message"]
+    assert expected_source in res["message"]
+    if doc_type == "draw":
+        assert "image_list" not in res["message"]
 
 
 def test_execute_selection_none_is_clear_error():
@@ -299,6 +305,7 @@ def test_execute_selection_none_is_clear_error():
         res = GetImage().execute(_tctx(FakeDrawDoc()), selection=True)
     assert res["status"] == "error"
     assert "No image selected" in res["message"]
+    assert "image_list" not in res["message"]
 
     fake_obj = object()
     with (
@@ -308,6 +315,14 @@ def test_execute_selection_none_is_clear_error():
         res = GetImage().execute(_tctx(FakeDrawDoc()), selection=True)
     assert res["status"] == "error"
     assert "No image selected" in res["message"]
+    assert "image_list" not in res["message"]
+
+
+@pytest.mark.parametrize("doc_type", ["writer", "draw", "calc"])
+def test_selection_false_error_offers_page_only_where_accepted(doc_type):
+    res = GetImage().execute(_tctx(FakeDrawDoc(), doc_type=doc_type), selection=False)
+    assert res["status"] == "error"
+    assert ("page=" in res["message"]) == ("page" in GetImage().get_parameters(doc_type)["properties"])
 
 
 def test_writer_page_store_disposal_propagates():

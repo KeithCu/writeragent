@@ -278,10 +278,38 @@ def test_delegate_status_user_stopped_left_unchanged(
 
 
 def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSubagent) -> None:
-    assert writer_gateway.parameters is not None
-    enum = writer_gateway.parameters["properties"]["domain"]["enum"]
+    params = writer_gateway.get_parameters()
+    assert params is not None
+    enum = params["properties"]["domain"]["enum"]
     assert enum == sorted(enum)
     assert len(enum) == len(set(enum))
+
+
+def test_domain_declared_after_gateway_creation_is_accepted() -> None:
+    import gc
+    from typing import ClassVar
+    from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+
+    gw = DelegateToSubagent()
+
+    class _Late(ToolDrawSpecialBase):
+        specialized_domain: ClassVar[str | None] = "zz_late"
+        specialized_domain_description: ClassVar[str | None] = "Late domain."
+        uno_services = DRAW_AND_IMPRESS
+
+    svcs = frozenset({DRAW_DOCUMENT_SERVICE})
+    try:
+        ok, err = gw.validate(doc_type="draw", domain="zz_late", task="x")
+        assert ok, err
+        assert "zz_late" in gw.domains_for_services(svcs)
+        assert "zz_late: Late domain." in (gw.description_for_services(svcs) or "")
+        assert not gw.validate(doc_type="calc", domain="zz_late", task="x")[0]
+    finally:
+        # __subclasses__ holds weak references; the class is in a reference cycle until collected.
+        del _Late
+        gc.collect()
+    assert "zz_late" not in gw.domains_for_services(svcs)
 
 
 def test_delegate_completed_message_uses_static_msgid(
@@ -407,8 +435,9 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
 
     gateway = DelegateToSubagent()
     impress_only = {"headers_footers", "speaker_notes", "slide_transitions", "slide_layouts"}
-    assert gateway.parameters is not None
-    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+    params = gateway.get_parameters()
+    assert params is not None
+    assert impress_only <= set(params["properties"]["domain"]["enum"])
 
     draw = frozenset({DRAW_DOCUMENT_SERVICE})
     impress = frozenset({DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE})
@@ -446,9 +475,9 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     for dom in impress_only:
         assert dom in impress_mcp_desc
         assert dom in impress_mcp["description"]
-    # Unknown services leave the schema alone; the shared instance enum is never mutated.
+    # Unknown services leave the schema alone; narrowing never changes a later get_parameters result.
     assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
-    assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
+    assert impress_only <= set((gateway.get_parameters() or {})["properties"]["domain"]["enum"])
 
 
 def test_delegate_footnotes_hint_reaches_inner_instructions(
@@ -1151,64 +1180,3 @@ def test_mcp_server_schema_hides_chat_only_domain() -> None:
         chat_schemas = registry.get_schemas("openai", doc_type="writer", ctx=object())
         chat_delegate = next(s for s in chat_schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)
         assert "mcp" in chat_delegate["function"]["parameters"]["properties"]["domain"]["enum"]
-
-
-def test_first_bootstrap_delegate_enum_matches_prompt_catalog(tmp_path: Any) -> None:
-    """In a fresh interpreter, bind() must populate every domain that the prompt catalog lists.
-
-    Runs in a subprocess because earlier tests import plugin.draw tool modules, which would
-    populate subclasses before DelegateToSubagent.__init__ captures its enum and hide a
-    domain declared only on a late-imported tool module.
-    """
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    from plugin.framework.doc_type import (
-        CALC_DOCUMENT_SERVICE,
-        DRAW_DOCUMENT_SERVICE,
-        IMPRESS_DOCUMENT_SERVICE,
-        TEXT_DOCUMENT_SERVICE,
-    )
-
-    script = """
-import json, os, sys
-import tests.conftest
-from plugin.framework import config
-from plugin.app import get_tools
-from plugin.doc.specialized_catalog import catalog_entries_from_base
-from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
-from plugin.main import bind
-
-config._resolved_config_path = os.path.join(sys.argv[1], "writeragent.json")
-bind()
-gateway = get_tools().get(DELEGATE_SUBAGENT_TOOL)
-out = {}
-for svc in sys.argv[2:]:
-    svcs = frozenset([svc])
-    label = gateway.agent_label_for(uno_services=svcs)
-    enum_domains = gateway.domains_for_services(svcs)
-    listed = sorted({e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=svcs, for_discovery=False)})
-    out[svc] = [enum_domains, listed]
-print(json.dumps(out))
-"""
-    services = [
-        TEXT_DOCUMENT_SERVICE,
-        CALC_DOCUMENT_SERVICE,
-        DRAW_DOCUMENT_SERVICE,
-        IMPRESS_DOCUMENT_SERVICE,
-    ]
-    repo_root = Path(__file__).resolve().parents[2]
-    proc = subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path), *services],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    data = json.loads(proc.stdout.strip().splitlines()[-1])
-    for svc in services:
-        enum_domains, listed = data[svc]
-        assert enum_domains == listed, f"{svc}: enum={enum_domains} != listed={listed}"

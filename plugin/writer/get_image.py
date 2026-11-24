@@ -103,8 +103,9 @@ def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str |
 
 
 # Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:
-# its schema keeps page (execute rejects it there with a clear error), so it keeps the all-app text.
+# no core Calc read lists image names, so Calc keeps the all-app schema text and errors point at _DEFAULT_IMAGE_NAME_SOURCE.
 _IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree"}
+_DEFAULT_IMAGE_NAME_SOURCE = "image_list (images domain)"
 _ONE_MODE = "Pass at most one of image, selection, or page."
 
 
@@ -178,6 +179,7 @@ class GetImage(ToolBase):
         name = kwargs.get("image")
         page = kwargs.get("page")
         sheet_index = kwargs.get("sheet_index")
+        names_from = _IMAGE_NAME_SOURCE.get(ctx.doc_type or "", _DEFAULT_IMAGE_NAME_SOURCE)
         if sheet_index is not None:
             if sheet_index < 0:
                 return self._tool_error("sheet_index must be a non-negative integer (0-based).")
@@ -213,21 +215,23 @@ class GetImage(ToolBase):
                     **extra,
                 )
             if obj is None:
-                return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
+                return self._tool_error(f"No embedded image named '{name}'. Read the available names with {names_from}.")
             raw = export_graphic_object_to_bytes(ctx.ctx, obj)
             if not raw:
                 return self._tool_error(f"Could not export image '{name}'.")
             source = name
         elif selection is False:
-            return self._tool_error("selection=false means no mode was chosen; pass image=<name>, page=<n>, or selection=true.")
+            page_mode = "" if ctx.doc_type == "calc" else "page=<n>, "
+            return self._tool_error(f"selection=false means no mode was chosen; pass image=<name>, {page_mode}or selection=true.")
         else:
+            no_image = f"No image selected. Select an image in the document, or pass image=<name> (read names with {names_from})."
             obj = visual_helpers.selected_graphic_object(doc)
             if obj is None:
                 log.debug("get_selected_image_base64: no graphic in selection")
-                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
+                return self._tool_error(no_image)
             raw = export_graphic_object_to_bytes(ctx.ctx, obj)
             if not raw:
-                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
+                return self._tool_error(no_image)
             source = "selection"
         # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
         # native image content block; over non-image transports it is just an ignorable marker.
