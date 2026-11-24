@@ -20,7 +20,7 @@ import re
 import time
 import zlib
 from html import escape as html_escape
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, NamedTuple
 
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
@@ -340,17 +340,61 @@ def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
     )
 
 
+class _TableStartRange(NamedTuple):
+    """Range-like value for a selection that starts inside a body table and ends in the body."""
+
+    text: Any
+    anchor: Any
+    end: Any
+
+    def getText(self) -> Any:
+        return self.text
+
+    def getStart(self) -> Any:
+        return self.anchor
+
+    def getEnd(self) -> Any:
+        return self.end
+
+
+def _table_start_range(body: Any, start: Any, end: Any) -> _TableStartRange | None:
+    """Resolve a table-start/body-end selection to the outer body table's anchor."""
+    body.createTextCursorByRange(end)
+    last_anchor: Any = None
+    for el in iter_elements(body.createEnumeration()):
+        if not range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+            continue
+        anchor = el.getAnchor()
+        if not starts_at_or_after(body, start, anchor):
+            break
+        last_anchor = anchor
+    return _TableStartRange(body, last_anchor, end) if last_anchor is not None else None
+
+
 def _selection_cursor(model: Any, selection: Any | None = None) -> Any | None:
     """The current selection (or explicit *selection* range) as a cursor in its own text, or None.
 
     Selection scope builds a cursor in the selection's own XText instead of body
     character offsets, so index/TOC selections do not export a later body paragraph.
+
+    A selection starting in a body table and ending in the body has two forms:
+    Ctrl+A (``SwCursorShell::ExtendedSelectAll``, ``sw/source/core/crsr/crsrsh.cxx``)
+    gives ``SwXCell`` whose ``createXTextCursorByRangeImpl`` (``unotbl.cxx``) returns
+    None for an end outside the cell, and Shift+arrow gives ``SwXBodyText`` whose
+    ``createTextCursorByRange`` raises for a start inside a cell. Both fall back to
+    ``_table_start_range``.
     """
     found = get_writer_selection_positions(model, selection=selection)
     if not found:
         return None
     text, start, end = found
+
     def select() -> Any:
+        if (
+            uno_read(lambda: text.createTextCursorByRange(start), None) is None
+            or uno_read(lambda: text.createTextCursorByRange(end), None) is None
+        ):
+            return _table_start_range(model.getText(), start, end)
         cursor = text.createTextCursorByRange(start)
         cursor.gotoRange(end, True)
         return cursor
@@ -392,7 +436,12 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
 
     def window(el: Any, para_text: str, tables: list[Any]) -> tuple[list[Any], tuple[int, int] | None]:
         # A table has no getStart; its anchor is a point inside its first cell.
-        inside = [t for t in tables if _element_overlaps(text, t.getAnchor(), source)]
+        # >= at start is needed because _TableStartRange.getStart() can be the table's own anchor.
+        inside = [
+            t for t in tables
+            if _starts_before(text, t.getAnchor(), source.getEnd())
+            and starts_at_or_after(text, t.getAnchor(), source.getStart())
+        ]
         if past_end(el) or not _element_overlaps(text, el, source):
             return inside, None
         return inside, _trim_to_source(text, el, para_text, source)
@@ -522,6 +571,8 @@ def _copy_window_to_scratch(
             temp_cursor.gotoEnd(False)
             if need_break:
                 range_copy.begin_next_paragraph(temp_text, temp_cursor)
+            # graphics=False: range reads with include_images=False would emit
+            # placeholders named after the scratch clone.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
             for para in range_copy.iter_table_paragraphs(table):
                 copied_ruby.extend(html_ruby.ruby_spans_in_window(para, 0, len(para.getString())))

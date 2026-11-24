@@ -357,3 +357,151 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
 
+
+def _body_structure(doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.writer.range_copy import supports_service
+
+    out = []
+    for el in iter_elements(doc.getText().createEnumeration()):
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            out.append("T:" + el.getCellByName("A1").getString())
+        else:
+            out.append("P:" + el.getString())
+    return out
+
+
+def _setup_leading_tables(doc, count=1, page_desc="First Page"):
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    for idx in range(count):
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        if idx == 0 and page_desc:
+            tbl.setPropertyValue("PageDescName", page_desc)
+        tbl.getCellByName("A1").setString(f"old{idx}")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_tables_off_keeps_page_desc_and_undoes_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "off"})
+    try:
+        for count in (1, 2):
+            _setup_leading_tables(doc, count=count, page_desc="First Page")
+            before = _body_structure(doc)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            assert _body_structure(doc) == ["P:NEW"]
+            first_para = next(iter(doc.getText().createEnumeration())) if False else doc.getText().createEnumeration().nextElement()
+            assert first_para.getPropertyValue("PageDescName") == "First Page"
+            doc.getUndoManager().undo()
+            assert _body_structure(doc) == before
+    finally:
+        save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_tables_record_accept_reject_and_rewrite_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "record"})
+    try:
+        _setup_leading_tables(doc, count=1, page_desc=None)
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+        assert res.get("status") == "ok", res
+        enum = doc.getRedlines().createEnumeration()
+        comments = []
+        while enum_has_more(enum):
+            comments.append(str(enum.nextElement().getPropertyValue("RedlineComment")))
+        assert comments and all(c.startswith("wa-review:") for c in comments), comments
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert _body_structure(doc) == ["P:NEW", "P:"]
+
+        _setup_leading_tables(doc, count=1, page_desc=None)
+        before = _body_structure(doc)
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+        assert res.get("status") == "ok", res
+        execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+        assert _body_structure(doc) == before
+
+        for manual_rec in (False, True):
+            save({flag: "off" if manual_rec else "record"})
+            _reset_three_paras(doc)
+            if manual_rec:
+                doc.setPropertyValue("RecordChanges", True)
+            r1 = ApplyDocumentContent().execute(
+                tctx, target="full_document", content="<table><tr><td>D1</td></tr></table><p>t1</p>"
+            )
+            assert r1.get("status") == "ok", r1
+            r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+            assert r2.get("status") == "ok", r2
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert _body_structure(doc) == ["P:D2", "P:"]
+
+            _reset_three_paras(doc)
+            if manual_rec:
+                doc.setPropertyValue("RecordChanges", True)
+            before_orig = _body_structure(doc)
+            r1 = ApplyDocumentContent().execute(
+                tctx, target="full_document", content="<table><tr><td>D1</td></tr></table><p>t1</p>"
+            )
+            assert r1.get("status") == "ok", r1
+            r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+            assert r2.get("status") == "ok", r2
+            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+            assert _body_structure(doc) == before_orig
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_table_rolls_back_on_import_failure_uno(ctx, doc):
+    from unittest.mock import patch
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            _setup_leading_tables(doc, count=1, page_desc=None)
+            before = _body_structure(doc)
+            with patch(
+                "plugin.writer.html_import._import_and_drop_leftover",
+                side_effect=RuntimeError("boom"),
+            ):
+                try:
+                    ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+                    raise AssertionError("expected RuntimeError")
+                except RuntimeError:
+                    pass
+            assert _body_structure(doc) == before, mode
+            assert doc.getRedlines().getCount() == 0, mode
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+

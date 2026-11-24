@@ -1069,7 +1069,12 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
 def replace_full_document(
     model: Any, ctx: Any, content: str
 ) -> html_import_styles.WriteReport:
-    """Clear the document and insert *content*."""
+    """Clear the document and insert *content*.
+
+    Leading tables are out of reach of the body cursor (``SwXTextCursor::gotoStart``
+    steps past them); ``_edit_full_document`` deletes them first with
+    ``delete_leading_tables``.
+    """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
         content = html_import_styles.decode_complete_character_references(swapped)
 
@@ -1243,21 +1248,29 @@ def replace_xtext_with_html(
         unapplied_para=html_import_styles.declared_para_names(skipped_paras),
         style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
     )
-    cursor = text_obj.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-
     # Imported at call time: edit_review imports this module at its top (edit_review.py:66), so a module-level import is a cycle; LibrePy does not ship edit_review, and only page.py's header/footer write reaches this function.
     from .edit_review import next_agent_edit_undo_title
 
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
-        cursor.setString("")
+        if not record_changes.is_recording_changes(model):
+            # Explicit table removal keeps the remaining paragraph's style, whereas
+            # SwXText::setString alone resets it to Standard.
+            for el in list(iter_elements(text_obj.createEnumeration())):
+                if _uno_service_true(el, "com.sun.star.text.TextTable"):
+                    text_obj.removeTextContent(el)
+        # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
+        # around tables so every shape clears, including table-only headers.
+        text_obj.setString("")
+        cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False,
         )
+        if "<table" in prepared.lower():
+            with record_changes.record_changes(model, False):
+                _drop_empty_paragraph_before_table(text_obj, text_obj.getStart())
         if any(block_styles) or any(block_paras):
             # The whole region was replaced, so the walk starts at the text start and
             # needs no end bound: it stops after the last imported block.
@@ -1277,27 +1290,18 @@ def replace_xtext_with_html(
                 prev = last
                 last = elem
                 count += 1
-            if count > 1 and last is not None:
+            # A Writer text must not end with a table; keep the trailing paragraph when prev is one.
+            if count > 1 and last is not None and not _uno_service_true(prev, "com.sun.star.text.TextTable"):
                 if not last.getString():
                     # Check for fields/portions before deleting
                     has_content = _paragraph_has_non_text_portion(last)
                     if not has_content:
-                        try:
-                            # To actually remove the trailing break, select from the end of the previous paragraph
-                            # to the end of the document, and set String to empty.
-                            c = text_obj.createTextCursorByRange(prev)
-                            c.gotoEndOfParagraph(False)
-                            c.gotoRange(last.getEnd(), True)
-                            c.setString("")
-                        except Exception as e:
-                            reraise_if_disposed(e)
-                            log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
-                            try:
-                                if hasattr(last, "dispose"):
-                                    last.dispose()
-                            except Exception as e2:
-                                reraise_if_disposed(e2)
-                                log.debug("Failed to dispose trailing paragraph: %s", e2)
+                        # To actually remove the trailing break, select from the end of the previous paragraph
+                        # to the end of the document, and set String to empty.
+                        c = text_obj.createTextCursorByRange(prev)
+                        c.gotoEndOfParagraph(False)
+                        c.gotoRange(last.getEnd(), True)
+                        c.setString("")
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)

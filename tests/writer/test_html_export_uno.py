@@ -1062,3 +1062,99 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
         adjusts.append(int(el.getPropertyValue("ParaAdjust")))
     assert adjusts == [5, 5], adjusts
 
+
+@native_test
+@with_native_doc("writer")
+def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+
+    def _reset_and_add_table(cell_text: str) -> Any:
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_text)
+        return tbl
+
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    def _ctrl_a_whole_doc(cell: Any, presses: int = 3) -> None:
+        controller.select(cell.getStart())
+        # In a non-empty cell, Ctrl+A expands: cell -> table -> (outer cell -> outer table ->) document.
+        for _ in range(presses):
+            execute_dispatch(ctx, controller, ".uno:SelectAll")
+
+    # [T, tail], [T, T, tail], [T, mid, T, tail], and nested leading table via Ctrl+A and snapshot.
+    cases = [
+        (["T0"], "tail", ["T0", "tail"]),
+        (["T0", "T1"], "tail", ["T0", "T1", "tail"]),
+    ]
+    for table_cells, tail, expected in cases:
+        text.setString("")
+        tables = [_reset_and_add_table(c) for c in table_cells]
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, tail, False)
+
+        _ctrl_a_whole_doc(tables[0].getCellByName("A1"))
+        html = document_to_content(doc, ctx, scope="selection")
+        for token in expected:
+            assert token in html, (expected, html)
+        snap = selection_cursor_snapshot(doc)
+        html_snap = document_to_content(doc, ctx, scope="selection", selection=snap)
+        for token in expected:
+            assert token in html_snap, (expected, html_snap)
+
+    # [T, mid, T, tail]
+    text.setString("")
+    t0 = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "mid", False)
+    _reset_and_add_table("T1")
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(t0.getCellByName("A1"))
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("T0", "mid", "T1", "tail"):
+        assert token in html, html
+
+    # Nested leading table
+    text.setString("")
+    outer = _reset_and_add_table("OUTER")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    cell_a1 = outer.getCellByName("A1")
+    cell_a1.insertTextContent(cell_a1.getEnd(), nested, False)
+    nested.getCellByName("A1").setString("INNER")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(nested.getCellByName("A1"), presses=5)
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("OUTER", "INNER", "tail"):
+        assert token in html, html
+
+    # ['BEFORE_PARA', T, 'tail'] selected from inside T to 'tail' excludes 'BEFORE_PARA'.
+    text.setString("BEFORE_PARA")
+    tbl = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    controller.select(text.getEnd())
+    controller.getSelection()
+    execute_dispatch(ctx, controller, ".uno:LineUpSel")
+    html = document_to_content(doc, ctx, scope="selection")
+    assert "T0" in html and "tail" in html and "BEFORE_PARA" not in html, html
+
+    # In-cell selection unchanged.
+    cell_cur = tbl.getCellByName("A1").createTextCursor()
+    cell_cur.gotoStart(False)
+    cell_cur.gotoEnd(True)
+    controller.select(cell_cur)
+    html_cell = document_to_content(doc, ctx, scope="selection")
+    assert "T0" in html_cell and "tail" not in html_cell, html_cell
+
+

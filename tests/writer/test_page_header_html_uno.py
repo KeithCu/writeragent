@@ -796,3 +796,145 @@ def test_header_table_round_trip_adds_no_paragraph_uno(ctx, doc):
     paras = re.findall(r"<p\b[^>]*>(.*?)</p>", html, re.DOTALL)
     texts = [re.sub(r"<[^>]+>", "", p).strip() for p in paras]
     assert "" not in texts, (texts, html)
+
+
+def _header_structure(header):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.writer.range_copy import supports_service
+
+    out = []
+    for el in iter_elements(header.createEnumeration()):
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            out.append("T")
+        else:
+            out.append("P:" + el.getString())
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_shapes_cleared_and_trailing_para_style_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    # [T, b]
+    header.setString("")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    cur = header.createTextCursor()
+    cur.gotoEnd(False)
+    header.insertString(cur, "b", False)
+    res = _set(doc, ctx, "header", "<p>z</p>")
+    assert res.get("status") == "ok", res
+    assert _header_structure(header) == ["P:z"]
+
+    # [a, T] without tail paragraph
+    header.setString("a")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    elems = list(iter_elements(header.createEnumeration()))
+    elems[-1].dispose()
+    res = _set(doc, ctx, "header", "<p>z</p>")
+    assert res.get("status") == "ok", res
+    assert _header_structure(header) == ["P:z"]
+
+    # [T] only
+    header.setString("")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    elems = list(iter_elements(header.createEnumeration()))
+    elems[-1].dispose()
+    res = _set(doc, ctx, "header", "<p>z</p>")
+    assert res.get("status") == "ok", res
+    assert _header_structure(header) == ["P:z"]
+
+    # Writing a table keeps a trailing paragraph of style Header, and round-trips cleanly.
+    header.createTextCursor().setPropertyValue("ParaStyleName", "Header")
+    res = _set(doc, ctx, "header", "<table><tr><td>h</td></tr></table>")
+    assert res.get("status") == "ok", res
+    assert _header_structure(header) == ["T", "P:"]
+    elems = list(iter_elements(header.createEnumeration()))
+    assert elems[-1].getPropertyValue("ParaStyleName") == "Header", elems[-1].getPropertyValue("ParaStyleName")
+
+    for _ in range(2):
+        got = _get(doc, ctx, "header")
+        assert got.get("status") == "ok", got
+        res = _set(doc, ctx, "header", got["content"])
+        assert res.get("status") == "ok", res
+        assert _header_structure(header) == ["T", "P:"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_recorded_accept_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    cur = header.createTextCursor()
+    cur.gotoEnd(False)
+    header.insertString(cur, "b", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = _set(doc, ctx, "header", "<p>z</p>")
+        assert res.get("status") == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert _header_structure(header) == ["P:z", "P:"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_table_cell_as_character_logo_round_trip_uno(ctx, doc):
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    cell = tbl.getCellByName("A1")
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(_PNG_BYTES)
+        img_path = f.name
+    try:
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AS_CHARACTER)
+        g.setPropertyValue("Width", 500)
+        g.setPropertyValue("Height", 500)
+        cell.insertTextContent(cell.getStart(), g, False)
+    finally:
+        os.unlink(img_path)
+
+    for _ in range(2):
+        got = _get(doc, ctx, "header")
+        assert got.get("status") == "ok", got
+        assert "<img" in got["content"], got
+        res = _set(doc, ctx, "header", got["content"])
+        assert res.get("status") == "ok", res
+
+    graphics = doc.getGraphicObjects()
+    assert graphics.getCount() == 1
+    anchor_text = graphics.getByIndex(0).getAnchor().getText()
+    assert anchor_text.supportsService("com.sun.star.text.CellProperties")
+

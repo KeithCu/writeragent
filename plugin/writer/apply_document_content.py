@@ -46,7 +46,7 @@ from plugin.writer.target_resolver import request_selection_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
-from plugin.writer.specialized.tables import record_table_deletions
+from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
 from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
@@ -1392,7 +1392,12 @@ class ApplyDocumentContent(ToolBase):
                 return rep
 
             report = record_html_atomically(
-                session, ctx.doc, mutate, proposed_preview=plain)
+                session,
+                ctx.doc,
+                mutate,
+                clear_first=lambda: delete_leading_tables(session, ctx.doc, ctx.ctx),
+                proposed_preview=plain,
+            )
         summary = html_import_styles.summarize_written_blocks(content)
         res: dict[str, Any] = {
             "status": "ok",

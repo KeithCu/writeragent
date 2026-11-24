@@ -513,12 +513,13 @@ def _copy_visible_portions(
     math_records: list[tuple[str, str, bool]] | None,
     *,
     in_cell: bool,
+    graphics: bool = False,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
 
     Tracked deletions are left out. Returns ``(portion, text)`` pairs where
     ``len(text)`` is the portion's cursor steps in the destination. Cells paint
-    each run as they go and skip graphics.
+    each run as they go; Frame graphics are cloned only when *graphics* is true.
     """
     copied: list[tuple[Any, str]] = []
     for portion, chunk in visible_portions(para, abort_on_portion_error=True):
@@ -538,7 +539,7 @@ def _copy_visible_portions(
             copied.append((portion, chunk))
         else:
             text = _copy_math_or_text(portion, para, dest_text, cursor, math_records)
-            if not text and kind == "Frame" and not in_cell:
+            if not text and kind == "Frame" and graphics:
                 text = OBJECT_REPLACEMENT * _clone_graphics(portion, dest_doc, dest_text, cursor)
             if text:
                 copied.append((portion, text))
@@ -550,8 +551,10 @@ def _copy_cell_xtext(
     dest_doc: Any,
     dest_cell: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
+    *,
+    graphics: bool = False,
 ) -> None:
-    """Copy one table cell: text + fields. Images in cells are not copied here."""
+    """Copy one table cell: text + fields, and graphics when *graphics* is true."""
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
     dest_cursor = dest_cell.createTextCursor()
@@ -568,9 +571,14 @@ def _copy_cell_xtext(
         fresh = supports_service(para, "com.sun.star.text.TextTable")
         if fresh:
             # Recreate the nested table inside dest_cell (same walk as body copy_table).
-            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
+            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records, graphics=graphics)
             continue
-        _copy_visible_portions(para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True)
+        _copy_visible_portions(
+            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, graphics=graphics
+        )
+        if graphics:
+            dest_cursor.gotoEnd(False)
+            _clone_graphics(para, dest_doc, dest_cell, dest_cursor)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -652,6 +660,8 @@ def copy_table(
     dest_text: Any,
     dest_cursor: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    *,
+    graphics: bool = False,
 ) -> None:
     """Recreate *src_table* before *dest_cursor* in *dest_text*.
 
@@ -683,7 +693,7 @@ def copy_table(
             except Exception as exc:
                 log.debug("copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
-            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records, graphics=graphics)
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -694,7 +704,7 @@ def copy_table(
                 except Exception as exc:
                     log.debug("copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
-                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records, graphics=graphics)
 
 
 def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
@@ -746,7 +756,7 @@ def _copy_xtext_by_portions(
             begin_next_paragraph(dest_text, dest_cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
-            copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
+            copy_table(el, dest_doc, dest_text, dest_cursor, math_records, graphics=True)
             continue
         style = None
         if src_doc is not None:
@@ -757,7 +767,7 @@ def _copy_xtext_by_portions(
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
         copied = _copy_visible_portions(
-            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False
+            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, graphics=True
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
@@ -797,6 +807,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
+            # graphics=False: page-style clone copies region shapes separately via _copy_region_graphics.
             copy_table(el, doc, dest_text, cursor, None)
             continue
         try:
