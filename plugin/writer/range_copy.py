@@ -674,7 +674,7 @@ def copy_table(
     # Table tools take the name the HTML carries; a clone inside the same document keeps its automatic name.
     name = src_table.getName()
     if not dest_doc.getTextTables().hasByName(name):
-        dest_table.setName(name)
+        best_effort(lambda: dest_table.setName(name), "copy_table: refused table name")
     if names:
         for cell_name in names:
             try:
@@ -854,6 +854,10 @@ def copy_xtext_into_doc(
     dest_doc: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
 ) -> None:
-    """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body."""
+    """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
+
+    Does not select the live document or use a transferable, because that pattern
+    corrupts the heap on the XHTML export that follows.
+    """
     _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records, src_doc=src_doc)
 

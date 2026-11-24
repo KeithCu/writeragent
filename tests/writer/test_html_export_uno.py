@@ -911,11 +911,15 @@ def test_range_and_selection_reads_include_tables_uno(ctx: Any, doc: Any) -> Non
     range_order = re.findall(r"<(?:p|table)\b", range_html)
     assert range_order == full_order, (range_order, full_order)
     for name in ("FirstTbl", "SecondTbl", "LinkTbl"):
-        assert name in range_html, (name, range_html)
-    assert 'href="https://cell.example.com/"' in range_html
-    assert 'href="https://tail.example.com/"' in range_html
-    assert ">CellLink<" in range_html
-    assert ">TailLink<" in range_html
+        assert re.search(rf'class="[^"]*\btable-{name}\b[^"]*"', range_html), (name, range_html)
+    assert re.search(
+        r'<a\b[^>]*\bhref="https://cell\.example\.com/"[^>]*>(?:<[^>]+>)*CellLink(?:<[^>]+>)*</a>',
+        range_html,
+    ), range_html
+    assert re.search(
+        r'<a\b[^>]*\bhref="https://tail\.example\.com/"[^>]*>(?:<[^>]+>)*TailLink(?:<[^>]+>)*</a>',
+        range_html,
+    ), range_html
 
     # Selection spanning only the first two tables returns only tables.
     sel_cur = text.createTextCursor()
@@ -925,8 +929,8 @@ def test_range_and_selection_reads_include_tables_uno(ctx: Any, doc: Any) -> Non
     doc.getCurrentController().select(sel_cur)
     sel_tables_html = document_to_content(doc, ctx, scope="selection")
     assert "<table" in sel_tables_html
-    assert "Lead paragraph" not in sel_tables_html
-    assert "TailLink" not in sel_tables_html
+    outside_tables = re.sub(r"<table\b.*?</table>", "", sel_tables_html, flags=re.DOTALL)
+    assert "<p" not in outside_tables and not outside_tables.strip(), sel_tables_html
 
     # Selection of one paragraph has no table.
     p_cur = text.createTextCursor()
@@ -969,44 +973,62 @@ def test_range_read_table_cells_uno(ctx: Any, doc: Any) -> None:
     # Cell B1: two paragraphs, red run, date field, tracked deletion.
     b1 = tbl.getCellByName("B1")
     b1_cur = b1.createTextCursor()
-    b1_cur.setPropertyValue("CharColor", 0xFF0000)
+    b1.insertString(b1_cur, "Plain ", False)
     b1.insertString(b1_cur, "Red", False)
+    b1_cur.goLeft(len("Red"), True)
+    b1_cur.setPropertyValue("CharColor", 0xFF0000)
+    b1_cur.gotoEnd(False)
     b1_cur.setPropertyValue("CharColor", -1)
     date_field = doc.createInstance("com.sun.star.text.textfield.DateTime")
     date_field.setPropertyValue("IsDate", True)
     b1.insertTextContent(b1_cur, date_field, False)
     b1.insertControlCharacter(b1_cur, 0, False)
-    b1.insertString(b1_cur, "Keep", False)
+    b1.insertString(b1_cur, "Keep GONE", False)
+    del_cur = b1.createTextCursor()
+    del_cur.gotoEnd(False)
+    del_cur.goLeft(len("GONE"), True)
     with record_changes(doc, True):
-        del_cur = b1.createTextCursor()
-        del_cur.gotoEnd(False)
-        b1.insertString(del_cur, "GONE", False)
-        del_cur.goLeft(4, True)
         del_cur.setString("")
+    redlines = doc.getRedlines()
+    assert any(
+        str(redlines.getByIndex(idx).getPropertyValue("RedlineType")) == "Delete"
+        for idx in range(redlines.getCount())
+    )
 
     # Row 2: merged then split cell.
     row_cur = tbl.createCursorByCellName("A2")
     row_cur.gotoCellByName("B2", True)
     row_cur.mergeRange()
+    row_cur.splitRange(2, False)
     tbl.getCellByName("A2").setString("MergedCell")
+    tbl.getCellByName("B2").setString("SplitRight")
 
     cur.gotoEnd(False)
     text.insertString(cur, "After", False)
 
+    import re
+
     html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
     assert "Inner" in html
     assert "AfterNested" in html
-    assert "Red" in html
+    assert re.search(
+        r'color\s*:\s*(?:#ff0000|rgb\(\s*255\s*,\s*0\s*,\s*0\s*\))[^>]*>Red<',
+        html,
+        re.IGNORECASE,
+    ), html
     assert 'title="date"' in html
+    td_b1 = re.search(r"<td\b[^>]*>((?:(?!</?td\b).)*?Red.*?)</td>", html, re.DOTALL)
+    assert td_b1 is not None and len(re.findall(r"<p\b", td_b1.group(1))) == 2, html
     assert "Keep" in html
     assert "GONE" not in html
     assert "MergedCell" in html
+    assert "SplitRight" in html
 
 
 @native_test
 @with_native_doc("writer")
 def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> None:
-    import pytest
+    import unittest
     import uno  # noqa: F401
     from com.sun.star.text.WritingMode2 import LR_TB, RL_TB
     from plugin.writer.html_export import document_to_content
@@ -1017,9 +1039,9 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
     try:
         cur.setPropertyValue("ParaAdjust", 5)
     except Exception:
-        pytest.skip("ParagraphAdjust.START unavailable")
+        raise unittest.SkipTest("ParagraphAdjust.START unavailable")
     if int(cur.getPropertyValue("ParaAdjust")) != 5:
-        pytest.skip("ParagraphAdjust.START unavailable")
+        raise unittest.SkipTest("ParagraphAdjust.START unavailable")
     cur.setPropertyValue("WritingMode", LR_TB)
     text.insertString(cur, "LTR start", False)
     text.insertControlCharacter(cur, 0, False)

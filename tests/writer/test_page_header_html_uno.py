@@ -674,13 +674,13 @@ def test_header_read_skips_tracked_deletions_uno(ctx, doc):
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
     cur = header.createTextCursor()
-    header.insertString(cur, "Keep ", False)
+    header.insertString(cur, "Keep GONE tail", False)
+    cur.gotoStart(False)
+    cur.goRight(len("Keep "), False)
+    cur.goRight(len("GONE "), True)
     with record_changes(doc, True):
-        header.insertString(cur, "GONE ", False)
-        cur.goLeft(5, True)
         cur.setString("")
     cur.gotoEnd(False)
-    header.insertString(cur, "tail", False)
     header.insertControlCharacter(cur, 0, False)
     title_field = doc.createInstance("com.sun.star.text.textfield.docinfo.Title")
     header.insertTextContent(cur, title_field, False)
@@ -690,13 +690,18 @@ def test_header_read_skips_tracked_deletions_uno(ctx, doc):
     header.insertTextContent(header.getEnd(), tbl, False)
     cell = tbl.getCellByName("A1")
     c_cur = cell.createTextCursor()
-    cell.insertString(c_cur, "CellKeep ", False)
+    cell.insertString(c_cur, "CellKeep CELLGONE end", False)
+    c_cur.gotoStart(False)
+    c_cur.goRight(len("CellKeep "), False)
+    c_cur.goRight(len("CELLGONE "), True)
     with record_changes(doc, True):
-        cell.insertString(c_cur, "CELLGONE ", False)
-        c_cur.goLeft(9, True)
         c_cur.setString("")
-    c_cur.gotoEnd(False)
-    cell.insertString(c_cur, "end", False)
+
+    redlines = doc.getRedlines()
+    assert any(
+        str(redlines.getByIndex(idx).getPropertyValue("RedlineType")) == "Delete"
+        for idx in range(redlines.getCount())
+    )
 
     html = xtext_to_content(header, doc, ctx)
     assert "Keep tail" in html, html
@@ -717,10 +722,16 @@ def test_header_read_graphic_position_uno(ctx, doc):
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
     cur = header.createTextCursor()
+    header.insertString(cur, "DEL ", False)
+    cur.gotoStart(False)
+    cur.goRight(len("DEL "), True)
     with record_changes(doc, True):
-        header.insertString(cur, "DEL ", False)
-        cur.goLeft(4, True)
         cur.setString("")
+    redlines = doc.getRedlines()
+    assert any(
+        str(redlines.getByIndex(idx).getPropertyValue("RedlineType")) == "Delete"
+        for idx in range(redlines.getCount())
+    )
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(1, 1)
     header.insertTextContent(header.getEnd(), tbl, False)

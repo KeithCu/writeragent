@@ -119,6 +119,8 @@ class OutlineSnapshot:
     look: dict[str, Any] = field(default_factory=dict)
     # False when part of the match is not in any link.
     fully_linked: bool = True
+    # True when the match spans more than one distinct non-outline URL.
+    multi_preserve: bool = False
 
 
 def _prop(obj: Any, name: str) -> str:
@@ -239,7 +241,7 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     return str(cursor.getString() or "")
 
 
-def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
+def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
@@ -250,7 +252,10 @@ def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
         portion_enum = para.createEnumeration()
         for portion in iter_elements(portion_enum):
             # Skip tracked-change redline markers; they do not hold text or link properties.
-            if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline":
+            if (
+                not include_redlines
+                and uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline"
+            ):
                 continue
             yield portion
 
@@ -271,6 +276,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     links: list[OutlineLink] = []
     seen: set[str] = set()
     preserve_url = ""
+    multi_preserve = False
     look: dict[str, Any] = {}
     fully_linked = True
     for portion in _iter_portions(text, text_range.getStart()):
@@ -288,12 +294,14 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
             # onto the replaced characters if the text replace clears it.
             if not preserve_url:
                 preserve_url = url
+            elif url != preserve_url:
+                multi_preserve = True
             continue
         if url in seen:
             continue
         seen.add(url)
         links.append(OutlineLink(url, _prop(portion, _NAME), _prop(portion, _TARGET)))
-    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look, fully_linked)
+    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look, fully_linked, multi_preserve)
 
 
 def _paragraph_text(text: Any, anchor: Any) -> str:
@@ -609,14 +617,25 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
     """
     url = _put_back_url(snapshot)
     raw = measured_replacement(anchor, snapshot)
-    if url and raw and snapshot.fully_linked:
+    if url and raw and snapshot.fully_linked and not snapshot.multi_preserve:
         text = anchor.getText()
         # Collected before writing: setPropertyValue can split a portion mid-enumeration.
         offset, stop = -len(snapshot.prefix), len(raw)
         unlinked = []
-        for portion in _iter_portions(text, anchor.getStart()):
+        in_delete = False
+        for portion in _iter_portions(text, anchor.getStart(), include_redlines=True):
+            if _prop(portion, "TextPortionType") == "Redline":
+                if _prop(portion, "RedlineType") == "Delete":
+                    in_delete = bool(uno_read(lambda: portion.getPropertyValue("IsStart"), False))
+                continue
             chunk = str(portion.getString() or "")
-            if chunk and offset >= 0 and offset + len(chunk) <= stop and _prop(portion, _URL) != url:
+            if (
+                not in_delete
+                and chunk
+                and offset >= 0
+                and offset + len(chunk) <= stop
+                and _prop(portion, _URL) != url
+            ):
                 unlinked.append((portion.getStart(), portion.getEnd()))
             offset += len(chunk)
         with record_changes(doc, False):
