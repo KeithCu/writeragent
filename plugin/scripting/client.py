@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.config import get_config
 from plugin.scripting.config_limits import (
+    DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC,
     DOCLING_WORKER_TIMEOUT_SEC,
     long_trusted_worker_timeout_sec,
     LANGUAGETOOL_WORKER_TIMEOUT_SEC,
@@ -133,7 +135,12 @@ def run_forecast(
 
 
 def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
-    """Vision uses the long budget, with some engine-specific tuning + user override."""
+    """Return the host RPC timeout for vision: explicit override, Paddle budget, or Docling budget.
+
+    The host must outlast Docling's own ``document_timeout``, or the worker is
+    killed before Docling returns its partial result. ``python_exec_timeout``
+    owns the upper clamp.
+    """
     # Read vision.worker_timeout_sec via get_config for both engines.
     # A hardcoded 120s for Paddle ignored the user override, and swallowing
     # the lookup hid config errors.
@@ -145,7 +152,9 @@ def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
 
     if resolve_engine(params) == "paddle":
         return VISION_WORKER_TIMEOUT_SEC  # slightly lighter than full Docling
-    return long_trusted_worker_timeout_sec()
+    document_timeout = float(params.get("document_timeout") or 0)
+    # Outlast Docling's document_timeout so it returns finished pages; python_exec_timeout owns the clamp.
+    return max(long_trusted_worker_timeout_sec(), math.ceil(document_timeout) + DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC)
 
 
 def run_vision(

@@ -170,3 +170,15 @@ def test_record_open_doc_types_seeds_then_advances_only_on_change():
         assert mcp_session.tool_catalog_generation() == 3
     finally:
         mcp_session.reset_tool_catalog_for_tests()
+
+
+def test_advance_tool_catalog_moves_the_generation():
+    mcp_session.reset_tool_catalog_for_tests()
+    try:
+        assert mcp_session.tool_catalog_generation() == 0
+        mcp_session.advance_tool_catalog()
+        assert mcp_session.tool_catalog_generation() == 1
+        assert mcp_session.record_open_doc_types(frozenset({"writer"})) is False
+        assert mcp_session.tool_catalog_generation() == 1
+    finally:
+        mcp_session.reset_tool_catalog_for_tests()

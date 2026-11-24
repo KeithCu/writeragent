@@ -9,7 +9,9 @@ The stop / timeout / retry / redaction / strict-JSON behavior is
 ``LlmHttpTransport``. This module adapts a URL into a shared persistent
 transport per ``(origin, connect_timeout)`` so repeated requests to the same
 host (such as web search bursts) reuse one keep-alive connection, while
-keeping LibrePy free of ``llm_client``.
+keeping LibrePy free of ``llm_client``. Callers hitting arbitrary origins
+(image URLs) pass ``shared=False`` for a one-off transport so those origins
+do not grow the cache until quit.
 """
 
 from __future__ import annotations
@@ -32,8 +34,8 @@ log = logging.getLogger(__name__)
 
 
 @final
-class _SharedTransport:
-    """Serialized persistent transport for one ``(origin, connect_timeout)``."""
+class _SyncTransport:
+    """One transport plus the lock that serializes its single connection."""
 
     lock: threading.Lock
     timeout: float
@@ -50,14 +52,14 @@ class _SharedTransport:
 
 
 _SYNC_TRANSPORTS_LOCK = threading.Lock()
-_SYNC_TRANSPORTS: dict[tuple[str, float | None], _SharedTransport] = {}
+_SYNC_TRANSPORTS: dict[tuple[str, float | None], _SyncTransport] = {}
 
 
 def _get_shared_transport(
     origin: str,
     timeout: float,
     connect_timeout: float | None,
-) -> _SharedTransport:
+) -> _SyncTransport:
     key = (origin, None if connect_timeout is None else float(connect_timeout))
     with _SYNC_TRANSPORTS_LOCK:
         entry = _SYNC_TRANSPORTS.get(key)
@@ -65,7 +67,7 @@ def _get_shared_transport(
             # A single http.client connection cannot carry two requests at once,
             # so concurrent callers (such as deep research threads) serialize on
             # entry.lock and share one long-lived connection per origin.
-            entry = _SharedTransport(origin, timeout, connect_timeout)
+            entry = _SyncTransport(origin, timeout, connect_timeout)
             _SYNC_TRANSPORTS[key] = entry
         return entry
 
@@ -108,8 +110,9 @@ def sync_request(
     max_bytes: int | None = None,
     ok_statuses: frozenset[int] = frozenset({200}),
     fresh_connection: bool = False,
+    shared: bool = True,
 ) -> Any:
-    """Blocking HTTP GET or POST on the shared transport.
+    """Blocking HTTP GET or POST on the shared transport, or a one-off one with ``shared=False``.
 
     ``timeout`` is the read budget (Settings ``request_timeout`` for LLM and
     image work, or an explicit probe value). Connect uses
@@ -125,6 +128,8 @@ def sync_request(
     callers passing extra statuses need ``include_meta=True`` to tell them apart.
     With ``fresh_connection=True``, any pooled keep-alive socket for that
     origin is closed under the transport lock before sending.
+    With ``shared=False`` the request uses its own transport, closed before returning,
+    and is not added to the per-origin cache. Use it for one-shot fetches from arbitrary origins.
     HTTP errors are labelled with the origin rather than "AI Provider".
 
     Redirects follow ``LlmHttpTransport.exchange``.
@@ -137,7 +142,7 @@ def sync_request(
     method = "POST" if data is not None else "GET"
 
     origin, path = origin_and_path(url)
-    entry = _get_shared_transport(origin, timeout, connect_timeout)
+    entry = _get_shared_transport(origin, timeout, connect_timeout) if shared else _SyncTransport(origin, timeout, connect_timeout)
     if not acquire_unless_cancelled(entry.lock, cancel):
         raise stopped_error()
     try:
@@ -166,6 +171,8 @@ def sync_request(
             if cancel is not None:
                 cancel.unregister_on_cancel(entry.transport.close)
     finally:
+        if not shared:
+            entry.transport.close()
         entry.lock.release()
     if include_meta:
         return result

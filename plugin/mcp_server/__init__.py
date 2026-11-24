@@ -167,6 +167,9 @@ class McpModule(ModuleBase):
     def _on_config_changed(self, **data: Any) -> None:
         key = data.get("key", "")
         prefix = f"{self.name}."
+        # Every save lists its changed keys, bulk saves included, so this runs before the lifecycle filter.
+        if f"{prefix}tool_exposure_mode" in data.get("keys", ()):
+            mcp_session.advance_tool_catalog()
         # Other modules' keys are ignored (startswith). Empty key is a bulk save.
         # The config writer emits "" only when more than one key changes, so a port-only
         # save is mcp.mcp_port and must rebind. Do not drop startswith: removeprefix

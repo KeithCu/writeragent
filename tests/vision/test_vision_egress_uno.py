@@ -53,7 +53,7 @@ def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, 
             outcome = insert_vision_result_into_writer(
                 ctx, doc, dict(_OCR_RESULT), params={"image_name": name, "delete_image_after_insert": True}
             )
-            assert outcome == "inserted"
+            assert outcome == "image_deleted"
             assert doc.getGraphicObjects().hasByName(name) is True
             assert len(doc.getRedlines()) >= 2
 
@@ -72,7 +72,7 @@ def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, 
             outcome2 = insert_vision_result_into_writer(
                 ctx, doc, dict(_OCR_RESULT), params={"image_name": name2, "delete_image_after_insert": True}
             )
-            assert outcome2 == "inserted"
+            assert outcome2 == "image_deleted"
             _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
             assert "OCR text" in doc.getText().getString()
             assert doc.getGraphicObjects().hasByName(name2) is False
@@ -96,7 +96,7 @@ def test_vision_egress_record_mode_resolve_all_agent_changes_uno(ctx: Any, doc: 
         outcome = insert_vision_result_into_writer(
             ctx, doc, dict(_OCR_RESULT), params={"image_name": name, "delete_image_after_insert": True}
         )
-        assert outcome == "inserted"
+        assert outcome == "image_deleted"
         res_reject = _resolve_all_agent_changes(doc, ctx, accept=False)
         assert res_reject.resolved >= 1
         assert "OCR text" not in doc.getText().getString()
@@ -109,7 +109,7 @@ def test_vision_egress_record_mode_resolve_all_agent_changes_uno(ctx: Any, doc: 
         outcome2 = insert_vision_result_into_writer(
             ctx, doc, dict(_OCR_RESULT), params={"image_name": name2, "delete_image_after_insert": True}
         )
-        assert outcome2 == "inserted"
+        assert outcome2 == "image_deleted"
         res_accept = _resolve_all_agent_changes(doc, ctx, accept=True)
         assert res_accept.resolved >= 1
         assert "OCR text" in doc.getText().getString()

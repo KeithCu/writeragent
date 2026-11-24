@@ -43,10 +43,6 @@ class _MutatingTool(ToolBase):
         return {"status": "ok"}
 
 
-def _document_research_domains(gateway):
-    return gateway.parameters["properties"]["domain"]["enum"]
-
-
 @pytest.mark.parametrize("doc_type", ["writer", "calc", "draw"])
 def test_document_research_in_delegate_enum(doc_type):
     gw = DelegateToSubagent()

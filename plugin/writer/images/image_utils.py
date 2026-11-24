@@ -80,7 +80,8 @@ def fetch_image_url(
     """GET an image URL; return (body, sniffed suffix such as ".png").
 
     sync_request owns TLS verification, Stop, retries, redirects and the
-    IMAGE_DOWNLOAD_MAX_BYTES cap. This adds the image rules: a denylisted
+    IMAGE_DOWNLOAD_MAX_BYTES cap. Image hosts are arbitrary, so each fetch uses
+    a one-off transport. This adds the image rules: a denylisted
     Content-Type (an HTML/text/JSON error page) or bytes without image magic
     raise RuntimeError.
     """
@@ -92,6 +93,7 @@ def fetch_image_url(
         max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
         cancel=cancel,
         status_callback=status_callback,
+        shared=False,
     )
     content_type = (result.content_type or "").split(";")[0].strip().lower()
     if content_type in IMAGE_CONTENT_TYPE_DENYLIST:

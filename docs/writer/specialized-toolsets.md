@@ -180,11 +180,11 @@ The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (share
 - **`status: "incomplete"`, `code: "SPECIALIZED_WORKFLOW_INCOMPLETE"`**: The sub-agent returned without signaling workflow finish (e.g. stopped without reaching the finish tool).
 - **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
   - Carries `tool_errors`: a list of structured entries in call order, each with `tool`, `message`, and (when present and non-empty on the tool result) `code`.
-- **`edits`** (on `ok`, `incomplete`, or `error` for editing domains): a dict mapping each mutating tool's name to its count of non-error calls (`{}` when none succeeded; absent on read-only domains). Because it counts successful calls of editing tools rather than confirmed document changes, an ok call that made no change (for example a zero `replaced_count`) still counts, and a non-empty `edits` alongside `status: "error"` or `"incomplete"` means part of the task was applied.
-- **`note`** (on `ok`, `incomplete`, or `error`): set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran no `mutating` tool at all (e.g. read-only tools only, finish only, or stopped/errored before any edit). Note: tool mutation is based on the tool's declared `detects_mutation()` capability; a mutating tool that returns without changes counts as an editing attempt.
-- Both `edits` and `tool_errors` are absent on pass-through errors (user stop, crash) and on the `web_research` and `vision` shortcuts.
-- Every delegation payload except a pass-through error carries `domains` (the gateway's one domain as a one-element list; the python loop's requested list), built by `start_inner_payload`. Per-domain loop prompt sentences (footnotes, charts) come from `loop_hint` in `specialized_catalog.py` and are the same text in the gateway, the python inner loop, and MCP `tool_find`.
-- For `domain="shapes"` gateway delegations, every non-pass-through payload (`ok`, `incomplete`, and `error`) carries `shapes_created`, `connectors_created`, `shapes_changed`, and `shapes_deleted`, plus `pages`, `created_names`/`changed_names` (non-empty names only, capped at 40) and `warnings` when non-empty. These are read from the inner shape tools' own results (`summarize_shape_calls`). A user-stopped run is passed through without them, and the python `python_delegate_domains` path does not report them.
+- **`edits`** (on `ok`, `incomplete`, or `error` for editing domains, including stop or crash errors): a dict mapping each mutating tool's name to its count of non-error calls (`{}` when none succeeded; absent on read-only domains). Because it counts successful calls of editing tools rather than confirmed document changes, an ok call that made no change (for example a zero `replaced_count`) still counts, and a non-empty `edits` alongside `status: "error"` or `"incomplete"` means part of the task was applied.
+- **`note`** (on `ok`, `incomplete`, or `error`, including stop or crash errors): set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran no `mutating` tool at all (e.g. read-only tools only, finish only, or stopped/errored before any edit). Note: tool mutation is based on the tool's declared `detects_mutation()` capability; a mutating tool that returns without changes counts as an editing attempt.
+- `tool_errors` and `domains` are absent on stop or crash errors, and both `edits` and `tool_errors` stay absent on the `web_research` and `vision` shortcuts.
+- Every delegation payload except a stop or crash error carries `domains` (the gateway's one domain as a one-element list; the python loop's requested list), built by `start_inner_payload`. Per-domain loop prompt sentences (footnotes, charts) come from `loop_hint` in `specialized_catalog.py` and are the same text in the gateway, the python inner loop, and MCP `tool_find`.
+- For `domain="shapes"` gateway delegations, every payload (`ok`, `incomplete`, `error`, including a stopped run) carries `shapes_created`, `connectors_created`, `shapes_changed`, and `shapes_deleted`, plus `pages`, `created_names`/`changed_names` (non-empty names only, capped at 40) and `warnings` when non-empty. These are read from the inner shape tools' own results (`summarize_shape_calls`). The python `python_delegate_domains` path does not report them.
 
 ---
 
@@ -243,7 +243,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 **File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
 
 - Tool name: `delegate_to_subagent`.
-- Parameters: `domain` (sorted enum aligned with `_AVAILABLE_DOMAINS`), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
+- Parameters: `domain` (sorted enum read from `get_specialized_domain_catalog` on each call), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
 - `tier = "core"`, `long_running = True`, `is_async()` → **True** so the sidebar drain loop is not blocked.
 - Tool gathering:
   - `registry.get_tools(filter_doc_type=False, exclude_tiers=())` — **all** tiers, no doc filter (needed so specialized tools are discoverable server-side).
@@ -451,7 +451,7 @@ All section tools live in `sections.py` (`sections` domain); `ToolWriterStructur
 
 - **`section_set_password(name, password, current_password?)`**
   - Sets or clears `ProtectionKey` using `SvPasswordHelper::GetHashPassword` (SHA-1 of UTF-16LE code units) when writing, and accepts `CompareHashPassword`'s four variants (20-byte SHA-1 of UTF-8 / UTF-16LE / UTF-16BE, 32-byte SHA-256 of UTF-8) when checking `current_password`. Setting a non-empty password also sets `IsProtected = True`.
-  - Note: passwords travel in tool-call arguments (chat history and `writeragent_debug.log`).
+  - Note: passwords are sent in tool-call arguments to the LLM or MCP client; chat history does not store them. Values of secret-named keys (`password`, `current_password`) are written to `writeragent_debug.log` as `<redacted>`. Prose and Python code that quote a password are not masked.
 
 - **`section_rename(name, new_name)`**
   - Renames a section (`section.setName(new_name)`), pre-checking for empty `new_name` and duplicate names (`SwXTextSection::setName` throws an empty `RuntimeException` on duplicates).

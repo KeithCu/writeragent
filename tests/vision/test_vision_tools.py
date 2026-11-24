@@ -90,7 +90,7 @@ def test_delegate_writer_gateway_includes_vision(_mock_avail):
     from plugin.doc.specialized_base import DelegateToSubagent
 
     gateway = DelegateToSubagent()
-    domains = gateway.parameters["properties"]["domain"]["enum"]
+    domains = (gateway.get_parameters() or {})["properties"]["domain"]["enum"]
     assert "vision" in domains
 
 
@@ -294,6 +294,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "images_processed": 1,
         "image_names": ["Img1"],
         "failed_image": "Img2",
+        "deleted_images": ["Img1"],
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
     result = ExtractStructureFromImage().execute(tool_ctx)
@@ -304,6 +305,7 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
     assert result["details"]["images_processed"] == 1
     assert result["details"]["image_names"] == ["Img1"]
     assert result["details"]["inserted"] is True
+    assert result["details"]["deleted_images"] == ["Img1"]
 
 
 def test_extract_structure_reraises_document_disposed(tool_ctx):

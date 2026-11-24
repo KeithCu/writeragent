@@ -18,6 +18,7 @@ from plugin.framework.uno_context import (
     is_libreharper,
     process_events_to_idle,
 )
+from plugin.writer.locale import grammar_settings
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -155,7 +156,7 @@ class GrammarStatus:
     ) -> None:
         """Deliver a status update. ``routine=True`` marks steady-state per-keystroke text; the
         LibreHarper status-bar sink must not paint it unless the phase is terminal and an
-        indicator is already active (issue #768).
+        indicator is already active or a paint that opens one is queued (issue #768).
         """
         pass
 
@@ -316,15 +317,30 @@ class StatusBarGrammarStatus(GrammarStatus):
 
     _indicator: Any
     _label: str
+    _opens_pending: int
 
     def __init__(self, label: str = "LibreHarper") -> None:
         super().__init__()
         self._indicator = None
         self._label = label
+        self._opens_pending = 0
 
     def is_active(self) -> bool:
-        """True when an XStatusIndicator session is open on the status bar."""
+        """True when an indicator is open or a paint that may open one is still queued."""
+        with self._lock:
+            if self._opens_pending:
+                return True
         return self._indicator is not None
+
+    def _opening_settled(self) -> None:
+        with self._lock:
+            self._opens_pending -= 1
+
+    def _paint_opening(self, phase: str, result: str, routine: bool) -> None:
+        try:
+            self._paint(phase, result, routine)
+        finally:
+            self._opening_settled()
 
     def _deliver(
         self,
@@ -339,15 +355,22 @@ class StatusBarGrammarStatus(GrammarStatus):
     ) -> None:
         try:
             if routine and (
-                phase not in _TERMINAL_STATUS_PHASES or self._indicator is None
+                phase not in _TERMINAL_STATUS_PHASES or not self.is_active()
             ):
                 return
             if desktop_create_is_unsafe():
                 return
 
+            opens = not routine and phase not in _ENDING_STATUS_PHASES
+            if opens:
+                with self._lock:
+                    self._opens_pending += 1
             try:
-                main.post(self._paint, phase, result, routine)
+                # bound_scope=None: a chat Stop must not drop a queued paint, or the count never settles.
+                main.post(self._paint_opening if opens else self._paint, phase, result, routine, bound_scope=None)
             except Exception:
+                if opens:
+                    self._opening_settled()
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
                 return
 
@@ -380,6 +403,9 @@ class StatusBarGrammarStatus(GrammarStatus):
         # self._indicator is updated before each of those calls so a nested _paint sees
         # the current indicator and never starts a second one that nothing ends.
         try:
+            # Grammar was turned off while this check was in flight: no later cycle would end the line, so end silently.
+            if phase == "failed" and not grammar_settings.is_grammar_enabled():
+                routine = True
             if routine or phase in _ENDING_STATUS_PHASES:
                 indicator = self._indicator
                 self._indicator = None
@@ -417,9 +443,9 @@ def _should_paint_writeragent_status_bar(
 
     Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
     sidebar drops the event), paint so progress is still visible. For any
-    terminal phase, paint when a bar indicator is already active so a prior
-    failure or progress line can end cleanly instead of leaving a stale bar
-    (issue #768).
+    terminal phase, paint when a bar indicator is already active or a paint
+    that opens one is queued so a prior failure or progress line can end
+    cleanly instead of leaving a stale bar (issue #768).
 
     ``bus_has_subscribers`` can change before delivery; an extra or missed bar
     paint is benign.
@@ -433,6 +459,9 @@ def _should_paint_writeragent_status_bar(
     return False
 
 
+_GRAMMAR_ENGINE_KEYS = frozenset({"doc.grammar_proofreader_enabled", "doc.grammar_proofreader_model"})
+
+
 class WriterAgentGrammarStatus(GrammarStatus):
     """WriterAgent: sidebar bus plus optional status-bar fallback."""
 
@@ -443,6 +472,12 @@ class WriterAgentGrammarStatus(GrammarStatus):
         super().__init__()
         self._sidebar = SidebarGrammarStatus()
         self._status_bar = StatusBarGrammarStatus(label="Grammar")
+        get_event_bus().subscribe("config:changed", self._on_config_changed, weak=True)
+
+    def _on_config_changed(self, **data: Any) -> None:
+        """End the status-bar line when the grammar engine or model changes; the old result no longer applies."""
+        if not _GRAMMAR_ENGINE_KEYS.isdisjoint(data.get("keys") or ()):
+            self._status_bar.done("", routine=True)
 
     def _deliver(
         self,

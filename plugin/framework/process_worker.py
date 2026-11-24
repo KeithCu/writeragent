@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Compute pool adapter: ``BaseProcessWorker`` delegates spawn/IPC core to ``warm_child``.
+"""Compute pool adapter: ``BaseProcessWorker`` is a :class:`ChildSlot` for pool workers.
 
-Shared handshake and framed request logic live in ``plugin.framework.warm_child``.
+Publish, drop, and the spawn handshake live in :mod:`plugin.framework.warm_child`.
 This module is the multi-slot compute worker slot (``BaseProcessWorker``) only.
 """
 
@@ -27,7 +27,7 @@ import logging
 import pickle
 import sys
 import threading
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any, final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,12 +41,13 @@ from plugin.framework.ipc import (
 )
 from plugin.framework.warm_child import (
     Child,
+    ChildSlot,
     FailPhase,
     SPAWN_READY_TIMEOUT_SEC,
     STDERR_LOG_CAP,
     framed_request_roundtrip,
     spawn_budget,
-    spawn_managed_child_with_handshake,
+    stderr_thread_name,
     supervisor,
 )
 
@@ -80,7 +81,8 @@ def _compute_slot_fail_message(
 _SHUTDOWN_INSTEAD = frozenset({"WORKER_PIPE_BROKEN", "WORKER_CRASHED", "WORKER_IPC_ERROR", "EMPTY_RESPONSE", "EXECUTION_TIMEOUT"})
 
 
-class BaseProcessWorker:
+@final
+class BaseProcessWorker(ChildSlot):
     """One slot. ``child`` is the live process, or None when the slot is empty.
 
     A child that survives ``wait(1s)`` is not kept here. The module reaper
@@ -90,28 +92,27 @@ class BaseProcessWorker:
     """
 
     def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, unpacker: Callable[[bytes], Any] | None = None, start: bool = True) -> None:
+        super().__init__()
         self.worker_id: int = worker_id
         self.script_path: str = script_path
         self.worker_name: str = worker_name
         self.max_payload_bytes: int = max_payload_bytes
         # None is stock pickle.
         self._unpacker: Callable[[bytes], Any] | None = unpacker
-        self.child: Child | None = None
         self.lock: threading.Lock = threading.Lock()
-        # Serializes adopt and drop. Distinct from ``lock``, which execute
-        # holds across spawn, so reap must not take ``lock``. Do not take
-        # this from execute: a caller that already holds the pool condition
+        # ChildSlot._lifecycle_lock serializes publish and drop; distinct from ``lock``,
+        # which execute holds across spawn, so reap must not take ``lock``. Do not take
+        # _lifecycle_lock from execute: a caller that already holds the pool condition
         # would deadlock with a drop that waited on that condition.
-        self._lifecycle_lock: threading.Lock = threading.Lock()
         self.tasks_executed: int = 0
         # shutdown calls request_shutdown() before kill(). execute and respawn
         # read the flag without self.lock: kill takes _lifecycle_lock, not the
         # execute lock, so a flag under self.lock would stay invisible until
-        # the cell finished. The write is under _lifecycle_lock so adopt either
+        # the cell finished. The write is under _lifecycle_lock so publish either
         # sees shutdown or publishes a child that kill() still signals.
         # CPython's GIL publishes this bool. A free-threaded build would need
         # the read under _lifecycle_lock. The pool may hold its condition
-        # while it reads the flag, and adopt holds this lock, so the read
+        # while it reads the flag, and publish holds this lock, so the read
         # stays unlocked.
         self._shutting_down: bool = False
         self.pending_exit: bool = False
@@ -143,14 +144,6 @@ class BaseProcessWorker:
             worker_id=self.worker_id,
         )
 
-    def _drain_name(self) -> str:
-        """Thread name so a log line shows which pool owns the drain."""
-        parts = "".join(ch if ch.isalnum() else "-" for ch in self.worker_name.lower()).split("-")
-        cleaned = "-".join(part for part in parts if part)
-        if not cleaned:
-            cleaned = "worker"
-        return f"wa-{cleaned}-w{self.worker_id}-stderr"
-
     def _log_spawn_outcome(self, message: str, spawned: Child | None) -> None:
         """Log *message*. A shutdown-interrupted handshake is not a failed spawn.
 
@@ -165,32 +158,8 @@ class BaseProcessWorker:
         extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
         log.error("%s%s", message, extra)
 
-    def _drop_child(self, child: Child) -> None:
-        """Clear the slot when it still points at *child*."""
-        with self._lifecycle_lock:
-            if self.child is child:
-                self.child = None
-
-    def _end_child_io(self, child: Child) -> None:
-        """Leave the pipe section and drop the child when that reap finished."""
-        if child.end_io():
-            self._drop_child(child)
-
-    def _adopt(self, child: Child) -> bool:
-        """Publish *child*, or refuse.
-
-        Shutdown and a second live child are the same refusal. ``execute``
-        holds ``self.lock`` across ``respawn``, but ``__init__(start=True)``
-        and Kokoro call ``respawn`` without that lock, and the lock is not
-        re-entrant, so ``respawn`` cannot take it. Two calls can both pass
-        the previous reap and both ``Popen``. The loser closes its own
-        ``Child`` and does not touch the one already published.
-        """
-        with self._lifecycle_lock:
-            if self._shutting_down or self.child is not None:
-                return False
-            self.child = child
-            return True
+    def _publish_refusal(self) -> dict[str, Any] | None:
+        return self._shutdown_error() if self._shutting_down else None
 
     def respawn(self, *, deadline: Deadline | None = None) -> None:
         """Spawn worker subprocess and await readiness handshake.
@@ -205,7 +174,9 @@ class BaseProcessWorker:
         *deadline* is the caller's request clock. The reap wait is inside that
         clock: budgeting the handshake from the time left before the reap let
         a call run about a second past its timeout. ``None`` is startup, which
-        has no request clock.
+        has no request clock. ``execute`` holds ``self.lock`` across this call;
+        ``__init__(start=True)`` calls it without the lock, which is not
+        re-entrant, so ``_publish`` refuses a second child.
         """
         if self._shutting_down:
             return
@@ -223,104 +194,51 @@ class BaseProcessWorker:
             scrub_env=True,
             optimize_pipes=True,
             stderr_tail_chars=STDERR_LOG_CAP,
-            stderr_name=self._drain_name(),
+            stderr_name=stderr_thread_name(self.worker_name, fallback="worker", worker_id=self.worker_id),
             label=f"{self.worker_name} #{self.worker_id}",
         )
-        spawned: Child | None = None
-        published = False
-
-        def _publish(child: Child) -> bool:
-            nonlocal published
-            if not self._adopt(child):
-                return False
-            published = True
-            return True
-
-        try:
-            tag, extra, handshake_child = spawn_managed_child_with_handshake(
-                managed,
-                worker_name=self.worker_name,
-                worker_id=self.worker_id,
-                is_alive=self.is_alive,
-                max_payload_bytes=self.max_payload_bytes,
-                unpacker=self._unpacker,
-                # Not the caller thread: an HTTP worker exits at shutdown and
-                # PDEATHSIG would kill this child with it.
-                start=functools.partial(supervisor.spawn, timeout_sec=budget),
-                publish=_publish,
-                deadline=deadline,
-                cap_sec=SPAWN_READY_TIMEOUT_SEC,
+        outcome = self._spawn_child(
+            managed,
+            worker_name=self.worker_name,
+            worker_id=self.worker_id,
+            # Not the caller thread: an HTTP worker exits at shutdown and
+            # PDEATHSIG would kill this child with it.
+            start=functools.partial(supervisor.spawn, timeout_sec=budget),
+            deadline=deadline,
+            cap_sec=SPAWN_READY_TIMEOUT_SEC,
+            max_payload_bytes=self.max_payload_bytes,
+            unpacker=self._unpacker,
+        )
+        label = f"{self.worker_name} #{self.worker_id}"
+        if outcome.tag == "ready":
+            ready_data = outcome.detail
+            log.info(
+                "%s #%d spawned (pid=%s, status=%s)",
+                self.worker_name,
+                self.worker_id,
+                ready_data.get("pid", getattr(managed.popen, "pid", None)),
+                ready_data.get("status"),
             )
-            spawned = handshake_child
-            if tag == "refused":
-                return
-            if tag == "budget_exhausted":
-                self.kill()
-                return
-            try:
-                proc = managed.popen
-                if tag == "ready":
-                    ready_data = extra
-                    log.info(
-                        "%s #%d spawned (pid=%s, status=%s)",
-                        self.worker_name,
-                        self.worker_id,
-                        ready_data.get("pid", getattr(proc, "pid", None)),
-                        ready_data.get("status"),
-                    )
-                    self.tasks_executed = 0
-                    self.pending_exit = False
-                elif tag == "interrupted":
-                    self._drop_child(spawned)
-                elif tag == "not_ready":
-                    status = extra
-                    self.kill()
-                    self._log_spawn_outcome(
-                        f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})",
-                        spawned,
-                    )
-                elif tag == "timeout":
-                    rc = proc.poll() if proc is not None else None
-                    self.kill()
-                    self._log_spawn_outcome(
-                        f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
-                        spawned,
-                    )
-            finally:
-                self._end_child_io(spawned)
-        except Exception as exc:
-            if spawned is not None:
-                self._end_child_io(spawned)
-            if not published:
-                if spawned is not None:
-                    spawned.signal_from()
-            else:
-                self.kill()
-            self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}", spawned)
-
-    def is_alive(self) -> bool:
-        """True only while the current child's ``poll()`` is None.
-
-        False means there is no child, or ``poll()`` has already reaped it.
-        A child handed to the module reaper is not current, so this is False
-        and the slot can be spawned again.
-        """
-        # kill() sets self.child to None under _lifecycle_lock while execute's select
-        # loop calls this. Read self.child once: a second read can see None and
-        # raise AttributeError, which the write handler reports as REQUEST_NOT_SERIALIZABLE.
-        child = self.child
-        if child is None:
-            return False
-        try:
-            return child.managed.is_alive()
-        except Exception:
-            log.debug("%s #%s poll failed", self.worker_name, self.worker_id, exc_info=True)
-            return False
+            self.tasks_executed = 0
+            self.pending_exit = False
+        elif outcome.tag == "not_ready":
+            self._log_spawn_outcome(
+                f"{label} spawn handshake was not ready (status={outcome.detail!r})",
+                outcome.child,
+            )
+        elif outcome.tag == "timeout":
+            self._log_spawn_outcome(
+                f"{label} spawn handshake timed out (returncode={outcome.detail})",
+                outcome.child,
+            )
+        elif outcome.tag == "failed":
+            self._log_spawn_outcome(f"Failed to spawn {label}: {outcome.detail}", outcome.child)
+        # refused, budget_exhausted, interrupted: the slot already cleaned up and none is a failed spawn.
 
     def is_shutting_down(self) -> bool:
         """Whether ``request_shutdown`` has published that this slot must not start work.
 
-        Read unlocked. Adopt holds ``_lifecycle_lock``, and the pool may
+        Read unlocked. Publish holds ``_lifecycle_lock``, and the pool may
         hold its condition while it calls this. CPython's GIL publishes the bool.
         """
         return self._shutting_down
@@ -328,27 +246,11 @@ class BaseProcessWorker:
     def request_shutdown(self) -> None:
         """Publish shutdown so execute and respawn will not start a child.
 
-        The flag shares ``_lifecycle_lock`` with process publish. Adopt then
+        The flag shares ``_lifecycle_lock`` with process publish. ``_publish`` then
         either sees the flag or publishes a child ``kill`` still signals.
         """
         with self._lifecycle_lock:
             self._shutting_down = True
-
-    def kill(self) -> bool:
-        """Signal the current child. Wait and close when this thread may.
-
-        True when the slot is empty afterwards: the child was reaped, or it
-        was abandoned to the module reaper. False when another thread is
-        inside the pipes. That thread's ``end_io`` drops the child.
-        A test stand-in whose ``kill`` returns None counts as finished.
-        """
-        child = self.child
-        if child is None:
-            return True
-        if not child.signal_from():
-            return False
-        self._drop_child(child)
-        return self.child is not child
 
     def _fail_request(self, code: str, msg: str, *, pid: int | None, kill: bool = True) -> dict[str, Any]:
         """Build an error dict, then signal the child or leave it.

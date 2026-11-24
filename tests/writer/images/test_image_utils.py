@@ -51,6 +51,7 @@ class TestEndpointImageProvider:
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             cancel=None,
             status_callback=None,
+            shared=False,
         )
         os.unlink(paths[0])
 
@@ -114,6 +115,7 @@ class TestEndpointImageProvider:
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             cancel=None,
             status_callback=None,
+            shared=False,
         )
         os.unlink(paths[0])
 

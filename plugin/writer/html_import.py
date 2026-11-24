@@ -416,8 +416,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
     after it, which keeps its own style (``sw_GetJoinFlags`` in
     ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). In a review-mode full-document replace the paragraph after it is the
-    first tracked-deleted paragraph; Accept empties it, so the result matches the
+    end node). In a review-mode full-document replace or a recorded whole-paragraph
+    replace (``_replace_whole_paragraphs``), the paragraph after it is the first
+    tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
     """
@@ -589,9 +590,10 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
       A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
     - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
 
-    ``selection`` / ``search`` are not handled here: non-collapsed selections are cleared by
-    setString before import, a collapsed caret goes through ``_insert_at_caret``, and
-    search replaces handle their own boundaries.
+    ``selection`` / ``search`` are not handled here: whole-paragraph block
+    selections go through ``_replace_whole_paragraphs``, other non-collapsed
+    selections are cleared by ``setString`` before import, a collapsed caret goes
+    through ``_insert_at_caret``, and search replaces handle their own boundaries.
     """
     if position != "end":
         return cursor
@@ -682,30 +684,54 @@ def _without_trailing_break(rng: Any) -> Any:
     return start
 
 
-def _insert_into_emptied_range(
+def _replace_whole_paragraphs(
     model: Any,
     ctx: Any,
-    cursor: Any,
+    rng: Any,
     content: str,
     *,
     apply_styles: bool,
-    drop_leftover: bool,
 ) -> html_import_styles.WriteReport:
-    """Import *content* into an emptied range and drop the leftover empty paragraph.
+    """Replace whole-paragraph *rng* with block *content*, recorded or not.
 
-    ``SwHTMLParser::CallParser`` places every imported block before the emptied
-    paragraph, leaving a blank paragraph behind for the user unless dropped.
-    When the import adds nothing (e.g. ``<p></p>``), the emptied paragraph is
-    kept because it is what the content asked for.
+    ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) places
+    every imported block before the target paragraph. While recording, we extend
+    the tracked deletion across the following paragraph break so its mark is
+    deleted with the text: Accept leaves nothing and keeps the following
+    paragraph's style (``sw_GetJoinFlags`` in ``sw/source/core/doc/docedt.cxx``
+    when the follower is non-empty, or ``lcl_AcceptRedline`` calling
+    ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
+    empty), while Reject keeps both styles because ``AppendRedline`` skips its
+    tdf#119571 restyle when the deletion starts at offset 0. We then open a
+    fresh paragraph before the struck text so the import does not inherit the
+    struck text's character formatting. The leftover synthetic paragraph is
+    dropped untracked because that break is our own new insertion. Where no
+    following break exists (document end, before a table, section edge), the
+    old paragraph stays empty after Accept; the preceding break is not used
+    because ``DocumentRedlineManager::AppendRedline``
+    (``sw/source/core/doc/DocumentRedlineManager.cxx``) would restyle the
+    struck paragraph.
     """
-    if not drop_leftover:
-        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
-    text_obj = cursor.getText()
+    text_obj = rng.getText()
+    cursor = text_obj.createTextCursorByRange(rng.getStart())
+    doomed = rng
+    recording = record_changes.is_recording_changes(model)
+    if recording:
+        following = text_obj.createTextCursorByRange(rng.getEnd())
+        if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
+            doomed = text_obj.createTextCursorByRange(rng.getStart())
+            doomed.gotoRange(following.getEnd(), True)
+    with _deletion_author():
+        doomed.setString("")
+    if recording:
+        text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.goLeft(1, False)
     leftover = text_obj.createTextCursorByRange(cursor.getStart())
     report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     # The import added nothing (<p></p>): the emptied paragraph is what the content asked for.
     if report.added_content:
-        _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
+        with record_changes.record_changes(model, False):
+            _drop_leftover_paragraph(leftover, merge_forward_after_table="<table" in content.lower())
     return report
 
 
@@ -817,7 +843,7 @@ def insert_content_at_position(
         note = None
         caret = False
         inline = False
-        drop_leftover = False
+        whole_paragraphs: Any | None = None
 
         if position == "beginning":
             cursor.gotoStart(False)
@@ -862,26 +888,28 @@ def insert_content_at_position(
                         # replaces the selection in place, like typing over it. Otherwise
                         # ensure_html_linebreaks wraps it in <p>, which splits the host
                         # paragraph on import (SwHTMLParser::CallParser in
-                        # sw/source/filter/html/swhtml.cxx calls SplitNode twice and joins
-                        # back only the first). While Track Changes records, the cleared
-                        # text also stays in that paragraph as a tracked deletion, so after
-                        # Accept the paragraph would be left empty.
-                        # The trailing break is trimmed in both modes; otherwise a recorded
-                        # Shift+Down selection deletes the paragraph break and Accept joins
-                        # the next paragraph.
+                        # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
+                        # selections go through _replace_whole_paragraphs.
                         inline = (
                             not caret
                             and not content_is_block(content)
                             and not html_fragment_contains_mixed_math(content)
                         )
-                        if not caret and (inline or not recording):
+                        # Trim a lone trailing break; otherwise a recorded Shift+Down selection
+                        # deletes the paragraph break and Accept joins the next paragraph.
+                        if not caret:
                             rng = _without_trailing_break(rng)
-                        drop_leftover = (
-                            not (caret or inline or recording)
-                            and _range_covers_whole_paragraphs(rng)
-                        )
                         styled, note = _lo_style_for_replaced_range(model, content, rng)
-                        rng.setString("")
+                        if not caret and not inline and _range_covers_whole_paragraphs(rng):
+                            whole_paragraphs = rng
+                        else:
+                            if inline and recording and "\n" not in rng.getString():
+                                # Insert after the struck text so plain text inherits its character
+                                # formatting. Multi-paragraph ranges keep inserting at the start so
+                                # Accept keeps the first paragraph's style rather than the last's
+                                # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
+                                cursor = rng.getText().createTextCursorByRange(rng.getEnd())
+                            rng.setString("")
                 except AttributeError as e:
                     # No text cursor (a shape that was not classified earlier).
                     # ToolExecutionError (nested table) and a closed document must
@@ -894,14 +922,14 @@ def insert_content_at_position(
                     note = None
                     caret = False
                     inline = False
-                    drop_leftover = False
+                    whole_paragraphs = None
                     cursor = _doc_end_cursor()
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
 
         # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-        # Whole-paragraph block selection matches also honor data-lo-style and drop the leftover empty
-        # paragraph when Track Changes is off; absorb prep is omitted because setString("") already emptied it.
+        # Whole-paragraph block selections go through _replace_whole_paragraphs, which handles both
+        # recording on and off (data-lo-style is still skipped while recording).
         # Non-collapsed inline selections go through _insert_inline in place, keeping the host paragraph
         # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
@@ -910,9 +938,13 @@ def insert_content_at_position(
             report = _insert_at_caret(model, ctx, cursor, content, styled)
         elif inline:
             report = _insert_inline(model, ctx, cursor, content)
+        elif whole_paragraphs is not None:
+            report = _replace_whole_paragraphs(
+                model, ctx, whole_paragraphs, content, apply_styles=styled
+            )
         else:
-            report = _insert_into_emptied_range(
-                model, ctx, cursor, content, apply_styles=styled, drop_leftover=drop_leftover
+            report = _insert_mixed_or_plain_html(
+                model, ctx, cursor, content, apply_styles=styled
             )
         if note:
             report.style_skips.append(note)
@@ -1040,13 +1072,11 @@ def replace_single_range_with_content(
             saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
         apply_styles = False
-        drop_leftover = False
+        whole_paragraphs = False
         note = None
         if not inline_preserve:
             apply_styles, note = _lo_style_for_replaced_range(model, prepared, text_range)
-            # While recording, the cleared text stays in the paragraph as a tracked deletion,
-            # so that layout is left as it is.
-            drop_leftover = _range_covers_whole_paragraphs(text_range) and not record_changes.is_recording_changes(model)
+            whole_paragraphs = _range_covers_whole_paragraphs(text_range)
 
         cursor = text_obj.createTextCursorByRange(text_range)
 
@@ -1054,8 +1084,9 @@ def replace_single_range_with_content(
         raise_if_range_hosts_nested_table(text_range)
         # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
         from .styles import apply_paragraph_style_preserving_direct_char
-        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-            cursor.setString("")
+        if not whole_paragraphs:
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                cursor.setString("")
 
         if saved_style is not None:
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
@@ -1087,14 +1118,18 @@ def replace_single_range_with_content(
             )
         else:
             # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
-            # and data-lo-para can safely be applied post-import. A partial range leaves neighbor text
-            # that would be restyled by the block style, and recording tracked changes leaves the old
-            # text as a deletion that a paragraph style would turn into a format change; both skip
-            # styling and warn.
+            # and data-lo-para can safely be applied when Track Changes is off. A partial range leaves
+            # neighbor text that would be restyled by the block style; recorded whole-paragraph replaces
+            # still skip data-lo-style / data-lo-para and warn.
             try:
-                report = _insert_into_emptied_range(
-                    model, ctx, cursor, prepared, apply_styles=apply_styles, drop_leftover=drop_leftover
-                )
+                if whole_paragraphs:
+                    report = _replace_whole_paragraphs(
+                        model, ctx, text_range, prepared, apply_styles=apply_styles
+                    )
+                else:
+                    report = _insert_mixed_or_plain_html(
+                        model, ctx, cursor, prepared, apply_styles=apply_styles
+                    )
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter

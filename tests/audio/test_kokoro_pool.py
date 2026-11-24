@@ -84,7 +84,7 @@ def _delayed_ready_script(directory, flag) -> str:
 
 
 def _warm_popen(pool: KokoroProcessPool) -> subprocess.Popen[bytes] | None:
-    child = pool._warm._child
+    child = pool._warm.child
     if child is None:
         return None
     return child.managed.popen
@@ -582,7 +582,7 @@ def test_orphan_kokoro_child_dies_with_parent(tmp_path):
                 "threading.Thread(target=job, daemon=True).start()",
                 "deadline = time.monotonic() + 15",
                 "while time.monotonic() < deadline:",
-                "    child = pool._warm._child",
+                "    child = pool._warm.child",
                 "    proc = child.managed.popen if child else None",
                 "    if proc is not None and proc.pid:",
                 "        with open(pid_path, 'w', encoding='utf-8') as f:",

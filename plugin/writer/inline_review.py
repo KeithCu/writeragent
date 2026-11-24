@@ -323,6 +323,9 @@ def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> t
         return None, None
 
     groups = _group_rows_by_text(matching)
+    # A row that starts at a table has no text range, and the other half alone must not be resolved.
+    if sum(len(rows) for _text, rows in groups) != len(matching):
+        return None, None
     if len(groups) != 1:
         if len(groups) > 1:
             log.warning("inline_review: change %s spans multiple text objects; reporting no bounds", token)

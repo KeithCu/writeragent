@@ -518,13 +518,25 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     if "text" in kwargs and hasattr(shape, "setString"):
 
         def _apply_text() -> None:
+            was_empty = shape.getString() == ""
+            text_str = "" if kwargs["text"] is None else str(kwargs["text"])
             # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
             if kwargs.get("action") == "edit":
                 apply_autofit = ("font_size" not in kwargs) and ("width" in kwargs or "height" in kwargs)
             else:
                 apply_autofit = "font_size" not in kwargs
             _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
-            shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
+            shape.setString(text_str)
+            if was_empty and text_str:
+                # A fresh paragraph does not inherit the object's ParaAdjust
+                # (svx/source/unodraw/unoshtxt.cxx: SvxTextEditSourceImpl::GetBackgroundTextForwarder),
+                # and a cursor on an empty shape stores nothing and clears IsEmptyPresObj
+                # (svx/source/unodraw/unoshtxt.cxx:759-792, UpdateData). Re-applying the direct
+                # object item pushes it into the new paragraph via TextProperties::ItemSetChanged
+                # (svx/source/sdr/properties/textproperties.cxx:86).
+                state = uno_read(lambda: shape.getPropertyState("ParaAdjust"), None)
+                if getattr(state, "value", None) == "DIRECT_VALUE":
+                    shape.setPropertyValue("ParaAdjust", shape.getPropertyValue("ParaAdjust"))
 
         _try(failed_props, "text", _apply_text)
 
@@ -662,6 +674,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     return failed_props
 
 
+# A label is centred and wrapped unless the caller says otherwise. LibreOffice leaves a
+# CustomShape created through UNO top/start aligned, and unwrapped in Writer and Calc
+# (svx/source/svdraw/svdmodel.cxx:185).
+_CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
+
 # CustomShape flowchart-* type strings (valid at runtime; omitted from create_shape schema description for brevity):
 # flowchart-alternate-process, flowchart-card, flowchart-collate, flowchart-connector, flowchart-data,
 # flowchart-decision, flowchart-delay, flowchart-direct-access-storage, flowchart-display, flowchart-document,
@@ -741,17 +758,21 @@ class UpsertShape(_AnyDocumentShapeTool):
             "font_name": {"type": "string", "description": "Font family name"},
             "bold": {"type": "boolean", "description": "Bold text (false removes bold)."},
             "italic": {"type": "boolean", "description": "Italic text (false removes italic)."},
-            "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal text alignment inside the shape."},
+            "h_align": {
+                "type": "string",
+                "enum": ["left", "center", "right", "justify"],
+                "description": "Horizontal text alignment inside the shape. Custom shapes, rectangle and ellipse default to center.",
+            },
             "v_align": {
                 "type": "string",
                 "enum": ["top", "center", "bottom"],
-                "description": "Vertical text alignment inside the shape. Custom shapes (flowchart-*, round-rectangle, …) default to top; rectangle and ellipse default to center.",
+                "description": "Vertical text alignment inside the shape. Custom shapes, rectangle and ellipse default to center.",
             },
             "wrap_text": {
                 "type": "boolean",
                 "description": (
                     "Wrap text at the shape width. Applies to custom shapes (flowchart-process, round-rectangle, …); "
-                    "on by default in Draw/Impress, off in Writer/Calc. Text boxes (text) always wrap. "
+                    "on by default. Text boxes (text) always wrap. "
                     "rectangle and ellipse never wrap a fixed font_size; use flowchart-process (box) or flowchart-connector (circle) for a wrapped label."
                 ),
             },
@@ -852,7 +873,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             if is_custom_shape and custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
-            failed_props = _apply_shape_properties(shape, kwargs)
+            props = {**_CUSTOM_SHAPE_TEXT_DEFAULTS, **kwargs} if is_custom_shape else kwargs
+            failed_props = _apply_shape_properties(shape, props)
             shape_name = _ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)

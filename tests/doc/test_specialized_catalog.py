@@ -7,6 +7,7 @@ from plugin.doc.specialized_catalog import (
     NO_EDIT_TOOL_NOTE,
     InnerToolCall,
     apply_inner_outcome,
+    normalize_inner_result,
     partition_tool_errors,
     start_inner_payload,
 )
@@ -404,3 +405,26 @@ def test_indexes_toc_read_rule_reaches_sub_agent_not_catalog() -> None:
     assert get_domain_guidance("indexes", agent_label=None) == hint
     assert ToolWriterIndexBase.specialized_domain_description is not None
     assert hint not in ToolWriterIndexBase.specialized_domain_description
+
+
+def test_normalize_inner_result_error_reports_edits() -> None:
+    calls = [InnerToolCall("footnotes_insert", {"status": "ok"}, mutating=True)]
+
+    editing = normalize_inner_result(
+        {"status": "error", "code": "USER_STOPPED", "message": "Stopped."},
+        ["footnotes"],
+        calls,
+    )
+    assert editing["status"] == "error"
+    assert editing["code"] == "USER_STOPPED"
+    assert editing["edits"] == {"footnotes_insert": 1}
+    assert "note" not in editing
+
+    ro = normalize_inner_result(
+        {"status": "error", "code": "USER_STOPPED", "message": "Stopped."},
+        ["document_research"],
+        [],
+    )
+    assert ro == {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
+    assert "edits" not in ro
+    assert "note" not in ro

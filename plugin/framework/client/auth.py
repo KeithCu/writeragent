@@ -152,7 +152,8 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     if not api_key and provider_requires_api_key(provider_cfg.id):
         from plugin.framework.config import api_key_locked_for_endpoint
 
-        if api_key_locked_for_endpoint(endpoint):
+        # Keys are stored under the endpoint normalized without the Open WebUI rule.
+        if api_key_locked_for_endpoint(endpoint_raw):
             raise AuthError("The system keyring is locked. Unlock it to use the saved API key.", provider=provider_id, code="keyring_locked")
         raise AuthError(f"No API key configured for endpoint '{endpoint}'.", provider=provider_id, code="missing_api_key")
 

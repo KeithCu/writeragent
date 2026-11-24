@@ -1809,3 +1809,39 @@ def test_renaming_whitespace_entry_to_stripped_name_keeps_secret(fake_keystore):
     save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "t"}}})
     servers = get_config("mcp_client.servers")
     assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "t"
+
+
+def test_fill_api_key_reads_only_a_missing_key(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import fill_api_key, set_api_key_for_endpoint
+
+    endpoint = "https://openrouter.ai/api"
+    set_api_key_for_endpoint(endpoint, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+
+    missing_cfg = {"endpoint": endpoint}
+    fill_api_key(missing_cfg)
+    assert missing_cfg["api_key"] == "sk-1"
+    assert fake_keystore.get_calls == 1
+
+    present_cfg = {"endpoint": endpoint, "api_key": ""}
+    fill_api_key(present_cfg)
+    assert present_cfg["api_key"] == ""
+    assert fake_keystore.get_calls == 1
+
+
+def test_locked_keystore_reported_for_openwebui_flagged_endpoint(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+    from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint
+
+    set_api_key_for_endpoint("https://openrouter.ai/api", "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    assert get_api_key_for_endpoint("https://openrouter.ai/api") == ""
+    with pytest.raises(AuthError) as exc_info:
+        resolve_auth_for_config(
+            {"endpoint": "https://openrouter.ai/api/v1", "api_key": "", "is_openwebui": True}
+        )
+    assert exc_info.value.code == "keyring_locked"

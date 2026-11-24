@@ -467,12 +467,12 @@ def try_rps_post_venv(
     if code:
         insert_kwargs = spec.insert_kwargs(ctx, code)
     try:
-        row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
+        insert_outcome = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
         reraise_if_disposed(e)
         return rps_insert_failed_outcome(e, t0=t0)
 
-    return spec.format_ok(result=result_data, t0=t0, row_count=row_count, stdout=stdout)
+    return spec.format_ok(result=result_data, t0=t0, insert_outcome=insert_outcome, stdout=stdout)
 
 
 def _finish_script_execution(prepared: PreparedScript, response: dict[str, Any]) -> dict[str, Any]:

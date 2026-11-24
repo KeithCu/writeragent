@@ -565,7 +565,7 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(service: str) -> 
     delegate_schema = next(s["function"] for s in schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)
     enum_domains = delegate_schema["parameters"]["properties"]["domain"]["enum"]
     desc = delegate_schema["description"]
-    all_domains = (gw.parameters or {})["properties"]["domain"]["enum"]
+    all_domains = (gw.get_parameters() or {})["properties"]["domain"]["enum"]
     listed = {d for d in all_domains if re.search(rf"(?<!\w){re.escape(d)}: ", desc)}
     assert listed == set(enum_domains)
     # The domain catalog lives once in the tool description, never in the system prompt.

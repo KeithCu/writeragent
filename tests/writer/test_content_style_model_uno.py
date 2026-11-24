@@ -619,7 +619,8 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
 
     Applying paragraph styles on a paragraph containing tracked deletions can turn
     the deletion into a format change or corrupt redlines. While recording, style
-    must be skipped, a warning emitted, and accepting changes leaves only the new text.
+    must be skipped, a warning emitted, and accepting changes leaves the new text
+    with the default body style.
     """
     text = doc.getText()
     text.setString("")
@@ -670,12 +671,11 @@ def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
     _accept_all(doc, ctx)
 
     pairs = _para_pairs(doc)
-    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
-    new_head = next(((s, t) for s, t in pairs if "New heading" in t), None)
-    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
-    assert before is not None and before[0] == "Standard", pairs
-    assert new_head is not None and new_head[0] == "Standard", pairs
-    assert after is not None and after[0] == "Standard", pairs
+    assert pairs == [
+        ("Standard", "Keep before"),
+        ("Text body", "New heading"),
+        ("Standard", "Keep after"),
+    ], pairs
     assert "Replace me" not in text.getString(), text.getString()
     assert "New heading" in text.getString(), text.getString()
     enum = doc.getText().createEnumeration()

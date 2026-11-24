@@ -615,7 +615,8 @@ def visible_portions(
         if portion_type == "Redline":
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = not in_delete
+                    # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
+                    in_delete = bool(portion.getPropertyValue("IsStart"))
             except Exception as exc:
                 log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
             continue

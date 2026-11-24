@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,7 +24,8 @@ from plugin.writer.locale.grammar_work_queue import (
 @pytest.fixture(autouse=True)
 def _reset_status_indicator():
     go.set_grammar_status(None)
-    yield
+    with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True):
+        yield
     go.set_grammar_status(None)
 
 
@@ -107,7 +109,7 @@ def test_status_bar_grammar_status_done_routes_to_status_bar() -> None:
         patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
     ):
         sink.done("Hello world.", result="clean")
     # Product label prefix differs by build ("LibreHarper:" vs "Grammar:").
@@ -127,7 +129,7 @@ def test_status_bar_grammar_status_always_posts_to_main_thread() -> None:
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
         patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None) as mock_post,
     ):
         sink.start("Hello world.", result="Starting Harper…")
     assert mock_post.called
@@ -164,7 +166,7 @@ def test_status_bar_grammar_status_posts_routine_done_when_indicator_active() ->
     with (
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None) as mock_post,
     ):
         sink.done("Hello world.", result="routine terminal", routine=True)
     assert mock_post.called
@@ -189,7 +191,7 @@ def test_status_bar_routine_flag_ignores_result_text() -> None:
     sink._indicator = mock_indicator
     with patch(
         "plugin.framework.queue_executor.main.post",
-        side_effect=lambda fn, *args: fn(*args) if callable(fn) else None,
+        side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
     ):
         sink.done("Hello world.", result="0 issues", routine=True)
     mock_indicator.end.assert_called_once()
@@ -206,7 +208,7 @@ def test_status_bar_routine_flag_ignores_result_text() -> None:
 
     with patch(
         "plugin.framework.queue_executor.main.post",
-        side_effect=lambda fn, *args: fn(*args) if callable(fn) else None,
+        side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
     ) as mock_post:
         sink.failed("Hi.", result="")
     mock_post.assert_called()
@@ -227,7 +229,7 @@ def test_status_bar_grammar_status_paints_progress_and_failure() -> None:
             patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
             patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
             patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
-            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None) as mock_post,
         ):
             if phase == "request":
                 sink.request("Hello world.", result=result)
@@ -477,7 +479,7 @@ def test_status_bar_grammar_status_posts_paint_and_repaint() -> None:
 
     # Second post is the VCL idle _pump so setText paints while worker is blocked in harper-ls.
     assert mock_post.call_count == 2
-    assert mock_post.call_args_list[0].args[0] == sink._paint
+    assert mock_post.call_args_list[0].args[0] == sink._paint_opening
     mock_execute.assert_not_called()
 
 
@@ -517,7 +519,7 @@ def test_writer_agent_failed_paints_status_bar_with_subscriber() -> None:
         patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
     ):
         sink.failed("Harper", result="boom")
     mock_bus.emit.assert_called_once()
@@ -544,7 +546,7 @@ def test_writer_agent_request_paints_status_bar_without_subscriber() -> None:
         patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
     ):
         sink.request("Hello.", result="checking", routine=False)
     mock_bus.emit.assert_called_once()
@@ -574,7 +576,7 @@ def _writer_agent_status_bar() -> Iterator[tuple[go.WriterAgentGrammarStatus, Ma
         patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
     ):
         yield sink, mock_bus, mock_indicator
 
@@ -716,7 +718,7 @@ def test_status_bar_ready_ends_indicator_without_further_lint() -> None:
         patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
-        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None),
     ):
         sink.request("Harper", result="Starting Harper…")
         sink.ready("Harper", result="Harper ready")
@@ -762,5 +764,135 @@ def test_writer_agent_ready_with_sidebar_ends_active_status_bar() -> None:
     mock_indicator.end.assert_called_once()
     assert mock_indicator.setText.call_args.args[0] == "Grammar: Harper ready"
     assert mock_bus.emit.call_args.kwargs["phase"] == "ready"
+
+
+def test_status_bar_routine_done_ends_queued_opening_paint() -> None:
+    sink = go.StatusBarGrammarStatus()
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    queued: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: queued.append((fn, args)),
+        ),
+    ):
+        sink.request("Harper", result="Starting Harper…")
+        sink.done("Hello.", result="1 issue", routine=True)
+        for fn, args in queued:
+            fn(*args)
+
+    assert factory.shown() is None
+    assert len(factory.indicators) == 1
+    assert not sink.is_active()
+
+
+def test_status_bar_failed_post_does_not_leave_bar_active() -> None:
+    sink = go.StatusBarGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.is_libreharper", return_value=True),
+        patch("plugin.framework.queue_executor.main.post", side_effect=TimeoutError("queue full")),
+    ):
+        sink.request("Harper", result="Starting Harper…")
+
+    assert not sink.is_active()
+
+
+def test_writer_agent_done_ends_failure_whose_paint_is_queued() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    sink = go.WriterAgentGrammarStatus()
+    queued: list[tuple[Callable[..., Any], tuple[Any, ...]]] = []
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: queued.append((fn, args)),
+        ),
+    ):
+        sink.failed("Grammar check", result="HTTP 502")
+        sink.done("Hello.", result="0 issues", routine=False)
+        for fn, args in queued:
+            fn(*args)
+
+    assert factory.shown() is None
+    assert len(factory.indicators) == 1
+    assert not sink._status_bar.is_active()
+
+
+@pytest.mark.parametrize(
+    "changed_key",
+    ["doc.grammar_proofreader_enabled", "doc.grammar_proofreader_model"],
+)
+def test_writer_agent_engine_setting_change_ends_failed_bar(changed_key: str) -> None:
+    from plugin.framework.event_bus import get_event_bus
+
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    bus = get_event_bus()
+    sink = go.WriterAgentGrammarStatus()
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
+        ),
+    ):
+        sink.failed("Grammar check", result="HTTP 502")
+        assert factory.shown() is not None
+
+        bus.emit("config:changed", key="", keys=frozenset({"unrelated.key"}))
+        assert factory.shown() is not None
+
+        bus.emit("config:changed", key="", keys=frozenset({changed_key}))
+        assert factory.shown() is None
+        assert not sink._status_bar.is_active()
+
+
+def test_writer_agent_late_failure_after_grammar_off_not_shown() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    factory = _FakeIndicatorFactory()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.side_effect = factory.create
+    sink = go.WriterAgentGrammarStatus()
+
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False),
+        patch("plugin.writer.locale.grammar_obs.pump_main_thread_work_queue"),
+        patch("plugin.writer.locale.grammar_obs.process_events_to_idle"),
+        patch(
+            "plugin.framework.queue_executor.main.post",
+            side_effect=lambda fn, *args, **_kw: fn(*args) if callable(fn) else None,
+        ),
+    ):
+        sink.failed("Grammar check", result="HTTP 502")
+
+    assert factory.shown() is None
+    assert factory.indicators == []
+    assert not sink._status_bar.is_active()
 
 

@@ -120,10 +120,12 @@ Spawn N `formula_worker` children **while** the parent (or sibling processes) im
 
 ```text
 FormulaProcessPool / get_formula_pool
-  → BaseProcessWorker.__init__ → _spawn
-      Popen([sys.executable, formula_worker.py], stdin/stdout=PIPE, stderr=log file, bufsize=0)
-      optimize_popen_pipes (Linux F_SETPIPE_SZ on the stdout pipe)
-      read_pickle_frame(stdout, 15s, is_alive=self.is_alive)
+  → BaseProcessWorker.__init__(start=True) or execute → _ensure_live_process
+  → respawn → ChildSlot._spawn_child
+      Supervisor.spawn: ManagedSubprocess.start on the spawner thread
+        Popen(stdin/stdout/stderr=PIPE, bufsize=0); a thread drains stderr; optimize_popen_pipes
+      _publish, then read_ready_frame_during_io
+        read_pickle_frame(stdout, min(15s, spawn budget), is_alive=…, max_payload_bytes=…)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
 formula_worker.py and vision.py (child), current:
@@ -246,7 +248,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 
 | File | Why |
 |------|-----|
-| [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | Pool, lease, singleton; spawn/handshake via ``warm_child.spawn_managed_child_with_handshake`` and ``child_runtime.announce_ready`` from ``process_worker.BaseProcessWorker.respawn`` |
+| [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | Pool, lease, singleton; spawn/handshake via ``warm_child.ChildSlot._spawn_child`` and ``child_runtime.announce_ready`` from ``process_worker.BaseProcessWorker.respawn`` |
 | [`compute_service/formula_worker.py`](../../compute_service/formula_worker.py) | Writes ready in `run_worker_stdio_loop` before the sandbox import (no Cython load in the child) |
 | [`compute_service/vision.py`](../../compute_service/vision.py) | Same loop, lighter imports |
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame`, empty-read → EOF, `max_payload_bytes` |

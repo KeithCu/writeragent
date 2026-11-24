@@ -5,10 +5,8 @@
 Raw Chrome DevTools Protocol (CDP) passthrough tool.
 
 Exposes a single tool, ``browser_cdp``, that sends arbitrary CDP commands to
-the browser's DevTools WebSocket endpoint.  Works when a CDP URL is
-configured — either via ``/browser connect`` (sets ``BROWSER_CDP_URL``) or
-``browser.cdp_url`` in ``config.yaml`` — or when a CDP-backed cloud provider
-session is active.
+the browser's DevTools WebSocket endpoint.  Talks to the local browser that
+``get_local_cdp_url`` attached for the current research run.
 
 This is the escape hatch for browser operations not covered by the main
 browser tool surface (``browser_navigate``, ``browser_click``,
@@ -28,9 +26,10 @@ from typing import Any, Dict, Optional
 
 import sys
 import time
+import socket
 import subprocess
 import urllib.request
-import urllib.error
+from urllib.parse import urlsplit
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
 
@@ -84,11 +83,19 @@ def _run_async(coro):
 
 
 _LOCAL_BROWSER: ManagedSubprocess | None = None
+# Browser-level URL of the CDP browser the current research runs use, and its type. Both are empty when no run
+# holds one. Written only by launch (under LocalBrowserRefCount.launch_lock) and teardown; browser_cdp only
+# reads the URL, so a page visit can never start a browser.
+_CDP_ENDPOINT: str = ""
+_CDP_BROWSER_TYPE: str = ""
+_ENDPOINT_FILE = "cdp_endpoint"
 
 
 def cleanup_local_browser() -> None:
     """Kill the locally spawned browser and drop it from quit-time registry."""
-    global _LOCAL_BROWSER
+    global _LOCAL_BROWSER, _CDP_ENDPOINT, _CDP_BROWSER_TYPE
+    _CDP_ENDPOINT = ""
+    _CDP_BROWSER_TYPE = ""
     managed = _LOCAL_BROWSER
     if managed is None:
         return
@@ -127,7 +134,11 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str, tuple[str, ...]]] = {
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
         ],
         "chromium",
-        (),
+        (
+            r"%ProgramFiles%\Chromium\Application\chrome.exe",
+            r"%ProgramFiles(x86)%\Chromium\Application\chrome.exe",
+            r"%LocalAppData%\Chromium\Application\chrome.exe",
+        ),
     ),
     "chrome": (
         [
@@ -139,7 +150,11 @@ _CDP_BROWSER_CANDIDATES: dict[str, tuple[list[str], str, tuple[str, ...]]] = {
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         ],
         "google-chrome",
-        (),
+        (
+            r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+            r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+            r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+        ),
     ),
 }
 
@@ -214,8 +229,11 @@ def _win32_minimized_startupinfo() -> Any:
 def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) -> ManagedSubprocess:
     """Launch a local browser process, register it for quit-time cleanup, and return its handle."""
     global _LOCAL_BROWSER
-    if _LOCAL_BROWSER is not None and _LOCAL_BROWSER.is_alive():
-        raise RuntimeError("another local browser is already running for web research")
+    if _LOCAL_BROWSER is not None:
+        if _LOCAL_BROWSER.is_alive():
+            raise RuntimeError("another local browser is already running for web research")
+        # A reaped pid can be reused, so quit-time shutdown must not signal it.
+        _LOCAL_BROWSER.unregister()
     # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
     popen_kw: dict[str, Any] = {}
     if sys.platform != "win32":
@@ -236,22 +254,41 @@ def spawn_local_browser(cmd: list[str], *, label: str, minimized: bool = False) 
     return _LOCAL_BROWSER
 
 
-def get_local_cdp_url(browser_type: str = "chrome") -> str:
-    # Try querying existing CDP connection first
+def _free_port() -> int:
+    # Chosen here because --remote-debugging-port=0 makes Chromium set navigator.webdriver, which sites block.
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _query_browser_endpoint(host_port: str) -> str:
+    """Return the listening browser's browser-level WebSocket URL, or "" if none answers.
+
+    The browser endpoint outlives every tab. A page endpoint from /json closes
+    with its tab, which another research worker may own.
+    """
     try:
-        req = urllib.request.Request("http://127.0.0.1:9222/json")
-        with urllib.request.urlopen(req, timeout=1.0) as response:
-            data = json.loads(response.read().decode())
-            if isinstance(data, list) and len(data) > 0:
-                for target in data:
-                    if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                        return target["webSocketDebuggerUrl"]
+        with urllib.request.urlopen(f"http://{host_port}/json/version", timeout=1.0) as response:
+            return str(json.loads(response.read().decode()).get("webSocketDebuggerUrl") or "")
     except Exception:
-        pass
+        return ""
 
-    # Spawn browser non-headlessly if not already running
-    profile_dir = browser_profile_dir(browser_type)
 
+def _recorded_endpoint(profile_dir: str) -> str:
+    """Return the URL recorded for this profile if that same browser process still answers, else "".
+
+    The id in the URL is new for every browser process, so a stale record or another browser on the port never matches.
+    """
+    try:
+        with open(os.path.join(profile_dir, _ENDPOINT_FILE), encoding="utf-8") as f:
+            recorded = f.read()
+    except FileNotFoundError:
+        return ""
+    endpoint = _query_browser_endpoint(urlsplit(recorded).netloc)
+    return endpoint if endpoint == recorded else ""
+
+
+def _launch_cdp_browser(browser_type: str, profile_dir: str) -> str:
     if os.path.exists(browser_type) or "/" in browser_type or "\\" in browser_type:
         executable = browser_type
     elif browser_type in _CDP_BROWSER_CANDIDATES:
@@ -263,41 +300,45 @@ def get_local_cdp_url(browser_type: str = "chrome") -> str:
             search_names.extend(["microsoft-edge-stable", "microsoft-edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"])
         executable = find_browser_executable(search_names, browser_type)
 
+    port = _free_port()
     cmd = [
         executable,
-        "--remote-debugging-port=9222",
+        f"--remote-debugging-port={port}",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
-        "--no-default-browser-check"
+        "--no-default-browser-check",
     ]
 
     logger.info("Spawning local browser (%s): %s", browser_type, " ".join(cmd))
     spawn_local_browser(cmd, label=browser_type)
-    
-    # Wait for browser to listen on port 9222
+
     deadline = time.time() + 6.0
     while time.time() < deadline:
-        try:
-            req = urllib.request.Request("http://127.0.0.1:9222/json")
-            with urllib.request.urlopen(req, timeout=1.0) as response:
-                data = json.loads(response.read().decode())
-                if isinstance(data, list) and len(data) > 0:
-                    for target in data:
-                        if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
-                            return target["webSocketDebuggerUrl"]
-        except Exception:
-            pass
+        endpoint = _query_browser_endpoint(f"127.0.0.1:{port}")
+        if endpoint:
+            with open(os.path.join(profile_dir, _ENDPOINT_FILE), "w", encoding="utf-8") as f:
+                f.write(endpoint)
+            return endpoint
+        # The profile's browser may already be running under another WriterAgent; Chromium then hands off to it and exits.
+        endpoint = _recorded_endpoint(profile_dir)
+        if endpoint:
+            return endpoint
         time.sleep(0.2)
-        
-    raise RuntimeError(f"Browser ({browser_type}) CDP did not start listening on port 9222 after 6 seconds")
 
-def _resolve_cdp_endpoint() -> str:
-    """Return the normalized CDP WebSocket URL, or empty string if unavailable."""
-    try:
-        return get_local_cdp_url()
-    except Exception as exc:
-        logger.debug("browser_cdp: failed to resolve CDP endpoint: %s", exc)
-        return ""
+    raise RuntimeError(f"Browser ({browser_type}) CDP did not start listening on port {port} after 6 seconds")
+
+
+def get_local_cdp_url(browser_type: str) -> str:
+    global _CDP_ENDPOINT, _CDP_BROWSER_TYPE
+    if _CDP_ENDPOINT and _CDP_BROWSER_TYPE != browser_type:
+        raise RuntimeError(f"another local browser is already in use for web research ({_CDP_BROWSER_TYPE})")
+    profile_dir = browser_profile_dir(browser_type)
+    # Do not clear on entry or failure: another run may still be using a live browser too busy to answer in 1 s.
+    endpoint = _recorded_endpoint(profile_dir)
+    if not endpoint:
+        endpoint = _launch_cdp_browser(browser_type, profile_dir)
+    _CDP_ENDPOINT, _CDP_BROWSER_TYPE = endpoint, browser_type
+    return endpoint
 
 
 # ---------------------------------------------------------------------------
@@ -567,22 +608,17 @@ def browser_cdp(
             "Install it with: pip install websockets"
         )
 
-    endpoint = _resolve_cdp_endpoint()
+    endpoint = _CDP_ENDPOINT
     if not endpoint:
         return tool_error(
-            "No CDP endpoint is available. Run '/browser connect' to attach "
-            "to a running Chrome, Brave, Chromium, or Edge browser, or set "
-            "'browser.cdp_url' in config.yaml. The Camofox backend is REST-only "
-            "and does not expose CDP.",
+            "The research browser is not running. The next web research run starts it again. "
+            "To read pages without a browser, set 'Web Research Browser' to 'Off (Static HTTP)' in Settings.",
             cdp_docs=CDP_DOCS_URL,
         )
 
     if not endpoint.startswith(("ws://", "wss://")):
         return tool_error(
-            f"CDP endpoint is not a WebSocket URL: {endpoint!r}. "
-            "Expected ws://... or wss://... — the /browser connect "
-            "resolver should have rewritten this. Check that a Chromium-family "
-            "browser is actually listening on the debug port."
+            f"CDP endpoint is not a WebSocket URL: {endpoint!r}."
         )
 
     call_params: Dict[str, Any] = params or {}
@@ -608,10 +644,12 @@ def browser_cdp(
         )
     except RuntimeError as exc:
         return tool_error(str(exc), method=method)
-    except WebSocketException as exc:
+    except (WebSocketException, OSError) as exc:
+        # A refused connection means the browser exited. Keep after TimeoutError, which is an OSError.
         return tool_error(
-            f"WebSocket error talking to CDP at {endpoint}: {exc}. The "
-            "browser may have disconnected — try '/browser connect' again.",
+            f"WebSocket error talking to CDP at {endpoint}: {exc}. The research browser may have been closed. "
+            "Further page visits in this run will fail, so answer from what has already been collected. "
+            "The next web research run starts it again.",
             method=method,
         )
     except Exception as exc:  # pragma: no cover — unexpected

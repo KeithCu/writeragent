@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, final
 
 from plugin.contrib.cdp.browser_cdp_tool import (
@@ -35,6 +36,7 @@ from plugin.framework.thread_guard import background
 from plugin.framework.worker_pool import run_in_background
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from websockets.sync.client import ClientConnection
 
 log = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ BIDI_CALL_TIMEOUT = 30.0
 # Generous launch wait for cold start (e.g. Windows ARM).
 FIREFOX_LAUNCH_TIMEOUT_SEC = 15.0
 _PIDFILE_NAME = "firefox_bidi.pid"
+_LAUNCH_LOCK_NAME = "launch.lock"
 _FIREFOX_CANDIDATES = [
     "firefox",
     "firefox-esr",
@@ -364,25 +367,40 @@ def connect_firefox_bidi(open_timeout: float) -> FirefoxBidiClient:
     return client
 
 
-def begin_firefox_bidi() -> FirefoxBidiClient:
-    """Return a live Firefox BiDi client, launching Firefox if needed.
+@contextmanager
+def _profile_launch_lock(profile_dir: str) -> Generator[None]:
+    """Hold the cross-process lock for launching Firefox on *profile_dir*; raise RuntimeError if another process has it.
 
-    Caller must hold ``LocalBrowserRefCount.launch_lock``.
+    LocalBrowserRefCount.launch_lock covers one process. Without this lock, two LibreOffice processes starting
+    together both poll the one Firefox that won the profile, and the one refused a session kills it.
+    The OS drops the lock when its holder exits.
     """
-    global _CLIENT
-    if _CLIENT is not None:
-        if not _CLIENT.closed:
-            return _CLIENT
-        close_firefox_bidi()
-        cleanup_local_browser()
-        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove dead pidfile")
+    with open(os.path.join(profile_dir, _LAUNCH_LOCK_NAME), "a", encoding="utf-8") as f:
+        try:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
 
-    profile_dir = browser_profile_dir("firefox")
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl  # POSIX-only stdlib module.
+
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError(f"another WriterAgent is starting Firefox for web research: {exc}") from exc
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":
+                import msvcrt  # Windows-only stdlib module.
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _connect_or_launch(profile_dir: str) -> FirefoxBidiClient:
     pidfile = _pidfile_path(profile_dir)
 
     try:
-        _CLIENT = connect_firefox_bidi(1.0)
-        return _CLIENT
+        return connect_firefox_bidi(1.0)
     except OSError:
         # Nothing is listening yet, so launch Firefox.
         pass
@@ -420,8 +438,7 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
     deadline = time.time() + FIREFOX_LAUNCH_TIMEOUT_SEC
     while time.time() < deadline:
         try:
-            _CLIENT = connect_firefox_bidi(1.0)
-            return _CLIENT
+            return connect_firefox_bidi(1.0)
         except OSError:
             rc = managed.popen.poll() if managed.popen is not None else None
             if rc is not None and rc != 0:
@@ -431,6 +448,25 @@ def begin_firefox_bidi() -> FirefoxBidiClient:
         f"Firefox did not start listening for WebDriver BiDi on port {FIREFOX_BIDI_PORT} "
         f"after {int(FIREFOX_LAUNCH_TIMEOUT_SEC)} seconds"
     )
+
+
+def begin_firefox_bidi() -> FirefoxBidiClient:
+    """Return a live Firefox BiDi client, launching Firefox if needed.
+
+    Caller must hold ``LocalBrowserRefCount.launch_lock``.
+    """
+    global _CLIENT
+    if _CLIENT is not None:
+        if not _CLIENT.closed:
+            return _CLIENT
+        close_firefox_bidi()
+        cleanup_local_browser()
+        best_effort(lambda: remove_pidfile(only_if_owner=False), "firefox bidi: remove dead pidfile")
+
+    profile_dir = browser_profile_dir("firefox")
+    with _profile_launch_lock(profile_dir):
+        _CLIENT = _connect_or_launch(profile_dir)
+    return _CLIENT
 
 
 def close_firefox_bidi() -> None:

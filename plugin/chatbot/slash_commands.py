@@ -836,7 +836,7 @@ def run_slash_compact_sync(
     the UI thread; this worker must not touch UNO, ``msgbox``, or the document.
     """
     from plugin.chatbot.compaction import auth_line_for_client, auth_line_for_error, compact_session
-    from plugin.framework.config import get_config
+    from plugin.framework.config import fill_api_key, get_config
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
 
@@ -846,6 +846,11 @@ def run_slash_compact_sync(
     def status_cb(text: str) -> None:
         log.debug("slash compact status: %s", text)
 
+    if is_cancelled(cancel):
+        return "\n" + _("Compaction cancelled.") + "\n"
+
+    fill_api_key(client.config)
+    # Stop clicked while the unlock prompt was open reports a cancel, not a keyring error.
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"
 
