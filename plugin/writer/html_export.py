@@ -32,6 +32,7 @@ from plugin.doc.text_helpers import (
     iter_table_paragraphs,
     iter_xtext_paragraphs,
     starts_at_or_after,
+    table_visible_text,
     visible_portions,
     walk_cap_warning,
 )
@@ -421,46 +422,30 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
     return past_end, window
 
 
-def _offset_window(text: Any, start: int, end: int) -> tuple[Callable[[Any], bool], _Window]:
+def _offset_window(start: int, end: int) -> tuple[Callable[[Any], bool], _Window]:
     """Window filter for character-offset slice export.
 
-    One cursor walks forward so each paragraph costs only its gap from the
-    previous element. A failed gap measurement raises rather than shifting the
-    window across subsequent paragraphs. Returns the window in the paragraph's
-    own coordinates with tracked deletions removed, keeping (0, len) when uncut
-    so portion indexing matches.
+    Counts as ``text_helpers._body_blocks`` does: each element is its visible
+    text plus one break. Tables are read whole when the range touches them.
     """
-    walker = text.createTextCursor()
-    walker.gotoStart(False)
-    running = 0
-    prev_end = -1
-    prev_opened = False
+    pos = 0
 
     def window(
         el: Any, para_text: str, tables: list[Any], opened: bool
     ) -> tuple[list[Any], tuple[int, int] | None]:
-        nonlocal running, prev_end, prev_opened
-        gap = text.createTextCursorByRange(walker.getStart())
-        gap.gotoRange(el.getStart(), True)
-        running += len(get_string_without_tracked_deletions(gap, DeletionState(prev_opened)))
-        prev_opened = opened
-        # A range that ends at the start of the paragraph after a table enumerates without
-        # that paragraph (SwXParagraphEnumerationImpl::IgnoreLastElement in
-        # sw/source/core/unocore/unoobj2.cxx), so the break before it is not in the gap text.
-        # The gap is collapsed when the table opens the document: gotoStart steps past it.
-        if tables and not gap.isCollapsed():
-            running += 1
-        walker.gotoRange(el.getStart(), False)
-        para_start = running
-        # Adjacent tables count as one block: from after the previous paragraph's break to the
-        # break before this one. A table that opens the document has no offsets of its own and
-        # is read with offset 0.
-        tables_start, prev_end = prev_end + 1, para_start + len(para_text)
-        tables_end = max(tables_start, para_start - 1)
-        inside = tables if tables_start < end and tables_end >= start else []
-        if prev_end <= start or para_start >= end:
+        nonlocal pos
+        inside = []
+        for table in tables:
+            table_start = pos
+            pos += len(table_visible_text(table, opened)) + 1
+            if table_start < end and pos > start:
+                inside.append(table)
+        para_start = pos
+        para_end = para_start + len(para_text)
+        pos = para_end + 1
+        if para_end <= start or para_start >= end:
             return inside, None
-        return inside, (max(0, start - para_start), len(para_text) - max(0, prev_end - end))
+        return inside, (max(0, start - para_start), len(para_text) - max(0, para_end - end))
 
     return (lambda _el: False), window
 
@@ -638,7 +623,7 @@ def _range_to_content_via_temp_doc(
         past_end, window = (
             _selection_window(text, source_range)
             if source_range is not None
-            else _offset_window(text, start, end)
+            else _offset_window(start, end)
         )
         copied = _copy_window_to_scratch(model, text, temp_doc, past_end, window, walk_warnings)
         if copied is None:

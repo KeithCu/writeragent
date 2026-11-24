@@ -347,3 +347,54 @@ def test_search_skips_tracked_deleted_text_and_table_cell_uno(ctx, doc):
     strike_across_table(doc, text)
     assert SearchInDocument().execute(tctx, pattern="CellGone")["count"] == 0
     assert SearchInDocument().execute(tctx, pattern="Before")["count"] == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_content_multi_paragraph_does_not_match_across_table_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha", False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("Cell1")
+    cur.gotoEnd(False)
+    text.insertString(cur, "Beta", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tctx, target="search", old_content="Alpha\nBeta", content="Alpha\nGamma"
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert doc.getTextTables().getCount() == 1
+    assert tbl.getCellByName("A1").getString() == "Cell1"
+    assert "Beta" in text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_content_multi_paragraph_inside_one_cell_matches_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    c_cur = cell.createTextCursor()
+    cell.insertString(c_cur, "One", False)
+    cell.insertControlCharacter(c_cur, 0, False)
+    cell.insertString(c_cur, "Two", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tctx, target="search", old_content="One\nTwo", content="One\nThree"
+    )
+    assert res["status"] == "ok", res
+    assert "Three" in cell.getString()

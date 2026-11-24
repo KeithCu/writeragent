@@ -294,7 +294,7 @@ def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
     strike_all_after_leading_table(doc, ctx)
     text = doc.getText()
     assert visible_range_text(doc, text) == "\n\n"
-    assert get_document_length(doc) == 1
+    assert get_document_length(doc) == 2
 
     enum = text.createEnumeration()
     els = []
@@ -332,5 +332,67 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
         doc.setPropertyValue("RecordChanges", False)
 
     assert visible_range_text(doc, text) == "cellA1\n\nthree"
-    # get_document_length uses a cursor from body.getStart(), which skips the leading table.
-    assert get_document_length(doc) == len("\nthree")
+    assert get_document_length(doc) == len("cellA1\n\nthree")
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_range_text
+
+    body = doc.getText()
+    for cell_val, add_para in (("cA1", "Fin"), ("zA1", "")):
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_val)
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        if add_para:
+            body.insertString(cur, add_para, False)
+
+    text, offsets = read_visible_body(doc, [body.getEnd()])
+    assert text == visible_range_text(doc, body)
+    assert text == "cA1\nFin\nzA1\n"
+    assert offsets == [len(text)]
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_body_range_round_trips_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_body_range
+    from plugin.framework.errors import ToolExecutionError
+
+    body = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    body.insertTextContent(body.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("cA1")
+
+    cur = body.createTextCursor()
+    cur.gotoEnd(False)
+    body.insertString(cur, "ab😀", False)
+    field = doc.createInstance("com.sun.star.text.TextField.DateTime")
+    body.insertTextContent(cur, field, False)
+    body.insertString(cur, "cd", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        body.insertString(cur, "STRUCK", False)
+        cur.goLeft(len("STRUCK"), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    cur.gotoEnd(False)
+    body.insertString(cur, "ef", False)
+
+    text, _ = read_visible_body(doc)
+    for start in range(len(text)):
+        for end in range(start + 1, len(text) + 1):
+            try:
+                found = visible_body_range(doc, start, end)
+            except ToolExecutionError:
+                continue
+            assert found is not None
+            _, got_offsets = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+            assert got_offsets == [found.start, found.end]
+            assert text[found.start:found.end] == found.text

@@ -1,6 +1,6 @@
 
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
-from plugin.doc.text_helpers import get_text_cursor_at_range_reached, normalize_linebreaks
+from plugin.doc.text_helpers import normalize_linebreaks, read_visible_body, visible_body_range
 from plugin.writer.html_import import insert_html_fragment_at_cursor
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
@@ -16,28 +16,23 @@ def _populate_ops_doc(doc):
 
 @native_test
 @with_native_doc("writer")
-def test_get_text_cursor_at_range_reached(ctx, doc):
+def test_visible_body_range(ctx, doc):
     _populate_ops_doc(doc)
-    text = doc.getText()
-    full_text_str = text.getString()
+    visible_text, _ = read_visible_body(doc)
 
-    # Just grab a known length from the doc string
+    # Just grab a known length from the visible body text
     start_idx = 0
-    end_idx = min(3, len(full_text_str))
+    end_idx = min(3, len(visible_text))
 
-    cursor, reached = get_text_cursor_at_range_reached(doc, start_idx, end_idx)
-    assert cursor is not None, "get_text_cursor_at_range_reached returned None"
-    assert reached is True
+    found = visible_body_range(doc, start_idx, end_idx)
+    assert found is not None, "visible_body_range returned None"
 
-    selected_text = cursor.getString()
-    expected_text = full_text_str[start_idx:end_idx]
+    selected_text = normalize_linebreaks(found.cursor.getString())
+    expected_text = visible_text[start_idx:end_idx]
 
-    # Windows: text.getString() may use ``\\r`` for a paragraph break while
-    # the range cursor getString() returns ``\\r\\n`` for the same goRight
-    # span (GHA 35466498641). Offsets stay correct; only the encoding of
-    # the break differs. Product callers use normalize_linebreaks.
-    assert normalize_linebreaks(selected_text) == normalize_linebreaks(expected_text), (
-        f"get_text_cursor_at_range_reached mismatch. Expected '{expected_text}', got '{selected_text}'"
+    assert found.text == expected_text
+    assert selected_text == expected_text, (
+        f"visible_body_range mismatch. Expected '{expected_text}', got '{selected_text}'"
     )
 
 

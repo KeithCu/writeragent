@@ -364,58 +364,50 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_get_text_cursor_at_range_reached_ignores_the_short_character_count():
-    """#37: CharacterCount leaves out paragraph breaks and tracked deletions, so clamping to it
-    cut a real offset from search(return_offsets) down to nothing."""
-    from plugin.doc.text_helpers import get_text_cursor_at_range_reached
-
-    model = MagicMock()
-    model.CharacterCount = 5  # far shorter than the offsets asked for
-    cursor = model.getText.return_value.createTextCursor.return_value
-    cursor.goRight.return_value = True
-    got, reached = get_text_cursor_at_range_reached(model, 3338, 3358)
-    assert got is cursor
-    assert reached is True
-    assert cursor.goRight.call_args_list[0].args == (3338, False)
-    assert cursor.goRight.call_args_list[-1].args == (20, True)
-
-
-def test_get_text_cursor_at_range_reached_stops_at_the_end_of_the_text():
-    """Without the clamp, char_end=10**12 would run ~10**8 goRight calls; stop once one runs
-    out of text (it has already moved to the end)."""
-    from plugin.doc.text_helpers import get_text_cursor_at_range_reached
-
-    model = MagicMock()
-    cursor = model.getText.return_value.createTextCursor.return_value
-    cursor.goRight.return_value = False
-    got, reached = get_text_cursor_at_range_reached(model, 10**12, 10**12 + 5)
-    assert got is cursor
-    assert reached is False
-    assert cursor.goRight.call_count == 1
-
-
-def _make_body_cursor(paragraphs):
-    cursor = _TextRange(paragraphs)
-    cursor.gotoStart = lambda _expand=False: None  # type: ignore[attr-defined]
-    cursor.gotoEnd = lambda _expand=False: None  # type: ignore[attr-defined]
-    return cursor
-
-
 def test_get_document_length_is_the_visible_writer_text():
     """document_length and scope='range' share one space: the visible text with LF-normalised
     breaks and tracked deletions hidden."""
     from plugin.doc import text_helpers
 
     body = MagicMock()
-    body.createTextCursor.return_value = _make_body_cursor([
+    body.createEnumeration.return_value = _TextRange([
         _Paragraph([_Portion("ab\r\ncd")]),
         _Paragraph([_Portion("ef")]),
-    ])
+    ]).createEnumeration()
     model = MagicMock()
     model.getText.return_value = body
     with patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER):
         # "ab\ncd" (5) + "\n" (1) + "ef" (2) = 8
         assert text_helpers.get_document_length(model) == 8
+
+
+def test_visible_body_range_rejects_table_offset_and_clamps_end():
+    from plugin.doc.text_helpers import visible_body_range
+    from plugin.framework.errors import ToolExecutionError
+
+    table = _FakeTable({"A1": _TextRange([_Paragraph([_Portion("Cell")])])})
+    portion = _Portion("After")
+    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    para = _Paragraph([portion])
+    para.getStart = lambda: "p_start"  # type: ignore[attr-defined]
+    para.getEnd = lambda: "p_end"  # type: ignore[attr-defined]
+    body = MagicMock()
+    body.createEnumeration.side_effect = lambda: _TextRange([table, para]).createEnumeration()
+    body.getEnd.return_value = "doc_end"
+    model = MagicMock()
+    model.getText.return_value = body
+
+    with pytest.raises(ToolExecutionError, match="offsets 0 to 4") as exc_info:
+        visible_body_range(model, 2, 7)
+    assert exc_info.value.code == "INVALID_PARAM"
+
+    assert visible_body_range(model, 10, 20) is None
+
+    got = visible_body_range(model, 5, 10**6)
+    assert got is not None
+    assert got.start == 5
+    assert got.end == 10
+    assert got.text == "After"
 
 
 def test_get_document_length_propagates_disposal():
@@ -634,7 +626,7 @@ def test_read_visible_body_hides_deletion_across_paragraphs_and_table():
         "A1": _TextRange([_Paragraph([_Portion("CellGone")])]),
     })
     body = MagicMock()
-    body.createTextCursor.return_value = _make_body_cursor([
+    body.createEnumeration.return_value = _TextRange([
         _Paragraph([
             _Portion("Keep "),
             _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
@@ -646,7 +638,7 @@ def test_read_visible_body_hides_deletion_across_paragraphs_and_table():
             _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
             _Portion("After"),
         ]),
-    ])
+    ]).createEnumeration()
     model = MagicMock()
     model.getText.return_value = body
     text, offsets = read_visible_body(model)
@@ -658,7 +650,7 @@ def test_read_visible_body_position_in_other_text_is_none():
     from plugin.doc.text_helpers import read_visible_body
 
     body = MagicMock()
-    body.createTextCursor.return_value = _make_body_cursor([_Paragraph([_Portion("Hello")])])
+    body.createEnumeration.return_value = _TextRange([_Paragraph([_Portion("Hello")])]).createEnumeration()
     other = MagicMock()
     pos = MagicMock()
     pos.getText.return_value = other
@@ -669,13 +661,13 @@ def test_read_visible_body_position_in_other_text_is_none():
     assert offsets == [None]
 
 
-def test_read_visible_body_position_after_last_paragraph_is_text_end():
+def test_read_visible_body_position_not_reached_is_none():
     from plugin.doc.text_helpers import read_visible_body
 
     para = _Paragraph([_Portion("Hello")])
     para.getEnd = lambda: "para_end"  # type: ignore[attr-defined]
     body = MagicMock()
-    body.createTextCursor.return_value = _make_body_cursor([para])
+    body.createEnumeration.return_value = _TextRange([para]).createEnumeration()
     body.compareRegionStarts.return_value = 1
     pos = MagicMock()
     pos.getText.return_value = body
@@ -683,7 +675,7 @@ def test_read_visible_body_position_after_last_paragraph_is_text_end():
     model.getText.return_value = body
     text, offsets = read_visible_body(model, [pos])
     assert text == "Hello"
-    assert offsets == [5]
+    assert offsets == [None]
 
 
 def test_read_visible_body_disposed():
@@ -702,7 +694,7 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
     para.getStart = lambda: "para_start"  # type: ignore[attr-defined]
     para.getEnd = lambda: "para_end"  # type: ignore[attr-defined]
     body = MagicMock()
-    body.createTextCursor.return_value = _make_body_cursor([para])
+    body.createEnumeration.return_value = _TextRange([para]).createEnumeration()
     body.compareRegionStarts.return_value = 0
     body.createTextCursorByRange.side_effect = RuntimeError("cursor failed")
     pos = MagicMock()

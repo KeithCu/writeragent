@@ -782,9 +782,9 @@ def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx:
 @native_test
 @with_native_doc("writer")
 def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
-    """_offset_window stays aligned with get_string_without_tracked_deletions across tables."""
+    """_offset_window stays aligned with read_visible_body across tables."""
     import re
-    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.doc.text_helpers import read_visible_body
     from plugin.writer.html_export import document_to_content
 
     def _body_structure() -> list[str]:
@@ -824,11 +824,11 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
             _fill_trailing_para("Beta")
-            return ["Alpha", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
+            return ["Alpha", "T1", "Beta"], ["Paragraph:Alpha", "TextTable", "Paragraph:Beta"]
         if layout == "leading":
             _add_table("T1")
             _fill_trailing_para("Beta")
-            return ["Beta"], ["TextTable", "Paragraph:Beta"]
+            return ["T1", "Beta"], ["TextTable", "Paragraph:Beta"]
         if layout == "adjacent_and_later":
             text.insertString(cur, "Alpha", False)
             _add_table("T1")
@@ -837,7 +837,7 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
             _add_table("T3")
             _fill_trailing_para("Gamma")
             return (
-                ["Alpha", "Beta", "Gamma"],
+                ["Alpha", "T1", "T2", "Beta", "T3", "Gamma"],
                 ["Paragraph:Alpha", "TextTable", "TextTable", "Paragraph:Beta", "TextTable", "Paragraph:Gamma"],
             )
         # empty paragraph after table
@@ -846,25 +846,19 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
         cur.gotoEnd(False)
         text.insertControlCharacter(cur, 0, False)
         _fill_trailing_para("Gamma")
-        return ["Alpha", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
+        return ["Alpha", "T1", "Gamma"], ["Paragraph:Alpha", "TextTable", "Paragraph:", "Paragraph:Gamma"]
 
     for layout in ("middle", "leading", "adjacent_and_later", "empty_after"):
         words, expected_structure = _reset_and_build(layout)
         assert _body_structure() == expected_structure, (layout, _body_structure())
-        whole = doc.getText().createTextCursor()
-        whole.gotoStart(False)
-        whole.gotoEnd(True)
-        full_str = get_string_without_tracked_deletions(whole)
+        full_str, _ = read_visible_body(doc)
         for word in words:
             offset = full_str.index(word)
             html = document_to_content(
                 doc, ctx, scope="range", range_start=offset, range_end=offset + len(word)
             )
             plain = re.sub(r"<[^>]+>", "", html).strip()
-            if layout == "leading" and offset == 0:
-                assert "".join(plain.split()) == "T1" + word, (layout, word, offset, html)
-            else:
-                assert plain == word, (layout, word, offset, html)
+            assert plain == word, (layout, word, offset, html)
 
 
 @native_test

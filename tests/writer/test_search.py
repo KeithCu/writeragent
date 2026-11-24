@@ -408,53 +408,74 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
         model.createSearchDescriptor.assert_not_called()
 
     model = MagicMock()
-    model.findNext.return_value = None
+    model.findFirst.return_value = None
     res = find_text_ranges(model, "foo", limit=None)
+    assert res == []
     model.createSearchDescriptor.assert_called_once()
 
 
-def test_find_text_ranges_body_only_skips_other_xtext():
+def test_find_text_ranges_filters_body_and_measures_via_visible_body():
+    from unittest.mock import patch
     from plugin.writer.search import find_text_ranges
 
-    class BodyTextObj:
-        def createTextCursor(self):
-            c = MagicMock()
-            c.getString.return_value = "pre"
-            return c
-
-    class OtherTextObj:
-        def createTextCursor(self):
-            c = MagicMock()
-            c.getString.return_value = "nested_pre"
-            return c
-
-    b_obj = BodyTextObj()
-    o_obj = OtherTextObj()
+    b_obj = MagicMock()
+    o_obj = MagicMock()
 
     model = MagicMock()
     model.getText.return_value = b_obj
 
     hit_body = MagicMock()
     hit_body.getText.return_value = b_obj
-    hit_body.getString.return_value = "hit1"
-
     hit_nested = MagicMock()
     hit_nested.getText.return_value = o_obj
-    hit_nested.getString.return_value = "hit2"
+    hit_second = MagicMock()
+    hit_second.getText.return_value = b_obj
 
-    # body_only=True -> only body hit
-    model.findNext.side_effect = [hit_body, hit_nested, None]
-    res_body_only = find_text_ranges(model, "hit", body_only=True)
-    assert len(res_body_only) == 1
-    assert res_body_only[0]["text"] == "hit1"
+    model.findFirst.return_value = hit_body
+    model.findNext.side_effect = [hit_nested, hit_second, None]
 
-    # body_only=False -> both
-    model.findNext.side_effect = [hit_body, hit_nested, None]
-    res_all = find_text_ranges(model, "hit", body_only=False)
-    assert len(res_all) == 2
-    assert res_all[0]["text"] == "hit1"
-    assert res_all[1]["text"] == "hit2"
-    assert res_all[1]["start"] == len("nested_pre")
+    with patch("plugin.writer.search.uno_same", side_effect=lambda a, b: a is b), \
+         patch("plugin.writer.search.TrackedDeletions") as td_cls, \
+         patch(
+             "plugin.writer.search.read_visible_body",
+             side_effect=lambda _m, pos: ("ab hit1 cd hit2", [3, 7] if len(pos) == 2 else [3, 7, 11, 15]),
+         ):
+        td_cls.return_value.covers.return_value = False
+        res = find_text_ranges(model, "hit", limit=1)
+    assert res == [{"start": 3, "end": 7, "text": "hit1"}]
+
+    model.findFirst.return_value = hit_body
+    model.findNext.side_effect = [hit_nested, hit_second, None]
+    with patch("plugin.writer.search.uno_same", side_effect=lambda a, b: a is b), \
+         patch("plugin.writer.search.TrackedDeletions") as td_cls, \
+         patch(
+             "plugin.writer.search.read_visible_body",
+             side_effect=lambda _m, pos: ("ab hit1 cd hit2", [3, 7, 11, 15] if len(pos) == 4 else []),
+         ):
+        td_cls.return_value.covers.return_value = False
+        res_all = find_text_ranges(model, "hit")
+    assert res_all == [{"start": 3, "end": 7, "text": "hit1"}, {"start": 11, "end": 15, "text": "hit2"}]
+
+
+def test_find_text_ranges_none_offset_raises():
+    from unittest.mock import patch
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.search import find_text_ranges
+
+    b_obj = MagicMock()
+    model = MagicMock()
+    model.getText.return_value = b_obj
+    hit = MagicMock()
+    hit.getText.return_value = b_obj
+    model.findFirst.return_value = hit
+    model.findNext.return_value = None
+
+    with patch("plugin.writer.search.uno_same", return_value=True), \
+         patch("plugin.writer.search.TrackedDeletions") as td_cls, \
+         patch("plugin.writer.search.read_visible_body", return_value=("text", [None, 3])):
+        td_cls.return_value.covers.return_value = False
+        with pytest.raises(ToolExecutionError):
+            find_text_ranges(model, "hit")
 
 
 def test_build_page_map_rebuilds_and_unlocks(caplog):
@@ -1806,63 +1827,43 @@ def test_closest_mismatch_lenient_quote_pair_returns_no_mismatch():
     assert res["diff_at"] == 16
 
 
-class _FakeCursorForSteps:
-    def __init__(self, length):
-        self.length = length
-        self.pos = 0
-
-    def gotoStart(self, expand=False):
-        self.pos = 0
-
-    def goRight(self, n, expand=False):
-        if self.pos + n <= self.length:
-            self.pos += n
-            return True
-        self.pos = self.length
-        return False
-
-
-class _FakeTextForSteps:
-    def __init__(self, length):
-        self.length = length
-
-    def createTextCursor(self):
-        return _FakeCursorForSteps(self.length)
-
-
-class _FakeDocForSteps:
-    def __init__(self, length):
-        self.text = _FakeTextForSteps(length)
-
-    def getText(self):
-        return self.text
-
-
 def test_old_content_covers_most_proved_table():
-    assert old_content_covers_most(_FakeDocForSteps(200), 120) is True
-    assert old_content_covers_most(_FakeDocForSteps(200), 100) is False
-    assert old_content_covers_most(_FakeDocForSteps(0), 120) is False
-    assert old_content_covers_most(_FakeDocForSteps(150), 160) is True
-    assert old_content_covers_most(_FakeDocForSteps(200), 0) is False
-    assert old_content_covers_most(_FakeDocForSteps(50), 40) is False
+    from unittest.mock import patch
+
+    doc = MagicMock()
+    with patch("plugin.writer.search.get_document_length", return_value=200):
+        assert old_content_covers_most(doc, 120) is True
+        assert old_content_covers_most(doc, 100) is False
+        assert old_content_covers_most(doc, 0) is False
+    with patch("plugin.writer.search.get_document_length", return_value=0):
+        assert old_content_covers_most(doc, 120) is False
+    with patch("plugin.writer.search.get_document_length", return_value=150):
+        assert old_content_covers_most(doc, 160) is True
+    with patch("plugin.writer.search.get_document_length", return_value=50):
+        assert old_content_covers_most(doc, 40) is False
 
 
 def test_old_content_covers_most_boundaries():
-    doc = _FakeDocForSteps(200)
-    # Needle exactly half the body is not oversized
-    assert old_content_covers_most(doc, 100) is False
-    # Needle strictly more than half the body is oversized
-    assert old_content_covers_most(doc, 101) is True
+    from unittest.mock import patch
+
+    doc = MagicMock()
+    with patch("plugin.writer.search.get_document_length", return_value=200):
+        # Needle exactly half the body is not oversized
+        assert old_content_covers_most(doc, 100) is False
+        # Needle strictly more than half the body is oversized
+        assert old_content_covers_most(doc, 101) is True
     # Needle under 100 chars is never oversized, even if it exceeds half the body
-    small_doc = _FakeDocForSteps(120)
-    assert old_content_covers_most(small_doc, 99) is False
-    assert old_content_covers_most(small_doc, 100) is True
+    with patch("plugin.writer.search.get_document_length", return_value=120):
+        assert old_content_covers_most(doc, 99) is False
+        assert old_content_covers_most(doc, 100) is True
 
 
 def test_build_search_not_found_response_oversized_with_near_miss():
     from unittest.mock import patch
 
-    doc = _FakeDocForSteps(200)
+    doc = MagicMock()
+    doc.getDrawPage.return_value.getCount.return_value = 0
+    doc.getRedlines.return_value.hasElements.return_value = False
     # 120-char needle is > half of 200-char doc, but has a closest mismatch
     needle = "A" * 120
     closest = {
@@ -1870,7 +1871,10 @@ def test_build_search_not_found_response_oversized_with_near_miss():
         "diff_at": 119,
         "message": "closest match starts '...', differs at character 119: A vs B",
     }
-    with patch("plugin.writer.search.search_closest_mismatch", return_value=closest):
+    with (
+        patch("plugin.writer.search.get_document_length", return_value=200),
+        patch("plugin.writer.search.search_closest_mismatch", return_value=closest),
+    ):
         resp = build_search_not_found_response(doc, needle)
     assert resp["status"] == "error"
     assert "target='full_document'" not in resp["message"]
@@ -1878,7 +1882,10 @@ def test_build_search_not_found_response_oversized_with_near_miss():
     assert resp.get("oversized") is not True
 
     # When no closest mismatch is found, oversized refusal triggers
-    with patch("plugin.writer.search.search_closest_mismatch", return_value=None):
+    with (
+        patch("plugin.writer.search.get_document_length", return_value=200),
+        patch("plugin.writer.search.search_closest_mismatch", return_value=None),
+    ):
         resp_oversized = build_search_not_found_response(doc, needle, refuse_oversized=True)
     assert resp_oversized["status"] == "error"
     assert "target='full_document'" in resp_oversized["message"]
@@ -2147,8 +2154,10 @@ def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
 
         assert list(_iter_descriptor_hits(doc, MagicMock())) == [live_hit]
 
-        doc.findNext.side_effect = [covered_hit, live_hit, None]
-        ranges = find_text_ranges(doc, "x")
+        doc.findFirst.return_value = covered_hit
+        doc.findNext.side_effect = [live_hit, None]
+        with patch("plugin.writer.search.read_visible_body", return_value=("live", [0, 4])):
+            ranges = find_text_ranges(doc, "x")
         assert len(ranges) == 1
         assert ranges[0]["text"] == "live"
 

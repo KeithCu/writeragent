@@ -2881,7 +2881,7 @@ class _TableProxy:
 
         Args:
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
@@ -2892,7 +2892,7 @@ class _TableProxy:
         Args:
             name (optional): Table name from table_list.
             cell (optional): Optional. One A1-style address; return that cell only.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
@@ -2906,7 +2906,7 @@ class _TableProxy:
             data (optional): 2D cell strings.
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted).
+            page (optional): Draw/Impress: 0-based page index (active if omitted).
             x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
             y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
             width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
@@ -2926,7 +2926,7 @@ class _TableProxy:
             axis (required): Whether to edit rows or columns. One of: row, column.
             index (required): 0-based row or column index (insert at count = append).
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
         return _result(call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index))
@@ -2947,7 +2947,7 @@ class _TableProxy:
             cell (required): A1-style cell address, e.g. 'B2'.
             text (required): New plain text for the cell.
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
+            page (optional): Draw/Impress: 0-based page index.
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))
@@ -3107,7 +3107,7 @@ class _WriterProxy:
             regex (optional): Use regular expression (ICU syntax).
             case_sensitive (optional): Case-sensitive match. The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return. Must be a positive integer.
-            return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments).
+            return_offsets (optional): If true, returns {start, end, text} offsets in get_content's document_length space, for body paragraphs only (no tables, regex, shapes or comments).
         """
         return _result(call_host_tool("search", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, return_offsets=return_offsets))
 
@@ -3118,8 +3118,8 @@ class _WriterProxy:
             search_text (optional): Text to select (first match unless occurrence is set).
             occurrence (optional): 0-based match to select when search_text repeats.
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
-            char_start (optional): Alternative to search_text: 0-based start offset in body cursor steps, which is not quite get_content's document_length space: a field or footnote anchor is one step whatever it shows, text deleted by pending tracked changes still counts, and an offset inside a table moves to the paragraph after it.
-            char_end (optional): End offset (exclusive, same cursor steps), required with char_start.
+            char_start (optional): Alternative to search_text: 0-based start offset in get_content's document_length space (same as search return_offsets). Must be in a paragraph, not in a table; an offset inside a field or footnote number covers all of it.
+            char_end (optional): End offset (exclusive, same space), required with char_start.
         """
         return _result(call_host_tool("set_selection", search_text=search_text, occurrence=occurrence, case_sensitive=case_sensitive, char_start=char_start, char_end=char_end))
 

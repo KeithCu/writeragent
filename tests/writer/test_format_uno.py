@@ -181,7 +181,9 @@ def test_find_text(ctx, doc):
     ranges = result.get("ranges", [])
     assert len(ranges) == 1, f"Expected 1 match, got {len(ranges)}"
     r = ranges[0]
-    text_at_range = _read_doc_text(doc)[r["start"]:r["end"]]
+    from plugin.doc.text_helpers import read_visible_body
+
+    text_at_range = read_visible_body(doc)[0][r["start"]:r["end"]]
     assert text_at_range == marker_find, f"find_text mismatch. Expected '{marker_find}', got '{text_at_range}'"
 
 
@@ -231,7 +233,9 @@ def test_crlf_normalization(ctx, doc):
     assert res_find_start.get("status") == "ok" and res_find_start.get("ranges"), "Could not find 'Line A' for verification"
     r_start = res_find_start["ranges"][-1]
 
-    total_range_text = _read_doc_text(doc)[r_start["start"]:r["end"]]
+    from plugin.doc.text_helpers import read_visible_body
+
+    total_range_text = read_visible_body(doc)[0][r_start["start"]:r["end"]]
     expected_norm = "Line A\nLine B\nUNIQUE_CRLF_TEST"
     assert total_range_text == expected_norm, f"Expected {repr(expected_norm)}, got {repr(total_range_text)}"
 
