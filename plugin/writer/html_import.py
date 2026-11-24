@@ -37,7 +37,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import create_property_value
-from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
+from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import HTML_FILTER, strip_html_boilerplate
 from .math.html_math_segment import (
     html_fragment_contains_mixed_math,
@@ -1366,23 +1366,24 @@ def content_is_block(content: str | None) -> bool:
 
 
 
-def _text_run_lengths(target_range: Any) -> list[int]:
-    """Length of each formatting run in *target_range*, or [] when it holds anything but text.
+def _text_runs(target_range: Any) -> list[Any]:
+    """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
     less than its string.
     """
-    lengths: list[int] = []
+    runs: list[Any] = []
     try:
         for para in iter_elements(target_range.createEnumeration()):
             for portion in iter_elements(para.createEnumeration()):
                 if portion.getPropertyValue("TextPortionType") not in ("Text", "SoftPageBreak"):
                     return []
-                lengths.append(len(portion.getString()))
+                if portion.getString():
+                    runs.append(portion)
     except Exception as exc:
         reraise_if_disposed(exc)
         return []
-    return [n for n in lengths if n]
+    return runs
 
 
 _ADVANCE_FAILED_MSG = "Could not replace that text in place (the selection did not advance)."
@@ -1434,25 +1435,38 @@ def _step_replace_characters(text: Any, main_cursor: Any, old_text: str, new_tex
 
 
 def _replace_recorded(
-    text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
+    model: Any, text: Any, target_range: Any, old_text: str, new_text: str, author_deletion: bool
 ) -> None:
     # Track Changes: the run-by-run diff records separate redlines or scrambles edits, so replace
     # the whole range in one shot as a single Delete + Insert the user can accept or reject cleanly.
     cursor = text.createTextCursorByRange(target_range)
-    # After the struck text the insertion inherits its formatting. A mixed range keeps
-    # inserting before, because its last run's formatting is not the range's. A linked run
-    # keeps inserting before, because the link would not extend and hyperlink_fixup measures
-    # the new text from the paragraph start.
-    one_run = _text_run_lengths(target_range) == [len(old_text)] and not cursor.getPropertyValue("HyperLinkURL")
-    if new_text and one_run:
-        added = text.createTextCursorByRange(target_range.getEnd())
-        # Insert comes first so a failure never leaves a bare deletion.
-        text.insertString(added, new_text, True)
-        cursor = text.createTextCursorByRange(target_range.getStart())
-        cursor.gotoRange(added.getStart(), True)  # target_range itself grew over the new text
+    runs = _text_runs(target_range)
+    lengths = [len(run.getString()) for run in runs]
+    if new_text and runs and sum(lengths) == len(old_text):
+        # Text inserted at a run's end takes that run's formatting (SwTextNode::InsertText, ndtxt.cxx).
+        # The longest run stands for a mixed range.
+        longest = lengths.index(max(lengths))
+        split = sum(lengths[: longest + 1])
+        # "" when the range is only partly linked or spans several links: the new text gets no link.
+        url = cursor.getPropertyValue("HyperLinkURL") or ""
+        props = hyperlink_fixup.read_link_props(runs[longest])
+        added = text.createTextCursorByRange(target_range.getStart())
+        _advance(added, split)
+        text.insertString(added, new_text, True)  # insert first: a failure never leaves a bare deletion
         try:
+            # A link does not extend over text inserted at its end, and does extend inside it.
+            if (added.getPropertyValue("HyperLinkURL") or "") != url:
+                with record_changes.record_changes(model, False):
+                    hyperlink_fixup.write_link(added, url, props)
+            tail = text.createTextCursorByRange(added.getEnd())
+            if len(old_text) > split:
+                _advance(tail, len(old_text) - split, True)
+            head = text.createTextCursorByRange(target_range.getStart())  # target_range may have grown
+            head.gotoRange(added.getStart(), True)
             with _deletion_author() if author_deletion else contextlib.nullcontext():
-                cursor.setString("")
+                if len(old_text) > split:
+                    tail.setString("")
+                head.setString("")
         except Exception:
             best_effort(lambda: added.setString(""), "replace_preserving_format: could not take back the insertion")
             raise
@@ -1501,7 +1515,7 @@ def _replace_untracked(text: Any, target_range: Any, old_text: str, new_text: st
     # would run on the main thread, inside the caller's undo context.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
-    lengths = _text_run_lengths(target_range)
+    lengths = [len(run.getString()) for run in _text_runs(target_range)]
     if sum(lengths) == old_len:
         start = 0
         for i, plen in enumerate(lengths):
@@ -1560,8 +1574,8 @@ def replace_preserving_format(
     """Replace text in *target_range* with *new_text* run by run, preserving formatting.
 
     Untracked new text takes the run's formatting (bold, italic, font, color, link, etc.).
-    Recorded one-run unlinked replaces insert after the struck text so the new text also
-    inherits the run's formatting.
+    Recorded single-paragraph plain replaces insert after the longest run so the new text
+    inherits its formatting, and carry the common link only when the whole range shares one URL.
 
     Cursors are created on ``target_range.getText()`` (the cell, frame, or body
     ``XText`` that owns the range), not ``model.getText()``. The range must lie
@@ -1595,7 +1609,7 @@ def replace_preserving_format(
     # One replace is several UNO actions; group them so one Ctrl+Z reverts it.
     with WriterCompoundUndo(model, _("WriterAgent: Replace text")):
         if record_changes.is_recording_changes(model):
-            _replace_recorded(text, target_range, old_text, new_text, split_author and in_undo_context)
+            _replace_recorded(model, text, target_range, old_text, new_text, split_author and in_undo_context)
         else:
             _replace_untracked(text, target_range, old_text, new_text)
 
