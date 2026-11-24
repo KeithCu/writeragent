@@ -15,6 +15,7 @@
 # review UI helpers in test_inline_review_uno.py.
 import contextlib
 
+from plugin.doc.compound_undo import undo_titles
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     native_writer_tool_context,
@@ -749,10 +750,8 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     assert visible == "Original text words to delete.", visible
 
     undo = doc.getUndoManager()
-    try:
-        before_in_context = bool(undo.isInContext())
-    except Exception:
-        before_in_context = None
+    assert undo.isUndoPossible()
+    before_titles = undo_titles(doc)
 
     try:
         WriterStreamedRewriteSession(doc, rng, visible, track_reviewable=True)
@@ -765,8 +764,8 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     assert _redlines(doc) == before_redlines, "the existing Delete redline must be untouched"
     assert bool(doc.getPropertyValue("RecordChanges")) is before_recording
     assert get_string_without_tracked_deletions(rng) == visible
-    if before_in_context is not None:
-        assert bool(undo.isInContext()) is before_in_context, "refuse must not open an undo context"
+    assert undo.isUndoPossible(), "refuse must not leave an undo context open"
+    assert undo_titles(doc) == before_titles
 
 
 def _two_para_body(doc, ctx, p1="Alpha initiative", p2="project Beta"):

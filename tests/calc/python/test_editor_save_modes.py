@@ -646,12 +646,6 @@ def test_follow_save_uses_one_undo_context():
         def leaveUndoContext(self) -> None:
             calls.append(("leave", None))
 
-        def isInContext(self) -> bool:
-            return False
-
-        def isUndoEnabled(self) -> bool:
-            return True
-
     um = UndoManagerStub()
     doc.getUndoManager = lambda: um
 
