@@ -34,6 +34,7 @@ LO_ERROR_TOKENS = frozenset(
         "#N/A N/A",
     }
 )
+_ERR_NUMBER_RE = re.compile(r"Err:[0-9]{3}", re.IGNORECASE)
 
 # Capture one leading/trailing sign before the currency symbol so negatives like "-1,234.50" and "$-123" parse correctly; two signs mean not a number.
 _SIGN = r"([+-])?"
@@ -71,14 +72,23 @@ def dedupe_column_names(names: list[str]) -> list[str]:
     return out
 
 
+def is_error_token(text: str) -> bool:
+    """True for the text of a Calc error: a ``LO_ERROR_TOKENS`` name or ``Err:<n>``.
+
+    Online sends an error cell of a =PY() range as this text (``lcl_ErrorText``,
+    sc/source/core/tool/rangeseq.cxx, Gerrit 21286): seven names, else ``Err:`` and the code.
+    """
+    token = text.strip()
+    return token in LO_ERROR_TOKENS or _ERR_NUMBER_RE.fullmatch(token) is not None
+
+
 def is_missing_value(value: Any) -> bool:
     """Check if value represents a missing cell, blank string, error token, or NaN/None."""
     if value is None:
         return True
     if isinstance(value, str):
-        stripped = value.strip()
-        # Case-fold so lower/mixed case error tokens like "#n/a" and "#div/0!" match.
-        return stripped == "" or stripped.upper() in LO_ERROR_TOKENS
+        # Lower-case spellings count here.
+        return value.strip() == "" or is_error_token(value.upper())
     if isinstance(value, float):
         return math.isnan(value)
     try:
@@ -123,7 +133,7 @@ def _signed_magnitude(sign_a: str | None, sign_b: str | None, digits: str) -> fl
 
 def _parse_numeric_string(text: str) -> float | None:
     stripped = text.strip()
-    if not stripped or stripped in LO_ERROR_TOKENS:
+    if not stripped:
         return None
     pct = _PERCENT_RE.match(stripped)
     if pct:

@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what the letter files import; underscore names are used only inside this module.
 
+Where Calc and Excel differ, helpers follow Calc: it is what the sheet shows and what spreadsheet-import verification compares against.
+
 How a helper reports a sheet error. Each function uses one of these, and its tests pin which:
 
 1. Raise. The exception reaches the =PY() worker, which picks the cell error from its type
@@ -38,7 +40,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from .coerce import LO_ERROR_TOKENS, is_missing_value
+from .coerce import is_blank_value, is_error_token, is_missing_value
 
 def formula_error_nan(code: int) -> float:
     """Quiet NaN carrying a LibreOffice FormulaError code in its low bits (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
@@ -347,13 +349,13 @@ def parse_weekend(weekend: Any = 1) -> set[int] | float:
 
 
 def is_calc_error(val: Any) -> bool:
-    """Return True if val is a Calc error (NaN or a recognized error token string like #VALUE!)."""
+    """Return True if val is a Calc error (NaN or a Calc error token such as #VALUE! or Err:502)."""
     if isinstance(val, (bool, np.bool_)):
         return False
     if isinstance(val, (float, np.floating)):
         return math.isnan(float(val))
     if isinstance(val, str):
-        return val.strip() in LO_ERROR_TOKENS
+        return is_error_token(val)
     return False
 
 
@@ -508,10 +510,15 @@ def _to_float_or_none(value: Any) -> float | None:
         return None
 
 
+def is_criteria_blank(value: Any) -> bool:
+    """None, blank text, NaN, NaT or pd.NA. Error text is not blank: criteria compare an error cell by its displayed text (ScQueryEvaluator::getCellString, sc/source/core/data/queryevaluator.cxx)."""
+    return is_blank_value(value) if isinstance(value, str) else is_missing_value(value)
+
+
 def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     """Parse an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=') into a matcher callable."""
-    if is_missing_value(crit):
-        return lambda val: is_missing_value(val) or val == "" or val is None
+    if is_criteria_blank(crit):
+        return is_criteria_blank
 
     if isinstance(crit, str):
         m = re.match(r"^(<=|>=|<>|<|>|==|=)(?![<>=])(.*)$", crit)
@@ -541,7 +548,7 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     c_pattern = val_str if val_str is not None else str(crit)
 
     def matcher(val: Any) -> bool:
-        val_is_blank = val is None or val == "" or is_missing_value(val)
+        val_is_blank = is_criteria_blank(val)
         if val_str == "":
             if op == "=":
                 return val_is_blank
@@ -579,6 +586,9 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
             return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":
             return not wildcard_fullmatch(c_pattern, v_str)
+        # In Calc an error cell matches no ordering criterion (COUNTIF(…;">a") skips it).
+        if is_error_token(v_str):
+            return False
         return _CMP[op](v_str.casefold(), c_pattern.casefold())
 
     return matcher
