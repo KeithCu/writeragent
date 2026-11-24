@@ -133,7 +133,7 @@ Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prom
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage…", "para_index": 12}
 ```
 
-When **`file_subset`** is set, retrieval passes **`doc_url_filter`** for a single matching URL, or runs one hybrid query per URL and merges hits by score (not a post-filter of the global top-k); candidates outside `ALL_INDEXABLE_EXTENSIONS` are skipped, and if every candidate is unsupported or outside the indexed folder it returns an error.
+When **`file_subset`** is set, retrieval passes **`doc_url_filter`** for a single matching URL, or runs one hybrid query per URL and merges hits by score (not a post-filter of the global top-k); candidates outside `ALL_INDEXABLE_EXTENSIONS` are skipped, and if every candidate is unsupported or outside the indexed folder it returns an error. A bad `file_subset` is reported even while the index is empty, before the `indexing` answer, and the build is still started.
 
 - **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (up to 512 characters).
 - **`para_index`** — weak hint (ODF extract ordinal). **Do not** treat as an exact LibreOffice jump target.

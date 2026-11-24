@@ -452,7 +452,8 @@ class SpillValue:
     """One =PY() spill neighbour, classified once.
 
     calc_value is what setDataArray receives (float, str, or None for #N/A void).
-    kind is the registry kind SpillCell stores: "n" number, "s" text, "e" empty, "err" formula error.
+    kind is "n" number, "s" text, "e" empty, "err" formula error; the spill writer uses it to pick
+    setDataArray versus an error formula and to skip temporal formats.
     temporal_category is "date" / "time" / "datetime" / "duration" when calc_value is a day
     serial that should get a number format; None otherwise. error_code is the Calc
     FormulaError when kind == "err".
@@ -462,15 +463,6 @@ class SpillValue:
     kind: str
     temporal_category: str | None = None
     error_code: int | None = None
-
-    @property
-    def registry_value(self) -> float | str | int | None:
-        """SpillCell.value: the number or text, the error code, or None for an empty cell."""
-        if self.kind == "err":
-            return self.error_code
-        if self.kind == "e":
-            return None
-        return self.calc_value
 
 
 _SPILL_EMPTY = SpillValue("", "e")

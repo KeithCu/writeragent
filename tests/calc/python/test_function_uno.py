@@ -18,8 +18,6 @@ from com.sun.star.table import CellAddress
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.spill import (
-    SpillCell,
-    SpillRecord,
     perform_deferred_spill,
 )
 from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
@@ -320,11 +318,16 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
             sheet.setName("Sheet1")
         code = "result = [1, 2, 3, 4, 5]"
         sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
-        for r in range(5, 10):
-            sheet.getCellByPosition(0, r).setValue(float(r - 4))
-
-        cells = [SpillCell(row=r, col=0, kind="n", value=float(r - 4)) for r in range(5, 10)]
-        SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
+        perform_deferred_spill(
+            "Sheet1",
+            4,
+            0,
+            [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
 
         from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
 
@@ -341,9 +344,7 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         assert (doc_key, "Sheet1", 5, 0) in SPILL_REGISTRY, "Expected (doc_key, Sheet1, 5, 0) in SPILL_REGISTRY"
         assert (doc_key, "Sheet1", 4, 0) not in SPILL_REGISTRY, "Old key should have been remapped"
         rec = SPILL_REGISTRY[(doc_key, "Sheet1", 5, 0)]
-        assert [c.row for c in rec.cells] == list(range(6, 11))
-        assert [c.col for c in rec.cells] == [0] * 5
-        assert [c.value for c in rec.cells] == [float(i) for i in range(1, 6)]
+        assert (rec.rows, rec.cols) == (6, 1)
     finally:
         _wait_spill_settled(doc)
         try:
@@ -700,9 +701,13 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert nan_cell.getString() == "#NUM!"
         assert sheet.getCellByPosition(1, 1).getValue() == 1.0
 
-        # Replace formula in A1, and replace E1 (#DIV/0!) with a user formula =1/0
+        # Flush the modify pass from adding B2 so used_ends reflects (1, 4), then delete A1.
+        from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet.Name)
+
+        # Delete formula in A1 -> whole rectangle B1:E1 (including spilled =#ERR532! in E1) is cleared
         sheet.getCellByPosition(0, 0).setFormula("")
-        sheet.getCellByPosition(4, 0).setFormula("=1/0")
         doc.calculateAll()
 
         cleanup_orphans(st, sheet, doc=doc, sheet_name=sheet.Name)
@@ -710,6 +715,28 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
         assert sheet.getCellByPosition(1, 0).getType() == EMPTY
         assert sheet.getCellByPosition(2, 0).getType() == EMPTY
         assert sheet.getCellByPosition(3, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(4, 0).getType() == EMPTY
+
+        # Re-spill, put =1/0 in E1, delete A1 -> user formula prevents clearing, record gone
+        sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+        perform_deferred_spill(
+            sheet.Name,
+            0,
+            0,
+            [[1.0, float("nan"), "#VALUE!", "#N/A", "#DIV/0!"]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
+        sheet.getCellByPosition(4, 0).setFormula("=1/0")
+        sheet.getCellByPosition(0, 0).setFormula("")
+        doc.calculateAll()
+
+        cleanup_orphans(st, sheet, doc=doc, sheet_name=sheet.Name)
+
+        assert (sheet.Name, 0, 0) not in st.spills
+        assert sheet.getCellByPosition(1, 0).getType() != EMPTY
         assert sheet.getCellByPosition(4, 0).getType() == FORMULA
         assert sheet.getCellByPosition(4, 0).getFormula() == "=1/0"
     finally:
@@ -776,68 +803,173 @@ def test_inf_spill_neighbour_survives_ods_reload_uno(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_py_spill_keeps_user_edits_uno(ctx, doc):
-    """Spilled values remain owned across ;;; formatting, ODS and XLSX reload, while user edits block respill."""
-    import datetime
-    import os
-    import tempfile
-    import uno
-    from com.sun.star.beans import PropertyValue
-    from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.spill import _unchanged_cells, perform_deferred_spill, prepare_auto_spill
+def test_py_spill_cut_paste_leaves_block_and_drops_record_uno(ctx, doc):
+    """Moving only the formula cell via moveRange drops the record, leaves old values, and refreshes used_ends."""
+    from com.sun.star.table import CellRangeAddress
+    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+    from plugin.calc.python.spill import perform_deferred_spill
     from plugin.calc.python.workbook_state import WorkbookState
 
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
     assert st is not None
     try:
-        code = "result = [[1, '123', chr(39) + 'q', 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
-        origin_cell = sheet.getCellByPosition(0, 0)
-        origin_cell.setFormula(f'=PY("{code}")')
-        grid = [[1, "123", "'q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True, "9" * 400]]
-        perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
-        rec = st.spills[(sheet.Name, 0, 0)]
+        sheet.getCellByPosition(5, 9).setValue(99.0)
+        code = "result = [1, 2, 3]"
+        sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
+        perform_deferred_spill(
+            sheet.Name,
+            4,
+            0,
+            [[1.0], [2.0], [3.0]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
+        assert (sheet.Name, 4, 0) in st.spills
 
-        # Apply ;;; number format across spilled neighbors; second spill still succeeds.
-        formats = doc.getNumberFormats()
-        locale = doc.getPropertyValue("CharLocale")
-        hidden_key = formats.queryKey(";;;", locale, True)
-        if hidden_key == -1:
-            hidden_key = formats.addNew(";;;", locale)
-        sheet.getCellRangeByPosition(1, 0, 8, 0).setPropertyValue("NumberFormat", int(hidden_key))
+        src = CellRangeAddress(sheet.RangeAddress.Sheet, 0, 4, 0, 4)
+        dst = CellAddress(sheet.RangeAddress.Sheet, 3, 4)
+        sheet.moveRange(dst, src)
 
-        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
-        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet.Name)
 
-        # ODS and XLSX reloads keep every record cell recognizable.
-        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        hidden_prop = PropertyValue()
-        hidden_prop.Name = "Hidden"
-        hidden_prop.Value = True
-        with tempfile.TemporaryDirectory(prefix="wa-spill-reload-") as tmpdir:
-            for fname, flt in (("spill.ods", None), ("spill.xlsx", "Calc MS Excel 2007 XML")):
-                path = uno.systemPathToFileUrl(os.path.join(tmpdir, fname))
-                props = ()
-                if flt is not None:
-                    sp = PropertyValue()
-                    sp.Name = "FilterName"
-                    sp.Value = flt
-                    props = (sp,)
-                doc.storeToURL(path, props)
-                reloaded = desktop.loadComponentFromURL(path, "_blank", 0, (hidden_prop,))
-                try:
-                    rsheet = reloaded.getSheets().getByIndex(0)
-                    assert len(_unchanged_cells(rsheet, rec.cells)) == len(rec.cells)
-                finally:
-                    reloaded.close(True)
-
-        # User formula and user text over one spilled cell each block the next spill and stay untouched.
-        sheet.getCellByPosition(1, 0).setFormula("=1+1")
-        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
-        assert sheet.getCellByPosition(1, 0).getFormula() == "=1+1"
-
-        sheet.getCellByPosition(1, 0).setString("user text")
-        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
-        assert sheet.getCellByPosition(1, 0).getFormula() == "user text"
+        assert (sheet.Name, 4, 0) not in st.spills
+        assert (sheet.Name, 4, 3) not in st.spills
+        assert sheet.getCellByPosition(0, 5).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 6).getValue() == 3.0
+        assert st.used_ends[sheet.Name] == (9, 5)
     finally:
         WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_user_formula_referencing_origin_blocks_during_recalc_uno(ctx, doc):
+    """During a real =PY() recalc, a user formula inside the rectangle referencing the origin still blocks."""
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import prepare_auto_spill
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[10, 20]]"
+        origin_cell = sheet.getCellByPosition(0, 0)
+        origin_cell.setFormula(f'=PY("{code}")')
+        perform_deferred_spill(
+            sheet.Name,
+            0,
+            0,
+            [[10.0, 20.0]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=st.key,
+        )
+        assert sheet.getCellByPosition(1, 0).getValue() == 20.0
+
+        # Put a user formula referencing A1 inside the spill rectangle, then recalculate with the same code.
+        sheet.getCellByPosition(1, 0).setFormula("=A1+1")
+        doc.calculateAll()
+        _wait_spill_settled(doc)
+
+        b1_formula = sheet.getCellByPosition(1, 0).getFormula()
+        assert b1_formula == "=A1+1", f"got {b1_formula!r}"
+        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
+        assert prepare_auto_spill(ctx, doc, st, origin, code, [[10.0, 20.0]]) == "#SPILL!"
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), code)
+        assert entry is not None and "previous spill" in entry.message
+    finally:
+        _wait_spill_settled(doc)
+        WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_user_formula_in_rect_blocks_uno(ctx, doc):
+    """Any user formula (including =1/0) inside the spill rectangle blocks respill; error literals do not."""
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import perform_deferred_spill, prepare_auto_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[1, 2]]"
+        origin_cell = sheet.getCellByPosition(0, 0)
+        origin_cell.setFormula(f'=PY("{code}")')
+        grid = [[1, 2]]
+        perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
+
+        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
+        sheet.getCellByPosition(1, 0).setFormula("=SUM(1)")
+        doc.calculateAll()
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+
+        sheet.getCellByPosition(1, 0).setFormula("=1/0")
+        doc.calculateAll()
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+
+        sheet.getCellByPosition(1, 0).setFormula("=#ERR519!")
+        doc.calculateAll()
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
+    finally:
+        WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_old_registry_format_reloads_as_rect_uno(ctx, doc):
+    """Old per-cell registry payloads load as bounding-box rectangles across ODS and XLSX and save as rows/cols."""
+    import json
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.spill import arm_spill_registry, save_spill_registry_for_doc
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.doc.udprops import get_document_property, set_document_property
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet_name = sheet.Name
+    old_payload = json.dumps({
+        f"{sheet_name}:0,0": {
+            "code": "x",
+            "cells": [
+                {"r": 1, "c": 0, "t": "n", "v": 1.0},
+                {"r": 2, "c": 1, "t": "s", "v": "b"},
+            ],
+        }
+    })
+    set_document_property(doc, "WriterAgentSpillRegistry", old_payload)
+
+    desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    hidden_prop = PropertyValue()
+    hidden_prop.Name = "Hidden"
+    hidden_prop.Value = True
+    with tempfile.TemporaryDirectory(prefix="wa-spill-rect-reload-") as tmpdir:
+        for fname, flt in (("spill.ods", None), ("spill.xlsx", "Calc MS Excel 2007 XML")):
+            path = uno.systemPathToFileUrl(os.path.join(tmpdir, fname))
+            props = ()
+            if flt is not None:
+                sp = PropertyValue()
+                sp.Name = "FilterName"
+                sp.Value = flt
+                props = (sp,)
+            doc.storeToURL(path, props)
+            reloaded = desktop.loadComponentFromURL(path, "_blank", 0, (hidden_prop,))
+            rst = WorkbookState.for_doc(reloaded)
+            assert rst is not None
+            try:
+                arm_spill_registry(ctx, reloaded, rst)
+                rec = rst.spills[(sheet_name, 0, 0)]
+                assert rec.code == "x"
+                assert (rec.rows, rec.cols) == (3, 2)
+
+                save_spill_registry_for_doc(reloaded, rst)
+                saved = json.loads(get_document_property(reloaded, "WriterAgentSpillRegistry", ""))
+                assert saved[f"{sheet_name}:0,0"] == {"code": "x", "rows": 3, "cols": 2}
+            finally:
+                WorkbookState.forget_key(rst.key)
+                reloaded.close(True)

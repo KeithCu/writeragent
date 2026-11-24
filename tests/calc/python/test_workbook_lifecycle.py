@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.python.spill import SpillCell, SpillRecord
+from plugin.calc.python.spill import SpillRecord
 import plugin.calc.python.workbook_lifecycle as lifecycle
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.geometric_recalc import (
@@ -51,7 +51,7 @@ def test_for_doc_reuses_state_by_runtime_key_when_known_misses() -> None:
     """Weakref/id lookup can miss a new doc handle; for_doc must not mint an empty duplicate state."""
     doc_a = CalcDocStub(props={"RuntimeUID": "uid-reuse-state"})
     st = WorkbookState(key="uid-reuse-state")
-    st.spills[("Sheet1", 0, 0)] = SpillRecord(code="", cells=[])
+    st.spills[("Sheet1", 0, 0)] = SpillRecord(code="", rows=1, cols=1)
     WorkbookState._remember(doc_a, st)
     doc_b = CalcDocStub(props={"RuntimeUID": "uid-reuse-state"})
     assert WorkbookState.known(doc_b) is None
@@ -111,13 +111,15 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 
 def test_unload_clears_in_memory_spill_state():
     state = WorkbookState(key="key-spill")
-    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="", cells=[])
+    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="", rows=1, cols=1)
+    state.used_ends["Sheet1"] = (2, 2)
     state.loaded = True
     listener = _CalcPythonUnloadListener("key-spill", "calc:file:///gone.ods", state)
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert ("Sheet1", 0, 0) not in state.spills
+    assert not state.used_ends
     assert not state.loaded
 
 
@@ -337,14 +339,37 @@ def test_spill_save_as_lifecycle_consistency() -> None:
     assert state is not None and state.key == "uid-123"
     state.spills[("Sheet1", 0, 0)] = SpillRecord(
         code="result = 1",
-        cells=[SpillCell(1, 0, "n", 1.0), SpillCell(2, 0, "n", 2.0)],
+        rows=3,
+        cols=1,
     )
 
     mock_doc.getURL.return_value = "file:///tmp/new.ods"
     new_state = WorkbookState.for_doc(mock_doc)
     assert new_state is state
     assert ("Sheet1", 0, 0) in new_state.spills
-    assert new_state.spills[("Sheet1", 0, 0)].spills == [(1, 0), (2, 0)]
+    rec = new_state.spills[("Sheet1", 0, 0)]
+    assert (rec.rows, rec.cols) == (3, 1)
+
+
+def test_open_event_arms_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    doc = CalcDocStub(url="file:///open-arm.ods", props={"RuntimeUID": "uid-open-arm"})
+    payload = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
+    monkeypatch.setattr(
+        "plugin.calc.python.spill.get_document_property",
+        lambda _model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
+    )
+
+    lifecycle._geometric_open_job(MagicMock(), doc)
+    state = WorkbookState.known(doc)
+    assert state is not None
+    assert state.loaded is True
+    assert ("Sheet1", 0, 0) in state.spills
+    rec = state.spills[("Sheet1", 0, 0)]
+    assert (rec.rows, rec.cols) == (2, 1)
+    assert "Sheet1" in state.used_ends
+    assert "Sheet1" in state.listeners
 
 
 def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch) -> None:
