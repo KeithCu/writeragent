@@ -560,6 +560,7 @@ def test_get_page_count_without_view_cursor_uses_statistics():
 
     mock_doc = MagicMock()
     mock_doc.getCurrentController.return_value = SimpleNamespace()  # no getViewCursor
+    mock_doc.isModified.return_value = False
     mock_doc.WordCount = 42
     mock_doc.getDocumentProperties.return_value = SimpleNamespace(
         DocumentStatistics=[
@@ -569,6 +570,7 @@ def test_get_page_count_without_view_cursor_uses_statistics():
     )
 
     assert DocumentService().get_page_count(mock_doc) == 3
+    assert [c.args for c in mock_doc.setModified.call_args_list] == [(True,), (False,)]
 
 def test_get_document_context_for_chat_writer_disposed():
     model = MagicMock()
