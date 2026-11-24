@@ -97,6 +97,7 @@ def _make_embed_ctx(
     emb=None,
 ):
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False
     if emb is not None:
         doc.createInstance.return_value = emb
     container = MagicMock()
@@ -331,3 +332,25 @@ def test_embedded_insert_translates_formula_via_to_api():
     assert res["status"] == "ok"
     mock_to_api.assert_called_once_with(inner, "=SUM(A1,B1)", cell.getCellAddress.return_value)
     cell.setFormula.assert_called_once_with("=SUM(A1;B1)")
+
+
+def test_deselect_inplace_embed_at_page_dispatches_escape():
+    doc = MagicMock()
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    selection = MagicMock()
+    selection.supportsService.return_value = True
+    xe = MagicMock()
+    xe.getCurrentState.return_value = embedded_mod._EMBED_STATE_RUNNING
+    selection.getExtendedControlOverEmbeddedObject.return_value = xe
+    selection.getAnchor.return_value = None
+    controller.getSelection.return_value = selection
+
+    uno_ctx = MagicMock()
+    tool = EmbeddedInsert()
+    with patch("plugin.writer.specialized.embedded.execute_dispatch") as disp:
+        err = embedded_mod._deselect_inplace_embed(doc, uno_ctx, tool)
+
+    assert err is None
+    disp.assert_called_once_with(uno_ctx, controller, ".uno:Escape")
+    controller.select.assert_not_called()

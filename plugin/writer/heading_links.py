@@ -16,7 +16,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import uno_read
 from plugin.writer import search as search_mod
-from plugin.writer.hyperlink_fixup import heading_renames, retarget_outline_links
+from plugin.writer.hyperlink_fixup import StaleReason, heading_renames, retarget_outline_links
 
 if TYPE_CHECKING:
     from plugin.writer.edit_review import EditReviewSession
@@ -86,11 +86,11 @@ def retarget_renamed_links(
     session: EditReviewSession,
     doc: Any,
     before: list[tuple[int, str]] | None,
-) -> tuple[int, list[str]]:
-    """Retarget outline links when *before* headings were renamed, returning ``(count, stale)``."""
+) -> tuple[int, dict[str, StaleReason]]:
+    """Retarget outline links when *before* headings were renamed or removed, returning ``(count, stale)`` where *stale* maps URL to reason."""
     if not before:
-        return 0, []
-    renames = heading_renames(before, document_headings(doc))
-    if not renames:
-        return 0, []
-    return session.tag_side_effects(lambda: retarget_outline_links(doc, renames))
+        return 0, {}
+    renames, lost = heading_renames(before, document_headings(doc))
+    if not renames and not lost:
+        return 0, {}
+    return session.tag_side_effects(lambda: retarget_outline_links(doc, renames, lost))

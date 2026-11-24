@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import html as _html
 import re
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, final
 
@@ -48,8 +49,10 @@ _STYLE_BLOCK_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.DOTALL | re.IGNORE
 _RULE_RE = re.compile(r"\.([A-Za-z0-9_\-]+)\s*\{([^}]*)\}")
 _BODY_RE = re.compile(r"<body[^>]*>(.*)</body>", re.DOTALL | re.IGNORECASE)
 _PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
+# Unicode noncharacter carried as text through the scratch copy, outside the math placeholder range (U+E000+).
+DELETED_MARK = "\ufdd0"
 _TRAILING_EMPTY_P_RE = re.compile(
-    r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
+    r"\s*<p\b(?![^>]*\bdata-lo-deleted)[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
 _BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
 
@@ -276,6 +279,9 @@ class _SemanticTransformer(HtmlPassthroughParser):
     _autostyle_overrides: dict[str, str]
     _colliding_tokens: set[str]
     _norm: dict[str, str]
+    _open: list[str]
+    _box_next: bool
+    _block_at: int
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -283,6 +289,9 @@ class _SemanticTransformer(HtmlPassthroughParser):
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
         self._autostyle_overrides = autostyle_overrides or {}
+        self._open = []
+        self._box_next = False
+        self._block_at = 0
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
         self._named_fingerprint: dict[str, list[str]] = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
@@ -379,10 +388,49 @@ class _SemanticTransformer(HtmlPassthroughParser):
             ins += ' class="%s"' % " ".join(remaining)
         return inject_attr(raw, ins) if ins else raw
 
+    def handle_comment(self, data: str) -> None:
+        # crosshair: off
+        # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl (draw:text-box) emits this comment
+        # before the text-box div inside a frame wrapper (createDrawFrame2).
+        if data.strip() == "Next 'div' was a 'draw:text-box'.":
+            self._box_next = True
+        super().handle_comment(data)
+
+    def _in_frame_after_box(self) -> bool:
+        # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl (createDrawFrame2) has no svg:title
+        # template, so a frame's title falls through as text in the wrapper after the text-box div closes.
+        return bool(self._open and self._open[-1] == "after_box")
+
+    def handle_data(self, data: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        if DELETED_MARK in data:
+            self._out[self._block_at] = inject_attr(self._out[self._block_at], ' data-lo-deleted="true"')
+            # A non-breaking space, as in a live blank block: StarWriter import drops an empty <p>,
+            # and every later data-lo-style would land one paragraph late.
+            data = data.replace(DELETED_MARK, "\xa0")
+        super().handle_data(data)
+
+    def handle_entityref(self, name: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        super().handle_entityref(name)
+
+    def handle_charref(self, name: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        super().handle_charref(name)
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
+        if t in ("div", "span"):
+            self._open.append("box" if self._box_next else "")
+            self._box_next = False
         if t == "table":
             self._table_depth += 1
             self._out.append(raw)
@@ -390,6 +438,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
             # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
             # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
             # write side's positional styles skipped that paragraph and the next ones shifted.
+            self._block_at = len(self._out)
             self._out.append(self._rewrite_block(raw, attrs))
         elif t == "span":
             self._out.append(self._rewrite_span(raw, attrs))
@@ -398,11 +447,20 @@ class _SemanticTransformer(HtmlPassthroughParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
+        if tag.lower() in ("div", "span") and self._box_next:
+            self._box_next = False
+            if self._open:
+                self._open[-1] = "after_box"
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
     def handle_endtag(self, tag: str) -> None:
         # crosshair: off
-        if tag.lower() == "table" and self._table_depth > 0:
+        t = tag.lower()
+        if t in ("div", "span") and self._open:
+            closed = self._open.pop()
+            if closed == "box" and self._open:
+                self._open[-1] = "after_box"
+        if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
@@ -419,6 +477,27 @@ def _strip_class_names(start_tag: str) -> str:
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
 
     return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
+
+
+_IMG_TITLE_TEXT_RE = re.compile(
+    r'(<img\b[^>]*\balt="([^"]*)"[^>]*>(?:</p>)?)([^<]+)(?=</(?:span|div)>)'
+)
+
+
+def _drop_image_title_text(body: str) -> str:
+    """Drop the duplicate title text LibreOffice's XHTML XSLT emits after <img>.
+
+    filter/source/xslt/odf2xhtml/export/xhtml/body.xsl has no template for
+    svg:title, so createDrawFrame2 prints the title as text after the image
+    (alt holds the escaped form, body text the unescaped form).
+    """
+    # crosshair: off
+    def _sub(match: re.Match[str]) -> str:
+        if _html.unescape(match.group(2)) == _html.unescape(match.group(3)):
+            return match.group(1)
+        return match.group(0)
+
+    return _IMG_TITLE_TEXT_RE.sub(_sub, body)
 
 
 def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> str:
@@ -438,7 +517,7 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)
     m = _BODY_RE.search(full_xhtml or "")
-    body = m.group(1).strip() if m else (full_xhtml or "")
+    body = _drop_image_title_text(m.group(1).strip() if m else (full_xhtml or ""))
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)
     tr.feed(body)
     tr.close()
@@ -458,77 +537,147 @@ _XML_ID_ATTR_RE = re.compile(r'\s+xml:id="[^"]*"')
 _START_VALUE_ATTR_RE = re.compile(r'\s+text:start-value="[^"]*"')
 
 
-def _deleted_paragraph_tags(deletion: str) -> list[tuple[str, str]]:
-    """Return ``(name, attrs)`` of top-level ``text:p`` / ``text:h`` blocks in *deletion*.
+@dataclass
+class _DeletedBlock:
+    name: str
+    attrs: str
+    has_content: bool = False
+
+
+@dataclass
+class _OpenTag:
+    name: str
+    attrs: str
+    live: bool = False
+    struck: bool = False
+    slot: int | None = None
+
+
+def _deleted_blocks(deletion: str) -> list[_DeletedBlock]:
+    """Return top-level ``text:p`` / ``text:h`` blocks in *deletion*.
 
     Tracks nesting depth across ``table:table``, ``text:p``, and ``text:h`` so
     paragraphs inside tables, annotations, notes, or text boxes are not counted.
     """
-    tags: list[tuple[str, str]] = []
+    blocks: list[_DeletedBlock] = []
+    current: _DeletedBlock | None = None
     depth = 0
-    for close, name, attrs, empty in _ODF_TAG_RE.findall(deletion):
+    prev_end = 0
+    for m in _ODF_TAG_RE.finditer(deletion):
+        if current is not None and deletion[prev_end:m.start()].strip():
+            current.has_content = True
+        prev_end = m.end()
+        close, name, attrs, empty = m.groups()
+        if current is not None and not close and name.startswith("draw:"):
+            current.has_content = True
         if name not in ("table:table", "text:p", "text:h"):
             continue
         if close:
             depth = max(0, depth - 1)
+            if not depth:
+                current = None
             continue
         if name in ("text:p", "text:h") and not depth:
-            tags.append((name, attrs))
+            block = _DeletedBlock(name, attrs)
+            blocks.append(block)
+            if not empty:
+                current = block
         if not empty:
             depth += 1
-    return tags
+    return blocks
 
 
-def split_deleted_breaks(fodt: str) -> str | None:
-    """Split paragraphs joined across tracked-deletion breaks in flat ODF, or return None.
+def expand_tracked_deletions(fodt: str) -> str | None:
+    """Split deleted breaks and mark wholly struck paragraphs in flat ODF, or return None.
 
     ``SwXMLExport::exportDoc`` sets ``RedlineFlags::ShowInsert`` and ``odf2xhtml``
     ``body.xsl`` has no ``text:change`` rule, so XHTML export otherwise joins
     paragraphs across a multi-paragraph deletion. A deletion of *n* top-level
     blocks produces *n* - 1 breaks, each taking the deleted block's tag and style.
+    Also puts ``DELETED_MARK`` in wholly struck paragraphs: otherwise ``body.xsl``
+    (``match="text:h"``) drops a heading without text, an empty ``text:p`` comes
+    out as ``<p class=…/>`` without ``data-lo-style``, and
+    ``_drop_trailing_empty_paragraphs`` removes a trailing one.
     """
     # crosshair: off
-    breaks: dict[str, list[tuple[str, str]]] = {}
+    regions: dict[str, list[_DeletedBlock]] = {}
     for cid, region in _CHANGED_REGION_RE.findall(fodt):
         del_match = _DELETION_BODY_RE.search(region)
         if del_match:
-            breaks[cid] = _deleted_paragraph_tags(del_match.group(1))[1:]
-    if not any(breaks.values()):
+            blocks = _deleted_blocks(del_match.group(1))
+            if blocks:
+                regions[cid] = blocks
+    if not regions:
         return None
     skip = iter([m.span() for m in _TRACKED_CHANGES_RE.finditer(fodt)])
     span = next(skip, None)
     out: list[str] = []
     pos = 0
-    stack: list[tuple[str, str]] = []
+    scan = 0
+    changed = False
+    stack: list[_OpenTag] = []
+
+    def finish(tag: _OpenTag) -> None:
+        nonlocal changed
+        if tag.struck and tag.slot is not None and not tag.live:
+            out[tag.slot] = DELETED_MARK
+            changed = True
+
     for m in _ODF_TAG_RE.finditer(fodt):
         while span and m.start() >= span[1]:
             span = next(skip, None)
         if span and m.start() >= span[0]:
+            scan = m.end()
             continue
+        if fodt[scan:m.start()].strip():
+            for t in stack:
+                t.live = True
+        scan = m.end()
         close, name, attrs, empty = m.groups()
+        if not close and name.startswith("draw:"):
+            for t in stack:
+                t.live = True
         if close:
-            stack.pop()
+            finish(stack.pop())
             continue
         if not empty:
-            stack.append((name, attrs))
+            if name in ("text:p", "text:h"):
+                # Mark before any text:a: odf2xhtml builds an outline href from link text,
+                # and a marked link would be counted by _put_outline_urls.
+                out.append(fodt[pos:m.end()])
+                pos = m.end()
+                slot = len(out)
+                out.append("")
+                stack.append(_OpenTag(name, attrs, slot=slot))
+            else:
+                stack.append(_OpenTag(name, attrs))
             continue
         if name != "text:change":
             continue
-        para = next((i for i in reversed(range(len(stack))) if stack[i][0] in ("text:p", "text:h")), None)
+        para = next((i for i in reversed(range(len(stack))) if stack[i].name in ("text:p", "text:h")), None)
         cid_match = _CHANGE_ID_RE.search(attrs)
-        tags = breaks.get(cid_match.group(1), []) if cid_match else []
-        if para is None or not tags:
+        cid_blocks = regions.get(cid_match.group(1)) if cid_match else None
+        if para is None or not cid_blocks:
             continue
         # A paragraph in a list item becomes a new item, so it keeps its number.
-        top = para - 1 if para > 0 and stack[para - 1][0] == "text:list-item" else para
-        out.append(fodt[pos:m.start()])
+        top = para - 1 if para > 0 and stack[para - 1].name == "text:list-item" else para
+        out.append(fodt[pos:m.start()] if len(cid_blocks) > 1 else fodt[pos:m.end()])
         pos = m.end()
-        for tag in tags:
-            out.extend("</%s>" % n for n, _a in reversed(stack[top:]))
-            stack[para] = tag
-            for idx, (n, a) in enumerate(stack[top:], start=top):
-                cleaned = _XML_ID_ATTR_RE.sub("", a)
+        lead = stack[para].live
+        stack[para].struck = True
+        for i, block in enumerate(cid_blocks[1:], start=1):
+            changed = True
+            out.extend("</%s>" % t.name for t in reversed(stack[top:]))
+            finish(stack[para])
+            stack[para] = _OpenTag(block.name, block.attrs)
+            for idx, t in enumerate(stack[top:], start=top):
+                cleaned = _XML_ID_ATTR_RE.sub("", t.attrs)
                 if idx != para:
                     cleaned = _START_VALUE_ATTR_RE.sub("", cleaned)
-                out.append("<%s%s>" % (n, cleaned))
-    return "".join(out) + fodt[pos:] if out else None
+                out.append("<%s%s>" % (t.name, cleaned))
+                if idx == para:
+                    stack[para].slot = len(out)
+                    out.append("")
+            if i < len(cid_blocks) - 1 or block.has_content or lead:
+                stack[para].struck = True
+    return "".join(out) + fodt[pos:] if changed else None

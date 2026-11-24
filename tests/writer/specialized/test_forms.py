@@ -283,6 +283,7 @@ def test_append_text_multi_range_selection_uses_first_range():
 
 def test_form_control_create_writer_inserts_on_anchor_host():
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False
     body_text = MagicMock(name="body_text")
     doc.getText.return_value = body_text
 
@@ -359,7 +360,7 @@ def test_forms_create_skips_spacer_on_failure(monkeypatch):
     tool = FormCreate()
     spacer_called = []
     monkeypatch.setattr(tool, "_insert_space", lambda ctx: spacer_called.append(True))
-    ctx = SimpleNamespace(doc=MagicMock())
+    ctx = SimpleNamespace(doc=MagicMock(), ctx=MagicMock())
 
     res = tool.execute(ctx, fields=[{"control": "invalid_control", "name": "bad"}])
     assert res["status"] == "error"
@@ -434,7 +435,7 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
     mgr.getAllUndoActionTitles.side_effect = lambda: ["Form Create"] if mgr.enterUndoContext.called else []
     doc.getUndoManager.return_value = mgr
 
-    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=[{"control": "text", "name": "ok1"}, {"control": "text", "name": "bad"}])
 
     assert res["status"] == "error"
     assert res.get("rolled_back") is True
@@ -457,7 +458,7 @@ def test_commit_form_batch_rollback_failed_flag_is_false(monkeypatch):
         raise ValueError("field failed")
 
     tool = MagicMock()
-    res = forms._commit_form_batch(tool, doc, "Form Create", mutate, "undo msg")
+    res = forms._commit_form_batch(tool, SimpleNamespace(doc=doc, ctx=MagicMock()), "Form Create", mutate, "undo msg")
     assert res is not None
     assert res.get("code") == "ROLLBACK_FAILED"
     assert res.get("rolled_back") is False
@@ -473,7 +474,7 @@ def test_form_create_locked_undo_manager_rejects(monkeypatch):
     mgr.isLocked.return_value = True
     doc.getUndoManager.return_value = mgr
 
-    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "ok1"}])
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=[{"control": "text", "name": "ok1"}])
 
     assert res["status"] == "error"
     assert res["code"] == "UNDO_UNAVAILABLE"
@@ -586,7 +587,7 @@ def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
         {"control": "text", "name": "t2", "height": 600},
         {"control": "text", "name": "t3", "height": 600},
     ]
-    res = tool.execute(SimpleNamespace(doc=doc), fields=fields)
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=fields)
     assert res["status"] == "ok"
 
     # getByIndex was called only once during initial page scan (for 1 existing shape)
@@ -664,7 +665,7 @@ def test_draw_form_create_stacks_per_page(monkeypatch):
         {"control": "text", "name": "f3", "page": 1, "height": 600},
         {"control": "text", "name": "f4", "page": 0, "height": 600},
     ]
-    res = tool.execute(SimpleNamespace(doc=doc), fields=fields)
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=fields)
     assert res["status"] == "ok"
 
     # Each page's getByIndex runs once
@@ -725,7 +726,7 @@ def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
     tool = FormGenerate()
     # Interleaved Draw text (h=1000) and control (h=600)
     content = "Label 1 {FIELD:control='text' name='c1'}"
-    res = tool._process_form_content(SimpleNamespace(doc=doc), content)
+    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock()), content)
     assert res["status"] == "ok"
 
     # Label text placed first: Y = 1200 (h=1000)
@@ -764,7 +765,7 @@ def test_writer_create_does_not_call_scanner(monkeypatch):
     doc.getCurrentController.return_value = ctrl
 
     tool = FormCreate()
-    res = tool.execute(SimpleNamespace(doc=doc), fields=[{"control": "text", "name": "f1"}])
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=[{"control": "text", "name": "f1"}])
     assert res["status"] == "ok"
     assert len(cursor_inits) == 0
 
@@ -948,7 +949,7 @@ def test_forms_generate_rejects_duplicate_name_in_batch(monkeypatch):
 
     tool = FormGenerate()
     content = "{FIELD:control='text' name='same_name'} {FIELD:control='text' name='same_name'}"
-    res = tool._process_form_content(SimpleNamespace(doc=doc), content)
+    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock()), content)
     assert res["status"] == "error"
     assert "Duplicate control name 'same_name' in batch." in res["message"]
 

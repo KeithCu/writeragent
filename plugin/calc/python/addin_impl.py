@@ -32,8 +32,7 @@ _PYTHON_SPEC = CalcFunctionSpec(
         "The Python code to execute. Assign output to 'result'.",
         (
             "Optional one or more ranges injected as data (one range: data is that CalcRange; "
-            "several: data is the ranges list — use data[i] or ranges[i]), or a single-cell "
-            "index for matrix formulas (e.g. ROW(A1)-ROW($A$1))."
+            "several: data is the ranges list — use data[i] or ranges[i])."
         ),
     ),
 )

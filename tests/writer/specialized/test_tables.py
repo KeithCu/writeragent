@@ -55,13 +55,21 @@ _MERGED_BANNER_NAMES = ["A1"] + [
 
 
 class FakeBand:
-    def __init__(self, n):
+    def __init__(self, n, seps_fn=None):
         self.n = n
         self.inserts = []
         self.removes = []
+        self._seps_fn = seps_fn
 
     def getCount(self):
         return self.n
+
+    def getByIndex(self, idx):
+        positions = self._seps_fn(idx) if self._seps_fn is not None else []
+        seps = [SimpleNamespace(Position=p) for p in positions]
+        return SimpleNamespace(
+            getPropertyValue=lambda prop: seps if prop == "TableColumnSeparators" else None,
+        )
 
     def insertByIndex(self, idx, count):
         self.inserts.append((idx, count))
@@ -73,14 +81,30 @@ class FakeBand:
 
 
 class FakeTable:
-    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None, cell_names=None):
-        self._rows = FakeBand(rows)
+    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None, cell_names=None, seps_by_row=None, row_spans=None):
         self._cols = FakeBand(cols)
         self._cells = cells or {}
         self._name = name
         self._anchor_text = anchor_text
         # When set, do not invent a full rectangle — merged/covered names stay absent.
         self._explicit_names = cell_names
+        self._seps_by_row = seps_by_row or {}
+        self._row_spans = row_spans or {}
+        self._rows = FakeBand(rows, seps_fn=self._row_separators)
+
+    def _row_separators(self, row_idx):
+        if row_idx in self._seps_by_row:
+            return list(self._seps_by_row[row_idx])
+        if self._explicit_names is not None:
+            from plugin.writer.range_copy import writer_cell_position
+            count = sum(
+                1 for n in self._explicit_names
+                if "." not in n and (pos := writer_cell_position(n)) is not None and pos[1] == row_idx
+            )
+            ncols = max(count, 1)
+        else:
+            ncols = self._cols.n
+        return [10000 * c // ncols for c in range(1, ncols)]
 
     def getName(self):
         return self._name
@@ -114,6 +138,7 @@ class FakeTable:
         return SimpleNamespace(
             getString=lambda: self._cells.get(name, ""),
             setString=lambda v: self._cells.__setitem__(name, v),
+            getPropertyValue=lambda prop: self._row_spans.get(name, 1) if prop == "RowSpan" else None,
         )
 
     def getCellByPosition(self, col, row):
@@ -149,9 +174,10 @@ class FakeTextTableElement:
 
 
 class FakeParagraph:
-    def __init__(self, text="", portions=None):
+    def __init__(self, text="", portions=None, anchored=()):
         self._text = text
         self._portions = list(portions or [])
+        self._anchored = list(anchored)
 
     def supportsService(self, name):
         return name == "com.sun.star.text.Paragraph"
@@ -172,6 +198,9 @@ class FakeParagraph:
         if self._text:
             return FakeEnumeration([FakePortion(TextPortionType="Text", Text=self._text)])
         return FakeEnumeration([])
+
+    def createContentEnumeration(self, service):
+        return FakeEnumeration(list(self._anchored))
 
 
 class FakePortion:
@@ -806,7 +835,7 @@ def test_copy_table_copies_merged_d2_by_name():
 
 
 def test_hosted_in_band_scans_named_cells_not_range_cols():
-    """Old range(cols) on a cols=1 merged table would inspect A2 only and miss D2."""
+    """Banner row separators are [] so column 0 spans the whole table and hosts D2's nested table."""
     parent = FakeParentTable(
         5,
         1,
@@ -815,12 +844,11 @@ def test_hosted_in_band_scans_named_cells_not_range_cols():
     )
     assert _hosted_in_band(parent, "row", 1) == ["Child"]
     assert _hosted_in_band(parent, "row", 0) == []
-    assert _hosted_in_band(parent, "column", 3) == ["Child"]
-    assert _hosted_in_band(parent, "column", 0) == []
+    assert _hosted_in_band(parent, "column", 0) == ["Child"]
 
 
 def test_hosted_in_band_sees_nest_in_split_cell_name():
-    """A nest in split cell A1.1.1 counts toward row 0 and column 0 of the parent band; int() cannot parse a split cell name."""
+    """Row band includes split cell A1.1.1; column band refuses split-cell tables."""
     parent = FakeParentTable(
         2,
         2,
@@ -828,7 +856,8 @@ def test_hosted_in_band_sees_nest_in_split_cell_name():
         nested_by_cell={"A1.1.1": [FakeTextTableElement("Child")]},
     )
     assert _hosted_in_band(parent, "row", 0) == ["Child"]
-    assert _hosted_in_band(parent, "column", 0) == ["Child"]
+    with pytest.raises(ValueError, match="split cells"):
+        _hosted_in_band(parent, "column", 0)
     assert _hosted_in_band(parent, "row", 1) == []
 
 
@@ -1125,6 +1154,11 @@ class _TrackingCell:
 
     def getString(self):
         return self._cells.get(self._name, "")
+
+    def getPropertyValue(self, prop):
+        if prop == "RowSpan":
+            return self._table._row_spans.get(self._name, 1)
+        return None
 
     def getEnd(self):
         return SimpleNamespace(_table=self._table, _cell_name=self._name)
@@ -1529,6 +1563,190 @@ def test_merge_cells_reports_lo_refusal():
     res = TableMergeCells().execute(ctx, name="LegacyTbl", cell_range="A1:B1")
     assert res["status"] == "error"
     assert "LegacyTbl" in res["message"]
+
+
+@pytest.mark.parametrize(
+    "cell_names,seps_by_row,idx,expected",
+    [
+        pytest.param(
+            ["A1", "B1", "A2", "B2", "C2"],
+            {0: [6667], 1: [3333, 6667]},
+            0,
+            {"A1", "A2", "B2"},
+            id="first_row_merge_A1_B1",
+        ),
+        pytest.param(
+            ["A1", "B1", "A2", "B2", "C2"],
+            {0: [3333], 1: [3333, 6667]},
+            1,
+            {"B1", "B2", "C2"},
+            id="first_row_merge_B1_C1",
+        ),
+        pytest.param(
+            ["A1", "B1", "C1", "A2", "B2"],
+            {0: [3333, 6667], 1: [3333]},
+            1,
+            {"B1", "C1", "B2"},
+            id="later_row_merge_B2_C2",
+        ),
+    ],
+)
+def test_column_band_cells_merged_rows(cell_names, seps_by_row, idx, expected):
+    from plugin.writer.range_copy import writer_cell_position
+    from plugin.writer.specialized.tables import _column_band_cells
+
+    table = FakeTable(2, 3, cell_names=cell_names, seps_by_row=seps_by_row)
+    positions = {n: pos for n in cell_names if (pos := writer_cell_position(n)) is not None}
+    assert set(_column_band_cells(table, positions, idx)) == expected
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "B1"])
+def test_tracked_row_delete_refuses_tall_cell_without_dispatch(tall_cell):
+    table = _TrackingTable(
+        3,
+        3,
+        cells={"A1": "A", "B1": "B", "C1": "C"},
+        name="T",
+        row_spans={tall_cell: 2},
+    )
+    doc = _TrackingDoc({"T": table})
+    res = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert tall_cell in res["message"]
+    assert doc.dispatched == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "B1", "C1"])
+def test_untracked_row_delete_refuses_tall_cell(tall_cell):
+    table = FakeTable(3, 3, cells={tall_cell: "x"}, name="T", row_spans={tall_cell: 2})
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert table._rows.removes == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "B1", "C1"])
+def test_untracked_row_delete_allows_empty_tall_cell(tall_cell):
+    table = FakeParentTable(3, 3, name="T", nested_by_cell={tall_cell: [FakeParagraph("")]})
+    table._row_spans = {tall_cell: 2}
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "ok", res
+    assert table._rows.removes == [(0, 1)]
+
+
+@pytest.mark.parametrize(
+    "para",
+    [
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Frame")]), id="frame_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="TextField")]), id="field_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Annotation")]), id="annotation_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Bookmark")]), id="bookmark_portion"),
+        pytest.param(FakeParagraph("", anchored=[object()]), id="anchored_content"),
+    ],
+)
+def test_row_delete_refuses_tall_cell_with_hosted_content(para):
+    table = FakeParentTable(3, 3, name="T", nested_by_cell={"B1": [para]})
+    table._row_spans = {"B1": 2}
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert table._rows.removes == []
+
+
+@pytest.mark.parametrize("tall_cell", ["A1", "C1"])
+def test_tracked_row_delete_refuses_empty_edge_tall_cell(tall_cell):
+    cells = {name: "x" for name in ("A1", "B1", "C1") if name != tall_cell}
+    table = _TrackingTable(3, 3, cells=cells, name="T", row_spans={tall_cell: 2})
+    doc = _TrackingDoc({"T": table})
+    res = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert tall_cell in res["message"]
+    assert doc.dispatched == []
+
+
+def test_tracked_row_delete_allows_empty_inner_tall_cell():
+    table = _TrackingTable(
+        3,
+        3,
+        cells={"A1": "a", "C1": "c"},
+        name="T",
+        row_spans={"B1": 2},
+    )
+    doc = _TrackingDoc({"T": table})
+    res = ManageTableStructure().execute_safe(
+        SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), action="delete", axis="row", name="T", index=0
+    )
+    assert res["status"] == "ok", res
+    assert res["tracked"] is True
+    assert doc.dispatched == [".uno:DeleteRows"]
+
+
+def test_untracked_row_delete_covered_row_still_removes():
+    table = FakeTable(
+        3,
+        3,
+        name="T",
+        cell_names=["A1", "B1", "C1", "B2", "C2", "A3", "B3", "C3"],
+        row_spans={"A1": 2},
+    )
+    ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=1)
+    assert res["status"] == "ok"
+    assert table._rows.removes == [(1, 1)]
+
+
+def test_pending_insertions_detects_inserted_table_spans():
+    from plugin.writer.specialized.tables import _pending_insertions
+
+    class _Node:
+        def __init__(self, name, is_table):
+            self._name = name
+            self._is_table = is_table
+
+        def supportsService(self, svc):
+            return self._is_table and svc == "com.sun.star.text.TextTable"
+
+        def getName(self):
+            return self._name
+
+    def _redline(rtype, start, end):
+        props = {"RedlineType": rtype, "RedlineStart": start, "RedlineEnd": end}
+        return SimpleNamespace(getPropertyValue=lambda k: props[k])
+
+    def _doc_with(redlines):
+        def _enum():
+            items = list(redlines)
+            return SimpleNamespace(
+                hasMoreElements=lambda: bool(items),
+                nextElement=lambda: items.pop(0),
+            )
+
+        return SimpleNamespace(
+            getRedlines=lambda: SimpleNamespace(
+                getCount=lambda: len(redlines),
+                createEnumeration=_enum,
+            )
+        )
+
+    names = ["T1", "T2", "T3"]
+    t2 = _Node("T2", True)
+    t3 = _Node("T3", True)
+    body = _Node("body", False)
+    cell = _Node("A1", False)
+
+    assert _pending_insertions(_doc_with([_redline("Insert", t2, body)]), names) == {"T2", "T3"}
+    assert _pending_insertions(_doc_with([_redline("Insert", t2, t3)]), names) == {"T2"}
+    assert _pending_insertions(_doc_with([_redline("Insert", cell, body)]), names) == set()
+    assert _pending_insertions(_doc_with([_redline("Delete", t2, body)]), names) == set()
 
 
 

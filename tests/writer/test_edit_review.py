@@ -272,6 +272,7 @@ def _anchor_pair(insert_error=None):
     text = MagicMock()
     cursor = MagicMock()
     start.getText.return_value = text
+    end.getText.return_value = text
     text.createTextCursorByRange.return_value = cursor
     cursor.getText.return_value = text
     if insert_error is not None:
@@ -1215,6 +1216,99 @@ def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
     assert (result.get("tracked") is False and "warning" in result) is expected
 
 
+def test_record_mutation_multi_text_anchors_in_changing_cell():
+    from unittest.mock import patch as _patch
+    from plugin.writer.edit_review import EditReviewSession
+
+    text_unchanged = MagicMock()
+    text_changed = MagicMock()
+    cur_unchanged = MagicMock()
+    cur_changed = MagicMock()
+    cur_unchanged.getText.return_value = text_unchanged
+    cur_changed.getText.return_value = text_changed
+    text_unchanged.createTextCursorByRange.return_value = cur_unchanged
+    text_changed.createTextCursorByRange.return_value = cur_changed
+
+    s1, e1 = MagicMock(), MagicMock()
+    s1.getText.return_value = text_unchanged
+    e1.getText.return_value = text_unchanged
+    s2, e2 = MagicMock(), MagicMock()
+    s2.getText.return_value = text_changed
+    e2.getText.return_value = text_changed
+
+    rl1 = MagicMock()
+    rl1.getPropertyValue.side_effect = lambda p: s1 if p == "RedlineStart" else (e1 if p == "RedlineEnd" else None)
+    rl2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda p: s2 if p == "RedlineStart" else (e2 if p == "RedlineEnd" else None)
+
+    doc = MagicMock()
+    session = EditReviewSession(doc, MagicMock(), enabled=True)
+    session._active = True
+
+    def fake_skip(span, skip_type):
+        if span is cur_changed:
+            return "" if skip_type == "Delete" else "old"
+        return "same"
+
+    with (
+        _patch.object(session, "_redline_idents", return_value=([], True)),
+        _patch("plugin.writer.edit_review._tag_new_change", return_value=("wa-review:s:0", [rl1, rl2])),
+        _patch("plugin.writer.edit_review._string_skipping_redline", side_effect=fake_skip),
+        _patch("plugin.writer.edit_review.refresh_review_toolbar"),
+    ):
+        session.record_mutation(lambda: None)
+
+    assert len(session.changes) == 1
+    assert session.changes[0].accepted_text == ""
+    assert session.changes[0].rejected_text == "old"
+    text_changed.insertTextContent.assert_called_once()
+    text_unchanged.insertTextContent.assert_not_called()
+
+
+def test_record_html_atomically_clear_first_runs_in_undo_group_and_rolls_back():
+    from plugin.writer.edit_review import record_html_atomically
+
+    events = []
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+        events.append("enter_undo")
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+
+    session = MagicMock()
+    session.record_mutation.side_effect = lambda fn, **_kw: (events.append("record"), fn())[1]
+
+    def clear_ok():
+        events.append("clear")
+
+    def mutate_ok():
+        events.append("mutate")
+        return "done"
+
+    assert record_html_atomically(session, doc, mutate_ok, clear_first=clear_ok) == "done"
+    assert events == ["enter_undo", "clear", "record", "mutate"]
+
+    events.clear()
+    undo_mgr.undo.reset_mock()
+
+    def clear_boom():
+        events.append("clear_boom")
+        raise RuntimeError("clear failed")
+
+    with pytest.raises(RuntimeError, match="clear failed"):
+        record_html_atomically(session, doc, mutate_ok, clear_first=clear_boom)
+    assert events == ["enter_undo", "clear_boom"]
+    undo_mgr.undo.assert_called_once()
+
+
 @pytest.mark.parametrize(
     "review_on,recording,foreign",
     [
@@ -1258,6 +1352,23 @@ def test_agent_format_author_begins_and_ends_even_on_error():
         mock_authors.end.assert_called_once_with(ctx, token)
 
 
+def test_paragraph_redline_author_uses_agent_in_review_and_office_when_off():
+    from plugin.writer.edit_review import paragraph_redline_author
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=True),
+        patch("plugin.writer.edit_review.review_authors.office_author", return_value="Alice Smith"),
+    ):
+        assert paragraph_redline_author(ctx) == "WriterAgent"
+
+    with (
+        patch("plugin.writer.edit_review.review_recording_enabled", return_value=False),
+        patch("plugin.writer.edit_review.review_authors.office_author", return_value="Alice Smith"),
+    ):
+        assert paragraph_redline_author(ctx) == "Alice Smith"
+
+
 def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
     doc = MagicMock()
     text_range = MagicMock()
@@ -1286,7 +1397,7 @@ def test_streamed_plain_mode_retargets_even_after_write_error():
     with (
         patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
         patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
-        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, {})) as mock_retarget,
     ):
         session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
         session.generated_text = "New"

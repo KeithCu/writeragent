@@ -322,3 +322,33 @@ def test_chat_context_includes_leading_table_and_selection_uno(ctx, doc):
     assert "LeadCell" in ctx_str
     assert str(get_document_length(doc)) in ctx_str
     assert "[SELECTION_START]target[SELECTION_END]" in ctx_str
+
+
+@native_test
+@with_native_doc("writer")
+def test_chat_context_marks_struck_paragraph_only_not_real_blank_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.framework.uno_context import enum_has_more
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for idx, p in enumerate(["AA", "BB", "", "CC"]):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        if p:
+            text.insertString(cur, p, False)
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    sel = text.createTextCursorByRange(paras[1].getStart())
+    sel.gotoRange(paras[2].getStart(), True)
+    doc.setPropertyValue("RecordChanges", True)
+    sel.setString("")
+
+    ctx_str = get_document_context_for_chat(doc, include_selection=False, ctx=ctx)
+    visible_len = len(read_visible_body(doc)[0])
+    assert f"Document length: {visible_len} characters." in ctx_str
+    assert "AA\n[tracked deletion]\n\nCC" in ctx_str

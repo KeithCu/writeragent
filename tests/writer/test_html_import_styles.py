@@ -272,20 +272,17 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
 def test_attach_write_report_links_retargeted_and_stale_links() -> None:
     report = html_import_styles.WriteReport(
         links_retargeted=3,
-        stale_links=["#Old|outline"],
+        stale_links={"#Old|outline": "field", "#Gone|outline": "no_heading"},
     )
     out = html_import_styles.attach_write_report({"status": "ok", "message": "Done."}, report)
     assert out["links_retargeted"] == 3
-    assert out["warnings"] == [
-        {
-            "code": "LINK_TARGET_STALE",
-            "link_target": "#Old|outline",
-            "message": (
-                'Links to "#Old|outline" still use the old heading title: '
-                "they hold a field, which cannot be rewritten as a tracked change."
-            ),
-        }
+    warnings = out["warnings"]
+    assert [(w["code"], w["link_target"]) for w in warnings] == [
+        ("LINK_TARGET_STALE", "#Old|outline"),
+        ("LINK_TARGET_STALE", "#Gone|outline"),
     ]
+    assert "field" in warnings[0]["message"]
+    assert "field" not in warnings[1]["message"]
 
 
 def test_write_report_extend_preserves_order_and_unions_tokens() -> None:
@@ -558,13 +555,12 @@ class _FakeLineSpacing:
     ],
 )
 def test_parse_data_lo_para_line_height(monkeypatch, css, mode, height):
-    import sys
-
+    from plugin.writer import styles
     from plugin.writer.html_import_styles import parse_data_lo_para
 
     # setitem on __dict__ (not setattr) so undo removes the attribute instead of leaving a
     # materialised MagicMock child; other tests check that createUnoStruct is absent.
-    monkeypatch.setitem(sys.modules["uno"].__dict__, "createUnoStruct", lambda _name: _FakeLineSpacing())
+    monkeypatch.setitem(styles.uno.__dict__, "createUnoStruct", lambda _name: _FakeLineSpacing())
     props, dropped = parse_data_lo_para(css)
     assert dropped == []
     uno_prop, spacing = props["line-height"]

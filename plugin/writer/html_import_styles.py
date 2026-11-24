@@ -31,7 +31,9 @@ from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
+from .hyperlink_fixup import StaleReason
 from .math.html_math_segment import html_fragment_contains_mixed_math
+from .record_changes import record_changes
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -485,6 +487,19 @@ def decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
+def normalize_character_references(text: str) -> str:
+    """Decode complete character references, keeping < > & " ' escaped so escaped markup stays text.
+
+    Needed because ``&#36;`` must become ``$`` before math detection (``R&#36;5.000,00``),
+    StarWriter prints HTML5-only names such as ``&check;`` literally, and a full decode would
+    turn ``&lt;table&gt;`` into a live table. Incomplete references like ``&sect 2o`` and bare
+    ``&`` in ``Banco & Cia`` are left untouched.
+    """
+    if "&" not in text:
+        return text
+    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.escape(html_mod.unescape(m.group(0))), text)
+
+
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
@@ -502,14 +517,14 @@ def plain_paragraphs(content: str) -> list[str]:
 def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
-    Applies complete-entity reference decoding, escape expansion, ruby stripping
-    (when no math is present), line-break normalization, prose angle bracket escaping,
-    and boilerplate stripping.
+    Normalizes complete character references (keeping < > & " ' escaped),
+    expands escapes, strips ruby (when no math is present), normalizes
+    line breaks, escapes prose angle brackets, and strips boilerplate.
     """
     if not isinstance(content, str) or not content:
         return ""
 
-    content = decode_complete_character_references(content)
+    content = normalize_character_references(content)
     content = expand_escapes(content)
     if not html_fragment_contains_mixed_math(content):
         content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
@@ -651,9 +666,10 @@ class WriteReport:
     paragraph because the content was block-level. ``added_content`` is internal (not
     reported): False when the import added nothing (e.g. ``<p></p>``), so
     ``_replace_whole_paragraphs`` keeps the emptied paragraph. ``links_retargeted`` counts
-    outline hyperlinks updated after a heading rename, and ``stale_links`` lists
-    ``|outline`` URLs on field-backed links that could not be rewritten as tracked changes
-    while recording. all_matches merges one report per match with ``extend``.
+    outline hyperlinks updated after a heading rename, and ``stale_links`` maps
+    each ``|outline`` URL still naming an old title to its reason. ``tables_added``
+    is internal (not reported): tables the import added, or None when not measured.
+    all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
@@ -663,7 +679,8 @@ class WriteReport:
     snapped_to_paragraph: bool = False
     added_content: bool = True
     links_retargeted: int = 0
-    stale_links: list[str] = field(default_factory=list)
+    stale_links: dict[str, StaleReason] = field(default_factory=dict)
+    tables_added: int | None = None
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
@@ -773,14 +790,17 @@ def attach_write_report(
 
     if report.links_retargeted:
         result["links_retargeted"] = report.links_retargeted
-    for url in report.stale_links:
+    for url, reason in report.stale_links.items():
+        cause = (
+            "they hold a field, which cannot be rewritten as a tracked change."
+            if reason == "field"
+            else "the edit removed that heading and no new heading clearly replaces it. "
+            "Point them at the right heading or remove them."
+        )
         diags.append({
             "code": "LINK_TARGET_STALE",
             "link_target": url,
-            "message": (
-                f'Links to "{url}" still use the old heading title: '
-                "they hold a field, which cannot be rewritten as a tracked change."
-            ),
+            "message": f'Links to "{url}" still use the old heading title: {cause}',
         })
 
     return append_warnings(result, diags)
@@ -1089,9 +1109,12 @@ def apply_block_lo_styles(
                 try:
                     cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     cur.gotoEndOfParagraph(True)
-                    apply_paragraph_style_preserving_direct_char(
-                        model, cur, resolved, style_cache=style_cache,
-                    )
+                    # The paragraph is our own new insertion; recorded, the Char* restore can
+                    # leave Format redlines whose Reject keeps inserted text.
+                    with record_changes(model, False):
+                        apply_paragraph_style_preserving_direct_char(
+                            model, cur, resolved, style_cache=style_cache,
+                        )
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-style: failed to apply %r", style, exc_info=True)

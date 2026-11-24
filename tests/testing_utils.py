@@ -1286,12 +1286,6 @@ class TestingFactory:
                 del _NATIVE_DOC_POOL[key]
         _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
-            from plugin.calc.python.function import clear_python_addin_cache
-
-            clear_python_addin_cache()
-        except Exception:
-            pass
-        try:
             import gc
             import time
 
@@ -1413,12 +1407,6 @@ class TestingFactory:
                         TestingFactory.close_doc(doc)
                     else:
                         _native_teardown_progress("native_doc: teardown reset done")
-                        try:
-                            from plugin.calc.python.function import clear_python_addin_cache
-
-                            clear_python_addin_cache()
-                        except Exception:
-                            pass
                 else:
                     # Non-pooled Draw/Impress use close_draw_family_doc + settle (or skip
                     # close on Windows when leftovers remain); Math OLE Draw keeps close_doc.
@@ -1577,6 +1565,20 @@ def writer_services_tool_context(doc, ctx):
     except Exception:
         services = None
     return ToolContext(doc, ctx, "writer", services, "test")
+
+
+def libreoffice_version(ctx: Any) -> tuple[int, ...]:
+    """Return the LibreOffice major.minor version tuple from ``ooSetupVersion`` (e.g. ``(26, 8)``)."""
+    from plugin.framework.uno_context import create_property_value
+
+    smgr = ctx.getServiceManager()
+    provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+    access = provider.createInstanceWithArguments(
+        "com.sun.star.configuration.ConfigurationAccess",
+        (create_property_value("nodepath", "/org.openoffice.Setup/Product"),),
+    )
+    raw = str(access.getPropertyValue("ooSetupVersion")).strip()
+    return tuple(int(part) for part in raw.split(".") if part.isdigit())
 
 
 def with_native_doc(doc_type="writer", hidden=True, reuse=None):

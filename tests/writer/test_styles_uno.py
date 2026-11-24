@@ -585,6 +585,7 @@ def test_style_format_text_bad_value_leaves_document_unchanged_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_style_format_text_mixed_set_and_reset_including_unrecordable_uno(ctx, doc):
+    from com.sun.star.style.BreakType import PAGE_BEFORE
     from plugin.framework.config import get_config, save
 
     prev = get_config("doc.agent_edit_review_mode")
@@ -599,7 +600,7 @@ def test_style_format_text_mixed_set_and_reset_including_unrecordable_uno(ctx, d
     try:
         res = StyleFormatText().execute(
             tool_ctx,
-            properties={"CharWeight": 150.0},
+            properties={"CharWeight": 150.0, "BreakType": PAGE_BEFORE},
             reset=["CharFontName", "CharStyleName"],
             target="full_document",
         )
@@ -650,7 +651,7 @@ def test_style_format_text_reset_accept_leaves_style_font_also_after_style_edit_
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_style_format_text_para_reset_is_untracked_and_flagged_uno(ctx, doc):
+def test_style_format_text_para_reset_is_tracked_and_rejectable_uno(ctx, doc):
     from plugin.framework.config import get_config, save
 
     prev = get_config("doc.agent_edit_review_mode")
@@ -666,9 +667,16 @@ def test_style_format_text_para_reset_is_untracked_and_flagged_uno(ctx, doc):
         before = doc.getRedlines().getCount()
         res = StyleFormatText().execute(tool_ctx, reset=["ParaLeftMargin"], target="full_document")
         assert res["status"] == "ok", res
-        assert res["tracked"] is False
-        assert res["style_unreviewed"] is True
-        assert doc.getRedlines().getCount() == before
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        redlines = doc.getRedlines()
+        assert redlines.getCount() == before + 1
+        assert redlines.getByIndex(before).getPropertyValue("RedlineType") == "ParagraphFormat"
+
+        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        para = text.createEnumeration().nextElement()
+        assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 2
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({"doc.agent_edit_review_mode": prev})
@@ -802,4 +810,125 @@ def test_style_update_char_color_int_and_minus_one_uno(ctx, doc):
     assert res_auto.get("status") == "ok", res_auto
     assert int(style.getPropertyValue("CharColor")) == -1
 
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_reset_char_style_name_is_rejectable_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharStyleName", "Source Text")
+    text.insertString(cur, "code ", False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "bold", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = StyleFormatText().execute(tool_ctx, reset=["CharStyleName"], target="full_document")
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert doc.getRedlines().getCount() > 0
+
+        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        para = text.createEnumeration().nextElement()
+        penum = para.createEnumeration()
+        portions = {}
+        while enum_has_more(penum):
+            p = penum.nextElement()
+            if p.getPropertyValue("TextPortionType") == "Text":
+                portions[p.getString()] = (
+                    p.getPropertyValue("CharStyleName"),
+                    p.getPropertyValue("CharWeight"),
+                )
+        assert portions["code "] == ("Source Text", 100.0)
+        assert portions["bold"] == ("Source Text", 150.0)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_apply_style_single_target_is_one_undo_step_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "one ", False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    text.insertString(cur, "two ", False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cur, "three", False)
+
+    undo = doc.getUndoManager()
+    undo.clear()
+    res = ApplyStyle().execute(tool_ctx, style="Heading 1", target="full_document", clear_direct="style_props")
+    assert res["status"] == "ok", res
+    assert len(list(undo.getAllUndoActionTitles())) == 1
+
+    undo.undo()
+    para = text.createEnumeration().nextElement()
+    assert para.getPropertyValue("ParaStyleName") == "Standard"
+    portions = dict(_portion_fonts(text))
+    assert portions["one "]["CharWeight"] == 150.0
+    assert portions["two "]["CharWeight"] == 100.0
+    assert portions["three"]["CharWeight"] == 150.0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tab_stop_words_reach_the_document_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.setString("Paragraph with tab stops")
+
+    style_name = "AgentTabStopStyle"
+    res_create = StyleCreate().execute(
+        tool_ctx,
+        style=style_name,
+        family="ParagraphStyles",
+        property_updates={"ParaTabStops": [{"Position": 2000, "Alignment": "right", "FillChar": "."}]},
+    )
+    assert res_create["status"] == "ok", res_create
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    style = para_styles.getByName(style_name)
+    stops = style.getPropertyValue("ParaTabStops")
+    assert len(stops) == 1
+    assert stops[0].Position == 2000
+    assert stops[0].Alignment.value == "RIGHT"
+    assert stops[0].FillChar.value == "."
+
+    res_fmt = StyleFormatText().execute(
+        tool_ctx,
+        target="full_document",
+        properties={"ParaTabStops": [{"Position": 3000, "Alignment": "center", "FillChar": "_"}]},
+    )
+    assert res_fmt["status"] == "ok", res_fmt
+    para = text.createEnumeration().nextElement()
+    para_stops = para.getPropertyValue("ParaTabStops")
+    assert len(para_stops) == 1
+    assert para_stops[0].Position == 3000
+    assert para_stops[0].Alignment.value == "CENTER"
+    assert para_stops[0].FillChar.value == "_"
+
+    res_bad = StyleUpdate().execute(
+        tool_ctx,
+        style=style_name,
+        family="ParagraphStyles",
+        property_updates={"ParaTabStops": [{"Position": 1000, "Alignment": "SIDEWAYS"}]},
+    )
+    assert res_bad["status"] == "error", res_bad
+    assert res_bad["code"] == "INVALID_PARAM"
+    stops_after = style.getPropertyValue("ParaTabStops")
+    assert len(stops_after) == 1
+    assert stops_after[0].Position == 2000
+    assert stops_after[0].Alignment.value == "RIGHT"
+    assert stops_after[0].FillChar.value == "."
 

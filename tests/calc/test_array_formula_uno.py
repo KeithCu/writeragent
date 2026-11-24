@@ -5,7 +5,8 @@
 """UNO tests for native Calc array formulas (setArrayFormula)."""
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, with_native_doc
+from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, libreoffice_version, with_native_doc
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
 
 @native_test
@@ -96,3 +97,79 @@ def test_array_true_forces_set_array_formula(ctx, doc):
     assert stored, f"expected array formula, got {stored!r}"
     assert sheet.getCellByPosition(0, 0).getValue() == 10
     assert sheet.getCellByPosition(0, 1).getValue() == 20
+
+
+@native_test
+@with_native_doc("calc")
+def test_array_true_accepts_single_value(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1"], "values": "=XLOOKUP(1;{1|2};{7|8})", "array": True},
+    )
+    assert res.get("status") == "ok", f"XLOOKUP single-value array write failed: {res}"
+    assert res.get("array_range") == "A1:A1"
+    assert sheet.getCellByPosition(0, 0).getValue() == 7
+
+    res_sum = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["C1:C3"], "values": "=SUM(1;2)", "array": True},
+    )
+    assert res_sum.get("status") == "ok", f"SUM array write failed: {res_sum}"
+    for row in range(3):
+        assert sheet.getCellByPosition(2, row).getValue() == 3
+    warning = res_sum.get("warning", "")
+    assert "repeated" in warning
+    assert "#N/A" not in warning
+
+
+@native_test
+@with_native_doc("calc")
+def test_single_row_array_repeats_down_the_range(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["E1:F3"], "values": "=SEQUENCE(1;2)", "array": True},
+    )
+    assert res.get("status") == "ok", f"SEQUENCE(1;2) array write failed: {res}"
+    for row in range(3):
+        assert sheet.getCellByPosition(4, row).getValue() == 1
+        assert sheet.getCellByPosition(5, row).getValue() == 2
+    warning = res.get("warning", "")
+    assert "repeated" in warning
+    assert "#N/A" not in warning
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_array_true_py_list(ctx, doc):
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    try:
+        with repo_venv_in_profile():
+            res = _execute_calc_tool(
+                doc,
+                ctx,
+                "write_range",
+                {"range": ["A1"], "values": '=PY("result = [10, 20, 30]")', "array": True},
+            )
+            if libreoffice_version(ctx) >= (26, 8):
+                assert res.get("status") == "ok", f"PY array write failed: {res}"
+                assert res.get("rows") == 3, f"expected 3 rows: {res}"
+                assert [sheet.getCellByPosition(0, r).getValue() for r in range(3)] == [10, 20, 30]
+            else:
+                assert res.get("status") == "error", f"expected refusal before 26.8: {res}"
+                assert res.get("code") == "INVALID_PARAM"
+                assert res.get("suggested_call", {}).get("arguments", {}).get("range") == [f"{sheet.getName()}.A1"]
+                assert [sheet.getCellByPosition(0, r).getString() for r in range(3)] == ["", "", ""]
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

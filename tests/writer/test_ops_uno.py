@@ -18,7 +18,7 @@ def _populate_ops_doc(doc):
 @with_native_doc("writer")
 def test_visible_body_range(ctx, doc):
     _populate_ops_doc(doc)
-    visible_text, _ = read_visible_body(doc)
+    visible_text, _, _ = read_visible_body(doc)
 
     # Just grab a known length from the visible body text
     start_idx = 0

@@ -26,11 +26,13 @@ from typing import Any
 from com.sun.star.awt import Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_FRAME, AT_PAGE, AT_PARAGRAPH
 
-from plugin.doc.text_helpers import visible_range_text
+from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
-from ..edit_review import flag_untracked_delete
+from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
+from ..edit_review import flag_untracked, flag_untracked_delete
 from ..search import text_box_shapes
 from ..specialized_base import ToolWriterTextFramesBase, target_params
 from ..target_resolver import insert_at_target
@@ -47,8 +49,9 @@ def _frame_size_fields(size: Any) -> dict[str, Any]:
     }
 
 
-def _frame_text(doc: Any, frame: Any, limit: int | None = None) -> str:
-    full_text = visible_range_text(doc, frame.getText())
+def _frame_text(frame: Any, deletions: TrackedDeletions, limit: int | None = None) -> str:
+    text = frame.getText()
+    full_text = get_string_without_tracked_deletions(text, deletions.state_at(text))
     if limit is not None and len(full_text) > limit:
         return full_text[:limit] + "..."
     return full_text
@@ -118,9 +121,11 @@ class FrameList(ToolWriterTextFramesBase):
         if isinstance(text_frames, dict):
             return text_frames
 
+        deletions = TrackedDeletions(doc)
+
         def entry(name: str, frame: Any) -> dict[str, Any]:
             size = frame.getPropertyValue("Size")
-            content_preview = _frame_text(doc, frame, limit=200)
+            content_preview = _frame_text(frame, deletions, limit=200)
             return {"name": name, **_frame_size_fields(size), "content_preview": content_preview}
 
         frames = [entry(name, text_frames.getByName(name)) for name in text_frames.getElementNames()]
@@ -154,7 +159,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
         hori_orient = int(frame.getPropertyValue("HoriOrient"))
         vert_orient = int(frame.getPropertyValue("VertOrient"))
-        full_content = _frame_text(ctx.doc, frame)
+        full_content = _frame_text(frame, TrackedDeletions(ctx.doc))
         content_length = len(full_content)
         truncated = content_length > _FRAME_INFO_MAX_CHARS
 
@@ -206,7 +211,10 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     """Resize, re-anchor, or set the orientation of a text frame."""
 
     name: str | None = "frame_set_properties"
-    description: str = "Resize, re-anchor, or set the orientation of a text frame."
+    description: str = (
+        "Resize, re-anchor, or set the orientation of a text frame. "
+        "Not for Word text boxes (frame_list entries with shape_index): resize those with shape_upsert."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -222,10 +230,26 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        frame_name = kwargs.get("name")
+        frame_name = kwargs["name"]
         frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
+
+        owner = _text_box_owner(ctx.doc, frame_name)
+        if owner is not None:
+            # LibreOffice copies a text box's size, anchor and orientation from the shape to the hidden frame,
+            # never back (sw/source/core/doc/docfly.cxx:SwDoc::SetFlyFrameAttr). Writing the frame separates the
+            # text from its shape, and AT_PAGE on an inline box's frame aborts LibreOffice.
+            shape_index, shape = owner
+            return self._tool_error(
+                "Text frame '%s' is the text of a Word text box, so its size comes from the shape. "
+                "Resize it with shape_upsert(action='edit', index=%d, width=..., height=...) in 1/100 mm "
+                "(shapes toolset, delegate_to_subagent domain='shapes'). "
+                "Its anchor and orientation cannot be set." % (frame_name, shape_index),
+                code="TEXT_BOX_SHAPE",
+                shape_index=shape_index,
+                shape_name=shape.getName(),
+            )
 
         width_mm = kwargs.get("width_mm")
         height_mm = kwargs.get("height_mm")
@@ -333,23 +357,31 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
+        recorded = False
+
         def mutate(cursor: Any) -> dict[str, Any] | None:
+            nonlocal recorded
+            recorded = anchor_type == 1 and is_recording_changes(doc)
             host = cursor.getText()
-            host.insertTextContent(cursor, frame, False)
-            if anchor_type == 2:
-                # Inserting an AT_PAGE frame without a page number makes it AT_CHARACTER
-                # (sw/source/core/unocore/unoframe.cxx:SwXFrame::attachToRange). Setting the type on the
-                # inserted frame lets LibreOffice fill in the page it sits on
-                # (sw/source/core/frmedt/fefly1.cxx:lcl_FindAnchorPos).
-                frame.setPropertyValue("AnchorType", AT_PAGE)
+            if anchor_type == 1:
+                insert_recorded_content(doc, host, cursor, frame)
+            else:
+                host.insertTextContent(cursor, frame, False)
+                if anchor_type == 2:
+                    # Inserting an AT_PAGE frame without a page number makes it AT_CHARACTER
+                    # (sw/source/core/unocore/unoframe.cxx:SwXFrame::attachToRange). Setting the type on the
+                    # inserted frame lets LibreOffice fill in the page it sits on
+                    # (sw/source/core/frmedt/fefly1.cxx:lcl_FindAnchorPos).
+                    frame.setPropertyValue("AnchorType", AT_PAGE)
             if frame_name:
                 # XNamed::setName is valid only after the frame is anchored (not a Name property).
                 frame.setName(frame_name)
             if text:
-                frame_text = frame.getText()
-                frame_cursor = frame_text.createTextCursor()
-                frame_cursor.gotoStart(False)
-                frame_text.insertString(frame_cursor, text, False)
+                with record_changes(doc, False):
+                    frame_text = frame.getText()
+                    frame_cursor = frame_text.createTextCursor()
+                    frame_cursor.gotoStart(False)
+                    frame_text.insertString(frame_cursor, text, False)
             return None
 
         err = insert_at_target(
@@ -360,6 +392,7 @@ class FrameInsert(ToolWriterTextFramesBase):
             what="the text frame",
             undo_title="WriterAgent: Insert text frame",
             code="INSERT_FRAME_FAILED",
+            review=True,
         )
         if err is not None:
             return err
@@ -367,7 +400,17 @@ class FrameInsert(ToolWriterTextFramesBase):
         inserted_name = frame_name or frame.getName() or ""
         # LibreOffice changes an anchor type the target cannot hold, such as AT_FRAME outside a frame.
         real_anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
-        return {"status": "ok", "frame_name": inserted_name, "anchor_type": real_anchor_type}
+        result: dict[str, Any] = {"status": "ok", "frame_name": inserted_name, "anchor_type": real_anchor_type}
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        else:
+            flag_untracked(
+                result,
+                doc,
+                _("This text frame was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
+            )
+        return result
 
 
 class FrameDelete(ToolWriterTextFramesBase):

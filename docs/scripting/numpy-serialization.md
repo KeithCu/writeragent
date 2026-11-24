@@ -106,7 +106,7 @@ Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`
 
 **Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `python_run_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply. Chat pins `ctx.doc` for that execute (`doc:…`, host-only). The same turn's stop checker and send-cancellation scope are copied onto that `ToolContext`. A script call such as `wa.web.research` or image generation can abort an in-flight HTTP wait. Stop still refuses the next `tool_call` before dispatch. Document mutations are not aborted mid-write. `wa.draw` / `wa.shape` bind to that document. The pin is not the worker `session_id`, so Isolated mode still starts a fresh kernel. Run Python Script and PPT-Master keep using their `rps:` / `ppt_master:` ids when no pin is set. Child protocol writes after `claim_ipc_channel()` use `get_child_ipc_stream()`. That includes PPT-Master `plugin/ppt_master/venv/ipc.py`. `sys.stdout.buffer` is fd 1, which the claim points at stderr. `worker_harness.main` calls `claim_ipc_stdin()` before the first read. Tool replies and PPT-Master host responses are read with `get_child_ipc_stdin()`. That stream is the raw `FileIO`, so the Windows id-mismatch drain's `PeekNamedPipe` sees bytes a `BufferedReader` would have kept in userspace.
 
-**Wire:** worker writes `{"type": "tool_call", "id", "tool", "args"}`; host replies `{"status", "id", "result"|"message"}`. Arguments go through `to_wire(force="never")` and `result_to_calc_grid`: frames follow pandas egress and a `CalcRange` argument is its grid (including 1×1). No extra frame type. Domain allowlists (`python_tool_domain`) stay on the host. Sketch / usage: [core §7 — tool RPC](../enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
+**Wire:** worker writes `{"type": "tool_call", "id", "tool", "args"}`; host replies `{"status", "id", "result"|"message"}`. Arguments go through `to_wire(force="never")` and `result_to_calc_grid`: frames follow pandas egress and a `CalcRange` argument is its grid (including 1×1). `_plain_tool_args` unwraps a `CalcRange`, and `result_to_calc_grid` a frame, only at the top level of an argument (neither looks inside a list or dict). A nested DataFrame with named columns, or a nested named Series, reaches the tool as its raw envelope (`{"__wa_payload__": "dataframe", …}`), and a nested 1×1 `CalcRange` becomes a scalar. Pass a frame as the argument, not inside a list or dict. No extra frame type. Domain allowlists (`python_tool_domain`) stay on the host. Sketch / usage: [core §7 — tool RPC](../enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
 
 ---
 
@@ -286,7 +286,7 @@ Image and dataframe envelopes are built by `pack_image_envelope` / `pack_datafra
 | `np.ndarray` with `np.nan` | `float('nan')` preserved (Calc error on `=PY()` egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing; `=PY()` cells and spill neighbours show `#NUM!`) |
 | Large numeric array (≥ 100 cells, rank 1 or 2) | `split_grid` on wire; host unpack → nested lists (NaN preserved). Rank 3+ is a list of planes, not one envelope. Complex is not cast to float64 (imaginary part would be dropped); it takes the strings map |
-| Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
+| Large string or object ndarray (≥ 100 cells) | `to_wire` walks `tolist()` first, then the same strings map as a Python list (not `astype(float64)`) |
 
 Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc. A mixed result's `None` follows that rule only at or above `BINARY_MIN_CELLS` (NaN hole → Calc error). Below the threshold the nested list keeps `None` and spills a blank. Child mixed unpack still restores `None`. Pure-bool grids below the threshold become float64 on child ingest. `split_grid` restores bool (or int) in the child only when every column is that one kind. A mixed numeric grid (int next to float, or a bool column next to an int column, no strings) stays one float64 ndarray in the child; host unpack still restores per-column Python types. Do not switch the child to an object array to match the host. A single column that mixes bool and int is one kind: int wins, so `[[True], [1]]` on split_grid unpacks as `1`, not `True` (`force="never"` and the under-threshold list path keep `True`). Do not add a per-cell bool mask; `True` and `1` are the same float64, and the mask would be a second side channel the Cython flattener would also have to emit. Egress of bool is `1.0`/`0.0` either way. A rectangular tuple-of-tuples becomes a list-of-lists on egress (`grid = [list(row) for row in result]`, then `grid_from_nested_list`). `host_unpack_data` restores a tuple only when the wire value is still a tuple; this path does not send tuples. Split_grid cannot keep row container types.
 
@@ -432,25 +432,15 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 | Child unpack | [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
+| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / `matrix_result` | Scalar or native matrix for Calc's add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
 **Fresh namespace every call** ([core strategy](../enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PY()` or `python_run_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
 
-### Matrix formula result session (IPC reduction) {#matrix-formula-result-session-ipc-reduction}
+### Matrix formula native return {#matrix-formula-result-session-ipc-reduction}
 
-Calc add-ins return **one scalar per evaluation**. A 1,000-row matrix formula would otherwise cause 1,000 IPC crossings and serialization pack taxes.
-
-WriterAgent implements a **Worker Result Session** cache ([`WorkerResultSession`](../../plugin/calc/python/function.py)):
-
-1. **First cell** in the range runs the full worker; the serialized list is cached on the **LibreOffice host**.
-2. **Remaining cells** with the same `code` + `data` signature bypass the worker and read by index from the host cache.
-3. **`ROW()-n` pattern:** pass `ROW()-n` as the 2nd argument so each cell pulls the correct list element regardless of Calc evaluation order.
-
-This caches **execution output** on the host — separate from the worker [**code hot cache**](#warm-worker-lifecycle) (AST parse + static policy only).
-
-**Benefits:** ~**99.9% IPC reduction** for large matrix columns; one subprocess + serialize cost per range per recalc pass. Author UX (Ctrl+Shift+Enter, `ROW()`): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
+Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as a native UNO matrix (see its docstring for exact types), so the block receives all elements in one worker call without a host result cache. Before LibreOffice 26.8 `matrix_result` returns the top-left value (`accepts_returned_any`). Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 ### Multi-range wire format {#multi-range-wire-format}
 
@@ -502,7 +492,7 @@ Checklist (same legs the script runs):
 2b. **Vendored Codecs** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
 3. **Mmap** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.
-5. **Matrix formulas** — count worker invocations per recalc with and without `ROW()-1` index arg.
+5. **Matrix formulas** — verify one worker invocation per `{=PY()}` array block.
 6. **Cross-platform** — temp file delete on timeout ([`venv_worker.py`](../../plugin/scripting/venv_worker.py) process-tree kill: POSIX `killpg`, Windows `taskkill /T`), Windows path length, UTF-8 JSON for non-ASCII cells (keep JSON branch for mixed data).
 
 Record: cells/sec host→child, cells/sec child→host, bytes on wire, and whether timeout (`scripting.python_exec_timeout`) fires due to serialization alone.
@@ -576,7 +566,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_range`”, not 10⁵-element lists in `result`. |
-| **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`WorkerResultSession`](../../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
+| **`=PY()` matrix** | Use auto-spill from one cell or a `{=PY(code)}` array block (Ctrl+Shift+Enter, 26.8+) — one worker run returns the full matrix; avoid filled-down per-cell formulas each resending `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](../enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).

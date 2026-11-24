@@ -20,7 +20,7 @@ import re
 import time
 import zlib
 from html import escape as html_escape
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, NamedTuple
 
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
@@ -171,9 +171,10 @@ def _export_xhtml(doc: Any) -> str:
 
 
 
-def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | None]:
-    """Export *doc* as flat ODF once and return ``(parents, overrides, has_ruby)``.
+def _autostyle_maps(doc: Any, fodt: str | None = None) -> tuple[dict[str, str], dict[str, str], bool | None]:
+    """Return ``(parents, overrides, has_ruby)`` from *doc*'s flat-ODF sidecar.
 
+    Exports *doc* as flat ODF when *fodt* is None; otherwise parses *fodt*.
     ``parents`` (Pn -> base style name) lets the read path recover an autostyle paragraph's real
     style name when the XHTML CSS fingerprint matches nothing. ``overrides`` (Pn -> CSS text) is
     the paragraph's DIRECT formatting, which the flattened XHTML cannot distinguish from inherited
@@ -187,9 +188,9 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
-        fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        parents, overrides = xhtml_post.parse_fodt_autostyles(fodt)
-        return (parents, overrides, "<text:ruby" in fodt)
+        sidecar = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION) if fodt is None else fodt
+        parents, overrides = xhtml_post.parse_fodt_autostyles(sidecar)
+        return (parents, overrides, "<text:ruby" in sidecar)
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
     return best_effort(read_maps, "_autostyle_maps: flat-ODF export failed", failed)
@@ -357,17 +358,63 @@ def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
     )
 
 
+class _TableStartRange(NamedTuple):
+    """Range-like value for a selection that starts inside a body table and ends in the body."""
+
+    text: Any
+    anchor: Any
+    end: Any
+
+    def getText(self) -> Any:
+        return self.text
+
+    def getStart(self) -> Any:
+        return self.anchor
+
+    def getEnd(self) -> Any:
+        return self.end
+
+
+def _table_start_range(body: Any, start: Any, end: Any) -> _TableStartRange | None:
+    """Resolve a table-start/body-end selection to the outer body table's anchor."""
+    body.createTextCursorByRange(end)
+    last_anchor: Any = None
+    for el in iter_elements(body.createEnumeration()):
+        if not range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+            continue
+        anchor = el.getAnchor()
+        if not starts_at_or_after(body, start, anchor):
+            break
+        last_anchor = anchor
+    return _TableStartRange(body, last_anchor, end) if last_anchor is not None else None
+
+
 def _selection_cursor(model: Any, selection: Any | None = None) -> Any | None:
     """The current selection (or explicit *selection* range) as a cursor in its own text, or None.
 
     Selection scope builds a cursor in the selection's own XText instead of body
     character offsets, so index/TOC selections do not export a later body paragraph.
+
+    A selection starting in a body table and ending in the body has two forms:
+    Ctrl+A (``SwCursorShell::ExtendedSelectAll``, ``sw/source/core/crsr/crsrsh.cxx``)
+    gives ``SwXCell`` whose ``createXTextCursorByRangeImpl`` (``unotbl.cxx``) returns
+    None for an end outside the cell, and a programmatic ``SwXBodyText`` range whose
+    ``start`` is inside a cell causes ``createTextCursorByRange`` to raise (interactive
+    Shift+arrow cannot leave a table because ``SwCursor::IsSelOvr`` in
+    ``sw/source/core/crsr/swcrsr.cxx`` restores the saved position). Both fall back
+    to ``_table_start_range``.
     """
     found = get_writer_selection_positions(model, selection=selection)
     if not found:
         return None
     text, start, end = found
+
     def select() -> Any:
+        if (
+            uno_read(lambda: text.createTextCursorByRange(start), None) is None
+            or uno_read(lambda: text.createTextCursorByRange(end), None) is None
+        ):
+            return _table_start_range(model.getText(), start, end)
         cursor = text.createTextCursorByRange(start)
         cursor.gotoRange(end, True)
         return cursor
@@ -414,7 +461,12 @@ def _selection_window(text: Any, source: Any) -> tuple[Callable[[Any], bool], _W
         el: Any, para_text: str, tables: list[Any], opened: bool
     ) -> tuple[list[Any], tuple[int, int] | None]:
         # A table has no getStart; its anchor is a point inside its first cell.
-        inside = [t for t in tables if _element_overlaps(text, t.getAnchor(), source)]
+        # >= at start is needed because _TableStartRange.getStart() can be the table's own anchor.
+        inside = [
+            t for t in tables
+            if _starts_before(text, t.getAnchor(), source.getEnd())
+            and starts_at_or_after(text, t.getAnchor(), source.getStart())
+        ]
         if past_end(el) or not _element_overlaps(text, el, source):
             return inside, None
         return inside, _trim_to_source(text, el, para_text, source, opened)
@@ -454,11 +506,12 @@ def _copy_formula_runs(
     portions: list[tuple[Any, str]],
     trim_start: int,
     trim_end: int,
+    temp_doc: Any,
     temp_text: Any,
     temp_cursor: Any,
     math_records: list[tuple[str, str, bool]],
 ) -> None:
-    """Copy formula and text runs into *temp_text*, recording placeholders."""
+    """Copy formula, graphic, and text runs into *temp_text*, recording placeholders."""
     # Standalone formula: paragraph has no other visible text.
     display_block = not any(
         chunk.strip() and chunk != OBJECT_REPLACEMENT and not portion_math_embed(p)
@@ -476,6 +529,10 @@ def _copy_formula_runs(
             if run_start < trim_start or run_start > trim_end:
                 continue
             slice_text = range_copy.record_math_placeholder(math_records, emb, display_block=display_block)
+        elif not chunk and uno_read(lambda: p.getPropertyValue("TextPortionType"), "") == "Frame":
+            if trim_start <= run_start <= trim_end:
+                range_copy.clone_graphics(p, temp_doc, temp_text, temp_cursor)
+            continue
         else:
             if run_end <= trim_start or run_start >= trim_end:
                 continue
@@ -527,6 +584,7 @@ def _copy_window_to_scratch(
         portions = list(_visible_portions(el, truncated_out=walk_warnings, state=state))
         has_formula = any(portion_math_embed(p) is not None for p, _unused in portions)
         para_text = "".join(chunk for _unused, chunk in portions)
+        struck = state.strikes_paragraph(el, opened)
 
         inside, trim = window(el, para_text, tables, opened)
         if opened:
@@ -537,6 +595,9 @@ def _copy_window_to_scratch(
             temp_cursor.gotoEnd(False)
             if need_break:
                 range_copy.begin_next_paragraph(temp_text, temp_cursor)
+            # Range reads with include_images=False emit placeholders named after the clone;
+            # keeping the source name (when unused in temp_doc) prevents a later write-back
+            # (image_placeholders) from restoring a different picture of that name.
             range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
             for para, table_state in iter_table_paragraphs(table):
                 copied_ruby.extend(
@@ -557,11 +618,16 @@ def _copy_window_to_scratch(
         applied = range_copy.apply_temp_para_style(temp_doc, temp_cursor, style, model)
 
         if not has_formula:
-            temp_cursor.setString(para_text)
+            temp_cursor.setString(para_text + xhtml_post.DELETED_MARK if struck else para_text)
             src_style = range_copy.source_style(model, style, style_cache) if applied else None
             range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
+            range_copy.clone_window_graphics(el, portions, temp_doc, temp_text, trim_start, trim_end)
         else:
-            _copy_formula_runs(portions, trim_start, trim_end, temp_text, temp_cursor, math_records)
+            _copy_formula_runs(
+                portions, trim_start, trim_end, temp_doc, temp_text, temp_cursor, math_records
+            )
+            if trim_start == 0:
+                range_copy.clone_graphics(el, temp_doc, temp_text, temp_cursor)
 
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
@@ -574,18 +640,18 @@ def _copy_window_to_scratch(
     return (copied_ruby, math_records) if added_any else None
 
 
-def _export_semantic(doc: Any, *, read_ruby: bool) -> tuple[str, bool | None]:
+def _export_semantic(doc: Any, *, read_ruby: bool, fodt: str | None = None) -> tuple[str, bool | None]:
     """Export *doc* as XHTML and convert to semantic HTML using flat-ODF autostyles.
 
-    The sidecar is a second full export. It runs when there are autostyles to
-    name, or when the caller needs the ruby flag (the full read skips a portion
-    walk with it). has_ruby is None when the sidecar did not run, and finish()
-    then walks portions itself. The function raises on export failure, and each
-    caller owns its fallback.
+    The sidecar is a second full export unless the caller already has *fodt*. It
+    runs when there are autostyles to name, or when the caller needs the ruby
+    flag (the full read skips a portion walk with it). has_ruby is None when the
+    sidecar did not run, and finish() then walks portions itself. The function
+    raises on export failure, and each caller owns its fallback.
     """
     xhtml = _export_xhtml(doc)
     if read_ruby or xhtml_post.xhtml_has_paragraph_autostyle(xhtml):
-        parents, overrides, has_ruby = _autostyle_maps(doc)
+        parents, overrides, has_ruby = _autostyle_maps(doc, fodt)
     else:
         parents, overrides, has_ruby = {}, {}, None
     return xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides), has_ruby
@@ -636,7 +702,7 @@ def _range_to_content_via_temp_doc(
             # A closed document must not start a second export.
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
-            content = _export_starwriter_html(temp_doc)
+            content = _export_starwriter_html(temp_doc).replace(xhtml_post.DELETED_MARK, "")
         content = _restore_anchor_hrefs(content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE)
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
@@ -660,25 +726,28 @@ def _range_to_content_via_temp_doc(
 
 
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, splitting deleted paragraph breaks first.
+    """Export the full document via XHTML, expanding tracked deletions first.
 
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
-    multi-paragraph deletion; when tracked deletions cross a paragraph break,
-    split them in the flat-ODF sidecar and export a hidden copy instead.
+    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks; when
+    tracked deletions cross a paragraph break or empty a paragraph, expand them
+    in the flat-ODF sidecar and export a hidden copy instead.
     """
-    if not TrackedDeletions(model):
-        return _export_semantic(model, read_ruby=True)
-    split = xhtml_post.split_deleted_breaks(_read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION))
-    if split is None:
-        return _export_semantic(model, read_ruby=True)
-    with with_temp_buffer(split, ext=FODT_EXTENSION) as (_path, url):
-        copy = load_scratch_document(get_desktop(ctx), url)
-        if copy is None:
-            raise ToolExecutionError("Could not read the document (no scratch document).")
-        try:
-            return _export_semantic(copy, read_ruby=True)
-        finally:
-            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
+    fodt: str | None = None
+    if TrackedDeletions(model):
+        fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+        expanded = xhtml_post.expand_tracked_deletions(fodt)
+        if expanded is not None:
+            with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
+                copy = load_scratch_document(get_desktop(ctx), url)
+                if copy is None:
+                    raise ToolExecutionError("Could not read the document (no scratch document).")
+                try:
+                    # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
+                    return _export_semantic(copy, read_ruby=True)
+                finally:
+                    best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
+    return _export_semantic(model, read_ruby=True, fodt=fodt)
 
 
 def document_to_content(

@@ -903,7 +903,7 @@ class _ChartProxy:
         Args:
             name (required): The name of the chart to delete.
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): 0-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search, Draw/Impress only (the user's page 2 is page=1).
         """
         return _result(call_host_tool("chart_delete", name=name, sheet=sheet, page=page))
 
@@ -913,7 +913,7 @@ class _ChartProxy:
         Args:
             name (required): The name of the chart.
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): 0-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search, Draw/Impress only (the user's page 2 is page=1).
         """
         return _result(call_host_tool("chart_get_info", name=name, sheet=sheet, page=page))
 
@@ -922,7 +922,7 @@ class _ChartProxy:
 
         Args:
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): 0-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search, Draw/Impress only (the user's page 2 is page=1).
         """
         return _result(call_host_tool("chart_list", sheet=sheet, page=page))
 
@@ -932,7 +932,7 @@ class _ChartProxy:
         Args:
             name (optional): Chart name for edit, or for create when the chart does not yet exist.
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): 0-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
+            page (optional): 0-based page/slide index, Draw/Impress only (the user's page 2 is page=1; omitted page means the current page, otherwise page 0).
             data_range (optional): Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
@@ -1396,7 +1396,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type))
 
     def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> _Item:
-        """Resize, re-anchor, or set the orientation of a text frame.
+        """Resize, re-anchor, or set the orientation of a text frame. Not for Word text boxes (frame_list entries with shape_index): resize those with shape_upsert.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -1533,7 +1533,7 @@ class _ImageProxy:
             path (required): Local file path or URL of the image to insert.
             locator (optional): Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title').
             paragraph (optional): Paragraph index for insertion point.
-            page (optional): Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted.
+            page (optional): Draw/Impress: 0-based page index. Calc: 0-based sheet index. The user's page or sheet 2 is page=1. Active page or sheet if omitted.
             x_mm (optional): Draw/Impress: X position in millimetres (default: centered). Ignored on Calc.
             y_mm (optional): Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc.
             width_mm (optional): Width in millimetres (must be positive; omitted derives from aspect ratio).
@@ -1779,7 +1779,7 @@ class _MathProxy:
         Args:
             formula_type (required): Whether formula is LaTeX (converted via LO) or MathML. One of: latex, mathml.
             formula (required): LaTeX or MathML formula text, per formula_type.
-            page (required): 0-based index of the draw page or slide.
+            page (required): 0-based page (slide) index: the user's page 2 is page=1.
             x (required): X position, 1/100 mm.
             y (required): Y position, 1/100 mm.
         """
@@ -2017,7 +2017,7 @@ class _PageProxy:
         """
         return _result(call_host_tool("page_set_header_footer_text", style=style, region=region, content=content, auto_height=auto_height))
 
-    def set_style_properties(self, *, style: str = 'Standard', width_mm: float | None = None, height_mm: float | None = None, is_landscape: bool | None = None, left_margin_mm: float | None = None, right_margin_mm: float | None = None, top_margin_mm: float | None = None, bottom_margin_mm: float | None = None, gutter_margin_mm: float | None = None, header_is_on: bool | None = None, footer_is_on: bool | None = None, header_is_shared: bool | None = None, footer_is_shared: bool | None = None, first_is_shared: bool | None = None, header_height_mm: float | None = None, footer_height_mm: float | None = None, header_body_distance_mm: float | None = None, footer_body_distance_mm: float | None = None, back_color: int | None = None, back_transparent: bool | None = None, numbering_type: int | None = None, footnote_height_mm: float | None = None, register_paragraph_style: str | None = None, page_style_layout: int | None = None) -> _Item:
+    def set_style_properties(self, *, style: str = 'Standard', width_mm: float | None = None, height_mm: float | None = None, is_landscape: bool | None = None, left_margin_mm: float | None = None, right_margin_mm: float | None = None, top_margin_mm: float | None = None, bottom_margin_mm: float | None = None, gutter_margin_mm: float | None = None, header_is_on: bool | None = None, footer_is_on: bool | None = None, header_is_shared: bool | None = None, footer_is_shared: bool | None = None, first_is_shared: bool | None = None, header_height_mm: float | None = None, footer_height_mm: float | None = None, header_body_distance_mm: float | None = None, footer_body_distance_mm: float | None = None, back_color: str | int | None = None, back_transparent: bool | None = None, numbering_type: int | None = None, footnote_height_mm: float | None = None, register_paragraph_style: str | None = None, page_style_layout: int | None = None) -> _Item:
         """Modify dimensions, margins, and header/footer toggles of a page style. header_is_on=false / footer_is_on=false refuse if that region still has text, fields, images, or tables — clear with page_set_header_footer_text first, then disable. Enabling (true) is always allowed. No force-off.
 
         Args:
@@ -2039,7 +2039,7 @@ class _PageProxy:
             footer_height_mm (optional): Absolute footer height in mm.
             header_body_distance_mm (optional): Spacing from header to body in mm.
             footer_body_distance_mm (optional): Spacing from footer to body in mm.
-            back_color (optional): Background color (RGB long).
+            back_color (optional): Page background color (hex: #FF0000 or name: yellow). -1 or 'transparent' for no fill.
             back_transparent (optional): Make background transparent.
             numbering_type (optional): com.sun.star.style.NumberingType short (0=CHARS_UPPER_LETTER, 1=CHARS_LOWER_LETTER, 2=ROMAN_UPPER, 3=ROMAN_LOWER, 4=ARABIC).
             footnote_height_mm (optional): Max footnote area height in mm.
@@ -2071,7 +2071,7 @@ class _PageCommentProxy:
 
         Args:
             text (required): Comment text.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             author (optional): Author name (optional).
         """
         return _result(call_host_tool("page_comment_add", text=text, page=page, author=author))
@@ -2081,7 +2081,7 @@ class _PageCommentProxy:
 
         Args:
             index (required): 0-based index on the page.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("page_comment_delete", index=index, page=page))
 
@@ -2089,7 +2089,7 @@ class _PageCommentProxy:
         """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
 
         Args:
-            page (optional): 0-based page index (all pages if omitted).
+            page (optional): 0-based page index (the user's page 2 is page=1; all pages if omitted).
             offset (optional): Skip this many comments in deck order.
 
         Iterator form: ``for item in wa.page_comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.page_comment)`` before deleting in a loop. Membership (``in``) compares whole rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.page_comment)``. It passes no optional arguments (page); filter the items in Python.
@@ -2181,7 +2181,7 @@ class _PlaceholderProxy:
         Args:
             role (optional): Placeholder role: 'title', 'subtitle', or 'body'.
             index (optional): Shape index (from placeholder_list).
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("placeholder_get_text", role=role, index=index, page=page))
 
@@ -2189,7 +2189,7 @@ class _PlaceholderProxy:
         """List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before placeholder_set_text. If count=0, delegate domain=slide_layouts with layout='text', then retry.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("placeholder_list", page=page))
 
@@ -2200,7 +2200,7 @@ class _PlaceholderProxy:
             text (required): Text to set on the placeholder.
             role (optional): Placeholder role: 'title', 'subtitle', or 'body'.
             index (optional): Shape index (from placeholder_list).
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("placeholder_set_text", text=text, role=role, index=index, page=page))
 
@@ -2335,7 +2335,7 @@ class _ShapeProxy:
         Args:
             indices (required): Shape indices or Names to align.
             alignment (required): Alignment axis. One of: left, center_horizontal, right, top, center_vertical, bottom.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_align", page=page, indices=indices, alignment=alignment))
 
@@ -2345,7 +2345,7 @@ class _ShapeProxy:
         Args:
             start (required): Index or Name of the starting shape.
             end (required): Index or Name of the ending shape.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             line_color (optional): Color of the connector line.
             line_width (optional): Line width, 1/100 mm.
             line_start (optional): Arrowhead at the start of a line or connector ('none' clears). One of: none, arrow.
@@ -2358,7 +2358,7 @@ class _ShapeProxy:
 
         Args:
             nodes (required):
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             layout (optional): How to place nodes. One of: horizontal_flow, vertical_flow, grid, custom.
             connections (optional):
         """
@@ -2370,7 +2370,7 @@ class _ShapeProxy:
         Args:
             index (optional): 0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.
             name (optional): Shape Name (use for all-digit names that would be parsed as an index).
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_delete", index=index, name=name, page=page))
 
@@ -2380,7 +2380,7 @@ class _ShapeProxy:
         Args:
             indices (required): Shape indices or Names to distribute.
             axis (required): Distribution axis. One of: horizontal, vertical.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_distribute", page=page, indices=indices, axis=axis))
 
@@ -2389,7 +2389,7 @@ class _ShapeProxy:
 
         Args:
             fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_fill_fields", page=page, fields=fields))
 
@@ -2397,7 +2397,7 @@ class _ShapeProxy:
         """Returns a summary of shapes on the active or specified page. Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_get_summary", page=page))
 
@@ -2405,7 +2405,7 @@ class _ShapeProxy:
         """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. CustomShapes with custom_geometry_empty=true have no Path/ViewBox and will not paint (recreate them; edit does not re-apply geometry). Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_get_tree", page=page))
 
@@ -2414,7 +2414,7 @@ class _ShapeProxy:
 
         Args:
             indices (required): List of shape indices or Names to group.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
@@ -2425,7 +2425,7 @@ class _ShapeProxy:
             action (required): Action to perform: 'create' a new shape, or 'edit' an existing one. One of: create, edit.
             index (optional): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             shape_type (optional): Type of shape. Basic types: rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position, 1/100 mm (required only for action='create').
             y (optional): Y position, 1/100 mm (required only for action='create').
@@ -2593,7 +2593,7 @@ class _SlideProxy:
         """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master.
 
         Args:
-            page (optional): 0-based index where to insert the new slide (defaults to appending at the end if omitted).
+            page (optional): 0-based index where to insert the new slide (page=1 makes it the user's slide 2; defaults to appending at the end if omitted).
             activate (optional): Whether to switch the view to the new slide.
             layout (optional): Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.
         """
@@ -2603,7 +2603,7 @@ class _SlideProxy:
         """Deletes the slide (page) at the specified index.
 
         Args:
-            page (required): 0-based index of slide to delete.
+            page (required): 0-based page (slide) index: the user's page 2 is page=1.
         """
         return _result(call_host_tool("slide_delete", page=page))
 
@@ -2611,7 +2611,7 @@ class _SlideProxy:
         """Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide.
 
         Args:
-            page (required): 0-based index of the slide to duplicate.
+            page (required): 0-based page (slide) index: the user's page 2 is page=1.
             activate (optional): Whether to switch the view to the new slide.
         """
         return _result(call_host_tool("slide_duplicate", page=page, activate=activate))
@@ -2620,7 +2620,7 @@ class _SlideProxy:
         """Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
-            page (required): 0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).
+            page (required): 0-based slide index (the user's slide 2 is page=1). When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).
             is_master_page (optional): If True, read the master page linked to the slide at page.
         """
         return _result(call_host_tool("slide_get_header_footer", page=page, is_master_page=is_master_page))
@@ -2629,7 +2629,7 @@ class _SlideProxy:
         """Get the layout type of an Impress slide. Returns the layout ID and a human-readable name.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_get_layout", page=page))
 
@@ -2637,7 +2637,7 @@ class _SlideProxy:
         """Get the master slide assigned to a specific slide. Returns the master slide name.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_get_master", page=page))
 
@@ -2645,7 +2645,7 @@ class _SlideProxy:
         """Read speaker notes from an Impress slide. Returns the notes text.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_get_notes", page=page))
 
@@ -2653,12 +2653,12 @@ class _SlideProxy:
         """Get the transition effect, speed, duration, and advance mode for an Impress slide.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_get_transition", page=page))
 
     def list(self) -> _Item:
-        """Lists pages (slides) in deck order as {index, name, title}; index is 0-based. Unnamed slides have LibreOffice's positional default 'pageN' (N = 1-based position) and include default_name: true."""
+        """Lists pages (slides) in deck order as {index, name, title}; index is 0-based (the user's slide 2 is index 1). Unnamed slides have LibreOffice's positional default 'pageN' (N = 1-based position) and include default_name: true."""
         return _result(call_host_tool("slide_list"))
 
     def list_masters(self) -> _Item:
@@ -2669,8 +2669,8 @@ class _SlideProxy:
         """Moves the slide at from_page (0-based) so it ends at to_page (the 0-based index the slide ends at). Returns the final slide order.
 
         Args:
-            from_page (required): 0-based source slide index.
-            to_page (required): 0-based index the slide ends at.
+            from_page (required): 0-based source slide index (the user's slide 2 is from_page=1).
+            to_page (required): 0-based index the slide ends at (to_page=1 makes it the user's slide 2).
         """
         return _result(call_host_tool("slide_move", from_page=from_page, to_page=to_page))
 
@@ -2678,7 +2678,7 @@ class _SlideProxy:
         """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_read_text", page=page))
 
@@ -2686,7 +2686,7 @@ class _SlideProxy:
         """Sets the Name of a slide (0-based page index). The name must not already be used by another slide; LibreOffice refuses names that start with its default slide label (e.g. 'Slide 3').
 
         Args:
-            page (required): 0-based slide index.
+            page (required): 0-based page (slide) index: the user's page 2 is page=1.
             name (required): New slide name.
         """
         return _result(call_host_tool("slide_rename", page=page, name=name))
@@ -2706,7 +2706,7 @@ class _SlideProxy:
         """Changes the currently active slide (page) in Draw/Impress.
 
         Args:
-            page (required): 0-based index of page to activate.
+            page (required): 0-based page (slide) index: the user's page 2 is page=1.
         """
         return _result(call_host_tool("slide_set_active", page=page))
 
@@ -2714,7 +2714,7 @@ class _SlideProxy:
         """Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
-            page (required): 0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
+            page (required): 0-based slide index (the user's slide 2 is page=1). When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.
             is_master_page (optional): If True, update the master page linked to the slide at page.
             header (optional): Header text. Slide master only (written to the master's header shape); not available on a normal slide.
             footer (optional): The text for the footer. Setting it enables footer_visible unless footer_visible is passed.
@@ -2732,7 +2732,7 @@ class _SlideProxy:
 
         Args:
             layout (required): Layout name (e.g. 'blank', 'title', 'text_and_object').
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_set_layout", page=page, layout=layout))
 
@@ -2741,7 +2741,7 @@ class _SlideProxy:
 
         Args:
             master (required): Name of the master slide to assign.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
         """
         return _result(call_host_tool("slide_set_master", page=page, master=master))
 
@@ -2750,7 +2750,7 @@ class _SlideProxy:
 
         Args:
             text (required): Speaker notes text.
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             append (optional): Append to existing notes instead of replacing.
         """
         return _result(call_host_tool("slide_set_notes", text=text, page=page, append=append))
@@ -2759,7 +2759,7 @@ class _SlideProxy:
         """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto, semi_auto (set duration for auto-advance).
 
         Args:
-            page (optional): 0-based page (slide) index; the active page if omitted.
+            page (optional): 0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.
             effect (optional): Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive.
             speed (optional): Transition speed (default: medium). One of: slow, medium, fast.
             duration (optional): Auto-advance duration in seconds (0 = manual advance).
@@ -2881,7 +2881,7 @@ class _TableProxy:
 
         Args:
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_delete", name=name, page=page, index=index))
@@ -2892,7 +2892,7 @@ class _TableProxy:
         Args:
             name (optional): Table name from table_list.
             cell (optional): Optional. One A1-style address; return that cell only.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
@@ -2906,7 +2906,7 @@ class _TableProxy:
             data (optional): 2D cell strings.
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
-            page (optional): Draw/Impress: 0-based page index (active if omitted).
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted).
             x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
             y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
             width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
@@ -2919,14 +2919,14 @@ class _TableProxy:
         return _result(call_host_tool("table_list"))
 
     def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> _Item:
-        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); when Track Changes or review mode is on, delete is recorded as a tracked change.
+        """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it); refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); when Track Changes or review mode is on, delete is recorded as a tracked change.
 
         Args:
             action (required): insert or delete one band member. One of: insert, delete.
             axis (required): Whether to edit rows or columns. One of: row, column.
             index (required): 0-based row or column index (insert at count = append).
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
         return _result(call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index))
@@ -2947,7 +2947,7 @@ class _TableProxy:
             cell (required): A1-style cell address, e.g. 'B2'.
             text (required): New plain text for the cell.
             name (optional): Table name from table_list.
-            page (optional): Draw/Impress: 0-based page index.
+            page (optional): Draw/Impress: 0-based page index (the user's page 2 is page=1).
             index (optional): Draw/Impress: shape index on the page.
         """
         return _result(call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index))
@@ -3074,7 +3074,7 @@ class _WriterProxy:
             case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
-            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. One of: none, style_props, all.
+            clear_direct (optional): Direct (hand-set) formatting on the target, ParagraphStyles only. 'none' keeps hand-set character formatting (font, size, emphasis); a style change still resets direct paragraph indents and alignment. 'style_props' drops direct font, size, paragraph indents/spacing and alignment so the style shows; bold, italic and colour stay. 'all' drops every direct override, like Ctrl+M; refused with target='full_document'. To drop hand-set formatting without changing the style, use style_format_text reset. One of: none, style_props, all.
         """
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 

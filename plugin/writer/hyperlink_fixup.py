@@ -68,17 +68,19 @@ When an edit renames a heading (``heading_renames``), ``retarget_outline_links``
 finds every ``#old|outline`` portion in the document (including numbered and
 percent-encoded outline URLs) and updates it to ``#new|outline`` — directly when
 not recording or inside a tracked insert, and via tracked Delete + Insert when
-recording changes. Field runs cannot be retyped and are reported in the returned
-stale-URL list.
+recording changes. Returned stale URLs carry a reason: field runs that cannot be
+retyped (``field``), or a ``lost`` title that no heading replaces (``no_heading``,
+left unchanged).
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 import logging
 import re
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 from urllib.parse import quote, unquote
 
 import uno
@@ -90,6 +92,12 @@ from plugin.writer.record_changes import is_recording_changes, record_changes, r
 log = logging.getLogger("writeragent.writer.hyperlink")
 
 _OUTLINE_SUFFIX = "|outline"
+# Lowest SequenceMatcher ratio that counts as "the same title, reworded".
+_SIMILAR_TITLE = 0.6
+# Shared numbering is not evidence of the same title; strip "word + short number" labels before comparing.
+_LEADING_LABEL_RE = re.compile(r"^\w+\s+\w{1,4}\s*[:.\-\u2013\u2014]\s+(?=\w)")
+# Why a link still names an old heading title.
+StaleReason = Literal["field", "no_heading"]
 _URL = "HyperLinkURL"
 _NAME = "HyperLinkName"
 _TARGET = "HyperLinkTarget"
@@ -733,26 +741,86 @@ def restore_links(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
 
+def _similar_titles(
+    before: list[tuple[int, str]], after: list[tuple[int, str]], old_free: set[str], new_free: set[str],
+) -> dict[str, str]:
+    """Pair each title in *old_free* with the one in *new_free* it clearly resembles.
+
+    Both titles must be the other's single best match among all headings of the same level.
+    Headings that kept their title compete too: "Q1 results" resembles the kept "Q2 results"
+    as much as the added "Q4 results", so it is left unpaired.
+    """
+    old_keys = [_LEADING_LABEL_RE.sub("", old.casefold(), count=1) for _lv, old in before]
+    new_keys = [_LEADING_LABEL_RE.sub("", new.casefold(), count=1) for _lv, new in after]
+    scores: dict[tuple[int, int], float] = {}
+    matcher = SequenceMatcher(autojunk=False)
+    for j, ((new_level, new), new_key) in enumerate(zip(after, new_keys)):
+        matcher.set_seq2(new_key)  # SequenceMatcher caches seq2, so it changes least often
+        for i, ((old_level, old), old_key) in enumerate(zip(before, old_keys)):
+            if old_level != new_level or (old not in old_free and new not in new_free):
+                continue
+            matcher.set_seq1(old_key)
+            # The two quick ratios are cheap upper bounds of ratio().
+            if matcher.real_quick_ratio() < _SIMILAR_TITLE or matcher.quick_ratio() < _SIMILAR_TITLE:
+                continue
+            ratio = matcher.ratio()
+            if ratio >= _SIMILAR_TITLE:
+                scores[i, j] = ratio
+
+    def single_best(axis: int) -> set[tuple[int, int]]:
+        groups: dict[int, list[tuple[float, tuple[int, int]]]] = {}
+        for pair, ratio in scores.items():
+            groups.setdefault(pair[axis], []).append((ratio, pair))
+        best = set()
+        for group in groups.values():
+            top = max(ratio for ratio, _pair in group)
+            winners = [pair for ratio, pair in group if ratio == top]
+            if len(winners) == 1:
+                best.add(winners[0])
+        return best
+
+    pairs = [(before[i][1], after[j][1]) for i, j in sorted(single_best(0) & single_best(1))]
+    return {old: new for old, new in pairs if old in old_free and new in new_free}
+
+
 def heading_renames(
     before: list[tuple[int, str]],
     after: list[tuple[int, str]],
-) -> dict[str, str]:
-    """Map unique renamed heading titles from *before* to *after*.
+) -> tuple[dict[str, str], list[str]]:
+    """Return ``(renames, lost)``: old title to new title, and old titles with no successor.
 
-    Matches ``(level, text)`` sequences with ``SequenceMatcher``; only ``replace``
-    opcodes whose levels match on both sides are paired index by index, and only
-    when *old* appeared once before, is absent after, and *new* appears once after.
+    A rename joins two headings of one level whose titles are each unique on their own side
+    and absent from the other. Titles are paired by similarity first. Headings with no similar
+    title (a translation, say) are paired by position inside a ``replace`` stretch whose levels
+    match, but only when no known heading changed place: after a move, position says nothing.
     """
     old_titles = [text for _level, text in before]
     new_titles = [text for _level, text in after]
-    renames: dict[str, str] = {}
-    for tag, i1, i2, j1, j2 in SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
-        if tag != "replace" or [lv for lv, _t in before[i1:i2]] != [lv for lv, _t in after[j1:j2]]:
+    old_counts, new_counts = Counter(old_titles), Counter(new_titles)
+    old_free = {t for t, n in old_counts.items() if n == 1 and t not in new_counts}
+    new_free = {t for t, n in new_counts.items() if n == 1 and t not in old_counts}
+    renames = _similar_titles(before, after, old_free, new_free)
+
+    # Align with each similar title counted as unchanged.
+    old_of = {new: old for old, new in renames.items()}
+    aligned = [old_of.get(title, title) for title in new_titles]
+    by_position: dict[str, str] = {}
+    removed: set[str] = set()
+    added: set[str] = set()
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_titles, aligned, autojunk=False).get_opcodes():
+        if tag == "equal":
             continue
-        for old, new in zip(old_titles[i1:i2], new_titles[j1:j2]):
-            if old_titles.count(old) == 1 and old not in new_titles and new_titles.count(new) == 1:
-                renames[old] = new
-    return renames
+        removed.update(old_titles[i1:i2])
+        added.update(aligned[j1:j2])
+        if tag == "replace" and [lv for lv, _t in before[i1:i2]] == [lv for lv, _t in after[j1:j2]]:
+            by_position.update(
+                (old, new)
+                for old, new in zip(old_titles[i1:i2], new_titles[j1:j2])
+                if old in old_free and new in new_free
+            )
+    if not removed & added:  # a title on both sides is a heading that moved
+        renames.update(by_position)
+    return renames, [t for t in old_counts if t not in new_counts and t not in renames]
 
 
 def _linked_ranges(doc: Any) -> list[Any]:
@@ -790,7 +858,9 @@ def _renamed_url(url: str, renames: dict[str, str]) -> str | None:
         pos = num.end()
 
 
-def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list[str]]:
+def retarget_outline_links(
+    doc: Any, renames: dict[str, str], lost: list[str],
+) -> tuple[int, dict[str, StaleReason]]:
     """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
 
     When recording changes, a tracked attribute write keeps the new URL, but
@@ -799,11 +869,13 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
     (``DocumentRedlineManager.cxx``, ``ResetAttrs``) loses the old link on
     Reject. Plain-text runs therefore re-insert the text with the new URL and
     delete the old run, while runs already inside a tracked Insert are written
-    directly because Reject removes them whole. Field runs cannot be retyped and
-    are reported in the returned stale-URL list.
+    directly because Reject removes them whole. Returned stale URLs carry a reason:
+    field runs that cannot be retyped (``field``), or a ``lost`` title that no
+    heading replaces (``no_heading``, left unchanged).
     """
     recording = is_recording_changes(doc)
-    stale: dict[str, None] = {}
+    stale: dict[str, StaleReason] = {}
+    lost_titles = {title: title for title in lost}
     count = 0
     for linked in _linked_ranges(doc):
         text = linked.getText()
@@ -812,10 +884,14 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
         for portion in _iter_portions(text, linked.getStart()):
             url = _prop(portion, _URL)
             new_url = _renamed_url(url, renames) if url else None
-            if new_url is None or not portion.getString():
+            gone = bool(url) and new_url is None and _renamed_url(url, lost_titles) is not None
+            if (new_url is None and not gone) or not portion.getString():
                 continue
             kinds = redline_kinds_covering(doc, portion)
             if "Delete" in kinds:
+                continue
+            if new_url is None:
+                stale[url] = "no_heading"
                 continue
             tracked = recording and "Insert" not in kinds
             if tracked and _prop(portion, "TextPortionType") != "Text":
@@ -824,7 +900,7 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
         # Last run first: retyping a run moves the text after it.
         for portion, url, new_url, tracked in reversed(runs):
             if url in blocked:
-                stale[url] = None
+                stale[url] = "field"
                 continue
             props = read_link_props(portion)
             target = text.createTextCursorByRange(portion)
@@ -842,4 +918,4 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
                 start.gotoRange(retyped.getStart(), True)
                 start.setString("")
             count += 1
-    return count, list(stale)
+    return count, stale

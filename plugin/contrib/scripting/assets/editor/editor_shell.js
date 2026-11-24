@@ -322,9 +322,13 @@
                   setSavePendingLoad(false);
                 }
               } else if (msg.type === "saved") {
-                if (!msg.load_follows) {
-                  setSavePendingLoad(false);
+                if (msg.load_follows) {
+                  // load replaces the buffer next. The host has already ended this session, and pywebview does
+                  // not order calls, so a notify_dirty with this session id could reach the child after load and
+                  // stamp later messages with the ended id.
+                  continue;
                 }
+                setSavePendingLoad(false);
                 var dataInput = getDataBindingInput();
                 var plainBox = getPlainTextCheckbox();
                 var codeKept = getEditorCode() === lastSaveCode;

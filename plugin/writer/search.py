@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks,
     read_visible_body,
     starts_at_or_after,
-    visible_range_text,
+    visible_point_in_paragraph,
     with_view_cursor_left_body_locked,
 )
 from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
@@ -463,11 +463,14 @@ def find_text_ranges(
             return []
     sd = _search_descriptor(model, search, False, case_sensitive)
     body = model.getText()
-    hits = islice((h for h in _iter_descriptor_hits(model, sd) if uno_same(h.getText(), body)), limit)
+    hits = islice(
+        (h for h in _iter_descriptor_hits(model, sd, TrackedDeletions(model)) if uno_same(h.getText(), body)),
+        limit,
+    )
     positions = [p for h in hits for p in (h.getStart(), h.getEnd())]
     if not positions:
         return []
-    text, offsets = read_visible_body(model, positions)
+    text, offsets, _ = read_visible_body(model, positions)
     matches = []
     for start, end in zip(offsets[::2], offsets[1::2], strict=True):
         if start is None or end is None:
@@ -508,8 +511,8 @@ def _paragraph_matches_part(
 ) -> tuple[bool, int | None]:
     """Compare a paragraph to a search part; return (ok, offset_len).
 
-    *head*: part must match the start of the paragraph; offset_len is goRight length.
-    *tail*: part must match the end; offset_len is goRight start offset from para start.
+    *head*: part must match the start of the paragraph; offset_len is the visible end offset.
+    *tail*: part must match the end; offset_len is the visible start offset.
     Neither flag: full paragraph must equal part (after normalize).
     """
     para_text = normalize_linebreaks(para_text)
@@ -529,8 +532,12 @@ def _paragraph_matches_part(
     return actual_norm == expected_norm, None
 
 
-def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]:
-    deletions = TrackedDeletions(doc)
+def _iter_descriptor_hits(
+    doc: Any,
+    sd: Any,
+    deletions: TrackedDeletions,
+    after: Any = None,
+) -> Iterator[Any]:
     found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
         if not deletions.covers(found):
@@ -538,8 +545,13 @@ def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]
         found = find_next_after_match(doc, found, sd)
 
 
-def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> list[Any]:
-    return list(islice(_iter_descriptor_hits(doc, sd), limit))
+def _collect_capped(
+    doc: Any,
+    sd: Any,
+    deletions: TrackedDeletions,
+    limit: int = MAX_SEARCH_REPLACEMENTS,
+) -> list[Any]:
+    return list(islice(_iter_descriptor_hits(doc, sd, deletions), limit))
 
 
 def _lo_regex_descriptor(doc: Any, text: str, *, fold: bool) -> Any:
@@ -553,11 +565,12 @@ def _iter_lo_matches(
     doc: Any,
     candidate: str,
     mode: MatchMode,
+    deletions: TrackedDeletions,
     after: Any = None,
 ) -> Iterator[Any]:
     sd = _lo_regex_descriptor(doc, candidate, fold=mode.folded)
     sd.SearchCaseSensitive = mode.case_sensitive
-    yield from _iter_descriptor_hits(doc, sd, after=after)
+    yield from _iter_descriptor_hits(doc, sd, deletions, after=after)
 
 
 def _chain_hit_range(
@@ -590,19 +603,21 @@ def _chain_hit_range(
     first_start_cursor = None
     last_end_cursor = None
 
-    def _offset_cursor(base: Any, off: int | None) -> Any:
-        c = text.createTextCursorByRange(base)
-        if off:
-            c.goRight(off, False)
-        return c
-
-    anchor_start_cursor = text.createTextCursorByRange(found)
-    anchor_start_cursor.gotoStartOfParagraph(False)
+    def _edge(whole: Any, off: int | None, *, at_end: bool) -> Any:
+        """Position of visible offset *off* in the paragraph that cursor *whole* spans."""
+        para = next(iter_elements(whole.createEnumeration()), None)
+        if para is None or off is None:
+            # An empty paragraph after a table is not enumerated
+            # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx).
+            return whole
+        return visible_point_in_paragraph(
+            para, off, opened=deletions.state_at(whole).in_delete, at_end=at_end
+        )[0]
 
     if is_anchor_first:
-        first_start_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
+        first_start_cursor = _edge(anchor_cursor, anchor_offset_len, at_end=False)
     if is_anchor_last:
-        last_end_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
+        last_end_cursor = _edge(anchor_cursor, anchor_offset_len, at_end=True)
 
     forward_cursor = text.createTextCursorByRange(found)
     forward_cursor.gotoRange(found.getEnd(), False)
@@ -620,7 +635,7 @@ def _chain_hit_range(
         if not ok:
             return None
         if is_last:
-            last_end_cursor = _offset_cursor(forward_cursor, offset_len)
+            last_end_cursor = _edge(check_cursor, offset_len, at_end=True)
 
     backward_cursor = text.createTextCursorByRange(found)
     backward_cursor.gotoRange(found.getStart(), False)
@@ -638,11 +653,10 @@ def _chain_hit_range(
         if not ok:
             return None
         if is_first:
-            first_start_cursor = _offset_cursor(backward_cursor, offset_len)
+            first_start_cursor = _edge(check_cursor, offset_len, at_end=False)
 
     start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
-    # last_end_cursor is collapsed (goRight with expand=False), so getEnd()
-    # equals its start; getEnd() stays correct if that cursor is ever widened.
+    # Both edges are collapsed positions; an empty paragraph's cursor is too.
     end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
 
     # Same-text combine failures propagate as UNO errors. Ranges in different
@@ -665,13 +679,13 @@ def _iter_chain_matches(
     parts: list[str],
     anchor_idx: int,
     mode: MatchMode,
+    deletions: TrackedDeletions,
     after: Any = None,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx], fold=mode.folded)
     sd.SearchCaseSensitive = mode.case_sensitive
-    deletions = TrackedDeletions(doc)
-    for found in _iter_descriptor_hits(doc, sd, after=after):
+    for found in _iter_descriptor_hits(doc, sd, deletions, after=after):
         match_range = _chain_hit_range(found, parts, anchor_idx, mode, deletions)
         if match_range is not None:
             yield match_range
@@ -688,26 +702,28 @@ def _literal_sources(
     doc: Any,
     search_string: str,
     mode: MatchMode,
+    deletions: TrackedDeletions,
     after: Any,
 ) -> Iterator[Iterator[Any]]:
     """Yield lazy match iterators in priority order: typed literal, paragraph chain, collapsed."""
-    yield _iter_lo_matches(doc, search_string, mode, after=after)
+    yield _iter_lo_matches(doc, search_string, mode, deletions, after=after)
 
     parts = search_string.split("\n")
     if len(parts) > 1:
         anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
-            yield _iter_chain_matches(doc, parts, anchor_idx, mode, after=after)
+            yield _iter_chain_matches(doc, parts, anchor_idx, mode, deletions, after=after)
 
     collapsed = re_mod.sub(r" +", " ", search_string.replace("\n", " ")).strip()
     if collapsed and collapsed != search_string:
-        yield _iter_lo_matches(doc, collapsed, mode, after=after)
+        yield _iter_lo_matches(doc, collapsed, mode, deletions, after=after)
 
 
 def iter_literal_ranges(
     doc: Any,
     search_string: str,
     mode: MatchMode,
+    deletions: TrackedDeletions,
     after: Any = None,
     all_candidates: bool = False,
 ) -> Iterator[Any]:
@@ -730,7 +746,7 @@ def iter_literal_ranges(
     # candidate generation and "\n" paragraph splitting never leave trailing "\r".
     search_string = normalize_linebreaks(search_string)
 
-    for source in _literal_sources(doc, search_string, mode, after):
+    for source in _literal_sources(doc, search_string, mode, deletions, after):
         matched = False
         for hit in source:
             matched = True
@@ -756,8 +772,9 @@ def find_literal_ranges(
     modes = match_modes(search_string, case_sensitive)
     if not search_string:
         return [], modes[-1]
+    deletions = TrackedDeletions(doc)
     for mode in modes:
-        hits_iter = iter_literal_ranges(doc, search_string, mode)
+        hits_iter = iter_literal_ranges(doc, search_string, mode, deletions)
         if keep is not None:
             hits_iter = filter(keep, hits_iter)
         hits = list(islice(hits_iter, limit))
@@ -910,12 +927,14 @@ def find_anchor_span(
         return None, "start", start_mode
 
     end_modes = match_modes(end_string, case_sensitive)
+    deletions = TrackedDeletions(doc)
     saw_different_text = False
     for mode in end_modes:
         ends = iter_literal_ranges(
             doc,
             end_string,
             mode,
+            deletions,
             after=start.getEnd(),
             all_candidates=True,
         )
@@ -1063,12 +1082,12 @@ class LocationLabeler:
         return describe_match_location(found, self.doc, label_cache=self._cache)
 
 
-def enclosing_paragraph_text(doc: Any, found: Any) -> str:
+def enclosing_paragraph_text(found: Any, deletions: TrackedDeletions) -> str:
     def paragraph() -> str:
         _text, cur = _text_and_cursor(found)
         cur.gotoStartOfParagraph(False)
         cur.gotoEndOfParagraph(True)
-        return visible_range_text(doc, cur)
+        return get_string_without_tracked_deletions(cur, deletions.state_at(cur))
 
     para = uno_read(paragraph, FAILED)
     if para is not FAILED:
@@ -1359,9 +1378,10 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
 def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
+    deletions = TrackedDeletions(doc)
     if not all_matches:
-        return next(_iter_descriptor_hits(doc, sd), None)
-    return _collect_capped(doc, sd)
+        return next(_iter_descriptor_hits(doc, sd, deletions), None)
+    return _collect_capped(doc, sd, deletions)
 
 
 def old_content_covers_most(doc: Any, needle_len: int) -> bool:
@@ -1495,7 +1515,9 @@ MAX_MISS_HAYSTACK_CHARS = 2_000_000
 def get_search_miss_haystack(doc: Any) -> str:
     """Read document body, text frames (Word text boxes included), and header/footer regions (without tracked deletions) for near-miss search."""
     try:
-        body_text = visible_range_text(doc, doc.getText())
+        deletions = TrackedDeletions(doc)
+        body = doc.getText()
+        body_text = get_string_without_tracked_deletions(body, deletions.state_at(body))
     except Exception as exc:
         reraise_if_disposed(exc)
         log.warning("Failed to read document body for search miss: %s", exc)
@@ -1507,7 +1529,8 @@ def get_search_miss_haystack(doc: Any) -> str:
         for name in iter_text_frame_names(doc):
             try:
                 frame = frames.getByName(name)
-                frame_text = visible_range_text(doc, frame.getText())
+                text = frame.getText()
+                frame_text = get_string_without_tracked_deletions(text, deletions.state_at(text))
                 if frame_text:
                     parts.append(frame_text)
             except Exception as exc:
@@ -1520,7 +1543,7 @@ def get_search_miss_haystack(doc: Any) -> str:
     seen_regions: set[str] = set()
     for _style, _region, xtext in _iter_header_footer_texts(doc):
         try:
-            region_text = visible_range_text(doc, xtext)
+            region_text = get_string_without_tracked_deletions(xtext, deletions.state_at(xtext))
         except Exception as exc:
             reraise_if_disposed(exc)
             log.warning("Failed to read header/footer text for search miss: %s", exc)
@@ -1702,7 +1725,7 @@ class SearchInDocument(ToolBase):
                     add(
                         hit_text,
                         labeler.describe(found),
-                        enclosing_paragraph_text(doc, found),
+                        enclosing_paragraph_text(found, deletions),
                     )
             try:
                 # hit_text is non-empty here, so skip find_next_after_match's second getString.

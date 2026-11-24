@@ -1,111 +1,105 @@
 # WriterAgent - matrix formula integration for =PYTHON()
 
-from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
 import unittest.mock
 
+from plugin.testing_runner import native_test
+from plugin.tests.testing_utils import libreoffice_version, with_native_doc
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
-def _cell_value(sheet, col, row):
+
+_MATRIX: dict[str, tuple[str, ...]] = {
+    "A": ("10", "20", "30", "40"),
+    "B": ("100", "200", "300", "400"),
+    "C": ("4", "5", "6"),
+    "D": ("4", "5", "6"),
+    "E": ("7", "8", "Err:32767", "Err:32767", "Err:32767"),
+    "F": ("1", "1", "Err:532"),
+    "G": ("a", "", "Err:32767"),
+    "H": ("North", "South"),
+    "I": ("TRUE", "1", "FALSE"),
+    "J": ("16",),
+    "K": ("", "1"),
+    "L": ("81",),
+    "M": ("81",),
+}
+
+_TOP_LEFT: dict[str, tuple[str, ...]] = {
+    "A": ("10", "10", "10", "10"),
+    "B": ("100", "100", "100", "100"),
+    "C": ("4", "4", "4"),
+    "D": ("4", "4", "4"),
+    "E": ("7", "7", "7", "7", "7"),
+    "F": ("1", "1", "1"),
+    "G": ("1", "1", "1"),
+    "H": ("North", "North"),
+    "I": ("TRUE", "2", "TRUE"),
+    "J": ("1",),
+    "K": ("", ""),
+    "L": ("81",),
+    "M": ("81",),
+}
+
+
+def _shown(sheet, col: int, row: int) -> str:
     cell = sheet.getCellByPosition(col, row)
-    err = cell.getError()
-    if err != 0:
-        return None, err
-    return cell.getValue(), 0
+    code = cell.getError()
+    return f"Err:{code}" if code else cell.getString()
 
 
-@native_test
-def test_finalize_python_return_helpers():
-    from plugin.calc.python.addin_values import is_scalar_index_arg as _is_scalar_index_arg
-    from plugin.calc.python.function import build_cell_context, finalize_python_return
-
-    class _Ctx:
-        pass
-
-    ctx = _Ctx()
-    assert _is_scalar_index_arg([2.0]) is True
-    assert _is_scalar_index_arg([1, 2]) is False
-    assert finalize_python_return(build_cell_context(ctx, None, "c", on_main=True), [10, 20, 30], index_arg=1.0) == 20.0
-    # Dummy ctx has no unique formula origin (XAddIn cannot name the calling cell).
-    # Sharing next_index across duplicate =PY() cells would steal scalars, so both
-    # calls return the first element. Session increment is tested with a unique origin.
-    cell_x = build_cell_context(ctx, None, "x", on_main=True)
-    assert finalize_python_return(cell_x, [1, 2, 3]) == 1.0
-    assert finalize_python_return(cell_x, [1, 2, 3]) == 1.0
-
-
-@native_test
+@native_test(timeout=60)
 @with_native_doc("calc")
-def test_python_matrix_via_index_argument(ctx, doc):
-    """Simulate matrix formula: six calls with index 0..5 return six scalars."""
-    from plugin.calc.python.addin import PythonFunction
-
-    primes = [7919.0, 7927.0, 7933.0, 7937.0, 7949.0, 7951.0]
-    func = PythonFunction(ctx)
-    code = "result = [sp.prime(x) for x in range(1000, 1006)]"
-    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-        mock_run.return_value = {"status": "ok", "result": [int(p) for p in primes]}
-        for row, expected in enumerate(primes):
-            res = func.python(doc, code, row)
-            assert res == expected, f"row {row}: expected {expected}, got {res}"
-        assert mock_run.call_count == 6
-
-
-@native_test
-@with_native_doc("calc")
-def test_python_matrix_via_session_counter(ctx, doc):
-    """Without an index, repeated evals of one array-formula origin emit successive elements.
-
-    Ctrl+Shift+Enter stores one array formula over the block (setArrayFormula)
-    before Calc interprets it. Spill is skipped because collapseToCurrentArray
-    on that origin spans A1:A3, not because the selection is a range. The
-    selection here is that same range, which is the selection after the block
-    is entered. An ordinary setFormula cell with a range selected must return
-    the corner every time; see
-    test_ordinary_formula_multi_cell_selection_returns_corner.
-    """
-    from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_python_addin_cache
+def test_live_array_formula_block_and_recalc(ctx, doc):
+    """Real {=PY} array blocks return every element on 26.8+ (top-left before), stay stable on recalc, and support Calc formulas."""
     from plugin.calc.python.workbook_state import WorkbookState
 
-    code = "result = [2, 3, 5]"
+    expected = _MATRIX if libreoffice_version(ctx) >= (26, 8) else _TOP_LEFT
     sheet = doc.getCurrentController().getActiveSheet()
-    range_obj = sheet.getCellRangeByPosition(0, 0, 0, 2)
-    range_obj.setArrayFormula('=PYTHON("result = [2, 3, 5]")')
-    doc.getCurrentController().select(range_obj)
-    clear_python_addin_cache()
-
-    func = PythonFunction(ctx)
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-            assert func.python(doc, code) == 2.0
-            assert func.python(doc, code) == 3.0
-            assert func.python(doc, code) == 5.0
+        with repo_venv_in_profile():
+            # Unique code per block so on-main calls resolve each origin and is_matrix suppresses spill
+            # (off-main build_cell_context sets no origin and returns the native matrix directly).
+            sheet.getCellRangeByPosition(0, 0, 0, 3).setArrayFormula('=PYTHON("result = [10, 20, 30, 40]")')
+            sheet.getCellRangeByPosition(1, 0, 1, 3).setArrayFormula('=PYTHON("result = [100, 200, 300, 400]"; ROW()-1)')
+
+            # Identical-code blocks both receive the full matrix on 26.8+.
+            sheet.getCellRangeByPosition(2, 0, 2, 2).setArrayFormula('=PYTHON("result = [4, 5, 6]")')
+            sheet.getCellRangeByPosition(3, 0, 3, 2).setArrayFormula('=PYTHON("result = [4, 5, 6]")')
+
+            # Block longer than result: extra cells show #N/A (32767) on 26.8+.
+            sheet.getCellRangeByPosition(4, 0, 4, 4).setArrayFormula('=PYTHON("result = [7, 8]")')
+
+            # 3x2 mixed block: number, text, bool, None, and error tokens.
+            sheet.getCellRangeByPosition(5, 0, 6, 2).setArrayFormula(
+                '=PYTHON("result = [[1, \'a\'], [True, None], [\'#DIV/0!\', \'#N/A\']]")'
+            )
+
+            # All-text block: strings are interned via [][]string so Calc equality and COUNTIF match.
+            sheet.getCellRangeByPosition(7, 0, 7, 1).setArrayFormula('=PYTHON("result = [\'North\', \'South\']")')
+            sheet.getCellByPosition(8, 0).setFormula('=H1="North"')
+            sheet.getCellByPosition(8, 1).setFormula('=COUNTIF(H1:H2;"North")')
+            sheet.getCellByPosition(8, 2).setFormula('=H1=H2')
+
+            # Scalar aggregation over a Python list in an ordinary cell.
+            sheet.getCellByPosition(9, 0).setFormula('=SUM(PYTHON("result = [1, 2, 3, 10]"))')
+
+            # Empty first row: top-left is "" on every version.
+            sheet.getCellRangeByPosition(10, 0, 10, 1).setArrayFormula('=PYTHON("result = [[], [1]]")')
+
+            # Ordinary cells with identical code (no unique origin, so no spill): corner only.
+            sheet.getCellByPosition(11, 0).setFormula('=PYTHON("result = [81, 82]")')
+            sheet.getCellByPosition(12, 0).setFormula('=PYTHON("result = [81, 82]")')
+
+            for _idx in range(3):
+                doc.calculateAll()
+                got = {
+                    col: tuple(_shown(sheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                    for col, rows in expected.items()
+                }
+                assert got == expected
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
-
-
-@native_test
-@with_native_doc("calc")
-def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
-    from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_python_addin_cache
-
-    code = "result = [2, 3, 5]"
-    sheet = doc.getCurrentController().getActiveSheet()
-    range_obj = sheet.getCellRangeByPosition(0, 0, 0, 2)
-    range_obj.setArrayFormula('=PYTHON("result = [2, 3, 5]")')
-    doc.getCurrentController().select(sheet.getCellByPosition(5, 5))
-    clear_python_addin_cache()
-
-    func = PythonFunction(ctx)
-    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-        mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-        assert func.python(doc, code) == 2.0
-        assert func.python(doc, code) == 3.0
-        assert func.python(doc, code) == 5.0
 
 
 @native_test
@@ -119,14 +113,12 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
     cancelled so it does not write after the document closes.
     """
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_python_addin_cache
     from plugin.calc.python.workbook_state import WorkbookState
 
     code = "result = [2, 3, 5]"
     sheet = doc.getCurrentController().getActiveSheet()
     sheet.getCellByPosition(0, 0).setFormula('=PYTHON("result = [2, 3, 5]")')
     doc.getCurrentController().select(sheet.getCellRangeByPosition(0, 0, 0, 2))
-    clear_python_addin_cache()
 
     func = PythonFunction(ctx)
     try:
@@ -135,6 +127,106 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
             assert func.python(doc, code) == 2.0
             assert func.python(doc, code) == 2.0
             assert func.python(doc, code) == 2.0
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_array_blocks_survive_save_and_reload(ctx, doc):
+    """=PY array blocks survive save and reload in ODS and XLSX."""
+    import os
+    import tempfile
+
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.uno_context import get_desktop
+    from tests.calc.python.test_function_uno import _wait_spill_settled
+
+    is_matrix = libreoffice_version(ctx) >= (26, 8)
+    expected = (
+        {
+            "A": ("10", "20", "30", "40"),
+            "B": ("North", "South"),
+            "C": ("1", "1", "Err:532"),
+            "D": ("a", "", "Err:32767"),
+            "E": ("10", "20", "30"),
+        }
+        if is_matrix
+        else {
+            "A": ("10", "10", "10", "10"),
+            "B": ("North", "North"),
+            "C": ("1", "1", "1"),
+            "D": ("1", "1", "1"),
+            "E": ("10", "10", "10"),
+        }
+    )
+    block_ranges = (
+        (0, 0, 0, 3),
+        (1, 0, 1, 1),
+        (2, 0, 3, 2),
+        (4, 0, 4, 2),
+    )
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    try:
+        with repo_venv_in_profile():
+            sheet.getCellRangeByPosition(0, 0, 0, 3).setArrayFormula('=PYTHON("result = [10, 20, 30, 40]")')
+            sheet.getCellRangeByPosition(1, 0, 1, 1).setArrayFormula('=PYTHON("result = [\'North\', \'South\']")')
+            sheet.getCellRangeByPosition(2, 0, 3, 2).setArrayFormula(
+                '=PYTHON("result = [[1, \'a\'], [True, None], [\'#DIV/0!\', \'#N/A\']]")'
+            )
+            sheet.getCellRangeByPosition(4, 0, 4, 2).setArrayFormula('=PYTHON("result = data"; A1:A3)')
+            doc.calculateAll()
+
+            got_live = {
+                col: tuple(_shown(sheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                for col, rows in expected.items()
+            }
+            assert got_live == expected, f"live mismatch: {got_live!r} != {expected!r}"
+
+            desktop = get_desktop(ctx)
+            # Before LibreOffice 26.8, XLSX round-trip leaves D3 of the 3x2 scalar block as "(empty)".
+            formats = (("ods", "calc8"), ("xlsx", "Calc MS Excel 2007 XML")) if is_matrix else (("ods", "calc8"),)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for ext, filter_name in formats:
+                    path = os.path.join(tmpdir, f"array_blocks.{ext}")
+                    url = uno.systemPathToFileUrl(path)
+                    doc.storeToURL(url, (PropertyValue(Name="FilterName", Value=filter_name),))
+                    reloaded = desktop.loadComponentFromURL(
+                        url,
+                        "_blank",
+                        0,
+                        (PropertyValue(Name="Hidden", Value=True),),
+                    )
+                    try:
+                        rsheet = reloaded.getSheets().getByIndex(0)
+                        got_load = {
+                            col: tuple(_shown(rsheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                            for col, rows in expected.items()
+                        }
+                        assert got_load == expected, f"{ext} load mismatch: {got_load}"
+
+                        reloaded.calculateAll()
+                        got_recalc = {
+                            col: tuple(_shown(rsheet, ord(col) - ord("A"), row) for row in range(len(rows)))
+                            for col, rows in expected.items()
+                        }
+                        assert got_recalc == expected, f"{ext} recalc mismatch: {got_recalc}"
+
+                        for c1, r1, c2, r2 in block_ranges:
+                            af = rsheet.getCellRangeByPosition(c1, r1, c2, r2).getArrayFormula()
+                            assert af.startswith("{=PY"), f"{ext} ({c1},{r1}) array formula={af!r}"
+                    finally:
+                        _wait_spill_settled(reloaded)
+                        reloaded_st = WorkbookState.known(reloaded)
+                        if reloaded_st is not None:
+                            WorkbookState.forget_key(reloaded_st.key)
+                        reloaded.close(True)
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

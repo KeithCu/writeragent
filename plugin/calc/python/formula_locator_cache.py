@@ -176,7 +176,7 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
     """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
 
     Returns None when zero or two+ origins match: XAddIn has no calling cell, so
-    spilling or caching from the first hit writes the wrong formula.
+    spilling from the first hit writes the wrong formula.
     """
     if doc is None:
         return None

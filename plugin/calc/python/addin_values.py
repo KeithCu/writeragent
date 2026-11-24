@@ -23,7 +23,7 @@ Cell outcomes for ``=PY()`` fall into four kinds:
   ``function.finalize_python_return`` (``ISERROR`` is false).
 - **``"Error: …"`` text**: setup and stop worker codes in
   ``addin_result_for_worker_status``, host exceptions in
-  ``format_addin_error_for_display``, index/size errors in ``function.py``,
+  ``format_addin_error_for_display``, size errors in ``function.py``,
   and missing-caller in ``addin_impl.py``.
 
 Worker failure codes in ``addin_result_for_worker_status`` map as follows:
@@ -44,11 +44,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
+import functools
 import logging
 import math
 import re
 import struct
 from typing import Any, cast
+
+import uno
+from com.sun.star.uno import RuntimeException
 
 from plugin.calc.datetime_wire import (
     datetime_serial,
@@ -59,7 +63,6 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
-from plugin.scripting.payload_codec import wire_cell_count
 
 log = logging.getLogger(__name__)
 
@@ -227,21 +230,63 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
 
 
-def flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
-    """Compare flat worker result tuples across matrix session recalculations.
+def _matrix_cell_value(cell: Any) -> float | str:
+    val = py_addin_cell_value(cell)
+    if isinstance(val, (float, str)):
+        return val
+    # Nested sequences have no cell representation in Calc matrices; surface #VALUE! instead of a blank.
+    return calc_formula_error_double(_ERR_VALUE)
 
-    Identical Calc error doubles (quiet NaNs) must compare equal: Python ``!=`` on NaN
-    always fails, which would reset matrix next_index every recalc.
+
+@functools.cache
+def accepts_returned_any(ctx: Any) -> bool:
+    """Whether this PyUNO lets a Python UNO method return ``uno.Any``; *ctx* is any PyUNO proxy.
+
+    LibreOffice 26.8 does (commits 1e2e9a20a419 and 507b6c2b907c). Before that,
+    ``Adapter::invoke`` (``pyuno/source/module/pyuno_adapter.cxx``) throws and Calc shows
+    ``#VALUE!``. 507b6c2b907c removed the same rejection from method arguments, so an
+    accepted ``uno.Any`` argument means an accepted return value. This asks PyUNO rather
+    than the version number because Collabora Office 26.04 has the change too.
     """
-    if len(left) != len(right):
+    try:
+        # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
+        ctx.getValueByName(getattr(uno, "Any")("string", ""))
+    except RuntimeException:
         return False
-    for val_left, val_right in zip(left, right):
-        if isinstance(val_left, float) and isinstance(val_right, float) and not (math.isfinite(val_left) and math.isfinite(val_right)):
-            if struct.pack("d", val_left) != struct.pack("d", val_right):
-                return False
-        elif val_left != val_right:
-            return False
     return True
+
+
+def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
+    """Wrap a list or 2D grid for Calc's add-in bridge.
+
+    Calc evaluates ``{=PY()}`` once per array block (``ScInterpreter::ScExternal``,
+    ``sc/source/core/tool/interpr4.cxx``). A bare Python tuple of tuples reaches Calc
+    as ``[]any`` and fails with ``#VALUE!``, so the grid is wrapped in a typed
+    ``uno.Any``. PyUNO accepts that as a return value from LibreOffice 26.8
+    (``accepts_returned_any``); before that, the top-left value is returned (``""``
+    for an empty first row), and Calc repeats it over an array block.
+
+    A 1x1 grid returns a scalar so Calc interns text, and an all-text grid uses
+    ``[][]string`` so ``ScUnoAddInCall::SetResult`` (``sc/source/core/tool/addincol.cxx``)
+    interns via ``mrDoc.GetSharedStringPool().intern``. Mixed grids use ``[][]any``;
+    note that ``ScSequenceToMatrix::CreateMixedMatrix`` (``sc/source/core/tool/rangeseq.cxx``)
+    stores ``svl::SharedString(aUStr)`` with null ``mpDataIgnoreCase``, so Calc
+    string equality (``=``, ``COUNTIF``) on text cells in a mixed block fails and
+    two different texts can compare equal.
+    """
+    grid = result_as_spill_grid(result)
+    if not grid or not any(grid):
+        return ""
+    rows = tuple(tuple(_matrix_cell_value(cell) for cell in row) for row in grid)
+    corner = rows[0][0] if rows[0] else ""
+    if (len(rows) == 1 and len(rows[0]) == 1) or not accepts_returned_any(ctx):
+        return corner
+    # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
+    uno_any = getattr(uno, "Any")
+    all_str = all(isinstance(cell, str) for row in rows for cell in row)
+    uno_type = "[][]string" if all_str else "[][]any"
+    log.debug("PYTHON matrix_result: type=%s rows=%d", uno_type, len(rows))
+    return uno_any(uno_type, rows)
 
 
 def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
@@ -260,16 +305,6 @@ def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
         return _error_cell_text(message)
     log.error("=PY() worker failure: %s", message)
     return calc_formula_error_double(worker_exception_error_code(message))
-
-
-def coerce_index(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, (int, float)):
-        return int(value)
-    if isinstance(value, str) and value.strip():
-        return int(float(value))
-    raise ValueError(f"index must be numeric, got {value!r}")
 
 
 def _calc_iso_datetime(dt: datetime.datetime) -> str:
@@ -397,24 +432,6 @@ def flatten_result_values(result: Any) -> list[Any]:
     if not isinstance(result, (list, tuple)):
         return [result]
     return [cell for row in result_as_spill_grid(result) for cell in row]
-
-
-def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
-    """True when arg 1 is one number (matrix index), not a data range."""
-    if py_data is None:
-        return False
-    if wire_cell_count(py_data) != 1:
-        return False
-    val = unwrap_single_cell(py_data)
-    return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isnan(val)
-
-
-def unwrap_single_cell(py_data: Any) -> Any:
-    """Unwrap ``[[v]]`` / ``[v]`` / scalar to the inner value."""
-    val = py_data
-    while isinstance(val, list) and len(val) == 1:
-        val = val[0]
-    return val
 
 
 def result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]:

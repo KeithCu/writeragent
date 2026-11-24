@@ -851,7 +851,7 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
     for layout in ("middle", "leading", "adjacent_and_later", "empty_after"):
         words, expected_structure = _reset_and_build(layout)
         assert _body_structure() == expected_structure, (layout, _body_structure())
-        full_str, _ = read_visible_body(doc)
+        full_str, _, _ = read_visible_body(doc)
         for word in words:
             offset = full_str.index(word)
             html = document_to_content(
@@ -1059,6 +1059,111 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
 
 @native_test
 @with_native_doc("writer")
+def test_selection_starting_in_table_exports_whole_tables_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import live_selection_range, selection_cursor_snapshot
+    from plugin.framework.errors import uno_read
+    from plugin.framework.uno_context import execute_dispatch, uno_same
+    from plugin.writer.html_export import document_to_content
+
+    def _reset_and_add_table(cell_text: str) -> Any:
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        tbl.getCellByName("A1").setString(cell_text)
+        return tbl
+
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    def _ctrl_a_whole_doc(cell: Any, presses: int = 3) -> None:
+        controller.select(cell.getStart())
+        # In a non-empty cell, Ctrl+A expands: cell -> table -> (outer cell -> outer table ->) document.
+        for _ in range(presses):
+            execute_dispatch(ctx, controller, ".uno:SelectAll")
+        sel = live_selection_range(controller)
+        assert sel is not None and not uno_same(sel.getText(), text)
+
+    # [T, tail], [T, T, tail], [T, mid, T, tail], and nested leading table via Ctrl+A and snapshot.
+    cases = [
+        (["T0"], "tail", ["T0", "tail"]),
+        (["T0", "T1"], "tail", ["T0", "T1", "tail"]),
+    ]
+    for table_cells, tail, expected in cases:
+        text.setString("")
+        tables = [_reset_and_add_table(c) for c in table_cells]
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, tail, False)
+
+        _ctrl_a_whole_doc(tables[0].getCellByName("A1"))
+        html = document_to_content(doc, ctx, scope="selection")
+        for token in expected:
+            assert token in html, (expected, html)
+        snap = selection_cursor_snapshot(doc)
+        html_snap = document_to_content(doc, ctx, scope="selection", selection=snap)
+        for token in expected:
+            assert token in html_snap, (expected, html_snap)
+
+    # [T, mid, T, tail]
+    text.setString("")
+    t0 = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "mid", False)
+    _reset_and_add_table("T1")
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(t0.getCellByName("A1"))
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("T0", "mid", "T1", "tail"):
+        assert token in html, html
+
+    # Nested leading table
+    text.setString("")
+    outer = _reset_and_add_table("OUTER")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    cell_a1 = outer.getCellByName("A1")
+    cell_a1.insertTextContent(cell_a1.getEnd(), nested, False)
+    nested.getCellByName("A1").setString("INNER")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    _ctrl_a_whole_doc(nested.getCellByName("A1"), presses=5)
+    html = document_to_content(doc, ctx, scope="selection")
+    for token in ("OUTER", "INNER", "tail"):
+        assert token in html, html
+
+    # ['BEFORE_PARA', T, 'tail'] with a body-text selection starting in T and ending in 'tail'
+    # exercises the SwXBodyText form of _table_start_range (SwCursor::IsSelOvr forbids
+    # Shift+Down from leaving a table, so pass the range directly).
+    from types import SimpleNamespace
+
+    text.setString("BEFORE_PARA")
+    tbl = _reset_and_add_table("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    body_sel = SimpleNamespace(
+        getText=lambda: text,
+        getStart=lambda: tbl.getCellByName("A1").getStart(),
+        getEnd=lambda: text.getEnd(),
+    )
+    assert uno_read(lambda: text.createTextCursorByRange(body_sel.getStart()), None) is None
+    html = document_to_content(doc, ctx, scope="selection", selection=body_sel)
+    assert "T0" in html and "tail" in html and "BEFORE_PARA" not in html, html
+
+    # In-cell selection unchanged.
+    cell_cur = tbl.getCellByName("A1").createTextCursor()
+    cell_cur.gotoStart(False)
+    cell_cur.gotoEnd(True)
+    controller.select(cell_cur)
+    html_cell = document_to_content(doc, ctx, scope="selection")
+    assert "T0" in html_cell and "tail" not in html_cell, html_cell
+
+
+@native_test
+@with_native_doc("writer")
 def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ruby_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
     from plugin.tests.testing_utils import strike_across_paragraphs
@@ -1092,6 +1197,175 @@ def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ru
     sel_html = document_to_content(doc, ctx, scope="selection")
     assert "gone" not in sel_html, sel_html
     assert "Tail" in sel_html and "After" in sel_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_selection_export_keep_pictures_and_names_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import re
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+
+    def _add_pic(target_text: Any, anchor_type: Any, name: str, at_end: bool = True) -> None:
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", anchor_type)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        cur = target_text.createTextCursor()
+        if at_end:
+            cur.gotoEnd(False)
+        else:
+            cur.gotoStart(False)
+        target_text.insertTextContent(cur, g, False)
+        g.setName(name)
+
+    def _img_ids(html: str) -> list[str]:
+        return re.findall(r'<(?:div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b', html)
+
+    try:
+        text = doc.getText()
+        controller = doc.getCurrentController()
+
+        # 1. Earlier picture shifts automatic names; range & selection keep real names across 3 anchors.
+        for anchor_type in (AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH):
+            tag = anchor_type.value
+            text.setString("intro")
+            _add_pic(text, AT_PARAGRAPH, f"EarlierPic_{tag}")
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertControlCharacter(cur, 0, False)
+            cur.gotoEnd(False)
+            text.insertString(cur, "one ", False)
+            _add_pic(text, anchor_type, f"PicA_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " two ", False)
+            _add_pic(text, anchor_type, f"PicB_{tag}")
+            cur.gotoEnd(False)
+            text.insertString(cur, " three", False)
+
+            full_html = document_to_content(doc, ctx, scope="full", include_images=False)
+            full_ids = _img_ids(full_html)
+            assert f"PicA_{tag}" in full_ids and f"PicB_{tag}" in full_ids, full_html
+
+            # Range read covering the second paragraph.
+            full_str = text.getString()
+            p2_start = full_str.index("one")
+            range_html = document_to_content(
+                doc, ctx, scope="range", range_start=p2_start, range_end=len(full_str), include_images=False
+            )
+            assert _img_ids(range_html) == [f"PicA_{tag}", f"PicB_{tag}"], range_html
+
+            # Selection read over the second paragraph.
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoEnd(False)
+            sel_cur.gotoStartOfParagraph(True)
+            controller.select(sel_cur)
+            sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+            assert _img_ids(sel_html) == [f"PicA_{tag}", f"PicB_{tag}"], sel_html
+
+        # 2. Selection write-back keeps both pictures, off and recorded + Accept.
+        text.setString("")
+        text.insertString(text.getStart(), "one ", False)
+        _add_pic(text, AS_CHARACTER, "SelA")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, " two ", False)
+        _add_pic(text, AS_CHARACTER, "SelB")
+        cur.gotoEnd(False)
+        text.insertString(cur, " three", False)
+
+        sel_cur = text.createTextCursor()
+        sel_cur.gotoStart(False)
+        sel_cur.gotoEnd(True)
+        controller.select(sel_cur)
+        sel_html = document_to_content(doc, ctx, scope="selection", include_images=False)
+        tctx = native_writer_tool_context(doc, ctx)
+        res = ApplyDocumentContent().execute(
+            tctx, target="selection", content=sel_html.replace("three", "THREE")
+        )
+        assert res.get("status") == "ok", res
+        assert doc.getGraphicObjects().getCount() == 2
+        after1 = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert re.search(r"one.*SelA.*two.*SelB.*THREE", after1, re.DOTALL), after1
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            sel_cur = text.createTextCursor()
+            sel_cur.gotoStart(False)
+            sel_cur.gotoEnd(True)
+            controller.select(sel_cur)
+            sel_html2 = document_to_content(doc, ctx, scope="selection", include_images=False)
+            res2 = ApplyDocumentContent().execute(
+                tctx, target="selection", content=sel_html2.replace("one", "ONE")
+            )
+            assert res2.get("status") == "ok", res2
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 2
+            after2 = document_to_content(doc, ctx, scope="full", include_images=False)
+            assert re.search(r"ONE.*<img\b.*two.*<img\b.*THREE", after2, re.DOTALL), after2
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        # 3. Image-only first paragraph is included at range_start=0.
+        text.setString("")
+        _add_pic(text, AT_PARAGRAPH, "FirstParaPic", at_end=False)
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "after", False)
+        r0 = document_to_content(doc, ctx, scope="range", range_start=0, range_end=3, include_images=False)
+        assert "FirstParaPic" in _img_ids(r0), r0
+
+        # 4. Cell picture in range and selection reads (AS_CHARACTER and AT_PARAGRAPH).
+        text.setString("")
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        cell = tbl.getCellByName("A1")
+        cell.setString("cell")
+        _add_pic(cell, AT_PARAGRAPH, "CellPicPara")
+        _add_pic(cell, AS_CHARACTER, "CellPicInline")
+        r_cell = document_to_content(doc, ctx, scope="range", range_start=0, range_end=10, include_images=False)
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(r_cell)), r_cell
+        cell_cur = cell.createTextCursor()
+        cell_cur.gotoStart(False)
+        cell_cur.gotoEnd(True)
+        controller.select(cell_cur)
+        s_cell = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert {"CellPicPara", "CellPicInline"}.issubset(_img_ids(s_cell)), s_cell
+
+        # 5. Formula paragraph with a picture in range and selection reads (_copy_formula_runs).
+        text.setString("")
+        math_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        math_obj.CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
+        text.insertTextContent(text.getStart(), math_obj, False)
+        math_obj.getEmbeddedObject().Formula = "x^2"
+        _add_pic(text, AS_CHARACTER, "FormulaPic")
+        r_math = document_to_content(doc, ctx, scope="range", range_start=0, range_end=5, include_images=False)
+        assert "FormulaPic" in _img_ids(r_math), r_math
+        sel_math = text.createTextCursor()
+        sel_math.gotoStart(False)
+        sel_math.gotoEnd(True)
+        controller.select(sel_math)
+        s_math = document_to_content(doc, ctx, scope="selection", include_images=False)
+        assert "FormulaPic" in _img_ids(s_math), s_math
+    finally:
+        os.unlink(img_path)
 
 
 @native_test
@@ -1279,3 +1553,249 @@ def test_full_html_struck_range_with_comment_stays_one_paragraph_uno(ctx, doc):
     assert len(p_texts) == 1, html
     assert "Keep" in p_texts[0] and "rest" in p_texts[0], html
 
+
+@native_test
+@with_native_doc("writer")
+def test_titled_frame_omits_title_from_content_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("TitledFrame")
+    frame.setPropertyValue("Title", "SecretFrameTitle")
+    frame.setPropertyValue("Width", 2000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.getText().setString("FrameBody")
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "FrameBody" in html
+    assert "SecretFrameTitle" not in html
+
+
+def _setup_struck_doc(doc: Any, paragraphs: list[str], del_start: tuple[int, int], del_end: tuple[int, int]) -> None:
+    """Populate *doc* with *paragraphs* and record a deletion from (p, off) to (p, off)."""
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for idx, p in enumerate(paragraphs):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        if p:
+            text.insertString(cur, p, False)
+
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    sel = text.createTextCursorByRange(paras[del_start[0]].getStart())
+    if del_start[1]:
+        sel.goRight(del_start[1], False)
+    end_cur = text.createTextCursorByRange(paras[del_end[0]].getStart())
+    if del_end[1]:
+        end_cur.goRight(del_end[1], False)
+    sel.gotoRange(end_cur, True)
+    doc.setPropertyValue("RecordChanges", True)
+    sel.setString("")
+
+
+def _deleted_flags_from_html(html: str) -> list[bool]:
+    import re
+
+    return ['data-lo-deleted="true"' in tag for tag in re.findall(r"<(?:p|h[1-6]|li)\b[^>]*>", html)]
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_paragraph_flags_full_and_range_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.writer.html_export import document_to_content
+
+    cases = [
+        (["AA", "BB", "", "CC"], (1, 0), (1, 2), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (1, 0), (2, 0), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (0, 2), (1, 2), [False, True, False, False]),
+        (["AA", "BB", "", "CC"], (1, 2), (2, 0), [False, False, True, False]),
+        (["AA", "BB", "", "CC"], (2, 0), (3, 0), [False, False, True, False]),
+        (["AA", "BB", "", "CC"], (0, 0), (3, 0), [True, True, True, False]),
+        (["AA", "BB", "", "CC"], (0, 2), (2, 0), [False, True, True, False]),
+        (["AA", "CC"], (0, 2), (1, 2), [False, True]),
+        (["AA", "CC"], (0, 0), (1, 2), [True, True]),
+    ]
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    for paragraphs, d_start, d_end, expected in cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+        redlines_before = doc.getRedlines().getCount()
+        frames_before = desktop.getFrames().getCount()
+        full_html = document_to_content(doc, ctx, scope="full")
+        assert _deleted_flags_from_html(full_html) == expected, (paragraphs, d_start, d_end, full_html)
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        assert _deleted_flags_from_html(range_html) == expected, (paragraphs, d_start, d_end, range_html)
+        assert doc.getRedlines().getCount() == redlines_before
+        assert desktop.getFrames().getCount() == frames_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, doc: Any) -> None:
+    import base64
+    import os
+    import tempfile
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png)
+        img_path = f.name
+
+    try:
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "AA", False)
+        text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, "BB", False)
+        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        graphic.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        graphic.setPropertyValue(
+            "AnchorType", uno.Enum("com.sun.star.text.TextContentAnchorType", "AT_PARAGRAPH")
+        )
+        cur.gotoStartOfParagraph(False)
+        text.insertTextContent(cur, graphic, False)
+
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        sel = text.createTextCursorByRange(paras[1].getStart())
+        sel.gotoEndOfParagraph(True)
+        doc.setPropertyValue("RecordChanges", True)
+        sel.setString("")
+
+        full_html = document_to_content(doc, ctx, scope="full")
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        assert 'data-lo-deleted="true"' not in full_html
+        assert 'data-lo-deleted="true"' not in range_html
+        assert "<img" in range_html
+        assert read_visible_body(doc)[2] == []
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_unmarked_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    cases = [
+        (["AA", "BB", "", "CC"], (1, 0), (2, 0)),
+        (["AA", "BB", "", "CC"], (1, 2), (2, 0)),
+        (["AA", "BB", "", "CC"], (2, 0), (3, 0)),
+        (["AA", "BB", "", "CC"], (0, 2), (2, 0)),
+        (["AA", "BB", "", "CC"], (0, 0), (3, 0)),
+        (["AA", "CC"], (0, 2), (1, 2)),
+    ]
+    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    for paragraphs, d_start, d_end in cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+        flags = _deleted_flags_from_html(document_to_content(doc, ctx, scope="full"))
+        unmarked = sum(1 for f in flags if not f)
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        enum = doc.getText().createEnumeration()
+        accepted_count = 0
+        while enum_has_more(enum):
+            enum.nextElement()
+            accepted_count += 1
+        assert unmarked == accepted_count, (paragraphs, d_start, d_end, flags, accepted_count)
+
+
+@native_test
+@with_native_doc("writer")
+def test_whole_doc_strike_list_and_heading_marked_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_export import document_to_content
+
+    # Whole-document strike of two paragraphs must not leak struck text via StarWriter fallback.
+    _setup_struck_doc(doc, ["FirstGone", "SecondGone"], (0, 0), (1, 10))
+    whole_html = document_to_content(doc, ctx, scope="full")
+    assert "FirstGone" not in whole_html
+    assert "SecondGone" not in whole_html
+    assert _deleted_flags_from_html(whole_html) == [True, True]
+
+    # Struck numbered list item and struck Heading 1 are marked.
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cur, "StruckH1", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+    text.insertString(cur, "StruckItem", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("NumberingStyleName", "")
+    text.insertString(cur, "LiveTail", False)
+
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    doc.setPropertyValue("RecordChanges", True)
+    for idx in (0, 1):
+        c = text.createTextCursorByRange(paras[idx].getStart())
+        c.gotoEndOfParagraph(True)
+        c.setString("")
+    html = document_to_content(doc, ctx, scope="full")
+    assert "StruckH1" not in html
+    assert "StruckItem" not in html
+    assert "LiveTail" in html
+    assert html.count('data-lo-deleted="true"') == 2
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
+    import re
+
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "BoldPara", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Keep StruckRun", False)
+
+    bold_cur = text.createTextCursorByRange(text.getStart())
+    bold_cur.gotoEndOfParagraph(True)
+    bold_cur.setPropertyValue("CharWeight", 150.0)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoEnd(False)
+        del_cur.goLeft(len("StruckRun"), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "StruckRun" not in html
+    blocks = re.findall(r"<p\b.*?</p>", re.sub(r"\s+", " ", html))
+    bold_block = next(b for b in blocks if "BoldPara" in b)
+    keep_block = next(b for b in blocks if "Keep" in b)
+    bold_open = bold_block.split(">", 1)[0]
+    keep_open = keep_block.split(">", 1)[0]
+    assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
+    assert "data-lo-para=" not in keep_open, keep_block

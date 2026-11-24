@@ -68,7 +68,7 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
 }
 
 
-def _headless_registry() -> ToolRegistry:
+def headless_registry() -> ToolRegistry:
     """Writer + Calc + Draw + chatbot core tools, filtered later by doc_type."""
     # Plugin imports stay lazy so ``run_eval.py --help`` / CLI parse does not
     # need UNO (eval_catalog is imported for --tools help text).
@@ -128,7 +128,7 @@ def build_eval_tool_schemas(
     if active_domain:
         kwargs["active_domain"] = active_domain
         kwargs["exclude_tiers"] = ()
-    return _headless_registry().get_schemas("openai", **kwargs)
+    return headless_registry().get_schemas("openai", **kwargs)
 
 
 def _schema_function(row: dict[str, Any]) -> dict[str, Any] | None:

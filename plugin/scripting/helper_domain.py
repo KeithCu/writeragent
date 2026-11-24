@@ -394,13 +394,10 @@ def _elapsed_since(t0: float) -> float:
 def escape_for_html_insert(value: Any) -> str:
     """Escape a script result so it stays text after Writer/Calc HTML insert.
 
-    ``insert_content_at_position`` (``plugin/writer/html_import.py``) and
-    ``insert_cell_html_rich`` (``plugin/calc/rich_html.py``) call
-    ``html.unescape`` before the StarWriter HTML filter, so a single
-    ``html.escape`` is undone and ``<`` becomes markup again. Double-escape
-    so a literal ``<`` survives as text (``&amp;lt;`` -> ``&lt;`` -> ``<``).
+    One escape level is enough because both Writer and Calc importers normalize
+    complete references while keeping ``< > & " '`` escaped.
     """
-    return html.escape(html.escape(str(value)))
+    return html.escape(str(value))
 
 
 def _exception_detail(error: BaseException) -> str:

@@ -245,7 +245,7 @@ def test_read_visible_body_offsets_uno(ctx):
         after_start = paras[-1].getStart()
         end_pos = text.getEnd()
 
-        body_text, offsets = read_visible_body(doc, [after_start, end_pos])
+        body_text, offsets, _struck = read_visible_body(doc, [after_start, end_pos])
         assert body_text == get_string_without_tracked_deletions(whole)
         assert offsets == [18, 23]
 
@@ -253,7 +253,7 @@ def test_read_visible_body_offsets_uno(ctx):
         whole.gotoStart(False)
         whole.gotoEnd(True)
         cell_pos = tbl.getCellByName("A1").getStart()
-        tbl_text, tbl_offsets = read_visible_body(doc, [cell_pos, text.getEnd()])
+        tbl_text, tbl_offsets, _struck2 = read_visible_body(doc, [cell_pos, text.getEnd()])
         assert tbl_text == get_string_without_tracked_deletions(whole)
         assert tbl_offsets == [None, 14]
 
@@ -351,7 +351,7 @@ def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
         if add_para:
             body.insertString(cur, add_para, False)
 
-    text, offsets = read_visible_body(doc, [body.getEnd()])
+    text, offsets, _ = read_visible_body(doc, [body.getEnd()])
     assert text == visible_range_text(doc, body)
     assert text == "cA1\nFin\nzA1\n"
     assert offsets == [len(text)]
@@ -360,7 +360,17 @@ def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_visible_body_range_round_trips_uno(ctx, doc):
-    from plugin.doc.text_helpers import _body_blocks, read_visible_body, visible_body_range, visible_range_text
+    from plugin.doc.text_helpers import (
+        DeletionState,
+        TrackedDeletions,
+        is_text_table,
+        iter_elements,
+        normalize_linebreaks,
+        read_visible_body,
+        table_visible_text,
+        visible_body_range,
+        visible_range_text,
+    )
     from plugin.framework.errors import ToolExecutionError
     from plugin.tests.testing_utils import (
         strike_across_paragraphs,
@@ -420,9 +430,22 @@ def test_visible_body_range_round_trips_uno(ctx, doc):
     for setup in layouts:
         setup()
         body = doc.getText()
-        text, _ = read_visible_body(doc)
+        text, _, _ = read_visible_body(doc)
         assert text == visible_range_text(doc, body)
-        table_ranges = [(b.start, b.end) for b in _body_blocks(doc, body) if b.para is None]
+        state = DeletionState(TrackedDeletions(doc).state_at(body).in_delete)
+        table_ranges = []
+        pos = 0
+        for el in iter_elements(body.createEnumeration()):
+            if is_text_table(el):
+                chunk = normalize_linebreaks(table_visible_text(el, state.in_delete))
+                table_ranges.append((pos, pos + len(chunk)))
+            else:
+                chunk = normalize_linebreaks(visible_range_text(doc, el))
+                # Update state across paragraphs by scanning el's portions
+                from plugin.doc.text_helpers import visible_portions
+                for _p in visible_portions(el, state=state):
+                    pass
+            pos += len(chunk) + 1
 
         def _in_table(off: int) -> bool:
             return any(ts <= off <= te for ts, te in table_ranges)
@@ -437,6 +460,37 @@ def test_visible_body_range_round_trips_uno(ctx, doc):
                     raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
                 found = visible_body_range(doc, start, end)
                 assert found is not None
-                _, got_offsets = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+                _, got_offsets, _ = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
                 assert got_offsets == [found.start, found.end]
                 assert text[found.start:found.end] == found.text
+
+
+@native_test
+@with_native_doc("writer")
+def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_selection_text
+    from plugin.tests.testing_utils import strike_across_paragraphs
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    controller = doc.getCurrentController()
+    rng_cur = text.createTextCursorByRange(paras[2].getStart())
+    rng_cur.gotoRange(text.getEnd(), True)
+    controller.select(rng_cur)
+    assert get_selection_text(doc) == "\nTail\nAfter"
+
+    para2_cur = text.createTextCursorByRange(paras[2].getStart())
+    para2_cur.gotoRange(paras[2].getEnd(), True)
+    controller.select(para2_cur)
+    assert get_selection_text(doc) == ""
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    controller.select(tbl.getCellRangeByName("A1:B2"))
+    assert get_selection_text(doc) is None

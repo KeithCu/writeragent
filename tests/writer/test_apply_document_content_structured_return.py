@@ -1156,7 +1156,7 @@ def test_full_document_reports_math_objects(monkeypatch):
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": True},
     ]
 
-    def fake_replace_full_document(doc, ctx, content):
+    def fake_replace_full_document(doc, ctx, content, **unused_kwargs):
         return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
@@ -1175,7 +1175,7 @@ def test_full_document_failed_math_attempt_reports_math_import_failed_warning(mo
         {"kind": "tex", "display_block": True, "snippet": "b", "ok": False, "error": "invalid"},
     ]
 
-    def fake_replace_full_document(doc, ctx, content):
+    def fake_replace_full_document(doc, ctx, content, **unused_kwargs):
         return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
@@ -1201,7 +1201,7 @@ def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
         {"kind": "tex", "display_block": True, "snippet": r"\sqrt{", "ok": False, "error": "NoAvailableTokensError"},
     ]
 
-    def fake_replace_full_document(doc, ctx, content):
+    def fake_replace_full_document(doc, ctx, content, **unused_kwargs):
         return html_import_styles.WriteReport(math=list(entries))
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
@@ -1228,7 +1228,7 @@ def test_wait_mode_waits_for_review_when_math_import_fails(monkeypatch):
 
 
 def test_full_document_plain_html_omits_math_objects(monkeypatch):
-    def fake_replace_full_document(doc, ctx, content):
+    def fake_replace_full_document(doc, ctx, content, **unused_kwargs):
         return html_import_styles.WriteReport()
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
@@ -1282,20 +1282,15 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
 
 def test_error_or_rollback_omits_math_objects(monkeypatch):
     """When an edit fails or rolls back, attempted math objects must not be published."""
-    from plugin.framework.errors import ToolExecutionError
-    import plugin.writer.apply_document_content as apply_content_mod
-
     entry = {"kind": "tex", "display_block": False, "snippet": "x^2", "ok": True}
 
-    def fake_replace_full_document(doc, ctx, content):
-        return html_import_styles.WriteReport(math=[entry])
-
-    def fail_table_insert(doc, before):
-        raise ToolExecutionError("table insertion failed", code="TABLE_INSERT_FAILED")
+    def fake_replace_full_document(doc, ctx, content, **unused_kwargs):
+        return html_import_styles.WriteReport(math=[entry], tables_added=0)
 
     monkeypatch.setattr(format_mod, "replace_full_document", fake_replace_full_document)
-    monkeypatch.setattr(apply_content_mod, "_verify_table_insert", fail_table_insert)
-    res = ApplyDocumentContent().execute(_ctx(), content=r"<p>\(x^2\)</p>", target="full_document")
+    res = ApplyDocumentContent().execute(
+        _ctx(), content=r"<table><tr><td>\(x^2\)</td></tr></table>", target="full_document"
+    )
 
     assert res["status"] == "error"
     assert "math_objects" not in res

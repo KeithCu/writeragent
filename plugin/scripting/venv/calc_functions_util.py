@@ -21,7 +21,8 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    Err:533 (filter with no match and no if_empty), and DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1).
 3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", or a propagated
    Err:<n> token). The add-in shows that error. Used where the cell must show a token other
-   than #NUM! and the helper catches its own parse errors (lookup, text, array and regression helpers).
+   than #NUM! and the helper catches its own parse errors (lookup, text, array and regression helpers),
+   and the first error of a range (first_error: npv, sumsq, sumproduct, subtotal).
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -36,7 +37,7 @@ import math
 import operator
 import re
 import struct
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
@@ -284,6 +285,32 @@ def round_sig(x: float, sig: int) -> float:
         return float("nan")
 
 
+def approx_floor(x: float) -> int:
+    """Floor with Calc's approximate-value nudge (rtl::math::approxFloor and rtl_math_approxValue, sal/rtl/math.cxx)."""
+    # rtl_math_approxValue keeps integers, values with at most 11 fractional bits, and values from 2**41
+    # up as they are. 15-digit rounding would change those.
+    # inf raises OverflowError (#NUM!), NaN raises ValueError, like int().
+    if abs(x) >= 2**41 or (x * 2048.0).is_integer():
+        return math.floor(x)
+    return math.floor(round_sig(x, 15))
+
+
+def approx_equal(a: float, b: float) -> bool:
+    """Calc's approximate float equality (rtl_math_approxEqual, sal/rtl/math.cxx)."""
+    if a == b:
+        return True
+    if a == 0.0 or b == 0.0 or (a < 0.0) != (b < 0.0):
+        return False
+    diff = abs(a - b)
+    if not math.isfinite(diff):
+        return False
+    low = min(abs(a), abs(b))
+    if diff >= max(low * 2.0**-48, 10.0 ** math.floor(math.log10(low)) * 5e-15):
+        return False
+    # Two different integers below 2**53 are exact, so they are different numbers.
+    return not (a.is_integer() and b.is_integer() and max(abs(a), abs(b)) < 2**53)
+
+
 def format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
     """Format a quantized Decimal to a fixed place count, optionally grouping thousands."""
     places = max(0, decimals)
@@ -291,6 +318,9 @@ def format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
     if q == 0:
         q = abs(q)
     return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
+
+
+_LOGICAL_TEXT: dict[str, float] = {"TRUE": 1.0, "FALSE": 0.0}
 
 
 def as_nonzero(val: Any) -> bool:
@@ -305,11 +335,7 @@ def as_nonzero(val: Any) -> bool:
     if val is None or val == "":
         return False
     if isinstance(val, str):
-        token = val.strip().upper()
-        if token == "TRUE":
-            return True
-        if token == "FALSE":
-            return False
+        val = _LOGICAL_TEXT.get(val.strip().upper(), val)
     return bool(float(val))
 
 
@@ -359,6 +385,14 @@ def is_calc_error(val: Any) -> bool:
     if isinstance(val, str):
         return is_error_token(val)
     return False
+
+
+def first_error(cells: Iterable[Any]) -> float | str | None:
+    """Return the first Calc error in ``cells`` (stripped token or NaN with its code), or None."""
+    for v in cells:
+        if is_calc_error(v):
+            return v.strip() if isinstance(v, str) else float(v)
+    return None
 
 
 def is_number(val: Any) -> bool:
@@ -549,6 +583,8 @@ def wildcard_fullmatch(pattern: str, text: str) -> bool:
     return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
 
 
+_NUMERIC_TYPES = (int, float, np.integer, np.floating, np.bool_)  # bool is an int
+
 _CMP = {
     "=": operator.eq,
     "<>": operator.ne,
@@ -590,20 +626,15 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         op = "="
         val_str = None
 
-    crit_bool: bool | None = None
-    if isinstance(crit, (bool, np.bool_)):
-        crit_bool = bool(crit)
-    elif val_str is not None and val_str.upper() in ("TRUE", "FALSE"):
-        crit_bool = val_str.upper() == "TRUE"
-
+    c_num: float | None = None
     if val_str is not None:
-        c_num = _to_float_or_none(val_str)
-    elif isinstance(crit, (int, float, np.integer, np.floating)):
+        logical = _LOGICAL_TEXT.get(val_str.strip().upper())
+        c_num = _to_float_or_none(val_str) if logical is None else logical
+    elif isinstance(crit, _NUMERIC_TYPES):
         c_num = _to_float_or_none(crit)
-    else:
-        c_num = None
-
-    c_pattern = val_str if val_str is not None else str(crit)
+    # A boolean criterion does not match the text TRUE (COUNTIF(A1;TRUE())).
+    match_text = not isinstance(crit, (bool, np.bool_))
+    c_pattern = "" if not match_text else (val_str if val_str is not None else str(crit))
 
     def matcher(val: Any) -> bool:
         val_is_blank = is_criteria_blank(val)
@@ -616,34 +647,23 @@ def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
         if val_is_blank:
             return op == "<>"
 
-        if crit_bool is not None:
-            if isinstance(val, (bool, np.bool_)):
-                if op == "=":
-                    return bool(val) == crit_bool
-                if op == "<>":
-                    return bool(val) != crit_bool
-                return False
-            return op == "<>"
-
-        if isinstance(val, (bool, np.bool_)):
-            if c_num is not None or op not in ("=", "<>"):
-                return op == "<>"
-            val = "TRUE" if val else "FALSE"
-
-        v_num = _to_float_or_none(val) if isinstance(val, (int, float, np.integer, np.floating)) else None
-        if v_num is not None and math.isnan(v_num):
-            v_num = None
-
+        v_num = _to_float_or_none(val) if isinstance(val, _NUMERIC_TYPES) else None
         if c_num is not None and v_num is not None:
-            return _CMP[op](v_num, c_num)
+            # compareByValue (queryevaluator.cxx): approxEqual counts as equal for every operator.
+            return _CMP[op](v_num, v_num if approx_equal(v_num, c_num) else c_num)
         if c_num is not None:
-            if isinstance(val, str) and op in ("=", "<>"):
+            if isinstance(val, str) and match_text and op in ("=", "<>"):
                 matched = wildcard_fullmatch(c_pattern, val)
                 return matched if op == "=" else not matched
             return op == "<>"
         # With a text criterion Calc compares every cell by its text for = and <>
         # (isQueryByString, queryevaluator.cxx).
-        v_str = str(val) if v_num is None else number_text(v_num)
+        if isinstance(val, (bool, np.bool_)):
+            v_str = "TRUE" if val else "FALSE"
+        elif v_num is None:
+            v_str = str(val)
+        else:
+            v_str = number_text(v_num)
         if op == "=":
             return wildcard_fullmatch(c_pattern, v_str)
         if op == "<>":

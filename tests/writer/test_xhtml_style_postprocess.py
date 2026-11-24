@@ -384,10 +384,35 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
     assert ov_none["P1"] == "text-align:left"
 
 
-def test_split_deleted_breaks_no_deletions_or_single_block():
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_xhtml_to_semantic_html_drops_image_title_text():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
 
-    assert split_deleted_breaks("<office:body><office:text><text:p>a</text:p></office:text></office:body>") is None
+    cases = [
+        '<p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</span>abc</p>',
+        '<div id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</div><p>abc</p>',
+        '<h1><span id="Image1"><p><img alt="ti" src="data:image/png;base64,AA=="/></p>ti</span>abc</h1>',
+        '<p><span id="Image1"><img alt="a &lt;b&gt; &amp; &quot;q&quot;" src="data:image/png;base64,AA=="/>a &lt;b&gt; &amp; "q"</span></p>',
+        '<p><span id="Image1"><img alt="two&#10;lines" src="data:image/png;base64,AA=="/>two\nlines</span></p>',
+    ]
+    for body in cases:
+        out = xhtml_to_semantic_html(f"<html><body>{body}</body></html>")
+        assert "<img" in out
+        assert "ti</span>abc" not in out
+        assert "ti</div>" not in out
+        assert 'alt="' in out
+        assert "two\nlines</span>" not in out
+        assert '"q"</span>' not in out
+
+    kept = xhtml_to_semantic_html(
+        '<html><body><p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>other</span></p></body></html>'
+    )
+    assert "other</span>" in kept
+
+
+def test_expand_tracked_deletions_no_deletions_or_single_block():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
+
+    assert expand_tracked_deletions("<office:body><office:text><text:p>a</text:p></office:text></office:body>") is None
 
     single = (
         '<office:body><office:text><text:tracked-changes>'
@@ -395,7 +420,7 @@ def test_split_deleted_breaks_no_deletions_or_single_block():
         '</text:tracked-changes>'
         '<text:p>a<text:change text:change-id="ct1"/>b</text:p></office:text></office:body>'
     )
-    assert split_deleted_breaks(single) is None
+    assert expand_tracked_deletions(single) is None
 
 
 @pytest.mark.parametrize("nested_xml", [
@@ -403,8 +428,8 @@ def test_split_deleted_breaks_no_deletions_or_single_block():
     '<text:note text:note-class="footnote"><text:note-body><text:p>fn</text:p></text:note-body></text:note>',
     '<draw:frame><draw:text-box><text:p>box</text:p></draw:text-box></draw:frame>',
 ])
-def test_split_deleted_breaks_ignores_nested_paragraphs(nested_xml: str):
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_expand_tracked_deletions_ignores_nested_paragraphs(nested_xml: str):
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
 
     single = (
         '<office:body><office:text><text:tracked-changes>'
@@ -412,7 +437,7 @@ def test_split_deleted_breaks_ignores_nested_paragraphs(nested_xml: str):
         '</text:tracked-changes>'
         '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
     )
-    assert split_deleted_breaks(single) is None
+    assert expand_tracked_deletions(single) is None
 
     two = (
         '<office:body><office:text><text:tracked-changes>'
@@ -420,13 +445,13 @@ def test_split_deleted_breaks_ignores_nested_paragraphs(nested_xml: str):
         '</text:tracked-changes>'
         '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
     )
-    out = split_deleted_breaks(two)
+    out = expand_tracked_deletions(two)
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == "<text:p>Keep </text:p><text:p>rest</text:p></office:text></office:body>"
 
 
-def test_split_deleted_breaks_three_blocks_reopens_span():
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_expand_tracked_deletions_three_blocks_reopens_span():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
 
     three = (
         '<office:body><office:text><text:tracked-changes>'
@@ -439,18 +464,18 @@ def test_split_deleted_breaks_three_blocks_reopens_span():
         '<text:p text:style-name="P1">Start <text:span text:style-name="T1"><text:change text:change-id="ct1"/>Tail</text:span></text:p>'
         '</office:text></office:body>'
     )
-    out = split_deleted_breaks(three)
+    out = expand_tracked_deletions(three)
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>'
-        '<text:h text:style-name="H1"><text:span text:style-name="T1"></text:span></text:h>'
+        '<text:h text:style-name="H1">\ufdd0<text:span text:style-name="T1"></text:span></text:h>'
         '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>'
         '</office:text></office:body>'
     )
 
 
-def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_expand_tracked_deletions_list_item_drops_start_value_and_xml_id():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
 
     list_fodt = (
         '<office:body><office:text><text:tracked-changes>'
@@ -461,7 +486,7 @@ def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
         '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One<text:change text:change-id="ct1"/>Two</text:p></text:list-item></text:list>'
         '</office:text></office:body>'
     )
-    out = split_deleted_breaks(list_fodt)
+    out = expand_tracked_deletions(list_fodt)
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One</text:p></text:list-item>'
@@ -469,8 +494,8 @@ def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
     )
 
 
-def test_split_deleted_breaks_deleted_heading_keeps_start_value():
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_expand_tracked_deletions_deleted_heading_keeps_start_value():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
 
     fodt = (
         '<office:body><office:text><text:tracked-changes>'
@@ -481,7 +506,7 @@ def test_split_deleted_breaks_deleted_heading_keeps_start_value():
         '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:h>'
         '</office:text></office:body>'
     )
-    out = split_deleted_breaks(fodt)
+    out = expand_tracked_deletions(fodt)
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:p>Start </text:p>'
@@ -490,8 +515,8 @@ def test_split_deleted_breaks_deleted_heading_keeps_start_value():
     )
 
 
-def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_format():
-    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+def test_expand_tracked_deletions_table_ignored_adjacent_changes_and_successor_format():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
 
     fodt = (
         '<office:body><office:text><text:tracked-changes>'
@@ -505,9 +530,165 @@ def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_forma
         '<text:p>A<text:change text:change-id="ct1"/>B<text:change text:change-id="ct2"/>C</text:p>'
         '</office:text></office:body>'
     )
-    out = split_deleted_breaks(fodt)
+    out = expand_tracked_deletions(fodt)
     assert out is not None
     assert out.split("</text:tracked-changes>", 1)[1] == (
         '<text:p>A</text:p><text:p>B</text:p><text:p>C</text:p></office:text></office:body>'
     )
 
+
+@pytest.mark.parametrize(
+    "deletion, body, expected_body",
+    [
+        pytest.param(
+            "<text:p>BB</text:p>",
+            '<text:p><text:change text:change-id="ct1"/></text:p>',
+            '<text:p>\ufdd0<text:change text:change-id="ct1"/></text:p>',
+            id="single_block_whole_paragraph",
+        ),
+        pytest.param(
+            "<text:p>BB</text:p><text:p/>",
+            '<text:p><text:change text:change-id="ct1"/></text:p>',
+            "<text:p>\ufdd0</text:p><text:p></text:p>",
+            id="struck_then_real_blank",
+        ),
+        pytest.param(
+            "<text:p/><text:p/>",
+            '<text:p>BB<text:change text:change-id="ct1"/></text:p>',
+            "<text:p>BB</text:p><text:p>\ufdd0</text:p>",
+            id="backspace_on_blank",
+        ),
+        pytest.param(
+            "<text:p>BB</text:p>",
+            '<text:p><text:change text:change-id="ct1"/><draw:frame/></text:p>',
+            None,
+            id="live_draw_frame_unmarked",
+        ),
+        pytest.param(
+            "<text:p>cell</text:p>",
+            '<table:table><table:table-row><table:table-cell><text:p><text:change text:change-id="ct1"/></text:p></table:table-cell></table:table-row></table:table>',
+            '<table:table><table:table-row><table:table-cell><text:p>\ufdd0<text:change text:change-id="ct1"/></text:p></table:table-cell></table:table-row></table:table>',
+            id="struck_table_cell_paragraph",
+        ),
+        pytest.param(
+            "<text:h>H1</text:h>",
+            '<text:h><text:change text:change-id="ct1"/></text:h>',
+            '<text:h>\ufdd0<text:change text:change-id="ct1"/></text:h>',
+            id="whole_heading",
+        ),
+        pytest.param(
+            '<text:p>S1</text:p><text:p><text:a xlink:href="#H|outline">S2</text:a></text:p><text:p>E</text:p>',
+            '<text:p><text:a xlink:href="#H|outline"><text:change text:change-id="ct1"/>Live</text:a></text:p>',
+            '<text:p>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p>\ufdd0<text:a xlink:href="#H|outline"></text:a></text:p><text:p><text:a xlink:href="#H|outline">Live</text:a></text:p>',
+            id="struck_link_keeps_mark_outside_anchor",
+        ),
+    ],
+)
+def test_expand_tracked_deletions_marks_wholly_struck_blocks(deletion: str, body: str, expected_body: str | None):
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
+
+    fodt = (
+        "<office:body><office:text><text:tracked-changes>"
+        f'<text:changed-region text:id="ct1"><text:deletion>{deletion}</text:deletion></text:changed-region>'
+        f"</text:tracked-changes>{body}</office:text></office:body>"
+    )
+    out = expand_tracked_deletions(fodt)
+    if expected_body is None:
+        assert out is None
+    else:
+        assert out is not None
+        assert out.split("</text:tracked-changes>", 1)[1] == f"{expected_body}</office:text></office:body>"
+
+
+def test_expand_tracked_deletions_partial_deletion_in_live_link_keeps_single_anchor():
+    from plugin.writer.xhtml_style_postprocess import expand_tracked_deletions
+
+    fodt = (
+        "<office:body><office:text><text:tracked-changes>"
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>BB</text:p></text:deletion></text:changed-region>'
+        '<text:changed-region text:id="ct2"><text:deletion><text:p>dead </text:p></text:deletion></text:changed-region>'
+        "</text:tracked-changes>"
+        '<text:p><text:change text:change-id="ct1"/></text:p>'
+        '<text:p><text:a xlink:href="#H|outline">Click <text:change text:change-id="ct2"/>here</text:a></text:p>'
+        "</office:text></office:body>"
+    )
+    out = expand_tracked_deletions(fodt)
+    assert out is not None
+    body = out.split("</text:tracked-changes>", 1)[1]
+    assert body == (
+        '<text:p>\ufdd0<text:change text:change-id="ct1"/></text:p>'
+        '<text:p><text:a xlink:href="#H|outline">Click <text:change text:change-id="ct2"/>here</text:a></text:p>'
+        "</office:text></office:body>"
+    )
+
+
+def test_xhtml_to_semantic_html_deleted_mark():
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK, xhtml_to_semantic_html
+
+    raw_xhtml = (
+        "<html><body>"
+        f'<p class="paragraph-Standard">{DELETED_MARK}</p>'
+        f'<h1 class="paragraph-Heading_20_1">{DELETED_MARK}</h1>'
+        f'<ul><li><p class="paragraph-Standard">{DELETED_MARK}</p></li></ul>'
+        f'<table><tr><td><p class="paragraph-Standard">{DELETED_MARK}</p></td></tr></table>'
+        f'<p class="paragraph-Standard">{DELETED_MARK}</p>'
+        '<p class="paragraph-Standard">\xa0</p>'
+        "</body></html>"
+    )
+    out = xhtml_to_semantic_html(raw_xhtml)
+    assert DELETED_MARK not in out
+    assert '<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>' in out
+    assert '<h1 data-lo-style="Heading1" data-lo-deleted="true">\xa0</h1>' in out
+    assert '<li><p data-lo-style="Standard" data-lo-deleted="true">\xa0</p></li>' in out
+    assert '<td><p data-lo-deleted="true">\xa0</p></td>' in out
+    # Trailing unmarked blank is dropped, leaving the trailing marked paragraph at the end.
+    assert out.endswith('<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>')
+
+
+def test_xhtml_to_semantic_html_drops_frame_titles_and_keeps_following_text():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    raw_xhtml = (
+        "<html><body>"
+        '<p>Before <span id="Frame1" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        '<div id="Frame1_box"><p>Box text</p></div>'
+        "SpanFrameTitle</span> After</p>"
+        '<div id="Frame2" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        '<div><p>Outer <span id="Inner" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        "<div><p>Inner</p></div>InnerTitle</span></p></div>"
+        "Outer&amp;Title</div>"
+        "<p>Real trailing text</p>"
+        "</body></html>"
+    )
+    out = xhtml_to_semantic_html(raw_xhtml)
+    assert "SpanFrameTitle" not in out
+    assert "InnerTitle" not in out
+    assert "Outer&amp;Title" not in out
+    assert "Outer&Title" not in out
+    assert "Before" in out and "After" in out
+    assert "Box text" in out and "Inner" in out
+    assert "Real trailing text" in out
+
+
+def test_xhtml_to_semantic_html_para_div_keeps_text_and_self_closing_box_drops_title():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    para_div = (
+        '<div class="paragraph-P1"><div id="F" class="frame">'
+        "<!--Next 'div' was a 'draw:text-box'.-->"
+        "<div>box</div>TITLE</div>real text</div>"
+    )
+    out1 = xhtml_to_semantic_html(para_div)
+    assert "TITLE" not in out1
+    assert "real text" in out1
+
+    self_closing = (
+        '<div id="F"><!--Next \'div\' was a \'draw:text-box\'.--><div/>TITLE</div>'
+        '<p>After <span class="text-T1">kept</span></p>'
+    )
+    out2 = xhtml_to_semantic_html(self_closing)
+    assert "TITLE" not in out2
+    assert "kept" in out2

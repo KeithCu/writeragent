@@ -405,3 +405,154 @@ def test_apply_content_multi_paragraph_inside_one_cell_matches_uno(ctx, doc):
     )
     assert res["status"] == "ok", res
     assert "Three" in cell.getString()
+
+
+def _build_chain_deletion_doc(doc, text) -> None:
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep GONE Line 1", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Line OLD 2 match More", False)
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum.hasMoreElements():
+        paras.append(enum.nextElement())
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        c1 = text.createTextCursorByRange(paras[0].getStart())
+        c1.goRight(len("Keep "), False)
+        c1.goRight(len("GONE "), True)
+        c1.setString("")
+
+        c2 = text.createTextCursorByRange(paras[1].getStart())
+        c2.goRight(len("Line "), False)
+        c2.goRight(len("OLD "), True)
+        c2.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_chain_range_ignores_struck_text_uno(ctx, doc):
+    from plugin.doc.text_helpers import normalize_linebreaks, visible_range_text
+    from plugin.writer.search import find_first_range
+
+    text = doc.getText()
+    _build_chain_deletion_doc(doc, text)
+    needle = "Line 1\nLine 2 match"
+    rng = find_first_range(doc, needle)
+    assert rng is not None
+    assert normalize_linebreaks(rng.getString()) == "Line 1\nLine OLD 2 match"
+    assert visible_range_text(doc, rng) == needle
+
+
+@native_test
+@with_native_doc("writer")
+def test_chain_replace_keeps_text_after_struck_run_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    text = doc.getText()
+    _build_chain_deletion_doc(doc, text)
+    tctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tctx,
+        target="search",
+        old_content="Line 1\nLine 2 match",
+        content="<p>Line 9</p><p>Line 8 match</p>",
+    )
+    assert res.get("status") == "ok", res
+    body = read_visible_body(doc)[0]
+    assert "atch More" not in body.split("\n")
+    assert "Line 9" in body
+    assert "Line 8 match" in body
+    assert " More" in body
+    assert body.startswith("Keep ")
+
+    first_para = doc.getText().createEnumeration().nextElement()
+    assert "GONE" in first_para.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_chain_range_with_field_uno(ctx, doc):
+    from plugin.doc.text_helpers import normalize_linebreaks
+    from plugin.writer.search import find_first_range
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "One", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "page ", False)
+    field = doc.createInstance("com.sun.star.text.TextField.Author")
+    field.setPropertyValue("IsFixed", True)
+    field.setPropertyValue("Content", "Ann Lee")
+    text.insertTextContent(cur, field, False)
+    text.insertString(cur, " of text", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Next para", False)
+
+    author = field.getPresentation(False)
+    assert author == "Ann Lee"
+    rng = find_first_range(doc, f"One\npage {author} of")
+    assert rng is not None
+    assert normalize_linebreaks(rng.getString()) == f"One\npage {author} of"
+
+
+@native_test
+@with_native_doc("writer")
+def test_chain_range_in_table_cell_ignores_struck_text_uno(ctx, doc):
+    from plugin.doc.text_helpers import normalize_linebreaks, visible_range_text
+    from plugin.writer.search import find_first_range
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    doc.getText().insertTextContent(doc.getText().getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    _build_chain_deletion_doc(doc, cell)
+
+    needle = "Line 1\nLine 2 match"
+    rng = find_first_range(doc, needle)
+    assert rng is not None
+    assert normalize_linebreaks(rng.getString()) == "Line 1\nLine OLD 2 match"
+    assert visible_range_text(doc, rng) == needle
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_miss_haystack_hides_struck_body_and_frame_text_uno(ctx, doc):
+    from plugin.writer.search import get_search_miss_haystack
+
+    text = doc.getText()
+    text.setString("BodyLive StruckBody")
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("TestFrame")
+    frame.setPropertyValue("Width", 2000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    frame.getText().setString("FrameLive StruckFrame")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        body_cur = text.createTextCursor()
+        body_cur.gotoEnd(False)
+        body_cur.goLeft(len("StruckBody"), True)
+        body_cur.setString("")
+
+        frame_cur = frame.getText().createTextCursor()
+        frame_cur.gotoEnd(False)
+        frame_cur.goLeft(len("StruckFrame"), True)
+        frame_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    hay = get_search_miss_haystack(doc)
+    assert "BodyLive" in hay
+    assert "FrameLive" in hay
+    assert "StruckBody" not in hay
+    assert "StruckFrame" not in hay

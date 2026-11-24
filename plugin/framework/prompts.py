@@ -80,37 +80,6 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
 SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = "If sheets were created, they are not populated (tab exists; no cells copied). Do write_range onto the new tab(s) with source to copy a block, or with values."
 
 
-def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, create_sheet_ran: bool = False, tool_results: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any]:
-    """Attach create≠populate ``instruction`` on the payload the outer reads.
-
-    Same field as web research (`instruction`). Use after a sheets specialized hop
-    when ``sheet_create`` ran, an inner tool result already carried ``instruction``,
-    or the finish text reports a new empty sheet.
-    """
-    if payload.get("status") != "ok":
-        return payload
-    existing = payload.get("instruction")
-    if isinstance(existing, str) and existing.strip():
-        return payload
-    inst: str | None = None
-    if tool_results:
-        for result in tool_results:
-            if isinstance(result, dict):
-                raw = result.get("instruction")
-                if isinstance(raw, str) and raw.strip():
-                    inst = raw
-                    break
-    if inst is None:
-        blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer")).lower()
-        if create_sheet_ran or "no cells copied" in blob or "new sheet named" in blob:
-            inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-    if not inst:
-        return payload
-    out = dict(payload)
-    out["instruction"] = inst
-    return out
-
-
 # The one statement that tool indexes are internal. It sits in TOOL_USAGE_PATTERNS, which is the
 # sidebar's ambient prompt and the MCP "editing" manual topic; tool descriptions that return
 # para_index or paragraph_index do not repeat it (guarded by test_paragraph_index_rule_has_one_home).
@@ -436,7 +405,8 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
 - apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
 - In record and wait, NEVER accept or reject changes yourself, including through the tracking sub-agent — resolving redlines is the user's decision.
-- get_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
+- get_content lists pending changes under tracked_changes — they are pending review, not errors to fix.
+- data-lo-deleted="true" on a get_content block, and [tracked deletion] in the document text, mark a paragraph a pending deletion already covers. It is not an empty paragraph: do not tidy, fill or delete it, and leave it out of content you write. The marker text is not in the document."""
 
 
 # apply_content rules its parameter schema cannot carry: quote/dash folding (the one home for every

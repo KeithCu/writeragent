@@ -16,9 +16,6 @@ import uno
 from com.sun.star.table import CellAddress
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
-from plugin.calc.python.function import (
-    clear_python_addin_cache,
-)
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.spill import (
     SpillCell,
@@ -31,6 +28,7 @@ from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc
 from plugin.framework.uno_context import create_property_value
+from tests.harness.uno_profile_config import repo_venv_in_profile
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 _XLSX = _FIXTURE_DIR / "python_showcase_demo.xlsx"
@@ -223,133 +221,76 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _project_venv() -> str:
-    """Checkout ``.venv`` that has an interpreter.
-
-    ``parents[3]`` of this file is the repo during ``make test``, and the
-    stripped temp tree during ``make release``. A configured venv with no
-    interpreter is ``VENV_NOT_FOUND``, so ``=PY()`` never spills. Release
-    exports ``WRITERAGENT_PROJECT_ROOT`` from the checkout Makefile.
-    """
-
-    def _has_python(venv: Path) -> bool:
-        return (venv / "bin" / "python").is_file() or (venv / "Scripts" / "python.exe").is_file()
-
-    for parent in Path(__file__).resolve().parents:
-        venv = parent / ".venv"
-        if _has_python(venv):
-            return str(venv)
-    root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
-    if root:
-        venv = Path(root) / ".venv"
-        if _has_python(venv):
-            return str(venv)
-    raise AssertionError("project .venv not found (release tree needs WRITERAGENT_PROJECT_ROOT)")
-
-
 # Cold macOS runners can exceed 30s spawning the venv worker, building the
 # matplotlib font cache, and rendering the plot.
 @native_test(timeout=60)
 def test_py_multi_document_spill_and_plot(ctx):
     """When a blank doc is open, =PY in a second doc spills and inserts plots in the second doc."""
-    import glob
-    import json
-    from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
+    with repo_venv_in_profile():
+        desktop = get_desktop(ctx)
+        doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+        doc_second = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
+        try:
+            sheet_second = doc_second.getSheets().getByIndex(0)
 
-    repo_venv = _project_venv()
-    profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
-    try:
-        profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
-    except Exception:
-        pass
+            a1 = sheet_second.getCellByPosition(0, 0)
+            d1 = sheet_second.getCellByPosition(3, 0)
+            a1.setFormula('=PY("[[1,2],[3,4]]")')
+            d1.setFormula('=PY("plt.figure(); plt.plot([1,2,3])")')
 
-    old_cfgs: dict[str, dict] = {}
-    for pcfg in profile_cfgs:
-        if os.path.exists(pcfg):
-            try:
-                with open(pcfg, "r", encoding="utf-8") as f:
-                    old_cfgs[pcfg] = json.load(f)
-                d = dict(old_cfgs[pcfg])
-                d["scripting.python_venv_path"] = repo_venv
-                with open(pcfg, "w", encoding="utf-8") as f:
-                    json.dump(d, f, indent=2)
-            except Exception:
-                pass
-    shutdown_venv_workers_for_tests()
+            doc_second.calculateAll()
 
-    desktop = get_desktop(ctx)
-    doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    doc_second = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    try:
-        sheet_second = doc_second.getSheets().getByIndex(0)
+            # Wait for spill and image insertion
+            from plugin.framework.queue_executor import pump_main_thread_work_queue
 
-        a1 = sheet_second.getCellByPosition(0, 0)
-        d1 = sheet_second.getCellByPosition(3, 0)
-        a1.setFormula('=PY("[[1,2],[3,4]]")')
-        d1.setFormula('=PY("plt.figure(); plt.plot([1,2,3])")')
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                pump_main_thread_work_queue(max_items=20)
+                b1_val = sheet_second.getCellByPosition(1, 0).getValue()
+                dp = sheet_second.getDrawPage()
+                has_shape = False
+                for idx in range(dp.getCount()):
+                    sh = dp.getByIndex(idx)
+                    name = getattr(sh, "Name", "")
+                    if not name and hasattr(sh, "getPropertyValue"):
+                        try:
+                            name = sh.getPropertyValue("Name")
+                        except Exception:
+                            name = ""
+                    if name and "WriterAgentPlot" in str(name):
+                        has_shape = True
+                        break
+                if b1_val == 2.0 and has_shape:
+                    break
+                time.sleep(0.2)
 
-        time.sleep(2.1)
-        doc_second.calculateAll()
+            # Assert B1/A2/B2 are spilled in second doc
+            assert sheet_second.getCellByPosition(1, 0).getValue() == 2.0
+            assert sheet_second.getCellByPosition(0, 1).getValue() == 3.0
+            assert sheet_second.getCellByPosition(1, 1).getValue() == 4.0
 
-        # Wait for spill and image insertion
-        from plugin.framework.queue_executor import pump_main_thread_work_queue
-
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            pump_main_thread_work_queue(max_items=20)
-            b1_val = sheet_second.getCellByPosition(1, 0).getValue()
-            dp = sheet_second.getDrawPage()
-            has_shape = False
-            for idx in range(dp.getCount()):
-                sh = dp.getByIndex(idx)
+            # Assert WriterAgentPlot shape is on its sheet
+            dp_second = sheet_second.getDrawPage()
+            shape_names = []
+            for idx in range(dp_second.getCount()):
+                sh = dp_second.getByIndex(idx)
                 name = getattr(sh, "Name", "")
                 if not name and hasattr(sh, "getPropertyValue"):
                     try:
                         name = sh.getPropertyValue("Name")
                     except Exception:
                         name = ""
-                if name and "WriterAgentPlot" in str(name):
-                    has_shape = True
-                    break
-            if b1_val == 2.0 and has_shape:
-                break
-            time.sleep(0.2)
+                shape_names.append(str(name))
+            assert any("WriterAgentPlot" in n for n in shape_names), f"Plot shape not found in {shape_names}"
 
-        # Assert B1/A2/B2 are spilled in second doc
-        assert sheet_second.getCellByPosition(1, 0).getValue() == 2.0
-        assert sheet_second.getCellByPosition(0, 1).getValue() == 3.0
-        assert sheet_second.getCellByPosition(1, 1).getValue() == 4.0
-
-        # Assert WriterAgentPlot shape is on its sheet
-        dp_second = sheet_second.getDrawPage()
-        shape_names = []
-        for idx in range(dp_second.getCount()):
-            sh = dp_second.getByIndex(idx)
-            name = getattr(sh, "Name", "")
-            if not name and hasattr(sh, "getPropertyValue"):
-                try:
-                    name = sh.getPropertyValue("Name")
-                except Exception:
-                    name = ""
-            shape_names.append(str(name))
-        assert any("WriterAgentPlot" in n for n in shape_names), f"Plot shape not found in {shape_names}"
-
-        # Assert blank doc is untouched
-        sheet_blank0 = doc_blank.getSheets().getByIndex(0)
-        assert sheet_blank0.getCellByPosition(0, 0).getString() == ""
-        assert sheet_blank0.getCellByPosition(1, 0).getValue() == 0.0
-        assert sheet_blank0.getDrawPage().getCount() == 0
-    finally:
-        _close_doc_and_clear_sessions(ctx, doc_second)
-        _close_doc_and_clear_sessions(ctx, doc_blank)
-        for pcfg, old_d in old_cfgs.items():
-            try:
-                with open(pcfg, "w", encoding="utf-8") as f:
-                    json.dump(old_d, f, indent=2)
-            except Exception:
-                pass
-        shutdown_venv_workers_for_tests()
+            # Assert blank doc is untouched
+            sheet_blank0 = doc_blank.getSheets().getByIndex(0)
+            assert sheet_blank0.getCellByPosition(0, 0).getString() == ""
+            assert sheet_blank0.getCellByPosition(1, 0).getValue() == 0.0
+            assert sheet_blank0.getDrawPage().getCount() == 0
+        finally:
+            _close_doc_and_clear_sessions(ctx, doc_second)
+            _close_doc_and_clear_sessions(ctx, doc_blank)
 
 
 
@@ -424,7 +365,6 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
     Calc-specific mapping is #VALUE! (519); ZeroDivisionError is #DIV/0! (532).
     """
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     try:
         value_cell = sheet.getCellByPosition(0, 0)
         div_cell = sheet.getCellByPosition(0, 1)
@@ -445,7 +385,6 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
     """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     try:
         cell = sheet.getCellByPosition(0, 0)
         cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
@@ -458,58 +397,13 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
             WorkbookState.forget_key(st.key)
 
 
-def _with_repo_venv_for_tests(ctx):
-    """Temporarily point the test profile's ``scripting.python_venv_path`` at the repo venv."""
-    from contextlib import contextmanager
-    import glob
-    import json
-    from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
-
-    @contextmanager
-    def _mgr():
-        repo_venv = _project_venv()
-        profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
-        try:
-            profile_cfgs.add(_resolve_config_path_from_ctx(ctx))
-        except Exception:
-            pass
-
-        old_cfgs: dict[str, dict] = {}
-        for pcfg in profile_cfgs:
-            if os.path.exists(pcfg):
-                try:
-                    with open(pcfg, "r", encoding="utf-8") as f:
-                        old_cfgs[pcfg] = json.load(f)
-                    d = dict(old_cfgs[pcfg])
-                    d["scripting.python_venv_path"] = repo_venv
-                    with open(pcfg, "w", encoding="utf-8") as f:
-                        json.dump(d, f, indent=2)
-                except Exception:
-                    pass
-        shutdown_venv_workers_for_tests()
-        try:
-            yield
-        finally:
-            for pcfg, old_d in old_cfgs.items():
-                try:
-                    with open(pcfg, "w", encoding="utf-8") as f:
-                        json.dump(old_d, f, indent=2)
-                except Exception:
-                    pass
-            shutdown_venv_workers_for_tests()
-
-    return _mgr()
-
-
-@native_test
+@native_test(timeout=60)
 @with_native_doc("calc")
 def test_py_addin_token_formula_errors(ctx, doc):
     """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
     cases = [("#DIV/0!", 532), ("#N/A", 32767)]
-    with _with_repo_venv_for_tests(ctx):
+    with repo_venv_in_profile():
         try:
             for row_idx, (token, _expected_err) in enumerate(cases):
                 sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
@@ -544,7 +438,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
     """Spill neighbors: #N/A is written as void (error 32767), others as =#ERRxxx!."""
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [[1, '#VALUE!'], ['#N/A', '#DIV/0!']]"
     try:
         cell_a1 = sheet.getCellByPosition(0, 0)
@@ -620,7 +513,6 @@ def test_py_deferred_spill_late_collision_uno(ctx, doc):
 
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [[1, 2, 3]]"
     try:
         cell_m1 = sheet.getCellByPosition(12, 0)
@@ -666,7 +558,6 @@ def test_py_spill_neighbors_temporal_formats(ctx, doc):
     """Spill neighbors: temporal values get numeric serials and standard date/time/duration formats."""
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
-    clear_python_addin_cache()
     code = "result = [['2026-08-08', 'PT30H'], ['2026-08-08T12:00:00', '12:30:00']]"
     try:
         cell_a1 = sheet.getCellByPosition(0, 0)
@@ -848,5 +739,74 @@ def test_inf_spill_neighbour_survives_ods_reload_uno(ctx, doc):
                     assert rc.getString() == "#NUM!"
             finally:
                 reloaded.close(True)
+    finally:
+        WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_keeps_user_edits_uno(ctx, doc):
+    """Spilled values remain owned across ;;; formatting, ODS and XLSX reload, while user edits block respill."""
+    import datetime
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.spill import _unchanged_cells, perform_deferred_spill, prepare_auto_spill
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        code = "result = [[1, '123', chr(39) + 'q', 'a\\r\\nb', date, float('nan'), '#N/A', True]]"
+        origin_cell = sheet.getCellByPosition(0, 0)
+        origin_cell.setFormula(f'=PY("{code}")')
+        grid = [[1, "123", "'q", "a\r\nb", datetime.date(2026, 8, 8), float("nan"), "#N/A", True, "9" * 400]]
+        perform_deferred_spill(sheet.Name, 0, 0, grid, doc=doc, sheet=sheet, code=code, key=st.key)
+        rec = st.spills[(sheet.Name, 0, 0)]
+
+        # Apply ;;; number format across spilled neighbors; second spill still succeeds.
+        formats = doc.getNumberFormats()
+        locale = doc.getPropertyValue("CharLocale")
+        hidden_key = formats.queryKey(";;;", locale, True)
+        if hidden_key == -1:
+            hidden_key = formats.addNew(";;;", locale)
+        sheet.getCellRangeByPosition(1, 0, 8, 0).setPropertyValue("NumberFormat", int(hidden_key))
+
+        origin = FormulaOrigin(sheet, origin_cell, sheet.Name, 0, 0)
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) != "#SPILL!"
+
+        # ODS and XLSX reloads keep every record cell recognizable.
+        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        hidden_prop = PropertyValue()
+        hidden_prop.Name = "Hidden"
+        hidden_prop.Value = True
+        with tempfile.TemporaryDirectory(prefix="wa-spill-reload-") as tmpdir:
+            for fname, flt in (("spill.ods", None), ("spill.xlsx", "Calc MS Excel 2007 XML")):
+                path = uno.systemPathToFileUrl(os.path.join(tmpdir, fname))
+                props = ()
+                if flt is not None:
+                    sp = PropertyValue()
+                    sp.Name = "FilterName"
+                    sp.Value = flt
+                    props = (sp,)
+                doc.storeToURL(path, props)
+                reloaded = desktop.loadComponentFromURL(path, "_blank", 0, (hidden_prop,))
+                try:
+                    rsheet = reloaded.getSheets().getByIndex(0)
+                    assert len(_unchanged_cells(rsheet, rec.cells)) == len(rec.cells)
+                finally:
+                    reloaded.close(True)
+
+        # User formula and user text over one spilled cell each block the next spill and stay untouched.
+        sheet.getCellByPosition(1, 0).setFormula("=1+1")
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+        assert sheet.getCellByPosition(1, 0).getFormula() == "=1+1"
+
+        sheet.getCellByPosition(1, 0).setString("user text")
+        assert prepare_auto_spill(ctx, doc, st, origin, code, grid) == "#SPILL!"
+        assert sheet.getCellByPosition(1, 0).getFormula() == "user text"
     finally:
         WorkbookState.forget_key(st.key)

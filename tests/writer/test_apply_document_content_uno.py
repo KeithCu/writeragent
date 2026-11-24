@@ -11,19 +11,26 @@ from plugin.tests.testing_utils import native_writer_tool_context, with_native_d
 from plugin.writer.apply_document_content import ApplyDocumentContent
 
 
-def _reset_three_paras(doc):
-    text = doc.getText()
+def _clear_body(doc):
     doc.setPropertyValue("RecordChanges", False)
+    doc.getText().setString("")
+
+
+def _reset_three_paras(doc):
+    _clear_body(doc)
+    text = doc.getText()
     cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
     cur.gotoStart(False)
     text.insertString(cur, "Intro paragraph here.", False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "Alpha one. Beta two.", False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "Outro paragraph.", False)
+    assert _body_structure(doc) == [
+        "P:Intro paragraph here.",
+        "P:Alpha one. Beta two.",
+        "P:Outro paragraph.",
+    ]
 
 
 def _select_match(doc, needle: str):
@@ -358,6 +365,495 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
 
+def _body_structure(doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.writer.range_copy import supports_service
+
+    out = []
+    for el in iter_elements(doc.getText().createEnumeration()):
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            out.append("T:" + el.getCellByName("A1").getString())
+        else:
+            out.append("P:" + el.getString())
+    return out
+
+
+def _setup_leading_tables(doc, count=1, page_desc="First Page", middle=False):
+    _clear_body(doc)
+    text = doc.getText()
+    for idx in range(count):
+        if middle and idx == 1:
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "mid", False)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getEnd(), tbl, False)
+        if idx == 0 and page_desc:
+            tbl.setPropertyValue("PageDescName", page_desc)
+        tbl.getCellByName("A1").setString(f"old{idx}")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    expected = [f"T:old{idx}" for idx in range(count)]
+    if middle and count > 1:
+        expected.insert(1, "P:mid")
+    expected.append("P:tail")
+    assert _body_structure(doc) == expected
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_tables_off_keeps_page_desc_and_undoes_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "off"})
+    try:
+        for count in (1, 2):
+            _setup_leading_tables(doc, count=count, page_desc="First Page")
+            before = _body_structure(doc)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            assert _body_structure(doc) == ["P:NEW"]
+            first_para = doc.getText().createEnumeration().nextElement()
+            assert first_para.getPropertyValue("PageDescName") == "First Page"
+            doc.getUndoManager().undo()
+            assert _body_structure(doc) == before
+    finally:
+        save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_tables_record_accept_reject_and_rewrite_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "record"})
+    try:
+        for count, middle in ((1, False), (2, False), (2, True)):
+            _setup_leading_tables(doc, count=count, page_desc=None, middle=middle)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            enum = doc.getRedlines().createEnumeration()
+            comments = []
+            while enum_has_more(enum):
+                comments.append(str(enum.nextElement().getPropertyValue("RedlineComment")))
+            assert comments and all(c.startswith("wa-review:") for c in comments), comments
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert _body_structure(doc) == ["P:NEW", "P:"]
+
+            _setup_leading_tables(doc, count=count, page_desc=None, middle=middle)
+            before = _body_structure(doc)
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+            assert res.get("status") == "ok", res
+            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+            assert _body_structure(doc) == before
+
+        for manual_rec in (False, True):
+            for draft_html in (
+                "<table><tr><td>D1</td></tr></table><p>t1</p>",
+                "<table><tr><td>D1</td></tr></table><table><tr><td>D1b</td></tr></table><p>t1</p>",
+            ):
+                save({flag: "off" if manual_rec else "record"})
+                _reset_three_paras(doc)
+                if manual_rec:
+                    doc.setPropertyValue("RecordChanges", True)
+                r1 = ApplyDocumentContent().execute(tctx, target="full_document", content=draft_html)
+                assert r1.get("status") == "ok", r1
+                r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+                assert r2.get("status") == "ok", r2
+                execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+                assert _body_structure(doc) == ["P:D2", "P:"]
+
+                _reset_three_paras(doc)
+                if manual_rec:
+                    doc.setPropertyValue("RecordChanges", True)
+                before_orig = _body_structure(doc)
+                r1 = ApplyDocumentContent().execute(tctx, target="full_document", content=draft_html)
+                assert r1.get("status") == "ok", r1
+                r2 = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>D2</p>")
+                assert r2.get("status") == "ok", r2
+                execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+                assert _body_structure(doc) == before_orig
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_table_rolls_back_on_import_failure_uno(ctx, doc):
+    from unittest.mock import patch
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            _setup_leading_tables(doc, count=1, page_desc=None)
+            before = _body_structure(doc)
+            with patch(
+                "plugin.writer.html_import._import_and_drop_leftover",
+                side_effect=RuntimeError("boom"),
+            ):
+                try:
+                    ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+                    raise AssertionError("expected RuntimeError")
+                except RuntimeError:
+                    pass
+            assert _body_structure(doc) == before, mode
+            assert doc.getRedlines().getCount() == 0, mode
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_table_with_image_placeholder_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    tctx = native_writer_tool_context(doc, ctx)
+    controller = doc.getCurrentController()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for mode, anchor_type in (("off", AS_CHARACTER), ("record", AS_CHARACTER), ("record", AT_PARAGRAPH)):
+            save({flag: mode})
+            _clear_body(doc)
+            text = doc.getText()
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getStart(), tbl, False)
+            cell = tbl.getCellByName("A1")
+            cell.setString("logo")
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                f.write(png)
+                img_path = f.name
+            try:
+                g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+                g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+                g.setPropertyValue("AnchorType", anchor_type)
+                g.setPropertyValue("Width", 500)
+                g.setPropertyValue("Height", 500)
+                cell.insertTextContent(cell.getStart(), g, False)
+            finally:
+                os.unlink(img_path)
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "tail", False)
+
+            html = document_to_content(doc, ctx, scope="full")
+            assert 'src=""' in html, html
+            updated = html.replace("tail", "updated")
+            res = ApplyDocumentContent().execute(tctx, target="full_document", content=updated)
+            assert res.get("status") == "ok", (mode, anchor_type, res)
+            if mode == "record":
+                execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1, (mode, anchor_type)
+            assert "updated" in doc.getText().getString(), (mode, anchor_type)
+
+        # Case A: record mode, search-replace inside a 1-para cell with AT_PARAGRAPH image
+        # and its wrapper in the replacement leaves 1 image before and after Accept.
+        import re
+
+        save({flag: "record"})
+        _clear_body(doc)
+        text = doc.getText()
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        cell = tbl.getCellByName("A1")
+        cell.setString("logo")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(png)
+            img_path = f.name
+        try:
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("Width", 500)
+            g.setPropertyValue("Height", 500)
+            cell.insertTextContent(cell.getStart(), g, False)
+        finally:
+            os.unlink(img_path)
+        html_a = document_to_content(doc, ctx, scope="full")
+        wrapper_match = re.search(
+            r'<(div|span)\b[^>]*\bid="[^"]+"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=""[^>]*>\s*(?:</p>\s*)?</\1>',
+            html_a,
+        )
+        assert wrapper_match is not None, html_a
+        replacement = f"{wrapper_match.group(0)}newlogo"
+        assert 'src=""' in replacement
+        res_sr = ApplyDocumentContent().execute(
+            tctx, target="search", old_content="logo", content=replacement
+        )
+        assert res_sr.get("status") == "ok", res_sr
+        assert doc.getGraphicObjects().getCount() == 1
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
+
+        # Case B: record mode, full_document on [T(textless logo cell | company text), tail]
+        _clear_body(doc)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 2)
+        text.insertTextContent(text.getStart(), tbl, False)
+        logo_cell = tbl.getCellByName("A1")
+        tbl.getCellByName("B1").setString("company text")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            f.write(png)
+            img_path = f.name
+        try:
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("Width", 500)
+            g.setPropertyValue("Height", 500)
+            logo_cell.insertTextContent(logo_cell.getStart(), g, False)
+        finally:
+            os.unlink(img_path)
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        html_b = document_to_content(doc, ctx, scope="full")
+        assert 'src=""' in html_b, html_b
+        res_b = ApplyDocumentContent().execute(
+            tctx, target="full_document", content=html_b.replace("tail", "updated")
+        )
+        assert res_b.get("status") == "ok", res_b
+        execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from unittest.mock import patch
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer import html_import
+    from plugin.writer.html_export import document_to_content
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    # 1. Selection starting in a leading table and ending in body is refused (off & record).
+    for record in (False, True):
+        _clear_body(doc)
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        tbl.getCellByName("A1").setString("old0")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        execute_dispatch(ctx, controller, ".uno:SelectAll")
+        doc.setPropertyValue("RecordChanges", record)
+        try:
+            res = ApplyDocumentContent().execute(tctx, target="selection", content="<p>NEW</p>")
+            assert res.get("status") == "error", res
+            assert res.get("code") == "SELECTION_SPANS_TABLE", res
+            assert tbl.getCellByName("A1").getString() == "old0"
+            assert "tail" in text.getString()
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    from plugin.writer.specialized.sections import SectionCreate, SectionSetVisibility
+
+    # 2. Hidden leading section is refused by full_document (plain and with table).
+    for with_table in (False, True):
+        _clear_body(doc)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "secret", False)
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.gotoEnd(False)
+        text.insertString(cur, "tail", False)
+        sc_res = SectionCreate().execute(tctx, name=f"HiddenTop_{with_table}", locator="paragraph:0")
+        assert sc_res["status"] == "ok", sc_res
+        if with_table:
+            sec = doc.getTextSections().getByName(f"HiddenTop_{with_table}")
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            tbl_cur = text.createTextCursorByRange(sec.getAnchor().getStart())
+            tbl_cur.goRight(1, False)
+            text.insertTextContent(tbl_cur, tbl, False)
+            tbl.getCellByName("A1").setString("secret_tbl")
+        sv_res = SectionSetVisibility().execute(tctx, name=f"HiddenTop_{with_table}", visible=False)
+        assert sv_res["status"] == "ok", sv_res
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
+        assert res.get("status") == "error", (res, with_table)
+        assert res.get("code") == "HIDDEN_LEADING_SECTION", res
+        assert "secret" in doc.getTextSections().getByName(f"HiddenTop_{with_table}").getAnchor().getString()
+        assert "tail" in text.getString()
+
+    # 2b. Negative cases for raise_if_hidden_start: visible leading section, hidden middle section, leading table.
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "vis", False)
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+    assert SectionCreate().execute(tctx, name="VisTop", locator="paragraph:0")["status"] == "ok"
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK1</p>").get("status") == "ok"
+
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "head", False)
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "mid", False)
+    assert SectionCreate().execute(tctx, name="HidMid", locator="paragraph:1")["status"] == "ok"
+    assert SectionSetVisibility().execute(tctx, name="HidMid", visible=False)["status"] == "ok"
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>").get("status") == "ok"
+
+    _clear_body(doc)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("t0")
+    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK3</p>").get("status") == "ok"
+
+    # 3. full_document with a stubbed import that loses the table fails with a header table or struck table.
+    _clear_body(doc)
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    htbl = doc.createInstance("com.sun.star.text.TextTable")
+    htbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), htbl, False)
+    text.setString("body")
+    with patch.object(html_import, "insert_html_fragment_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            tctx, target="full_document", content="<table><tr><td>x</td></tr></table>"
+        )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "TABLE_INSERT_FAILED", res
+
+    style.setPropertyValue("HeaderIsOn", False)
+    _clear_body(doc)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tbl = doc.createInstance("com.sun.star.text.TextTable")
+        tbl.initialize(1, 1)
+        text.insertTextContent(text.getStart(), tbl, False)
+        with patch.object(html_import, "insert_html_fragment_at_cursor"):
+            res = ApplyDocumentContent().execute(
+                tctx, target="full_document", content="<table><tr><td>x</td></tr></table>"
+            )
+        assert res.get("status") == "error", res
+        assert res.get("code") == "TABLE_INSERT_FAILED", res
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 4. Selection spanning a table replaced by a table succeeds.
+    _clear_body(doc)
+    text.setString("before")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "after", False)
+    sel_all = text.createTextCursor()
+    sel_all.gotoStart(False)
+    sel_all.gotoEnd(True)
+    controller.select(sel_all)
+    res_ok = ApplyDocumentContent().execute(
+        tctx, target="selection", content="<table><tr><td>replaced</td></tr></table>"
+    )
+    assert res_ok.get("status") == "ok", res_ok
+
+    # 5. Titled picture round-trips through full_document without duplicating title text.
+    _clear_body(doc)
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        text.setString("abc")
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AS_CHARACTER)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g, False)
+        g.setPropertyValue("Title", "ti")
+        html = document_to_content(doc, ctx, scope="full", include_images=False)
+        res_pic = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
+        assert res_pic.get("status") == "ok", res_pic
+        assert doc.getGraphicObjects().getCount() == 1
+        assert text.getString().strip() == "abc"
+
+        # 6. Recorded full_document with AT_CHARACTER at the end of a 2-paragraph body
+        # deletes the original on Accept (IsDestroyFrameAnchoredAtChar) and keeps 1 copy.
+        _clear_body(doc)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, "first", False)
+        cur.gotoEnd(False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.gotoEnd(False)
+        text.insertString(cur, "second", False)
+        g2 = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g2.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g2.setPropertyValue("AnchorType", AT_CHARACTER)
+        g2.setPropertyValue("Width", 400)
+        g2.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g2, False)
+        g2.setName("BodyEndChar")
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            html_end = document_to_content(doc, ctx, scope="full", include_images=False)
+            res_end = ApplyDocumentContent().execute(
+                tctx, target="full_document", content=html_end.replace("second", "SECOND")
+            )
+            assert res_end.get("status") == "ok", res_end
+            execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+    finally:
+        os.unlink(img_path)
+
+
 @native_test
 @with_native_doc("writer")
 def test_full_document_bracketed_prose_not_parsed_as_list_uno(ctx, doc):
@@ -373,3 +869,231 @@ def test_full_document_bracketed_prose_not_parsed_as_list_uno(ctx, doc):
     assert "[TODO]" in body
     assert "later" in body
 
+
+@native_test
+@with_native_doc("writer")
+def test_escaped_markup_stays_text_across_targets_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+
+    _clear_body(doc)
+    res = tool.execute(tctx, target="full_document", content="<p>A &lt;b&gt;lit&lt;/b&gt;</p>")
+    assert res.get("status") == "ok", res
+    assert "<b>lit</b>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="end", content="&lt;i&gt;end&lt;/i&gt;")
+    assert res.get("status") == "ok", res
+    assert "<i>end</i>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="beginning", content="&lt;u&gt;beg&lt;/u&gt;")
+    assert res.get("status") == "ok", res
+    assert "<u>beg</u>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="search", old_content="lit", position="replace", content="&lt;em&gt;rep&lt;/em&gt;")
+    assert res.get("status") == "ok", res
+    assert "<em>rep</em>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="search", old_content="<em>rep</em>", position="after", content=" &lt;code&gt;aft&lt;/code&gt;")
+    assert res.get("status") == "ok", res
+    assert "<code>aft</code>" in doc.getText().getString()
+
+    _select_match(doc, "<u>beg</u>")
+    res = tool.execute(tctx, target="selection", content="&lt;b&gt;sel&lt;/b&gt;")
+    assert res.get("status") == "ok", res
+    assert "<b>sel</b>" in doc.getText().getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_sections_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _make_leading_section(name: str, body: str, *, protected: bool = False):
+        _clear_body(doc)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName(name)
+        sec.setPropertyValue("IsProtected", protected)
+        text.insertTextContent(text.getStart(), sec, False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        text.insertString(cur, body, False)
+        return sec
+
+    # 1. Protected leading section (and protected outer with unprotected inner) refuses.
+    outer_sec = _make_leading_section("ProtOuter", "Keep protected", protected=False)
+    inner_cur = text.createTextCursor()
+    inner_cur.gotoStart(False)
+    inner_cur.goRight(4, True)
+    inner_sec = doc.createInstance("com.sun.star.text.TextSection")
+    inner_sec.setName("UnprotInner")
+    inner_sec.setPropertyValue("IsProtected", False)
+    text.insertTextContent(inner_cur, inner_sec, True)
+    assert inner_sec.getParentSection() is not None
+    outer_sec.setPropertyValue("IsProtected", True)
+    res_prot = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+    assert res_prot.get("status") == "error", res_prot
+    assert res_prot.get("code") == "PROTECTED_LEADING_SECTION", res_prot
+    assert "Keep" in text.getString() and "protected" in text.getString()
+
+    # 2. Nested visible leading sections are replaced outside; PageDescName/PageNumberOffset preserved; undo restores.
+    outer_sec.setPropertyValue("IsProtected", False)
+    first_cur = text.createTextCursor()
+    first_cur.gotoStart(False)
+    first_cur.setPropertyValue("PageDescName", "First Page")
+    first_cur.setPropertyValue("PageNumberOffset", 7)
+    res_vis = tool.execute(tctx, target="full_document", content="<p>Outside</p>")
+    assert res_vis.get("status") == "ok", res_vis
+    assert text.getString().strip() == "Outside"
+    assert doc.getTextSections().getCount() == 0
+    check_cur = text.createTextCursor()
+    check_cur.gotoStart(False)
+    assert check_cur.getPropertyValue("PageDescName") == "First Page"
+    assert check_cur.getPropertyValue("PageNumberOffset") == 7
+    doc.getUndoManager().undo()
+    assert "Keep" in text.getString() and "protected" in text.getString()
+    assert doc.getTextSections().getCount() == 2
+
+    # 3. Leading TOC is replaced outside the index.
+    _clear_body(doc)
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    text.insertTextContent(text.getStart(), toc, False)
+    res_toc = tool.execute(tctx, target="full_document", content="<p>No TOC</p>")
+    assert res_toc.get("status") == "ok", res_toc
+    assert text.getString().strip() == "No TOC"
+    assert doc.getTextSections().getCount() == 0
+
+    # 4. Recorded leading section: Reject restores original text; new paragraph sits outside section.
+    _make_leading_section("RecLead1", "Original")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_rec = tool.execute(tctx, target="full_document", content="<p>NewRec</p>")
+        assert res_rec.get("status") == "ok", res_rec
+        c1 = text.createTextCursor()
+        c1.gotoStart(False)
+        assert c1.getPropertyValue("TextSection") is None
+        assert doc.getTextSections().getCount() == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert "Original" in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    # 5. Recorded leading section (rebuilt fresh): Accept keeps new text outside section.
+    _make_leading_section("RecLead2", "Original2")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_rec2 = tool.execute(tctx, target="full_document", content="<p>Accepted</p>")
+        assert res_rec2.get("status") == "ok", res_rec2
+        c2 = text.createTextCursor()
+        c2.gotoStart(False)
+        assert c2.getPropertyValue("TextSection") is None
+        assert doc.getTextSections().getCount() == 1
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert "Accepted" in text.getString()
+        assert "Original2" not in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_object_and_cell_block_refuse_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    _clear_body(doc)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("SelFrame")
+    frame.setPropertyValue("Width", 1000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    controller.select(frame)
+    res_frame = tool.execute(tctx, target="selection", content="x")
+    assert res_frame.get("status") == "error", res_frame
+    assert res_frame.get("code") == "SELECTION_NOT_TEXT", res_frame
+
+    _clear_body(doc)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getStart(), tbl, False)
+    controller.select(tbl.getCellRangeByName("A1:B1"))
+    res_cells = tool.execute(tctx, target="selection", content="x")
+    assert res_cells.get("status") == "error", res_cells
+    assert res_cells.get("code") == "SELECTION_NOT_TEXT", res_cells
+
+
+@native_test
+@with_native_doc("writer")
+def test_linked_picture_round_trip_uno(ctx, doc):
+    import base64
+    import os
+    import re
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.writer.html_export import document_to_content
+
+    tctx = native_writer_tool_context(doc, ctx)
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        text = doc.getText()
+
+        def _setup_pic(anchor_type, url: str, name: str) -> None:
+            _clear_body(doc)
+            text.setString("before")
+            gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            gfx.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            gfx.setPropertyValue("AnchorType", anchor_type)
+            gfx.setPropertyValue("Width", 400)
+            gfx.setPropertyValue("Height", 400)
+            gfx.setPropertyValue("HyperLinkURL", url)
+            text.insertTextContent(text.getStart(), gfx, False)
+            gfx.setName(name)
+
+        # AT_PARAGRAPH: keep, change href, and remove <a> via full_document.
+        _setup_pic(AT_PARAGRAPH, "https://example.org/orig", "LinkedPara")
+        html = document_to_content(doc, ctx, scope="full", include_images=False)
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
+        assert res.get("status") == "ok", res
+        assert doc.getGraphicObjects().getCount() == 1
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/orig"
+
+        html_changed = html.replace("https://example.org/orig", "https://example.org/changed")
+        res_chg = ApplyDocumentContent().execute(tctx, target="full_document", content=html_changed)
+        assert res_chg.get("status") == "ok", res_chg
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/changed"
+
+        html_unlinked = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", html_changed, flags=re.DOTALL)
+        res_rm = ApplyDocumentContent().execute(tctx, target="full_document", content=html_unlinked)
+        assert res_rm.get("status") == "ok", res_rm
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == ""
+
+        # AT_CHARACTER via full_document.
+        _setup_pic(AT_CHARACTER, "https://example.org/atchar", "LinkedAtChar")
+        html_at = document_to_content(doc, ctx, scope="full", include_images=False)
+        res_at = ApplyDocumentContent().execute(tctx, target="full_document", content=html_at)
+        assert res_at.get("status") == "ok", res_at
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/atchar"
+
+        # AS_CHARACTER via selection.
+        _setup_pic(AS_CHARACTER, "https://example.org/aschar", "LinkedAsChar")
+        html_as = document_to_content(doc, ctx, scope="full", include_images=False)
+        sel = text.createTextCursor()
+        sel.gotoStart(False)
+        sel.gotoEnd(True)
+        doc.getCurrentController().select(sel)
+        res_as = ApplyDocumentContent().execute(tctx, target="selection", content=html_as)
+        assert res_as.get("status") == "ok", res_as
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/aschar"
+    finally:
+        os.unlink(img_path)

@@ -487,8 +487,6 @@ In **Shared kernel**, `session_duckdb()` (injected; also `from writeragent.scrip
 
 Registered tables are snapshots: a cell that passes `data` and re-registers refreshes that name; a query-only cell does not. **Reset Python Session** or `invalidate_session_tables()` drops the catalog. Full staleness table: [calc/duckdb-dev-plan.md § Phase D](calc/duckdb-dev-plan.md#phase-d--shared-kernel-session-cache).
 
-**Related:** `[WorkerResultSession](../plugin/calc/python/function.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
-
 **Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`SessionStore` / `SESSIONS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
 
 #### `result` vs `print()` (egress model) {#result-vs-print-egress-model}
@@ -591,28 +589,15 @@ Full tables, decision rationale, and author/LLM summary: **[Empty cells vs NaN](
 
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
 
-Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PY()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).
+`=PY()` supports both **dynamic auto-spill** from a single cell and **matrix (array) formulas** over a selected block. Every argument after `code` is an input (`data` / `ranges`); there is no special index argument.
 
-- **Scalar return (Enter)** — e.g. `=PY("result = 3 ** 8")` or `=PY("result = str([2, 3, 5])")`.
-- **Multi-cell list results** — use a **matrix formula** over the target range and pass a **per-row index** as the optional 2nd argument:
-  1. Select the output range (e.g. `A1:A6`).
-  2. Enter (one formula for the block):
-    ```text
-     =PY("result = [sp.prime(x) for x in range(1000, 1006)]"; ROW()-1)
-    ```
-  3. Confirm with **Ctrl+Shift+Enter** (curly braces `{=…}` in each cell of the block is normal).
-
-`ROW()-n` works as a per-cell index only when it is the sole argument. With two or more arguments every argument is an input (`data` is their list). To index alongside a range, do it in code: `=PY("result = f(data[0])[int(data[1])]"; A1:A10; ROW()-1)`. Pass the range alone when `data` should be that grid.
-
-#### Matrix Formula Optimization (Fast-Path)
-
-Calc evaluates matrix formulas once per cell; without optimization that means many IPC crossings. The host caches the **Worker Result Session** so the first cell runs the worker and later cells read by index — use `ROW()-n` as the 2nd argument. Details: [scripting/numpy-serialization.md — Matrix formula result session](scripting/numpy-serialization.md#matrix-formula-result-session-ipc-reduction).
-
-Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
+- **Auto-spill (Enter, recommended):** Enter a single formula returning a 1D list or 2D grid, e.g. `=PY("result = [sp.prime(x) for x in range(1000, 1006)]")`. When `scripting.python_auto_spill` is enabled (default), Calc spills the result into neighbouring cells automatically.
+- **Matrix / array block (Ctrl+Shift+Enter):** Select the output range (e.g. `A1:A6`), enter `=PY("result = [sp.prime(x) for x in range(1000, 1006)]")`, and confirm with **Ctrl+Shift+Enter** (curly braces `{=…}`). Calc evaluates the add-in once for the block and `=PY()` returns a native UNO matrix (`matrix_result`), populating every cell in the block; cells beyond the result length show `#N/A`. This needs LibreOffice 26.8 or later. On 24.8 to 26.2, PyUNO cannot return a matrix, so `=PY()` returns the top-left value: every cell of a `{=PY()}` block shows it and `=SUM(PY(list))` sums only it. Use auto-spill, which works on every version. `write_range(array=true)` refuses `=PY` there. Use auto-spill when mixed text and numbers will be compared or looked up, because Calc does not intern strings in mixed array returns. (Desktop renders a flat list as an N×1 column whereas Collabora Online renders it as a 1×N row, so portable vertical array blocks should return `[[x] for x in …]`.)
+- **Scalar return (Enter):** e.g. `=PY("result = 3 ** 8")` or `=PY("result = str([2, 3, 5])")`.
 
 #### Dynamic auto-spill {#dynamic-auto-spill}
 
-Desktop spill is the `scripting.python_auto_spill` setting. Collabora Online single-cell spill: [engine spill plan](calc/collabora-engine-spill-plan.md). When rows or columns are inserted, the modify listener detects the coordinate delta and remaps the spill registry instead of clearing neighbor cells. A multi-cell selection does not suppress auto-spill when the formula origin is unique and is not itself a multi-cell array formula. A `{=PY()}` / `{=PYTHON()}` array formula (Ctrl+Shift+Enter, `setArrayFormula`) skips spill because `collapseToCurrentArray` on that origin spans the block, and repeated evaluations in that pass return successive list elements. When the origin cannot be located, spill is not written. When spilled cells are cleared because the formula was deleted or replaced, hard number formats are cleared with the values. A cell filled after the formula returned but before the spill write blocks the write; the next recalculation shows `#SPILL!`.
+Desktop spill is the `scripting.python_auto_spill` setting. Collabora Online single-cell spill: [engine spill plan](calc/collabora-engine-spill-plan.md). When rows or columns are inserted, the modify listener detects the coordinate delta and remaps the spill registry instead of clearing neighbor cells. A multi-cell selection does not suppress auto-spill when the formula origin is unique and is not itself a multi-cell array formula. A `{=PY()}` / `{=PYTHON()}` array formula (Ctrl+Shift+Enter, `setArrayFormula`) skips spill because `collapseToCurrentArray` on that origin spans the block, and returns a native matrix directly to Calc (top-left value before 26.8). When the origin cannot be located, spill is not written and `matrix_result` is returned. When spilled cells are cleared because the formula was deleted or replaced, hard number formats are cleared with the values. A cell filled after the formula returned but before the spill write blocks the write; the next recalculation shows `#SPILL!`. A spilled cell the user changed is theirs: it blocks the next spill (`#SPILL!`), or is left alone when it is outside the new result. An emptied cell is refilled. Inserting a row or column, or sorting, inside the block also blocks the next spill.
 
 ### Usage
 
@@ -620,7 +605,7 @@ Desktop spill is the `scripting.python_auto_spill` setting. Collabora Online sin
 =PY("3 ** 8")
 =PY("str([sp.prime(x) for x in range(1000, 1006)])")   (Returns as single-cell string)
 =PY("np.mean(data)"; A1:A10)
-=PY("result = [sp.prime(int(x)) for x in data.to_numpy().ravel()]"; ROW()-1)  (matrix over column; Ctrl+Shift+Enter)
+=PY("result = [sp.prime(x) for x in range(1000, 1006)]")  (Auto-spills from one cell, or Ctrl+Shift+Enter over A1:A6 on 26.8+)
 =PY("df = data.to_pandas(); result = float(df['Sales'].mean())"; A1:C10)
 ```
 

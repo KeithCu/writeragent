@@ -183,45 +183,6 @@ def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     assert PYTHON_ROUTING_HINT not in WRITER_CORE_DIRECTIVES
 
 
-def test_sheets_create_completion_instruction_is_create_not_populate():
-    from plugin.framework.prompts import (
-        SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
-        attach_sheets_create_completion_instruction,
-    )
-
-    inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-
-    inner = {
-        "status": "ok",
-        "message": "New sheet named 'Q1 Actuals' created; no cells copied.",
-        "instruction": inst,
-    }
-
-    finish = {
-        "status": "ok",
-        "finished": True,
-        "answer": "Created Q1 Actuals",
-        "message": "Specialized task complete.",
-    }
-    forwarded = attach_sheets_create_completion_instruction(
-        finish, create_sheet_ran=True, tool_results=[inner]
-    )
-    assert forwarded["instruction"] == inst
-    assert forwarded["answer"] == "Created Q1 Actuals"
-
-    listed = attach_sheets_create_completion_instruction(
-        {"status": "ok", "answer": "Sheet1, Sheet2"},
-        create_sheet_ran=False,
-    )
-    assert "instruction" not in listed
-
-    reported = attach_sheets_create_completion_instruction(
-        {"status": "ok", "answer": "New sheet named 'Sample' created; no cells copied."},
-        create_sheet_ran=False,
-    )
-    assert reported["instruction"] == inst
-
-
 def _writer_model() -> MagicMock:
     model = MagicMock()
     model.supportsService.return_value = False
@@ -464,29 +425,6 @@ def test_humanizer_guidance_has_its_own_fence():
     profile_block = prompt.split("<<<profile>>>", 1)[1].split("<<<</profile>>>", 1)[0]
     assert "Prefers short paragraphs." in profile_block
     assert "HUMANIZER_PROBE" not in profile_block
-
-
-def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
-    """The first non-empty inner ``instruction`` is forwarded even without create/finish-text hints."""
-    from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION, attach_sheets_create_completion_instruction
-
-    custom = "Inner tool says: verify totals before reporting."
-    assert custom != SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-    finish = {"status": "ok", "answer": "Done", "message": "Specialized task complete."}
-    tool_results = [
-        "not a dict",
-        {"status": "ok"},
-        {"status": "ok", "instruction": "   "},
-        {"status": "ok", "instruction": custom},
-        {"status": "ok", "instruction": "second instruction is ignored"},
-    ]
-    out = attach_sheets_create_completion_instruction(finish, create_sheet_ran=False, tool_results=tool_results)
-    assert out["instruction"] == custom
-    assert "instruction" not in finish
-
-    # Inner instruction wins over the sheet_create fallback.
-    out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
-    assert out2["instruction"] == custom
 
 
 def _doc_stub_for_services(*services: str) -> MagicMock:

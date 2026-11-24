@@ -172,12 +172,18 @@ class _Portion:
 
 
 class _Paragraph:
-    def __init__(self, portions, fallback_text=""):
+    def __init__(self, portions, fallback_text="", contents=()):
         self._portions = portions
         self._fallback_text = fallback_text
+        self._contents = contents
 
     def createEnumeration(self):
         return _Enum(self._portions)
+
+    def createContentEnumeration(self, _service):
+        if callable(self._contents):
+            return self._contents()
+        return _Enum(self._contents)
 
     def getString(self):
         return self._fallback_text
@@ -386,12 +392,14 @@ def test_visible_body_range_rejects_table_offset_and_clamps_end():
     from plugin.framework.errors import ToolExecutionError
 
     table = _FakeTable({"A1": _TextRange([_Paragraph([_Portion("Cell")])])})
+    port_start = MagicMock()
     portion = _Portion("After")
-    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    portion.getStart = lambda: port_start  # type: ignore[attr-defined]
     para = _Paragraph([portion])
     para.getStart = lambda: "p_start"  # type: ignore[attr-defined]
     para.getEnd = lambda: "p_end"  # type: ignore[attr-defined]
     body = MagicMock()
+    port_start.getText.return_value = body
     body.createEnumeration.side_effect = lambda: _TextRange([table, para]).createEnumeration()
     body.getEnd.return_value = "doc_end"
     model = MagicMock()
@@ -427,13 +435,15 @@ def test_visible_body_range_early_walk_stop_ends_at_last_para():
                 return self._first
             raise RuntimeError("enum broke")
 
+    port_start = MagicMock()
     portion = _Portion("Keep")
-    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    portion.getStart = lambda: port_start  # type: ignore[attr-defined]
     para = _Paragraph([portion])
     para.getStart = lambda: "p1_start"  # type: ignore[attr-defined]
     para.getEnd = lambda: "p1_end"  # type: ignore[attr-defined]
     cursor = MagicMock()
     body = MagicMock()
+    port_start.getText.return_value = body
     body.createEnumeration.return_value = _BoomEnum(para)
     body.createTextCursorByRange.return_value = cursor
     model = MagicMock()
@@ -450,12 +460,14 @@ def test_visible_body_range_short_go_right_raises():
     from plugin.doc.text_helpers import visible_body_range
     from plugin.framework.errors import ToolExecutionError
 
+    port_start = MagicMock()
     portion = _Portion("Hello")
-    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    portion.getStart = lambda: port_start  # type: ignore[attr-defined]
     para = _Paragraph([portion])
     cursor = MagicMock()
     cursor.goRight.return_value = False
     body = MagicMock()
+    port_start.getText.return_value = body
     body.createEnumeration.return_value = _TextRange([para]).createEnumeration()
     body.createTextCursorByRange.return_value = cursor
     model = MagicMock()
@@ -696,9 +708,10 @@ def test_read_visible_body_hides_deletion_across_paragraphs_and_table():
     ]).createEnumeration()
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model)
+    text, offsets, struck = read_visible_body(model)
     assert text == "Keep \n\nAfter"
     assert offsets == []
+    assert struck == []
 
 
 def test_read_visible_body_position_in_other_text_is_none():
@@ -711,9 +724,10 @@ def test_read_visible_body_position_in_other_text_is_none():
     pos.getText.return_value = other
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello"
     assert offsets == [None]
+    assert struck == []
 
 
 def test_read_visible_body_position_not_reached_is_none():
@@ -728,9 +742,10 @@ def test_read_visible_body_position_not_reached_is_none():
     pos.getText.return_value = body
     model = MagicMock()
     model.getText.return_value = body
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello"
     assert offsets == [None]
+    assert struck == []
 
 
 def test_read_visible_body_disposed():
@@ -757,9 +772,149 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
     model = MagicMock()
     model.getText.return_value = body
 
-    text, offsets = read_visible_body(model, [pos])
+    text, offsets, struck = read_visible_body(model, [pos])
     assert text == "Hello world"
     assert offsets == [None]
+    assert struck == []
+
+
+@pytest.mark.parametrize(
+    "paragraphs, expected_text, expected_struck",
+    [
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [3],
+            id="whole_paragraph",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                ], fallback_text="BB"),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text=""),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\n\nCC",
+            [3],
+            id="whole_paragraph_plus_real_blank",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                ], fallback_text="BB"),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text=""),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\nBB\n\nCC",
+            [6],
+            id="backspace_on_blank",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion("B"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("B"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\nB\nCC",
+            [],
+            id="partial_deletion",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                    _Portion("", portion_type="Frame"),
+                ], fallback_text="BB"),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [],
+            id="live_frame_in_deleted_line",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [],
+            id="live_para_anchored_content",
+        ),
+        pytest.param(
+            [
+                _Paragraph([_Portion("AA")]),
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("BB"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="BB", contents=MagicMock(side_effect=RuntimeError("enum failed"))),
+                _Paragraph([_Portion("CC")]),
+            ],
+            "AA\n\nCC",
+            [3],
+            id="content_enum_error_marks_and_continues",
+        ),
+        pytest.param(
+            [
+                _Paragraph([
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
+                    _Portion("AA"),
+                ], fallback_text="AA"),
+                _Paragraph([_Portion("BB")], fallback_text="BB", contents=[MagicMock()]),
+                _Paragraph([
+                    _Portion("CC"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
+                ], fallback_text="CC"),
+            ],
+            "\n\n",
+            [0, 1, 2],
+            id="middle_of_deletion_ignores_anchored_content",
+        ),
+    ],
+)
+def test_read_visible_body_struck_offsets(paragraphs, expected_text, expected_struck):
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions, read_visible_body
+
+    body = MagicMock()
+    body.createEnumeration.return_value = _TextRange(paragraphs).createEnumeration()
+    model = MagicMock()
+    model.getText.return_value = body
+    text, offsets, struck = read_visible_body(model)
+    assert text == expected_text
+    assert offsets == []
+    assert struck == expected_struck
+    assert text == get_string_without_tracked_deletions(_TextRange(paragraphs))
 
 
 def test_get_document_length_non_writer_is_zero():
@@ -1223,11 +1378,15 @@ def test_tracked_deletions_state_at_and_covers():
 
     class _Text:
         def compareRegionStarts(self, a, b):
+            a = a.getStart()
+            b = b.getStart()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
 
         def compareRegionEnds(self, a, b):
+            a = a.getEnd()
+            b = b.getEnd()
             if not isinstance(a, _Pos) or not isinstance(b, _Pos):
                 raise RuntimeError("not comparable")
             return 1 if a.idx < b.idx else (0 if a.idx == b.idx else -1)
@@ -1302,6 +1461,34 @@ def test_tracked_deletions_state_at_and_covers():
     assert td.covers(_Range(4, 6)) is False
 
 
+def test_bounds_cover():
+    from plugin.doc.text_helpers import bounds_cover
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class _Text:
+        def compareRegionStarts(self, a, b):
+            if b == "disposed":
+                raise DisposedException("gone")
+            if isinstance(b, str):
+                raise RuntimeError("foreign")
+            return 1 if a < b[0] else (0 if a == b[0] else -1)
+
+        def compareRegionEnds(self, a, b):
+            return 1 if a[1] < b else (0 if a[1] == b else -1)
+
+    bounds = (_Text(), 5, 10)
+    assert bounds_cover(bounds, (6, 9)) is True
+    assert bounds_cover(bounds, (5, 10)) is True
+    assert bounds_cover(bounds, (4, 10)) is False
+    assert bounds_cover(bounds, (5, 11)) is False
+    assert bounds_cover(bounds, "other_text") is False
+    with pytest.raises(DocumentDisposedError):
+        bounds_cover(bounds, "disposed")
+
+
 def test_visible_portions_resets_state_when_enumeration_fails():
     from plugin.doc.text_helpers import DeletionState
 
@@ -1358,3 +1545,248 @@ def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
     assert tree["children"][0]["body_paragraphs"] == 1  # h_struck counted as body
     assert [c["text"] for c in tree["children"][0]["children"]] == [""]
     assert tree["children"][1]["para_index"] == 3
+
+
+def test_build_heading_tree_keeps_unseen_live_headings():
+    from plugin.doc.text_helpers import build_heading_tree
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    class _RawTextPara(FakeUnoPara):
+        def __init__(self, portions, raw_text: str, **props):
+            super().__init__(portions, **props)
+            self._raw_text = raw_text
+
+        def getString(self) -> str:
+            return self._raw_text
+
+    class _UnenumerablePara(FakeUnoPara):
+        def getString(self) -> str:
+            return "Unreadable"
+
+        def createEnumeration(self):
+            raise RuntimeError("unenumerable")
+
+    h_ctl = _RawTextPara([FakeUnoPortion("ContentControl", "")], "Ctl Heading", OutlineLevel=1)
+    h_bad = _UnenumerablePara([], OutlineLevel=1)
+    h_next = FakeUnoPara([FakeUnoPortion("Text", "After")], OutlineLevel=1)
+
+    body = MagicMock()
+    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_bad, h_next])
+    model = MagicMock()
+    model.getText.return_value = body
+    model.getRedlines.return_value.hasElements.return_value = False
+
+    tree = build_heading_tree(model)
+    assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
+        ("Ctl Heading", 0),
+        ("Unreadable", 1),
+        ("After", 2),
+    ]
+
+
+def test_visible_point_in_paragraph():
+    from plugin.doc.text_helpers import visible_point_in_paragraph
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _Point:
+        def __init__(self, label: str) -> None:
+            self.label = label
+            self.steps = 0
+
+    class _Cursor:
+        def __init__(self, point: _Point) -> None:
+            self.label = point.label
+            self.steps = point.steps
+
+        def goRight(self, n: int, _expand: bool) -> bool:
+            self.steps += n
+            return True
+
+    class _PosPortion(FakeUnoPortion):
+        def __init__(self, ptype: str, text: str = "", *, start: str = "", end: str = "", **kw):
+            super().__init__(ptype, text, **kw)
+            self._start = _Point(start)
+            self._end = _Point(end)
+
+        def getStart(self) -> _Point:
+            return self._start
+
+        def getEnd(self) -> _Point:
+            return self._end
+
+    class _PosPara(FakeUnoPara):
+        def __init__(self, portions):
+            super().__init__(portions)
+            self._start = _Point("para_start")
+            self._end = _Point("para_end")
+
+        def getStart(self) -> _Point:
+            return self._start
+
+        def getEnd(self) -> _Point:
+            return self._end
+
+    p_text1 = _PosPortion("Text", "Line ", start="t1_start", end="t1_end")
+    p_del_s = _PosPortion("Redline", redline_type="Delete", is_start=True)
+    p_struck = _PosPortion("Text", "OLD ", start="del_start", end="del_end")
+    p_del_e = _PosPortion("Redline", redline_type="Delete", is_start=False)
+    p_text3 = _PosPortion("Text", "2 match More", start="t3_start", end="t3_end")
+    para = _PosPara([p_text1, p_del_s, p_struck, p_del_e, p_text3])
+
+    fake_text = MagicMock()
+    fake_text.createTextCursorByRange.side_effect = lambda pt: _Cursor(pt)
+    for pt in (p_text1._start, p_text1._end, p_text3._start, p_text3._end, para._start, para._end):
+        pt.getText = lambda ft=fake_text: ft  # type: ignore[attr-defined]
+
+    pos_12, off_12 = visible_point_in_paragraph(para, 12, opened=False, at_end=True)
+    assert (pos_12.label, pos_12.steps, off_12) == ("t3_start", 7, 12)
+
+    pos_5_end, off_5_end = visible_point_in_paragraph(para, 5, opened=False, at_end=True)
+    assert (pos_5_end.label, pos_5_end.steps, off_5_end) == ("t1_start", 5, 5)
+
+    pos_5_start, off_5_start = visible_point_in_paragraph(para, 5, opened=False, at_end=False)
+    assert (pos_5_start.label, pos_5_start.steps, off_5_start) == ("t3_start", 0, 5)
+
+    field_p = _PosPortion("TextField", "Ann Lee", start="f_start", end="f_end")
+    field_para = _PosPara([field_p])
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=False)[0].label == "f_start"
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=False)[1] == 0
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=True)[0].label == "f_end"
+    assert visible_point_in_paragraph(field_para, 3, opened=False, at_end=True)[1] == 7
+
+    assert visible_point_in_paragraph(para, 999, opened=False, at_end=True)[0].label == "para_end"
+
+
+def test_get_selection_text_writer_none_and_disposal():
+    from plugin.doc.text_helpers import get_selection_text
+    from plugin.framework.errors import DocumentDisposedError
+
+    model = MagicMock()
+    model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    controller = MagicMock()
+    model.getCurrentController.return_value = controller
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=None):
+        assert get_selection_text(model) is None
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=MagicMock()):
+        with patch("plugin.doc.text_helpers.visible_range_text", side_effect=DocumentDisposedError("gone")):
+            with pytest.raises(DocumentDisposedError):
+                get_selection_text(model)
+
+
+class _MultiStatesCursor:
+    """Range that supports XMultiPropertyStates (the normal LibreOffice text cursor)."""
+
+    def __init__(self):
+        self.cleared = None
+
+    def setPropertiesToDefault(self, names):
+        self.cleared = tuple(names)
+
+
+class _SingleStateCursor:
+    """Range without the multi variant — exercises the one-at-a-time fallback."""
+
+    def __init__(self, unsupported=()):
+        self.cleared = []
+        self._unsupported = set(unsupported)
+
+    def setPropertyToDefault(self, name):
+        if name in self._unsupported:
+            raise RuntimeError("unsupported property: %s" % name)
+        self.cleared.append(name)
+
+
+def test_clear_direct_paragraph_properties_uses_multi_variant():
+    from plugin.doc import text_helpers as th
+
+    cursor = _MultiStatesCursor()
+    cleared = th.reset_properties_to_default(cursor, th.CLEARABLE_PARA_PROPERTIES)
+
+    assert cursor.cleared == th.CLEARABLE_PARA_PROPERTIES
+    assert cleared == list(th.CLEARABLE_PARA_PROPERTIES)
+
+
+def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
+    from plugin.doc import text_helpers as th
+
+    cursor = _SingleStateCursor(unsupported={"ParaSplit"})
+    cleared = th.reset_properties_to_default(cursor, th.CLEARABLE_PARA_PROPERTIES)
+
+    assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
+    assert "ParaSplit" not in cleared  # reported honestly as not cleared
+
+
+def test_reset_properties_to_default_is_a_noop_on_empty_names():
+    from plugin.doc import text_helpers as th
+
+    cursor = _MultiStatesCursor()
+    assert th.reset_properties_to_default(cursor, ()) == []
+    assert cursor.cleared is None  # never call UNO with an empty set
+
+
+def test_reset_properties_to_default_takes_the_caller_s_names():
+    """The clear is scoped by the caller — only the passed property names are reset."""
+    from plugin.doc import text_helpers as th
+
+    names = ("CharFontName", "CharFontNameAsian", "CharFontNameComplex", "CharHeight")
+    cursor = _MultiStatesCursor()
+    th.reset_properties_to_default(cursor, names)
+
+    assert cursor.cleared == names
+
+
+@pytest.mark.parametrize(("state_value", "expected_calls"), [("DIRECT_VALUE", 1), ("DEFAULT_VALUE", 0)])
+def test_clear_direct_numbering_clears_direct_only(state_value, expected_calls):
+    from plugin.doc.text_helpers import clear_direct_numbering
+    from tests.testing_utils import FakeUnoEnum
+
+    para = MagicMock()
+    para.getPropertyState.return_value = MagicMock(value=state_value)
+    cursor = MagicMock()
+    cursor.createEnumeration.return_value = FakeUnoEnum([para])
+
+    clear_direct_numbering(cursor)
+
+    if expected_calls:
+        cursor.setPropertyValue.assert_called_once_with("NumberingRules", None)
+    else:
+        cursor.setPropertyValue.assert_not_called()
+
+
+def test_reset_direct_char_formatting_reads_language_from_start():
+    from plugin.doc.text_helpers import reset_direct_char_formatting
+
+    def _prop(name, attrs=0):
+        p = MagicMock()
+        p.Name = name
+        p.Attributes = attrs
+        return p
+
+    info = MagicMock()
+    info.getProperties.return_value = [_prop("CharWeight"), _prop("CharLocale"), _prop("ParaAdjust")]
+
+    start_langs = {"CharLocale": "pt-PT", "CharLocaleAsian": "ja-JP", "CharLocaleComplex": "ar-SA"}
+    at_start = MagicMock()
+    at_start.getPropertyValue.side_effect = lambda name: start_langs[name]
+
+    cursor_vals = {"CharLocale": None, "CharLocaleAsian": None, "CharLocaleComplex": None}
+
+    def _cursor_get(name):
+        return cursor_vals[name]
+
+    def _cursor_set(name, val):
+        assert val is not None
+        cursor_vals[name] = val
+
+    cursor = MagicMock()
+    cursor.getPropertySetInfo.return_value = info
+    cursor.getPropertyValue.side_effect = _cursor_get
+    cursor.setPropertyValue.side_effect = _cursor_set
+    cursor.getText.return_value.createTextCursorByRange.return_value = at_start
+
+    reset_direct_char_formatting(cursor)
+
+    cursor.setPropertiesToDefault.assert_called_once_with(("CharWeight", "CharLocale"))
+    assert cursor_vals == start_langs

@@ -360,6 +360,29 @@ def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, doc):
+    from plugin.writer.edit_review import EditReviewSession
+    from plugin.writer.math.math_mml_convert import insert_writer_math_formula
+
+    text = doc.getText()
+    frame = doc.getCurrentController().getFrame()
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    for accept, expected_outcome in ((False, "rejected"), (True, "accepted")):
+        text.setString("base")
+        with EditReviewSession(doc, ctx, enabled=True) as session:
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            session.record_mutation(lambda: insert_writer_math_formula(doc, cur, "x^2", display_block=False))
+            assert len(session.changes) == 1
+            cmd = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+            helper.executeDispatch(frame, cmd, "", 0, ())
+            payload = session.wait_for_review(0)
+        assert payload["complete"] is True, payload
+        assert payload["changes"][0]["outcome"] == expected_outcome, payload
+
+
+@native_test
+@with_native_doc("writer")
 def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc):
     import pytest
     from plugin.writer.edit_review import TrackedChangesInSelection, refuse_tracked_insert_or_delete

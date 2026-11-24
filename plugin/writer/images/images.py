@@ -33,6 +33,7 @@ import typing
 from typing import Any, Callable
 import urllib.parse
 
+from plugin.framework.client.http_security import log_target
 # Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
@@ -43,6 +44,7 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     resolve_exception_message,
 )
+from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param
@@ -66,7 +68,7 @@ from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed
+from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.specialized.textframes import text_content_anchor
 from .image_tools import (
@@ -80,6 +82,14 @@ from .image_tools import (
 )
 
 log = logging.getLogger("writeragent.writer")
+
+
+def _flag_untracked_replace(result: dict[str, Any], doc: Any) -> None:
+    flag_untracked(
+        result,
+        doc,
+        _("LibreOffice cannot record replacing a picture in place as a tracked change, so it was replaced directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."),
+    )
 
 
 def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> Any:
@@ -393,7 +403,7 @@ class ImageGenerate(ToolWriterImageBase):
 
         img_path = paths[0]
 
-        def _insert_or_replace() -> str:
+        def _insert_or_replace() -> dict[str, Any]:
             # Bytes are already in hand. Stop may abort the network wait above;
             # it does not skip this document insert.
             if source is not None:
@@ -433,7 +443,11 @@ class ImageGenerate(ToolWriterImageBase):
                             size_units=size_units,
                         ),
                     )
-                return "Image edited and inserted from endpoint."
+                    res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
+                    return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
+                res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
+                _flag_untracked_replace(res, ctx.doc)
+                return res
             _record_for_review(
                 ctx.ctx,
                 ctx.doc,
@@ -449,13 +463,14 @@ class ImageGenerate(ToolWriterImageBase):
                     add_frame=add_frame,
                 ),
             )
-            return "Image generated and inserted from endpoint."
+            res = {"status": "ok", "message": "Image generated and inserted from endpoint."}
+            return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
 
         # main.call defaults bound_scope to the current send scope, so Stop would
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
         # Stop after the download must not turn a finished insert into an error.
         try:
-            msg = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
+            result = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
             unlink_temp_paths(paths)
 
@@ -464,7 +479,7 @@ class ImageGenerate(ToolWriterImageBase):
             endpoint = str(get_config("endpoint") or "").strip()
             update_lru_history(image_model_used, "image_model_lru", endpoint)
 
-        return {"status": "ok", "message": msg}
+        return result
 
 
 def _download_for_tool(
@@ -657,7 +672,7 @@ class ImageList(ToolWriterImageBase):
                                     ctrl = doc.getCurrentController()
                                     vc = ctrl.getViewCursor() if ctrl is not None else None
                                     if vc is not None:
-                                        _, saved_vc = cursor_for_writer_view(vc)
+                                        _unused_cursor, saved_vc = cursor_for_writer_view(vc)
                                 except Exception:
                                     saved_vc = None
                             try:
@@ -1275,7 +1290,7 @@ class ImageInsert(ToolWriterImageBase):
             "path": {"type": "string", "description": ("Local file path or URL of the image to insert.")},
             "locator": {"type": "string", "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title').")},
             "paragraph": {"type": "integer", "description": "Paragraph index for insertion point."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted."},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. The user's page or sheet 2 is page=1. Active page or sheet if omitted."},
             "x_mm": {"type": "number", "description": "Draw/Impress: X position in millimetres (default: centered). Ignored on Calc."},
             "y_mm": {"type": "number", "description": "Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc."},
             "width_mm": {"type": "number", "description": "Width in millimetres (must be positive; omitted derives from aspect ratio)."},
@@ -1495,7 +1510,8 @@ class ImageDelete(ToolWriterImageBase):
                 "status": "ok",
                 "deleted": image_name,
                 "tracked": True,
-                "message": "Image marked for deletion as a tracked change: it stays in the document until the user accepts the change. Do not accept or reject it yourself.",
+                "pending_review": True,
+                "message": visual_helpers.TRACKED_IMAGE_DELETE_MESSAGE,
             }
         return {"status": "ok", "deleted": image_name}
 
@@ -1569,7 +1585,9 @@ class ImageReplace(ToolWriterImageBase):
 
             if not replace_graphic_source(ctx.ctx, ctx.doc, graphic, new_image_path, width_units=width_units, height_units=height_units):
                 return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
-            return {"status": "ok", "image_name": image_name}
+            res: dict[str, Any] = {"status": "ok", "image_name": image_name}
+            _flag_untracked_replace(res, ctx.doc)
+            return res
 
         return main.run(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
@@ -1681,14 +1699,14 @@ def _download_image_to_cache(
                     if name_base == url_hash:
                         try:
                             if now - entry.stat().st_mtime <= IMAGE_CACHE_MAX_AGE_SECONDS:
-                                log.debug("image_download: cache hit %s -> %s", url, entry.path)
+                                log.debug("image_download: cache hit %s -> %s", log_target(url), entry.path)
                                 return entry.path
                         except OSError:
                             pass
         except OSError:
             pass
 
-    log.info("image_download: downloading %s (hash %s)", url, url_hash)
+    log.info("image_download: downloading %s (hash %s)", log_target(url), url_hash)
 
     body, suffix = fetch_image_url(url, cancel=cancel)
     local_path = os.path.join(cache_dir, url_hash + suffix)

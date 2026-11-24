@@ -14,7 +14,7 @@ import uno
 from com.sun.star.beans import PropertyValue
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.shapes import DeleteShape, GetDrawSummary, GroupShapes, UpsertShape
+from plugin.draw.shapes import AlignShapes, DeleteShape, DistributeShapes, GetDrawSummary, GroupShapes, UpsertShape
 from plugin.draw.tree import GetDrawTree, find_shape_on_page
 from plugin.framework.tool import ToolContext
 from plugin.framework.uno_context import enum_has_more
@@ -1313,6 +1313,34 @@ def test_shape_create_diagram_arrowheads_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer", reuse=False)
+def test_shape_delete_writer_picture_while_recording_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.writer.images.image_tools import insert_image_at_locator
+    from tests.writer.images.test_images_uno import _logo_path
+
+    insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
+    assert doc.getGraphicObjects().getCount() == 1
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = DeleteShape().execute(tctx, index=0)
+        assert res["status"] == "ok"
+        assert res["tracked"] is True and res["pending_review"] is True
+        assert doc.getRedlines().getCount() >= 1
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 1
+
+        res2 = DeleteShape().execute(tctx, index=0)
+        assert res2["status"] == "ok" and res2["tracked"] is True
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert doc.getGraphicObjects().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
 @with_native_doc("draw")
 def test_shape_integer_colors_and_nested_arrowhead_uno(ctx, doc):
     from plugin.draw.shapes import CreateDiagram, UpsertShape
@@ -1361,4 +1389,70 @@ def test_shape_integer_colors_and_nested_arrowhead_uno(ctx, doc):
     conn = page.getByIndex(res_diag["connections"][0]["index"])
     assert conn.getPropertyValue("LineEndName") == "Arrow"
     assert int(conn.getPropertyValue("LineColor")) == 0x0000FF
+
+
+def _check_group_index_and_duplicates(ctx, doc, doc_type):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    for i, name in enumerate(("A", "B", "C", "D")):
+        created = UpsertShape().execute(
+            tctx, action="create", shape_type="rectangle", page=0, name=name, x=1000 + 3000 * i, y=1000, width=2000, height=1500
+        )
+        assert created["status"] == "ok", created
+
+    for refs in ([0, 0], [0, "0"], [0, "A"]):
+        rejected = GroupShapes().execute(tctx, indices=refs, page=0)
+        assert rejected["status"] == "error", (refs, rejected)
+    aligned = AlignShapes().execute(tctx, indices=[1, "B"], alignment="left", page=0)
+    assert aligned["status"] == "error", aligned
+    spread = DistributeShapes().execute(tctx, indices=[0, 1, "A"], axis="horizontal", page=0)
+    assert spread["status"] == "error", spread
+    assert [page.getByIndex(i).Name for i in range(page.getCount())] == ["A", "B", "C", "D"]
+
+    result = GroupShapes().execute(tctx, indices=["C", 0], page=0)
+    assert result["status"] == "ok", result
+    assert result["index"] == 1, result
+    group = page.getByIndex(result["index"])
+    assert "GroupShape" in group.getShapeType()
+    assert group.Name == result["name"]
+    assert sorted(group.getByIndex(i).Name for i in range(group.getCount())) == ["A", "C"]
+    # An edit by the returned index must reach the group and leave D, the last shape, alone.
+    renamed = UpsertShape().execute(tctx, action="edit", index=result["index"], name="Flag", page=0)
+    assert renamed["status"] == "ok", renamed
+    assert [page.getByIndex(i).Name for i in range(page.getCount())] == ["B", "Flag", "D"]
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_group_index_and_duplicates(ctx, doc):
+    _check_group_index_and_duplicates(ctx, doc, "draw")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_group_index_and_duplicates(ctx, doc):
+    _check_group_index_and_duplicates(ctx, doc, "writer")
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_calc_group_index_and_duplicates(ctx, doc):
+    _check_group_index_and_duplicates(ctx, doc, "calc")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_group_of_text_frames_is_an_error(ctx, doc):
+    """Writer's group() skips text frames and returns None when nothing else was passed."""
+    text = doc.getText()
+    for _idx in range(2):
+        frame = doc.createInstance("com.sun.star.text.TextFrame")
+        frame.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 3000, 2000))
+        text.insertTextContent(text.getStart(), frame, False)
+    page = doc.getDrawPage()
+    before = [page.getByIndex(i).Name for i in range(page.getCount())]
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    result = GroupShapes().execute(tctx, indices=[0, 1], page=0)
+    assert result["status"] == "error", result
+    assert [page.getByIndex(i).Name for i in range(page.getCount())] == before
 

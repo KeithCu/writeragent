@@ -30,7 +30,13 @@ _IMPRESS_ONLY = [IMPRESS_DOCUMENT_SERVICE]
 # to the chat's active page, then the view (DrawBridge.active_or_ctx_index).
 DRAW_PAGE_PROPERTY: dict[str, Any] = {
     "type": "integer",
-    "description": "0-based page (slide) index; the active page if omitted.",
+    "description": "0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.",
+}
+
+# For Draw/Impress tools whose `page` parameter is required.
+DRAW_REQUIRED_PAGE_PROPERTY: dict[str, Any] = {
+    "type": "integer",
+    "description": "0-based page (slide) index: the user's page 2 is page=1.",
 }
 
 

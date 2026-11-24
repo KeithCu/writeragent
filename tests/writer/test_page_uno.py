@@ -988,3 +988,152 @@ def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
     assert len(cols) == 2
     assert cols[0]["right_margin_mm"] == 2.5
     assert cols[1]["left_margin_mm"] == 2.5
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_style_clone_copies_cell_and_nested_cell_logos_uno(ctx, doc):
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    header.insertTextContent(header.getStart(), outer, False)
+    outer_cell = outer.getCellByName("A1")
+    logo_url = _file_url_for_path(_header_logo_path())
+    g_outer = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g_outer.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    g_outer.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    g_outer.setPropertyValue("Width", 400)
+    g_outer.setPropertyValue("Height", 400)
+    outer_cell.insertTextContent(outer_cell.getStart(), g_outer, False)
+    g_outer.setName("OuterCellLogo")
+
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    outer_cell.insertTextContent(outer_cell.getStart(), inner, False)
+    inner_cell = inner.getCellByName("A1")
+    g_inner = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g_inner.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    g_inner.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    g_inner.setPropertyValue("Width", 400)
+    g_inner.setPropertyValue("Height", 400)
+    inner_cell.insertTextContent(inner_cell.getStart(), g_inner, False)
+    g_inner.setName("InnerCellLogo")
+
+    res = copy_page_style(doc, s_name, "ClonedWithCellLogos")
+    assert res["shapes_copied"] == 2, res
+    assert res["skipped_shapes"] == [], res
+
+    cloned_style = resolve_page_style(doc, "ClonedWithCellLogos")
+    scan = _scan_region_content(doc, cloned_style.getPropertyValue("HeaderText"))
+    assert len(scan["images"]) == 2, scan
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx, doc):
+    from com.sun.star.text import GraphicCrop
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
+    from com.sun.star.text.WrapTextMode import NONE as WRAP_NONE
+    from plugin.writer.page import _region_shapes
+
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    logo_url = _file_url_for_path(_header_logo_path())
+    crop = GraphicCrop(100, 50, 25, 75)
+    gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    gfx.setPropertyValue("Width", 500)
+    gfx.setPropertyValue("Height", 500)
+    gfx.setPropertyValue("TextWrap", WRAP_NONE)
+    gfx.setPropertyValue("LeftMargin", 150)
+    gfx.setPropertyValue("RightMargin", 250)
+    gfx.setPropertyValue("GraphicCrop", crop)
+    gfx.setPropertyValue("HoriOrient", 0)
+    gfx.setPropertyValue("VertOrient", 0)
+    gfx.setPropertyValue("HoriOrientPosition", 300)
+    gfx.setPropertyValue("VertOrientPosition", 100)
+    header.insertTextContent(header.getStart(), gfx, False)
+    gfx.setName("HeaderLayoutLogo")
+
+    res = copy_page_style(doc, s_name, "ClonedLayoutLogo")
+    assert res["shapes_copied"] == 1, res
+    assert res["skipped_shapes"] == [], res
+
+    cloned_style = resolve_page_style(doc, "ClonedLayoutLogo")
+    cloned_header = cloned_style.getPropertyValue("HeaderText")
+    shapes = _region_shapes(doc, cloned_header)
+    assert len(shapes) == 1
+    cloned_gfx = shapes[0][0]
+    assert cloned_gfx.getPropertyValue("TextWrap") == WRAP_NONE
+    assert cloned_gfx.getPropertyValue("LeftMargin") == 150
+    assert cloned_gfx.getPropertyValue("RightMargin") == 250
+    src_crop = gfx.getPropertyValue("GraphicCrop")
+    assert (src_crop.Top, src_crop.Bottom, src_crop.Left, src_crop.Right) != (0, 0, 0, 0)
+    cloned_crop = cloned_gfx.getPropertyValue("GraphicCrop")
+    assert (cloned_crop.Top, cloned_crop.Bottom, cloned_crop.Left, cloned_crop.Right) == (
+        src_crop.Top, src_crop.Bottom, src_crop.Left, src_crop.Right
+    )
+    assert cloned_gfx.getPropertyValue("HoriOrientPosition") == 300
+    assert cloned_gfx.getPropertyValue("VertOrientPosition") == gfx.getPropertyValue("VertOrientPosition")
+
+    # AS_CHARACTER and AT_CHARACTER in "AB" header stay anchored between "A" and "B".
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    for idx, anchor_type in enumerate((AS_CHARACTER, AT_CHARACTER)):
+        s_inline_name = f"InlineSrc_{idx}"
+        s_inline = doc.createInstance("com.sun.star.style.PageStyle")
+        page_styles.insertByName(s_inline_name, s_inline)
+        s_inline.setPropertyValue("HeaderIsOn", True)
+        h_inline = s_inline.getPropertyValue("HeaderText")
+        h_inline.setString("AB")
+        cur = h_inline.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(1, False)
+        g_in = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g_in.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+        g_in.setPropertyValue("AnchorType", anchor_type)
+        g_in.setPropertyValue("Width", 300)
+        g_in.setPropertyValue("Height", 300)
+        h_inline.insertTextContent(cur, g_in, False)
+
+        clone_name = f"ClonedInline_{idx}"
+        res_in = copy_page_style(doc, s_inline_name, clone_name)
+        assert res_in["shapes_copied"] == 1, res_in
+        c_header = resolve_page_style(doc, clone_name).getPropertyValue("HeaderText")
+        c_shapes = _region_shapes(doc, c_header)
+        assert len(c_shapes) == 1
+        measure = c_header.createTextCursor()
+        measure.gotoStart(False)
+        measure.gotoRange(c_shapes[0][0].getAnchor().getStart(), True)
+        assert measure.getString() == "A", (anchor_type.value, measure.getString())
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_back_color_string_transparent_and_alpha_roundtrip_uno(ctx, doc):
+    from com.sun.star.drawing.FillStyle import NONE, SOLID
+    from plugin.writer.page import get_page_style_properties
+
+    tool = PageSetStyleProperties()
+    tool_ctx = _tool_ctx(doc, ctx)
+    style, s_name = _style(doc)
+
+    res = tool.execute(tool_ctx, style=s_name, back_color="red")
+    assert res["status"] == "ok", res
+    assert style.getPropertyValue("FillStyle") == SOLID
+    assert style.getPropertyValue("FillColor") == 0xFF0000
+
+    style.setPropertyValue("FillTransparence", 50)
+    props = get_page_style_properties(doc, s_name)["properties"]
+    res_rt = tool.execute(tool_ctx, style=s_name, back_color=props["back_color"])
+    assert res_rt["status"] == "ok", res_rt
+    assert style.getPropertyValue("FillTransparence") == 50
+
+    res_none = tool.execute(tool_ctx, style=s_name, back_color="transparent")
+    assert res_none["status"] == "ok", res_none
+    assert style.getPropertyValue("FillStyle") == NONE
