@@ -36,7 +36,7 @@ except ImportError:
     print("Error: `polib` is required. Run: pip install polib")
     exit(1)
 
-# Import WriterAgent modules for auth and configuration
+# Import WriterAgent constants and JSON helper
 try:
     # Add project root to path if running directly
     import sys
@@ -278,7 +278,7 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAUL
 
     api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        log.error("No API key available. Provide it via argument, config, or OPENROUTER_API_KEY env.")
+        log.error("No API key available. Provide it via argument or OPENROUTER_API_KEY env.")
         return [None] * len(texts)
 
     prompt = _build_translate_batch_prompt(texts, target_lang)
@@ -466,7 +466,7 @@ def call_review_batch(
 
     api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        log.error("No API key available. Provide it via argument, config, or OPENROUTER_API_KEY env.")
+        log.error("No API key available. Provide it via argument or OPENROUTER_API_KEY env.")
         return []
 
     items: List[Dict[str, Any]] = []
