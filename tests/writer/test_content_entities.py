@@ -86,3 +86,17 @@ def test_parse_edit_params_escaped_table_by_target():
     assert after_params.has_table is False
     assert replace_params.content == "<table>"
     assert replace_params.has_table is False
+
+
+def test_insert_next_to_match_refuses_entity_encoded_math():
+    with patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):
+        tool = ApplyDocumentContent()
+        params = tool._parse_edit_params(
+            MagicMock(),
+            {"content": "<p>&#36;x+1&#36;</p>", "target": "search", "old_content": "x", "position": "after"},
+        )
+    ctx = MagicMock()
+    res = tool._edit_insert_next_to_match(ctx, MagicMock(), params, MagicMock())
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "math" in res["message"].lower()

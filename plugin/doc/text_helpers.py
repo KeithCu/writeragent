@@ -596,6 +596,14 @@ class DeletionState:
         except Exception as exc:
             log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
 
+    def strikes_text(self, para: Any, opened: bool) -> bool:
+        """``strikes_paragraph`` without its check for anchored frames and images."""
+        if self.para_live:
+            return False
+        return self.para_opens or (
+            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+        )
+
     def strikes_paragraph(self, para: Any, opened: bool) -> bool:
         """True when a pending deletion leaves nothing visible of *para*, the paragraph just walked.
 
@@ -603,12 +611,7 @@ class DeletionState:
         struck one only holds the end marker and is not struck; one merged into live text is
         (``lead_live``: Backspace on a blank line).
         """
-        if self.para_live:
-            return False
-        struck = self.para_opens or (
-            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
-        )
-        if not struck:
+        if not self.strikes_text(para, opened):
             return False
         if opened and self.in_delete:
             # Middle of a multi-paragraph deletion: any anchored content is inside the deletion too.
@@ -761,6 +764,59 @@ class TrackedDeletions:
     def covers(self, text_range: Any) -> bool:
         """True when *text_range* lies wholly inside one pending Delete redline."""
         return any(bounds_cover(b, text_range) for b in self._bounds)
+
+    def removes_anchored(self, shape: Any) -> bool:
+        """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
+        if not self._bounds:
+            return False
+        anchor = shape.getAnchor()
+        if anchor is None:
+            return False
+        kind = shape.getPropertyValue("AnchorType").value
+        return any(
+            uno_read(lambda: _deletion_removes_anchor(b, kind, anchor), False, object_type="TextRange")
+            for b in self._bounds
+        )
+
+
+def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: Any) -> bool:
+    """Match Writer's Accept-All frame deletion for ``AS_CHARACTER``, ``AT_CHARACTER``, and ``AT_PARAGRAPH``.
+
+    Follows ``IsDestroyFrameAnchoredAtChar``, ``IsSelectFrameAnchoredAtPara``, and
+    ``IsNotBackspaceHeuristic`` (``sw/source/core/undo/undobj.cxx``).
+    """
+    text, start, end = bounds
+    point = anchor.getStart()
+    after_start = text.compareRegionStarts(start, point)
+    before_end = text.compareRegionStarts(point, end)
+    if kind == "AS_CHARACTER":  # a character inside [start, end)
+        return after_start >= 0 and before_end == 1
+    if kind == "AT_CHARACTER" and after_start == 1 and before_end == 1:
+        return True
+    para = text.createTextCursorByRange(point)
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    if not bounds_cover(bounds, para):
+        return False
+    # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
+    # as the whole text when the first enumerated element is not a table.
+    first = next(iter_elements(text.createEnumeration()), None)
+    if (
+        not uno_read(
+            lambda: first is not None and first.supportsService(_TEXT_TABLE_SERVICE) is True,
+            False,
+            object_type="TextRange",
+        )
+        and text.compareRegionStarts(start, text.getStart()) == 0
+        and text.compareRegionEnds(text.getEnd(), end) == 0
+    ):
+        return True
+    if text.compareRegionStarts(start, para) == 0 and text.compareRegionEnds(para, end) == 0:
+        # Deleting just this paragraph's text keeps the paragraph (whole-text case handled above).
+        return False
+    # Deleting only the break between two paragraphs keeps both anchors (IsNotBackspaceHeuristic).
+    step = text.createTextCursorByRange(start.getStart())
+    return not (step.goRight(1, False) and text.compareRegionStarts(step, end) == 0)
 
 
 def iter_table_paragraphs(table: Any) -> Iterator[tuple[Any, DeletionState]]:

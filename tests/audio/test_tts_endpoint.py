@@ -797,3 +797,42 @@ def test_download_endpoint_speech_speed_native_or_local(
     else:
         assert payload["speed"] == expected_payload_speed
     assert clip.rate == expected_clip_rate
+
+
+def test_post_audio_speech_invalid_url_returns_error(caplog):
+    caplog.set_level(logging.DEBUG)
+    body, content_type, code, err = _post_audio_speech(
+        "https://u:hunter2@h.example:1a34/v1/audio/speech",
+        {},
+        {"model": "test"},
+    )
+    assert (body, content_type, code, err) == (None, "", 0, "Invalid URL port")
+    assert "hunter2" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://h.example:1a34/v1",
+        "https://user:hunter2@ho\u2100st/v1",
+        "http://[::1/v1",
+    ],
+)
+def test_speak_endpoint_invalid_url_uses_system_speech(caplog, endpoint: str):
+    caplog.set_level(logging.DEBUG)
+    statuses: list[str] = []
+    cancel = SendCancellation()
+    with patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint(
+            "Hello",
+            endpoint,
+            "k",
+            model="m",
+            voice="v",
+            cancel=cancel,
+            on_status=statuses.append,
+        )
+    system.assert_called_once()
+    assert system.call_args.args[0] == "Hello"
+    assert any("Invalid URL" in status for status in statuses)
+    assert "hunter2" not in caplog.text

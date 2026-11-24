@@ -1375,3 +1375,163 @@ def test_header_cell_fields_listed_uno(ctx, doc):
     got = _get(doc, ctx, "header")
     assert got["status"] == "ok"
     assert len(got.get("fields", [])) == 1, got
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_html_decodes_html5_entities_uno(ctx, doc):
+    res = _set(doc, ctx, "header", "<p>&check; &lt;b&gt;</p>")
+    assert res.get("status") == "ok", res
+    assert _region_text(doc, "header").getString() == "✓ <b>"
+
+
+def _insert_at_para_logo(ctx, doc, header, at_end: bool, name: str = "LogoPic") -> None:
+    from com.sun.star.beans import PropertyValue
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(_PNG_BYTES)
+    try:
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        pv = PropertyValue()
+        pv.Name = "URL"
+        pv.Value = "file://" + img_path
+        gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        gfx.setPropertyValue("Graphic", provider.queryGraphic((pv,)))
+        gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+        gfx.setPropertyValue("Width", 300)
+        gfx.setPropertyValue("Height", 300)
+        header.insertTextContent(header.getEnd() if at_end else header.getStart(), gfx, False)
+        gfx.setName(name)
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_recorded_round_trips_keep_one_logo_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    for case_idx, (lines, at_end) in enumerate([(["one", "two"], False), (["one", "two"], True), (["one"], False)]):
+        style, _name = _style(doc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        doc.setPropertyValue("RecordChanges", False)
+        header.setString("")
+        cur = header.createTextCursor()
+        for l_idx, line in enumerate(lines):
+            if l_idx:
+                header.insertControlCharacter(cur, 0, False)
+            header.insertString(cur, line, False)
+        _insert_at_para_logo(ctx, doc, header, at_end=at_end, name=f"Logo_{case_idx}")
+
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            counts = []
+            for _round in range(3):
+                got = _get(doc, ctx, "header")
+                assert got["status"] == "ok", got
+                assert got["content"].count("<img") == 1, (case_idx, got["content"])
+                assert len(got.get("images", [])) == 1, (case_idx, got)
+                assert _set(doc, ctx, "header", got["content"]).get("status") == "ok"
+                counts.append(len(_header_structure(header)))
+            assert counts[1] == counts[0] and counts[2] == counts[0], (case_idx, counts)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1, (case_idx, doc.getGraphicObjects().getElementNames())
+            struct = _header_structure(header)
+            assert struct == [f"P:{line}" for line in lines] + ["P:"], (case_idx, struct)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            header.setString("")
+            for gname in list(doc.getGraphicObjects().getElementNames()):
+                doc.getGraphicObjects().getByName(gname).dispose()
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_recorded_table_rewrites_do_not_grow_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("a\nb")
+    cur = header.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(1, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(cur, tbl, False)
+    orig_structure = _header_structure(header)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        counts = []
+        for _round in range(3):
+            res = _set(doc, ctx, "header", "<p>n</p><table><tr><td>c</td></tr></table><p>z</p>")
+            assert res["status"] == "ok", res
+            counts.append(len(_header_structure(header)))
+        assert len(set(counts)) == 1, counts
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert _header_structure(header) == orig_structure
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_struck_logo_blocks_disable_uno(ctx, doc):
+    from plugin.writer.page import PageSetStyleProperties
+
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("x")
+    _insert_at_para_logo(ctx, doc, header, at_end=False, name="StruckOnlyLogo")
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = header.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        got = _get(doc, ctx, "header")
+        assert got["status"] == "ok", got
+        assert not got.get("images"), got
+        res = PageSetStyleProperties().execute(_tool_ctx(doc, ctx), style=s_name, header_is_on=False)
+        assert res["status"] == "error", res
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_recorded_trailing_table_without_tail_clears_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import execute_dispatch
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("a")
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    elems = list(iter_elements(header.createEnumeration()))
+    elems[-1].dispose()
+    assert _header_structure(header) == ["P:a", "T"]
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = _set(doc, ctx, "header", "<p>z</p>")
+        assert res["status"] == "ok", res
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        struct = _header_structure(header)
+        assert struct == ["P:z", "P:"], struct
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

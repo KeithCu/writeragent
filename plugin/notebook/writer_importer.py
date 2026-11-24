@@ -44,6 +44,7 @@ from typing import Any, Generator, final
 from plugin.contrib.nbformat import read_ipynb
 from plugin.doc.text_helpers import iter_elements_limited
 from plugin.doc.visual_helpers import mm_to_units
+from plugin.framework.client.http_security import log_target
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.notebook.cell_registry import (
     NotebookDocState,
@@ -1325,10 +1326,9 @@ def _fetch_remote_image(url: str, *, timeout: float) -> bytes | None:
         if not chunks:
             return None
         return b"".join(chunks)
-    except Exception:
-        # TimeoutError and socket.timeout are already Exception. The previous
-        # handler logged a different string and also returned None.
-        log.debug("notebook markdown image URL not reachable: %s", url, exc_info=True)
+    except Exception as exc:
+        # Type name only: urllib quotes the URL, with its query and userinfo, in InvalidURL and ValueError text.
+        log.debug("notebook markdown image URL not reachable: %s (%s)", log_target(url), type(exc).__name__)
         return None
 
 

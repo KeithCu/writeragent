@@ -21,11 +21,11 @@ import re
 import uuid
 from typing import Any, Generator, NamedTuple, NoReturn
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .range_copy import GRAPHIC_LAYOUT_PROPS, table_is_all_deleted
-from .record_changes import is_recording_changes, redline_kinds_covering
+from .record_changes import is_recording_changes, record_changes
 
 log = logging.getLogger("writeragent.writer")
 
@@ -44,15 +44,21 @@ log = logging.getLogger("writeragent.writer")
 # the wrapper and the <img> (<span id="Name"><p><img src=""/></p></span>); the optional <p>
 # in the pattern catches it, so the edit is not refused as "an image without its data".
 # _FRAME_IMAGE_RE shares this pattern for header/footer writes (data-less or with data).
+_FRAME_HEAD = (
+    r"(?:\n<!--Next 'div' is emulating the top height of a draw:frame\.-->\s*"
+    r'(?:<div style="height:[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?)?'
+    r"(?:\n<!--Next '(?:div|span)' is a draw:frame\. -->\n)?"
+)
+_FRAME_TAIL = r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?'
+
+
 def _frame_image_re(img: str) -> re.Pattern[str]:
     return re.compile(
-        r"(?:\n<!--Next 'div' is emulating the top height of a draw:frame\.-->\s*"
-        r'(?:<div style="height:[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?)?'
-        r"(?:\n<!--Next '(?:div|span)' is a draw:frame\. -->\n)?"
-        r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?'
+        _FRAME_HEAD
+        + r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?'
         + img
         + r"\s*(?:</p>\s*)?</\1>"
-        r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
+        + _FRAME_TAIL,
         re.IGNORECASE,
     )
 
@@ -60,13 +66,23 @@ def _frame_image_re(img: str) -> re.Pattern[str]:
 _IMAGE_PLACEHOLDER_RE = _frame_image_re(r'<img\b[^>]*\bsrc=""[^>]*>')
 _FRAME_IMAGE_RE = _frame_image_re(r"(?P<img><img\b[^>]*>)")
 _EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc\s*=\s*(["\'])\s*\1', re.IGNORECASE)
+_LINK_PROPS = ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
+# An <a href> holding only picture markers is the pictures' own link; one that also holds text is a
+# text link the pictures sit in. The frame comment before <a> and the clear:both <div> after </a>
+# stay outside when only the wrapper is linked, and are dropped with it.
+_LINKED_MARKERS_RE = re.compile(
+    _FRAME_HEAD
+    + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(\s*)</a>"
+    + _FRAME_TAIL,
+    re.IGNORECASE,
+)
 _1PX_PNG_DATA_URI = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
 # Frame properties copied onto the restored picture (read with try: not all exist on every frame).
-_KEPT_IMAGE_PROPS = GRAPHIC_LAYOUT_PROPS + ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
+_KEPT_IMAGE_PROPS = GRAPHIC_LAYOUT_PROPS + _LINK_PROPS
 
 
 class _KeptImage(NamedTuple):
@@ -77,6 +93,7 @@ class _KeptImage(NamedTuple):
     anchor: Any
     size: Any
     props: dict[str, Any]
+    linked: bool = False
 
 
 class _RegionImage(NamedTuple):
@@ -115,7 +132,8 @@ def _refuse_lost_images(missing: list[str]) -> NoReturn:
         "The content has an image without its data (src=\"\"), so it would be lost.%s Keep the "
         "image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
         "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
-        "delete it, or read with include_images=true to copy it from another document." % named
+        "delete it, or read with include_images=true to copy it from another document. "
+        "To link the picture, put the <a> around that wrapper." % named
     )
 
 
@@ -176,7 +194,15 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
     swapped = _IMAGE_PLACEHOLDER_RE.sub(_swap, content)
     if missing or _EMPTY_IMG_RE.search(swapped):
         _refuse_lost_images(missing)
-    return swapped, kept
+    linked: set[str] = set()
+
+    def _note_link(match: re.Match[str]) -> str:
+        linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", match.group(2)))
+        trail = match.group(3)
+        return match.group(1) + match.group(2) + "</a>" + ("" if "\n" in trail or "\r" in trail else trail)
+
+    swapped = _LINKED_MARKERS_RE.sub(_note_link, swapped)
+    return swapped, [k._replace(linked=k.marker in linked) for k in kept]
 
 
 def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, list[_RegionImage]]:
@@ -265,7 +291,7 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
         cursor = anchor_text.createTextCursorByRange(anchor.getStart())
         size = imported.getSize()
         props = dict(kept.props)
-        for prop in ("Title", "HyperLinkURL", "HyperLinkName", "HyperLinkTarget"):
+        for prop in ("Title",) + _LINK_PROPS:
             try:
                 props[prop] = imported.getPropertyValue(prop)
             except Exception as exc:
@@ -289,9 +315,10 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
 
 def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     """True when the edit removed *original*: missing from getGraphicObjects() or disposed
-    (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
-    a pending tracked deletion (review on). Anything else is still in place and must not be
-    duplicated, e.g. a search replace of the text of the paragraph a picture is anchored to."""
+    (review off), or Accept All would remove it under a pending tracked deletion (review on).
+    Anything else stays in place and must not be duplicated, e.g. a search replace of the text
+    of the paragraph a picture is anchored to.
+    """
     # hasByName is tested before getAnchor() because a deleted graphic can remain in
     # getGraphicObjects with a null anchor that crashes SwXFrame::getSwAnchor.
     try:
@@ -309,54 +336,16 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         return True
     if not is_recording_changes(model):
         return False
-    point = anchor
-    if getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_PARAGRAPH":
-        # A paragraph-anchored picture goes only when its paragraph goes: when the break that
-        # ends it is deleted. A search replace deletes the paragraph's text, not the paragraph.
-        try:
-            point = anchor.getText().createTextCursorByRange(anchor.getStart())
-            point.gotoEndOfParagraph(False)
-            if not point.goRight(1, True):
-                if not uno_read(
-                    lambda: anchor.getText().supportsService("com.sun.star.text.CellProperties") is True,
-                    False,
-                ):
-                    return False  # the last paragraph has no break: it stays
-                # A cell's last paragraph has no trailing break; restore only when the whole
-                # table is struck (not on a search-replace inside the cell).
-                table = uno_read(lambda: point.getPropertyValue("TextTable"), None)
-                return table is not None and table_is_all_deleted(model, table)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            return False
-    elif getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_CHARACTER":
-        try:
-            anchor_text = anchor.getText()
-            end_check = anchor_text.createTextCursorByRange(anchor.getStart())
-            if not end_check.goRight(1, False):
-                # IsDestroyFrameAnchoredAtChar (sw/source/core/undo/undobj.cxx:1716-1728)
-                # destroys a char-anchored fly at the deletion end only when rStart and
-                # rEnd are in different nodes (a multi-paragraph Delete redline).
-                para_start = anchor_text.createTextCursorByRange(anchor.getStart())
-                para_start.gotoStartOfParagraph(False)
-                for rl in iter_elements(model.getRedlines().createEnumeration()):
-                    if str(rl.getPropertyValue("RedlineType")) != "Delete":
-                        continue
-                    rl_start = rl.getPropertyValue("RedlineStart")
-                    rl_end = rl.getPropertyValue("RedlineEnd")
-                    try:
-                        if (
-                            uno_same(rl_start.getText(), anchor_text)
-                            and anchor_text.compareRegionStarts(rl_start, para_start) == 1
-                            and anchor_text.compareRegionEnds(point, rl_end) >= 0
-                        ):
-                            return True
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                return False
-        except Exception as exc:
-            reraise_if_disposed(exc)
-    return uno_read(lambda: "Delete" in redline_kinds_covering(model, point), False)
+    if TrackedDeletions(model).removes_anchored(original):
+        return True
+    if getattr(original.getPropertyValue("AnchorType"), "value", "") != "AT_PARAGRAPH":
+        return False
+    # A table the edit deletes whole takes its cells' pictures; no deletion covers the cell text.
+    table = uno_read(
+        lambda: anchor.getText().createTextCursorByRange(anchor.getStart()).getPropertyValue("TextTable"),
+        None,
+    )
+    return table is not None and table_is_all_deleted(model, table)
 
 
 def _find_marker(model: Any, search: Any) -> Any:
@@ -412,12 +401,18 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         # cell of a table this edit inserts keeps "Reject all" from removing that table. Accept is
         # right; Reject leaves the new table behind. Without the picture it would be lost instead.
         props = dict(image.props)
-        if props.get("HyperLinkURL"):
-            # Read the marker's link so an <a> the agent changed or removed wins over the original.
-            props["HyperLinkURL"] = uno_read(
-                lambda: found.getPropertyValue("HyperLinkURL"),
-                props["HyperLinkURL"],
-            )
+        # An unlinked picture inside a text link also has the link on its marker, so without
+        # image.linked the marker's URL says nothing about the picture.
+        if image.linked or props.get("HyperLinkURL"):
+            # The imported marker's link wins: it is what the agent wrote, with relative URLs resolved.
+            link = {prop: found.getPropertyValue(prop) for prop in _LINK_PROPS}
+            for prop in _LINK_PROPS:
+                # The XHTML export writes only the URL, so a missing name or target means "unchanged".
+                props[prop] = (link[prop] or props.get(prop, "")) if link["HyperLinkURL"] else ""
+            if image.linked:
+                # Otherwise the anchor keeps a text link and the next export has <a> inside <a>.
+                with record_changes(model, False):
+                    found.setPropertyValue("HyperLinkURL", "")
         _insert_copy(
             model,
             found.getText(),

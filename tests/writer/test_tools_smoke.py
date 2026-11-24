@@ -3,12 +3,7 @@
 from unittest.mock import patch
 
 
-from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
-
-# Locale tests swap com.sun.star.* for empty modules during collection.
-# The old grab-bag modules called setup_uno_mocks() at import, which put
-# NoSuchElementException / XInitialization back before later imports.
-setup_uno_mocks()
+from plugin.tests.testing_utils import WriterDocStub
 
 from plugin.app import get_tools
 

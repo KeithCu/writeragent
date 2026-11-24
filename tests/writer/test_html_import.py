@@ -98,6 +98,7 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None
@@ -126,6 +127,7 @@ def test_replace_xtext_with_html_undo_rollback_on_import_failure():
 
 def _undo_model():
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     model.getUndoManager.return_value = undo_mgr
@@ -171,6 +173,7 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None
@@ -202,6 +205,7 @@ def test_replace_xtext_with_html_undo_manager_locked_refuses_clear():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = True
     model.getUndoManager.return_value = undo_mgr
@@ -222,6 +226,7 @@ def test_replace_xtext_with_html_rollback_failure_keeps_code():
     text.createTextCursor.return_value = cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
     undo_title = None
@@ -1353,7 +1358,7 @@ def test_insert_content_at_position_text_selection_clears_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+    with patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
         # Master nested-table check walks MagicMock enumerations forever.
@@ -1393,7 +1398,7 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = MagicMock()
 
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+    with patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ), patch(
         "plugin.writer.html_import.raise_if_range_hosts_nested_table",
@@ -1404,47 +1409,10 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     rng1.setString.assert_called_once_with("")
 
 
-def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
-    """After shape.upsert, controller selects the Draw shape — HTML insert must not use it."""
+def test_insert_content_at_position_no_caret_refuses():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.html_import import insert_content_at_position
-
-    shape = MagicMock()
-    # LibreOffice often returns 1 rather than True
-    shape.supportsService.side_effect = lambda s: 1 if s == "com.sun.star.drawing.Shape" else 0
-
-    sel = MagicMock()
-    sel.getCount.return_value = 1
-    sel.getByIndex.return_value = shape
-
-    controller = MagicMock()
-    controller.getSelection.return_value = sel
-    # View cursor also unusable / shape-like → force document end
-    controller.getViewCursor.side_effect = Exception("no view cursor")
-
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-
-    model = MagicMock()
-    model.getCurrentController.return_value = controller
-    model.getText.return_value = body_text
-
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
-        "plugin.writer.html_import._insert_mixed_or_plain_html"
-    ) as mock_insert:
-        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
-
-    body_cursor.gotoEnd.assert_called_once_with(False)
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.args[2] is body_cursor
-    shape.setString.assert_not_called()
-
-
-def test_insert_content_at_position_empty_selection_uses_doc_end():
-    from unittest.mock import MagicMock, patch
-
+    from plugin.framework.errors import ToolExecutionError
     from plugin.writer.html_import import insert_content_at_position
 
     sel = MagicMock()
@@ -1461,13 +1429,13 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value = body_text
 
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
-        "plugin.writer.html_import._insert_mixed_or_plain_html"
-    ) as mock_insert:
-        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
+        with pytest.raises(ToolExecutionError) as exc_info:
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 
-    body_cursor.gotoEnd.assert_called_once_with(False)
-    mock_insert.assert_called_once()
+    assert exc_info.value.code == "SELECTION_NOT_TEXT"
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
 
 
 
@@ -1523,32 +1491,6 @@ def test_insert_content_at_position_recorded_empty_beginning():
     assert mock_drop.call_args.kwargs.get("merge_forward_after_table") is False
 
 
-def test_insert_content_at_position_empty_selection_skips_styles():
-    from unittest.mock import MagicMock, patch
-
-    from plugin.writer.html_import import insert_content_at_position
-
-    sel = MagicMock()
-    sel.getCount.return_value = 0
-    controller = MagicMock()
-    controller.getSelection.return_value = sel
-    controller.getViewCursor.side_effect = Exception("no view")
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-    model = MagicMock()
-    model.getCurrentController.return_value = controller
-    model.getText.return_value = body_text
-
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
-        "plugin.writer.html_import._insert_mixed_or_plain_html"
-    ) as mock_insert:
-        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "selection")
-
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.kwargs.get("apply_styles") is False
-
-
 def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     from unittest.mock import MagicMock, patch
 
@@ -1564,7 +1506,6 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     from plugin.writer.html_import_styles import WriteReport
 
     with patch("plugin.writer.html_import.live_selection_range", return_value=rng), \
-         patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
          patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
@@ -1698,7 +1639,7 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+    with patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
         "plugin.writer.html_import.raise_if_range_hosts_nested_table",
@@ -1729,7 +1670,7 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     model.getCurrentController.return_value = controller
     model.getText.return_value.createTextCursor.return_value = body_cursor
 
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
+    with patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
     ) as mock_insert, patch(
         "plugin.writer.html_import.raise_if_range_hosts_nested_table",
@@ -1738,35 +1679,6 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
             insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
     mock_insert.assert_not_called()
     body_cursor.gotoEnd.assert_not_called()
-
-
-def test_insert_content_at_position_attribute_error_still_uses_doc_end():
-    from unittest.mock import MagicMock, patch
-
-    from plugin.writer.html_import import insert_content_at_position
-
-    text_rng = MagicMock()
-    text_rng.getText.side_effect = AttributeError("insertDocumentFromURL")
-    text_rng.supportsService.return_value = False
-    sel = MagicMock()
-    sel.getCount.return_value = 1
-    sel.getByIndex.return_value = text_rng
-    controller = MagicMock()
-    controller.getSelection.return_value = sel
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-    model = MagicMock()
-    model.getCurrentController.return_value = controller
-    model.getText.return_value = body_text
-
-    with patch("plugin.writer.html_import.is_graphic_object", return_value=False), patch(
-        "plugin.writer.html_import._insert_mixed_or_plain_html"
-    ) as mock_insert:
-        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
-    body_cursor.gotoEnd.assert_called_once_with(False)
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.args[2] is body_cursor
 
 
 def test_ensure_empty_absorb_raises_when_break_fails():
@@ -2128,7 +2040,6 @@ def test_insert_content_at_position_caret_routing(content, at_start, at_end, exp
 
     with (
         patch("plugin.writer.html_import.live_selection_range", return_value=rng),
-        patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False),
         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"),
         patch("plugin.writer.html_import.insert_inline_at_cursor") as mock_inline,
         patch("plugin.writer.html_import.insert_html_after_paragraph", return_value=WriteReport()) as mock_after,
@@ -2180,8 +2091,7 @@ def test_insert_content_at_position_explicit_selection_skips_live_read():
     rng.getText.return_value.createTextCursorByRange.return_value = cursor
     rng.getText.return_value.compareRegionStarts.return_value = 1
 
-    with patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
-         patch("plugin.writer.html_import._lo_style_for_replaced_range", return_value=(False, None)), \
+    with patch("plugin.writer.html_import._lo_style_for_replaced_range", return_value=(False, None)), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html", return_value=WriteReport()):
         insert_content_at_position(model, MagicMock(), "new", "selection", selection=rng)
 
@@ -2305,10 +2215,7 @@ def test_insert_content_at_position_selection_none_end_refuses():
     rng_text = rng.getText.return_value
     rng_text.createTextCursorByRange.side_effect = [MagicMock(), None]
 
-    with (
-        patch.object(html_import, "_selection_is_draw_shape", return_value=False),
-        patch.object(html_import, "insert_html_fragment_at_cursor") as ins,
-    ):
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as ins:
         with pytest.raises(ToolExecutionError) as exc_info:
             html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
     assert exc_info.value.code == "SELECTION_SPANS_TABLE"
@@ -2405,10 +2312,7 @@ def test_insert_content_at_position_non_text_selection_raises_coded_error():
     rng = MagicMock()
     rng.getText.side_effect = RuntimeError("no text selection")
 
-    with (
-        patch.object(html_import, "_selection_is_draw_shape", return_value=False),
-        patch.object(html_import, "insert_html_fragment_at_cursor") as ins,
-    ):
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as ins:
         with pytest.raises(ToolExecutionError) as exc_info:
             html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
     assert exc_info.value.code == "SELECTION_NOT_TEXT"
