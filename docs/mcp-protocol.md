@@ -44,7 +44,7 @@ The chosen binary must be on `PATH`. `start()` stores a different `last_error` w
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
-| `GET` | `/mcp` | SSE stream: keepalive comments and `notifications/tools/list_changed` when the open document-type set changes. `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
+| `GET` | `/mcp` | SSE stream: keepalive comments and `notifications/tools/list_changed` when the open document-type set or `mcp.tool_exposure_mode` changes. `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
 | `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
 | `GET` | `/health` | Liveness and `tool_catalog_generation` counter |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
@@ -446,9 +446,9 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 
 > Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `tool_find` covers the full no-document catalog on demand).
 
-> Note: `initialize` advertises `tools.listChanged: true` so clients re-list when a document type is opened or closed. A `mcp.tool_exposure_mode` change mid-connection is still not announced, so reconnect after switching modes.
+> Note: `initialize` advertises `tools.listChanged: true` so clients re-list when a document type is opened or closed. Changing `mcp.tool_exposure_mode` in Settings also advances the counter and sends `tools/list_changed`; the `instructions` text sent at `initialize` still describes the old mode until the client reconnects.
 
-**Tool list changes:** Registering MCP routes installs one process-wide `GlobalEventBroadcaster` listener (`DocumentService.watch_open_doc_types`) that records `open_doc_types()` in `mcp_session.record_open_doc_types`. When the set of open document types changes (a new type opens, or the last document of a type closes), `tool_catalog_generation()` advances. Connected `GET /mcp` and `GET /sse` streams check the counter every 0.5 s (`_SSE_STOP_POLL_SEC`) and write `event: message` / `data: {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}`. Multiple document events inside one 0.5 s slice coalesce into one notification, and because WriterAgent has one process-wide session every connected stream receives the same frame. `/health` exposes `tool_catalog_generation` for the stdio bridge. Clients that never open `GET /mcp` or ignore `notifications/tools/list_changed` must re-run `tools/list` or reconnect.
+**Tool list changes:** Registering MCP routes installs one process-wide `GlobalEventBroadcaster` listener (`DocumentService.watch_open_doc_types`) that records `open_doc_types()` in `mcp_session.record_open_doc_types`. When the set of open document types changes (a new type opens, or the last document of a type closes), or when `mcp.tool_exposure_mode` changes in Settings (`mcp_session.advance_tool_catalog`), `tool_catalog_generation()` advances. Connected `GET /mcp` and `GET /sse` streams check the counter every 0.5 s (`_SSE_STOP_POLL_SEC`) and write `event: message` / `data: {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}`. Multiple document events inside one 0.5 s slice coalesce into one notification, and because WriterAgent has one process-wide session every connected stream receives the same frame. `/health` exposes `tool_catalog_generation` for the stdio bridge. Clients that never open `GET /mcp` or ignore `notifications/tools/list_changed` must re-run `tools/list` or reconnect.
 
 ---
 

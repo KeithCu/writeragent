@@ -129,13 +129,29 @@ def _empty_object() -> dict[str, Any]:
     return {"type": "object", "properties": {}, "required": []}
 
 
+def _map_child_schemas(node: dict[str, Any], fn: Callable[[Any], Any]) -> dict[str, Any]:
+    """Copy *node* with *fn* applied to each child schema; literal instance data is kept as it is.
+
+    Entries of a name map are schemas whatever their name, so a property called "default" is still visited.
+    """
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in _SCHEMA_MAP_KEYS and isinstance(value, dict):
+            out[key] = {name: fn(schema) for name, schema in value.items()}
+        elif key in _LITERAL_VALUE_KEYS:
+            out[key] = value
+        else:
+            out[key] = fn(value)
+    return out
+
+
 def _rewrite(schema: Any, fn: Callable[[dict[str, Any]], Any]) -> Any:
-    """Bottom-up map over a schema tree: lists and dicts recurse, then *fn* sees each dict."""
+    """Bottom-up map over a schema tree: lists and child schemas recurse, then *fn* sees each schema node."""
     if isinstance(schema, list):
         return [_rewrite(item, fn) for item in schema]
     if not isinstance(schema, dict):
         return schema
-    return fn({k: _rewrite(v, fn) for k, v in schema.items()})
+    return fn(_map_child_schemas(schema, lambda child: _rewrite(child, fn)))
 
 
 def sanitize_mcp_name_component(value: str) -> str:
@@ -246,12 +262,7 @@ def _repair_object_shape(node: Any, *, _object_root: bool = False) -> Any:
         return [_repair_object_shape(item) for item in node]
     if not isinstance(node, dict):
         return node
-    repaired: dict[str, Any] = {}
-    for key, value in node.items():
-        if key in _SCHEMA_MAP_KEYS and isinstance(value, dict):
-            repaired[key] = {name: _repair_object_shape(schema) for name, schema in value.items()}
-        else:
-            repaired[key] = _repair_object_shape(value)
+    repaired = _map_child_schemas(node, _repair_object_shape)
     if _object_root or "properties" in repaired or "type" in node:
         if not repaired.get("type") and ("properties" in repaired or "required" in repaired):
             repaired["type"] = "object"
@@ -399,28 +410,64 @@ def resolve_local_schema_ref(
     return combined
 
 
+def _schema_branches(schema: Any, root: Any) -> list[dict[str, Any]]:
+    """*schema* and every anyOf/oneOf/allOf branch below it, with local refs followed."""
+    schema = resolve_local_schema_ref(schema, root)
+    if not isinstance(schema, dict):
+        return []
+    found = [schema]
+    for key in (*_UNION_KEYS, "allOf"):
+        variants = schema.get(key)
+        if isinstance(variants, list):
+            for variant in variants:
+                found.extend(_schema_branches(variant, root))
+    return found
+
+
+def _branch_wire_names(props: dict[str, Any], args: dict[str, Any], root: Any) -> tuple[bool, dict[str, str]]:
+    """Return (*args* match every const/enum in *props*, ``{wire name: server name}``)."""
+    renames = _rename_property_keys(props, "<unrename>")
+    names = {renames.get(key, key): key for key in props}
+    fits = True
+    for wire, key in names.items():
+        sub = resolve_local_schema_ref(props[key], root)
+        if wire in args and isinstance(sub, dict):
+            allowed = [sub["const"]] if "const" in sub else sub.get("enum")
+            if isinstance(allowed, list) and args[wire] not in allowed:
+                fits = False
+    return fits, names
+
+
 def unrename_tool_args(params_schema: Any, args: Any, root_schema: Any = None) -> Any:
-    """Map sanitized keys in model-emitted *args* back to the server's original property names."""
+    """Map sanitized keys in model-emitted *args* back to the server's original property names.
+
+    A union's branches are all searched, because the model may have filled any of them. When two
+    branches give one wire name to different server names, the branch whose const/enum values
+    match *args* wins, then the earlier one.
+    """
     root = params_schema if root_schema is None else root_schema
-    params_schema = resolve_local_schema_ref(params_schema, root)
-    props = params_schema.get("properties") if isinstance(params_schema, dict) else None
-    if not isinstance(props, dict) or not isinstance(args, dict):
+    branches = _schema_branches(params_schema, root)
+    if isinstance(args, list):
+        items = {"anyOf": [b["items"] for b in branches if isinstance(b.get("items"), dict)]}
+        return [unrename_tool_args(items, item, root) for item in args]
+    if not isinstance(args, dict):
         return args
-    reverse = {v: k for k, v in _rename_property_keys(props, "<unrename>").items()}
-    out: dict[str, Any] = {}
-    for key, value in args.items():
-        key_str = str(key)
-        orig = reverse.get(key_str, key_str)
-        sub = resolve_local_schema_ref(props[orig], root) if isinstance(props.get(orig), dict) else {}
-        if isinstance(value, dict) and sub:
-            value = unrename_tool_args(sub, value, root)
-        elif isinstance(value, list) and isinstance(sub.get("items"), dict):
-            value = [
-                unrename_tool_args(sub["items"], item, root) if isinstance(item, dict) else item
-                for item in value
-            ]
-        out[orig] = value
-    return out
+    original: dict[str, str] = {}
+    schemas: dict[str, list[Any]] = {}
+    candidates = [
+        (*_branch_wire_names(b["properties"], args, root), b["properties"])
+        for b in branches
+        if isinstance(b.get("properties"), dict)
+    ]
+    for _fits, names, props in sorted(candidates, key=lambda c: not c[0]):
+        for wire, key in names.items():
+            original.setdefault(wire, key)
+            schemas.setdefault(wire, []).append(props[key])
+    undeclared = [b["additionalProperties"] for b in branches if isinstance(b.get("additionalProperties"), dict)]
+    return {
+        original.get(key, key): unrename_tool_args({"anyOf": schemas.get(key, undeclared)}, value, root)
+        for key, value in args.items()
+    }
 
 
 def inline_local_refs(schema: dict[str, Any], *, max_nodes: int = MAX_INLINED_NODES) -> dict[str, Any]:

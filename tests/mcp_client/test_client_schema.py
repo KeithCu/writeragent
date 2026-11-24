@@ -501,3 +501,128 @@ def test_ref_merged_required_is_pruned():
     }
     out = convert_mcp_schema("srv", spec)
     assert out["parameters"]["properties"]["p"]["required"] == []
+
+
+def test_literal_data_reaches_the_wire_unchanged():
+    schema_shaped = {"type": "object", "required": ["q"]}
+    const_union = {"anyOf": [{"const": "a"}, {"const": "b"}]}
+    null_union = {"anyOf": [{"type": "null"}, {"type": "string"}]}
+    spec = {
+        "name": "literal_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "obj_default": {"type": "object", "properties": {}, "default": copy.deepcopy(schema_shaped)},
+                "obj_examples": {"type": "object", "properties": {}, "examples": [copy.deepcopy(schema_shaped)]},
+                "obj_enum": {"type": "object", "properties": {}, "enum": [copy.deepcopy(schema_shaped)]},
+                "str_const_default": {"type": "string", "default": copy.deepcopy(const_union)},
+                "str_null_default": {"type": "string", "default": copy.deepcopy(null_union)},
+                "default": {"type": "object"},
+            },
+        },
+    }
+    out = convert_mcp_schema("srv", spec)
+    props = out["parameters"]["properties"]
+    assert props["obj_default"]["default"] == schema_shaped
+    assert props["obj_examples"]["examples"] == [schema_shaped]
+    assert props["obj_enum"]["enum"] == [schema_shaped]
+    assert props["str_const_default"]["default"] == const_union
+    assert props["str_null_default"]["default"] == null_union
+    assert props["default"] == {"type": "object", "properties": {}, "required": []}
+
+
+def test_rename_round_trip_through_unions_and_nested_arrays():
+    spec = {
+        "name": "union_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "anyOf": [
+                        {"type": "object", "properties": {"file path": {"type": "string"}}},
+                        {"type": "string"},
+                    ]
+                },
+                "items_union": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {"type": "object", "properties": {"file path": {"type": "string"}}},
+                            {"type": "integer"},
+                        ]
+                    },
+                },
+                "matrix": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {"file path": {"type": "string"}}},
+                    },
+                },
+                "extra": {
+                    "type": "object",
+                    "additionalProperties": {"type": "object", "properties": {"file path": {"type": "string"}}},
+                },
+            },
+        },
+    }
+    out = convert_mcp_schema("srv", spec)
+    dispatch = out["dispatch_schema"]
+    # Merged object|string union on wire has file_path in properties.
+    assert "file_path" in out["parameters"]["properties"]["target"]["properties"]
+
+    mapped_obj = unrename_tool_args(
+        dispatch,
+        {
+            "target": {"file_path": "/a"},
+            "items_union": [{"file_path": "/b"}, 3],
+            "matrix": [[{"file_path": "/c"}]],
+            "extra": {"k": {"file_path": "/d"}},
+        },
+    )
+    assert mapped_obj == {
+        "target": {"file path": "/a"},
+        "items_union": [{"file path": "/b"}, 3],
+        "matrix": [[{"file path": "/c"}]],
+        "extra": {"k": {"file path": "/d"}},
+    }
+    assert unrename_tool_args(dispatch, {"target": "plain-string"}) == {"target": "plain-string"}
+
+
+def test_rename_picks_the_union_branch_whose_const_matches():
+    spec = {
+        "name": "branch_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "const": "a"},
+                                "file path": {"type": "string"},
+                                "config": {"type": "object", "properties": {"opt one": {"type": "string"}}},
+                            },
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "const": "b"},
+                                "file_path": {"type": "string"},
+                                "config": {"type": "object", "properties": {"opt two": {"type": "string"}}},
+                            },
+                        },
+                    ]
+                }
+            },
+        },
+    }
+    out = convert_mcp_schema("srv", spec)
+    dispatch = out["dispatch_schema"]
+
+    mapped_a = unrename_tool_args(dispatch, {"payload": {"kind": "a", "file_path": "/x", "config": {"opt_one": "1"}}})
+    assert mapped_a == {"payload": {"kind": "a", "file path": "/x", "config": {"opt one": "1"}}}
+
+    mapped_b = unrename_tool_args(dispatch, {"payload": {"kind": "b", "file_path": "/y", "config": {"opt_two": "2"}}})
+    assert mapped_b == {"payload": {"kind": "b", "file_path": "/y", "config": {"opt two": "2"}}}

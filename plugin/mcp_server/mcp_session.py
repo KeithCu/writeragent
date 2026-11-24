@@ -82,9 +82,16 @@ def mint_session_id_once() -> str:
 
 
 def tool_catalog_generation() -> int:
-    """Counter that advances when the set of open document types changes; 0 until the first change."""
+    """Counter that advances when tools/list may differ (open document types or tool exposure mode); 0 until the first change."""
     with _mcp_session_lock:
         return _catalog_generation
+
+
+def advance_tool_catalog() -> None:
+    """Advance tool_catalog_generation for a change other than the open document types. Safe from any thread."""
+    global _catalog_generation
+    with _mcp_session_lock:
+        _catalog_generation += 1
 
 
 def record_open_doc_types(doc_types: frozenset[str]) -> bool:
