@@ -465,7 +465,12 @@ class CalcCellStub:
         return ((_stub_data_entry(self),),)
 
     def getFormulaArray(self):
-        entry = self._formula if self._kind == _CELL_FORMULA else self._string
+        if self._kind == _CELL_FORMULA:
+            entry = self._formula
+        elif self._kind == _CELL_VALUE:
+            entry = f"{self._value:.15G}"
+        else:
+            entry = self._string
         return ((entry,),)
 
     def clearContents(self, _flags=0):
@@ -526,6 +531,8 @@ class CalcRangeStub:
                 # UNO getFormulaArray returns strings for everything, but specifically original text if not a formula.
                 if cell.getType() == _CELL_FORMULA:
                     row_vals.append(cell.getFormula())
+                elif cell.getType() == _CELL_VALUE:
+                    row_vals.append(f"{cell.getValue():.15G}")
                 else:
                     row_vals.append(cell.getString())
             rows.append(tuple(row_vals))

@@ -16,11 +16,13 @@ from plugin.draw.tree import (
     build_shape_tree,
     coerce_control_state,
     control_snapshot,
+    ensure_shape_name,
     find_shape_on_page,
     is_near_empty_text,
     is_text_capable_shape_type,
     iter_shape_addresses,
     nearest_label_hint,
+    normalize_negative_span,
     shape_kind,
     shape_path,
     shape_summary_line,
@@ -592,3 +594,23 @@ def test_shape_summary_line_carries_name_geometry_and_text():
 
     unnamed = _Shape("com.sun.star.drawing.RectangleShape", name="")
     assert '""' not in shape_summary_line("0", unnamed)
+
+
+def test_ensure_shape_name_uses_highest_number_plus_one():
+    child = _Shape("RectangleShape", name="Shape7")
+    group = _Shape("GroupShape", name="Grp", children=[child])
+    unnamed = _Shape("RectangleShape", name="")
+    named = _Shape("RectangleShape", name="Custom")
+    page = _Shapes([_Shape("RectangleShape", name="Shape1"), group, unnamed, named])
+
+    assert ensure_shape_name(page, unnamed) == "Shape8"
+    assert unnamed.Name == "Shape8"
+    assert ensure_shape_name(page, named) == "Custom"
+    assert named.Name == "Custom"
+
+
+def test_normalize_negative_span():
+    assert normalize_negative_span(6000, 4000, -2000, -1000) == (4000, 3000, 2000, 1000)
+    assert normalize_negative_span(100, 200, 300, 400) == (100, 200, 300, 400)
+    assert normalize_negative_span(500, 200, -100, 400) == (400, 200, 100, 400)
+    assert normalize_negative_span(100, 500, 300, -200) == (100, 300, 300, 200)

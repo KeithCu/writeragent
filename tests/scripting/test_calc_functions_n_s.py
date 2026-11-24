@@ -16,6 +16,7 @@ is not an error (text ignored, or a defined zero).
 from __future__ import annotations
 
 import math
+import struct
 
 import numpy as np
 import pytest
@@ -236,22 +237,18 @@ def test_npv_skips_non_numeric():
 
 
 def test_nan_cells_propagate_in_npv_sumsq_subtotal_sumifs():
-    # na() is float nan. LibreOffice and Excel propagate that error through
-    # NPV, SUMSQ, and SUBTOTAL's numeric functions, and through SUMIFS when
-    # the row matches. COUNT skips it. COUNTA counts it. A non-matching
-    # SUMIFS row does not. None, text, and bools stay on the skip path
-    # (and the "#N/A" string is skipped in sumsq). A split_grid blank is
-    # also nan and follows the error path; there is no blank bit to test here.
+    # na() and error tokens propagate through NPV, SUMSQ, and SUBTOTAL's
+    # numeric functions, and through SUMIFS when the row matches. COUNT skips
+    # errors and COUNTA counts them. NPV counts booleans as 1 and 0.
     nan = float("nan")
-    base = calc.npv(0.1, 100, 100)
     assert math.isnan(calc.npv(0.1, 100, nan, 100))
     assert math.isnan(calc.npv(0.1, nan))
     assert calc.npv(0.1, 100, "#N/A", 100) == "#N/A"
-    assert abs(calc.npv(0.1, 100, True, 100) - base) < 1e-9
+    assert math.isclose(calc.npv(0.1, 100, True, 100), 100 / 1.1 + 1 / 1.21 + 100 / 1.331)
 
     assert math.isnan(calc.sumsq(nan))
     assert math.isnan(calc.sumsq([1.0, nan, 3.0]))
-    assert calc.sumsq(["#N/A", 3]) == 9.0
+    assert calc.sumsq(["#N/A", 3]) == "#N/A"
     assert calc.sumsq(["5", 3]) == 9.0
 
     assert math.isnan(calc.subtotal(9, [1.0, nan, 2.0]))
@@ -593,12 +590,51 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
 
 
 def test_na_returns_err_na_payload():
-    import struct
-
     val = calc.na()
     assert math.isnan(val)
     assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == 0x7FFF
     assert calc.isna(val) is True
 
 
+def test_negbinomdist_and_permut_approx_floor():
+    assert math.isnan(calc.negbinomdist(-0.5, 2, 0.5))
+    assert math.isnan(calc.permut(5, -0.5))
+    assert calc.permut(0.29 * 100, 1) == 29
+
+
+def test_sumsq_error_propagation():
+    assert calc.sumsq("#N/A", "#DIV/0!") == "#DIV/0!"
+    assert calc.sumsq(["#N/A", "#DIV/0!"]) == "#N/A"
+    assert calc.sumsq("#N/A", 1e200) == "#N/A"
+    assert calc.sumsq([1, True]) == 2
+    na_sq = calc.sumsq([calc.na()])
+    assert isinstance(na_sq, float) and math.isnan(na_sq)
+    assert (struct.unpack("Q", struct.pack("d", na_sq))[0] & 0xFFFFFFFF) == 0x7FFF
+
+
+def test_sumproduct_error_and_text_rules():
+    assert calc.sumproduct([1], ["#N/A"]) == "#N/A"
+    assert calc.sumproduct(["text"], ["#N/A"]) == 0
+    assert calc.sumproduct(["text"], [calc.na()]) == 0
+    assert calc.sumproduct(["#N/A"], ["text"]) == 0
+    assert calc.sumproduct([None], ["#N/A"]) == "#N/A"
+    assert calc.sumproduct(["#N/A"], ["#DIV/0!"]) == "#DIV/0!"
+    assert calc.sumproduct(["#N/A"], [1], ["#DIV/0!"]) == "#DIV/0!"
+    assert calc.sumproduct(["#N/A", "#DIV/0!"], [1, 1]) == "#N/A"
+    assert calc.sumproduct([1], [True]) == 1
+    assert calc.sumproduct([1e200], [1e200], [None]) == 0.0
+
+
+def test_subtotal_error_propagation():
+    assert calc.subtotal(9, ["#N/A", 3]) == "#N/A"
+    mixed = ["text", "#N/A", 0.3, "#DIV/0!"]
+    assert calc.subtotal(2, mixed) == 1
+    assert calc.subtotal(3, mixed) == 4
+
+
+def test_npv_booleans_and_text():
+    assert math.isclose(calc.npv(0.1, True), 1.0 / 1.1)
+    assert math.isclose(calc.npv(0.1, [1, True]), 1.0 / 1.1 + 1.0 / 1.21)
+    assert math.isclose(calc.npv(0.1, [True, False], 10), 1.0 / 1.1 + 10.0 / 1.331)
+    assert math.isclose(calc.npv(0.1, ["1"], 10), 10.0 / 1.1)
 

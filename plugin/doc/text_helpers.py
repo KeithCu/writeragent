@@ -466,15 +466,18 @@ class DeletionState:
     (``lcl_FillRedlineArray`` in ``sw/source/core/unocore/unoportenum.cxx``). Pass one
     instance across every paragraph of a text, in order, so paragraphs between the
     markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
-    its cells carry no markers.
+    its cells carry no markers. ``saw_delete`` records that a Delete marker was read, for
+    callers that must tell struck text from text they cannot read.
     """
 
     in_delete: bool = False
+    saw_delete: bool = False
 
     def apply_marker(self, portion: Any) -> None:
         """Update the state from one ``Redline`` portion."""
         try:
             if str(portion.getPropertyValue("RedlineType")) == "Delete":
+                self.saw_delete = True
                 # A Delete that ends at offset 0 of this paragraph shows only its end marker (IsStart=False), so a toggle would hide the paragraph.
                 self.in_delete = bool(portion.getPropertyValue("IsStart"))
         except Exception as exc:
@@ -763,6 +766,26 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
     return flags
 
 
+def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
+    """Visible text of *para*, or None when a tracked deletion strikes all of it.
+
+    Portions cannot read text inside an inline content control or metadata field
+    (``lcl_ExportHints`` in ``sw/source/core/unocore/unoportenum.cxx`` moves inner portions into a
+    child list), so the raw ``para.getString()`` read is used when no deletion touches the
+    paragraph. Blank visible text alone does not mean struck; it is struck when it starts inside a
+    deletion, or has raw text and a Delete marker.
+    """
+    state = DeletionState(starts_deleted)
+    text = get_string_without_tracked_deletions(para, state)
+    if not (starts_deleted or state.saw_delete):
+        # No marker seen, so raw text is the visible text, except for a deletion wholly inside a
+        # content control or metadata field: its markers are in the child list.
+        return normalize_linebreaks(para.getString())
+    if not text.strip() and (starts_deleted or para.getString().strip()):
+        return None
+    return text
+
+
 @main_thread_only
 def get_document_path(model: Any) -> str | None:
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
@@ -810,8 +833,8 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                     log.debug("build_heading_tree could not get OutlineLevel: %s", e)
 
                 if isinstance(outline_level, int) and outline_level > 0:
-                    text = get_string_without_tracked_deletions(element, DeletionState(flags[para_index]))
-                    if not text.strip() and (flags[para_index] or element.getString().strip()):
+                    text = live_paragraph_text(element, flags[para_index])
+                    if text is None:
                         stack[-1]["body_paragraphs"] += 1
                         continue
                     while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
@@ -841,7 +864,10 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
 
 @main_thread_only
 def get_selection_text(model: Any) -> str | None:
-    """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
+    """Return the selected text or None if selection is empty/unavailable/fails.
+
+    Handles Writer (tracked deletions hidden; None when the selection is not text), Calc, and Draw.
+    """
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
@@ -852,13 +878,10 @@ def get_selection_text(model: Any) -> str | None:
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.WRITER:
+            # No view-cursor fallback: for cell, frame and shape selections SwXTextViewCursor::getString is empty (sw/source/uibase/uno/unotxvw.cxx).
             rng = selected_text_range(controller)
-            if not rng:
-                vc = uno_call(controller.getViewCursor, "Get view cursor")
-                if vc:
-                    return uno_call(vc.getString, "Get view cursor string")
-            else:
-                return uno_call(rng.getString, "Get selection string")
+            if rng is not None:
+                return uno_call(lambda: visible_range_text(model, rng), "Get selection string")
         elif doc_type == _doc_type.DocumentType.CALC:
             selection = uno_call(controller.getSelection, "Get selection")
             if selection and hasattr(selection, "getString"):
@@ -962,6 +985,29 @@ def clone_text_range(text_range: Any) -> Any:
     cell, frame, or body that actually owns it.
     """
     return text_range.getText().createTextCursorByRange(text_range)
+
+
+def visible_point_in_paragraph(para: Any, offset: int, *, opened: bool, at_end: bool) -> Any:
+    """Collapsed position of visible *offset* in *para* (*opened*: it starts inside a deletion).
+
+    Walks portions rather than stepping from the paragraph start: ``goRight`` also counts struck
+    text, and a field or footnote number is one step but several visible characters. An offset
+    inside such a portion moves out to its edge. Struck text beside the offset is left out of a
+    range that starts here (*at_end* False) or ends here (*at_end* True).
+    """
+    if at_end and offset == 0:
+        return para.getStart()
+    run = 0
+    for portion, chunk in visible_portions(para, state=DeletionState(opened)):
+        run_end = run + len(normalize_linebreaks(chunk))
+        if (offset <= run_end) if at_end else (offset < run_end):
+            if _portion_type(portion) != "Text":
+                return portion.getEnd() if at_end else portion.getStart()
+            cursor = clone_text_range(portion.getStart())
+            go_right(cursor, offset - run, False)  # one step per code point inside a Text portion
+            return cursor
+        run = run_end
+    return para.getEnd()
 
 
 def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:

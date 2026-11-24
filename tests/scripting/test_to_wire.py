@@ -259,3 +259,45 @@ def test_dense_plot_svg_falls_back_to_png():
         assert plot_image_payload(fig_small)["format"] == "svg"
     finally:
         plt.close(fig_small)
+
+
+def test_large_object_array_converts_like_small():
+    import datetime
+    import math
+
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
+
+    cells = [
+        pd.NA,
+        pd.NaT,
+        pd.Timestamp("2024-01-02"),
+        datetime.datetime(2024, 1, 3, 4, 5, 6),
+        datetime.timedelta(hours=12),
+        np.datetime64("2024-01-04"),
+    ]
+    arr_1d = np.empty(102, dtype=object)
+    for i in range(102):
+        arr_1d[i] = cells[i % len(cells)]
+
+    wire_1d = to_wire(arr_1d)
+    assert is_split_grid(wire_1d)
+    unpacked_1d = host_unpack_data(wire_1d)
+    assert isinstance(unpacked_1d[0], float) and math.isnan(unpacked_1d[0])
+    assert isinstance(unpacked_1d[1], float) and math.isnan(unpacked_1d[1])
+    assert unpacked_1d[2] == "2024-01-02T00:00:00"
+    assert unpacked_1d[3] == "2024-01-03T04:05:06"
+    assert unpacked_1d[4] == pytest.approx(0.5)
+    assert unpacked_1d[5] == "2024-01-04T00:00:00"
+
+    arr_2d = np.empty((20, 6), dtype=object)
+    for r in range(20):
+        for c in range(6):
+            arr_2d[r, c] = cells[c]
+    wire_2d = to_wire(arr_2d)
+    assert is_split_grid(wire_2d)
+    unpacked_2d = host_unpack_data(wire_2d)
+    assert unpacked_2d[0][2] == "2024-01-02T00:00:00"
+    assert unpacked_2d[0][4] == pytest.approx(0.5)
+    assert unpacked_2d[0][5] == "2024-01-04T00:00:00"

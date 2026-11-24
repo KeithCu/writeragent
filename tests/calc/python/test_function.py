@@ -907,6 +907,45 @@ def test_finalize_python_return_located_array_skips_spill_and_returns_matrix(mon
     assert spill_calls == []
 
 
+def test_finalize_python_return_dataframe_block_returns_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A DataFrame payload in a uniquely located {=PY()} array block returns headers + rows as a matrix."""
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    sheet = doc.getSheets().getByName("Sheet1")
+    formula_cell = sheet.getCellByPosition(0, 0)
+    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _k: True)
+    spill_calls: list[Any] = []
+    monkeypatch.setattr(_function, "prepare_auto_spill", lambda *a, **k: spill_calls.append(a))
+    payload = {"__wa_payload__": "dataframe", "columns": ["n", "s"], "data": [[1.5, "x"], [None, "y"]]}
+    with (
+        patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=(sheet, formula_cell, (0, 0))),
+        patch("uno.Any", side_effect=lambda t, v: (t, v)),
+    ):
+        monkeypatch.setattr(_function, "cell_is_matrix", lambda _s, _c: True)
+        out = _function.finalize_python_return(_cell(ctx, "unique_df_arr", doc), payload)
+    assert out == ("[][]any", (("n", "s"), (1.5, "x"), ("", "y")))
+    assert spill_calls == []
+
+
+def test_finalize_python_return_auto_spill_off_returns_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With auto-spill disabled, a non-matrix origin returns [][]any without scheduling spill."""
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    sheet = doc.getSheets().getByName("Sheet1")
+    formula_cell = sheet.getCellByPosition(0, 0)
+    monkeypatch.setattr("plugin.calc.python.function.get_config", lambda _k: False)
+    spill_calls: list[Any] = []
+    monkeypatch.setattr(_function, "prepare_auto_spill", lambda *a, **k: spill_calls.append(a))
+    with (
+        patch("plugin.calc.python.function.locate_formula_cell_in_doc", return_value=(sheet, formula_cell, (0, 0))),
+        patch("uno.Any", side_effect=lambda t, v: (t, v)),
+    ):
+        monkeypatch.setattr(_function, "cell_is_matrix", lambda _s, _c: False)
+        out = _function.finalize_python_return(_cell(ctx, "auto_spill_off", doc), [10, 20])
+    assert out == ("[][]any", ((10.0,), (20.0,)))
+    assert spill_calls == []
+
+
 def test_matrix_result_shapes_and_types(caplog: pytest.LogCaptureFixture) -> None:
     """matrix_result handles empty, 1x1 scalars, all-text [][]string, ragged mixed [][]any, errors, and nested lists."""
     import logging

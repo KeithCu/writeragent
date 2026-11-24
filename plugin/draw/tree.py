@@ -342,6 +342,54 @@ def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tupl
             yield from iter_shape_addresses(shape, base=addr)
 
 
+def page_shape_names(page: Any) -> list[str]:
+    seen: set[str] = set()
+    names: list[str] = []
+    for _path, shape, _parent in iter_shape_addresses(page):
+        raw = getattr(shape, "Name", None)
+        if raw is None:
+            continue
+        name = str(raw).strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def ensure_shape_name(page: Any, shape: Any) -> str:
+    """Return *shape*'s Name, assigning ``Shape<n>`` if it is empty.
+
+    Writer's ``SwXDrawPage::add`` (``sw/source/core/unocore/unodraw.cxx:SwXDrawPage::add``)
+    already assigns a unique Name, whereas Draw, Impress, and Calc leave Name
+    empty and prompts tell the model to address shapes by Name.
+    Uses one more than the highest existing ``Shape<n>`` number on the page so
+    deleting a shape never hands its old name to a newly created shape.
+    """
+    current = str(shape.Name or "").strip()
+    if current:
+        return current
+    highest = 0
+    for name in page_shape_names(page):
+        if name.startswith("Shape"):
+            suffix = name[5:]
+            if suffix.isascii() and suffix.isdigit():
+                highest = max(highest, int(suffix))
+    candidate = f"Shape{highest + 1}"
+    shape.Name = candidate
+    return candidate
+
+
+def normalize_negative_span(x: int, y: int, width: int, height: int) -> tuple[int, int, int, int]:
+    """Shift x/y by any negative width/height so position is top-left and size is non-negative."""
+    if width < 0:
+        x += width
+        width = -width
+    if height < 0:
+        y += height
+        height = -height
+    return x, y, width, height
+
+
 def find_shape_on_page(
     page: Any,
     *,
