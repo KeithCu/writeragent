@@ -204,23 +204,6 @@ def test_save_notes_new_session_id_reset_on_unload(
     assert "uid-save" not in lifecycle._LISTENERS
 
 
-def test_unload_clears_only_that_workbook_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.function import WorkerResultSession
-
-    doc_a = CalcDocStub(props={"RuntimeUID": "uid-a"})
-    doc_b = CalcDocStub(props={"RuntimeUID": "uid-b"})
-    st_a = WorkbookState.for_doc(doc_a)
-    st_b = WorkbookState.for_doc(doc_b)
-    assert st_a is not None and st_b is not None
-    st_a.matrix[(1, ("k",), "tok")] = WorkerResultSession([], (), timestamp=0.0)
-    st_b.matrix[(2, ("k",), "tok")] = WorkerResultSession([], (), timestamp=0.0)
-    listener = _CalcPythonUnloadListener(st_a.key, "calc:a", st_a)
-    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}):
-        listener.on_document_event(MagicMock(EventName="OnUnload"))
-    assert st_a.matrix == {}
-    assert len(st_b.matrix) == 1
-
-
 def test_unload_resets_worker_when_busy():
     listener = _CalcPythonUnloadListener("key-busy", "calc:wb-1", WorkbookState(key="key-busy"))
 

@@ -345,16 +345,6 @@ def _disable_dev_llm_prefix_for_deterministic_http_tests():
 
 
 @pytest.fixture(autouse=True)
-def _reset_python_addin_cache():
-    """Ensure cached =PY() scalar results do not leak between unit tests."""
-    from plugin.calc.python.function import clear_python_addin_cache
-
-    clear_python_addin_cache()
-    yield
-    clear_python_addin_cache()
-
-
-@pytest.fixture(autouse=True)
 def _cleanup_history_keepers():
     """Ensure SQLite history WAL keeper connections do not leak across tests."""
     from plugin.chatbot.history_db import reset_history_keepers_for_tests

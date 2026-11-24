@@ -374,10 +374,6 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any) -> None:
     res = _call_reset_python_session(session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
     res_init = _call_reset_python_session(base_key.with_init_suffix().wire())
-    # Lazy: function.py imports this module at load (cycle).
-    from plugin.calc.python.function import clear_python_addin_cache
-
-    clear_python_addin_cache()
     # Treat either the main reset or :init reset failure as failure so a broken :init does not show success or reseed stale init state.
     failed = next((r for r in (res, res_init) if r.get("status") != "ok"), None)
     if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):

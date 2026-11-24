@@ -1286,12 +1286,6 @@ class TestingFactory:
                 del _NATIVE_DOC_POOL[key]
         _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
-            from plugin.calc.python.function import clear_python_addin_cache
-
-            clear_python_addin_cache()
-        except Exception:
-            pass
-        try:
             import gc
             import time
 
@@ -1413,12 +1407,6 @@ class TestingFactory:
                         TestingFactory.close_doc(doc)
                     else:
                         _native_teardown_progress("native_doc: teardown reset done")
-                        try:
-                            from plugin.calc.python.function import clear_python_addin_cache
-
-                            clear_python_addin_cache()
-                        except Exception:
-                            pass
                 else:
                     # Non-pooled Draw/Impress use close_draw_family_doc + settle (or skip
                     # close on Windows when leftovers remain); Math OLE Draw keeps close_doc.

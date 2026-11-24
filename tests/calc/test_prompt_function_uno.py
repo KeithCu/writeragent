@@ -29,107 +29,104 @@ def test_prompt_addin_metadata(ctx):
 @with_native_doc("calc")
 def test_python_addin_execution(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_python_addin_cache
     from plugin.framework.config import save
     import unittest.mock
 
     save({"scripting.python_session_mode": "isolated"})
 
-    clear_python_addin_cache()
-
     func = PythonFunction(ctx)
 
-    try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.py(doc, "result = 21 * 2")
-            assert res == 42.0
-            mock_run.assert_called_with(
-                "result = 21 * 2",
-                data=None,
-                bindings={"scoped_dir": None},
-                session_id=None,
-                python_tool_domain="",
-            )
+    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 42}
+        res = func.py(doc, "result = 21 * 2")
+        assert res == 42.0
+        mock_run.assert_called_with(
+            "result = 21 * 2",
+            data=None,
+            bindings={"scoped_dir": None},
+            session_id=None,
+            python_tool_domain="",
+        )
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": 42}
-            res = func.python(doc, "result = 21 * 2")
-            assert res == 42.0
-            mock_run.assert_called_with(
-                "result = 21 * 2",
-                data=None,
-                bindings={"scoped_dir": None},
-                session_id=None,
-                python_tool_domain="",
-            )
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 42}
+        res = func.python(doc, "result = 21 * 2")
+        assert res == 42.0
+        mock_run.assert_called_with(
+            "result = 21 * 2",
+            data=None,
+            bindings={"scoped_dir": None},
+            session_id=None,
+            python_tool_domain="",
+        )
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": 6}
-            res = func.python(doc, "result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
-            assert res == 6.0
-            mock_run.assert_called_once()
-            call_kw = mock_run.call_args
-            assert call_kw[0][0] == "result = float(np.sum(data))"
-            from plugin.scripting.calc_range import is_calc_range_payload
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 6}
+        res = func.python(doc, "result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
+        assert res == 6.0
+        mock_run.assert_called_once()
+        call_kw = mock_run.call_args
+        assert call_kw[0][0] == "result = float(np.sum(data))"
+        from plugin.scripting.calc_range import is_calc_range_payload
 
-            wire = call_kw[1]["data"]
-            assert is_calc_range_payload(wire)
-            assert wire["shape"] == [3, 1]
-            assert wire["data"] == [[1.0], [2.0], [3.0]]
+        wire = call_kw[1]["data"]
+        assert is_calc_range_payload(wire)
+        assert wire["shape"] == [3, 1]
+        assert wire["data"] == [[1.0], [2.0], [3.0]]
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": 9.0}
-            col_a = ((1.0,), (2.0,), (3.0,))
-            col_b = ((4.0,), (5.0,))
-            res = func.python(doc, "result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
-            assert res == 9.0
-            wire = mock_run.call_args.kwargs["data"]
-            from plugin.scripting.payload_codec import is_multi_data
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 9.0}
+        col_a = ((1.0,), (2.0,), (3.0,))
+        col_b = ((4.0,), (5.0,))
+        res = func.python(doc, "result = float(np.sum(data[0])) + float(np.sum(data[1]))", (col_a, col_b))
+        assert res == 9.0
+        wire = mock_run.call_args.kwargs["data"]
+        from plugin.scripting.payload_codec import is_multi_data
 
-            assert is_multi_data(wire)
+        assert is_multi_data(wire)
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": 7919}
-            res = func.python(doc, "result = sp.prime(int(data.values[0][0]))", 1000.0)
-            assert res == 7919.0
-            mock_run.assert_called_once()
-            call_kw = mock_run.call_args
-            assert call_kw[0][0] == "result = sp.prime(int(data.values[0][0]))"
-            wire = call_kw[1]["data"]
-            assert is_calc_range_payload(wire)
-            assert wire["shape"] == [1, 1]
-            assert wire["data"] == [[1000.0]]
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 7919}
+        res = func.python(doc, "result = sp.prime(int(data.values[0][0]))", 1000.0)
+        assert res == 7919.0
+        mock_run.assert_called_once()
+        call_kw = mock_run.call_args
+        assert call_kw[0][0] == "result = sp.prime(int(data.values[0][0]))"
+        wire = call_kw[1]["data"]
+        assert is_calc_range_payload(wire)
+        assert wire["shape"] == [1, 1]
+        assert wire["data"] == [[1000.0]]
 
-            # Generic worker failures (no timeout / venv / USER_STOPPED hint) are #VALUE! (519).
-            mock_run.return_value = {"status": "error", "message": "Syntax error"}
-            res = func.python(doc, "bad code")
-            assert isinstance(res, float)
-            assert not math.isfinite(res)
-            raw = struct.unpack("Q", struct.pack("d", res))[0]
-            assert raw == (0x7FF8000000000000 | 519)
+        # Generic worker failures (no timeout / venv / USER_STOPPED hint) are #VALUE! (519).
+        mock_run.return_value = {"status": "error", "message": "Syntax error"}
+        res = func.python(doc, "bad code")
+        assert isinstance(res, float)
+        assert not math.isfinite(res)
+        raw = struct.unpack("Q", struct.pack("d", res))[0]
+        assert raw == (0x7FF8000000000000 | 519)
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
-            res = func.python(doc, "some code 1d")
-            assert res == 2.0
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
+        res = func.python(doc, "some code 1d")
+        assert res.type.typeName == "[][]any"
+        assert res.value == ((2.0,), (3.0,), (5.0,))
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
-            res = func.python(doc, "some code 2d")
-            assert res == 2.0
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
+        res = func.python(doc, "some code 2d")
+        assert res.type.typeName == "[][]any"
+        assert res.value == ((2.0, 3.0), (5.0, 7.0))
 
-            mock_run.reset_mock()
-            mock_run.return_value = {"status": "ok", "result": [7919, 7927, 7933, 7937, 7949, 7951]}
-            res = func.python(doc, "[sp.prime(x) for x in range(1000, 1006)]")
-            assert res == 7919.0
-            mock_run.assert_called_with(
-                "[sp.prime(x) for x in range(1000, 1006)]",
-                data=None,
-                bindings={"scoped_dir": None},
-                session_id=None,
-                python_tool_domain="",
-            )
-    finally:
-        clear_python_addin_cache()
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": [7919, 7927, 7933, 7937, 7949, 7951]}
+        res = func.python(doc, "[sp.prime(x) for x in range(1000, 1006)]")
+        assert res.type.typeName == "[][]any"
+        assert res.value == ((7919.0,), (7927.0,), (7933.0,), (7937.0,), (7949.0,), (7951.0,))
+        mock_run.assert_called_with(
+            "[sp.prime(x) for x in range(1000, 1006)]",
+            data=None,
+            bindings={"scoped_dir": None},
+            session_id=None,
+            python_tool_domain="",
+        )
