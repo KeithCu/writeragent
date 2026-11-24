@@ -179,20 +179,6 @@ def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
     return grid if grid[0] else None
 
 
-def _log_matrix_return(ret: Any) -> Any:
-    if log.isEnabledFor(logging.DEBUG):
-        type_desc = getattr(getattr(ret, "type", None), "typeName", type(ret).__name__)
-        val = getattr(ret, "value", ret)
-        if isinstance(val, (list, tuple)) and val and isinstance(val[0], (list, tuple)):
-            shape = f"{len(val)}x{len(val[0])}"
-            first_type = type(val[0][0]).__name__ if val[0] else "empty"
-        else:
-            shape = "scalar"
-            first_type = type(val).__name__
-        log.debug("PYTHON matrix_result: type=%s shape=%s first=%s", type_desc, shape, first_type)
-    return ret
-
-
 def finalize_python_return(
     cell: CellContext,
     result: Any,
@@ -206,7 +192,7 @@ def finalize_python_return(
             if not cell.on_main:
                 if cell.doc is not None:
                     queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
-                return _log_matrix_return(matrix_result(result))
+                return matrix_result(result)
 
             if cell.origin is not None and cell.state is not None:
                 prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
@@ -219,7 +205,7 @@ def finalize_python_return(
             log.exception("Error checking spill collision")
 
     if isinstance(result, (list, tuple)):
-        return _log_matrix_return(matrix_result(result))
+        return matrix_result(result)
 
     return py_addin_cell_value(result)
 

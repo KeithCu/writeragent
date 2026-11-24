@@ -18,7 +18,7 @@ WriterAgent / LibrePy is running in production as a desktop extension for LibreO
    images = find_image_payloads(result)
    if images:
        cells = _cells_beside_images(result)
-       spill = _auto_spill_grid(cell_ctx, cells, index_arg)
+       spill = _auto_spill_grid(cell_ctx, cells)
        spill_cols = max(len(row) for row in spill) if spill else 1
        for i, img in enumerate(images):
            insert_image_result_on_sheet(img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True, spill_cols=spill_cols)
