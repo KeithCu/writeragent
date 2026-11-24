@@ -57,11 +57,15 @@ While track changes is recording, matched-link outline URLs are not renamed (a
 tracked HyperLinkURL write on existing text becomes a Format redline, and rejecting
 it drops the link). Instead, ``restore_links`` writes the link's own URL onto
 only the inserted runs, untracked, and adds ``hyperlink_note`` to the report.
+Recorded plain replaces carry their own link when the whole match shares one URL,
+and partly linked matches are not painted.
 
 When an edit renames a heading (``heading_renames``), ``retarget_outline_links``
-finds every ``#old|outline`` portion in the document and updates it to
-``#new|outline`` — directly when not recording or inside a tracked insert, and
-via tracked Delete + Insert when recording changes.
+finds every ``#old|outline`` portion in the document (including numbered and
+percent-encoded outline URLs) and updates it to ``#new|outline`` — directly when
+not recording or inside a tracked insert, and via tracked Delete + Insert when
+recording changes. Field runs cannot be retyped and are reported in the returned
+stale-URL list.
 """
 
 from __future__ import annotations
@@ -69,7 +73,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 import logging
+import re
 from typing import Any, Iterator
+from urllib.parse import quote, unquote
 
 import uno
 
@@ -128,6 +134,8 @@ class OutlineSnapshot:
     fully_linked: bool = True
     # True when the match spans more than one distinct non-outline URL.
     multi_preserve: bool = False
+    # Every non-empty portion of the paragraph has the same URL.
+    whole_paragraph: bool = False
 
 
 def _prop(obj: Any, name: str) -> str:
@@ -286,12 +294,15 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     multi_preserve = False
     look: dict[str, Any] = {}
     fully_linked = True
+    urls: set[str] = set()
     for portion in _iter_portions(text, text_range.getStart()):
+        url = _prop(portion, _URL)
+        if portion.getString():
+            urls.add(url)
         if not _ranges_overlap(text, portion, text_range):
             continue
         if not look:
             look = read_link_look(portion)
-        url = _prop(portion, _URL)
         if not url:
             if portion.getString():
                 fully_linked = False
@@ -308,7 +319,11 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
             continue
         seen.add(url)
         links.append(OutlineLink(url, _prop(portion, _NAME), _prop(portion, _TARGET)))
-    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look, fully_linked, multi_preserve)
+    whole_paragraph = len(urls) == 1 and "" not in urls
+    return OutlineSnapshot(
+        links, prefix, suffix, matched, single, preserve_url, look,
+        fully_linked, multi_preserve, whole_paragraph,
+    )
 
 
 def _paragraph_text(text: Any, anchor: Any) -> str:
@@ -340,11 +355,10 @@ def _set_prop(cursor: Any, name: str, value: str) -> None:
     try:
         cursor.setPropertyValue(name, value)
     except Exception as exc:
-        # A protected index refuses the property write. The caller rolls the text
-        # change back with this error instead of leaving a stale outline target.
+        # A failed write would leave a stale outline target, so the caller rolls the text
+        # change back with this error.
         raise ToolExecutionError(
-            "Could not update the outline hyperlink (the index may be protected "
-            "against manual changes): %s" % exc,
+            "Could not update the outline hyperlink: %s" % exc,
             code="HYPERLINK_UPDATE_FAILED",
         ) from exc
 
@@ -419,6 +433,28 @@ def read_link_look(obj: Any, char_props: tuple[str, ...] = _CHAR_LOOK) -> dict[s
     return props
 
 
+def read_link_props(portion: Any) -> dict[str, Any]:
+    """Name, target and look to put back after a HyperLinkURL write."""
+    return {_NAME: _prop(portion, _NAME), _TARGET: _prop(portion, _TARGET), **read_link_look(portion)}
+
+
+def write_link(cursor: Any, url: str, props: dict[str, Any]) -> None:
+    """Make *cursor* a link to *url* ("" unlinks it). Call with recording off."""
+    # Undo of a plain overwrite drops the old link; a reset first records it in the undo history
+    # (SwDoc::ResetAttrs, docfmt.cxx). The reset also clears name, target and link styles,
+    # so *props* puts them back.
+    try:
+        cursor.setPropertyToDefault(_URL)
+    except Exception as exc:
+        raise ToolExecutionError(
+            "Could not update the outline hyperlink: %s" % exc,
+            code="HYPERLINK_UPDATE_FAILED",
+        ) from exc
+    if url:
+        _set_prop(cursor, _URL, url)
+        write_link_look(cursor, props)
+
+
 def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str, Any]]]:
     """Direct Char* and link styles of each non-empty portion, from the paragraph start.
 
@@ -481,6 +517,8 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
 
 
 def _put_back_url(snapshot: OutlineSnapshot) -> str:
+    if not snapshot.fully_linked or snapshot.multi_preserve:
+        return ""
     if len(snapshot.links) == 1 and not snapshot.preserve_url:
         return snapshot.links[0].url
     if not snapshot.links and snapshot.preserve_url:
@@ -550,7 +588,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             # and the pre-replace CharColor on a whole-paragraph cursor so page-digit
             # edits do not split the run into navy underlined digits.
             restored = False
-            if snapshot.look and snapshot.links and snapshot.single_paragraph:
+            if snapshot.whole_paragraph and snapshot.look and snapshot.links and snapshot.single_paragraph:
                 para = _paragraph_text(text, anchor)
                 if para == snapshot.prefix + new_plain + snapshot.suffix:
                     cursor = _paragraph_cursor(text, anchor.getStart())
@@ -595,7 +633,8 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
     # path still needs the paint when the match was that single outline link,
     # because setString("") drops HyperLinkURL on the new characters.
     one_outline = len(snapshot.links) == 1 and not snapshot.preserve_url
-    paint = writable[0] if one_outline and len(writable) == 1 else None
+    # A partly linked match whose link survived the replace was already updated portion by portion.
+    paint = writable[0] if one_outline and len(writable) == 1 and (snapshot.fully_linked or not pending) else None
 
     # An empty replacement that deletes the whole link leaves no portion to paint.
     # That delete succeeds: nothing with a stale URL remains. A non-empty
@@ -624,7 +663,7 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
     """
     url = _put_back_url(snapshot)
     raw = measured_replacement(anchor, snapshot)
-    if url and raw and snapshot.fully_linked and not snapshot.multi_preserve:
+    if url and raw:
         text = anchor.getText()
         # Collected before writing: setPropertyValue can split a portion mid-enumeration.
         offset, stop = -len(snapshot.prefix), len(raw)
@@ -700,6 +739,30 @@ def _linked_ranges(doc: Any) -> list[Any]:
     return [found.getByIndex(i) for i in range(found.getCount())]
 
 
+_OUTLINE_URL_RE = re.compile(r"#(.*)(\|outline|%7Coutline)", re.I | re.S)
+_OUTLINE_NUM_PREFIX_RE = re.compile(r"\d+\.")
+
+
+def _renamed_url(url: str, renames: dict[str, str]) -> str | None:
+    match = _OUTLINE_URL_RE.fullmatch(url)
+    if match is None:
+        return None
+    body, suffix = match.group(1), match.group(2)
+    if body in renames:
+        return "#" + renames[body] + suffix
+    decoded = unquote(body)
+    pos = 0
+    while True:
+        new_title = renames.get(decoded[pos:])
+        if new_title is not None:
+            new = decoded[:pos] + new_title
+            return "#" + (quote(new) if decoded != body else new) + suffix
+        num = _OUTLINE_NUM_PREFIX_RE.match(decoded, pos)
+        if num is None:
+            return None
+        pos = num.end()
+
+
 def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list[str]]:
     """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
 
@@ -712,17 +775,17 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
     directly because Reject removes them whole. Field runs cannot be retyped and
     are reported in the returned stale-URL list.
     """
-    urls = {f"#{old}{_OUTLINE_SUFFIX}": f"#{new}{_OUTLINE_SUFFIX}" for old, new in renames.items()}
     recording = is_recording_changes(doc)
     stale: dict[str, None] = {}
     count = 0
     for linked in _linked_ranges(doc):
         text = linked.getText()
-        runs: list[tuple[Any, str, bool]] = []
+        runs: list[tuple[Any, str, str, bool]] = []
         blocked: set[str] = set()  # per paragraph: one field link must not block the others
         for portion in _iter_portions(text, linked.getStart()):
             url = _prop(portion, _URL)
-            if url not in urls or not portion.getString():
+            new_url = _renamed_url(url, renames) if url else None
+            if new_url is None or not portion.getString():
                 continue
             kinds = redline_kinds_covering(doc, portion)
             if "Delete" in kinds:
@@ -730,27 +793,24 @@ def retarget_outline_links(doc: Any, renames: dict[str, str]) -> tuple[int, list
             tracked = recording and "Insert" not in kinds
             if tracked and _prop(portion, "TextPortionType") != "Text":
                 blocked.add(url)
-            runs.append((portion, url, tracked))
+            runs.append((portion, url, new_url, tracked))
         # Last run first: retyping a run moves the text after it.
-        for portion, url, tracked in reversed(runs):
+        for portion, url, new_url, tracked in reversed(runs):
             if url in blocked:
                 stale[url] = None
                 continue
-            look = read_link_look(portion)
-            plan = {"new_url": urls[url], "new_name": None, "new_target": None}
+            props = read_link_props(portion)
             target = text.createTextCursorByRange(portion)
             if not tracked:
                 with record_changes(doc, False):
-                    _write_plan_on_cursor(target, plan, look)
+                    write_link(target, new_url, props)
             else:
-                # Text inserted at a link's end does not inherit the link, so name and target are set explicitly.
-                plan["new_name"], plan["new_target"] = _prop(portion, _NAME), _prop(portion, _TARGET)
                 start = text.createTextCursorByRange(target.getStart())
                 retyped = text.createTextCursorByRange(target.getEnd())
                 # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
                 text.insertString(retyped, target.getString(), True)
                 with record_changes(doc, False):
-                    _write_plan_on_cursor(retyped, plan, look)
+                    write_link(retyped, new_url, props)
                 # The insertion stretched the run's own range, so delete up to the new text.
                 start.gotoRange(retyped.getStart(), True)
                 start.setString("")

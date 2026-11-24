@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.edit_review import (
+    WriterStreamedRewriteSession,
     agent_format_author,
     annotate_review_status,
     edit_review_wait_seconds,
@@ -1214,6 +1215,7 @@ def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
     assert (result.get("tracked") is False and "warning" in result) is expected
 
 
+<<<<<<< HEAD
 @pytest.mark.parametrize(
     "review_on,recording,foreign",
     [
@@ -1255,5 +1257,43 @@ def test_agent_format_author_begins_and_ends_even_on_error():
                 raise RuntimeError("boom")
         mock_authors.begin.assert_called_once_with(ctx)
         mock_authors.end.assert_called_once_with(ctx, token)
+
+
+def test_streamed_retarget_failure_returns_warning_without_fallback_set_string():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+
+    def _fail(*_args, **_kwargs):
+        text_range.setString.reset_mock()
+        raise RuntimeError("boom")
+
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", side_effect=_fail),
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=True)
+        session.generated_text = "New"
+        warning = session.finish()
+    assert warning is not None and "boom" in warning
+    text_range.setString.assert_not_called()
+
+
+def test_streamed_plain_mode_retargets_even_after_write_error():
+    doc = MagicMock()
+    text_range = MagicMock()
+    undo = MagicMock()
+    with (
+        patch("plugin.writer.edit_review.headings_if_touched", return_value=[(1, "Old")]),
+        patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)),
+        patch("plugin.writer.edit_review.retarget_renamed_links", return_value=(1, [])) as mock_retarget,
+    ):
+        session = WriterStreamedRewriteSession(doc, text_range, "Old", track_reviewable=False)
+        session.generated_text = "New"
+        session.last_write_error = RuntimeError("chunk failed")
+        warning = session.finish()
+    mock_retarget.assert_called_once()
+    assert warning is not None and "chunk failed" in warning
 
 

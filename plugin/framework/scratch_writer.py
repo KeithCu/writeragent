@@ -38,6 +38,19 @@ _scratch_loads = 0
 _after_loads: Callable[[], object] | None = None
 
 
+def page_preview_view_prop() -> Any:
+    """Load property that gives a hidden Writer document a page-preview view (SwPagePreview).
+
+    Closing a normal SwView clears Writer's active-view pointer (view.cxx
+    ~SwViewGlueDocShell), and the Manage Changes dialog dereferences that pointer
+    (redlndlg.cxx, SwRedlineAcceptDlg constructor), so LibreOffice would abort. A page
+    preview never sets the pointer and still has a layout. Its controller has no view
+    cursor. 7 is the id from sw/source/uibase/app/swmodule.cxx; Calc, Draw, Impress and
+    Math have no view 7 and use their default view (docfac.cxx GetViewNo_Impl).
+    """
+    return create_property_value("ViewId", 7)
+
+
 def load_scratch_document(
     desktop: Any,
     url: str,
@@ -195,7 +208,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
         return False
 
 
-def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
+def new_blank_writer(ctx: Any = None, *, target: str = "_blank", page_preview: bool = True) -> Any:
     """Hidden, **empty** Writer used as a scratch buffer.
 
     ``private:factory/swriter`` is the only way to get a Writer with the
@@ -207,13 +220,16 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank") -> Any:
     conversions, and full-document rewrites. Empty the body before the
     caller sees the document.
 
-    Returns None when the desktop is unavailable (no-VCL helper processes).
+    Returns None when the desktop is unavailable (no-VCL helper processes). By
+    default (*page_preview=True*) the returned document has a page-preview view,
+    so ``getViewCursor`` is not available.
     """
     desktop = get_desktop(ctx)
     if desktop is None:
         return None
 
-    doc = load_scratch_document(desktop, "private:factory/swriter", target)
+    props = (page_preview_view_prop(),) if page_preview else ()
+    doc = load_scratch_document(desktop, "private:factory/swriter", target, 0, props)
     if doc is None:
         return None
     if not clear_writer_body(doc):
