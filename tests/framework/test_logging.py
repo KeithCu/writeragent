@@ -1907,3 +1907,143 @@ def test_tool_call_argument_strings_are_redacted() -> None:
     assert "hunter2" not in args_str
     parsed = json.loads(args_str)
     assert parsed == {"password": "<redacted>", "q": 1}
+
+
+@pytest.mark.parametrize(
+    ("secret", "depth"),
+    [
+        ("hunter2", 0),
+        ("", 0),
+        ('say "hi"\\', 0),
+        ("line1\nline2", 0),
+        ("hunter2", 1),
+        ('say "hi"\\', 1),
+        ("line1\nline2", 2),
+        ('deep "quote"\\', 3),
+    ],
+)
+def test_redact_secret_pairs_in_text_json_depths(secret: str, depth: int) -> None:
+    from plugin.framework.logging import redact_secret_pairs_in_text
+
+    inner: Any = {"name": "S", "password": secret, "current_password": secret + "_old"}
+    for _ in range(depth):
+        inner = {"payload": json.dumps(inner)}
+    text = json.dumps(inner)
+
+    redacted = redact_secret_pairs_in_text(text)
+    if secret:
+        assert secret not in redacted
+        assert json.dumps(secret)[1:-1] not in redacted
+
+    parsed = json.loads(redacted)
+    for _ in range(depth):
+        parsed = json.loads(parsed["payload"])
+    assert parsed == {"name": "S", "password": "<redacted>", "current_password": "<redacted>"}
+
+
+def test_redact_secret_pairs_in_text_variants() -> None:
+    from plugin.framework.logging import redact_secret_pairs_in_text
+
+    py_repr = "{'name': 'S', 'password': 's3cr\\'et\\\\', 'n': 1}"
+    redacted_repr = redact_secret_pairs_in_text(py_repr)
+    assert "s3cr" not in redacted_repr
+    assert "{'name': 'S', 'password': '<redacted>', 'n': 1}" == redacted_repr
+
+    num_json = '{"name": "S", "password": 1234, "count": 5}'
+    redacted_num = redact_secret_pairs_in_text(num_json)
+    assert "1234" not in redacted_num
+    assert json.loads(redacted_num) == {"name": "S", "password": "<redacted>", "count": 5}
+
+    unterminated = '{"password": "hunter2'
+    redacted_unterm = redact_secret_pairs_in_text(unterminated)
+    assert "hunter2" not in redacted_unterm
+    assert redacted_unterm == '{"password": "<redacted>'
+
+
+def test_redact_secret_pairs_leaves_other_text() -> None:
+    from plugin.framework.logging import redact_secret_pairs_in_text
+
+    cases = [
+        '{"max_tokens": 1024, "has_password": true, "password": null}',
+        '{"password": {"type": "string", "description": "Section password"}}',
+        "The user set the password to hunter2 in prose.",
+    ]
+    for text in cases:
+        assert redact_secret_pairs_in_text(text) == text
+
+
+def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
+    import plugin.framework.logging as logging_mod
+    from plugin.chatbot.tool_loop_state import (
+        EventKind,
+        ToolLoopEvent,
+        ToolLoopState,
+        ToolLoopUIEffect,
+        UIEffectKind,
+        next_state,
+    )
+    from plugin.contrib.smolagents.memory import ActionStep, ToolCall
+    from plugin.contrib.smolagents.monitoring import Timing
+
+    secret = "hunter2-debug-secret"
+    args_dict = {"name": "SecretSec", "password": secret}
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[
+            {
+                "id": "call_1",
+                "function": {"name": "section_set_password", "arguments": json.dumps(args_dict)},
+                "parsed_args": args_dict,
+            }
+        ],
+        max_rounds=5,
+        status="Ready",
+        is_stopped=False,
+        async_tools=frozenset(),
+    )
+    tr = next_state(state, ToolLoopEvent(kind=EventKind.NEXT_TOOL, data={}))
+    debug_texts = [
+        e.text for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.DEBUG
+    ]
+    assert len(debug_texts) == 1
+
+    step = ActionStep(
+        step_number=1,
+        timing=Timing(start_time=0.0, end_time=1.0),
+        tool_calls=[ToolCall(name="section_set_password", arguments=args_dict, id="call_1")],
+    )
+    replay_json = json.dumps([{"role": m.role, "content": m.content} for m in step.to_messages()])
+
+    path = str(tmp_path / "writeragent_debug.log")
+    saved_path = logging_mod._shared()["debug_log_path"]
+    saved_handler = logging_mod._debug_slot()["handler"]
+    handler = None
+    try:
+        logging_mod._shared()["debug_log_path"] = path
+        logging_mod._debug_slot()["handler"] = None
+        handler = logging_mod._shared_debug_file_handler()
+
+        test_logger = logging.getLogger("writeragent.test_mask")
+        test_logger.setLevel(logging.DEBUG)
+        test_logger.addHandler(handler)
+        try:
+            test_logger.debug("%s", debug_texts[0])
+            test_logger.debug("Messages: %s", replay_json)
+            try:
+                raise RuntimeError(f"bad args: {args_dict!r}")
+            except RuntimeError:
+                test_logger.exception("tool failed")
+        finally:
+            test_logger.removeHandler(handler)
+        handler.close()
+        handler = None
+
+        contents = Path(path).read_text(encoding="utf-8")
+        assert secret not in contents
+        assert "SecretSec" in contents
+        assert "<redacted>" in contents
+    finally:
+        logging_mod._shared()["debug_log_path"] = saved_path
+        if handler is not None:
+            handler.close()
+        logging_mod._debug_slot()["handler"] = saved_handler

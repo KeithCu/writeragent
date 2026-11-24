@@ -388,7 +388,8 @@ def test_sync_request_stop_aborts_waiting_for_shared_lock():
     assert errors == []
 
 
-def test_sync_request_stop_aborts_blocked_getresponse():
+@pytest.mark.parametrize("shared", [True, False])
+def test_sync_request_stop_aborts_blocked_getresponse(shared: bool):
     import socket
     import threading
     import time
@@ -414,7 +415,13 @@ def test_sync_request_stop_aborts_blocked_getresponse():
     t0 = time.monotonic()
     try:
         with pytest.raises(NetworkError) as raised:
-            sync_request(f"http://127.0.0.1:{port}/x", parse_json=False, timeout=30, cancel=cancel)
+            sync_request(
+                f"http://127.0.0.1:{port}/x",
+                parse_json=False,
+                timeout=30,
+                cancel=cancel,
+                shared=shared,
+            )
         elapsed = time.monotonic() - t0
     finally:
         timer.cancel()
@@ -477,3 +484,41 @@ def test_sync_request_fresh_connection_closes_pooled_socket():
 
     assert len(conns) == 2
     conns[0].close.assert_called_once()
+
+
+def test_sync_request_unshared_closes_and_is_not_reused():
+    conns = []
+
+    def _factory(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.getresponse.return_value = _response(200, b"ok", "OK")
+        conns.append(conn)
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        sync_request("https://api.example/v1/a", parse_json=False, timeout=1, shared=False)
+        sync_request("https://api.example/v1/b", parse_json=False, timeout=1, shared=False)
+        sync_request("https://api.example/v1/c", parse_json=False, timeout=1, shared=True)
+        sync_request("https://api.example/v1/d", parse_json=False, timeout=1, shared=True)
+
+    assert len(conns) == 3
+    conns[0].close.assert_called_once()
+    conns[1].close.assert_called_once()
+    conns[2].close.assert_not_called()
+
+
+def test_sync_request_unshared_closes_on_error():
+    conns = []
+
+    def _factory(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.getresponse.return_value = _response(500, b"", "Internal Server Error")
+        conns.append(conn)
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        with pytest.raises(NetworkError):
+            sync_request("https://api.example/v1/a", parse_json=False, timeout=1, shared=False)
+
+    assert len(conns) == 1
+    conns[0].close.assert_called()
