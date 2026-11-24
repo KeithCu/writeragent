@@ -2198,6 +2198,42 @@ def test_style_format_text_invalid_color_and_para_adjust_int_are_invalid_param()
     resolve.assert_not_called()
 
 
+@pytest.mark.parametrize("word", ["start", "end"])
+def test_style_format_text_refuses_para_adjust_start_end_when_enum_missing(word):
+    import sys
+    from plugin.writer.styles import para_adjust_to_uno
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    with (
+        patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")),
+        patch("plugin.writer.styles.resolve_target_cursor") as resolve,
+    ):
+        res = StyleFormatText().execute(_font_ctx(), properties={"ParaAdjust": word})
+        assert para_adjust_to_uno("left") == 0
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    resolve.assert_not_called()
+
+
+def test_style_update_refuses_para_adjust_start_when_enum_missing():
+    import sys
+
+    runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
+    style = MagicMock()
+    family = _style_family({"MyStyle": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+        res = StyleUpdate().execute(
+            mock_ctx,
+            style="MyStyle",
+            family="ParagraphStyles",
+            property_updates={"ParaAdjust": "start"},
+        )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    style.setPropertyValue.assert_not_called()
+
+
 def test_style_format_text_reset_uses_default_and_one_undo_bracket():
     from plugin.doc.compound_undo import UndoOutcome
 

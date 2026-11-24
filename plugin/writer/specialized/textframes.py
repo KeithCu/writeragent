@@ -355,9 +355,13 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
         recorded = False
+        replaced_pending = False
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
-            nonlocal recorded
+            nonlocal recorded, replaced_pending
+            # insert_at_target has already deleted a search match. A recorded deletion only strikes
+            # the match, so the cursor still spans it.
+            replaced_pending = kwargs.get("target") == "search" and not cursor.isCollapsed()
             recorded = anchor_type == 1 and is_recording_changes(doc)
             host = cursor.getText()
             if anchor_type == 1:
@@ -401,6 +405,17 @@ class FrameInsert(ToolWriterTextFramesBase):
         if recorded:
             result["tracked"] = True
             result["pending_review"] = True
+        elif replaced_pending:
+            result["pending_review"] = True
+            flag_untracked(
+                result,
+                doc,
+                _(
+                    "This text frame was inserted directly and is not tracked, but the text it replaced is "
+                    "a tracked deletion pending the user's review, so that text is still in the document "
+                    "(Ctrl+Z undoes both). Do not accept or reject it yourself. Tell the user."
+                ),
+            )
         else:
             flag_untracked(
                 result,
