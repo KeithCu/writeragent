@@ -37,6 +37,12 @@ from tests.calc.python.calc_workbook_test_access import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _assume_pyuno_accepts_returned_any(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub contexts in this module are not PyUNO proxies, so run as on LibreOffice 26.8+."""
+    monkeypatch.setattr(_addin_values, "accepts_returned_any", lambda _ctx: True)
+
+
 def _patch_immediate_debounce(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.workbook_state import Debounce
 
@@ -907,21 +913,21 @@ def test_matrix_result_shapes_and_types(caplog: pytest.LogCaptureFixture) -> Non
 
     caplog.set_level(logging.DEBUG, logger="plugin.calc.python.addin_values")
     with patch("uno.Any", side_effect=lambda t, v: (t, v)):
-        assert _addin_values.matrix_result([]) == ""
-        assert _addin_values.matrix_result([[]]) == ""
-        assert _addin_values.matrix_result([[42]]) == 42.0
-        assert _addin_values.matrix_result(["North"]) == "North"
-        assert _addin_values.matrix_result(["North", "South"]) == ("[][]string", (("North",), ("South",)))
-        assert _addin_values.matrix_result([["a", "b"], ["c"]]) == ("[][]string", (("a", "b"), ("c",)))
-        assert _addin_values.matrix_result([[1, "a"], [2]]) == ("[][]any", ((1.0, "a"), (2.0,)))
-        assert _addin_values.matrix_result([[], [1]]) == ("[][]any", ((), (1.0,)))
+        assert _addin_values.matrix_result(None, []) == ""
+        assert _addin_values.matrix_result(None, [[]]) == ""
+        assert _addin_values.matrix_result(None, [[42]]) == 42.0
+        assert _addin_values.matrix_result(None, ["North"]) == "North"
+        assert _addin_values.matrix_result(None, ["North", "South"]) == ("[][]string", (("North",), ("South",)))
+        assert _addin_values.matrix_result(None, [["a", "b"], ["c"]]) == ("[][]string", (("a", "b"), ("c",)))
+        assert _addin_values.matrix_result(None, [[1, "a"], [2]]) == ("[][]any", ((1.0, "a"), (2.0,)))
+        assert _addin_values.matrix_result(None, [[], [1]]) == ("[][]any", ((), (1.0,)))
 
-        err_res = _addin_values.matrix_result(["#N/A", "#DIV/0!"])
+        err_res = _addin_values.matrix_result(None, ["#N/A", "#DIV/0!"])
         assert err_res[0] == "[][]any"
         assert struct.unpack("Q", struct.pack("d", err_res[1][0][0]))[0] & 0xFFFF == 0x7FFF
         assert struct.unpack("Q", struct.pack("d", err_res[1][1][0]))[0] & 0xFFFF == 532
 
-        nested_res = _addin_values.matrix_result([[[1, 2], 3]])
+        nested_res = _addin_values.matrix_result(None, [[[1, 2], 3]])
         assert nested_res[0] == "[][]any"
         assert struct.unpack("Q", struct.pack("d", nested_res[1][0][0]))[0] & 0xFFFF == 519
         assert nested_res[1][0][1] == 3.0

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
+import functools
 import logging
 import math
 import re
@@ -51,6 +52,7 @@ import struct
 from typing import Any, cast
 
 import uno
+from com.sun.star.uno import RuntimeException
 
 from plugin.calc.datetime_wire import (
     datetime_serial,
@@ -236,16 +238,38 @@ def _matrix_cell_value(cell: Any) -> float | str:
     return calc_formula_error_double(_ERR_VALUE)
 
 
-def matrix_result(result: list[Any] | tuple[Any, ...]) -> Any:
+@functools.cache
+def accepts_returned_any(ctx: Any) -> bool:
+    """Whether this PyUNO lets a Python UNO method return ``uno.Any``; *ctx* is any PyUNO proxy.
+
+    LibreOffice 26.8 does (commits 1e2e9a20a419 and 507b6c2b907c). Before that,
+    ``Adapter::invoke`` (``pyuno/source/module/pyuno_adapter.cxx``) throws and Calc shows
+    ``#VALUE!``. 507b6c2b907c removed the same rejection from method arguments, so an
+    accepted ``uno.Any`` argument means an accepted return value. This asks PyUNO rather
+    than the version number because Collabora Office 26.04 has the change too.
+    """
+    try:
+        # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
+        ctx.getValueByName(getattr(uno, "Any")("string", ""))
+    except RuntimeException:
+        return False
+    return True
+
+
+def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
     """Wrap a list or 2D grid for Calc's add-in bridge.
 
     Calc evaluates ``{=PY()}`` once per array block (``ScInterpreter::ScExternal``,
-    ``sc/source/core/tool/interpr4.cxx``), and a bare Python tuple of tuples fails
-    with ``#VALUE!`` because PyUNO needs an explicit ``uno.Any`` type. A 1x1 grid
-    returns a scalar so Calc interns text, and an all-text grid uses ``[][]string``
-    so ``ScUnoAddInCall::SetResult`` (``sc/source/core/tool/addincol.cxx``) interns
-    via ``mrDoc.GetSharedStringPool().intern``. Mixed grids use ``[][]any``; note
-    that ``ScSequenceToMatrix::CreateMixedMatrix`` (``sc/source/core/tool/rangeseq.cxx``)
+    ``sc/source/core/tool/interpr4.cxx``). A bare Python tuple of tuples reaches Calc
+    as ``[]any`` and fails with ``#VALUE!``, so the grid is wrapped in a typed
+    ``uno.Any``. PyUNO accepts that as a return value from LibreOffice 26.8
+    (``accepts_returned_any``); before that, the top-left value is returned (``""``
+    for an empty first row), and Calc repeats it over an array block.
+
+    A 1x1 grid returns a scalar so Calc interns text, and an all-text grid uses
+    ``[][]string`` so ``ScUnoAddInCall::SetResult`` (``sc/source/core/tool/addincol.cxx``)
+    interns via ``mrDoc.GetSharedStringPool().intern``. Mixed grids use ``[][]any``;
+    note that ``ScSequenceToMatrix::CreateMixedMatrix`` (``sc/source/core/tool/rangeseq.cxx``)
     stores ``svl::SharedString(aUStr)`` with null ``mpDataIgnoreCase``, so Calc
     string equality (``=``, ``COUNTIF``) on text cells in a mixed block fails and
     two different texts can compare equal.
@@ -254,8 +278,9 @@ def matrix_result(result: list[Any] | tuple[Any, ...]) -> Any:
     if not grid or not any(grid):
         return ""
     rows = tuple(tuple(_matrix_cell_value(cell) for cell in row) for row in grid)
-    if len(rows) == 1 and len(rows[0]) == 1:
-        return rows[0][0]
+    corner = rows[0][0] if rows[0] else ""
+    if (len(rows) == 1 and len(rows[0]) == 1) or not accepts_returned_any(ctx):
+        return corner
     # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
     uno_any = getattr(uno, "Any")
     all_str = all(isinstance(cell, str) for row in rows for cell in row)

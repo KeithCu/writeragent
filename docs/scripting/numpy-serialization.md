@@ -440,7 +440,7 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 
 ### Matrix formula native return {#matrix-formula-result-session-ipc-reduction}
 
-Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as a native UNO matrix (see its docstring for exact types), so the block receives all elements in one worker call without a host result cache. Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
+Calc evaluates a `{=PY()}` array block once per interpretation (`ScInterpreter::ScExternal`) and pushes the entire matrix. `matrix_result` in [`addin_values.py`](../../plugin/calc/python/addin_values.py) wraps list/2D results as a native UNO matrix (see its docstring for exact types), so the block receives all elements in one worker call without a host result cache. Before LibreOffice 26.8 `matrix_result` returns the top-left value (`accepts_returned_any`). Single-cell formulas auto-spill via [`spill.py`](../../plugin/calc/python/spill.py). Author UX (auto-spill and Ctrl+Shift+Enter): [core §6 — Matrix formulas](../enabling_numpy_in_libreoffice.md#2-normal-single-cell-formulas-vs-matrix-array-formulas).
 
 ### Multi-range wire format {#multi-range-wire-format}
 
@@ -566,7 +566,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_range`”, not 10⁵-element lists in `result`. |
-| **`=PY()` matrix** | Use auto-spill from one cell or a `{=PY(code)}` array block (Ctrl+Shift+Enter) — one worker run returns the full matrix; avoid filled-down per-cell formulas each resending `data`. |
+| **`=PY()` matrix** | Use auto-spill from one cell or a `{=PY(code)}` array block (Ctrl+Shift+Enter, 26.8+) — one worker run returns the full matrix; avoid filled-down per-cell formulas each resending `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](../enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).
