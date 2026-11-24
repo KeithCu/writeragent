@@ -283,3 +283,98 @@ def test_apply_content_inline_math_keeps_space_after_formula_uno(ctx: Any, doc: 
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any, doc: Any) -> None:
+    from plugin.app import get_services, get_tools
+    from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    ctx_tool = ToolContext(doc, ctx, "writer", get_services(), "test")
+
+    def _paras() -> list[Any]:
+        out = []
+        te = text.createEnumeration()
+        while enum_has_more(te):
+            el = te.nextElement()
+            if hasattr(el, "getString"):
+                out.append(el)
+        return out
+
+    def _clear_untracked() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        doc.setPropertyValue("RecordChanges", rec)
+
+    for rec in (False, True):
+        # Recording opens an absorb break at target='end' so Reject keeps the empty doc's style.
+        extra = 1 if rec else 0
+        try:
+            # 1. Multiple formulas in one paragraph -> 1 paragraph
+            _clear_untracked()
+            r1 = get_tools().execute("apply_content", ctx_tool, content=r"<p>pre \(x\) and \(y\) post</p>", target="end")
+            assert r1.get("status") == "ok", r1
+            assert _embed_count(doc) == 2
+            assert len(_paras()) == 1 + extra
+
+            # 2. Bare inline math -> 1 paragraph
+            _clear_untracked()
+            r2 = get_tools().execute("apply_content", ctx_tool, content=r"pre \(x\) post", target="end")
+            assert r2.get("status") == "ok", r2
+            assert _embed_count(doc) == 1
+            assert len(_paras()) == 1 + extra
+
+            # 3. Two paragraphs -> 2 paragraphs
+            _clear_untracked()
+            r3 = get_tools().execute("apply_content", ctx_tool, content=r"<p>a \(x\)</p><p>b</p>", target="end")
+            assert r3.get("status") == "ok", r3
+            assert len(_paras()) == 2 + extra
+
+            # 4. Heading style, list, table cell, and \theta
+            _clear_untracked()
+            r4 = get_tools().execute(
+                "apply_content",
+                ctx_tool,
+                content=(
+                    r'<h1 data-lo-style="Heading1">Title \(\theta\)</h1>'
+                    r'<ul><li>one \(x\)</li><li>two</li></ul>'
+                    r'<table><tr><td>cell \(y\)</td><td>right</td></tr></table>'
+                ),
+                target="end",
+            )
+            assert r4.get("status") == "ok", r4
+            assert doc.getTextTables().getCount() == 1
+            tbl = doc.getTextTables().getByIndex(0)
+            assert "cell" in tbl.getCellByName("A1").getString()
+            paras4 = _paras()
+            assert paras4[extra].getPropertyValue("ParaStyleName") == "Heading 1"
+            assert any(bool(p.getPropertyValue("NumberingStyleName")) for p in paras4)
+            embeds = doc.getEmbeddedObjects()
+            formulas = [embeds.getByIndex(i).getEmbeddedObject().Formula or "" for i in range(embeds.getCount())]
+            assert any(("theta" in f or "\u03b8" in f) for f in formulas), formulas
+
+            # 5. Display math between paragraphs -> no empty neighbours, centered
+            _clear_untracked()
+            r5 = get_tools().execute("apply_content", ctx_tool, content="a\n\n$$x$$\n\nb", target="end")
+            assert r5.get("status") == "ok", r5
+            paras5 = _paras()[extra:]
+            assert [p.getString().strip() for p in paras5] == ["a", "", "b"]
+            assert paras5[1].getPropertyValue("ParaAdjust") == 3
+
+            # 6. Inline search replace mid-paragraph keeps host paragraph; Reject restores text
+            doc.setPropertyValue("RecordChanges", False)
+            text.setString("hello MATCH world")
+            doc.setPropertyValue("RecordChanges", rec)
+            r6 = get_tools().execute(
+                "apply_content", ctx_tool, target="search", old_content="MATCH", content=r"\(x\)"
+            )
+            assert r6.get("status") == "ok", r6
+            assert len(_paras()) == 1
+            if rec:
+                execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                assert text.getString() == "hello MATCH world"
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+

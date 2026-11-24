@@ -202,6 +202,9 @@ def test_indexes_create():
     tool = IndexesCreate()
     ctx = MagicMock()
     doc = ctx.doc
+    doc.getPropertyValue.return_value = False
+    doc.getRedlines.return_value.getCount.return_value = 0
+    doc.getRedlines.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     cursor_mock = MagicMock()
     doc.getText().createTextCursor.return_value = cursor_mock
 
@@ -211,6 +214,7 @@ def test_indexes_create():
     res = tool.execute(ctx, kind="toc", title="My TOC", create_from_outline=True, target="beginning")
     assert res["status"] == "ok"
     assert res["title"] == "My TOC"
+    assert "tracked" not in res
 
     doc.createInstance.assert_called_with("com.sun.star.text.ContentIndex")
     assert index_mock.Title == "My TOC"
@@ -219,6 +223,45 @@ def test_indexes_create():
     text_mock = cursor_mock.getText()
     text_mock.insertTextContent.assert_called_with(cursor_mock, index_mock, False)
     index_mock.update.assert_called()
+
+
+def test_indexes_create_search_order_recording_vs_untracked():
+    tool = IndexesCreate()
+    for recording, expected in ((True, ["insert", "delete", "update"]), (False, ["delete", "insert", "update"])):
+        ctx = MagicMock()
+        doc = ctx.doc
+        doc.getPropertyValue.return_value = recording
+        doc.getRedlines.return_value.getCount.return_value = 0
+        doc.getRedlines.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+        doc.createInstance.return_value = MagicMock()
+        calls = []
+        cursor = MagicMock()
+        cursor.setString.side_effect = lambda s: calls.append("delete")
+        cursor.getText.return_value.insertTextContent.side_effect = lambda *a: calls.append("insert")
+        doc.createInstance.return_value.update.side_effect = lambda: calls.append("update")
+        with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
+            res = tool.execute(ctx, kind="toc", target="search", old_content="MATCH", create_from_outline=True)
+        assert res["status"] == "ok"
+        assert calls == expected
+        if recording:
+            assert res["tracked"] is False
+            assert "warning" in res
+
+
+def test_indexes_create_refuses_pending_tracked_change_without_modifying_text():
+    tool = IndexesCreate()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getPropertyValue.return_value = True
+    doc.createInstance.return_value = MagicMock()
+    cursor = MagicMock()
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.specialized.indexes.tracked_change_before_point", return_value=True):
+        res = tool.execute(ctx, kind="toc", target="search", old_content="MATCH", create_from_outline=True)
+    assert res["status"] == "error"
+    assert res["code"] == "INDEX_IN_TRACKED_CHANGE"
+    cursor.setString.assert_not_called()
+    cursor.getText.return_value.insertTextContent.assert_not_called()
 
 
 def test_indexes_create_invalid_kind():
@@ -1175,6 +1218,9 @@ def _search_create_undo(locked=False, insert_error=None, undo_error=None):
     tool = IndexesCreate()
     ctx = MagicMock()
     doc = ctx.doc
+    doc.getPropertyValue.return_value = False
+    doc.getRedlines.return_value.getCount.return_value = 0
+    doc.getRedlines.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     cursor = MagicMock()
     index = MagicMock()
     doc.createInstance.return_value = index

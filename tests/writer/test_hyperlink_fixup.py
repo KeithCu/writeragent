@@ -322,6 +322,8 @@ class _Portion:
     def getPropertyValue(self, name):
         if name == "TextPortionType":
             return self.sl.text_type
+        if name in ("RedlineType", "IsStart") and hasattr(self.sl, name):
+            return getattr(self.sl, name)
         if self.sl.raise_props:
             raise AttributeError(name)
         if name == "HyperLinkURL":
@@ -758,3 +760,47 @@ def test_restore_whole_row_with_different_names_keeps_them():
     assert s2.name == "n2"
     assert s3.name == "n3"
     assert s3.url == url
+
+
+def test_hyperlink_fields_omits_empty_and_wraps_non_empty():
+    from plugin.writer.hyperlink_fixup import hyperlink_fields
+
+    assert hyperlink_fields([]) == {}
+    reports = [{"hyperlink_url": "#1.A|outline", "hyperlink_url_after": "#1.B|outline", "hyperlink_updated": True}]
+    assert hyperlink_fields(reports) == {"hyperlinks": reports}
+
+
+def test_keep_links_while_recording_reports_empty_when_only_struck_text_linked():
+    from plugin.writer.hyperlink_fixup import restore_links
+
+    url = "#1.Title|outline"
+    doc = _Doc([_Slice("Title", url)])
+    doc._recording = True
+    doc.getPropertyValue = lambda k: True if k == "RecordChanges" else None
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, 5))
+
+    # Simulate tracked Delete of old "Title" and unlinked Insert of "Other"
+    del_start = _Slice("", text_type="Redline")
+    del_start.RedlineType = "Delete"
+    del_start.IsStart = True
+    del_end = _Slice("", text_type="Redline")
+    del_end.RedlineType = "Delete"
+    del_end.IsStart = False
+    doc.slices = [del_start, _Slice("Title", url), del_end, _Slice("Other", "")]
+
+    reports = restore_links(doc, _match(doc, 0, 0), snapshot, "Other", None)
+    # Note: _put_back_url gave url, so _keep_links_while_recording painted "Other" with url.
+    assert reports[0]["hyperlink_url_after"] == url
+    assert "hyperlink_note" in reports[0]
+
+    # When no live run carries the link (e.g. multi-link match where _put_back_url is ""),
+    # hyperlink_url_after is "" and hyperlink_note is omitted.
+    url2 = "#2.Other|outline"
+    doc2 = _Doc([_Slice("A ", url), _Slice("B", url2)])
+    doc2._recording = True
+    doc2.getPropertyValue = lambda k: True if k == "RecordChanges" else None
+    snap2 = capture_outline_hyperlinks(_match(doc2, 0, 3))
+    doc2.slices = [del_start, _Slice("A ", url), _Slice("B", url2), del_end, _Slice("New", "")]
+    reports2 = restore_links(doc2, _match(doc2, 0, 0), snap2, "New", None)
+    assert all(r["hyperlink_url_after"] == "" for r in reports2)
+    assert all("hyperlink_note" not in r for r in reports2)

@@ -18,6 +18,7 @@ from plugin.writer.specialized.mail_merge import (
 def _create_mock_ctx():
     ctx = MagicMock()
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False
     ctx.doc = doc
     comp_ctx = MagicMock()
     ctx.ctx = comp_ctx

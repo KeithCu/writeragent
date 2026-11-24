@@ -45,12 +45,14 @@ from plugin.writer.html_import import content_has_markup, replace_preserving_for
 from plugin.writer.hyperlink_fixup import (
     LINK_STYLE_PROPS,
     capture_outline_hyperlinks,
+    hyperlink_fields,
     plan_outline_updates,
     public_hyperlink_reports,
     read_link_look,
     restore_links,
     write_link_look,
 )
+from plugin.writer.record_changes import is_recording_changes, tracked_change_before_point
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -520,13 +522,6 @@ def _one_line(text: str, repl: str) -> str:
     return text.replace("\n", repl).replace("\r", repl)
 
 
-def _put_hyperlink_reports(target: dict[str, Any], reports: list[dict[str, Any]]) -> None:
-    if len(reports) == 1:
-        target.update(reports[0])
-    elif reports:
-        target["hyperlinks"] = reports
-
-
 # Generated TOC rows use paragraph styles "Contents 1" … "Contents 10"
 # (the title is "Contents Heading"). Probed on LibreOffice: the page number
 # is plain digits in the same text portion as the title ("Alpha title\\t1"),
@@ -910,7 +905,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         reports = public_hyperlink_reports(plans)
         before, after = _entry_before(found, content)
         preview: dict[str, Any] = {"text": before, "text_after": after}
-        _put_hyperlink_reports(preview, reports)
+        preview.update(hyperlink_fields(reports))
         return preview, None
 
     def _write(
@@ -942,7 +937,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 preview["text_after"] = lived
             if snapshot.links or snapshot.preserve_url:
                 reports = restore_links(doc, point, snapshot, content, override)
-                _put_hyperlink_reports(preview, reports)
+                preview.update(hyperlink_fields(reports))
             return None
 
         return _commit_toc_mutation(
@@ -1372,15 +1367,41 @@ class IndexesCreate(ToolWriterIndexBase):
         if index_kind == "toc":
             index.CreateFromOutline = create_from_outline
 
-        def mutate(cursor: Any) -> None:
-            cursor.getText().insertTextContent(cursor, index, False)
+        def mutate(cursor: Any) -> dict[str, Any] | None:
+            if tracked_change_before_point(doc, cursor.getStart()):
+                return self._tool_error(
+                    "The index would split a pending tracked change, and accepting or rejecting it "
+                    "would then delete other text. Accept or reject that change first, or insert "
+                    "the index elsewhere (for example target='beginning').",
+                    code="INDEX_IN_TRACKED_CHANGE",
+                )
+            strike = kwargs.get("target", "selection") == "search"
+            if is_recording_changes(doc):
+                cursor.getText().insertTextContent(cursor, index, False)
+                if strike:
+                    cursor.setString("")
+            else:
+                if strike:
+                    cursor.setString("")
+                cursor.getText().insertTextContent(cursor, index, False)
             index.update()
+            return None
 
-        error = insert_at_target(self, ctx, kwargs, mutate, what="the index")
+        error = insert_at_target(self, ctx, kwargs, mutate, what="the index", replace_match=False)
         if error is not None:
             return error
 
-        return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
+        res: dict[str, Any] = {
+            "status": "ok",
+            "message": f"Created '{index_kind}' index successfully",
+            "title": title,
+        }
+        flag_untracked(
+            res,
+            doc,
+            _("The index itself is not a tracked change: rejecting changes does not remove it."),
+        )
+        return res
 
 
 class IndexesAddMark(ToolWriterIndexBase):

@@ -31,7 +31,6 @@ from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
-from .math.html_math_segment import html_fragment_contains_mixed_math
 from .record_changes import record_changes
 
 if TYPE_CHECKING:
@@ -503,17 +502,15 @@ def plain_paragraphs(content: str) -> list[str]:
 def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
-    Applies complete-entity reference decoding, escape expansion, ruby stripping
-    (when no math is present), line-break normalization, prose angle bracket escaping,
-    and boilerplate stripping.
+    Applies complete-entity reference decoding, escape expansion, ruby stripping,
+    line-break normalization, prose angle bracket escaping, and boilerplate stripping.
     """
     if not isinstance(content, str) or not content:
         return ""
 
     content = decode_complete_character_references(content)
     content = expand_escapes(content)
-    if not html_fragment_contains_mixed_math(content):
-        content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)

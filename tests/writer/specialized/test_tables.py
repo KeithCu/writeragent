@@ -1639,6 +1639,39 @@ def test_untracked_row_delete_covered_row_still_removes():
     assert table._rows.removes == [(1, 1)]
 
 
+@pytest.mark.parametrize(
+    ("seps_per_row", "cell_names", "idx", "expected"),
+    [
+        # Header merge A1:B1 in 3-col table, deleting col 0 -> A1 spans 2 cols
+        ([[6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, ("A1", 2)),
+        # Lower merge A3:B3 in 3-col table, deleting col 0 -> A3 spans 2 cols
+        ([[3333, 6666], [3333, 6666], [6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3"], 0, ("A3", 2)),
+        # Full-width row A3:C3 in 3-col table, deleting col 1 -> A3 spans 3 cols
+        ([[3333, 6666], [3333, 6666], []], ["A1", "B1", "C1", "A2", "B2", "C2", "A3"], 1, ("A3", 3)),
+        # Rectangular 3x3 table -> None
+        ([[3333, 6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, None),
+        # A1:B1 merged in 2-col table, deleting idx 1 (beyond row 0's 1-cell count) -> None
+        ([[], [5000]], ["A1", "A2", "B2"], 1, None),
+    ],
+)
+def test_column_wide_cell(seps_per_row, cell_names, idx, expected):
+    from unittest.mock import MagicMock
+    from plugin.writer.specialized.tables import _column_wide_cell
+
+    table = MagicMock()
+    table.getCellNames.return_value = cell_names
+    rows = MagicMock()
+    rows.getCount.return_value = len(seps_per_row)
+    row_objs = []
+    for seps in seps_per_row:
+        r = MagicMock()
+        r.getPropertyValue.return_value = [SimpleNamespace(Position=p) for p in seps]
+        row_objs.append(r)
+    rows.getByIndex.side_effect = lambda i: row_objs[i]
+    table.getRows.return_value = rows
+    assert _column_wide_cell(table, idx) == expected
+
+
 def test_pending_insertions_detects_inserted_table_spans():
     from plugin.writer.specialized.tables import _pending_insertions
 
