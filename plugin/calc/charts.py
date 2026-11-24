@@ -471,7 +471,8 @@ CHART_PROPERTIES: dict[str, Any] = {
     "has_legend": {"type": "boolean", "description": "Whether the chart has a legend."},
     "position": {"type": "string", "description": "Cell address (Calc) or anchoring position (Writer/Draw)."},
     "bg_color": {"type": "string", "description": "Chart area background color (hex: #FF0000 or name: green)."},
-    "colors": {"type": "array", "items": {"type": "string"}, "description": "List of hex/named colors to apply to each data series."},
+    # Integers are 24-bit RGB values; the union keeps coerce_call_args from turning 255 into the hex string "255".
+    "colors": {"type": "array", "items": {"type": ["string", "integer"]}, "description": "List of hex/named colors to apply to each data series."},
 }
 
 # List/get/delete: sheet/page narrow the search, not placement (wording differs from upsert create).

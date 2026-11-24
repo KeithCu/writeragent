@@ -14,6 +14,7 @@
 #   HTTP mocks       — create_mock_http_response
 
 import contextlib
+import os
 import sys
 from typing import Any
 from unittest.mock import MagicMock
@@ -1819,3 +1820,19 @@ class FakeUndoManager:
         if self.titles:
             self.titles.pop(0)
             self.undone += 1
+
+
+def logo_32_path() -> str:
+    """Return the path to logo_32.png across source and release-bundle layouts."""
+    here = os.path.abspath(__file__)
+    directory = os.path.dirname(here)
+    for _unused in range(6):
+        for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
+            candidate = os.path.join(directory, *rel.split("/"))
+            if os.path.isfile(candidate):
+                return candidate
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    raise FileNotFoundError("logo_32.png not found")

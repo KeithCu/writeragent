@@ -315,3 +315,27 @@ def test_impress_grouped_and_multipage_chart(ctx, doc):
     assert len(remaining) == 1
     assert remaining[0]["page"] == 0
     assert remaining[0]["name"] == "Chart_0"
+
+
+@native_test
+@with_native_doc("calc", hidden=not current_office().options.show_window)
+def test_calc_chart_integer_colors_via_prepare(ctx, doc):
+    _execute(doc, ctx, "write_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
+    res = _execute(
+        doc,
+        ctx,
+        "chart_upsert",
+        {
+            "data_range": "A1:B3",
+            "chart_type": "column",
+            "colors": [255],
+        },
+    )
+    assert res.get("status") == "ok", f"Create with integer color failed: {res}"
+    assert "warnings" not in res, res
+    chart_obj = doc.getSheets().getByIndex(0).getCharts().getByName(res["name"])
+    s0 = chart_obj.getEmbeddedObject().getFirstDiagram().getCoordinateSystems()[0].getChartTypes()[0].getDataSeries()[0]
+    prop_info = s0.getPropertySetInfo()
+    color_prop = next((p for p in ("FillColor", "Color") if prop_info.hasPropertyByName(p)), None)
+    assert color_prop is not None
+    assert s0.getPropertyValue(color_prop) == 255

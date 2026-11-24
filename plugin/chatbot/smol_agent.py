@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
+from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.contrib.smolagents.utils import AgentToolExecutionError
 from plugin.chatbot import smol_examples
@@ -451,7 +452,18 @@ def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, inst
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     max_steps = get_config("chatbot.max_tool_rounds")
     smol_model = create_smol_model(ctx)
-    return WriterAgentToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
+    # AgentLogger prints to stdout, outside the redacting log formatter. OFF, not ERROR:
+    # tool error messages quote the arguments, which can hold passwords. The debug log
+    # already has the same steps, redacted.
+    return WriterAgentToolCallingAgent(
+        tools=list(tools),
+        model=smol_model,
+        max_steps=max_steps,
+        instructions=instructions,
+        final_answer_tool_name=final_answer_tool_name,
+        system_prompt_examples=examples_block,
+        verbosity_level=LogLevel.OFF,
+    )
 
 
 def run_inner_tool_agent(

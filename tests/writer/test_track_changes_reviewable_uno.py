@@ -886,3 +886,43 @@ def test_plain_two_para_track_changes_reject_and_undo_uno(ctx, doc):
     um.undo()
     assert len(doc.getRedlines()) == 0
     assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header_uno(ctx, doc):
+    from plugin.writer.page import PageSetHeaderFooterText
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Styled text.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tool_ctx = _tool_ctx(doc, ctx)
+        assert len(doc.getRedlines()) == 0
+        char_res = ApplyStyle().execute(
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="full_document"
+        )
+        assert char_res["status"] == "ok", char_res
+        assert "style_unreviewed" not in char_res
+        assert len(doc.getRedlines()) > 0
+
+        before_hdr = len(doc.getRedlines())
+        hdr_res = PageSetHeaderFooterText().execute(
+            tool_ctx, style="Standard", region="header", content="<p>Header note</p>"
+        )
+        assert hdr_res["status"] == "ok", hdr_res
+        assert "style_unreviewed" not in hdr_res
+        assert len(doc.getRedlines()) > before_hdr
+
+        para_res = ApplyStyle().execute(
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none"
+        )
+        assert para_res["status"] == "ok", para_res
+        assert para_res.get("style_unreviewed") is True
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)

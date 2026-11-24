@@ -102,11 +102,15 @@ def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str |
     return render_writer_page_png(doc, page)
 
 
-# Where the model reads graphic names, per doc_type family label (Impress is "draw"). Calc is absent:
-# no core Calc read lists image names, so Calc keeps the all-app schema text and errors point at _DEFAULT_IMAGE_NAME_SOURCE.
-_IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree"}
+# Where the model reads graphic names, per doc_type family label (Impress is "draw").
+# No core Calc read lists image names, so Calc points at the images domain.
 _DEFAULT_IMAGE_NAME_SOURCE = "image_list (images domain)"
-_ONE_MODE = "Pass at most one of image, selection, or page."
+_IMAGE_NAME_SOURCE = {"writer": "get_content or image_list", "draw": "shape_get_tree", "calc": _DEFAULT_IMAGE_NAME_SOURCE}
+
+
+def _one_mode(doc_type: str | None) -> str:
+    """Return the exclusive-modes sentence; Calc has no page mode."""
+    return "Pass at most one of image or selection." if doc_type == "calc" else "Pass at most one of image, selection, or page."
 
 
 class GetImage(ToolBase):
@@ -134,32 +138,40 @@ class GetImage(ToolBase):
     }
 
     def get_description(self, doc_type: str | None = None) -> str:
-        """Name only the reads and modes of *doc_type*; Calc (no page render) and unprobed callers get the all-app text."""
+        """Name only the reads and modes of *doc_type*; unprobed callers get the all-app text."""
         source = _IMAGE_NAME_SOURCE.get(doc_type or "")
         if source is None:
             return self.description
-        draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
+        if doc_type == "calc":
+            modes = "for an embedded picture; or selection=true for the image currently selected."
+        else:
+            draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
+            modes = (
+                "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
+                f"that whole page as an image.{draw_note}"
+            )
         return (
             f"Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from {source}> "
-            "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
-            f"that whole page as an image.{draw_note} Returns the picture itself, not a description. "
-            f"b64 is stripped from normal reads, so use this when you actually need to look. {_ONE_MODE}"
+            f"{modes} Returns the picture itself, not a description. "
+            f"b64 is stripped from normal reads, so use this when you actually need to look. {_one_mode(doc_type)}"
         )
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = visual_helpers.without_sheet_index_off_calc(cast("dict[str, Any]", self.parameters), doc_type)
         source = _IMAGE_NAME_SOURCE.get(doc_type or "")
-        if doc_type != "calc" and source is None:
+        if source is None:
             return params
         out = copy.deepcopy(params)
+        one_mode = _one_mode(doc_type)
+        out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {one_mode}"
         if doc_type == "calc":
             # Calc has no per-page render: calc_png_Export goes through GraphicExportFilter, whose
             # gatherProperties reads only PixelWidth/PixelHeight, and DocumentToGraphicRenderer::getCurrentPage
             # returns page 1 for every non-Writer document. So page is left out of the Calc schema.
             del out["properties"]["page"]
-        if source is not None:
-            out["properties"]["image"]["description"] = f"Name of the embedded graphic to fetch (from {source}). {_ONE_MODE}"
-            out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {_ONE_MODE}"
+            out["properties"]["selection"]["description"] = f"If true, fetch the currently selected image instead of naming one. {one_mode}"
+        else:
+            out["properties"]["page"]["description"] = f"0-based page index. Renders that whole page as an image. {one_mode}"
         return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
@@ -189,7 +201,7 @@ class GetImage(ToolBase):
             if page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
             if name is not None or selection is True or sheet_index is not None:
-                return self._tool_error("Pass only one of page, image, or selection.")
+                return self._tool_error(_one_mode(ctx.doc_type))
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
@@ -199,7 +211,7 @@ class GetImage(ToolBase):
             if not name.strip():
                 return self._tool_error("image must be a non-empty string (the graphic's name).")
             if selection is True:
-                return self._tool_error("Pass only one of page, image, or selection.")
+                return self._tool_error(_one_mode(ctx.doc_type))
             lookup_kwargs: dict[str, Any] = {}
             if sheet_index is not None:
                 lookup_kwargs["sheet_index"] = sheet_index

@@ -150,6 +150,55 @@ def test_create_diagram_unknown_connection_creates_nothing():
     assert out["status"] == "error"
 
 
+def test_create_diagram_invalid_connection_arrowhead_creates_nothing():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
+            out = CreateDiagram().execute(
+                ctx,
+                layout="horizontal_flow",
+                nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+                connections=[{"from": "a", "to": "b", "line_end": "triangle"}],
+            )
+            mock_upsert.assert_not_called()
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    assert "line_end" in out["message"]
+
+
+def test_create_diagram_null_arrowhead_is_omitted():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
+            mock_upsert.side_effect = [
+                {"status": "ok", "index": 0},
+                {"status": "ok", "index": 1},
+            ]
+            mock_conn.return_value = {"status": "ok", "index": 2}
+            out = CreateDiagram().execute(
+                ctx,
+                layout="horizontal_flow",
+                nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+                connections=[{"from": "a", "to": "b", "line_start": None, "line_end": "arrow"}],
+            )
+    assert out["status"] == "ok"
+    conn_kw = mock_conn.call_args.kwargs
+    assert conn_kw["line_end"] == "arrow"
+    assert "line_start" not in conn_kw
+
+
 class DisposedException(Exception):
     """Type name matches is_disposal."""
 

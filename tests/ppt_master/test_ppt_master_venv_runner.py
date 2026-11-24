@@ -211,3 +211,54 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
     assert manager.execute_ppt_master_turn.call_args.kwargs["cancel"] is scope
     assert "cancel" not in payload
     assert "_cancel" not in payload
+
+
+def test_run_turn_prints_nothing(capsys, monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+    from plugin.contrib.smolagents.tools import Tool
+    from plugin.ppt_master.venv.runner import clear_session, run_turn
+
+    class _ReplyTool(Tool):
+        name = "reply_to_user"
+        description = "Reply to user."
+        inputs = {"answer": {"type": "string", "description": "answer"}}
+        output_type = "string"
+
+        def forward(self, answer: str) -> str:
+            return answer
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="reply_to_user", arguments={"answer": "ppt-done"}),
+                    id="call_1",
+                    type="function",
+                )
+            ],
+        )
+    ]
+
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-silent")
+    try:
+        with (
+            patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+            patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReplyTool()]),
+            patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
+            patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+            patch("plugin.ppt_master.venv.runner._instructions_for_session", return_value="i"),
+        ):
+            result = run_turn({"query": "secret-ppt-query", "session_id": "silent-test"})
+    finally:
+        clear_session("silent-test")
+
+    assert result["status"] == "ok"
+    assert capsys.readouterr().out == ""
