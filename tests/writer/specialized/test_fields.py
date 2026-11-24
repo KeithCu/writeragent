@@ -691,5 +691,7 @@ def test_fields_delete_prepare_coerces_list_elements_and_refuses_bool():
 
     prep_bool = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": [True]})
     assert prep_bool.error is None
+    assert prep_bool.kwargs["ids"][0] is True
     res = FieldsDelete().execute(MagicMock(), **prep_bool.kwargs)
     assert res["status"] == "error"
+    assert "only integers" in res["message"]
