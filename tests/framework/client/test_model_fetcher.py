@@ -2297,3 +2297,122 @@ def test_has_native_vision_lmstudio_failure_does_not_set_fetch_failed_at():
     finally:
         mf._catalog_memos.clear()
         mf._catalog_fetch_waiters.clear()
+
+
+def test_catalog_logs_hide_url_secrets(caplog):
+    import logging
+    import plugin.framework.client.model_fetcher as mf
+    from plugin.framework.errors import NetworkError
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    caplog.set_level(logging.DEBUG)
+
+    try:
+        with (
+            patch("plugin.framework.client.requests.sync_request", side_effect=NetworkError("boom")),
+            patch.object(mf, "get_config", return_value={}),
+        ):
+            cases = [
+                ("https://tok3nUserSecret99@h.example/v1", "tok3nUserSecret99", "h.example"),
+                ("https://u:zq7@h.example/v1", "zq7", "h.example"),
+                ("https://h.example/s/123e4567-e89b-12d3-a456-426614174000/v1", "123e4567-e89b-12d3-a456-426614174000", "h.example"),
+                ("https://h.example/v1?access=hunter2secret", "hunter2secret", "h.example"),
+            ]
+            for ep, secret, host in cases:
+                caplog.clear()
+                mf.fetch_available_models(ep, api_key_override="sk-x")
+                assert host in caplog.text
+                assert secret not in caplog.text
+
+            caplog.clear()
+            mf.fetch_together_tts_voices("https://u:Hunter2pw@api.together.xyz", api_key_override="sk-x")
+            assert "api.together.xyz" in caplog.text
+            assert "Hunter2pw" not in caplog.text
+
+            caplog.clear()
+            mf._fetch_openrouter_entries(
+                "https://u:Hunter2pw@openrouter.ai/api",
+                "https://u:Hunter2pw@openrouter.ai/api",
+                "sk-x",
+                "https://u:Hunter2pw@openrouter.ai/api/v1/models?output_modalities=audio",
+                "fetch_openrouter_test",
+            )
+            assert "openrouter.ai" in caplog.text
+            assert "Hunter2pw" not in caplog.text
+
+            caplog.clear()
+            mf._fetch_vision_list(
+                "https://u:Hunter2pw@api.x.ai/v1",
+                "xai",
+                "sk-x",
+            )
+            assert "api.x.ai" in caplog.text
+            assert "Hunter2pw" not in caplog.text
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_catalog_missing_key_log_hides_userinfo(caplog):
+    import logging
+    import plugin.framework.client.model_fetcher as mf
+    from plugin.framework.errors import NetworkError
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    caplog.set_level(logging.DEBUG)
+
+    try:
+        with (
+            patch("plugin.framework.client.requests.sync_request", side_effect=NetworkError("boom")),
+            patch.object(mf, "get_config", return_value={}),
+        ):
+            mf.fetch_available_models("https://u:Hunter2pw@api.together.xyz", api_key_override="")
+        assert "api.together.xyz" in caplog.text
+        assert "unauthenticated" in caplog.text
+        assert "Hunter2pw" not in caplog.text
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_catalog_bad_port_after_gate_returns_none(caplog):
+    import logging
+    import plugin.framework.client.model_fetcher as mf
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    caplog.set_level(logging.DEBUG)
+
+    try:
+        with patch.object(mf, "get_config", return_value={}):
+            assert mf.fetch_available_models("http://u:pw@h.example:80 /v1", api_key_override="sk-x") is None
+        assert "h.example" in caplog.text
+        assert "u:pw@" not in caplog.text
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
+
+
+def test_native_vision_log_hides_userinfo(caplog):
+    import logging
+    import plugin.framework.client.model_fetcher as mf
+
+    mf._catalog_memos.clear()
+    mf._catalog_fetch_waiters.clear()
+    caplog.set_level(logging.DEBUG)
+
+    try:
+        with (
+            patch.object(mf.main, "is_current", return_value=False),
+            patch.object(mf, "get_config", return_value={}),
+            patch.object(mf, "get_api_key_for_endpoint", return_value=""),
+            patch.object(mf, "fetch_available_models", return_value=None),
+        ):
+            mf.has_native_vision("unknown-model", "https://u:Hunter2pw@h.example")
+        assert "h.example" in caplog.text
+        assert "Hunter2pw" not in caplog.text
+    finally:
+        mf._catalog_memos.clear()
+        mf._catalog_fetch_waiters.clear()
