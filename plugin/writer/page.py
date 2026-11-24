@@ -1221,10 +1221,16 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     return None
 
 
+_PARTIAL_WRITE_MSG = (
+    "the replacement failed and could not be rolled back, so the text may be partly changed: "
+)
+
+
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[int, int]:
     """setString from the last match backward. Returns (fields, shapes).
 
     A failed replace raises ToolExecutionError with the undo layer's code.
+    A refused write that changed nothing raises the plain error.
     A failed before-scan raises before anything is written; a failed after-scan
     is a mutate error and rolls back.
     """
@@ -1252,17 +1258,13 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            raise ToolExecutionError(
-                "the replacement was written and could not be rolled back: " + str(exc), code="ROLLBACK_FAILED"
-            ) from exc
+            raise ToolExecutionError(_PARTIAL_WRITE_MSG + str(exc), code="ROLLBACK_FAILED") from exc
     else:
         mut_exc = outcome.mutate_error
         if mut_exc is not None:
-            if outcome.rolled_back:
+            if outcome.nothing_landed:
                 raise ToolExecutionError(str(mut_exc)) from mut_exc
-            raise ToolExecutionError(
-                "the replacement was written and could not be rolled back: " + str(mut_exc), code="ROLLBACK_FAILED"
-            ) from mut_exc
+            raise ToolExecutionError(_PARTIAL_WRITE_MSG + str(mut_exc), code="ROLLBACK_FAILED") from mut_exc
         err = outcome.error
         if err is not None:
             # The text is already in the header or footer and the undo group is still open,
@@ -1270,7 +1272,7 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
             if err["code"] == "UNDO_CONTEXT_LEAK":
                 message = "the replacement was written, but its undo step could not be closed (%s)" % err["message"]
             else:
-                message = "the replacement was written and could not be rolled back: " + err["message"]
+                message = _PARTIAL_WRITE_MSG + err["message"]
             raise ToolExecutionError(message, code=err["code"])
     after = after_box[0]
     return len(after["fields"]), len(after["images"])

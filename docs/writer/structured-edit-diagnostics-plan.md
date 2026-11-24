@@ -123,9 +123,8 @@ Rules for constructing suggestions:
 3. **Centralized construction per tool:** Construct suggestions in one place per tool from code and parsed arguments (e.g. in `_do_edit` after `_dispatch_edit` in `apply_document_content.py`), rather than plumbing `kwargs` through lower-level helpers.
 4. **Filter to schema properties:** Validate arguments against `parameters["properties"]` of the target tool schema. This automatically filters out internal execution flags and MCP's `document_url`.
 5. **Bound payload size:** Never echo raw HTML `content` back in a suggestion. Bound string arguments to short targets.
-6. **Gate against change recording:** Do not suggest `apply_style` while tracked changes are recording (`record_changes.is_recording_changes(model)`), because `apply_style` is not recorded as a tracked change (`plugin/framework/prompts.py`).
-7. **MCP transport independence:** MCP clients manage their own `document_url`; suggestions emit only standard tool arguments without transport-specific fields.
-8. **No gettext formatting:** Argument values and code names must never pass through `_()`.
+6. **MCP transport independence:** MCP clients manage their own `document_url`; suggestions emit only standard tool arguments without transport-specific fields.
+7. **No gettext formatting:** Argument values and code names must never pass through `_()`.
 
 ### 3.5 Partial-match style skips (item 4) in detail
 
@@ -159,12 +158,11 @@ Rules for constructing suggestions:
 6. **Case sensitivity:** Always supply `case_sensitive: true`.
 7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `apply_style` will restyle the entire host paragraph.
 8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `apply_style` already supports).
-9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Gating on recording status prevents emitting an untracked `apply_style` suggestion for a partial match during redline recording.
-10. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
-11. **Before/after insertions:** `before` imports at the start of the match's paragraph via `insert_html_at_cursor` (default `apply_styles=True`); `after` uses `insert_html_after_paragraph(apply_styles=True)`, which opens a fresh paragraph. Neither merges, so styles apply and no warning is needed.
+9. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
+10. **Before/after insertions:** `before` imports at the start of the match's paragraph via `insert_html_at_cursor` (default `apply_styles=True`); `after` uses `insert_html_after_paragraph(apply_styles=True)`, which opens a fresh paragraph. Neither merges, so styles apply and no warning is needed.
 
 **Tests for item 4:**
-- `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.
+- `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when style is unresolvable or text contains newlines.
 - `tests/writer/test_content_style_model_uno.py` (UNO replay): Execute the `suggested_call` against a live LibreOffice instance. Assert that the host paragraph receives the style and that **neighbouring paragraphs** retain their original styles.
 - Schema validation: run the test validator over emitted suggestions to ensure they match `apply_style` schema requirements.
 
@@ -181,7 +179,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer) — Done
 - `html_import_styles.attach_write_report` (`plugin/writer/html_import_styles.py`) emits `Diagnostic` dicts in `result["warnings"]` instead of writing singular `warning`.
 - `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` returns `STYLE_IGNORED_PARTIAL_MATCH`.
-- `suggested_call` for `apply_style` follows §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
+- `suggested_call` for `apply_style` follows §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count).
 - `attach_write_report` emits `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`) for dropped `data-lo-para` properties across `apply_document_content.py` and `page.py` header/footer writes.
 - Tests: `tests/writer/test_apply_document_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
 
@@ -210,7 +208,6 @@ Each phase is independently shippable, maintains green tests, and requires no te
 | Risk | Mitigation |
 |------|------------|
 | Suggestion succeeds but performs the wrong edit | Do not suggest replacements for search near-misses (preview text is truncated). For style skips, clearly notify that `apply_style` restyles the host paragraph; assert neighbouring paragraphs retain their styles in UNO replay tests. |
-| Inadvertent execution during change recording | Explicitly gate `suggested_call` on `not record_changes.is_recording_changes(model)`. `apply_style` is not tracked. |
 | Token bloat and large payloads | Never echo `content` HTML in suggestions. Filter arguments strictly against the target tool's parameter schema. `warnings` remains omitted when empty. |
 | LibrePy bundle breakage | Define all types and helpers in existing `plugin/framework/errors.py`, which is already bundled in `scripts/librepy_bundle_paths.py`. |
 | Broken external readers of top-level error fields | Preserve existing top-level fields (`replaced_count`, `closest_match`, `diff_at`, `oversized`) on hand-built error dicts. Add `"code"` directly without routing through `make_tool_error`. |

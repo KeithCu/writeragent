@@ -2825,3 +2825,123 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_insert_at_caret_is_one_undo_step_uno(ctx: Any, doc: Any) -> None:
+    """Caret inserts via units, text analytics, and html_import land in one undo step."""
+    from plugin.scripting.text_analytics import insert_text_analytics_result_into_doc
+    from plugin.scripting.units import insert_units_result_into_writer
+    from plugin.writer.html_import import insert_content_at_position
+
+    def _seed_and_caret(recording: bool) -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 2")
+        cur.setPropertyValue("ParaTopMargin", 700)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        cur.setPropertyValue("ParaTopMargin", 0)
+        text.insertString(cur, "Omega", False)
+        # Put view caret on the empty Heading 2 paragraph.
+        vc = doc.getCurrentController().getViewCursor()
+        vc.gotoStart(False)
+        vc.goDown(1, False)
+        doc.setPropertyValue("RecordChanges", recording)
+
+    um = doc.getUndoManager()
+    try:
+        for recording in (False, True):
+            for run in (
+                lambda: insert_units_result_into_writer(ctx, doc, {"status": "ok", "text": "$1\n2"}),
+                lambda: insert_text_analytics_result_into_doc(
+                    ctx, doc, {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
+                ),
+                lambda: insert_content_at_position(
+                    doc, ctx, '<p data-lo-style="Heading1">Styled</p>', "selection"
+                ),
+            ):
+                _seed_and_caret(recording)
+                before_titles = tuple(um.getAllUndoActionTitles() or ())
+                run()
+                after_titles = tuple(um.getAllUndoActionTitles() or ())
+                assert len(after_titles) == len(before_titles) + 1, (recording, after_titles, before_titles)
+                um.undo()
+                paras = _body_paragraphs(doc)
+                assert [p.getString() for p in paras] == ["Alpha", "", "Omega"]
+                assert [p.getPropertyValue("ParaStyleName") for p in paras] == ["Standard", "Heading 2", "Standard"]
+                assert paras[1].getPropertyValue("ParaTopMargin") == 700
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_failed_insert_restores_selection_uno(ctx: Any, doc: Any) -> None:
+    """A failed inline insert after clearing the selection rolls back the cleared text."""
+    from unittest.mock import patch
+
+    import pytest
+    from plugin.writer.html_import import insert_content_at_position
+
+    text = doc.getText()
+    text.setString("Keep this")
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoStart(False)
+    vc.gotoEnd(True)
+
+    with patch("plugin.writer.html_import._insert_inline", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError, match="boom"):
+            insert_content_at_position(doc, ctx, "New", "selection")
+
+    assert doc.getText().getString() == "Keep this"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """Unrecorded block inserts at an empty paragraph leave no stray empty paragraph."""
+    from plugin.writer.html_import import insert_content_at_position
+
+    doc.setPropertyValue("RecordChanges", False)
+
+    for html, expected_texts in (
+        ("<p>Body</p>", ["Alpha", "Body", "Omega"]),
+        ("<h1>H</h1><p>b</p>", ["Alpha", "H", "b", "Omega"]),
+        ("<p>a</p><table><tr><td>c</td></tr></table>", ["Alpha", "a", "Omega"]),
+    ):
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 2")
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Omega", False)
+
+        vc = doc.getCurrentController().getViewCursor()
+        vc.gotoStart(False)
+        vc.goDown(1, False)
+
+        insert_content_at_position(doc, ctx, html, "selection")
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == expected_texts, html
+        assert paras[-1].getPropertyValue("ParaStyleName") == "Standard"
+
+    # Blank Heading 1 document at position='beginning'
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+    insert_content_at_position(doc, ctx, '<p data-lo-style="Textbody">b</p>', "beginning")
+    paras = _body_paragraphs(doc)
+    assert [p.getString() for p in paras] == ["b"]

@@ -314,7 +314,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * Typing into a paragraph while recording accepts its `ParagraphFormat` redline.
   * A second style change on the same paragraph reuses the first redline and its author, so Reject undoes both changes.
   * Reject restores the direct paragraph properties listed in `_REVERT_PARA_PROPERTIES` (`styles.py`). Any other hand-set one (for example `DropCapCharStyleName`, `FillBitmapSizeX/Y`) is dropped by `lcl_RejectRedline`'s `ResetAttrs`; the result sets `style_unreviewed: true` and the warning names it. Import metadata (`ParaInteropGrabBag`, `ParRsid`, foreign XML attributes) is dropped without a warning.
-* **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table.
+* **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline
   at the end. Streamed collapse may show both marks under the INSERT author instead of split

@@ -67,7 +67,6 @@ from plugin.writer import (
     html_import,
     html_import_styles,
     image_placeholders,
-    record_changes,
     search as search_mod,
 )
 from plugin.writer.heading_links import (
@@ -318,7 +317,7 @@ def _partial_match_style_suggestion(
 ) -> SuggestedCall | None:
     """Build a suggested_call for apply_style after a partial-match style skip.
 
-    Follows the ten safety rules from section 3.5 of structured-edit-diagnostics-plan.md:
+    Follows the nine safety rules from section 3.5 of structured-edit-diagnostics-plan.md:
     1. Target new visible text (params.plain), not the original search string.
     2. Single paragraph check: params.plain must be a single paragraph (no newlines).
     3. Exactly one distinct non-empty data-lo-style token.
@@ -328,13 +327,9 @@ def _partial_match_style_suggestion(
     7. Host paragraph restyling notice: caller's warning message explicitly notifies
        that apply_style restyles the entire host paragraph.
     8. all_matches: True included if params.all_matches is True.
-    9. Not recording changes: redline recording skips apply_style because it is not tracked.
-    10. target != "selection": selection cursors do not reliably span the new text afterwards.
+    9. target != "selection": selection cursors do not reliably span the new text afterwards.
     """
     if params.target == "selection":
-        return None
-
-    if record_changes.is_recording_changes(doc):
         return None
 
     plain = params.plain

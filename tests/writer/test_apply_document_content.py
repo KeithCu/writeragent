@@ -640,31 +640,6 @@ def test_all_matches_reports_skip_count_in_warning():
     assert_valid_suggested_call(diag["suggested_call"])
 
 
-def test_suggested_call_omitted_when_recording_changes():
-    from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
-    ctx = _edit_ctx()
-    found = MagicMock()
-    found.getString.return_value = "old"
-
-    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
-         patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
-        cap_links.return_value.links = []
-        cap_links.return_value.preserve_url = None
-        res = ApplyDocumentContent().execute(
-            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
-        )
-    assert res["status"] == "ok"
-    assert "warnings" in res
-    diag = res["warnings"][0]
-    assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
-    assert "suggested_call" not in diag
-
-
 def test_suggested_call_omitted_when_style_unresolvable():
     from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -810,8 +785,7 @@ def test_partial_match_style_suggestion_happy_path_single():
 
     doc = _mock_doc_with_styles()
     params = _make_edit_params()
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))):
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))):
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 1)
 
     assert suggestion == {
@@ -832,8 +806,7 @@ def test_partial_match_style_suggestion_happy_path_all_matches():
 
     doc = _mock_doc_with_styles()
     params = _make_edit_params(all_matches=True)
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock(), MagicMock()]):
+    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock(), MagicMock()]):
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 2)
 
     assert suggestion == {
@@ -857,23 +830,13 @@ def test_partial_match_style_suggestion_gate_selection_target():
     assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
-def test_partial_match_style_suggestion_gate_recording_changes():
-    from plugin.writer.apply_document_content import _partial_match_style_suggestion
-
-    doc = _mock_doc_with_styles()
-    params = _make_edit_params()
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
-        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
-
-
 @pytest.mark.parametrize("plain", ["a\nb", "a\rb", ""])
 def test_partial_match_style_suggestion_gate_newlines_or_empty(plain: str):
     from plugin.writer.apply_document_content import _partial_match_style_suggestion
 
     doc = _mock_doc_with_styles()
     params = _make_edit_params(plain=plain)
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+    assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
 @pytest.mark.parametrize("token", [None, ""])
@@ -882,8 +845,7 @@ def test_partial_match_style_suggestion_gate_missing_style_token(token: str | No
 
     doc = _mock_doc_with_styles()
     params = _make_edit_params()
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        assert _partial_match_style_suggestion(doc, params, token, 1) is None
+    assert _partial_match_style_suggestion(doc, params, token, 1) is None
 
 
 def test_partial_match_style_suggestion_gate_unresolvable_style_fallback():
@@ -891,8 +853,7 @@ def test_partial_match_style_suggestion_gate_unresolvable_style_fallback():
 
     doc = _mock_doc_with_styles()
     params = _make_edit_params()
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        assert _partial_match_style_suggestion(doc, params, "UnresolvedStyle", 1) is None
+    assert _partial_match_style_suggestion(doc, params, "UnresolvedStyle", 1) is None
 
 
 def test_partial_match_style_suggestion_gate_style_family_unavailable():
@@ -901,8 +862,7 @@ def test_partial_match_style_suggestion_gate_style_family_unavailable():
     doc = MagicMock()
     doc.getStyleFamilies.side_effect = RuntimeError("family lookup failed")
     params = _make_edit_params()
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
+    assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
 @pytest.mark.parametrize("find_mock", [
@@ -918,8 +878,7 @@ def test_partial_match_style_suggestion_gate_match_count_mismatch(find_mock: Any
     side_effect = find_mock if isinstance(find_mock, Exception) else None
     return_value = None if side_effect is not None else find_mock
 
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_literal_ranges", return_value=(return_value, MatchMode(True, False)) if side_effect is None else None, side_effect=side_effect):
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(return_value, MatchMode(True, False)) if side_effect is None else None, side_effect=side_effect):
         assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 

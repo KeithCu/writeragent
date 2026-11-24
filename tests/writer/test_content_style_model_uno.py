@@ -802,3 +802,57 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     assert before is not None and before[0] == "Standard", pairs
     assert host is not None and host[0] == "Heading 2", pairs
     assert after is not None and after[0] == "Standard", pairs
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_partial_match_suggested_call_replay_recorded_uno(ctx, doc):
+    """Partial-match suggested_call works while recording and Reject All restores the document."""
+    from plugin.writer.styles import ApplyStyle
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Prefix TARGET Suffix", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    originals = _para_pairs(doc)
+    try:
+        doc.setPropertyValue("RecordChanges", True)
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx),
+            target="search",
+            old_content="TARGET",
+            content='<p data-lo-style="Heading2">Replacement</p>',
+        )
+        assert res.get("status") == "ok", res
+        diag = res["warnings"][0]
+        assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
+        assert "suggested_call" in diag
+        suggested = diag["suggested_call"]
+
+        style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
+        assert style_res.get("status") == "ok", style_res
+        assert style_res.get("tracked") is True
+
+        pairs = _para_pairs(doc)
+        host = next(((s, t) for s, t in pairs if "Replacement" in t), None)
+        assert host is not None and host[0] == "Heading 2", pairs
+
+        dispatch_helper = ctx.ServiceManager.createInstanceWithContext(
+            "com.sun.star.frame.DispatchHelper", ctx
+        )
+        dispatch_helper.executeDispatch(
+            doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
+        )
+        assert _para_pairs(doc) == originals
+        assert doc.getRedlines().getCount() == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
