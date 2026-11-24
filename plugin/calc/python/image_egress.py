@@ -19,7 +19,7 @@ import struct
 from typing import Any, NamedTuple, NoReturn
 
 from plugin.calc.calc_utils import get_cell_geometry, selection_top_left_cell, sheet_is_rtl
-from plugin.calc.python.formula_edit import match_py_alias
+from plugin.calc.python.formula_edit import match_py_alias, normalize_formula_string
 from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 from plugin.calc.python.undo import attach_to_newest_undo, undo_lock
 from plugin.framework.errors import best_effort, uno_read
@@ -342,7 +342,7 @@ def _holds_py_formula(sheet: Any, cell: tuple[int, int]) -> bool:
     if col < 0 or row < 0:
         return False
     formula = uno_read(lambda: sheet.getCellByPosition(col, row).getFormula(), "")
-    return isinstance(formula, str) and match_py_alias(formula, require_equals=True) is not None
+    return isinstance(formula, str) and match_py_alias(normalize_formula_string(formula), require_equals=True) is not None
 
 
 def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool:
@@ -420,13 +420,17 @@ def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_c
             taken.add(slot_idx)
 
 
-def _drop_plots_of_undone_formula(doc: Any, sheet: Any, cell: Any) -> None:
+def _drop_plots_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: Any) -> None:
     """Remove *cell*'s plots when Undo took its =PY formula away; runs after the Undo finished."""
+    # Proxies on a deleted sheet shift to the neighbouring sheet instead of raising,
+    # so check the DrawPage identity before reading the cell or removing shapes.
+    if sheet.DrawPage != draw_page:
+        return
     addr = cell.getCellAddress()
     if _holds_py_formula(sheet, (addr.Column, addr.Row)):
         return
     with undo_lock(doc, hide=False):
-        _drop_extra_plot_slots(sheet.DrawPage, _anchored_plot_slots(sheet, cell), 0)
+        _drop_extra_plot_slots(draw_page, _anchored_plot_slots(sheet, cell), 0)
 
 
 def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
@@ -904,7 +908,7 @@ def _insert_image_result_on_sheet_impl(
                     _drop_extra_plot_slots(draw_page, slots, image_count)
         if um is not None and shape is None:
             best_effort(
-                partial(attach_to_newest_undo, um, partial(_drop_plots_of_undone_formula, doc, sheet, target_cell)),
+                partial(attach_to_newest_undo, um, partial(_drop_plots_of_undone_formula, doc, sheet, target_cell, draw_page)),
                 "could not attach plot to the undo step",
             )
     except ImageEgressError:
