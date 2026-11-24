@@ -206,7 +206,11 @@ def format_specialized_domains_description(
 
 
 class InnerToolCall(NamedTuple):
-    """One tool call the inner smol agent made, in call order."""
+    """One tool call the inner smol agent made, in call order.
+
+    ``mutating`` is the tool kind (``detects_mutation()``), except that a call that
+    never ran is recorded False.
+    """
 
     name: str
     result: Any

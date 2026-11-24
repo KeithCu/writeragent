@@ -896,7 +896,7 @@ def test_writer_agent_late_failure_after_grammar_off_not_shown() -> None:
     assert not sink._status_bar.is_active()
 
 
-@pytest.mark.parametrize("changed_key", ["endpoint", "text_model"])
+@pytest.mark.parametrize("changed_key", ["endpoint", "text_model", "api_keys_by_endpoint"])
 def test_writer_agent_chat_model_or_endpoint_change_ends_failed_llm_bar(changed_key: str) -> None:
     from plugin.framework import config
     from plugin.framework.event_bus import get_event_bus
@@ -952,7 +952,7 @@ def test_writer_agent_chat_model_or_endpoint_change_keeps_failed_harper_bar() ->
         sink.failed("Grammar check", result="Harper crashed")
         assert factory.shown() is not None
 
-        bus.emit("config:changed", key="", keys=frozenset({"endpoint", "text_model"}))
+        bus.emit("config:changed", key="", keys=frozenset({"endpoint", "text_model", "api_keys_by_endpoint"}))
         assert factory.shown() is not None
         assert sink._status_bar.is_active()
 
