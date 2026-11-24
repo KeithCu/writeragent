@@ -11,6 +11,7 @@ These helpers carry no connection state, I/O, threads, or logging.
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 from typing import Any
 
@@ -143,15 +144,20 @@ def _bracket_ipv6_host(host: str) -> str:
     return f"[{host}]"
 
 
-def _invalid_url_error(url: str) -> NetworkError:
-    """``INVALID_URL`` for a URL that ``urlparse`` / ``urljoin`` reject.
+def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:
+    """``INVALID_URL`` for a URL that ``urlparse`` / ``urljoin`` reject or has a bad port.
 
-    Query strings stay out of the details. The same code as a bad port.
+    Userinfo, query strings and fragments stay out of the details, and opaque
+    path segments are redacted.
     """
-    shown = (url or "").split("?", 1)[0]
-    rest = shown.partition("://")[2].partition("/")[2]
-    shown = redact_secrets(shown, _request_path_secrets(rest))
-    return NetworkError("Invalid URL", code="INVALID_URL", details={"url": shown})
+    shown = re.split(r"[?#]", url or "", maxsplit=1)[0]
+    scheme, sep, rest = shown.partition("://")
+    if not sep:
+        scheme, rest = "", shown
+    # The URL did not parse, so a raw "/" may be part of the password. Keep only what follows the last "@".
+    rest = rest.rpartition("@")[2]
+    rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
+    return NetworkError(message, code="INVALID_URL", details={"url": f"{scheme}{sep}{rest}"})
 
 
 def _parse_url(url: str) -> urllib.parse.ParseResult:
@@ -164,8 +170,9 @@ def _parse_url(url: str) -> urllib.parse.ParseResult:
     """
     try:
         return urllib.parse.urlparse(url)
-    except ValueError as exc:
-        raise _invalid_url_error(url) from exc
+    except ValueError:
+        # ValueError text can quote the whole netloc, password included, and log.exception prints causes.
+        raise _invalid_url_error(url) from None
 
 
 def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
@@ -178,11 +185,10 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     """
     try:
         return parsed.port
-    except ValueError as exc:
-        host = parsed.hostname or ""
+    except ValueError:
+        host = _bracket_ipv6_host(parsed.hostname or "")
         scheme = parsed.scheme or "http"
-        path = _public_path(parsed.path or "/")
-        raise NetworkError("Invalid URL port", code="INVALID_URL", details={"url": f"{scheme}://{host}{path}"}) from exc
+        raise _invalid_url_error(f"{scheme}://{host}{parsed.path or '/'}", "Invalid URL port") from None
 
 
 def _origin_key(url: str) -> tuple[str, str, int]:
@@ -221,10 +227,10 @@ def apply_redirect(
     # invalid-URL contract as a bad port.
     try:
         joined = urllib.parse.urljoin(current_url, loc.replace(" ", "%20"))
-    except ValueError as exc:
+    except ValueError:
         # Relative Location: the bad brackets are on the current URL.
         blame = loc if "://" in loc else current_url
-        raise _invalid_url_error(blame) from exc
+        raise _invalid_url_error(blame) from None
     parsed = _parse_url(joined)
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
@@ -253,12 +259,20 @@ def public_target(url_or_path: str) -> str:
         path = raw.split("?", 1)[0]
         return _public_path(path or "/")
     parsed = _parse_url(raw)
-    host = parsed.hostname or ""
+    host = _bracket_ipv6_host(parsed.hostname or "")
     port_num = _explicit_port(parsed)
     port = f":{port_num}" if port_num else ""
     path = _public_path(parsed.path or "/")
     scheme = parsed.scheme or "http"
     return f"{scheme}://{host}{port}{path}"
+
+
+def log_target(url_or_path: str) -> str:
+    """``public_target`` for log lines and error text. A URL that cannot be parsed gives its sanitized spelling instead of raising."""
+    try:
+        return public_target(url_or_path)
+    except NetworkError as exc:
+        return exc.details["url"]
 
 
 

@@ -189,3 +189,61 @@ def test_invalid_url_details_redact_path_secret(bad_url):
     assert exc_info.value.code == "INVALID_URL"
     assert "123e4567-e89b-12d3-a456-426614174000" not in exc_info.value.details["url"]
     assert "<redacted>" in exc_info.value.details["url"]
+
+
+@pytest.mark.parametrize(
+    ("bad_url", "secrets"),
+    [
+        ("https://user:hunter2@[::1/v1", ("hunter2",)),
+        ("https://us[er:hunter2/x9@host/v1", ("hunter2", "x9")),
+        ("https://user:hunter2/x9@host/v1", ("hunter2", "x9")),
+        ("https://user:hunter2@ho\u2100st/x", ("hunter2",)),
+        ("https://[::1#token=hunter2", ("hunter2",)),
+    ],
+)
+def test_invalid_url_details_strip_userinfo(bad_url, secrets):
+    from plugin.framework.client.http_security import log_target, origin_and_path
+    from plugin.framework.errors import NetworkError
+
+    with pytest.raises(NetworkError) as exc_info:
+        origin_and_path(bad_url)
+    assert exc_info.value.code == "INVALID_URL"
+    assert exc_info.value.__suppress_context__ is True
+    shown = log_target(bad_url)
+    for secret in secrets:
+        assert secret not in exc_info.value.details["url"]
+        assert secret not in shown
+
+
+def test_invalid_url_strips_userinfo_without_scheme():
+    from plugin.framework.client.http_security import origin_and_path
+    from plugin.framework.errors import NetworkError
+
+    with pytest.raises(NetworkError) as exc_info:
+        origin_and_path("//user:hunter2@[::1/x")
+    assert exc_info.value.code == "INVALID_URL"
+    assert "hunter2" not in exc_info.value.details["url"]
+
+
+def test_invalid_url_traceback_hides_userinfo():
+    import traceback
+    from plugin.framework.client.http_security import origin_and_path
+    from plugin.framework.errors import NetworkError
+
+    bad_url = "https://user:hunter2" + "@ho\u2100st/x"
+    with pytest.raises(NetworkError) as exc_info:
+        origin_and_path(bad_url)
+    tb = "".join(traceback.format_exception(exc_info.value))
+    assert "hunter2" not in tb
+
+
+def test_log_target():
+    from plugin.framework.client.http_security import log_target, public_target
+
+    valid = "https://u:pw@h.example/v1/models?k=secret"
+    assert log_target(valid) == public_target(valid)
+    assert (
+        log_target("http://u:pw@h.example:1a34/s/123e4567-e89b-12d3-a456-426614174000/v1")
+        == "http://h.example/s/<redacted>/v1"
+    )
+    assert log_target("http://[::1]:1234/v1") == "http://[::1]:1234/v1"
