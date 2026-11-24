@@ -882,6 +882,32 @@ def test_apply_style_single_target_is_one_undo_step_uno(ctx, doc):
 
 
 @native_test
+@with_native_doc("writer")
+def test_style_format_text_para_adjust_start_uno(ctx, doc):
+    from plugin.tests.testing_utils import libreoffice_version
+
+    text = doc.getText()
+    text.setString("Alignment check")
+    cur = text.createTextCursor()
+    cur.gotoRange(text.getStart(), False)
+    cur.gotoRange(text.getEnd(), True)
+    cur.setPropertyValue("ParaAdjust", 3)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = StyleFormatText().execute(tool_ctx, properties={"ParaAdjust": "start"}, target="full_document")
+
+    para = text.createEnumeration().nextElement()
+    effective = para.getPropertyValue("ParaAdjust")
+    assert res["status"] == "ok", res
+    if libreoffice_version(ctx) >= (26, 2):
+        assert res["after"]["ParaAdjust"] == "start"
+        assert effective == 5
+    else:
+        assert res["after"]["ParaAdjust"] == "left"
+        assert effective == 0
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_tab_stop_words_reach_the_document_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")

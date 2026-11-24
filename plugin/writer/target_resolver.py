@@ -133,8 +133,10 @@ def insert_at_target(
     `target_params` declares), then run one undo step that deletes the search match
     (when replace_match is True and target == "search") and calls insert(cursor).
 
-    insert receives the resolved cursor, already collapsed at the insert point when the
-    match was deleted; it returns None on success or an error dict to abort (the step is
+    insert receives the resolved cursor: collapsed at the insert point when the match was
+    deleted untracked, or still spanning the struck match when the deletion was recorded;
+    in both cases content attaches at the cursor's start. insert returns None on success or
+    an error dict to abort (the step is
     rolled back and that dict is returned unchanged). Returns None on success, else the
     tool error: the resolver's message for a bad target or a search miss;
     UNDO_UNAVAILABLE "Cannot insert {what} as one undo step (no usable undo context);
@@ -163,9 +165,10 @@ def insert_at_target(
             # would leave the document with missing text.
             cursor.setString("")
         # Upstream LibreOffice SwXText::insertTextContent (sw/source/core/unocore/unotext.cxx)
-        # attaches content with bAbsorb=False at xRange->getStart(). When the match is deleted,
-        # the cursor is already collapsed at the start of the former match. When replace_match
-        # is False, the cursor still spans the match and the new content attaches at its start.
+        # attaches content with bAbsorb=False at xRange->getStart(). When the match is deleted
+        # untracked, the cursor is collapsed at the insert point; when the deletion is recorded
+        # (or replace_match is False), the cursor still spans the match and the new content
+        # attaches at its start.
         return insert(cursor)
 
     def commit(session: Any | None = None) -> dict[str, Any] | None:
