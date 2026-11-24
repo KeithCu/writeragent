@@ -483,6 +483,7 @@ class ApplyDocumentContent(ToolBase):
       when ``hyperlink_url`` is passed for that one link. ``content`` may equal
       ``old_content`` when only the URL is stale. A repeated title is left
       unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
+      ``hyperlink_url_after`` is empty when the replace left no link.
       To replace a range between landmarks without copying the middle, use
       target='search' with start_anchor and end_anchor instead of old_content.
       The range runs from the start of start_anchor through the end of the first
