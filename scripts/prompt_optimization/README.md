@@ -57,7 +57,7 @@ Override model for optimize:
 
 - `python run_optimize.py --model google/gemini-3.5-flash-lite` / `--api-base ...` / `--api-key ...`
 
-**Optimize students:** `--student llm` (default) wraps the same `llm_chat_eval` tool loop as `run_eval.py`. `--student react-mock` is the old DSPy ReAct + `tools_lo` path (comparison only; do not paste that JSON into `prompts.py`).
+**Optimize student:** `run_optimize.py` wraps the same `llm_chat_eval` tool loop as `run_eval.py`.
 
 ## Run
 
@@ -97,7 +97,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `sort_range`, `write_range`, `write_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `sort_range`, `write_range`, `write_range.values`, `full_prompt` (opaque whole-prompt fallback).
 
 Pick a different model:
 
@@ -106,7 +106,6 @@ python run_optimize.py --model google/gemini-3.5-flash-lite
 python run_optimize.py -m openai/gpt-oss-120b:nitro -k sk-...
 ```
 
-- **`--student llm|react-mock`**: live eval loop (default) vs DSPy ReAct mocks.
 - **`--slice NAME`**: fragment MIPROv2 rewrites (`calc_core` default; Writer HTML contract is `apply_html`).
 - **`-e` / `--example`**: comma-separated `task_id` filter (same idea as `run_eval.py`).
 - **`--judge`** / **`-J`**: Judge model for grading (default `openai/gpt-oss-120b:nitro`). Same dataset and `gold_standards.json` as run_eval_multi. Golds are hand-written from the rubrics; `--generate-golds` is an optional teacher merge, not a ranking prerequisite.
@@ -176,7 +175,7 @@ OpenRouter-only `--backend string` still cannot run the flag alone. CI without s
 
 `-j N` on `run_eval.py` is the string-pool width above. Scripted green runs use `-j 1`.
 
-DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees. Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`) and now accepts the same **tool-count** / **schema-density** knobs as `run_eval.py` (see below). MIPROv2 still cannot search those structural knobs — run a dropper sweep on the live harness instead.
+`run_optimize.py` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`) and accepts the same **tool-count** / **schema-density** knobs as `run_eval.py` (see below). MIPROv2 still cannot search those structural knobs — run a dropper sweep on the live harness instead.
 
 ## Tool-count and schema-density sweeps (live `--student llm`)
 
@@ -264,7 +263,7 @@ python merge_benchmark_results.py \
 - **Dataset** (`dataset.py`): 20 fixed tasks (12 Writer + Draw flowchart/org-chart/solar-sld + 2 Calc + 2 `=PY` dest + `python_shapes_flag` on LO) with assigned `category` (structural or creative). `--backend string` runs the 17 non-`backend=lo` rows.
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces. Oracles score only the first rendering of an LO Writer export.
 - **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking). `gold_standards.generated.json` and `gold_generation_details.json` are raw `--generate-golds` records; nothing loads them, and a teacher gold can fail its oracle (the `bulk_cleanup` teacher kept `"Quoted  text"`). Only `gold_standards.json` is loaded, and `test_golds_pass_oracles` gates it.
-- **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
+- **Program**: `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`).
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
