@@ -285,9 +285,9 @@ class ToolBase(_ToolErrorMixin, ABC):
                      ``"specialized_control"`` (hidden from default lists via
                      ``exclude_tiers``). A tool reached only by a delegate
                      domain, a sidebar mode, or a ``wa.*`` script (for example
-                     ``web_research``) also uses ``"specialized"``; it is still
-                     callable by name, and ``mcp.tool_exposure_mode=direct_flat``
-                     still lists it. Sidebar-only tools use ``"chat"``
+                     ``web_research``) uses ``"unlisted"``, which is on no chat
+                     or MCP tool list, cannot be called over MCP, and is run by
+                     name by host code. Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,
@@ -520,8 +520,8 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     return bool(getattr(t, "is_app_specialized_tool", False))
 
 
-# Hidden from default chat/MCP tool lists; exposed via delegate_to_subagent.
-_DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
+# Hidden from default chat/MCP tool lists; exposed via delegate_to_subagent or host-only calls.
+_DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp", "unlisted"})
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -734,8 +734,9 @@ class ToolRegistry:
                 no name filter. An empty frozenset matches nothing.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
-                ``specialized``, ``specialized_control``, and ``mcp`` so nested
-                Writer tools and MCP-only helpers stay off the main tool list.
+                ``specialized``, ``specialized_control``, ``mcp``, and
+                ``unlisted`` so nested Writer tools, MCP-only helpers, and
+                host-only tools stay off the main tool list.
                 Pass ``()`` or ``frozenset()`` to include all tiers.
             active_domain: If provided, dynamically includes specialized tools for this domain,
                 the workflow_finished tool, and names listed in

@@ -28,7 +28,7 @@ The original `smolagents` web tools (`DuckDuckGoSearchTool` and `VisitWebpageToo
 To ensure the sub-agent uses the exact same model, endpoint, and API keys as the rest of WriterAgent, we created `WriterAgentSmolModel` (in [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)). This class extends the `smolagents` base `Model` class but overrides `generate()` to proxy all requests directly to WriterAgent's existing `LlmClient`.
 
 ### The `web_research` Tool
-In [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.py), `WebResearchTool` has tier `"specialized"`, so the main chat and MCP (`delegate` and `direct_discovery` modes) reach it only through `delegate_to_subagent(domain="web_research")`. The sidebar Web Research mode and `wa.web.research` call it by name, and MCP `direct_flat` still lists it. It accepts a research `query` and optional history. When invoked:
+In [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.py), `WebResearchTool` has tier `"unlisted"`, so the main chat reaches it only through `delegate_to_subagent(domain="web_research")`. The sidebar Web Research mode and `wa.web.research` call it by name, and MCP clients can neither list nor call it. It accepts a research `query` and optional history. When invoked:
 1. It builds a `WriterAgentSmolModel` via [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py).
 2. It initializes a `ToolCallingAgent` equipped with the zero-dependency DuckDuckGo and Webpage Visitor tools.
 3. It kicks off the `smolagents` run loop, which autonomously researches the query until it calls the `final_answer` tool or reaches its step limit (`chatbot.max_tool_rounds`).

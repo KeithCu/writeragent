@@ -277,7 +277,7 @@ _DELEGATE_RESULT_LINE = (
 _WRITER_DELEGATE_DESCRIPTION = (
     "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
     f"{_DELEGATE_RESULT_LINE} "
-    "For document_research and web_research, describe what to research in task (topics, sections, depth). "
+    "For the research domains, describe what to research in task (topics, sections, depth). "
     f"{PYTHON_ROUTING_HINT}"
 )
 
@@ -332,7 +332,7 @@ class DelegateToSubagent(ToolBase):
         The enum is read from the catalog per call, so it holds every domain whose base class is
         imported by then. No ctx or services are passed: domains that cannot run yet (no venv, no MCP
         server) stay valid here and are hidden by the schema filters. for_discovery stays False:
-        True would put Calc-hidden domains back and drop the chat-only ones (mcp).
+        True would put Calc-hidden domains back and drop the chat-only ones (mcp, web_research).
         """
         label = self.agent_label_for(doc_type=doc_type) if doc_type else None
         params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
@@ -433,6 +433,10 @@ class DelegateToSubagent(ToolBase):
         no_tools = f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
         if not isinstance(domain, str):
             return self._tool_error(no_tools)
+
+        # Chat-tier domains are off every MCP list; refuse a client that calls one anyway.
+        if ctx.caller == "mcp" and domain in chat_tier_domains():
+            return self._tool_error(f"Domain '{domain}' runs only in the sidebar chat.", code="DOMAIN_CHAT_ONLY")
 
         # The web_research, vision and embeddings imports below stay lazy: each pulls a
         # heavy or optional stack (web cache, the OCR venv probe, the indexer's

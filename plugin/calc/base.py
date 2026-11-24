@@ -84,6 +84,8 @@ class ToolCalcVisionBase(ToolCalcSpecialBase):
 
 
 class ToolCalcWebResearchBase(ToolCalcSpecialBase):
+    # Sidebar chat only; MCP clients never see this domain.
+    tier: str = "chat"
     specialized_domain: ClassVar[str | None] = "web_research"
     specialized_domain_description: ClassVar[str | None] = DELEGATION_PUBLIC_WEB_HINT
 

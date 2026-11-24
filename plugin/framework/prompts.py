@@ -544,13 +544,23 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
 #
 # The sort and header lines keep distinct shapes so small models do not merge them; has_header itself is taught on sort_range, which only the ranges sub-agent calls. Fill-down is taught on write_range's values parameter.
-CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
+_CALC_FILE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
-- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
-SORT:
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required)."""
+
+_CALC_SORT_DIRECTIVES: str = f"""SORT:
 To reorder rows, call {DELEGATE_SUBAGENT_TOOL}(domain="ranges"); do not rewrite the values yourself.
 Say in task whether row 1 holds labels, so they stay on top."""
+
+CALC_CORE_DIRECTIVES: str = (
+    f"{_CALC_FILE_DIRECTIVES}\n"
+    f'When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").\n'
+    f"{_CALC_SORT_DIRECTIVES}"
+)
+
+# Manual topics are also served to MCP clients, which have no web_research domain;
+# the sidebar reads the web line from CALC_CORE_DIRECTIVES in its system prompt.
+CALC_MANUAL_DIRECTIVES: str = f"{_CALC_FILE_DIRECTIVES}\n{_CALC_SORT_DIRECTIVES}"
 
 
 # Order and judgement only; the injected sheet snapshot covers size/headers. Read caps live on read_range (description and truncated hint), fill-down on write_range's values parameter, =PY placement on write_range's description, and populate-after-create on the sheets hop's instruction field.

@@ -257,7 +257,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 
 ### What the MCP host actually sees
 
-`tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"` or `tier="specialized_control"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
+`tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"`, `tier="specialized_control"`, or `tier="unlisted"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
 - Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
 - Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type, and the tool description lists only the target document type's topics when known; only Writer's `manual_read` description adds the review-modes/search/images line; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
@@ -278,23 +278,23 @@ the wrong one.
 
 #### Tool counts by surface
 
-Registry totals at a typical build: **228** registered tools (core 41, specialized 174, specialized_control 6, mcp 5, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`, `document_open`, `document_save`, and `document_export`.
+Registry totals at a typical build: **240** registered tools (core 39, specialized 187, specialized_control 6, mcp 5, chat 2, unlisted 1). Default sidebar listing excludes `specialized`, `specialized_control`, `mcp`, and `unlisted` tiers; MCP **`delegate`** mode excludes `specialized`, `specialized_control`, `chat`, and `unlisted`, and adds MCP helpers such as `document_list_open`, `document_open`, `document_save`, and `document_export`.
 
 | App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
 |-----|--------------|--------------------------------|-------------------------------------|
-| Writer | 16 | 18 | 133 (132) |
-| Calc | 17 | 19 | 98 (97) |
-| Draw | 24 | 26 | 86 (85) |
-| Impress | 24 | 26 | 86 (85) |
+| Writer | 16 | 18 | 146 (145) |
+| Calc | 17 | 19 | 97 (96) |
+| Draw | 24 | 26 | 85 (84) |
+| Impress | 24 | 26 | 85 (84) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`, `document_open`, `document_save`, and `document_export`. `web_research` is reached through the delegate domain, and `direct_flat` still lists it. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` and `web_research` are omitted from the delegate enum and `tool_find`), plus `document_list_open`, `document_open`, `document_save`, and `document_export`. `web_research` is tier `unlisted` and its delegate domain is chat-tier, so it is hidden from MCP in all modes (calling either returns an error). Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **16** tools | No `document_list_open`/`document_open`/`document_save`/`document_export`; `image_get` only if the selected text model is vision-capable |
-| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **18** tools | Adds `document_list_open`, `document_open`, `document_save`, `document_export`, `image_get`; every schema also gets optional `document_url` |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, `mcp`, **and** `unlisted` | **16** tools | No `document_list_open`/`document_open`/`document_save`/`document_export`; `image_get` only if the selected text model is vision-capable |
+| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes `specialized`, `specialized_control`, `chat`, and `unlisted` | **18** tools | Adds `document_list_open`, `document_open`, `document_save`, `document_export`, `image_get`; every schema also gets optional `document_url` |
 
 **Document file tools:** `document_open`, `document_save`, and `document_export` (`plugin/doc/document_file_tools.py`) are `tier="mcp"` helpers—exposed on MCP and reachable from Python scripts as `wa.document.open`, `wa.document.save`, and `wa.document.export`, but not offered to the sidebar chat model—that pick LibreOffice export filters from a per-document-type extension table rather than accepting a raw filter name (passing a filter from another LibreOffice module crashes `soffice`). `document_open` checks `resolve_document_by_url` first and returns `already_open: true` without reloading, falls back to `_default` (reusing an unmodified empty untitled window), and supports `as_template=true` for an untitled copy. HTML files are loaded with `HTML (StarWriter)` so they open as Writer documents rather than Writer/Web. Unsupported document types (such as master documents, formulas, and databases) are rejected with `UNSUPPORTED_DOCUMENT` before loading, or if already open as an unsupported type. `document_save` saves in place when `path` is omitted or switches the open document to the new file via `storeAsURL` when `path` is given (overwriting existing files without prompting; PDF/PNG/SVG are export-only), and returns a `warning` when the resulting format is plain text, CSV, or HTML. `document_save` refuses multi-sheet saves to single-sheet formats (`CSV`, `DIF`, `SYLK`, `dBase`) with `SHEET_REQUIRED` rather than silently dropping sheets or hitting LibreOffice's active-sheet modal, and has no `sheet` parameter because LibreOffice's sheet-filter option writes `<name>-<sheet>.csv`, leaves the requested URL uncreated, and leaves the open document attached to that missing URL (so the next `store()` writes an empty file). `document_export` writes a copy via `storeToURL` while keeping the open document's current file and format; for `.csv` it accepts an optional `sheet` name (required when the workbook has more than one sheet, rejected for other formats with `SHEET_NOT_SUPPORTED`), exports via a temp folder so the output lands at the exact requested `path`, and, when `sheet` is given, refuses to overwrite a path open in LibreOffice (`PATH_IS_OPEN`).
 
@@ -330,34 +330,30 @@ If a client ignores `initialize.instructions` and only binds tools from `tools/l
 
 With `delegate_to_subagent`, WriterAgent does **not** “switch tools” on the MCP host. Instead WriterAgent:
 
-1. Resolves the `domain` enum (`styles`, `page`, `charts`, `shapes`, `web_research`, …).
+1. Resolves the `domain` enum (`styles`, `page`, `charts`, `shapes`, …).
 2. Collects all tools registered for that domain.
 3. Runs a **nested** smolagents `ToolCallingAgent` ([`build_toolcalling_agent`](../plugin/chatbot/smol_agent.py) + [`SmolAgentExecutor`](../plugin/chatbot/smol_agent.py)) on the LibreOffice main thread.
 4. Returns **one JSON tool result** (usually a summary string) to the MCP host.
 
 The outer MCP model never holds the specialized tool schemas in its context; it only sees the delegate call and the final payload. That is intentional: smaller host prompts, fewer direct UNO foot-guns, and the same pattern as the in-app sidebar when using delegation.
 
-**Special case `domain="web_research"`:** the gateway forwards to [`WebResearchTool`](../plugin/chatbot/web_research.py) instead of the generic specialized sub-agent, but the idea is the same: an **internal** ReAct loop with `DuckDuckGoSearchTool` / `VisitWebpageTool`, not MCP-exposed search tools.
+**Sidebar-only special case `domain="web_research"`:** in sidebar chat, the gateway forwards to [`WebResearchTool`](../plugin/chatbot/web_research.py) instead of the generic specialized sub-agent: an **internal** ReAct loop with `DuckDuckGoSearchTool` / `VisitWebpageTool`, not MCP-exposed search tools. MCP callers do not see `web_research` and receive `DOMAIN_CHAT_ONLY` if they call it anyway.
 
 ### LLM endpoint: the sub-agent still needs your API config
 
-Delegated work—including **web research**—does **not** use the MCP host’s LLM. It uses WriterAgent’s configured chat endpoint via [`get_api_config`](../plugin/framework/config.py) and [`WriterAgentSmolModel`](../plugin/chatbot/smol_agent.py) inside the LibreOffice process that is handling the MCP request.
+Delegated work does **not** use the MCP host’s LLM. It uses WriterAgent’s configured chat endpoint via [`get_api_config`](../plugin/framework/config.py) and [`WriterAgentSmolModel`](../plugin/chatbot/smol_agent.py) inside the LibreOffice process that is handling the MCP request.
 
 Implications for integrators:
 
 - **Configure endpoint, model, and API keys in WriterAgent Settings** (same as sidebar chat). If chat cannot reach OpenRouter/Ollama/LM Studio, delegated MCP calls will fail too.
 - The MCP host’s model (e.g. Claude in Cursor) only orchestrates **which** WriterAgent tools to call; it does not power the inner research/formatting loop unless you do that work on the host side yourself.
-- **Web research checkbox** in the sidebar is a separate UX entry point to the same [`WebResearchTool`](../plugin/chatbot/web_research.py); MCP hosts use `delegate` + `domain: "web_research"` instead.
+- **Web research checkbox** in the sidebar is a separate UX entry point to [`WebResearchTool`](../plugin/chatbot/web_research.py) (sidebar-only; not exposed over MCP).
 
 ### Recommended integration patterns
 
 1. **Document-centric (default):** Host uses MCP for read/write/search on the open LO document; uses `delegate` when a task needs specialized UNO APIs (styles, pages, charts, …). Write a **detailed `task` string**—the inner agent does not see the host’s full conversation unless you paste context into `task` or related tool args.
 
-2. **Web research:** Either:
-   - `tools/call` → `delegate_to_subagent` with `domain: "web_research"` and a clear research `task`, then `apply_content` with the returned text; or
-   - Perform web search on the **host** (Cursor web, etc.) and use WriterAgent MCP only for document updates.
-
-   Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
+2. **Web research:** Do web search on the **host** (Cursor web, etc.) and use WriterAgent MCP for document updates.
 
 3. **Do not assume** `tools/list` is the full WriterAgent surface. If you need direct `style_list`-style control from the host, that requires a **product change** (expose specialized tiers on MCP), not just a different client config.
 
@@ -370,7 +366,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 | **Global semaphore** | Backpressure tools (`is_async()` is not exactly `True`) | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
 | **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
 
-Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_subagent`, `image_generate`, `web_research`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. The `long_running` attribute does not select this path. A positive `timeout` is checked later in `_prepare_mcp_execution`; it does not choose the path. They still take the per-document gate when they mutate. Direct `web_research` and read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.detects_mutation()`](../plugin/framework/tool.py) / [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
+Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_subagent`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. The `long_running` attribute does not select this path. A positive `timeout` is checked later in `_prepare_mcp_execution`; it does not choose the path. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"`) opt out via [`ToolBase.detects_mutation()`](../plugin/framework/tool.py) / [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard. A fast mutating call releases the global semaphore before that gate wait and takes it again only to run the tool body, so one document's slow edit does not turn other documents' fast calls into HTTP 429. A per-document gate timeout returns `SERVER_BUSY` (HTTP 429) with a generic client message; the document key appears only in the local log.
 
@@ -431,14 +427,14 @@ An experimental config, `mcp.tool_exposure_mode` (default `delegate`), controls 
 | Mode | `tools/list` | For |
 |------|--------------|-----|
 | `delegate` *(default)* | core + MCP helpers (Writer **16** / Calc **17** / Draw **24** / Impress **24** in delegate mode); specialized reached via the `delegate_*` gateway | unchanged behavior |
-| `direct_flat` | core **+ all MCP-reachable specialized** (doc-type filtered — Writer **130** (129 without vision), Calc **95** (94), Draw **83** (82), Impress **83** (82); sidebar-only flows excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
+| `direct_flat` | core **+ all MCP-reachable specialized** (doc-type filtered — Writer **146** (145 without vision), Calc **97** (96), Draw **85** (84), Impress **85** (84); sidebar-only flows and `unlisted` tools excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
 | `direct_discovery` | core **+ a `tool_find` search tool** | any client (engine-agnostic) |
 
 In both direct modes the specialized tools are invoked **by name** — which already works, since `tools/call` routes through the registry, not the advertised list.
 
 The direct modes **add** direct access; they don't remove delegation. The `delegate_to_subagent` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
 
-`tool_find(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `tool_find()` → pick a domain → `tool_find(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `tool_find` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research and Draw/Impress `ppt-master` return an empty tool list with a `note` (`direct_flat` removes those tools from its own list).
+`tool_find(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway (hiding chat-tier domains such as `mcp` and `web_research`), then lists every tool schema in a chosen domain. Workflow: `tool_find()` → pick a domain → `tool_find(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `tool_find` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research and Draw/Impress `ppt-master` return an empty tool list with a `note` (`direct_flat` removes those tools from its own list). Calling a chat-tier domain through `delegate_to_subagent` over MCP anyway returns `DOMAIN_CHAT_ONLY`.
 
 `tool_find(domain=…)` returns `status`, `domain`, `available_domains`, `tools`, optional `domain_guidance` (keyed by the chosen domain), and an optional `note` (no document open, or a sidebar-only domain). An unknown or misspelled domain returns `status: "error"`, `code: "UNKNOWN_DOMAIN"`, plus `available_domains`.
 

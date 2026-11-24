@@ -222,7 +222,7 @@ flowchart LR
 
 **File:** [`plugin/framework/tool.py`](../../plugin/framework/tool.py)
 
-- Constants: `_DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control"})`.
+- Constants: `_DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp", "unlisted"})`.
 - `get_tools(..., exclude_tiers=...)`:
   - If `exclude_tiers` is omitted (sentinel), those tiers are **filtered out**.
   - Pass `exclude_tiers=()` (empty) to **include all** tiers (used when building the sub-agent tool list).
@@ -233,8 +233,8 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 
 **Call sites (default listing):**
 
-- Chat: [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) — `get_schemas("openai", …)` (no `exclude_tiers` → default exclusion of `specialized`, `specialized_control`, **and** `mcp`).
-- MCP: [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) — `get_schemas("mcp", …, exclude_tiers=…)` excludes `specialized` (+ `specialized_control` in `delegate`/`direct_discovery`); **does not** exclude `tier="mcp"` helpers (`document_list_open`; `tool_find` is name-gated to `direct_discovery`). See [Sidebar chat core vs MCP core](../mcp-protocol.md#sidebar-chat-core-vs-mcp-core-writer).
+- Chat: [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) — `get_schemas("openai", …)` (no `exclude_tiers` → default exclusion of `specialized`, `specialized_control`, `mcp`, **and** `unlisted`).
+- MCP: [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) — `get_schemas("mcp", …, exclude_tiers=…)` excludes `specialized`, `specialized_control`, `chat`, and `unlisted` (`specialized` is included in `direct_flat`); **does not** exclude `tier="mcp"` helpers (`document_list_open`; `tool_find` is name-gated to `direct_discovery`). See [Sidebar chat core vs MCP core](../mcp-protocol.md#sidebar-chat-core-vs-mcp-core-writer).
 
 **Execution:** `ToolRegistry.execute` is unchanged; any registered name can still be invoked if the caller passes it.
 

@@ -34,8 +34,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from plugin.framework.prompts import (
-    CALC_CORE_DIRECTIVES,
     CALC_FORMULA_SYNTAX_TEMPLATE,
+    CALC_MANUAL_DIRECTIVES,
     CALC_WORKFLOW,
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     DRAW_CORE_DIRECTIVES,
@@ -145,7 +145,7 @@ _CALC_TOPICS: tuple[_Topic, ...] = (
         _CALC_FORMULA_SYNTAX_MANUAL,
         "=PY() in Calc formulas",
     ),
-    _Topic("directives", CALC_CORE_DIRECTIVES, "Calc delegation and file/sheet data rules"),
+    _Topic("directives", CALC_MANUAL_DIRECTIVES, "Calc delegation and file/sheet data rules"),
     _CONCURRENCY_TOPIC,
 )
 

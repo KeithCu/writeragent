@@ -113,11 +113,13 @@ def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
         return None
 
 
-# Chat keeps specialized + mcp off the default list (_DEFAULT_EXCLUDE_TIERS in tool.py).
-# MCP advertise policy is forked: keep mcp-tier tools; hide specialized except in direct_flat.
-# tier="chat" (peer_send_work / peer_send_result) stays off both MCP lists.
-MCP_DELEGATE_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "chat"})
-MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat"})
+# Chat hides specialized, mcp, and unlisted (_DEFAULT_EXCLUDE_TIERS in tool.py).
+# MCP differs on purpose: it keeps mcp-tier tools, and lists specialized ones only in direct_flat.
+# Tiers MCP never lists or calls: control tools, sidebar-chat tools (peer_send_*), and
+# unlisted tools that host code runs by name (web_research).
+MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat", "unlisted"})
+# delegate mode and the direct_discovery list also hide specialized tools.
+MCP_DELEGATE_EXCLUDE_TIERS = MCP_DIRECT_FLAT_EXCLUDE_TIERS | {"specialized"}
 
 
 def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:

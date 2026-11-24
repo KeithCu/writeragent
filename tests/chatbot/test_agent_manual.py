@@ -10,6 +10,8 @@ ARE the manual now. The sidebar template assembles them directly; agent_manual m
 for the MCP channel (manual_read) and the agent-backend path, adding the MCP-only extras; and the
 sections are per document type so a Calc session never reads Writer advice. No LibreOffice required."""
 
+import pytest
+
 from plugin.chatbot.agent_manual import (
     _WRITER_TOPICS,
     full_manual,
@@ -99,7 +101,7 @@ def test_calc_topics_use_calc_manual_not_writer():
     formula = get_section("formula-syntax", "calc")
     assert formula == c.CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
     assert "{venv_policy}" not in formula
-    assert get_section("directives", "calc") is c.CALC_CORE_DIRECTIVES
+    assert get_section("directives", "calc") is c.CALC_MANUAL_DIRECTIVES
     assert normalize_topic("crop", "calc") is None
 
 
@@ -350,5 +352,10 @@ def test_get_guidance_description_lists_only_the_document_types_topics():
     all_desc = tool.get_description(None)
     for dt in ("writer", "calc", "draw"):
         assert topic_list_text(dt) in all_desc
+
+
+@pytest.mark.parametrize("doc_type", ["writer", "calc", "draw", "generic"])
+def test_full_manual_excludes_web_research(doc_type: str) -> None:
+    assert "web_research" not in full_manual(doc_type)
 
 

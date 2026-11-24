@@ -1458,31 +1458,38 @@ def test_web_research_uses_ctx_approval_callback_as_given():
 
 @pytest.mark.parametrize("doc_type", ["writer", "calc", "draw", "impress"])
 def test_web_research_is_off_main_chat_and_mcp_lists(doc_type: str) -> None:
-    """WebResearchTool must stay off main chat and default MCP lists.
+    """WebResearchTool must stay off main chat and all MCP lists.
 
     Re-basing the class onto ToolBase in cbb0f07b6 silently reset the tier
-    it had inherited to ``core``; setting ``tier = "specialized"`` on the
-    class prevents a future base change from putting it back on the main list.
+    it had inherited to ``core``; setting ``tier = "unlisted"`` on the
+    class prevents a future base change from putting it back on any chat or
+    MCP list.
     """
     from plugin.app import get_tools
+    from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.mcp_server.mcp_protocol import _exclude_tiers
 
     reg = get_tools()
+    services = uno_services_for_doc_type_label(doc_type)
     chat_names = {s["function"]["name"] for s in reg.get_schemas("openai", doc_type=doc_type)}
     assert "web_research" not in chat_names
     assert "delegate_to_subagent" in chat_names
 
-    for mode in ("delegate", "direct_discovery"):
-        mcp_names = {
-            s["name"]
-            for s in reg.get_schemas("mcp", doc_type=doc_type, exclude_tiers=_exclude_tiers(mode, listing=True))
-        }
-        assert "web_research" not in mcp_names
-        assert "delegate_to_subagent" in mcp_names
-
     tool = reg.get("web_research")
     assert tool is not None
-    assert tool.tier in _exclude_tiers("delegate", listing=False)
+
+    for mode in ("delegate", "direct_discovery", "direct_flat"):
+        schemas = reg.get_schemas(
+            "mcp",
+            doc_type=doc_type,
+            uno_services_supported=services,
+            exclude_tiers=_exclude_tiers(mode, listing=True),
+        )
+        mcp_names = {s["name"] for s in schemas}
+        assert "web_research" not in mcp_names
+        assert "delegate_to_subagent" in mcp_names
+        assert "web_research" not in json.dumps(schemas)
+        assert tool.tier in _exclude_tiers(mode, listing=False)
 
 
 def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None:
