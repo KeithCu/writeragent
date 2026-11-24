@@ -2892,5 +2892,3 @@ def test_paragraph_revert_states_skips_void_values_and_names_unrestorable(monkey
 
     assert incomplete2 is False
     assert states2 == []
-
-

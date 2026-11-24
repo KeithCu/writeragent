@@ -97,11 +97,13 @@ CLEARABLE_PARA_PROPERTIES = (
 )
 
 # Every name is one SwUnoCursorHelper::makeRedline accepts and lcl_RejectRedline restores.
+# FillStyle/FillColor hold direct paragraph backgrounds.
 # Names sharing one pool item must all be listed, because SfxItemPropertySet::setPropertyValue
 # (itemprop.cxx) rebuilds the item from its pool default.
+# A unit or complex-colour name must follow its plain name, because later values overwrite earlier ones.
 # Never add FillBitmapMode: makeRedline crashes on its out-of-pool OWN_ATTR_FILLBMP_MODE id.
 # Never add PageNumberOffset: capturing it alone drops PageDescName, which Reject otherwise keeps.
-# FillBitmapSizeX/Y do not read back what was set (metric item conversion).
+# FillBitmapSizeX/Y do not read back what was set (metric item conversion), so they are left out and reported.
 _REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
     "ParaLeftMarginUnit", "ParaRightMarginUnit", "ParaFirstLineIndentUnit", "ParaIsAutoFirstLineIndent",
     "ParaContextMargin", "ParaLineSpacing", "ParaTabStops", "ParaVertAlignment", "ParaWidows", "ParaOrphans", "OutlineLevel",
@@ -123,7 +125,7 @@ _REVERT_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
     "LeftBorder", "RightBorder", "TopBorder", "BottomBorder",
     "LeftBorderComplexColor", "RightBorderComplexColor", "TopBorderComplexColor", "BottomBorderComplexColor",
     "LeftBorderDistance", "RightBorderDistance", "TopBorderDistance", "BottomBorderDistance",
-    "DropCapFormat", "DropCapWholeWord", "ParaShadowFormat", "BreakType", "WritingMode",
+    "DropCapFormat", "DropCapWholeWord", "ParaShadowFormat", "BreakType", "WritingMode", "WritingModeAutomatic",
 )
 
 # Direct names that need no report when not captured.
@@ -134,9 +136,9 @@ _UNREPORTED_PARA_PROPERTIES = frozenset({
     "BorderDistance", "ParaBackTransparent", "ParaBackgroundComplexColor", "ParaBackGraphic",
     "ParaBackGraphicFilter", "ParaBackGraphicLocation", "ParaBackGraphicURL",
     "FillBitmapMode", "FillBitmapName", "FillBitmapURL", "FillGradientName", "FillHatchName",
-    "FillTransparenceGradientName", "FillColor2",
-    # File metadata without a visible effect.
-    "ParRsid", "ParaInteropGrabBag", "OutlineContentVisible",
+    "FillTransparenceGradientName",
+    # File metadata and legacy attributes without a visible effect.
+    "FillColor2", "ParRsid", "ParaInteropGrabBag", "OutlineContentVisible",
     "ParaUserDefinedAttributes", "TextUserDefinedAttributes",
 })
 _MARGIN_UNIT_PROPERTIES = frozenset({"ParaLeftMarginUnit", "ParaRightMarginUnit", "ParaFirstLineIndentUnit"})

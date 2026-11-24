@@ -2143,9 +2143,11 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
         para.setPropertyValue("FillStyle", fill_solid)
         para.setPropertyValue("FillColor", 0x112233)
         para.setPropertyValue("FillTransparence", 40)
+        if para.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic"):
+            para.setPropertyValue("WritingModeAutomatic", False)
 
     def _snapshot(para):
-        return {
+        snap = {
             "ParaIsHyphenation": para.getPropertyValue("ParaIsHyphenation"),
             "ParaHyphenationMaxLeadingChars": para.getPropertyValue("ParaHyphenationMaxLeadingChars"),
             "ParaHyphenationMaxHyphens": para.getPropertyValue("ParaHyphenationMaxHyphens"),
@@ -2162,10 +2164,20 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
             "FillColor": para.getPropertyValue("FillColor"),
             "FillTransparence": para.getPropertyValue("FillTransparence"),
         }
+        if para.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic"):
+            snap["WritingModeAutomatic"] = para.getPropertyValue("WritingModeAutomatic")
+        return snap
 
     _reset(doc, ctx, "Wide direct formatting paragraph.")
-    _configure_para(_paragraphs(doc)[0])
+    p0 = _paragraphs(doc)[0]
+    has_wma = p0.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic")
+    _configure_para(p0)
     before = _snapshot(_paragraphs(doc)[0])
+    assert before["ParaHyphenationMaxLeadingChars"] == 4
+    assert before["ParaLastLineAdjust"] == 2
+    assert before["FillTransparence"] == 40
+    if has_wma:
+        assert before["WritingModeAutomatic"] is False
 
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
@@ -2229,6 +2241,7 @@ def test_para_format_reject_restores_bitmap_fill_uno(ctx, doc):
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
+        assert "style_unreviewed" not in res
         _reject_all(doc, ctx)
         p0 = _paragraphs(doc)[0]
         assert p0.getPropertyValue("FillStyle") == fill_bitmap
@@ -2344,6 +2357,9 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
             has_first_unit = info.hasPropertyByName("ParaFirstLineIndentUnit")
             orig_left_unit = p0.getPropertyValue("ParaLeftMarginUnit") if has_left_unit else None
             orig_first_unit = p0.getPropertyValue("ParaFirstLineIndentUnit") if has_first_unit else None
+            if has_left_unit:
+                assert orig_left is None
+                assert orig_left_unit is not None
 
             res = ApplyStyle().execute(
                 _tool_ctx(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none"
