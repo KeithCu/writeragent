@@ -488,18 +488,23 @@ def _flag_stacked_format_redlines(res: dict[str, Any], cursors: list[Any]) -> No
     Revert data is not readable through UNO, so a paragraph that had no direct formatting
     is flagged too.
     """
-    for cursor in cursors:
-        for para in _capture_paragraphs(_CountingReader(), _expand_to_full_paragraphs(cursor).createEnumeration(), []):
-            if _format_reject_drops_paragraph_restore(para):
-                res["style_unreviewed"] = True
-                msg = (
-                    "Rejecting all changes may drop direct paragraph formatting (indents, alignment) "
-                    "from before the tracked changes, because a tracked character change covers a whole "
-                    "paragraph that also has a tracked paragraph change."
-                )
-                existing = res.get("warning")
-                res["warning"] = f"{existing} {msg}" if existing else msg
-                return
+    try:
+        for cursor in cursors:
+            for para in _capture_paragraphs(_CountingReader(), _expand_to_full_paragraphs(cursor).createEnumeration(), []):
+                if _format_reject_drops_paragraph_restore(para):
+                    res["style_unreviewed"] = True
+                    msg = (
+                        "Rejecting all changes may drop direct paragraph formatting (indents, alignment) "
+                        "from before the tracked changes, because a tracked character change covers a whole "
+                        "paragraph that also has a tracked paragraph change."
+                    )
+                    existing = res.get("warning")
+                    res["warning"] = f"{existing} {msg}" if existing else msg
+                    return
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        # Do not fail the tool: the style is already applied.
+        log.exception("Failed to inspect redlines for stacked Format warning")
 
 
 def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None) -> tuple[list[_ParagraphRevert], bool]:
@@ -1688,19 +1693,19 @@ def apply_to_cursors(
             )
         if outcome.mutate_error is not None:
             error = outcome.mutate_error
-            # Not rolled back, group closed, and no finished range: the first write was refused
-            # before it changed anything, so the undo group is empty.
-            if outcome.rolled_back or (outcome.group_closed and not reports):
-                return [], tool._tool_error(
-                    "Nothing was changed: %s" % (error,),
-                    # set_cursor_properties raises ValueError for a value Writer rejects.
-                    code="INVALID_PARAM" if isinstance(error, ValueError) else "TOOL_EXECUTION_ERROR",
-                )
             if not outcome.group_closed:
                 return [], tool._tool_error(
                     "Applied to %d of %d; failed on one match: %s. The undo step could not be closed, so part of the change may be in the document."
                     % (len(reports), len(cursors), error),
                     code="TOOL_EXECUTION_ERROR",
+                )
+            # Not rolled back with no finished range: the first write was refused before it
+            # changed anything, so the undo group is empty.
+            if outcome.rolled_back or not reports:
+                return [], tool._tool_error(
+                    "Nothing was changed: %s" % (error,),
+                    # set_cursor_properties raises ValueError for a value Writer rejects.
+                    code="INVALID_PARAM" if isinstance(error, ValueError) else "TOOL_EXECUTION_ERROR",
                 )
             return [], tool._tool_error(
                 "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."

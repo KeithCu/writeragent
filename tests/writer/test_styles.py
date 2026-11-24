@@ -2680,8 +2680,7 @@ def test_apply_style_review_mode_passes_author_on_non_recording_doc():
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"), \
          patch("plugin.writer.styles.paragraph_redline_author", return_value="WriterAgent"), \
-         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply), \
-         patch("plugin.writer.styles._flag_stacked_format_redlines"):
+         patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", side_effect=fake_apply):
         res = ApplyStyle().execute(ctx, style="Heading 1", target="selection")
 
     assert res["status"] == "ok"
@@ -2792,5 +2791,4 @@ def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
     assert err is not None
     assert "Nothing was changed" not in err["message"]
     assert "undo step could not be closed" in err["message"]
-
 

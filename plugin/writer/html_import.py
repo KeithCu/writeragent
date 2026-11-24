@@ -973,12 +973,11 @@ def insert_content_at_position(
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
     caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
     or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
-    the empty one so Reject restores its style and direct formatting. When the selection is
-    non-collapsed and *content* is
-    inline (no block markup, no real newline, no math), it replaces the selection in
-    place, keeping the host paragraph and its style with Track Changes on or off. Pass
-    *selection* to act on an explicit text range (such as a pinned Send-time selection)
-    instead of reading the live view.
+    the empty one so Reject restores its style and direct formatting. When the selection
+    is non-collapsed and *content* is inline (no block markup, no real newline, no math),
+    it replaces the selection in place, keeping the host paragraph and its style with Track
+    Changes on or off. Pass *selection* to act on an explicit text range (such as a pinned
+    Send-time selection) instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a

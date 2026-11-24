@@ -544,6 +544,7 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         assert r_char.get("style_unreviewed") is True, r_char
         assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
         _reject_all(doc, ctx)
+        assert _margin() <= 2
 
         # 3. Char then Para: not flagged, margin kept.
         cur = _setup("Alpha beta.")

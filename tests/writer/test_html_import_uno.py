@@ -2476,6 +2476,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
         snap = _paras_snapshot()
         assert [s[0] for s in snap] == ["Alpha", "", "Omega"]
         assert snap[1][1] == "Heading 2"
+        assert abs(snap[1][2] - 700) <= 2
 
         # Blank Quotations document with target='beginning'
         doc.setPropertyValue("RecordChanges", False)
@@ -2486,8 +2487,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
         doc.setPropertyValue("RecordChanges", True)
         insert_content_at_position(doc, ctx, "<p>Body</p>", "beginning")
         _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        para = doc.getText().createEnumeration().nextElement()
-        assert para.getPropertyValue("ParaStyleName") == "Quotations"
+        assert [(s[0], s[1]) for s in _paras_snapshot()] == [("", "Quotations")]
         assert doc.getRedlines().getCount() == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
