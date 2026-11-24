@@ -43,7 +43,8 @@ _COM_SUN_STAR_MOCK_MODULE_KEYS = [
 ]
 
 # UNO and core.* sys.modules keys that plugin.testing_runner.run_all_tests
-# snapshots and restores between native suites.
+# snapshots and restores between native suites. A suite that replaces one of
+# these at import must not leave its stub for the next suite.
 NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = (
     "uno",
     "unohelper",

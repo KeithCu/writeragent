@@ -110,6 +110,7 @@ def test_docx_rotated_pictures_listed_and_deleted_uno(ctx, doc):
         refused = ImageDelete().execute(tctx, name="Image 11")
         assert refused.get("status") == "error", refused
         assert refused.get("code") == "IMAGE_DELETE_NOT_TRACKABLE", refused
+        # Fetch again: this checks the page after the refused delete.
         shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
         assert "Image 11" in [s.getName() for s in shapes]
 
