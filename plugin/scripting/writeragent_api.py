@@ -903,7 +903,7 @@ class _ChartProxy:
         Args:
             name (required): The name of the chart to delete.
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search (Draw/Impress only).
         """
         return _result(call_host_tool("chart_delete", name=name, sheet=sheet, page=page))
 
@@ -913,7 +913,7 @@ class _ChartProxy:
         Args:
             name (required): The name of the chart.
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search (Draw/Impress only).
         """
         return _result(call_host_tool("chart_get_info", name=name, sheet=sheet, page=page))
 
@@ -922,7 +922,7 @@ class _ChartProxy:
 
         Args:
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
-            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+            page (optional): 0-based slide/page index to search (Draw/Impress only).
         """
         return _result(call_host_tool("chart_list", sheet=sheet, page=page))
 
@@ -932,7 +932,7 @@ class _ChartProxy:
         Args:
             name (optional): Chart name for edit, or for create when the chart does not yet exist.
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
+            page (optional): 0-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
             data_range (optional): Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
@@ -1512,7 +1512,7 @@ class _ImageProxy:
         Args:
             image (optional): Name of the embedded graphic to fetch (from shape_get_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page.
             selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
-            page (optional): 0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
+            page (optional): 0-based page/slide index (the user's page 2 is page=1). Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
             sheet_index (optional): Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names).
         """
         return _result(call_host_tool("image_get", image=image, selection=selection, page=page, sheet_index=sheet_index))
@@ -1779,7 +1779,7 @@ class _MathProxy:
         Args:
             formula_type (required): Whether formula is LaTeX (converted via LO) or MathML. One of: latex, mathml.
             formula (required): LaTeX or MathML formula text, per formula_type.
-            page (required): Zero-based index of the draw page or slide.
+            page (required): 0-based index of the draw page or slide.
             x (required): X position, 1/100 mm.
             y (required): Y position, 1/100 mm.
         """
@@ -1907,7 +1907,7 @@ class _NavProxy:
         """Navigate the view cursor to the start of a page. page is 0-based (first page = 0).
 
         Args:
-            page (required): 0-based page index (first page = 0).
+            page (required): 0-based page index: the user's page 2 is page=1.
         """
         return _result(call_host_tool("nav_goto_page", page=page))
 
@@ -1951,7 +1951,7 @@ class _PageProxy:
         """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page (0-based, first page = 0), locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above).
 
         Args:
-            page (optional): 0-based page index (first page = 0).
+            page (optional): 0-based page index: the user's page 2 is page=1.
             locator (optional): Locator to determine page.
             paragraph (optional): Paragraph index to determine page.
         """
@@ -3064,7 +3064,7 @@ class _WriterProxy:
         return _result(call_host_tool("apply_content", content=content, target=target, old_content=old_content, start_anchor=start_anchor, end_anchor=end_anchor, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url))
 
     def apply_style(self, style: str, *, family: str = 'ParagraphStyles', target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, all_matches: bool = False, occurrence: int | None = None, clear_direct: str = 'style_props') -> _Item:
-        """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style. Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
+        """Apply a style to a target. Use family='ParagraphStyles' for paragraph styles (e.g. Heading 1) or family='CharacterStyles' for character styles (e.g. Source Text). Use 'No Character Style' with family='CharacterStyles' to remove a character style (hand-set formatting stays). Use target='selection' (default), 'beginning', 'end', 'full_document', or 'search' with old_content. Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*.
 
         Args:
             style (required): Style name (e.g. Heading 1, Source Text).

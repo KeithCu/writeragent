@@ -25,6 +25,7 @@ from plugin.doc.document_research import (
     open_document_for_read,
     resolve_file_target,
     scan_nearby_files,
+    unquote_path,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
@@ -70,7 +71,7 @@ def resolve_grep_candidates(
     *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``),
     an absolute path (including ``~`` expansion), or a ``file://`` URL of one file.
     """
-    raw = str(file_subset).strip() if file_subset else None
+    raw = unquote_path(file_subset) if file_subset else None
 
     if raw:
         target = resolve_file_target(raw)
@@ -91,6 +92,8 @@ def resolve_grep_candidates(
         return [], False, listing.get("message", "Could not list nearby files")
 
     files: list[FileEntry] = list(listing.get("files") or [])
+    if raw and not files:
+        return [], False, f"No file matching {raw!r}"
     listing_truncated = bool(listing.get("truncated"))
 
     open_files = [f for f in files if f.get("is_open")]
@@ -386,7 +389,7 @@ def grep_nearby_files(
         # Invalid regex fails once before opening files—the pattern does not depend on each document.
         return make_tool_error(str(exc), code="INVALID_PARAM")
 
-    subset_norm = str(file_subset).strip() if file_subset else None
+    subset_norm = unquote_path(file_subset) if file_subset else None
 
     try:
         candidates, truncated_files, list_err = resolve_grep_candidates(
@@ -469,6 +472,11 @@ def grep_nearby_files(
         if total_snippets >= DEFAULT_GREP_MAX_TOTAL_RESULTS:
             stopped_early = True
             break
+
+    if files_scanned == 0:
+        # An empty hit list would read as "the text is in none of the files".
+        message = f"{subset_norm!r} is not a document that can be searched." if subset_norm else "No nearby documents to search."
+        return make_tool_error(message, code="NO_FILES_SCANNED")
 
     result: dict[str, Any] = {
         "status": "ok",

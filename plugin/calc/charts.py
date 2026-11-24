@@ -451,7 +451,7 @@ _LEGEND_POSITION_MEMBER = {
 # Shared parameters for Create and Edit
 CHART_PROPERTIES: dict[str, Any] = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
-    "page": {"type": "integer", "description": "Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0)."},
+    "page": {"type": "integer", "description": "0-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0)."},
     "data_range": {"type": "string", "description": "Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData')."},
     "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
     "headers": {"type": "array", "items": {"type": ["string", "number"]}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
@@ -483,7 +483,7 @@ _CHART_LOOKUP_SHEET: dict[str, Any] = {
 }
 _CHART_LOOKUP_PAGE: dict[str, Any] = {
     "type": "integer",
-    "description": "Zero-based slide/page index to search (Draw/Impress only).",
+    "description": "0-based slide/page index to search (Draw/Impress only).",
 }
 
 

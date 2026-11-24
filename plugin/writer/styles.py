@@ -67,6 +67,7 @@ from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVI
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import get_toolkit
 from plugin.writer.edit_review import (
+    agent_format_author,
     annotate_review_status,
     flag_style_unreviewed,
     next_agent_edit_undo_title,
@@ -1013,14 +1014,20 @@ def _validate_conditional_rules(rules: Any, style_family: Any) -> str | None:
     return None
 
 
+# Programmatic name of the root character style; its UI name is localized
+# (SwStyleNameMapper::FillUIName). Writing it to CharStyleName clears the character style
+# and is recorded; an empty string makes SwUnoCursorHelper::SetCharStyle throw.
+_ROOT_CHAR_STYLE = "Standard"
+
+
 def _no_character_style_token_error(tool: Any, family: str, style_name: str) -> dict[str, Any] | None:
-    # 'No Character Style' is the clear-character-style token for apply_style (CharStyleName = "").
-    # Resolving or updating it as a style object would modify the root 'Default Style' character style.
+    # 'No Character Style' is the apply_style token that clears the character style by writing
+    # the root style ('Standard'). Resolving or updating it as a style object would modify that root style.
     if family == "CharacterStyles" and style_name.strip() == "No Character Style":
         return tool._tool_error(
-            "No Character Style is the apply_style token that clears CharStyleName. "
+            "No Character Style is the apply_style token that clears the character style. "
             "It is not a style you can inspect, update, or clone. "
-            "The character style object is named 'Default Style'.",
+            "The character style object is named 'Standard'.",
             code="INVALID_PARAM",
         )
     return None
@@ -1319,7 +1326,7 @@ class StyleList(ToolWriterStyleBase):
                             if name not in core_text_styles:
                                 show = False
             elif family == "CharacterStyles" and not show:
-                core_char_styles = ("Default Style", "Source Text")
+                core_char_styles = (_ROOT_CHAR_STYLE, "Source Text")
                 if name in core_char_styles:
                     show = True
 
@@ -1327,9 +1334,9 @@ class StyleList(ToolWriterStyleBase):
                 continue
 
             entry = {"name": name, "is_user_defined": user_defined, "is_in_use": in_use}
-            # Present the UNO "Default Style" as "No Character Style" — the
+            # Present the root character style as "No Character Style" — the
             # clearer name that matches what the LLM should pass to apply_style.
-            if family == "CharacterStyles" and name == "Default Style":
+            if family == "CharacterStyles" and name == _ROOT_CHAR_STYLE:
                 entry["name"] = "No Character Style"
             try:
                 entry["parent_style"] = style.getParentStyle()
@@ -1460,49 +1467,50 @@ def apply_to_cursors(
     # multiple ranges or multi-call resets use the compound undo bracket so they undo as one step.
     # No try/except here: execute_safe reports a failed apply, and catching it
     # would turn a closed document into a generic 'Could not apply ...'.
-    if len(cursors) == 1 and single_action:
-        return [apply_one(cursors[0])], None
+    with agent_format_author(ctx.doc, ctx.ctx, cursors):
+        if len(cursors) == 1 and single_action:
+            return [apply_one(cursors[0])], None
 
-    title = next_agent_edit_undo_title()
-    reports: list[Any] = []
+        title = next_agent_edit_undo_title()
+        reports: list[Any] = []
 
-    def mutate() -> None:
-        for c in cursors:
-            reports.append(apply_one(c))
+        def mutate() -> None:
+            for c in cursors:
+                reports.append(apply_one(c))
 
-    try:
-        outcome = commit_or_rollback(ctx.doc, title, mutate)
-    except UndoUnavailable:
-        return [], tool._tool_error(
-            "Cannot apply %s to every match in one undo step. Nothing was changed." % label,
-            code="UNDO_UNAVAILABLE",
-        )
-    if outcome.mutate_error is not None:
-        error = outcome.mutate_error
-        if outcome.rolled_back:
-            return [], tool._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
-        return [], tool._tool_error(
-            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-            % (len(reports), len(cursors), error),
-            code="TOOL_EXECUTION_ERROR",
-        )
-
-    err = outcome.error
-    if err is not None:
-        if err.get("code") == "UNDO_CONTEXT_LEAK":
+        try:
+            outcome = commit_or_rollback(ctx.doc, title, mutate)
+        except UndoUnavailable:
             return [], tool._tool_error(
-                "Applied %s to %d match(es), but the undo step could not be closed (%s). "
-                "The changes are in the document and the undo context is still open."
-                % (label, len(reports), err.get("message")),
-                code="TOOL_EXECUTION_ERROR",
+                "Cannot apply %s to every match in one undo step. Nothing was changed." % label,
+                code="UNDO_UNAVAILABLE",
             )
-        if err.get("code") == "ROLLBACK_FAILED":
+        if outcome.mutate_error is not None:
+            error = outcome.mutate_error
+            if outcome.rolled_back:
+                return [], tool._tool_error("Nothing was changed: %s" % (error,), code="TOOL_EXECUTION_ERROR")
             return [], tool._tool_error(
                 "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
-                % (len(reports), len(cursors), err.get("message")),
-                code="ROLLBACK_FAILED",
+                % (len(reports), len(cursors), error),
+                code="TOOL_EXECUTION_ERROR",
             )
-    return reports, None
+
+        err = outcome.error
+        if err is not None:
+            if err.get("code") == "UNDO_CONTEXT_LEAK":
+                return [], tool._tool_error(
+                    "Applied %s to %d match(es), but the undo step could not be closed (%s). "
+                    "The changes are in the document and the undo context is still open."
+                    % (label, len(reports), err.get("message")),
+                    code="TOOL_EXECUTION_ERROR",
+                )
+            if err.get("code") == "ROLLBACK_FAILED":
+                return [], tool._tool_error(
+                    "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                    % (len(reports), len(cursors), err.get("message")),
+                    code="ROLLBACK_FAILED",
+                )
+        return reports, None
 
 
 def _with_normalized_old_content(kwargs: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -1526,7 +1534,7 @@ class ApplyStyle(FrameworkToolBase):
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "
         "styles (e.g. Source Text). Use 'No Character Style' "
-        "with family='CharacterStyles' to remove a character style. "
+        "with family='CharacterStyles' to remove a character style (hand-set formatting stays). "
         "Use target='selection' (default), 'beginning', 'end', 'full_document', "
         "or 'search' with old_content. "
         "Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*."
@@ -1660,14 +1668,13 @@ class ApplyStyle(FrameworkToolBase):
         family = kwargs.get("family", "ParagraphStyles")
         target = kwargs.get("target", "selection")
 
-        # UNO quirk: the default character style is applied by setting
-        # CharStyleName to an empty string.
-        uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
+        # Writing the root programmatic name clears CharStyleName and records a Format redline;
+        # an empty string makes SwUnoCursorHelper::SetCharStyle throw.
+        uno_value = _ROOT_CHAR_STYLE if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
-        if uno_value:
-            miss = self._style_not_found(ctx, style_name, family, uno_value, kwargs)
-            if miss is not None:
-                return miss
+        miss = self._style_not_found(ctx, style_name, family, uno_value, kwargs)
+        if miss is not None:
+            return miss
 
         clear_direct_raw = self._resolve_clear_direct(family, kwargs.get("clear_direct"))
         if clear_direct_raw not in ("none", "style_props", "all"):

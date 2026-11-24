@@ -66,11 +66,14 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         return None
 
 
+_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "0-based page index: the user's page 2 is page=1."}
+
+
 class NavGotoPage(ToolWriterStructuralBase):
     name: str | None = "nav_goto_page"
     is_mutation: bool | None = False
     description: str = "Navigate the view cursor to the start of a page. page is 0-based (first page = 0)."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}}, "required": ["page"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": ["page"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -97,7 +100,7 @@ class GetPageObjects(ToolBase):
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"page": {"type": "integer", "description": "0-based page index (first page = 0)."}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
+        "properties": {"page": _PAGE_PROPERTY, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]

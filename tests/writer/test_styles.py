@@ -136,7 +136,7 @@ def test_list_styles_filters_hidden_style():
 
 def test_list_character_styles():
     styles_data = {
-        "Default Style": create_mock_style("Default Style", display_name="No Character Style", is_in_use=False, is_physical=False),
+        "Standard": create_mock_style("Standard", display_name="No Character Style", is_in_use=False, is_physical=False),
         "Source Text": create_mock_style("Source Text", is_in_use=False, is_physical=False),
         "Emphasis": create_mock_style("Emphasis", is_in_use=False, is_physical=False),
         "Rubies": create_mock_style("Rubies", is_in_use=False, is_physical=False),
@@ -449,7 +449,7 @@ def test_apply_style_first_match_search_reports_count(mock_ctx):
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
 def test_apply_default_character_style(mock_resolve, mock_preserve, mock_ctx):
-    """Applying 'No Character Style' should set CharStyleName to '' (UNO reset)."""
+    """Applying 'No Character Style' sets CharStyleName to 'Standard' (root character style)."""
     cursor = MagicMock()
     mock_resolve.return_value = cursor
 
@@ -460,7 +460,7 @@ def test_apply_default_character_style(mock_resolve, mock_preserve, mock_ctx):
     assert res["style_name"] == "No Character Style"
     assert res["family"] == "CharacterStyles"
     mock_preserve.assert_not_called()
-    cursor.setPropertyValue.assert_called_once_with("CharStyleName", "")
+    cursor.setPropertyValue.assert_called_once_with("CharStyleName", "Standard")
 
 
 def test_update_style_with_parent():
@@ -1198,7 +1198,7 @@ def test_style_update_rejects_nondict_and_empty():
 
 
 def test_no_character_style_token_is_not_a_style_object():
-    char_fam = _style_family({"Default Style": MagicMock()})
+    char_fam = _style_family({"Standard": MagicMock()})
     ctx = _ctx_with_families(CharacterStyles=char_fam)
 
     res_get = StyleGetInfo().execute(ctx, style="No Character Style", family="CharacterStyles")
@@ -2255,8 +2255,9 @@ def test_style_format_text_records_set_and_warns_for_para_props():
     cursor = _noncollapsed_cursor()
     ctx = _style_ctx()
     # False initially, then True after setPropertyValue("RecordChanges", True), then False on restore.
-    rec_states = [False, True, True]
-    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    rec_state = [False]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = StyleFormatText().execute(ctx, properties={"CharWeight": 150, "ParaAdjust": "center"})
@@ -2290,8 +2291,9 @@ def test_recordable_reset_values():
 def test_style_format_text_reset_under_review_mode_is_tracked():
     cursor = _noncollapsed_cursor()
     ctx = _style_ctx()
-    rec_states = [False, True, True]
-    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    rec_state = [False]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = StyleFormatText().execute(ctx, reset=["CharFontName"])
@@ -2303,9 +2305,10 @@ def test_style_format_text_reset_under_review_mode_is_tracked():
     assert rec_calls == [("RecordChanges", True), ("RecordChanges", False)]
 
     # Mixed set + recordable reset under record mode is tracked and has no style_unreviewed.
-    rec_states2 = [False, True, True]
+    rec_state2 = [False]
     ctx2 = _style_ctx()
-    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_states2.pop(0) if name == "RecordChanges" else None
+    ctx2.doc.getPropertyValue.side_effect = lambda name: rec_state2[0] if name == "RecordChanges" else None
+    ctx2.doc.setPropertyValue.side_effect = lambda name, val: rec_state2.__setitem__(0, bool(val)) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         mixed = StyleFormatText().execute(ctx2, properties={"CharWeight": 150}, reset=["CharFontName"])
@@ -2412,8 +2415,9 @@ def test_style_format_text_reset_skips_direct_value_leftovers():
 def test_style_format_text_warns_for_non_para_prefix_paragraph_props():
     cursor = _noncollapsed_cursor()
     ctx = _style_ctx()
-    rec_states = [False, True, True]
-    ctx.doc.getPropertyValue.side_effect = lambda name: rec_states.pop(0) if name == "RecordChanges" else None
+    rec_state = [False]
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
          patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
         res = StyleFormatText().execute(ctx, properties={"NumberingStyleName": "List 1"})

@@ -1085,3 +1085,165 @@ def test_streamed_append_abort_and_restore_uno(ctx, doc):
     sess3.abort_and_restore()
     assert len(doc.getRedlines()) == 0
     assert doc.getText().getString() == "Orig. Plain"
+
+
+@native_test
+@with_native_doc("writer")
+def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
+    """Formatting an agent insertion keeps its Insert redline and wa-review token so Reject All restores original text."""
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        _reset(doc, ctx, "First words here.")
+        tool_ctx = _tool_ctx(doc, ctx)
+
+        ins = ApplyDocumentContent().execute(
+            tool_ctx,
+            target="search",
+            old_content="words",
+            content="quick brown words",
+            preserve_format=True,
+        )
+        assert ins["status"] == "ok", ins
+
+        fmt_res = StyleFormatText().execute(
+            tool_ctx,
+            target="search",
+            old_content="quick brown",
+            properties={"CharWeight": 150.0},
+        )
+        assert fmt_res["status"] == "ok", fmt_res
+
+        redlines = doc.getRedlines()
+        inserts = [
+            redlines.getByIndex(i)
+            for i in range(redlines.getCount())
+            if redlines.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
+        ]
+        assert any(
+            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
+            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
+            for r in inserts
+        )
+
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "First words here."
+
+        # Second case: character ApplyStyle on a recording document.
+        _reset(doc, ctx, "First words here.")
+        ins2 = ApplyDocumentContent().execute(
+            tool_ctx,
+            target="search",
+            old_content="words",
+            content="quick brown words",
+            preserve_format=True,
+        )
+        assert ins2["status"] == "ok", ins2
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            sty_res = ApplyStyle().execute(
+                tool_ctx,
+                style="Strong Emphasis",
+                family="CharacterStyles",
+                target="search",
+                old_content="quick brown",
+            )
+            assert sty_res["status"] == "ok", sty_res
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        redlines2 = doc.getRedlines()
+        inserts2 = [
+            redlines2.getByIndex(i)
+            for i in range(redlines2.getCount())
+            if redlines2.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
+        ]
+        assert any(
+            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
+            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
+            for r in inserts2
+        )
+
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "First words here."
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_format_of_user_insertion_keeps_it_rejectable_uno(ctx, doc):
+    """Formatting a user's pending insertion keeps the office author so Reject All removes the user's text."""
+    from plugin.writer.styles import StyleFormatText
+
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        _reset(doc, ctx, "aaa bbb ccc")
+        doc.setPropertyValue("RecordChanges", True)
+        cur = doc.getText().createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(4, False)
+        doc.getText().insertString(cur, "NEWTEXT ", False)
+
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            target="search",
+            old_content="NEWTEXT",
+            properties={"CharWeight": 150.0},
+        )
+        assert res["status"] == "ok", res
+
+        _reject_all(doc, ctx)
+        assert doc.getText().getString() == "aaa bbb ccc"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_format_redline_author_uno(ctx, doc):
+    """Format redlines are authored WriterAgent in record mode, and office author when review is off."""
+    from plugin.writer import review_authors
+    from plugin.writer.styles import StyleFormatText
+
+    prev = get_config(_FLAG)
+    access = review_authors._author_access(ctx)
+    prior_given = str(access.getPropertyValue("givenname"))
+    prior_sn = str(access.getPropertyValue("sn"))
+    try:
+        _reset(doc, ctx, "Plain text.")
+        save({_FLAG: "record"})
+        res_rec = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            target="search",
+            old_content="Plain",
+            properties={"CharWeight": 150.0},
+        )
+        assert res_rec["status"] == "ok", res_rec
+        assert doc.getRedlines().getCount() == 1
+        assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") == "WriterAgent"
+
+        access_after = review_authors._author_access(ctx)
+        assert str(access_after.getPropertyValue("givenname")) == prior_given
+        assert str(access_after.getPropertyValue("sn")) == prior_sn
+
+        _reset(doc, ctx, "Plain text.")
+        save({_FLAG: "off"})
+        doc.setPropertyValue("RecordChanges", True)
+        res_off = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            target="search",
+            old_content="Plain",
+            properties={"CharWeight": 150.0},
+        )
+        assert res_off["status"] == "ok", res_off
+        assert doc.getRedlines().getCount() == 1
+        assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") != "WriterAgent"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
