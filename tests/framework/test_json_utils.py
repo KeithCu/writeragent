@@ -180,3 +180,26 @@ def test_python_literals_parse_in_the_literal_eval_stage(text: str, expected: ob
 def test_literal_eval_stage_rejects_non_json_types() -> None:
     assert not isinstance(safe_json_loads("(1, 2)", default="d"), tuple)
     assert safe_json_loads("b'hi'", default="d") == "d"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("[see <b>x</b>]", None),
+        ("[1] <b>x</b>", None),
+        ("[TODO] <p>x</p>", None),
+        ('["Note"] see <b>x</b>', None),
+        ('["quoted" <b>x</b>]', None),
+        ('["<p>a</p>", "<p>b</p>"]', ["<p>a</p>", "<p>b</p>"]),
+        ("['<p>a</p>']", ["<p>a</p>"]),
+        ('["<p>a</p>", ]', ["<p>a</p>"]),
+        ('["<p>a</p>"', ["<p>a</p>"]),
+        ('["<p>a\nb</p>"]', ["<p>a\nb</p>"]),
+        ('["<p class="x">a</p>"]', ['<p class="x">a</p>']),
+        ('["<p>a</p>", null]', ["<p>a</p>", None]),
+    ],
+)
+def test_parse_html_fragment_list(text: str, expected: list[object] | None) -> None:
+    from plugin.framework.json_utils import parse_html_fragment_list
+
+    assert parse_html_fragment_list(text) == expected

@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -424,14 +425,16 @@ def get_toolkit(ctx: Any | None = None) -> Any:
 def _doc_identity_url(url: Any) -> str:
     """Comparison key for resolve-by-URL.
 
-    Repairs ``file:/`` to ``file:///`` before :func:`normalize_doc_url`. The
-    identity function itself stays unrepaired so MCP and script keys do not change.
+    Repairs ``file:/`` to ``file:///`` and re-encodes a ``file:`` URL one way before
+    :func:`normalize_doc_url`, so LibreOffice's ``Report%20(1).odt`` equals
+    ``path_to_file_url``'s ``Report%20%281%29.odt``. :func:`normalize_doc_url` itself
+    stays unrepaired so MCP and script keys do not change.
     """
     raw = str(url or "").strip()
     if raw.startswith("file:"):
         from plugin.framework.url_utils import normalize_file_url
 
-        raw = normalize_file_url(raw)
+        raw = urllib.parse.quote(urllib.parse.unquote_to_bytes(normalize_file_url(raw)))
     return normalize_doc_url(raw)
 
 

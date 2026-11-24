@@ -4,12 +4,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO integration tests for document_open, document_save, and document_export."""
 
+import getpass
 import os
 import shutil
 import tempfile
 import zipfile
 
 import uno
+import unohelper
+from com.sun.star.task import XInteractionHandler
 
 from plugin.doc.document_file_tools import DocumentExport, DocumentOpen, DocumentSave
 from plugin.framework.errors import UnoObjectError
@@ -290,5 +293,195 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
         else:
             raise AssertionError("Expected UnoObjectError for unknown sheet name")
         assert not os.path.exists(missing_out)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_export_and_save_refuse_open_paths_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_open_refuse_")
+    target = os.path.join(tmp_dir, "Report (1) é.odt")
+    hidden_doc = None
+    try:
+        text = doc.getText()
+        text.insertString(text.createTextCursor(), "original", False)
+        doc.storeAsURL(uno.systemPathToFileUrl(target), ())
+        with open(target, "rb") as f:
+            orig_bytes = f.read()
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res_own_export = DocumentExport().execute(tool_ctx, path=target)
+        assert res_own_export["status"] == "error", res_own_export
+        assert res_own_export["code"] == "PATH_IS_OPEN"
+        with open(target, "rb") as f:
+            assert f.read() == orig_bytes
+
+        desktop = get_desktop(ctx)
+        hidden_doc = desktop.loadComponentFromURL(
+            "private:factory/swriter",
+            "_blank",
+            0,
+            (create_property_value("Hidden", True),),
+        )
+        htext = hidden_doc.getText()
+        htext.insertString(htext.createTextCursor(), "intruder", False)
+        hidden_ctx = TestingFactory.create_context(doc=hidden_doc, ctx=ctx, env="native")
+
+        res_other_export = DocumentExport().execute(hidden_ctx, path=target)
+        assert res_other_export["status"] == "error", res_other_export
+        assert res_other_export["code"] == "PATH_IS_OPEN"
+        with open(target, "rb") as f:
+            assert f.read() == orig_bytes
+
+        res_other_save = DocumentSave().execute(hidden_ctx, path=target)
+        assert res_other_save["status"] == "error", res_other_save
+        assert res_other_save["code"] == "PATH_IS_OPEN"
+        with open(target, "rb") as f:
+            assert f.read() == orig_bytes
+
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        text.insertString(cursor, " edited", False)
+        res_save = DocumentSave().execute(tool_ctx)
+        assert res_save["status"] == "ok", res_save
+    finally:
+        if hidden_doc is not None:
+            hidden_doc.close(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+class _SpyInteractionHandler(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
+    def __init__(self) -> None:
+        self.called = 0
+
+    def handle(self, Request) -> None:
+        self.called += 1
+        abort_type = uno.getTypeByName("com.sun.star.task.XInteractionAbort")
+        for continuation in Request.getContinuations():
+            if continuation.queryInterface(abort_type) is not None:
+                continuation.select()
+                return
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_save_refuses_file_changed_on_disk_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_changed_")
+    target = os.path.join(tmp_dir, "doc.odt")
+    other_target = os.path.join(tmp_dir, "doc_copy.odt")
+    loaded = None
+    try:
+        text = doc.getText()
+        text.insertString(text.createTextCursor(), "initial", False)
+        doc.storeToURL(
+            path_to_file_url(target),
+            (create_property_value("FilterName", "writer8"),),
+        )
+
+        spy = _SpyInteractionHandler()
+        desktop = get_desktop(ctx)
+        loaded = desktop.loadComponentFromURL(
+            path_to_file_url(target),
+            "_blank",
+            0,
+            (
+                create_property_value("Hidden", True),
+                create_property_value("InteractionHandler", spy),
+            ),
+        )
+        assert loaded is not None
+        with open(target, "rb") as f:
+            orig_bytes = f.read()
+
+        ltext = loaded.getText()
+        cursor = ltext.createTextCursor()
+        cursor.gotoEnd(False)
+        ltext.insertString(cursor, " modified", False)
+
+        st = os.stat(target)
+        os.utime(target, (st.st_atime, st.st_mtime + 100))
+
+        tool_ctx = TestingFactory.create_context(doc=loaded, ctx=ctx, env="native")
+        for call_kwargs in ({}, {"path": target}, {}):
+            res = DocumentSave().execute(tool_ctx, **call_kwargs)
+            assert res["status"] == "error", res
+            assert res["code"] == "FILE_CHANGED_ON_DISK"
+            assert loaded.isModified()
+            assert spy.called == 0
+            with open(target, "rb") as f:
+                assert f.read() == orig_bytes
+
+        res_new = DocumentSave().execute(tool_ctx, path=other_target)
+        assert res_new["status"] == "ok", res_new
+        cursor = ltext.createTextCursor()
+        cursor.gotoEnd(False)
+        ltext.insertString(cursor, " more", False)
+        res_again = DocumentSave().execute(tool_ctx)
+        assert res_again["status"] == "ok", res_again
+    finally:
+        if loaded is not None:
+            loaded.close(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_export_and_save_refuse_locked_target_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_locked_")
+    target = os.path.join(tmp_dir, "t.odt")
+    lock_file = os.path.join(tmp_dir, ".~lock.t.odt#")
+    try:
+        with open(target, "wb") as f:
+            f.write(b"keep-me")
+        text = doc.getText()
+        text.insertString(text.createTextCursor(), "content", False)
+        orig_url = doc.getURL()
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        for lock_entry in (
+            "Someone Else,other,otherhost,24.11.2026 10:00,file:///x;",
+            f"Test User,{getpass.getuser()},otherhost,24.11.2026 10:00,file:///other-profile;",
+        ):
+            with open(lock_file, "w", encoding="utf-8") as f:
+                f.write(lock_entry)
+
+            res_export = DocumentExport().execute(tool_ctx, path=target)
+            assert res_export["status"] == "error", res_export
+            assert res_export["code"] == "FILE_LOCKED"
+            with open(target, "rb") as f:
+                assert f.read() == b"keep-me"
+            assert doc.getURL() == orig_url
+
+            res_save = DocumentSave().execute(tool_ctx, path=target)
+            assert res_save["status"] == "error", res_save
+            assert res_save["code"] == "FILE_LOCKED"
+            with open(target, "rb") as f:
+                assert f.read() == b"keep-me"
+            assert doc.getURL() == orig_url
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_document_save_own_path_keeps_password_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_pwd_")
+    target = os.path.join(tmp_dir, "secret.odt")
+    try:
+        text = doc.getText()
+        text.insertString(text.createTextCursor(), "top secret", False)
+        doc.storeAsURL(
+            path_to_file_url(target),
+            (create_property_value("Password", "pass123"),),
+        )
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        text.insertString(cursor, " edited", False)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res = DocumentSave().execute(tool_ctx, path=target)
+        assert res["status"] == "ok", res
+        with zipfile.ZipFile(target) as zf:
+            assert b"encryption-data" in zf.read("META-INF/manifest.xml")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
