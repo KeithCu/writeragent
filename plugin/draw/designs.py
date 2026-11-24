@@ -7,8 +7,8 @@
 M0′ (``docs/draw/impress-lo-first-m0-probe-results.md``, PR #788) showed:
 
 * PathSettings template dirs enumerate shipped ``.otp`` (Metropolis, …).
-* ``loadComponentFromURL`` + ``AsTemplate`` creates a designed **new** doc
-  (kept as ``create_presentation_from_design`` for tests only — not a tool).
+* ``loadComponentFromURL`` + ``AsTemplate`` opens a designed untitled
+  document, used here as the hidden clone source.
 * ``loadStylesFromURL`` is absent/incomplete on Impress — do not use it.
 
 Current-doc restyle (#791 clipboard path failed headed — system clipboard
@@ -57,14 +57,11 @@ from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import available_miss_details
 from plugin.framework.errors import is_disposal
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
-from plugin.framework.uno_context import uno_same
+from plugin.framework.thread_guard import guard_uno
+from plugin.framework.uno_context import create_property_value, get_desktop, uno_same
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
-
-# Distinct from create-from-template's ``_wa_impress_otp`` so a hidden source
-# load does not collide with a leftover new-doc Hidden frame.
-_IMPORT_SOURCE_TARGET = "_wa_impress_otp_import"
 
 
 class ClonedMaster(NamedTuple):
@@ -281,14 +278,6 @@ def _match_listed_design(designs: list[dict[str, str]], needle: str) -> dict[str
     return None
 
 
-def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
-    """Match a listed design by id, name, path, or file URL."""
-    needle = str(design or "").strip()
-    if not needle:
-        return None
-    return _match_listed_design(enumerate_impress_designs(ctx, include_look=False), needle)
-
-
 def _master_entries(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for i, m, name in iter_masters(doc):
@@ -330,39 +319,18 @@ def _close_hidden_doc(model: Any) -> None:
         log.exception("Failed to dispose hidden design source")
 
 
-def _load_design_model(
-    uno_ctx: Any,
-    design: dict[str, str],
-    target: str,
-    *,
-    hidden: bool,
-    as_template: bool,
-) -> Any:
-    from plugin.framework.uno_context import create_property_value, get_desktop
+def open_design_source_hidden(uno_ctx: Any, design: dict[str, str]) -> Any:
+    """Hidden-open a listed ``.otp`` as the master-clone source.
 
+    AsTemplate gives an untitled copy with the full master (SVG chrome included).
+    """
     desktop = get_desktop(uno_ctx)
     if desktop is None:
         raise RuntimeError("LibreOffice desktop is not available.")
     url = design.get("url") or path_to_file_url(design["path"])
-    props = (create_property_value("AsTemplate", True),) if as_template else ()
-    if hidden:
-        model = load_scratch_document(desktop, url, target, 0, props)
-    else:
-        model = desktop.loadComponentFromURL(url, target, 0, props)
+    model = load_scratch_document(desktop, url, props=(create_property_value("AsTemplate", True),))
     if model is None:
         raise RuntimeError("loadComponentFromURL returned no document for %s" % url)
-    return model
-
-
-def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_template: bool = True) -> Any:
-    """Hidden-open a listed ``.otp`` as the master-clone source.
-
-    AsTemplate=True matches the known-good new-doc control (full Metropolis
-    master + SVG chrome). Distinct target from ``create_presentation_from_design``.
-    """
-    from plugin.framework.thread_guard import guard_uno
-
-    model = _load_design_model(uno_ctx, design, _IMPORT_SOURCE_TARGET, hidden=True, as_template=as_template)
     try:
         return guard_uno(model)
     except Exception:
@@ -795,7 +763,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     target_design_name = str(design.get("name") or design_label).strip()
 
     try:
-        src = open_design_source_hidden(uno_ctx, design, as_template=True)
+        src = open_design_source_hidden(uno_ctx, design)
         cloned = clone_master_into_doc(dest_doc, src, design, uno_ctx)
         master_name = cloned.name
         clone_warnings_list = list(cloned.warnings)
@@ -917,21 +885,6 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         "clone_warnings": clone_warnings_list[:12],
         "clone_warning_count": len(clone_warnings_list),
     }
-
-
-def create_presentation_from_design(uno_ctx: Any, design: dict[str, str], *, hidden: bool = False) -> Any:
-    """``loadComponentFromURL`` + ``AsTemplate`` — new document (M0′ proven path).
-
-    Internal / test helper only. Not model-facing: a new Impress window
-    gets a fresh sidebar agent and drops mid-chat context.
-    """
-    from plugin.framework.thread_guard import guard_uno
-
-    # Unique CREATE|GLOBAL target for Hidden loads (leftover ``_blank`` hangs on
-    # some Windows GHA runs). Visible product opens stay ``_blank``.
-    target = "_wa_impress_otp" if hidden else "_blank"
-    model = _load_design_model(uno_ctx, design, target, hidden=hidden, as_template=True)
-    return guard_uno(model)
 
 
 class ListDesigns(ToolBase):

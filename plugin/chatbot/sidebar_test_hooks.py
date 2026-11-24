@@ -3129,7 +3129,7 @@ def _apply_fake_vision(mode: str) -> None:
 
         _patch(availability, "vision_venv_configured", lambda ctx=None: mode != "unavailable")
         if mode == "export_fail":
-            # Fail inside the real resolve_vision_image_bytes so its own error surfaces.
+            # Fail inside the real resolve_vision_image so its own error surfaces.
             def _no_export(*_a: Any, **_k: Any) -> Any:
                 raise RuntimeError("fake export failure")
 

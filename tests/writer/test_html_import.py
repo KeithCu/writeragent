@@ -1455,6 +1455,7 @@ def test_insert_content_at_position_extremes_apply_styles(position: str, goto: s
     body_text = MagicMock()
     body_text.createTextCursor.return_value = body_cursor
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.getText.return_value = body_text
 
     with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
@@ -1466,6 +1467,30 @@ def test_insert_content_at_position_extremes_apply_styles(position: str, goto: s
     getattr(body_cursor, goto).assert_called_once_with(False)
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
+
+
+def test_insert_content_at_position_recorded_empty_beginning():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    body_cursor = MagicMock()
+    body_cursor.isStartOfParagraph.return_value = True
+    body_cursor.isEndOfParagraph.return_value = True
+    body_text = MagicMock()
+    body_cursor.getText.return_value = body_text
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getPropertyValue.side_effect = lambda name: name == "RecordChanges"
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import._import_and_drop_leftover") as mock_drop:
+        insert_content_at_position(model, MagicMock(), "<p>x</p>", "beginning")
+
+    body_text.insertControlCharacter.assert_called_once_with(body_cursor, 0, False)
+    mock_drop.assert_called_once()
+    assert mock_drop.call_args.kwargs.get("apply_styles") is True
+    assert mock_drop.call_args.kwargs.get("merge_forward_after_table") is False
 
 
 def test_insert_content_at_position_empty_selection_skips_styles():
