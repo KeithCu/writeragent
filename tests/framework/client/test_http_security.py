@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from plugin.framework.client.http_security import apply_redirect, is_credential_name, secrets_from_target
+from plugin.framework.client.http_security import apply_redirect, is_credential_name, secrets_from_target, secrets_from_url_path
 
 
 @pytest.mark.parametrize(
@@ -24,10 +24,45 @@ from plugin.framework.client.http_security import apply_redirect, is_credential_
         ("output_modalities", False),
         ("Mcp-Session-Id", False),
         ("Content-Type", False),
+        ("code", False),
+        ("X-Hub-Signature", False),
     ],
 )
 def test_is_credential_name(name: str, expected: bool):
     assert is_credential_name(name) is expected
+
+
+@pytest.mark.parametrize(
+    ("param", "collected"),
+    [
+        ("code", True),
+        ("sig", True),
+        ("X-Amz-Signature", True),
+        ("X-Goog-Signature", True),
+        ("error_code", False),
+    ],
+)
+def test_secrets_from_target_collects_signed_query_params(param: str, collected: bool):
+    url = f"https://example.com/mcp?{param}=SignedSecret123"
+    secrets = secrets_from_target(url)
+    assert ("SignedSecret123" in secrets) is collected
+
+
+def test_secrets_from_url_path():
+    url = "https://example.com/s/8d2f6f3e-1a2b-4c5d-8e9f-0a1b2c3d4e5f/AbCdEfGhIjKlMnOpQr%3D%3D/fc-0123456789abcdef0123456789abcdef/mcp"
+    secrets = secrets_from_url_path(url)
+    assert "8d2f6f3e-1a2b-4c5d-8e9f-0a1b2c3d4e5f" in secrets
+    assert "AbCdEfGhIjKlMnOpQr%3D%3D" in secrets
+    assert "AbCdEfGhIjKlMnOpQr==" in secrets
+    assert "fc-0123456789abcdef0123456789abcdef" in secrets
+    assert "mcp" not in secrets
+
+    benign = "https://example.com/api/v1beta/streamable-http/model-context-protocol/mcp"
+    assert secrets_from_url_path(benign) == []
+
+
+def test_secrets_from_target_ignores_model_names_in_path():
+    assert secrets_from_target("/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent") == []
 
 
 def test_secrets_from_target_gives_raw_and_decoded_values():

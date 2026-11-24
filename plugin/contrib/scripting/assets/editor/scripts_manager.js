@@ -184,6 +184,12 @@
   }
 
   function applyScriptsList(msg) {
+    if (msg.load_follows) {
+      pendingSavedCode = null;
+      pendingSwitchName = null;
+      switchAfterSave = false;
+      return;
+    }
     var savedCode = pendingSavedCode;
     pendingSavedCode = null;
     var switchTo = switchAfterSave ? pendingSwitchName : null;
@@ -284,13 +290,6 @@
     return origin !== "user" && origin !== "document" && origin !== "";
   }
 
-  function builtInHelperReadOnlyMessage() {
-    return t(
-      "builtin_readonly",
-      "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
-    );
-  }
-
   function updateToolbarState() {
     if (documentStale) {
       setStatus(
@@ -325,6 +324,7 @@
       if (isRunScript) {
         if (typeof msg.selected_script_name === "string") {
           selectedScriptName = msg.selected_script_name;
+          currentSelectedName = selectedScriptName;
         }
         if (window.pywebview && window.pywebview.api && window.pywebview.api.request_scripts) {
           window.pywebview.api.request_scripts();
@@ -620,15 +620,14 @@
     if (!activeScript) {
       return false;
     }
-    if (scriptIndex[activeScript] && isBuiltInHelperOrigin(scriptIndex[activeScript].origin)) {
-      setStatus(builtInHelperReadOnlyMessage(), "error");
-      return false;
-    }
     if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
       var code = window.editor.getValue();
       var origin = scriptIndex[activeScript] ? scriptIndex[activeScript].origin : currentOrigin;
       pendingSavedCode = code;
-      window.pywebview.api.save_script(activeScript, code, origin);
+      var requested = window.waEditorUi && window.waEditorUi.lockForRequestedSave
+        ? window.waEditorUi.lockForRequestedSave()
+        : false;
+      window.pywebview.api.save_script(activeScript, code, origin, requested);
       setStatus(fmt("saving_script", activeScript), "ok");
       return true;
     }

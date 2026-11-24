@@ -74,36 +74,6 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     return ""
 
 
-def sidebar_only_tool_names(
-    registry: Any,
-    doc: Any,
-    *,
-    doc_type: str | None = None,
-    uno_services_supported: frozenset[str] | None = None,
-) -> frozenset[str]:
-    """Tool names in sidebar-only domains (MCP ``direct_flat`` only; ``tool_find`` uses the domain filter).
-
-    The live document is not forwarded to the registry. With a document open,
-    callers must pass ``doc_type`` and ``uno_services_supported`` (as
-    ``direct_flat`` does). Otherwise ``get_tools`` rejects every tool that
-    declares ``uno_services``, the name set is empty, and those tools leak.
-    A registry failure raises; tools/list then fails instead of listing sidebar-only tools.
-    """
-    tools = registry.get_tools(
-        doc_type=doc_type,
-        uno_services_supported=uno_services_supported,
-        exclude_tiers=(),
-        **_doc_filter(doc),
-    )
-    out = set()
-    for t in tools:
-        if getattr(t, "specialized_domain", None) in _SIDEBAR_ONLY_DOMAINS:
-            name = getattr(t, "name", None)
-            if isinstance(name, str):
-                out.add(name)
-    return frozenset(out)
-
-
 class FindTools(ToolBase):
     """Discover specialized tools by domain catalog + per-domain schema listing.
 

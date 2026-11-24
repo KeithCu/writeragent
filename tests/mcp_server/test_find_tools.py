@@ -189,44 +189,6 @@ def test_tools_list_filters_is_current():
     services.tools.get_schemas.assert_called()  # the thread assertion only fires if get_schemas ran
 
 
-def test_tools_list_direct_flat_filters_sidebar_is_current():
-    # direct_flat runs a second sidebar-only filter; with cached uno_services_supported
-    # it no longer probes doc.supportsService, but still must run on the main thread
-    # because it shares the _mcp_tools_list UNO resolution block.
-    from unittest.mock import patch
-
-    on_main = {"in": False}
-
-    def _exec(fn, *a, **k):
-        k.pop("timeout", None)
-        on_main["in"] = True
-        try:
-            return fn(*a, **k)
-        finally:
-            on_main["in"] = False
-
-    def _get_schemas(*a, **k):
-        assert on_main["in"], "get_schemas (UNO doc-type filtering) ran off the main thread"
-        return [{"name": "create_chart", "description": "c", "inputSchema": {}}]
-
-    def _sidebar(registry, doc, *, doc_type=None, uno_services_supported=None):
-        assert on_main["in"], "sidebar_only_tool_names (UNO get_tools filtering) ran off the main thread"
-        return frozenset()
-
-    services = MagicMock()
-    services.get.side_effect = lambda name: getattr(services, name, None)
-    services.main_thread.call.side_effect = _exec
-    services.tools.get_schemas.side_effect = _get_schemas
-    services.document.get_active_document.return_value = MagicMock()  # a document is open
-
-    handler = MCPProtocolHandler(services)
-    handler._tool_exposure_mode = lambda: "direct_flat"
-    with patch("plugin.doc.find_tools_tool.sidebar_only_tool_names", _sidebar):
-        result = handler._mcp_tools_list({})
-    assert any(t["name"] == "create_chart" for t in result["tools"])
-    services.tools.get_schemas.assert_called()
-
-
 # --------------------------------------------------------------------------- #
 # real-registry tests
 # --------------------------------------------------------------------------- #
@@ -287,6 +249,7 @@ class _CoreTool(ToolBase):
 
 class _BrainstormTool(_FtBase):
     name = "brainstorming_search_web"
+    tier = "unlisted"
     specialized_domain = "brainstorming"
     description = "brainstorm research on the web"
 
@@ -511,11 +474,7 @@ def test_unknown_domain_returns_error_and_available_domains():
 
 
 def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
-    """Open Draw/Impress must hide ppt-master, same as no document and direct_flat.
-
-    The registry still returns those schemas for the open document. Hiding is
-    the sidebar-only name filter, which needs doc_type and uno_services.
-    """
+    """tool_find refuses ppt-master; the unlisted tier keeps those tools off direct_flat."""
     from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.framework.tool import ToolContext
     from plugin.ppt_master.tools import (
@@ -701,11 +660,10 @@ def test_catalog_covers_a_writer_open_behind_the_active_calc():
     handler.services.document.open_documents_by_type.return_value = {
         "calc": MagicMock(), "writer": writer_doc,
     }
-    schemas, broadened = handler._add_other_open_doc_schemas(
+    schemas = handler._add_other_open_doc_schemas(
         [_schema("read_range")], "calc", frozenset()
     )
 
-    assert set(broadened) == {"writer"}, "the caller needs the added types for its own filters"
     names = {s["name"] for s in schemas}
     assert "read_range" in names, "the active document's own tools must stay"
     assert "apply_content" in names, "the open Writer document's tools must appear too"
@@ -728,17 +686,34 @@ def test_catalog_broaden_propagates_schema_failure():
 
 
 def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
-    """Writer's sidebar-only domains must stay out even when reached by broadening.
+    """Writer's sidebar-only tools stay out of direct_flat when reached by broadening (tier unlisted)."""
+    class _WriterCoreTool(ToolBase):
+        name = "writer_only_core"
+        description = "a writer-only core tool"
+        tier = "core"
+        is_mutation = False
+        uno_services = ["com.sun.star.text.TextDocument"]
+        parameters = {"type": "object", "properties": {}, "required": []}
 
-    The sidebar-only set is computed per document type, so broadening past an
-    active Calc document once let brainstorm_* through.
-    """
-    handler = _handler_real("direct_flat", _real_registry())
+        def execute(self, ctx, **kwargs):
+            return {}
+
+    reg = _real_registry()
+    reg.register(_WriterCoreTool())
+    handler = _handler_real("direct_flat", reg)
+    calc_doc = MagicMock()
+    calc_doc.supportsService = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
     writer_doc = MagicMock()
-    handler.services.document.get_active_document.return_value = None
-    handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
+    writer_doc.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
+    handler.services.document.get_active_document.return_value = calc_doc
+    handler.services.document.detect_doc_type.return_value = "calc"
+    handler.services.document.open_documents_by_type.return_value = {
+        "calc": calc_doc,
+        "writer": writer_doc,
+    }
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
+    assert "writer_only_core" in names
     assert "brainstorming_search_web" not in names
 
 def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
@@ -750,16 +725,6 @@ def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
     monkeypatch.setattr("plugin.framework.uno_context.get_ctx", _boom)
     with pytest.raises(RuntimeError, match="off main thread"):
         handler._mcp_tools_list({})
-
-
-def test_sidebar_only_tool_names_registry_failure_is_raised_not_an_empty_set():
-    # An empty set would let every sidebar-only tool into the direct_flat tools/list.
-    from plugin.doc.find_tools_tool import sidebar_only_tool_names
-
-    registry = MagicMock()
-    registry.get_tools.side_effect = RuntimeError("registry broken")
-    with pytest.raises(RuntimeError, match="registry broken"):
-        sidebar_only_tool_names(registry, None, doc_type="writer", uno_services_supported=frozenset())
 
 
 def test_web_research_domain_not_discoverable():
@@ -774,16 +739,43 @@ def test_web_research_domain_not_discoverable():
     assert res["code"] == "UNKNOWN_DOMAIN"
 
 
-@pytest.mark.parametrize("mode", ["direct_flat", "direct_discovery"])
-def test_web_research_tool_call_rejected_in_direct_modes(mode: str):
-    import json
+def _unlisted_tool_classes():
+    from plugin.chatbot.brainstorming import BrainstormResearchWeb, SaveDesignSpec
+    from plugin.chatbot.deep_research_session import DeepResearchWebTool
     from plugin.chatbot.web_research import WebResearchTool
+    from plugin.chatbot.writing import WriteDocumentSection, WritingResearchWeb
+    from plugin.ppt_master.tools import (
+        ApplyPptMasterNativeEnhance,
+        ApplyPptMasterTemplateFill,
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+    )
 
+    return [
+        WebResearchTool,
+        DeepResearchWebTool,
+        BrainstormResearchWeb,
+        SaveDesignSpec,
+        WritingResearchWeb,
+        WriteDocumentSection,
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+        ApplyPptMasterTemplateFill,
+        ApplyPptMasterNativeEnhance,
+    ]
+
+
+@pytest.mark.parametrize("mode", ["direct_flat", "direct_discovery"])
+@pytest.mark.parametrize("tool_cls", _unlisted_tool_classes(), ids=lambda c: c.__name__)
+def test_unlisted_tool_call_rejected_in_direct_modes(mode: str, tool_cls):
+    import json
+
+    tool = tool_cls()
     reg = ToolRegistry(MagicMock())
-    reg.register(WebResearchTool())
+    reg.register(tool)
     handler = _handler_real(mode, reg)
     res = handler._mcp_tools_call(
-        {"name": "web_research", "arguments": {"query": "pizza"}},
+        {"name": tool.name, "arguments": {}},
         cancel=SendCancellation(),
     )
     assert res["isError"] is True

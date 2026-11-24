@@ -664,8 +664,9 @@ class DocumentService(ServiceBase):
     def open_documents(self) -> list[Any]:
         """Every open real document, in desktop order. Main-thread only.
 
-        Start Center and WriterAgent's scratch documents are excluded (see
-        ``plugin.framework.scratch_writer``); user-hidden documents are included.
+        Start Center and WriterAgent's scratch documents (including files opened
+        hidden for research) are excluded (see ``plugin.framework.scratch_writer``);
+        user-hidden documents are included.
         """
         docs = []
         try:

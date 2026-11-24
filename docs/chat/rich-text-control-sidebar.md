@@ -355,13 +355,13 @@ conversions. `new_blank_writer` empties the result (`clear_writer_body`: tables,
 drawing shapes as well as the text — a letterhead is often just an empty table or a logo, whose
 body string is "").
 
-Scratch Writers from `new_blank_writer` load with `page_preview_view_prop()` (`ViewId=7`, `SwPagePreview`): closing a normal `SwView` clears Writer's global active-view pointer (`~SwViewGlueDocShell`), which causes LibreOffice's Manage Changes dialog (`SwRedlineAcceptDlg`) to dereference null and abort. Page-preview controllers have no `getViewCursor`. The Calc keeper in `plugin/calc/rich_html.py` keeps a normal `SwView` because it needs `getTransferable`.
+Scratch Writers from `new_blank_writer` load with `page_preview_view_prop()` (`ViewId=7`, `SwPagePreview`) by default: closing a normal `SwView` clears Writer's global active-view pointer (`~SwViewGlueDocShell`), which causes LibreOffice's Manage Changes dialog (`SwRedlineAcceptDlg`) to dereference null and abort. Page-preview controllers have no `getViewCursor`.
 
-**Still local:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) reuses a keeper Writer
-(`CREATE|GLOBAL` on `_wa_calc_html`) rather than going through `new_blank_writer`, using
-`load_scratch_document` / `close_scratch_document` directly. It calls `clear_writer_body` on that
-Writer after every load, including the reused keeper, so a default-template letterhead (table or
-logo) is not pasted into the cell.
+**Now shared:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) also creates its hidden
+Writer through `new_blank_writer(..., page_preview=False)` and reuses it from an idle list, calling
+`clear_writer_body(..., keep_chars=1)` between pastes so a default-template letterhead
+is not pasted into the cell and previous paste formatting does not carry over (it keeps the
+default `SwView` because it needs `XSelectionSupplier.select` and `getTransferable`).
 
 ### Smaller cleanups
 
@@ -445,5 +445,4 @@ Create-time (Keith 2026-08-27): `[FIRST LAYOUT] root_w=320 max_child_right=1087 
 - `[fidelity S few]` Preserve real `NumberingRules` when pasting formatted rows into the transcript and drop the manual list-prefix reconstruction. (§ Open questions)
 - `[idea S few]` Spellcheck and grammar marking on the transcript control. (§ Open questions)
 - `[idea L few]` Out-of-process webview for the transcript if a richer UI is ever wanted. (§ Open questions)
-- `[eng S few]` Make the Calc rich-HTML keeper Writer go through the shared `new_blank_writer` factory instead of its own `_wa_calc_html` creation path. (§ Shared hidden Writer factory)
 - `[eng S few]` Add the missing explanatory comments on list prefix reconstruction and on why `_create_rich_control_peer` tries several creation attempts. (§ Smaller cleanups)

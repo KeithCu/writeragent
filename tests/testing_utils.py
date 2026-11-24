@@ -290,7 +290,7 @@ _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
 
 
 def note_windows_html_paste_leftover() -> None:
-    """Mark leftover_open after ``insert_cell_html_rich`` skips close on Windows."""
+    """Mark leftover_open after ``insert_cell_html_rich`` keeps its reused Writer open on Windows."""
     if sys.platform != "win32":
         return
     if _windows_leftover_open() <= 0:
@@ -1814,6 +1814,156 @@ class FakeUndoManager:
         if self.titles:
             self.titles.pop(0)
             self.undone += 1
+
+
+def fill_five_paragraphs(text: Any) -> list[Any]:
+    """Populate *text* with 5 same-style paragraphs and return the paragraph objects."""
+    paras = ["Keep", "Start gone1", "gone2", "gone3 Tail", "After"]
+    text.setString("")
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    for idx, line in enumerate(paras):
+        if idx > 0:
+            text.insertControlCharacter(cursor, 0, False)
+        text.insertString(cursor, line, False)
+
+    enum = text.createEnumeration()
+    para_objs = []
+    while enum.hasMoreElements():
+        para_objs.append(enum.nextElement())
+    return para_objs
+
+
+def strike_middle_three_paragraphs(
+    doc: Any, text: Any, para_objs: list[Any] | None = None
+) -> None:
+    """Strike from para 1 after 'Start ' to para 3 before 'Tail' and assert 1 continuous redline."""
+    if para_objs is None:
+        enum = text.createEnumeration()
+        para_objs = []
+        while enum.hasMoreElements():
+            para_objs.append(enum.nextElement())
+
+    del_cur = text.createTextCursorByRange(para_objs[1].getStart())
+    del_cur.goRight(len("Start "), False)
+    end_cur = text.createTextCursorByRange(para_objs[3].getStart())
+    end_cur.goRight(len("gone3 "), False)
+    del_cur.gotoRange(end_cur, True)
+
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+    redlines = doc.getRedlines()
+    assert redlines.getCount() == 1, f"Expected 1 continuous redline, got {redlines.getCount()}"
+    mid_enum = para_objs[2].createEnumeration()
+    while mid_enum.hasMoreElements():
+        portion = mid_enum.nextElement()
+        assert portion.getPropertyValue("TextPortionType") != "Redline", (
+            "Middle paragraph unexpectedly has a Redline portion (redline was split)"
+        )
+
+
+def strike_across_paragraphs(doc: Any, text: Any) -> None:
+    """Populate *text* with 5 same-style paragraphs and strike from para 1 to para 3."""
+    para_objs = fill_five_paragraphs(text)
+    strike_middle_three_paragraphs(doc, text, para_objs)
+
+
+def strike_across_table(doc: Any, text: Any) -> Any:
+    """Insert a 1x1 table between two paragraphs, strike across it, and assert precondition."""
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Before delstart", False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("CellGone")
+    cur.gotoEnd(False)
+    text.insertString(cur, "delend After", False)
+
+    enum = text.createEnumeration()
+    els = []
+    while enum.hasMoreElements():
+        els.append(enum.nextElement())
+    del_cur = text.createTextCursorByRange(els[0].getStart())
+    del_cur.goRight(len("Before "), False)
+    end_cur = text.createTextCursorByRange(els[2].getStart())
+    end_cur.goRight(len("delend "), False)
+    del_cur.gotoRange(end_cur, True)
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getTextTables().hasByName(tbl.getName())
+    assert tbl.getCellByName("A1").getString() == "CellGone"
+    return tbl
+
+
+class FakeUnoEnum:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = list(items)
+        self._idx = 0
+
+    def hasMoreElements(self) -> bool:
+        return self._idx < len(self._items)
+
+    def nextElement(self) -> Any:
+        item = self._items[self._idx]
+        self._idx += 1
+        return item
+
+
+class FakeUnoPortion:
+    def __init__(
+        self,
+        ptype: str,
+        text: str = "",
+        *,
+        redline_type: str | None = None,
+        is_start: bool = False,
+    ) -> None:
+        self._ptype = ptype
+        self._text = text
+        self._redline_type = redline_type
+        self._is_start = is_start
+
+    def getPropertyValue(self, name: str) -> Any:
+        if name == "TextPortionType":
+            return self._ptype
+        if name == "RedlineType":
+            return self._redline_type
+        if name == "IsStart":
+            return self._is_start
+        raise KeyError(name)
+
+    def getString(self) -> str:
+        return self._text
+
+
+class FakeUnoPara:
+    def __init__(self, portions: list[Any], **props: Any) -> None:
+        self._portions = list(portions)
+        self._props = props
+
+    def supportsService(self, name: str) -> bool:
+        return name == "com.sun.star.text.Paragraph"
+
+    def createEnumeration(self) -> FakeUnoEnum:
+        return FakeUnoEnum(self._portions)
+
+    def getPropertyValue(self, name: str) -> Any:
+        if name in self._props:
+            return self._props[name]
+        raise KeyError(name)
 
 
 def logo_32_path() -> str:

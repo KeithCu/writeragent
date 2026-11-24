@@ -48,11 +48,11 @@ Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness
 | `load` | LO → child | Buffer contents: stripped Python (never `=PY()`), optional `title`, `data_binding`, `plain_text_label`, `save_as_plain`, **`ui`** (see [Localization](#localization)), plus the session envelope below. |
 | `save` | child → LO | User saved/ran: `code`, optional `save_as_plain`, optional `data_binding`, optional `action`. Echoes the envelope. |
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `status_ok_text` (e.g. **Saved without =PY().**), `load_follows: true` when a `load` is about to replace the buffer, and, after an `xl()` rewrite, `code` and `data_binding`. Monaco/CM6 replace the buffer only if it is unchanged since Save; the built-in dialog always replaces it. Same envelope as the `save` they answer. |
-| `request_save` | LO → child | Ask the focused buffer to click Save before a different load (any dirty mode). Addressed to that `session_id`; the shell makes the editor, Data, and plain-text checkbox read-only until `saved` (without `load_follows`), `error`, or `load` arrives. |
+| `request_save` | LO → child | Ask the focused buffer to click Save before a different load (any dirty mode). Addressed to that `session_id`; the shell makes the editor, Data, and plain-text checkbox read-only until `saved` (without `load_follows`), `scripts_list` (without `load_follows`), `error`, or `load` arrives. |
 | `dirty` | child → LO | Unsaved-edit flag for that session. |
 | `ask_unsaved` | child → LO | Picker asks Save / Don't save / Cancel for the named script; the host answers `unsaved_choice`. |
 | `closed` | child → LO | Tear down **that** `session_id`. (The child's reader also stops on a parent `closed`; the host does not send one.) |
-| `scripts_list` / `request_scripts` / `save_script` / … | either | Run Python Script picker; stamp the envelope like any other session message. |
+| `scripts_list` / `request_scripts` / `save_script` / … | either | Run Python Script picker; stamp the envelope like any other session message. A requested `save_script` carries `requested: true`; when a queued `load` follows, `scripts_list` carries `load_follows: true`. |
 
 ### Session envelope
 
@@ -66,7 +66,7 @@ Every message **except** `ready` includes:
 
 Callers put identity on `load` (cell A1, script name, init `resource`, LaTeX object name). `run_script_doc` is **popped** before pickle.
 
-**Flow:** `launch_monaco_editor` mints or reuses a session, registers `on_save` / `on_closed` in `PersistentEditor.sessions[session_id]`, sends stamped `load`. Reusing the same target clears `pending_load`, `pending_on_save`, and `pending_on_closed`, so a `queue_save_then_load` still in flight cannot fire on a later unrelated save. Child remembers the last `load`’s envelope and stamps `_write_parent`. JS stores `session_id` and ignores `saved`/`error` for a different id. Host `_dispatch_incoming` looks up the id; unknown ids are ignored (not applied to the focused editor). Picker messages with an unknown `session_id` return before `handle_editor_script_message`. A save whose `executor.execute` raises also clears `pending_load`, `pending_on_save`, and `pending_on_closed` and the save token. A failure inside the save callback does not clear them.
+**Flow:** `launch_monaco_editor` mints or reuses a session, registers `on_save` / `on_closed` in `PersistentEditor.sessions[session_id]`, sends stamped `load`. Reusing the same target clears `pending_load`, `pending_on_save`, and `pending_on_closed`, so a `queue_save_then_load` still in flight cannot fire on a later unrelated save. Child remembers the last `load`’s envelope and stamps `_write_parent`. JS stores `session_id` and ignores `saved`/`error` for a different id. Host `_dispatch_incoming` looks up the id; unknown ids are ignored (not applied to the focused editor). Picker messages with an unknown `session_id` return before `handle_editor_script_message`. A save whose `executor.execute` raises also clears `pending_load`, `pending_on_save`, and `pending_on_closed` and the save token. A failure inside the save callback does not clear them. A requested `save_script` (`requested: true`) that is refused or raises drops the queued load; when it succeeds, any queued `run_script` load re-reads the script before `end_session` and `_activate_load`.
 
 **One child process, N host sessions.** UI queues in the child are keyed by `session_id`. **Simple UI (current):** one focused view — opening a *different* target `end_session`s the previous one and sends `load`. Any dirty buffer (calc cell, Run Python Script, init script, or LaTeX) confirms first. Yes sends `request_save` on the old id, then loads the new buffer. Choosing No discards the edits. Cancel keeps the current editor. That replace-on-switch policy is UI, not the protocol. Extra windows later keep unfocused sessions in the map (see [Multiple editor views](#multiple-editor-views-windows-vs-tabs)).
 
@@ -689,7 +689,7 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 | Initial load | `load.code` and `load.selected_script_name` from [`resolve_run_script_selection()`](../../plugin/scripting/document_scripts.py) (`last_python_script_name_*` → script body). `scripts_list` repeats `selected_script_name`; JS syncs the dropdown without overwriting editor text on first populate. |
 | Picker selection persist | User changes dropdown → `select_script` IPC → `set_config(last_python_script_name_*)` (same as native XDL `_ScriptSelectListener`). |
 | Switch script | `onDropdownChange` loads from `scriptIndex[name].code` (from `scripts_list.sections`). |
-| Save | Intercepted in `scripts_manager.js` → `save_script` IPC (user or document origin). |
+| Save | Intercepted in `scripts_manager.js` → `save_script` IPC (user or document origin; `requested: true` during `request_save`, which locks the editor until `load_follows` + `load` or a plain `scripts_list`/error). |
 | Delete | Intercepted in `scripts_manager.js` → `delete_script` IPC (user or document origin) after confirmation. |
 
 ---

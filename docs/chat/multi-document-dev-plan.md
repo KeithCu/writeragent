@@ -85,7 +85,7 @@ flowchart LR
 ```
 
 - [`resolve_document_by_url`](../../plugin/framework/uno_context.py) scans **already open** components only — it does **not** open closed files.
-- New load props: **`Hidden=True`**, **`ReadOnly=True`**, and **`ViewId=7`** ([`page_preview_view_prop`](../../plugin/framework/scratch_writer.py), same as [`new_blank_writer`](../../plugin/framework/scratch_writer.py)) so closing a hidden Writer sibling uses `SwPagePreview` instead of clearing Writer's active-view pointer and crashing Manage Changes (`SwRedlineAcceptDlg`). Other apps ignore `ViewId=7` and use their default view. Windows uses CREATE|GLOBAL target `_wa_doc_research` instead of `_default` (GHA 34636251918). POSIX keeps `_default`. UNO tests on Windows Hidden-open a `Budget_read.ods` copy, not the pooled Calc `storeAsURL` path (GHA 34639913692).
+- New load props: **`Hidden=True`**, **`ReadOnly=True`**, and **`ViewId=7`** ([`page_preview_view_prop`](../../plugin/framework/scratch_writer.py), same as [`new_blank_writer`](../../plugin/framework/scratch_writer.py)) so closing a hidden Writer sibling uses `SwPagePreview` instead of clearing Writer's active-view pointer and crashing Manage Changes (`SwRedlineAcceptDlg`). Other apps ignore `ViewId=7` and use their default view. Loaded via `load_scratch_document` with target `_blank` on all platforms and registered as scratch. UNO tests on Windows Hidden-open a `Budget_read.ods` copy, not the pooled Calc `storeAsURL` path (GHA 34639913692).
 - If a sibling is already open **editable** in another window, reuse that component via URL match; inner agent still gets a **read-only allowlist** (schema enforcement, not LO mode alone).
 
 ### Fuzzy name matching (Phase 0)

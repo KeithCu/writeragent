@@ -402,3 +402,54 @@ def test_chapter_number_cache_refreshes_on_numbering_toggle_uno(ctx, doc):
             assert "chapter_number:3.1" in str(exc)
     finally:
         events.unsubscribe("document:cache_invalidated", tree_svc._on_cache_invalidated)
+
+
+@native_test
+@with_native_doc("writer")
+def test_tree_hides_multi_para_deletion_in_headings_and_body_uno(ctx, doc):
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.event_bus import EventBus
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.tests.testing_utils import strike_across_paragraphs
+    from plugin.writer.specialized.bookmarks import BookmarkService
+    from plugin.writer.tree import TreeService
+
+    text = doc.getText()
+    strike_across_paragraphs(doc, text)
+
+    # Set all paragraphs to Heading 1 (same style keeps one continuous redline).
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    events = EventBus()
+    doc_svc = DocumentService()
+    tree_svc = TreeService(SimpleNamespace(document=doc_svc, writer_bookmarks=BookmarkService(), events=events))
+    try:
+        tree = tree_svc.build_heading_tree(doc)
+        heading_texts = [c["text"] for c in tree["children"]]
+        assert all("gone" not in t for t in heading_texts), heading_texts
+        assert heading_texts[0] == "Keep"
+        assert heading_texts[-1] == "After"
+
+        # Now make only Keep a heading so the struck paragraphs are body text.
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        for p in paras[1:]:
+            p_cur = text.createTextCursorByRange(p)
+            p_cur.setPropertyValue("ParaStyleName", "Standard")
+        events.emit("document:cache_invalidated", doc=doc)
+
+        doc_tree = tree_svc.get_document_tree(doc, content_strategy="full", depth=1)
+        body_text = doc_tree["children"][0]["body_text"]
+        assert "gone" not in body_text, body_text
+        assert "Tail" in body_text and "After" in body_text
+
+        children_res = tree_svc.get_heading_children(doc, heading_para_index=0, content_strategy="full")
+        child_texts = [c.get("text", "") for c in children_res["children"]]
+        assert all("gone" not in t for t in child_texts), child_texts
+    finally:
+        events.unsubscribe("document:cache_invalidated", tree_svc._on_cache_invalidated)

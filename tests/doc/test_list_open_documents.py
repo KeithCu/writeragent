@@ -154,3 +154,39 @@ def test_get_open_documents_skips_non_office_document_components():
 
     assert len(docs) == 1
     assert docs[0]["url"] == "file:///home/user/doc.odt"
+
+
+def test_get_open_documents_skips_registered_scratch_documents(monkeypatch):
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"uid-scratch"})
+
+    scratch_doc = MagicMock()
+    scratch_doc.getURL.return_value = ""
+    scratch_doc.getController.return_value = None
+    scratch_doc.getRuntimeUID.return_value = "uid-scratch"
+    scratch_doc.supportsService.return_value = True
+
+    user_untitled = MagicMock()
+    user_untitled.getURL.return_value = ""
+    user_untitled.getController.return_value = None
+    user_untitled.getRuntimeUID.return_value = "uid-user"
+    user_untitled.isModified.return_value = False
+    user_untitled.isReadonly.return_value = False
+    user_untitled.supportsService.return_value = True
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    elems = [scratch_doc, user_untitled]
+    enum.hasMoreElements.side_effect = lambda: len(elems) > 0
+    enum.nextElement.side_effect = lambda: elems.pop(0)
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+    with (
+        patch("plugin.doc.document_research.get_desktop", return_value=desktop),
+        patch("plugin.doc.document_research.get_document_type", side_effect=RuntimeError("boom")),
+    ):
+        docs = get_open_documents(MagicMock(), active_model=None)
+
+    assert len(docs) == 1
+    assert docs[0]["uid"] == "uid-user"
