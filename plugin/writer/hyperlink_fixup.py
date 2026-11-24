@@ -804,27 +804,35 @@ def _number_label(title: str) -> str:
     return folded[: match.end()] if match else ""
 
 
-def _number_passed_on(old: str, new: str, old_labels: Counter[str], new_labels: Counter[str]) -> bool:
+def _number_passed_on(
+    old: str,
+    new: str,
+    old_labels: Counter[str],
+    new_labels: Counter[str],
+    relabelled: set[tuple[str, str]],
+) -> bool:
     """True unless *old* and *new* differ only in number and nothing shows a renumbering.
 
-    In a renumbering another heading takes over the old number (or its parent number) or gave
-    up the new one. A label several headings share ("Sales 2023: Europe", "Sales 2023: Asia")
-    is not such a number, and a title that is only a number ("Appendix A") has no text to
-    recognise it by.
+    In a renumbering another heading takes over the old number or gave up the new one, or its
+    chapter was renumbered the same way. A label several headings share ("Sales 2023: Europe",
+    "Sales 2023: Asia") is not such a number, and a title that is only a number ("Appendix A")
+    has no text to recognise it by.
     """
     was, now = old.casefold(), new.casefold()
     if was == now or _NUMBER_RE.sub("#", was) != _NUMBER_RE.sub("#", now):
         return True
     a, b = _number_label(old), _number_label(new)
-    if not re.search(r"\w", was[len(a):]):
+    if a == b or not re.search(r"\w", was[len(a):]):
         return False
+    if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
+        return True
     while a != b:
-        if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
-            return True
         parent_a, parent_b = re.sub(r"\.\d+$", "", a), re.sub(r"\.\d+$", "", b)
         if parent_a == a or parent_b == b:
             return False
-        a, b = parent_a, parent_b  # a subsection follows its chapter's number
+        a, b = parent_a, parent_b
+        if (a, b) in relabelled:  # its chapter was renumbered the same way
+            return True
     return False
 
 
@@ -870,7 +878,12 @@ def heading_renames(
     else:
         old_labels = Counter(map(_number_label, old_titles))
         new_labels = Counter(map(_number_label, new_titles))
-        renames = {o: n for o, n in renames.items() if _number_passed_on(o, n, old_labels, new_labels)}
+        relabelled = {(_number_label(o), _number_label(n)) for o, n in renames.items()}
+        renames = {
+            o: n
+            for o, n in renames.items()
+            if _number_passed_on(o, n, old_labels, new_labels, relabelled)
+        }
     return renames, [t for t in old_counts if t not in new_counts and t not in renames]
 
 
@@ -894,7 +907,8 @@ def _renamed_url(url: str, successors: dict[str, str | None]) -> str | None:
 
     *successors* maps each known title to its title now. The longest match wins: ``SwDoc::GotoOutline``
     (sw/source/core/doc/docnum.cxx) tries a live automatic number first, and titles alone do not
-    show automatic numbering, so the full title is preferred here.
+    show automatic numbering, so the full title is preferred here. "#2.1 Scope|outline" names the
+    heading "2.1 Scope" when there is one, and only otherwise "1 Scope" numbered 2.
     """
     match = _OUTLINE_URL_RE.fullmatch(url)
     if match is None:

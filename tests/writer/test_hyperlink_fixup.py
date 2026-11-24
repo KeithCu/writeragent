@@ -796,6 +796,12 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {},
             ["Release 2.1: Notes"],
         ),
+        (
+            [(1, "1 First quarter"), (2, "1.1 Summary"), (1, "2 Second quarter")],
+            [(1, "1 First quarter"), (1, "2 Second quarter"), (2, "2.1 Summary")],
+            {},
+            ["1.1 Summary"],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):
