@@ -90,7 +90,11 @@ def retarget_renamed_links(
     """Retarget outline links when *before* headings were renamed or removed, returning ``(count, stale)`` where *stale* maps URL to reason."""
     if not before:
         return 0, {}
-    renames, lost = heading_renames(before, document_headings(doc))
+    after = document_headings(doc)
+    renames, lost = heading_renames(before, after)
     if not renames and not lost:
         return 0, {}
-    return session.tag_side_effects(lambda: retarget_outline_links(doc, renames, lost))
+    successors: dict[str, str | None] = {text: text for _level, text in after}
+    successors.update(renames)
+    successors.update(dict.fromkeys(lost))
+    return session.tag_side_effects(lambda: retarget_outline_links(doc, successors))
