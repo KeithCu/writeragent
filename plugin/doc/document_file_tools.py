@@ -11,15 +11,21 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any, NamedTuple
 
-from plugin.doc.document_research import document_entry, resolve_file_target
+from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
+from plugin.doc.document_research import HTML_WRITER_FILTER, document_entry, resolve_file_target
 from plugin.framework.doc_type import DOCUMENT_SERVICES, doc_type_label_for_enum, get_document_type
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import create_property_value, get_desktop, resolve_document_by_url
+from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.document_file_tools")
+
+_CSV_FILTER = "Text - txt - csv (StarCalc)"
 
 # Export filter per distinct document type and lowercase extension. Names are LibreOffice
 # FilterFactory names for that module; a filter from another module crashes soffice, so the
@@ -40,7 +46,7 @@ _FILTERS: dict[str, dict[str, str]] = {
         "ots": "calc8_template",
         "xlsx": "Calc MS Excel 2007 XML",
         "xls": "MS Excel 97",
-        "csv": "Text - txt - csv (StarCalc)",
+        "csv": _CSV_FILTER,
         "html": "HTML (StarCalc)",
         "pdf": "calc_pdf_Export",
     },
@@ -63,6 +69,14 @@ _FILTERS: dict[str, dict[str, str]] = {
 # Filters without the IMPORT flag: storeAsURL rejects them (ERRCODE_IO_INVALIDPARAMETER).
 _EXPORT_ONLY: frozenset[str] = frozenset({"pdf", "png", "svg"})
 
+# Calc filters that write a single sheet. For CSV, a visible window also blocks in an
+# active-sheet confirmation dialog (ScDocShell::ConvertTo in sc/source/ui/docshell/docsh.cxx).
+_SINGLE_SHEET_FILTERS: frozenset[str] = frozenset({_CSV_FILTER, "DIF", "SYLK", "dBase"})
+
+# LibreOffice's own CSV defaults (ScImportOptions in sc/source/ui/inc/imoptdlg.hxx)
+# plus token 12, the 1-based sheet number.
+_CSV_SHEET_OPTIONS = "44,34,UTF-8,1,,0,false,true,false,false,false,{sheet}"
+
 _PLAIN_TEXT_LOSS = "Plain text keeps only the text: formatting, images, headers and footers are not in the file."
 
 # What a save in this filter leaves out of the file. document_save keeps the document on
@@ -72,18 +86,20 @@ _LOSSY_FILTERS: dict[str, str] = {
     "Text (encoded)": _PLAIN_TEXT_LOSS,
     "HTML (StarWriter)": "HTML keeps text and basic formatting; page layout and other document features may be lost.",
     "HTML (StarCalc)": "HTML keeps displayed values and basic formatting; formulas are not in the file.",
-    "Text - txt - csv (StarCalc)": "CSV keeps the displayed values of one sheet (the active one); other sheets, formulas and formatting are not in the file.",
+    _CSV_FILTER: "CSV keeps the cell values of one sheet; formulas and formatting are not in the file.",
 }
 
 _HTML_WEB_FILTER = "HTML"
-_HTML_WRITER_FILTER = "HTML (StarWriter)"
+
+
+def _current_filter(doc: Any) -> str:
+    return next((p.Value for p in doc.getArgs() if p.Name == "FilterName"), "")
 
 
 def _save_result(doc: Any) -> dict[str, Any]:
     """Result of a successful save, with a warning when the document's format drops content."""
     result: dict[str, Any] = {"status": "ok", "document": document_entry(doc)}
-    filter_name = next((p.Value for p in doc.getArgs() if p.Name == "FilterName"), "")
-    loss = _LOSSY_FILTERS.get(filter_name)
+    loss = _LOSSY_FILTERS.get(_current_filter(doc))
     if loss:
         result["warning"] = f"{loss} Later saves without path use this format too; save to an ODF path to keep everything."
     return result
@@ -139,11 +155,29 @@ def _doc_label(doc: Any) -> str:
     return doc_type_label_for_enum(get_document_type(doc))
 
 
+def _sheet_required(doc: Any, filter_name: str) -> _FilterError | None:
+    """Error when *filter_name* keeps one sheet and the workbook has more, else None."""
+    if filter_name not in _SINGLE_SHEET_FILTERS:
+        return None
+    sheets = doc.getSheets()
+    count = sheets.getCount()
+    if count <= 1:
+        return None
+    names = ", ".join(filter_agent_sheet_names(sheets.getElementNames()))
+    return _FilterError(
+        "SHEET_REQUIRED",
+        f"This workbook has {count} sheets and this format keeps only one. "
+        f"To write one sheet, call document_export with a .csv path and sheet set to one of: {names}. "
+        "To keep every sheet, save to .ods or .xlsx.",
+    )
+
+
 def _resolve_save_target(
     doc: Any,
     raw_path: Any,
     *,
     save: bool,
+    sheet: str | None = None,
 ) -> tuple[str, str, str] | _FilterError:
     """Validate target path and document type; return (path, url, filter_name) or _FilterError."""
     target = resolve_file_target(raw_path)
@@ -156,7 +190,38 @@ def _resolve_save_target(
     parent = os.path.dirname(path)
     if not os.path.isdir(parent):
         return _FilterError("DIRECTORY_NOT_FOUND", f"Target folder does not exist: {parent}")
+    if sheet is not None:
+        if res != _CSV_FILTER:
+            return _FilterError(
+                "SHEET_NOT_SUPPORTED",
+                "sheet applies only to .csv exports of a Calc document; omit it for this format.",
+            )
+    else:
+        err = _sheet_required(doc, res)
+        if err is not None:
+            return err
     return path, url, res
+
+
+def _export_sheet_csv(doc: Any, sheet_number: int, path: str) -> None:
+    """Write one sheet (1-based number) to *path* as CSV without LibreOffice's active-sheet dialog.
+
+    With a sheet number the filter writes "<name>-<sheet>.csv" next to the given URL and
+    nothing at the URL itself, so it exports into a temp folder and the file is copied.
+    """
+    with tempfile.TemporaryDirectory(prefix="wa_csv_") as tmp:
+        doc.storeToURL(
+            path_to_file_url(os.path.join(tmp, "sheet.csv")),
+            (
+                create_property_value("FilterName", _CSV_FILTER),
+                create_property_value("FilterOptions", _CSV_SHEET_OPTIONS.format(sheet=sheet_number)),
+            ),
+        )
+        written = next((n for n in os.listdir(tmp) if n.startswith("sheet-")), None)
+        if written is None:
+            # LibreOffice reports success even when it cannot create a file named after the sheet.
+            raise OSError("LibreOffice wrote no CSV file for the sheet")
+        shutil.copyfile(os.path.join(tmp, written), path)
 
 
 class DocumentOpen(ToolBase):
@@ -219,7 +284,7 @@ class DocumentOpen(ToolBase):
             if filter_name == _HTML_WEB_FILTER:
                 # HTML defaults to Writer/Web (HTML.xcu), which get_document_type reports
                 # as UNKNOWN so save-as and export fail; use HTML__StarWriter_.xcu instead.
-                props.append(create_property_value("FilterName", _HTML_WRITER_FILTER))
+                props.append(create_property_value("FilterName", HTML_WRITER_FILTER))
             elif service and service not in DOCUMENT_SERVICES:
                 return self._tool_error(
                     f"{path} is not a supported document type (only Writer, Calc, Impress, and Draw are supported).",
@@ -252,6 +317,7 @@ class DocumentSave(ToolBase):
         f"Impress {_format_list('impress', save=True)}; "
         f"Draw {_format_list('draw', save=True)}. "
         ".txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. "
+        "A workbook with several sheets cannot be saved as .csv: use document_export with sheet. "
         "An existing file is overwritten. PDF and images are export-only: use document_export."
     )
     tier: str = "mcp"
@@ -281,6 +347,9 @@ class DocumentSave(ToolBase):
                     "Document is read-only; pass a new path to save a copy.",
                     code="READ_ONLY",
                 )
+            err = _sheet_required(doc, _current_filter(doc))
+            if err is not None:
+                return self._tool_error(err.message, code=err.code)
             try:
                 doc.store()
             except Exception as exc:
@@ -326,6 +395,10 @@ class DocumentExport(ToolBase):
                 "type": "string",
                 "description": "Target absolute file path or file:// URL.",
             },
+            "sheet": {
+                "type": "string",
+                "description": "Calc .csv only: name of the sheet to export. Required when the workbook has more than one sheet.",
+            },
         },
         "required": ["path"],
     }
@@ -335,13 +408,27 @@ class DocumentExport(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        resolved = _resolve_save_target(doc, kwargs.get("path", ""), save=False)
+        raw_sheet = kwargs.get("sheet")
+        sheet = str(raw_sheet) if str(raw_sheet or "").strip() else None
+        resolved = _resolve_save_target(doc, kwargs.get("path", ""), save=False, sheet=sheet)
         if isinstance(resolved, _FilterError):
             return self._tool_error(resolved.message, code=resolved.code)
         path, url, filter_name = resolved
 
+        sheet_number: int | None = None
+        if sheet is not None:
+            if resolve_document_by_url(ctx.ctx, url)[0] is not None:
+                return self._tool_error(
+                    f"{path} is open in LibreOffice; export the sheet to a different path.",
+                    code="PATH_IS_OPEN",
+                )
+            sheet_number = CalcBridge(doc).get_sheet(sheet).getRangeAddress().Sheet + 1
+
         try:
-            doc.storeToURL(url, (create_property_value("FilterName", filter_name),))
+            if sheet_number is not None:
+                _export_sheet_csv(doc, sheet_number, path)
+            else:
+                doc.storeToURL(url, (create_property_value("FilterName", filter_name),))
         except Exception as exc:
             if is_disposal(exc):
                 raise

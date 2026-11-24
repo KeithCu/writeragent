@@ -10,6 +10,7 @@ import tempfile
 import zipfile
 
 from plugin.doc.document_file_tools import DocumentExport, DocumentOpen, DocumentSave
+from plugin.framework.errors import UnoObjectError
 from plugin.framework.uno_context import (
     create_property_value,
     get_desktop,
@@ -186,27 +187,103 @@ def test_document_save_csv_warns_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     try:
         sheets = doc.getSheets()
-        sheets.insertNewByName("Second", 1)
         sheets.getByIndex(0).getCellByPosition(0, 0).setString("first")
-        sheets.getByIndex(1).getCellByPosition(0, 0).setString("second")
 
         res_csv = DocumentSave().execute(tool_ctx, path=csv_path)
         assert res_csv["status"] == "ok", res_csv
         assert "warning" in res_csv
         with open(csv_path, encoding="utf-8") as f:
-            content = f.read()
-        assert "first" in content
-        assert "second" not in content
+            assert "first" in f.read()
 
         sheets.getByIndex(0).getCellByPosition(0, 0).setString("updated")
         res_inplace = DocumentSave().execute(tool_ctx)
         assert res_inplace["status"] == "ok", res_inplace
         assert "warning" in res_inplace
-        with open(csv_path, encoding="utf-8") as f:
-            assert "updated" in f.read()
+        with open(csv_path, "rb") as f:
+            saved_bytes = f.read()
+        assert b"updated" in saved_bytes
+
+        sheets.insertNewByName("Second", 1)
+        sheets.getByIndex(1).getCellByPosition(0, 0).setString("second")
+
+        res_multi_path = DocumentSave().execute(tool_ctx, path=csv_path)
+        assert res_multi_path["status"] == "error", res_multi_path
+        assert res_multi_path["code"] == "SHEET_REQUIRED"
+
+        res_multi_inplace = DocumentSave().execute(tool_ctx)
+        assert res_multi_inplace["status"] == "error", res_multi_inplace
+        assert res_multi_inplace["code"] == "SHEET_REQUIRED"
+
+        with open(csv_path, "rb") as f:
+            assert f.read() == saved_bytes
 
         res_ods = DocumentSave().execute(tool_ctx, path=ods_path)
         assert res_ods["status"] == "ok", res_ods
         assert "warning" not in res_ods
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_document_export_csv_named_sheet_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_csv_export_")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        sheets = doc.getSheets()
+        s1 = sheets.getByIndex(0)
+        s1.getCellByPosition(0, 0).setValue(1234.5)
+        s1.getCellByPosition(0, 0).NumberFormat = doc.getNumberFormats().queryKey("$#,##0.00", s1.CharLocale, True)
+
+        sheets.insertNewByName("Q1 2026 é", 1)
+        s2 = sheets.getByIndex(1)
+        s2.getCellByPosition(0, 0).setString("second-é")
+
+        sheets.insertNewByName("HiddenSheet", 2)
+        s3 = sheets.getByIndex(2)
+        s3.IsVisible = False
+        s3.getCellByPosition(0, 0).setString("hidden-val")
+
+        ods_path = os.path.join(tmp_dir, "book.ods")
+        doc.storeAsURL(path_to_file_url(ods_path), ())
+        doc.getCurrentController().setActiveSheet(s1)
+
+        out2 = os.path.join(tmp_dir, "out2.csv")
+        res2 = DocumentExport().execute(tool_ctx, path=out2, sheet="Q1 2026 é")
+        assert res2["status"] == "ok", res2
+        assert os.path.isfile(out2)
+        with open(out2, encoding="utf-8") as f:
+            assert "second-é" in f.read()
+
+        out3 = os.path.join(tmp_dir, "out3.csv")
+        res3 = DocumentExport().execute(tool_ctx, path=out3, sheet="HiddenSheet")
+        assert res3["status"] == "ok", res3
+        with open(out3, encoding="utf-8") as f:
+            assert "hidden-val" in f.read()
+
+        assert not any("-" in name and name.endswith(".csv") for name in os.listdir(tmp_dir))
+        assert doc.getURL() == path_to_file_url(ods_path)
+        assert doc.getCurrentController().getActiveSheet().getName() == s1.getName()
+
+        # Bytes for sheet 1 must match LibreOffice's no-options default CSV export.
+        out1 = os.path.join(tmp_dir, "out1.csv")
+        res1 = DocumentExport().execute(tool_ctx, path=out1, sheet=s1.getName())
+        assert res1["status"] == "ok", res1
+        ref1 = os.path.join(tmp_dir, "ref1.csv")
+        doc.storeToURL(
+            path_to_file_url(ref1),
+            (create_property_value("FilterName", "Text - txt - csv (StarCalc)"),),
+        )
+        with open(out1, "rb") as f_got, open(ref1, "rb") as f_ref:
+            assert f_got.read() == f_ref.read()
+
+        missing_out = os.path.join(tmp_dir, "missing.csv")
+        try:
+            DocumentExport().execute(tool_ctx, path=missing_out, sheet="NoSuchSheet")
+        except UnoObjectError:
+            pass
+        else:
+            raise AssertionError("Expected UnoObjectError for unknown sheet name")
+        assert not os.path.exists(missing_out)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
