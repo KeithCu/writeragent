@@ -515,6 +515,7 @@ def test_literal_data_reaches_the_wire_unchanged():
                 "obj_default": {"type": "object", "properties": {}, "default": copy.deepcopy(schema_shaped)},
                 "obj_examples": {"type": "object", "properties": {}, "examples": [copy.deepcopy(schema_shaped)]},
                 "obj_enum": {"type": "object", "properties": {}, "enum": [copy.deepcopy(schema_shaped)]},
+                "obj_const": {"type": "object", "properties": {}, "const": copy.deepcopy(schema_shaped)},
                 "str_const_default": {"type": "string", "default": copy.deepcopy(const_union)},
                 "str_null_default": {"type": "string", "default": copy.deepcopy(null_union)},
                 "default": {"type": "object"},
@@ -526,6 +527,7 @@ def test_literal_data_reaches_the_wire_unchanged():
     assert props["obj_default"]["default"] == schema_shaped
     assert props["obj_examples"]["examples"] == [schema_shaped]
     assert props["obj_enum"]["enum"] == [schema_shaped]
+    assert props["obj_const"]["const"] == schema_shaped
     assert props["str_const_default"]["default"] == const_union
     assert props["str_null_default"]["default"] == null_union
     assert props["default"] == {"type": "object", "properties": {}, "required": []}
@@ -626,3 +628,47 @@ def test_rename_picks_the_union_branch_whose_const_matches():
 
     mapped_b = unrename_tool_args(dispatch, {"payload": {"kind": "b", "file_path": "/y", "config": {"opt_two": "2"}}})
     assert mapped_b == {"payload": {"kind": "b", "file_path": "/y", "config": {"opt two": "2"}}}
+
+
+def test_rename_prefers_branch_declaring_more_args_and_never_collapses_keys():
+    # Case 1: both {"file path"} and {"file path", "file_path"} are valid branches;
+    # sending both wire keys must keep both distinct instead of collapsing onto "file path".
+    both_spellings_schema = {
+        "type": "array",
+        "items": {
+            "oneOf": [
+                {"type": "object", "properties": {"file path": {"type": "string"}}},
+                {"type": "object", "properties": {"file path": {"type": "string"}, "file_path": {"type": "string"}}},
+            ]
+        },
+    }
+    assert unrename_tool_args(both_spellings_schema, [{"file_path": "x", "file_path_2": "y"}]) == [
+        {"file_path": "x", "file path": "y"}
+    ]
+
+    # Case 2: rejected outer branch's nested child must not outrank a branch that declares all args.
+    nested_vs_direct_schema = {
+        "type": "array",
+        "items": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string", "const": "a"}},
+                    "oneOf": [
+                        {"type": "object", "properties": {"file path": {"type": "string"}}},
+                        {"type": "object", "properties": {"n": {"type": "integer"}}},
+                    ],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "const": "b"},
+                        "file_path": {"type": "string"},
+                    },
+                },
+            ]
+        },
+    }
+    assert unrename_tool_args(nested_vs_direct_schema, [{"kind": "b", "file_path": "x"}]) == [
+        {"kind": "b", "file_path": "x"}
+    ]

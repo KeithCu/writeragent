@@ -443,7 +443,8 @@ def unrename_tool_args(params_schema: Any, args: Any, root_schema: Any = None) -
 
     A union's branches are all searched, because the model may have filled any of them. When two
     branches give one wire name to different server names, the branch whose const/enum values
-    match *args* wins, then the earlier one.
+    match *args* wins, then the one declaring more of *args*' keys, then the earlier one. A
+    server name already claimed by another wire name is never assigned a second time.
     """
     root = params_schema if root_schema is None else root_schema
     branches = _schema_branches(params_schema, root)
@@ -453,15 +454,18 @@ def unrename_tool_args(params_schema: Any, args: Any, root_schema: Any = None) -
     if not isinstance(args, dict):
         return args
     original: dict[str, str] = {}
+    taken: set[str] = set()
     schemas: dict[str, list[Any]] = {}
     candidates = [
         (*_branch_wire_names(b["properties"], args, root), b["properties"])
         for b in branches
         if isinstance(b.get("properties"), dict)
     ]
-    for _fits, names, props in sorted(candidates, key=lambda c: not c[0]):
+    for _fits, names, props in sorted(candidates, key=lambda c: (not c[0], sum(k not in c[1] for k in args))):
         for wire, key in names.items():
-            original.setdefault(wire, key)
+            if wire not in original and key not in taken:
+                original[wire] = key
+                taken.add(key)
             schemas.setdefault(wire, []).append(props[key])
     undeclared = [b["additionalProperties"] for b in branches if isinstance(b.get("additionalProperties"), dict)]
     return {

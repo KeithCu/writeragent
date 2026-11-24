@@ -245,7 +245,8 @@ def test_restore_masked_puts_real_values_back_only_where_unchanged():
 
 
 def test_secret_spellings_cover_escaped_forms():
-    secret = 'a"b\\c\nd'
+    secret = 'a"b\\c/d\ne'
     spellings = secret_spellings(secret)
     assert secret in spellings
     assert json.dumps(secret)[1:-1] in spellings
+    assert json.dumps(secret)[1:-1].replace("/", r"\/") in spellings

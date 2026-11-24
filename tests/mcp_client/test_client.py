@@ -1587,6 +1587,8 @@ def test_escaped_secret_in_an_error_body_is_redacted(fake):
     conn = McpServerConnection(_server(fake, headers={"Cookie": cookie}))
     with pytest.raises(McpClientError) as exc_info:
         conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
     assert "qwertyui-9" not in str(exc_info.value)
 
 
@@ -1595,4 +1597,6 @@ def test_bare_credential_of_an_authorization_header_is_redacted(fake):
     conn = McpServerConnection({"name": "claw", "url": fake.url, "headers": {"Authorization": f"Bearer {TOKEN}"}})
     with pytest.raises(McpClientError) as exc_info:
         conn.list_tools()
+    assert exc_info.value.status == 500
+    assert "<redacted>" in str(exc_info.value)
     assert TOKEN not in str(exc_info.value)

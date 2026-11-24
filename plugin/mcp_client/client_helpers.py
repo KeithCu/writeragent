@@ -140,7 +140,14 @@ def sanitize_error(text: str) -> str:
 
 def secret_spellings(secret: str) -> list[str]:
     """*secret* as written and as JSON or repr() escapes it: a server may echo it inside a JSON error body."""
-    return [secret, json.dumps(secret)[1:-1], json.dumps(secret, ensure_ascii=False)[1:-1], repr(secret)[1:-1]]
+    json_escaped = json.dumps(secret)[1:-1]
+    return [
+        secret,
+        json_escaped,
+        json_escaped.replace("/", r"\/"),
+        json.dumps(secret, ensure_ascii=False)[1:-1],
+        repr(secret)[1:-1],
+    ]
 
 
 def safe_numeric(value: Any, default: float) -> float:
