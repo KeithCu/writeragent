@@ -626,7 +626,7 @@ def _range_to_content_via_temp_doc(
     try:
         # Blank scratch doc: the factory URL honours the user's default template,
         # and this function reads the whole body back (see new_blank_writer).
-        temp_doc = new_blank_writer(ctx, target="_default")
+        temp_doc = new_blank_writer(ctx)
         if not temp_doc:
             # Missing scratch Writer raises ToolExecutionError instead of returning
             # empty content with status ok.

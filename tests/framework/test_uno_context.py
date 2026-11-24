@@ -699,20 +699,47 @@ def test_enum_has_more():
     assert enum_has_more(mock) is False
 
 
-def test_iter_open_models_stops_at_enum_cap():
-    from plugin.framework.uno_context import iter_open_models
+def test_resolve_document_by_url_finds_document_past_32():
+    from plugin.framework.thread_guard import unwrap_uno
+    from plugin.framework.uno_context import resolve_document_by_url
 
-    desktop = MagicMock()
-    comps = MagicMock()
-    desktop.getComponents.return_value = comps
+    others = [MagicMock(name=f"other_{i}") for i in range(39)]
+    for i, m in enumerate(others):
+        m.getURL.return_value = f"file:///tmp/other_{i}.odt"
+        m.getRuntimeUID.return_value = str(100 + i)
+    target = MagicMock(name="target")
+    target.getURL.return_value = "file:///tmp/target.odt"
+    target.getRuntimeUID.return_value = "999"
+    all_models = [*others, target]
 
     enum = MagicMock()
-    enum.hasMoreElements.return_value = True
+    enum.hasMoreElements.side_effect = [True] * len(all_models) + [False]
+    enum.nextElement.side_effect = all_models
+    comps = MagicMock()
     comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
 
-    with patch("plugin.framework.uno_context._ENUM_CAP", 2):
-        list(iter_open_models(desktop))
-    assert enum.nextElement.call_count == 2
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found_by_url, doc_type = resolve_document_by_url(MagicMock(), "file:///tmp/target.odt")
+        assert unwrap_uno(found_by_url) is target
+        assert doc_type == "writer"
+
+    enum2 = MagicMock()
+    enum2.hasMoreElements.side_effect = [True] * len(all_models) + [False]
+    enum2.nextElement.side_effect = all_models
+    comps.createEnumeration.return_value = enum2
+
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found_by_uid, doc_type = resolve_document_by_url(MagicMock(), "999")
+        assert unwrap_uno(found_by_uid) is target
+        assert doc_type == "writer"
 
 
 def test_iter_open_models_strict_false_probes_and_skips_broken():

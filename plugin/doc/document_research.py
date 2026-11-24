@@ -567,6 +567,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     Returns (model, doc_type, error_message, opened_for_document_research). The last flag is True only
     when this call loaded a new hidden document that it returns; callers must pass it to
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
+    A newly loaded model has its URL dropped (``""``) and every call loads its own copy.
     A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
     raw = str(path_or_url).strip()
@@ -617,6 +618,11 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
             close_document_research_document(model, opened_for_document_research=True)
             return None, None, f"Unsupported document type for {path}", False
 
+        # Drop the copy's URL so File > Open and document_open load the file themselves
+        # instead of finding this hidden read-only copy (LoadEnv::impl_searchAlreadyLoaded,
+        # resolve_document_by_url), which is closed after the read. SfxBaseModel::attachResource
+        # changes only the URL and the cached arguments.
+        model.attachResource("", ())
         return guard_uno(model), doc_type, None, True
     except Exception as e:
         if model is not None:

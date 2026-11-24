@@ -1041,7 +1041,7 @@ def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypat
 
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
 
     def _office_doc(uid: str):
         d = MagicMock()
@@ -1081,7 +1081,7 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
 
     monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
     monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
-    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
 
     ctx = MagicMock()
     broadcaster = MagicMock()
@@ -1123,6 +1123,7 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
 
     def _scratch_load(*_args):
         desktop_docs.append(scratch_draw)
+        listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=scratch_draw))
         listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=scratch_draw))
         return scratch_draw
 
