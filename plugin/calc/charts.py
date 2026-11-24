@@ -53,6 +53,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
+from plugin.writer.edit_review import flag_untracked_delete
 from plugin.writer.specialized_base import ToolWriterChartBase
 import uno
 
@@ -1662,7 +1663,9 @@ def delete_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         if ref.kind == "calc_sheet":
             return make_tool_ok(deleted=chart_name, sheet=ref.parent.getName())
-        return make_tool_ok(deleted=chart_name)
+        result = make_tool_ok(deleted=chart_name)
+        flag_untracked_delete(result, doc, "chart")
+        return result
     except Exception as exc:
         _raise_chart_op_error(exc, prefix="Failed to delete chart")
 

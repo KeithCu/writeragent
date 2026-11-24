@@ -151,7 +151,7 @@ def _para_writers() -> dict[str, Callable[[str], tuple[str, Any] | None]]:
 
     def text_align(val: str) -> tuple[str, Any] | None:
         try:
-            return ("ParaAdjust", para_adjust_to_uno(xhtml_post.ODF_TEXT_ALIGN.get(val, val)))
+            return ("ParaAdjust", para_adjust_to_uno(val))
         except ValueError:
             return None
 

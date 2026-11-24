@@ -30,6 +30,9 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     portion.getPropertyValue.side_effect = lambda name: (
         "Text" if name == "TextPortionType" else 150.0 if name == "CharWeight" else None
     )
+    portion.getPropertyValues.side_effect = lambda names: tuple(
+        150.0 if n == "CharWeight" else None for n in names
+    )
     portion.getString.return_value = "Bold"
 
     para = MagicMock()
@@ -43,6 +46,9 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     dest_cell = MagicMock()
     dest_cursor = MagicMock()
     run = MagicMock()
+    run.getPropertyValues.side_effect = lambda names: tuple(
+        100.0 if n == "CharWeight" else None for n in names
+    )
     dest_cell.createTextCursor.return_value = dest_cursor
     dest_cell.createTextCursorByRange.return_value = run
 
@@ -340,14 +346,14 @@ def test_every_para_writer_property_is_copied_by_range_reads(monkeypatch) -> Non
 def test_begin_next_paragraph_steps_into_the_new_paragraph_and_survives_a_refused_break() -> None:
     dest_text = MagicMock()
     cursor = MagicMock()
-    rc._begin_next_paragraph(dest_text, cursor)
+    rc.begin_next_paragraph(dest_text, cursor)
     dest_text.insertControlCharacter.assert_called_once_with(cursor, rc.PARAGRAPH_BREAK, False)
     cursor.gotoNextParagraph.assert_called_once_with(False)
 
     dest_text.reset_mock()
     cursor.reset_mock()
     dest_text.insertControlCharacter.side_effect = RuntimeError("break refused")
-    rc._begin_next_paragraph(dest_text, cursor)
+    rc.begin_next_paragraph(dest_text, cursor)
     cursor.gotoNextParagraph.assert_not_called()
 
 
@@ -383,7 +389,6 @@ def test_copy_field_into_sets_offset():
 
 def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     from plugin.writer.range_copy import (
-        _COPIED_CHAR_PROPERTIES,
         _COPIED_PARA_PROPERTIES,
         copy_flow_into_xtext,
     )
@@ -393,6 +398,9 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
     portion_text = MagicMock()
     portion_text.getPropertyValue.return_value = "Text"
+    portion_text.getPropertyValues.side_effect = lambda names: tuple(
+        150.0 if n == "CharWeight" else None for n in names
+    )
     portion_text.getString.return_value = "Page "
 
     portion_field = MagicMock()
@@ -408,7 +416,12 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
     dest_text = MagicMock()
     cursor = MagicMock()
+    run = MagicMock()
+    run.getPropertyValues.side_effect = lambda names: tuple(
+        100.0 if n == "CharWeight" else None for n in names
+    )
     dest_text.createTextCursor.return_value = cursor
+    dest_text.createTextCursorByRange.return_value = run
 
     with patch("plugin.writer.range_copy._copy_field_into", return_value=True) as mock_field_into, \
          patch("plugin.writer.range_copy._copy_properties") as mock_props, \
@@ -421,9 +434,9 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     dest_text.insertControlCharacter.assert_not_called()
     mock_field_into.assert_called_once()
     mock_blank.assert_not_called()
+    run.setPropertyValue.assert_called_once_with("CharWeight", 150.0)
 
     prop_tuples = [call.args[2] for call in mock_props.call_args_list]
-    assert _COPIED_CHAR_PROPERTIES in prop_tuples
     assert _COPIED_PARA_PROPERTIES in prop_tuples
 
 
@@ -476,23 +489,26 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
 
 
 def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
+    from types import SimpleNamespace
     from plugin.writer.range_copy import copy_xtext_into_doc
 
-    src_text = MagicMock()
-    src_text.createEnumeration.return_value = _Enum([])
     src_doc = MagicMock()
     graphic = object()
     shape = MagicMock()
-    shape.getAnchor.return_value.getText.return_value = src_text
-    shape.getAnchor.return_value.getStart.return_value = object()
     shape.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextGraphicObject"
     shape.getPropertyValue.side_effect = lambda name: {
-        "AnchorType": 1, "Graphic": graphic, "Width": 100, "Height": 100,
+        "AnchorType": SimpleNamespace(value="AT_CHARACTER"), "Graphic": graphic, "Width": 100, "Height": 100,
     }.get(name)
-    draw_page = MagicMock()
-    draw_page.getCount.return_value = 1
-    draw_page.getByIndex.return_value = shape
-    src_doc.getDrawPage.return_value = draw_page
+    frame_portion = MagicMock()
+    frame_portion.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
+    frame_portion.getString.return_value = ""
+    frame_portion.createContentEnumeration.return_value = _Enum([shape])
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([frame_portion])
+    para.createContentEnumeration.return_value = _Enum([])
+    src_text = MagicMock()
+    src_text.createEnumeration.return_value = _Enum([para])
 
     dest_text = MagicMock()
     dest_cursor = MagicMock()
@@ -502,11 +518,6 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
     dest_doc.getText.return_value = dest_text
     clone = MagicMock()
     dest_doc.createInstance.return_value = clone
-
-    measure = MagicMock()
-    measure.getString.return_value = ""
-    src_text.createTextCursor.return_value = measure
-    src_text.getString.return_value = ""
 
     copy_xtext_into_doc(src_doc, src_text, dest_doc)
 

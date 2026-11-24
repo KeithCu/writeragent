@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import execute_dispatch
 from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after_insert, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,19 @@ log = logging.getLogger(__name__)
 # - "image_kept": content was inserted, but the document is recording changes
 #   and LibreOffice cannot record deleting this picture.
 VisionInsertOutcome = Literal["inserted", "image_deleted", "empty", "image_kept"]
+
+
+def source_image_note(outcomes: Iterable[Any]) -> str:
+    """Sentence about source images deleted or kept by "Delete image after OCR"; "" when neither happened."""
+    items = list(outcomes)
+    deleted = sum(1 for item in items if item == "image_deleted")
+    kept = any(item == "image_kept" for item in items)
+    parts: list[str] = []
+    if deleted:
+        parts.append(_("Source images deleted: {count}.").format(count=deleted))
+    if kept:
+        parts.append(_("Image kept because LibreOffice cannot record deleting it as a tracked change."))
+    return " ".join(parts)
 
 
 def is_vision_result(value: Any) -> bool:
@@ -111,9 +125,7 @@ def _dispatch_escape(controller: Any, ctx: Any) -> None:
     try:
         frame = controller.getFrame()
         if frame is not None and ctx is not None:
-            smgr = ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-            dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
+            execute_dispatch(ctx, controller, ".uno:Escape")
     except Exception as ex:
         reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: escape dispatch failed: %s", ex)

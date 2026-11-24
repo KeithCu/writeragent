@@ -278,8 +278,6 @@ API_EXCLUDED_DOMAINS = frozenset({
 # scripts call document tools directly and do not run the delegate/finish loop.
 API_EXCLUDED_TOOLS = frozenset({
     "delegate_to_subagent",
-    "delegate_to_subagent",
-    "delegate_to_subagent",
     # Python outer→inner LLM hop. The inner smol agent still calls
     # workflow_finished as a registered ToolBase, not via this proxy.
     "python_delegate_domains",

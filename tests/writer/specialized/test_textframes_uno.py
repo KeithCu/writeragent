@@ -121,3 +121,29 @@ def test_frame_delete_page_anchored_uno(ctx, doc):
     assert restored.getText().getString() == "Page frame text"
     assert restored.getPropertyValue("AnchorType") == AT_PAGE
     assert text.getString() == "Body stays intact."
+
+
+@native_test
+@with_native_doc("writer")
+def test_frame_delete_warns_when_recording_and_not_when_off_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    FrameInsert().execute(
+        tool_ctx, target="beginning", name="RecFrame", text="A", width_mm=40.0, height_mm=20.0, anchor_type=0
+    )
+    del_off = FrameDelete().execute(tool_ctx, name="RecFrame")
+    assert del_off["status"] == "ok"
+    assert "tracked" not in del_off and "warning" not in del_off
+
+    FrameInsert().execute(
+        tool_ctx, target="beginning", name="RecFrame2", text="B", width_mm=40.0, height_mm=20.0, anchor_type=0
+    )
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_on = FrameDelete().execute(tool_ctx, name="RecFrame2")
+        assert del_on["status"] == "ok"
+        assert del_on["tracked"] is False
+        assert "warning" in del_on
+        assert doc.getRedlines().getCount() == 0
+        assert not doc.getTextFrames().hasByName("RecFrame2")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

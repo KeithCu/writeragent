@@ -12,6 +12,7 @@ from plugin.writer.edit_review import (
     annotate_review_status,
     edit_review_wait_seconds,
     flag_style_unreviewed,
+    flag_untracked_delete,
     get_agent_edit_review_mode,
     review_recording_enabled,
 )
@@ -1188,5 +1189,27 @@ def test_flag_style_unreviewed(mode, recording, pass_doc, expected):
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
         flag_style_unreviewed(result, doc if pass_doc else None)
     assert ("style_unreviewed" in result) is expected
+
+
+@pytest.mark.parametrize(
+    "mode,recording,is_writer_doc,expected",
+    [
+        pytest.param("off", False, True, False, id="off_nonrecording_writer"),
+        pytest.param("off", True, True, True, id="off_recording_writer"),
+        pytest.param("record", False, True, True, id="record_writer"),
+        pytest.param("wait", False, True, True, id="wait_writer"),
+        pytest.param("record", True, False, False, id="record_non_writer"),
+    ],
+)
+def test_flag_untracked_delete(mode, recording, is_writer_doc, expected):
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda name: recording if name == "RecordChanges" else None
+    result = {"status": "ok"}
+    with (
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode),
+        patch("plugin.writer.edit_review.is_writer", return_value=is_writer_doc),
+    ):
+        flag_untracked_delete(result, doc, "chart")
+    assert (result.get("tracked") is False and "warning" in result) is expected
 
 

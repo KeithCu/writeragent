@@ -358,3 +358,26 @@ def test_xhtml_has_paragraph_autostyle():
     assert xhtml_has_paragraph_autostyle("<body><p class='paragraph-P1extra'>text</p></body>") is False
     assert xhtml_has_paragraph_autostyle("<head><style>.paragraph-P1 { color: red; }</style></head><body><p>text</p></body>") is False
 
+
+def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
+    from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
+
+    def make_fodt(generator_xml: str) -> str:
+        return (
+            f'<office:document>{generator_xml}'
+            '<office:automatic-styles>'
+            '<style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">'
+            '<style:paragraph-properties fo:text-align="start"/>'
+            '</style:style>'
+            '</office:automatic-styles></office:document>'
+        )
+
+    _p, ov_268 = parse_fodt_autostyles(make_fodt("<meta:generator>LibreOffice/26.8.0.0</meta:generator>"))
+    assert ov_268["P1"] == "text-align:start"
+
+    _p, ov_252 = parse_fodt_autostyles(make_fodt("<meta:generator>LibreOffice/25.2.1.0</meta:generator>"))
+    assert ov_252["P1"] == "text-align:left"
+
+    _p, ov_none = parse_fodt_autostyles(make_fodt(""))
+    assert ov_none["P1"] == "text-align:left"
+

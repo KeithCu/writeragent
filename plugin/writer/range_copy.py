@@ -11,8 +11,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import uno_same
-from plugin.doc.text_helpers import FAILED, iter_elements
+from plugin.doc.text_helpers import FAILED, iter_elements, visible_portions
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -61,7 +60,12 @@ def copy_text_run(portion: Any, dest_text: Any, cursor: Any, chunk: str) -> None
     dest_text.insertString(cursor, chunk, False)
     run = dest_text.createTextCursorByRange(start)
     run.gotoRange(cursor.getEnd(), True)
-    _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+    # One call per range instead of one per property: a table read copies a run per cell.
+    wanted = portion.getPropertyValues(_COPIED_CHAR_PROPERTIES)
+    current = run.getPropertyValues(_COPIED_CHAR_PROPERTIES)
+    for name, value, have in zip(_COPIED_CHAR_PROPERTIES, wanted, current):
+        if value != have:
+            best_effort(lambda: run.setPropertyValue(name, value), "copy_text_run: refused property")
     cursor.gotoRange(run.getEnd(), False)
 
 
@@ -418,6 +422,22 @@ def supports_service(obj: Any, name: str) -> bool:
     return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
+def iter_table_paragraphs(table: Any) -> Iterator[Any]:
+    """Yield paragraphs inside *table*'s cells in cell-name order."""
+    try:
+        names = table.getCellNames() or ()
+    except Exception as exc:
+        log.debug("iter_table_paragraphs: getCellNames failed: %s", exc)
+        return
+    for name in names:
+        try:
+            cell = table.getCellByName(name)
+        except Exception as exc:
+            log.debug("iter_table_paragraphs: getCellByName failed: %s", exc)
+            continue
+        yield from iter_xtext_paragraphs(cell)
+
+
 def iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
     enum = uno_read(lambda: text_obj.createEnumeration(), FAILED)
@@ -425,18 +445,7 @@ def iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
         return
     for el in iter_elements(enum):
         if supports_service(el, "com.sun.star.text.TextTable"):
-            try:
-                names = el.getCellNames() or ()
-            except Exception as exc:
-                log.debug("iter_xtext_paragraphs: getCellNames failed: %s", exc)
-                continue
-            for name in names:
-                try:
-                    cell = el.getCellByName(name)
-                except Exception as exc:
-                    log.debug("iter_xtext_paragraphs: getCellByName failed: %s", exc)
-                    continue
-                yield from iter_xtext_paragraphs(cell)
+            yield from iter_table_paragraphs(el)
             continue
         if hasattr(el, "createEnumeration"):
             yield el
@@ -468,18 +477,52 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     return best_effort(insert, "_copy_field_into failed", False)
 
 
+def _clone_graphics(host: Any, dest_doc: Any, dest_text: Any, cursor: Any) -> int:
+    """Clone the graphics anchored at *host* (a paragraph or a Frame portion) at *cursor*.
+
+    A paragraph lists its AT_PARAGRAPH graphics, a Frame portion its AT_CHARACTER and
+    AS_CHARACTER ones (``SwXParagraph`` / ``SwXTextPortion::createContentEnumeration``).
+    Returns how many cursor steps the clones take: one per AS_CHARACTER graphic.
+    """
+    steps = 0
+    contents = uno_read(lambda: host.createContentEnumeration("com.sun.star.text.TextContent"), None)
+    for shape in iter_elements(contents):
+        if not supports_service(shape, "com.sun.star.text.TextGraphicObject"):
+            continue
+
+        def clone_one() -> bool:
+            clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
+            for prop in ANCHORED_GRAPHIC_PROPS:
+                try:
+                    clone.setPropertyValue(prop, shape.getPropertyValue(prop))
+                except Exception:
+                    log.debug("_clone_graphics: skip %s", prop)
+            dest_text.insertTextContent(cursor, clone, False)
+            return shape.getPropertyValue("AnchorType").value == "AS_CHARACTER"
+
+        if best_effort(clone_one, "_clone_graphics: skipped a graphic", False):
+            steps += 1
+    return steps
+
+
 def _copy_visible_portions(
-    portions: Any,
+    para: Any,
     dest_doc: Any,
     dest_text: Any,
     cursor: Any,
-    parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
     *,
-    paint_runs: bool,
+    in_cell: bool,
 ) -> list[tuple[Any, str]]:
+    """Copy visible portions of *para* at *cursor*.
+
+    Tracked deletions are left out. Returns ``(portion, text)`` pairs where
+    ``len(text)`` is the portion's cursor steps in the destination. Cells paint
+    each run as they go and skip graphics.
+    """
     copied: list[tuple[Any, str]] = []
-    for portion, kind in iter_portions(portions):
+    for portion, chunk in visible_portions(para, abort_on_portion_error=True):
+        kind = portion.getPropertyValue("TextPortionType")
         if kind == "TextField":
             field = _portion_field(portion)
             if field is None:
@@ -488,16 +531,15 @@ def _copy_visible_portions(
             if _copy_field_into(dest_doc, dest_text, cursor, field):
                 copied.append((portion, OBJECT_REPLACEMENT))
         elif kind == "Text":
-            chunk = uno_read(lambda: portion.getString(), "")
-            if not chunk:
-                continue
-            if paint_runs:
+            if in_cell:
                 copy_text_run(portion, dest_text, cursor, chunk)
             else:
                 dest_text.insertString(cursor, chunk, False)
             copied.append((portion, chunk))
         else:
-            text = _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
+            text = _copy_math_or_text(portion, para, dest_text, cursor, math_records)
+            if not text and kind == "Frame" and not in_cell:
+                text = OBJECT_REPLACEMENT * _clone_graphics(portion, dest_doc, dest_text, cursor)
             if text:
                 copied.append((portion, text))
     return copied
@@ -519,22 +561,16 @@ def _copy_cell_xtext(
     except Exception:
         dest_cell.setString(src_cell.getString())
         return
-    first_para = True
+    fresh = True
     for para in iter_elements(para_enum):
-        if supports_service(para, "com.sun.star.text.TextTable"):
-            # Recreate the nested table inside dest_cell (same walk as body _copy_table).
-            dest_cursor = _append_table(para, dest_doc, dest_cell, math_records)
-            first_para = False
+        if not fresh:
+            begin_next_paragraph(dest_cell, dest_cursor)
+        fresh = supports_service(para, "com.sun.star.text.TextTable")
+        if fresh:
+            # Recreate the nested table inside dest_cell (same walk as body copy_table).
+            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
             continue
-        if not first_para:
-            _begin_next_paragraph(dest_cell, dest_cursor)
-        first_para = False
-        try:
-            portions = para.createEnumeration()
-        except Exception:
-            _fallback_insert_para_text(dest_cell, dest_cursor, para)
-            continue
-        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records, paint_runs=True)
+        _copy_visible_portions(para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -610,14 +646,17 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     return max_row + 1, max_col + 1, names
 
 
-def _copy_table(
+def copy_table(
     src_table: Any,
     dest_doc: Any,
-    dest_text: Any = None,
-    math_records: list[tuple[str, str, bool]] | None = None,
+    dest_text: Any,
+    dest_cursor: Any,
+    math_records: list[tuple[str, str, bool]] | None,
 ) -> None:
-    """Recreate *src_table* in *dest_text* (document body if omitted).
+    """Recreate *src_table* before *dest_cursor* in *dest_text*.
 
+    *dest_cursor* must sit in an empty paragraph: Writer puts the table before
+    it, and *dest_cursor* stays in that paragraph so the next paragraph fills it.
     *dest_text* is a cell when copying a nested TextTable; recursion through
     ``_copy_cell_xtext`` then copies inner cells (including further nests).
 
@@ -631,15 +670,18 @@ def _copy_table(
         return
     dest_table = dest_doc.createInstance("com.sun.star.text.TextTable")
     dest_table.initialize(dest_rows, dest_cols)
-    dest_xtext = dest_text if dest_text is not None else dest_doc.getText()
-    dest_xtext.insertTextContent(dest_xtext.getEnd(), dest_table, False)
+    dest_text.insertTextContent(dest_cursor, dest_table, False)
+    # Table tools take the name the HTML carries; a clone inside the same document keeps its automatic name.
+    name = src_table.getName()
+    if not dest_doc.getTextTables().hasByName(name):
+        best_effort(lambda: dest_table.setName(name), "copy_table: refused table name")
     if names:
         for cell_name in names:
             try:
                 src_cell = src_table.getCellByName(cell_name)
                 dest_cell = dest_table.getCellByName(cell_name)
             except Exception as exc:
-                log.debug("_copy_table: cell %s unreadable: %s", cell_name, exc)
+                log.debug("copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
             _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
     else:
@@ -650,12 +692,12 @@ def _copy_table(
                     src_cell = src_table.getCellByPosition(col, row)
                     dest_cell = dest_table.getCellByPosition(col, row)
                 except Exception as exc:
-                    log.debug("_copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
+                    log.debug("copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
                 _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
 
 
-def _begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
+def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
     """Step into the next paragraph when appending flow to *dest_text*.
 
     The cursor sits at the end of *dest_text*. insertControlCharacter leaves
@@ -668,23 +710,6 @@ def _begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
         cursor.gotoNextParagraph(False)
     except Exception as exc:
         log.debug("range copy: paragraph break failed: %s", exc)
-
-
-def _append_table(
-    src_table: Any,
-    dest_doc: Any,
-    dest_text: Any,
-    math_records: list[tuple[str, str, bool]] | None = None,
-) -> Any:
-    """Copy *src_table* into *dest_text* and return a cursor at the new end.
-
-    The cursor used for the insert sits before the table once inserted, so appending subsequent
-    flow content needs a fresh cursor moved to the end of *dest_text*.
-    """
-    _copy_table(src_table, dest_doc, dest_text, math_records=math_records)
-    cursor = dest_text.createTextCursor()
-    cursor.gotoEnd(False)
-    return cursor
 
 
 def _copy_xtext_by_portions(
@@ -715,19 +740,13 @@ def _copy_xtext_by_portions(
     except Exception:
         dest_text.setString(src_text.getString())
         return
-    first_para = True
+    fresh = True
     for el in iter_elements(enum):
-        if supports_service(el, "com.sun.star.text.TextTable"):
-            dest_cursor = _append_table(el, dest_doc, dest_text, math_records)
-            first_para = False
-            continue
-        if not first_para:
-            _begin_next_paragraph(dest_text, dest_cursor)
-        first_para = False
-        try:
-            portions = el.createEnumeration()
-        except Exception:
-            _fallback_insert_para_text(dest_text, dest_cursor, el)
+        if not fresh:
+            begin_next_paragraph(dest_text, dest_cursor)
+        fresh = supports_service(el, "com.sun.star.text.TextTable")
+        if fresh:
+            copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
             continue
         style = None
         if src_doc is not None:
@@ -738,10 +757,11 @@ def _copy_xtext_by_portions(
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
         copied = _copy_visible_portions(
-            portions, dest_doc, dest_text, dest_cursor, el, math_records, paint_runs=False
+            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False
         )
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
+        _clone_graphics(el, dest_doc, dest_text, dest_cursor)
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
@@ -771,15 +791,14 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
 
-    first_para = True
+    fresh = True
     for el in iter_elements(enum):
-        if supports_service(el, "com.sun.star.text.TextTable"):
-            cursor = _append_table(el, doc, dest_text, None)
-            first_para = False
+        if not fresh:
+            begin_next_paragraph(dest_text, cursor)
+        fresh = supports_service(el, "com.sun.star.text.TextTable")
+        if fresh:
+            copy_table(el, doc, dest_text, cursor, None)
             continue
-        if not first_para:
-            _begin_next_paragraph(dest_text, cursor)
-        first_para = False
         try:
             portions = el.createEnumeration()
         except Exception:
@@ -829,58 +848,6 @@ def prefix_char_count(text_obj: Any, cursor: Any) -> int:
     return len(measure.getString() or "")
 
 
-def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
-    """Clone TextGraphicObjects anchored in *src_text* onto *dest_doc*.
-
-    The portion walk does not carry Graphic. controller.select + transferable
-    into the scratch Writer is the pattern copy_flow_into_xtext removed
-    (heap corruption / SIGSEGV on the following XHTML export). Shapes are
-    found the way page._scan_region_content finds them: draw page, uno_same
-    on the anchor's XText.
-    """
-    def page_and_count() -> tuple[Any, int]:
-        draw_page = src_doc.getDrawPage()
-        return draw_page, int(draw_page.getCount())
-
-    got = best_effort(page_and_count, "_copy_anchored_graphics: no draw page")
-    if got is None:
-        return
-    draw_page, count = got
-    dest_text = dest_doc.getText()
-    for i in range(min(count, 5000)):
-        try:
-            shape = draw_page.getByIndex(i)
-        except Exception:
-            break
-        try:
-            anchor = shape.getAnchor()
-            if not uno_same(anchor.getText(), src_text):
-                continue
-            # `is True`: MagicMock supportsService() is truthy.
-            if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
-                continue
-        except Exception as exc:
-            log.debug("_copy_anchored_graphics: skip shape: %s", exc)
-            continue
-        def copy_one() -> None:
-            clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
-            for prop in ANCHORED_GRAPHIC_PROPS:
-                try:
-                    clone.setPropertyValue(prop, shape.getPropertyValue(prop))
-                except Exception:
-                    log.debug("_copy_anchored_graphics: skip %s", prop)
-            cursor = dest_text.createTextCursor()
-            cursor.gotoStart(False)
-            # A bad anchor still inserts the logo at the start. Dropping
-            # it here would hide the letterhead.
-            offset = uno_read(lambda: prefix_char_count(src_text, anchor), 0)
-            if offset:
-                cursor.goRight(offset, False)
-            dest_text.insertTextContent(cursor, clone, False)
-
-        best_effort(copy_one, "_copy_anchored_graphics: skipped a graphic")
-
-
 def copy_xtext_into_doc(
     src_doc: Any,
     src_text: Any,
@@ -889,11 +856,8 @@ def copy_xtext_into_doc(
 ) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
-    Portion copy moves header/footer/body text into the scratch Writer without
-    selecting the user's document or running hidden XHTML export (see
-    copy_flow_into_xtext). Anchored graphics are cloned after the text walk
-    because an early graphic insert would be dropped by subsequent setString steps.
+    Does not select the live document or use a transferable, because that pattern
+    corrupts the heap on the XHTML export that follows.
     """
     _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records, src_doc=src_doc)
-    _copy_anchored_graphics(src_doc, src_text, dest_doc)
 

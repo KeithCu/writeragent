@@ -56,6 +56,7 @@ from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
+from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -108,14 +109,32 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
     """Flag style and page-layout mutations for the user when changes are being recorded.
 
     Callers pass *doc* when the mutation never creates a redline (so the flag also fires
-    when the user has Track Changes > Record on while agent review is Off). Callers omit
+    when the user has Track Changes > Record on while agent review is Off), including
+    header/footer writes that enabled the region or changed auto-height. Callers omit
     *doc* when Writer records the change itself while the document is recording
-    (header/footer text, character styles).
+    (header/footer text-only writes, character styles).
     """
     if result.get("status") != "ok":
         return
     if review_recording_enabled() or (doc is not None and is_recording_changes(doc)):
         result["style_unreviewed"] = True
+
+
+def flag_untracked_delete(
+    result: dict[str, Any], doc: Any, what: str, *, message: str | None = None
+) -> None:
+    """Flag a Writer deletion that was not recorded as a tracked change."""
+    if result.get("status") != "ok" or not is_writer(doc):
+        return
+    if not (review_recording_enabled() or is_recording_changes(doc)):
+        return
+    result["tracked"] = False
+    msg = message or _(
+        "LibreOffice cannot record deleting a %s as a tracked change, "
+        "so it was deleted directly and cannot be rejected (Ctrl+Z undoes it). Tell the user."
+    ) % what
+    existing = result.get("warning")
+    result["warning"] = f"{existing} {msg}".strip() if existing else msg
 
 
 def annotate_review_status(result: Any) -> dict[str, Any]:
@@ -1514,11 +1533,8 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
             self._compound_undo.close()
 
     def abort_and_restore(self) -> None:
-        """After a streaming error, restore the recording state and close the undo group.
-
-        The partial continuation is left in place, matching the prior extend-selection behavior."""
-        try:
-            self._exit_stream_recording()
-        finally:
-            self._compound_undo.close()
+        """After a streaming error, keep the partial continuation as one tracked insertion when recording or review is on."""
+        warning = self.finish()
+        if warning:
+            log.warning("streamed append abort_and_restore: %s", warning)
 

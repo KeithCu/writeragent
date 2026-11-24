@@ -950,3 +950,11 @@ def test_resolve_heading_links_compiles_each_heading_once_across_many_links():
     assert len(diags) == 1
     assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
     assert diags[0]["link_target"] == "#a__No_Such_Section"
+
+
+def test_parse_data_lo_para_start_maps_to_para_adjust_5():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props, unsupported = parse_data_lo_para("text-align:start")
+    assert props == {"text-align": ("ParaAdjust", 5)}
+    assert unsupported == []

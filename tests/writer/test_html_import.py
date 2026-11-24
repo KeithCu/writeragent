@@ -682,7 +682,7 @@ def test_trailing_paragraph_disposal_is_not_success():
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _uno_service_true
+    from plugin.writer.html_import import _cursor_paragraph_has_content, _uno_service_true
     from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class DisposedException(Exception):
@@ -703,7 +703,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     # Fail safe: an unreadable paragraph still counts as non-empty.
     cursor = MagicMock()
     cursor.getText.side_effect = RuntimeException("uno")
-    assert _cursor_paragraph_has_visible_text(cursor) is True
+    assert _cursor_paragraph_has_content(cursor) is True
 
     fam = MagicMock()
     names = ("Heading 1", "Heading 1", "Text Body")
@@ -1479,7 +1479,7 @@ def test_insert_content_at_position_extremes_apply_styles(position: str, goto: s
 
     with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
         "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, pos: cursor,
+        side_effect=lambda text, cursor, pos, **_kw: cursor,
     ):
         insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
 
@@ -1559,7 +1559,7 @@ def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
     assert out is cursor
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
@@ -1577,18 +1577,39 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     portion = MagicMock()
     portion.getString.return_value = ""
     portion.getPropertyValue.return_value = "TextContent"
-    para.createEnumeration.return_value = _FakeReplaceEnum([portion])
+    inner_para = MagicMock()
+    inner_para.createEnumeration.return_value = _FakeReplaceEnum([portion])
+    para.createEnumeration.return_value = _FakeReplaceEnum([inner_para])
     text_obj = MagicMock()
     text_obj.createTextCursorByRange.return_value = para
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
     assert out is cursor
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
 def test_ensure_empty_absorb_skips_break_when_end_para_empty():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = ""
+    para.createEnumeration.return_value = _FakeReplaceEnum([])
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
+    text.insertControlCharacter.assert_not_called()
+
+
+def test_ensure_empty_absorb_opens_break_for_spaces_or_recording():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
@@ -1602,8 +1623,14 @@ def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
-    text.insertControlCharacter.assert_not_called()
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+    text.reset_mock()
+    para.getString.return_value = ""
+    para.createEnumeration.return_value = _FakeReplaceEnum([])
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=True)
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
 def test_ensure_empty_absorb_noop_for_beginning():
@@ -1613,7 +1640,7 @@ def test_ensure_empty_absorb_noop_for_beginning():
 
     cursor = MagicMock()
     text = MagicMock()
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "beginning")
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "beginning", recording=False)
     text.insertControlCharacter.assert_not_called()
 
 
@@ -1722,7 +1749,7 @@ def test_ensure_empty_absorb_raises_when_break_fails():
     cursor.getStart.return_value = MagicMock()
     text.insertControlCharacter.side_effect = RuntimeError("break failed")
     with pytest.raises(RuntimeError, match="break failed"):
-        hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+        hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
 
 
 class _FakeReplaceEnum:

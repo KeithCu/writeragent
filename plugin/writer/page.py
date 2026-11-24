@@ -367,6 +367,13 @@ def _height_props(region: str) -> tuple[str, str, str]:
     return (prefix + "IsDynamicHeight", prefix + "DynamicSpacing", prefix + "Height")
 
 
+def header_footer_layout(style: Any, region: str) -> tuple[bool, bool | None]:
+    """Return ``(is_on, auto_height)`` for *region* on *style* (``auto_height`` is None when unreadable)."""
+    is_on = _region_is_on(style, REGION_PROPS[region][0])
+    auto_height = uno_read(lambda: bool(style.getPropertyValue(_height_props(region)[0])), None)
+    return is_on, auto_height
+
+
 def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> None:
     """Let the region grow with its content (or pin it to a fixed height).
 
@@ -974,17 +981,16 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             return _mirrored_region_skip(style_name, region)
 
         is_on_prop, text_prop = REGION_PROPS[region]
-        was_on = _region_is_on(style, is_on_prop)
+        before = header_footer_layout(style, region)
+        was_on, old_auto_height = before
 
         auto_height = kwargs.get("auto_height")
-        old_auto_height = None
-        if auto_height is not None:
-            old_auto_height = uno_read(lambda: bool(style.getPropertyValue(_height_props(region)[0])), None)
 
         try:
             style.setPropertyValue(is_on_prop, True)
             if auto_height is not None:
                 set_header_footer_auto_height(style, region, auto_height)
+            after = header_footer_layout(style, region)
 
             text_obj = style.getPropertyValue(text_prop)
             if not text_obj:
@@ -1002,8 +1008,9 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             }
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
-            # Writer records header/footer text changes itself when RecordChanges is on.
-            flag_style_unreviewed(result)
+            # Writer records header/footer text changes itself when RecordChanges is on,
+            # but enabling the region or changing auto_height is a page-style layout change.
+            flag_style_unreviewed(result, ctx.doc if before != after else None)
             return attach_write_report(result, report)
         except Exception as e:
             if is_disposal(e):

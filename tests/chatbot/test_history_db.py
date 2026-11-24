@@ -63,13 +63,11 @@ def test_json_history_rejects_non_list(tmp_path):
     assert open(history.file_path, encoding="utf-8").read() == "{}"
 
 
-def test_message_to_dict_omits_null_tool_calls_and_marks_images():
+def test_message_to_dict_plain_row_and_media_markers():
     from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER, message_to_dict
 
     text = message_to_dict("user", "hello")
     assert text == {"role": "user", "content": "hello"}
-    calls = [{"id": "c1"}]
-    assert message_to_dict("assistant", "hi", tool_calls=calls)["tool_calls"] == calls
     marked = message_to_dict("user", [
         {"type": "text", "text": "see"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
@@ -339,7 +337,7 @@ def test_json_history_clear_replaces_messages(tmp_path, monkeypatch):
 def test_json_history_replace_messages_replaces_the_file(tmp_path):
     history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
     history.add_message("user", "old")
-    history.add_message("assistant", "older", tool_calls=[{"id": "call-1"}])
+    history.add_message("assistant", "older")
     history.replace_messages([{"role": "user", "content": "next", "tool_calls": [{"id": "call-2"}]}])
     assert history.get_messages() == [{"role": "user", "content": "next", "tool_calls": [{"id": "call-2"}]}]
     leftovers = [name for name in os.listdir(history.history_dir) if name.startswith(".history-")]

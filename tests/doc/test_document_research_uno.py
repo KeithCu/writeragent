@@ -13,6 +13,7 @@ import uno
 
 from plugin.doc.document_research import list_nearby_files, open_document_for_read
 from plugin.framework.tool import ToolContext
+from plugin.framework.uno_context import create_property_value, get_desktop
 from plugin.app import get_services, get_tools
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
@@ -158,4 +159,52 @@ def test_inner_read_cell_range_on_opened_sibling(ctx, doc):
             except Exception:
                 pass
     finally:
+        _cleanup_nearby_test_env(temp_dir)
+
+
+@native_test
+@with_native_doc("writer")
+def test_open_document_for_read_html_and_already_open_web_uno(ctx, doc):
+    skip_windows_hidden_open_after_bitmap("document_research Hidden HTML")
+    temp_dir = tempfile.mkdtemp(prefix="wa_html_read_")
+    html_path = os.path.join(temp_dir, "page.html")
+    web_model = None
+    try:
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write("<html><body><p>Hello HTML</p></body></html>")
+
+        model, doc_type, err, opened = open_document_for_read(ctx, html_path)
+        note_windows_hidden_open_bitmap(err)
+        skip_windows_hidden_open_after_bitmap("document_research Hidden HTML")
+        assert err is None
+        assert doc_type == "writer"
+        assert model is not None
+        assert opened is True
+        try:
+            assert "Hello HTML" in model.getText().getString()
+        finally:
+            model.close(True)
+
+        # Open as Writer/Web (default filter) and verify open_document_for_read refuses without closing it.
+        desktop = get_desktop(ctx)
+        web_model = desktop.loadComponentFromURL(
+            uno.systemPathToFileUrl(html_path),
+            "_blank",
+            0,
+            (create_property_value("Hidden", True),),
+        )
+        assert web_model is not None
+        frames_before = desktop.getFrames().getCount()
+        err_model, err_type, err_msg, err_opened = open_document_for_read(ctx, html_path)
+        assert err_model is None
+        assert err_type is None
+        assert err_msg is not None and "already open" in err_msg
+        assert err_opened is False
+        assert desktop.getFrames().getCount() == frames_before
+    finally:
+        if web_model is not None:
+            try:
+                web_model.close(True)
+            except Exception:
+                pass
         _cleanup_nearby_test_env(temp_dir)

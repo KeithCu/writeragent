@@ -33,6 +33,7 @@ from plugin.framework.doc_type import (
 from plugin.doc.text_helpers import FAILED, KeepViewSelection
 from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import execute_dispatch
 
 log = logging.getLogger(__name__)
 
@@ -784,8 +785,7 @@ def _delete_writer_graphic_tracked(ctx: Any, doc: Any, graphic: Any) -> None:
                     and sel.supportsService(WRITER_GRAPHIC_SERVICE)
                     and sel.getName() == graphic.getName()
                 ):
-                    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-                    result = helper.executeDispatch(controller.getFrame(), ".uno:Delete", "", 0, ())
+                    result = execute_dispatch(ctx, controller, ".uno:Delete")
         except Exception as exc:
             reraise_if_disposed(exc)
             raise ToolExecutionError(_("Could not delete the image: %s") % exc, code="IMAGE_DELETE_FAILED") from exc

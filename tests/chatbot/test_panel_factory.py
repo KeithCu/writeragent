@@ -195,7 +195,9 @@ def test_setup_sessions_save_as_same_id_does_not_clear_history(tmp_path):
     db_path = str(tmp_path / "writeragent_history.db")
     from plugin.chatbot.history_db import get_chat_history
 
-    get_chat_history(new_id, db_path).add_message("user", "only copy", [{"id": "call-1"}])
+    get_chat_history(new_id, db_path).replace_messages(
+        [{"role": "user", "content": "only copy", "tool_calls": [{"id": "call-1"}]}]
+    )
     history = _save_as_sessions(tmp_path, props, new_url)
     assert props["WriterAgentSessionID"] == new_id
     assert props["WriterAgentSessionURL"] == new_url
@@ -279,7 +281,9 @@ def test_setup_sessions_save_as_copies_once(tmp_path):
     new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
     props = {"WriterAgentSessionID": old_id, "WriterAgentSessionURL": old_url}
     db_path = str(tmp_path / "writeragent_history.db")
-    get_chat_history(old_id, db_path).add_message("assistant", "kept", [{"id": "call-9"}])
+    get_chat_history(old_id, db_path).replace_messages(
+        [{"role": "assistant", "content": "kept", "tool_calls": [{"id": "call-9"}]}]
+    )
     history = _save_as_sessions(tmp_path, props, new_url)
     assert props["WriterAgentSessionID"] == new_id
     assert props["WriterAgentSessionURL"] == new_url

@@ -1,7 +1,7 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Unit tests for DelegateToSpecializedBase (domain validation, mutation lock, registry exposure) and dummy-tool fixtures."""
+"""Unit tests for DelegateToSubagent (domain validation, mutation lock, registry exposure) and dummy-tool fixtures."""
 
 from __future__ import annotations
 

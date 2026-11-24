@@ -24,14 +24,53 @@ def _mock_uno_and_review(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeShape:
-    def __init__(self, name: str, *, fail_dispose: bool = False, container: list[_FakeShape] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        fail_dispose: bool = False,
+        container: list[_FakeShape] | None = None,
+        text: str = "",
+        inactive: bool = False,
+        page_anchored: bool = False,
+        anchor_impl: str = "SwXHeadFootText",
+        props: dict[str, Any] | None = None,
+    ) -> None:
         self._name = name
         self._fail_dispose = fail_dispose
         self._container = container
+        self._text = text
+        self._inactive = inactive
+        self._page_anchored = page_anchored
+        self._anchor_impl = anchor_impl
+        self._props: dict[str, Any] = dict(props) if props is not None else {}
         self.disposed = False
 
     def getName(self) -> str:
         return self._name
+
+    def getString(self) -> str:
+        return self._text
+
+    def setString(self, text: str) -> None:
+        self._text = text
+
+    def getPropertyValue(self, name: str) -> Any:
+        return self._props[name]
+
+    def setPropertyValue(self, name: str, value: Any) -> None:
+        self._props[name] = value
+
+    def getAnchor(self) -> Any:
+        if self._page_anchored:
+            return None
+        return SimpleNamespace(
+            getText=lambda: (
+                None
+                if self._inactive
+                else SimpleNamespace(getImplementationName=lambda: self._anchor_impl)
+            )
+        )
 
     def supportsService(self, service: str) -> bool:
         return False
@@ -136,6 +175,7 @@ def _make_env(
     doc = SimpleNamespace(
         getCurrentController=lambda: controller,
         getDrawPage=lambda: draw_page,
+        getUndoManager=lambda: SimpleNamespace(lock=lambda: None, unlock=lambda: None),
     )
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=uno_ctx)
     return tool_ctx, helper, state, draw_page, dispatch
@@ -352,7 +392,12 @@ def test_remove_disposes_leftover_text_watermark_shapes() -> None:
 
 def test_set_text_keeps_text_watermark_shapes() -> None:
     shapes: list[_FakeShape] = []
-    active = _FakeShape("PowerPlusWaterMarkObject", container=shapes)
+    active = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        container=shapes,
+        text="FINAL",
+        props={"CharFontName": "Liberation Sans"},
+    )
     shapes.append(active)
     tool_ctx, _, _, _, _ = _make_env(shapes=shapes)
 
@@ -360,6 +405,166 @@ def test_set_text_keeps_text_watermark_shapes() -> None:
     assert res["status"] == "ok", res
     assert active.disposed is False
     assert active in shapes
+    assert active.getString() == "FINAL"
+    assert active.getPropertyValue("CharFontName") == "Liberation Sans"
+
+
+def test_set_updates_inactive_header_watermarks() -> None:
+    old_look = {
+        "CharFontName": "Liberation Sans",
+        "CharFontNameAsian": "Liberation Sans",
+        "CharFontNameComplex": "Liberation Sans",
+        "FillColor": 0xC0C0C0,
+        "FillTransparence": 50,
+        "Transformation": "old-matrix",
+    }
+    new_look = {
+        "CharFontName": "DejaVu Serif",
+        "CharFontNameAsian": "DejaVu Serif",
+        "CharFontNameComplex": "DejaVu Serif",
+        "FillColor": 0xFF0000,
+        "FillTransparence": 30,
+        "Transformation": "new-matrix",
+    }
+    shapes: list[_FakeShape] = []
+    stale = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        container=shapes,
+        text="DRAFT",
+        inactive=True,
+        props=old_look,
+    )
+    active = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        container=shapes,
+        text="FINAL",
+        inactive=False,
+        props=new_look,
+    )
+    logo = _FakeShape(
+        "Logo",
+        container=shapes,
+        text="OldLogo",
+        inactive=True,
+        props={"FillColor": 0x111111},
+    )
+    shapes.extend([stale, active, logo])
+    tool_ctx, _, _, _, _ = _make_env(shapes=shapes)
+
+    res = PageSetWatermark().execute(
+        tool_ctx,
+        text="FINAL",
+        font="DejaVu Serif",
+        color="#ff0000",
+        transparency=30,
+    )
+    assert res["status"] == "ok", res
+    assert stale.disposed is False
+    assert stale.getString() == "FINAL"
+    for prop, value in new_look.items():
+        assert stale.getPropertyValue(prop) == value
+    assert logo.getString() == "OldLogo"
+    assert logo.getPropertyValue("FillColor") == 0x111111
+
+
+def test_set_leaves_page_anchored_watermark_shape() -> None:
+    look = {
+        "CharFontName": "Liberation Sans",
+        "CharFontNameAsian": "Liberation Sans",
+        "CharFontNameComplex": "Liberation Sans",
+        "FillColor": 0xC0C0C0,
+        "FillTransparence": 50,
+        "Transformation": "m1",
+    }
+    page_shape = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        text="KEEP",
+        page_anchored=True,
+        props=look,
+    )
+    active = _FakeShape("PowerPlusWaterMarkObject", text="FINAL", props=look)
+    stale = _FakeShape("PowerPlusWaterMarkObject", text="DRAFT", inactive=True, props=look)
+    tool_ctx, _, _, _, _ = _make_env(shapes=[page_shape, active, stale])
+
+    res = PageSetWatermark().execute(tool_ctx, text="FINAL")
+    assert res["status"] == "ok", res
+    assert page_shape.getString() == "KEEP"
+    assert stale.getString() == "FINAL"
+
+
+def test_set_fails_closed_without_updating_inactive_watermarks() -> None:
+    stale = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        text="DRAFT",
+        inactive=True,
+        props={"CharFontName": "Liberation Sans"},
+    )
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        apply_changes=False,
+        shapes=[stale],
+    )
+
+    res = PageSetWatermark().execute(tool_ctx, text="FINAL")
+    assert res["status"] == "error"
+    assert stale.getString() == "DRAFT"
+
+
+def test_set_ignores_body_watermark_shape_as_model() -> None:
+    old_look = {
+        "CharFontName": "Liberation Sans",
+        "CharFontNameAsian": "Liberation Sans",
+        "CharFontNameComplex": "Liberation Sans",
+        "FillColor": 0xC0C0C0,
+        "FillTransparence": 50,
+        "Transformation": "old-matrix",
+    }
+    new_look = {
+        "CharFontName": "DejaVu Serif",
+        "CharFontNameAsian": "DejaVu Serif",
+        "CharFontNameComplex": "DejaVu Serif",
+        "FillColor": 0xFF0000,
+        "FillTransparence": 30,
+        "Transformation": "new-matrix",
+    }
+    body_copy = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        text="FINAL",
+        anchor_impl="SwXBodyText",
+        props=old_look,
+    )
+    stale = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        text="DRAFT",
+        inactive=True,
+        props=old_look,
+    )
+    active = _FakeShape(
+        "PowerPlusWaterMarkObject",
+        text="FINAL",
+        anchor_impl="SwXHeadFootText",
+        props=new_look,
+    )
+    tool_ctx, _, _, _, _ = _make_env(shapes=[body_copy, stale, active])
+
+    res = PageSetWatermark().execute(
+        tool_ctx,
+        text="FINAL",
+        font="DejaVu Serif",
+        color="#ff0000",
+        transparency=30,
+    )
+    assert res["status"] == "ok", res
+    assert stale.getString() == "FINAL"
+    for prop, value in new_look.items():
+        assert stale.getPropertyValue(prop) == value
+        assert body_copy.getPropertyValue(prop) == old_look[prop]
 
 
 def test_remove_fails_closed_without_disposing_text_watermarks() -> None:

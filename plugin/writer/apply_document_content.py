@@ -74,7 +74,7 @@ from plugin.writer.hyperlink_fixup import (
     heading_renames,
     plan_outline_updates,
     public_hyperlink_reports,
-    restore_outline_hyperlinks,
+    restore_links,
     retarget_outline_links,
 )
 
@@ -875,7 +875,7 @@ class ApplyDocumentContent(ToolBase):
                     replace_single,
                     original_preview=original, proposed_preview=plain)
             reports = (
-                restore_outline_hyperlinks(anchor, snapshot, plain, override)
+                restore_links(doc, anchor, snapshot, plain, override)
                 if needs_fix and snapshot is not None
                 else []
             )
@@ -1556,6 +1556,7 @@ class ApplyDocumentContent(ToolBase):
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
         headings = _headings_if_touched(doc, ranges)
+        tables_before = _doc_table_count(doc) if params.has_table else None
 
         def mutate() -> None:
             nonlocal count
@@ -1574,6 +1575,7 @@ class ApplyDocumentContent(ToolBase):
                     if reports:
                         link_reports.extend(reports)
                     count += 1
+                _verify_table_insert(doc, tables_before)
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
                 _retarget_renamed_links(session, doc, headings, report)
@@ -1848,7 +1850,8 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(doc) if params.has_table else None
         doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
-            with session:
+            # Rollback must stay outside the session: undo cannot run while its undo context is open.
+            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
         report = html_import_styles.WriteReport()

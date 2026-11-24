@@ -424,7 +424,7 @@ def test_execute_and_insert_vision_does_not_read_results_key():
     assert "2 images" in outcome["status_ok_text"]
 
 
-def test_rps_finish_vision_all_empty_reports_not_inserted():
+def test_rps_finish_vision_all_empty_reports_no_text():
     from plugin.scripting.python_runner import _finish_vision_execution
 
     prepared = pr.PreparedVision(
@@ -446,6 +446,94 @@ def test_rps_finish_vision_all_empty_reports_not_inserted():
     with patch("plugin.scripting.python_runner.is_draw", return_value=False):
         out = _finish_vision_execution(prepared, response)
     assert out["ok"] is True
-    assert "not inserted" in out["status_ok_text"].lower()
+    assert "No text detected." in out["status_ok_text"]
+
+
+def test_rps_finish_vision_draw_blank_image_reports_no_text():
+    from plugin.scripting.python_runner import _finish_vision_execution
+
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    response = {
+        "vision_selection_result": {
+            "status": "ok",
+            "images_processed": 1,
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+            ],
+        }
+    }
+    with patch("plugin.scripting.python_runner.is_draw", return_value=True):
+        out = _finish_vision_execution(prepared, response)
+    assert out["ok"] is True
+    assert "No text detected." in out["status_ok_text"]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_note"),
+    [
+        ("image_deleted", "Source images deleted: 1."),
+        ("image_kept", "Image kept because LibreOffice cannot record deleting it as a tracked change."),
+    ],
+)
+def test_rps_finish_vision_includes_source_image_note(outcome, expected_note):
+    from plugin.scripting.python_runner import _finish_vision_execution
+
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    response = {
+        "vision_selection_result": {
+            "status": "ok",
+            "images_processed": 1,
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
+            ],
+        }
+    }
+    with (
+        patch("plugin.scripting.python_runner.is_draw", return_value=False),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value=outcome),
+    ):
+        out = _finish_vision_execution(prepared, response)
+    assert out["ok"] is True
+    assert expected_note in out["status_ok_text"]
+
+
+def test_rps_finish_vision_partial_error_includes_deleted_note():
+    from plugin.scripting.python_runner import _finish_vision_execution
+
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    response = {
+        "vision_selection_result": {
+            "status": "error",
+            "message": "OCR failed for Img2 (boom); 1 of 2 images completed.",
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
+            ],
+        }
+    }
+    with (
+        patch("plugin.scripting.python_runner.is_draw", return_value=False),
+        patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
+    ):
+        out = _finish_vision_execution(prepared, response)
+    assert out["ok"] is False
+    assert "Source images deleted: 1." in out["message"]
 
 

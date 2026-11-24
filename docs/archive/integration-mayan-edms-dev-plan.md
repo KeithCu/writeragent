@@ -301,7 +301,7 @@ Project metadata type: "Project Code"
 
 **Implementer (priority):**
 
-5. **Reuse machinery** — Inner read agent, `open_document_for_read`, `web_research_chat.py` (document open status helpers), `DelegateToSpecializedBase`, `READ_TOOLS_BY_DOC_TYPE` — shared with local track.
+5. **Reuse machinery** — Inner read agent, `open_document_for_read`, `web_research_chat.py` (document open status helpers), `DelegateToSubagent`, `READ_TOOLS_BY_DOC_TYPE` — shared with local track.
 6. **Extend `document_research`** — Add `source` on list/delegate tools; avoid a parallel `mayan_documents` domain.
 7. **Least code** — Thin `mayan_client.py`; `sync_request` only; pluggable `DocumentSource` only after Mayan is solid (Phase 4).
 8. **One search API** — Dialog, CLI, and sub-agent tools call the same list/search/open helpers.

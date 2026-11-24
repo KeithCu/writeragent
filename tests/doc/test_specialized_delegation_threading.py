@@ -374,7 +374,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 ):
     """Regression: specialized execute built the #673 peer catalog on the async worker.
 
-    Writer/Calc/Draw gateways share DelegateToSpecializedBase.execute.
+    Writer/Calc/Draw gateways share DelegateToSubagent.execute.
     """
     mock_get_open_docs.return_value = []
 

@@ -1189,6 +1189,7 @@ def test_scan_count_resolve_all_fast_path_and_feedback():
     def fake_global(frame, cmd, unused, code, args):
         items.clear()
 
+    ctx.ServiceManager = ctx.getServiceManager()
     ctx.getServiceManager().createInstanceWithContext().executeDispatch.side_effect = fake_global
 
     n = _resolve_all_agent_changes(model, ctx, True).resolved
@@ -1294,6 +1295,7 @@ def test_scan_count_click_popup_enumerates_once():
     mock_smgr = MagicMock()
     mock_smgr.createInstanceWithContext.return_value = mock_popup
     mock_ctx = MagicMock()
+    mock_ctx.ServiceManager = mock_smgr
     mock_ctx.getServiceManager.return_value = mock_smgr
 
     with patch("plugin.writer.review_click_popup.get_ctx", return_value=mock_ctx):

@@ -1939,3 +1939,38 @@ def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises()
         doc.getDrawPage.side_effect = DisposedException("closed")
         with pytest.raises(DocumentDisposedError):
             copy_page_style(doc, "Src", "Dst2")
+
+
+def test_page_set_header_footer_text_flags_layout_change_only():
+    style = MagicMock()
+    props = {"HeaderIsOn": False, "HeaderIsDynamicHeight": None, "HeaderText": MagicMock()}
+
+    def get_prop(name):
+        return props[name]
+
+    def set_prop(name, val):
+        props[name] = val
+        if name == "HeaderIsOn" and val and props["HeaderIsDynamicHeight"] is None:
+            props["HeaderIsDynamicHeight"] = True
+
+    style.getPropertyValue.side_effect = get_prop
+    style.setPropertyValue.side_effect = set_prop
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda name: True if name == "RecordChanges" else None
+    family = MagicMock()
+    family.hasByName.return_value = True
+    family.getByName.return_value = style
+    doc.getStyleFamilies.return_value.getByName.return_value = family
+
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    with (
+        patch("plugin.writer.page.replace_xtext_with_html", return_value=MagicMock(style_skips=[])),
+        patch("plugin.writer.page.attach_write_report", side_effect=lambda r, _rep: r),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+    ):
+        first = PageSetHeaderFooterText().execute(ctx, style="Standard", region="header", content="<p>H1</p>")
+        second = PageSetHeaderFooterText().execute(ctx, style="Standard", region="header", content="<p>H2</p>")
+
+    assert first.get("style_unreviewed") is True
+    assert "style_unreviewed" not in second

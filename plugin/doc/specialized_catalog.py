@@ -114,7 +114,7 @@ def catalog_entries_from_base(
             continue
         if ctx is not None or uno_services:
             # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
-            # Only the enum in DelegateToSpecializedBase.get_parameters, read with neither, keeps every domain,
+            # Only the enum in DelegateToSubagent.get_parameters, read with neither, keeps every domain,
             # so a venv or MCP server added later in Settings still passes validation without a restart.
             # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
             from plugin.vision.vision_availability import specialized_domain_available

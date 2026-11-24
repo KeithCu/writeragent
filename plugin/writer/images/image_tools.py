@@ -34,7 +34,8 @@ from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_ctx
+from plugin.framework.uno_context import execute_dispatch, get_ctx
+from plugin.writer.record_changes import is_recording_changes
 
 log = logging.getLogger(__name__)
 
@@ -143,14 +144,11 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any 
     """
     try:
         before = visual_helpers.selected_graphic_object(model)
-        smgr = ctx.ServiceManager
-        dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        frame = model.getCurrentController().getFrame()
         props = (
             PropertyValue(Name="FileName", Value=file_url),
             PropertyValue(Name="AsLink", Value=True),
         )
-        dispatcher.executeDispatch(frame, ".uno:InsertGraphic", "", 0, props)
+        execute_dispatch(ctx, model.getCurrentController(), ".uno:InsertGraphic", props)
         after = visual_helpers.selected_graphic_object(model)
         if after is not None and not _is_same_graphic(before, after):
             return after
@@ -348,6 +346,7 @@ def insert_image_into_header_footer(
     # header/footer insert needs it.
     from plugin.writer.page import (
         REGION_PROPS,
+        header_footer_layout,
         resolve_page_style,
         set_header_footer_auto_height,
     )
@@ -358,11 +357,13 @@ def insert_image_into_header_footer(
     # Enable region + auto-height + embed are separate UNO steps; group them.
     with WriterCompoundUndo(model, "WriterAgent: Insert image in header/footer"):
         style = resolve_page_style(model, style_name)
+        before = header_footer_layout(style, region)
         is_on_prop, text_prop = REGION_PROPS[region]
         if not style.getPropertyValue(is_on_prop):
             style.setPropertyValue(is_on_prop, True)
         if auto_height:
             set_header_footer_auto_height(style, region, True)
+        after = header_footer_layout(style, region)
 
         region_text = style.getPropertyValue(text_prop)
         cursor = region_text.createTextCursorByRange(region_text.getEnd())
@@ -383,6 +384,7 @@ def insert_image_into_header_footer(
             "style_name": _page_style_name(style, style_name),
             "region": region,
             "auto_height": bool(auto_height),
+            "layout_changed": before != after,
         }
 
 
@@ -418,6 +420,29 @@ def cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
         return host, clone_text_range(vc)
 
 
+def _insert_content(model: Any, host: Any, cursor: Any, content: Any) -> None:
+    """Insert *content* into *host* at *cursor*, recording an Insert redline when tracking is on."""
+    # insertTextContent adds no redline, but text inside an Insert redline belongs to it;
+    # deleting our own insertion removes it outright. Do not position from graphic.getAnchor():
+    # its end maps before the picture, so deleting the tail marker would delete the picture.
+    if not is_recording_changes(model):
+        host.insertTextContent(cursor, content, False)
+        return
+    span = host.createTextCursorByRange(cursor.getStart())
+    host.insertString(span, "xx", True)  # two recorded characters, one on each side
+    try:
+        middle = host.createTextCursorByRange(span.getStart())
+        middle.goRight(1, False)
+        host.insertTextContent(middle, content, False)
+    finally:
+        tail = host.createTextCursorByRange(span.getEnd())
+        tail.goLeft(1, True)
+        tail.setString("")
+        head = host.createTextCursorByRange(span.getStart())
+        head.goRight(1, True)
+        head.setString("")
+
+
 def _insert_embedded_at_writer_cursor(
     model: Any,
     img_path: str,
@@ -443,14 +468,14 @@ def _insert_embedded_at_writer_cursor(
     )
 
     if text_cursor is not None:
-        doc_text.insertTextContent(text_cursor, image, False)
+        _insert_content(model, doc_text, text_cursor, image)
         return image
 
     view_cursor = model.CurrentController.ViewCursor
 
     def insert_at_view(vc: Any) -> None:
         host, tc = cursor_for_writer_view(vc)
-        host.insertTextContent(tc, image, False)
+        _insert_content(model, host, tc, image)
 
     try:
         insert_at_view(view_cursor)
