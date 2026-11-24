@@ -610,3 +610,69 @@ def test_do_edit_selection_skips_dialog_with_preset():
                             with patch("plugin.writer.editselection.get_config", return_value=100):
                                 es.do_edit_selection(ctx, model, preset_instruction="Fix typos")
     prompt.assert_not_called()
+
+
+def test_collapsed_caret_inside_insertion_is_not_refused_as_selection():
+    from plugin.writer import editselection as es
+
+    # Collapsed caret covering an Insert redline (compareRegionStarts == 0).
+    caret_text = MagicMock()
+    caret_pos = MagicMock()
+    caret_pos.getText.return_value = caret_text
+    caret_pos.supportsService.return_value = False
+    caret_text.compareRegionStarts.side_effect = lambda a, b: 0 if a is caret_pos and b is caret_pos else 0
+    caret = MagicMock()
+    caret.getText.return_value = caret_text
+    caret.getStart.return_value = caret_pos
+    caret.getEnd.return_value = caret_pos
+    caret.createEnumeration.return_value = MagicMock(hasMoreElements=MagicMock(return_value=False))
+
+    rl = MagicMock()
+    rl.getPropertyValue.side_effect = lambda k: {
+        "RedlineStart": caret_pos,
+        "RedlineEnd": caret_pos,
+        "RedlineType": "Insert",
+    }[k]
+    redlines = MagicMock()
+    redlines.getCount.return_value = 1
+    redlines.createEnumeration.return_value = MagicMock(
+        hasMoreElements=MagicMock(side_effect=[True, False]),
+        nextElement=MagicMock(return_value=rl),
+    )
+
+    body_rl = MagicMock()
+    body_rl.getPropertyValue.side_effect = lambda k: {
+        "RedlineStart": caret_pos,
+        "RedlineEnd": caret_pos,
+        "RedlineType": "Insert",
+    }[k]
+    body_cursor = MagicMock()
+    body_cursor.getText.return_value = caret_text
+    body_cursor.getStart.return_value = MagicMock()
+    body_cursor.getEnd.return_value = MagicMock()
+    # Body cursor is non-collapsed (compareRegionStarts != 0) and covered by Insert.
+    caret_text.compareRegionStarts.side_effect = lambda a, b: 0 if a is b else 1
+    caret_text.compareRegionEnds.return_value = 0
+
+    model = MagicMock()
+    model.getRedlines.return_value = redlines
+    model.getText.return_value.createTextCursor.return_value = body_cursor
+    ctx = MagicMock()
+
+    with patch("plugin.writer.editselection.selected_text_range", return_value=caret), \
+         patch("plugin.writer.editselection.visible_range_text", return_value=""), \
+         patch("plugin.writer.editselection.msgbox") as mock_msgbox:
+        # Plain Extend Selection shows "Select text first" (not tracked-changes refusal).
+        es.do_extend_selection(ctx, model)
+        assert mock_msgbox.call_count == 1
+        assert "Select text first" in mock_msgbox.call_args[0][2]
+
+        # Preset with allow_whole_document falls through to _whole_body_target and shows 1 message.
+        mock_msgbox.reset_mock()
+        redlines.createEnumeration.return_value = MagicMock(
+            hasMoreElements=MagicMock(side_effect=[True, False]),
+            nextElement=MagicMock(return_value=body_rl),
+        )
+        es.do_edit_selection(ctx, model, preset_instruction="Fix", allow_whole_document=True)
+        assert mock_msgbox.call_count == 1
+        assert "tracked" in mock_msgbox.call_args[0][2].lower()

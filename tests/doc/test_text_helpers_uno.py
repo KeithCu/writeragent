@@ -228,7 +228,7 @@ def test_multi_para_deletion_hides_table_in_span_uno(ctx):
 @native_test
 @with_native_doc("writer")
 def test_visible_range_text_from_inside_deletion_uno(ctx, doc):
-    from plugin.doc.text_helpers import visible_range_text
+    from plugin.doc.text_helpers import read_writer_text_slice, visible_range_text
     from plugin.tests.testing_utils import strike_across_paragraphs
 
     text = doc.getText()
@@ -248,6 +248,11 @@ def test_visible_range_text_from_inside_deletion_uno(ctx, doc):
     in_cur.goRight(len("Start "), False)
     in_cur.gotoRange(paras[1].getEnd(), True)
     assert "gone" not in visible_range_text(doc, in_cur)
+
+    # read_writer_text_slice starting mid-deletion (inside gone1).
+    start_off = len("Keep\nStart ")
+    assert "gone" not in read_writer_text_slice(doc, start_off, 25)
+    assert "Tail" in read_writer_text_slice(doc, start_off, 25)
 
 
 @native_test
@@ -271,6 +276,8 @@ def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length, visible_range_text
+
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(1, 1)
@@ -294,5 +301,7 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    assert get_string_without_tracked_deletions(text) == "cellA1\n\nthree"
+    assert visible_range_text(doc, text) == "cellA1\n\nthree"
+    # get_document_length uses a cursor from body.getStart(), which skips the leading table.
+    assert get_document_length(doc) == len("\nthree")
 

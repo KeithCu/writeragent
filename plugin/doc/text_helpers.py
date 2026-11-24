@@ -724,6 +724,7 @@ class TrackedDeletions:
         if point is None:
             return DeletionState()
         for text, start, end in self._bounds:
+            # Half-open [start, end): the end marker sits at end and has already been passed.
             inside = uno_read(
                 lambda: text.compareRegionStarts(start, point) >= 0
                 and text.compareRegionStarts(point, end) == 1,

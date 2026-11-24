@@ -1189,7 +1189,11 @@ def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
     ``setString`` must not run on a range we could not prove is free of
     Insert/Delete redlines.
     """
-    if _BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range):
+    cmp_val = uno_read(
+        lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
+        None,
+    )
+    if type(cmp_val) is int and cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
         return True
     top = _open_enum(text_range)
     if top is None:

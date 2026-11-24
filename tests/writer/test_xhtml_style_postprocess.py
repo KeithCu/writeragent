@@ -8,6 +8,8 @@
 #
 # Pure pytest unit tests (no LibreOffice) for the XHTML style post-process pipeline.
 # Fixtures mirror the real "XHTML Writer File" output captured from LibreOffice.
+import pytest
+
 from plugin.writer.xhtml_style_postprocess import (
     parse_fodt_autostyles,
     compact_lo_style_name,
@@ -382,13 +384,11 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
     assert ov_none["P1"] == "text-align:left"
 
 
-def test_split_deleted_breaks():
+def test_split_deleted_breaks_no_deletions_or_single_block():
     from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
 
-    # No deletions -> None.
     assert split_deleted_breaks("<office:body><office:text><text:p>a</text:p></office:text></office:body>") is None
 
-    # Single-block deletion -> None.
     single = (
         '<office:body><office:text><text:tracked-changes>'
         '<text:changed-region text:id="ct1"><text:deletion><text:p>x</text:p></text:deletion></text:changed-region>'
@@ -397,7 +397,37 @@ def test_split_deleted_breaks():
     )
     assert split_deleted_breaks(single) is None
 
-    # Three-block deletion with span reopened.
+
+@pytest.mark.parametrize("nested_xml", [
+    '<office:annotation><text:p>comment</text:p></office:annotation>',
+    '<text:note text:note-class="footnote"><text:note-body><text:p>fn</text:p></text:note-body></text:note>',
+    '<draw:frame><draw:text-box><text:p>box</text:p></draw:text-box></draw:frame>',
+])
+def test_split_deleted_breaks_ignores_nested_paragraphs(nested_xml: str):
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    single = (
+        '<office:body><office:text><text:tracked-changes>'
+        f'<text:changed-region text:id="ct1"><text:deletion><text:p>struck{nested_xml}</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
+    )
+    assert split_deleted_breaks(single) is None
+
+    two = (
+        '<office:body><office:text><text:tracked-changes>'
+        f'<text:changed-region text:id="ct1"><text:deletion><text:p>a{nested_xml}</text:p><text:p>b</text:p></text:deletion></text:changed-region>'
+        '</text:tracked-changes>'
+        '<text:p>Keep <text:change text:change-id="ct1"/>rest</text:p></office:text></office:body>'
+    )
+    out = split_deleted_breaks(two)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == "<text:p>Keep </text:p><text:p>rest</text:p></office:text></office:body>"
+
+
+def test_split_deleted_breaks_three_blocks_reopens_span():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
     three = (
         '<office:body><office:text><text:tracked-changes>'
         '<text:changed-region text:id="ct1"><text:deletion>'
@@ -411,28 +441,40 @@ def test_split_deleted_breaks():
     )
     out = split_deleted_breaks(three)
     assert out is not None
-    assert '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>' in out
-    assert '<text:h text:style-name="H1"><text:span text:style-name="T1"></text:span></text:h>' in out
-    assert '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>' in out
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p text:style-name="P1">Start <text:span text:style-name="T1"></text:span></text:p>'
+        '<text:h text:style-name="H1"><text:span text:style-name="T1"></text:span></text:h>'
+        '<text:p text:style-name="P2"><text:span text:style-name="T1">Tail</text:span></text:p>'
+        '</office:text></office:body>'
+    )
 
-    # List item reopened.
+
+def test_split_deleted_breaks_list_item_drops_start_value_and_xml_id():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
     list_fodt = (
         '<office:body><office:text><text:tracked-changes>'
         '<text:changed-region text:id="ct1"><text:deletion>'
-        '<text:p>d1</text:p><text:p>d2</text:p>'
+        '<text:p>d1</text:p><text:p xml:id="p2">d2</text:p>'
         '</text:deletion></text:changed-region>'
         '</text:tracked-changes>'
-        '<text:list><text:list-item><text:p>One<text:change text:change-id="ct1"/>Two</text:p></text:list-item></text:list>'
+        '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One<text:change text:change-id="ct1"/>Two</text:p></text:list-item></text:list>'
         '</office:text></office:body>'
     )
-    list_out = split_deleted_breaks(list_fodt)
-    assert list_out is not None
-    assert '</text:p></text:list-item><text:list-item><text:p>Two</text:p>' in list_out
+    out = split_deleted_breaks(list_fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:list><text:list-item text:start-value="3" xml:id="li1"><text:p>One</text:p></text:list-item>'
+        '<text:list-item><text:p>Two</text:p></text:list-item></text:list></office:text></office:body>'
+    )
 
-    # Table blocks inside deletion are ignored; two adjacent changes both split.
-    table_and_two = (
+
+def test_split_deleted_breaks_table_ignored_adjacent_changes_and_successor_format():
+    from plugin.writer.xhtml_style_postprocess import split_deleted_breaks
+
+    fodt = (
         '<office:body><office:text><text:tracked-changes>'
-        '<text:changed-region text:id="ct1"><text:deletion>'
+        '<text:changed-region text:id="ct1"><text:format-change/><text:deletion>'
         '<text:p>d1</text:p><table:table><table:table-row><table:table-cell><text:p>cell</text:p></table:table-cell></table:table-row></table:table><text:p>d2</text:p>'
         '</text:deletion></text:changed-region>'
         '<text:changed-region text:id="ct2"><text:deletion>'
@@ -442,9 +484,9 @@ def test_split_deleted_breaks():
         '<text:p>A<text:change text:change-id="ct1"/>B<text:change text:change-id="ct2"/>C</text:p>'
         '</office:text></office:body>'
     )
-    t_out = split_deleted_breaks(table_and_two)
-    assert t_out is not None
-    body_out = t_out.split("</text:tracked-changes>", 1)[1]
-    assert body_out.count("<text:p>") == 3
-    assert "cell" not in body_out
+    out = split_deleted_breaks(fodt)
+    assert out is not None
+    assert out.split("</text:tracked-changes>", 1)[1] == (
+        '<text:p>A</text:p><text:p>B</text:p><text:p>C</text:p></office:text></office:body>'
+    )
 

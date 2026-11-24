@@ -273,7 +273,9 @@ def _restore_anchor_hrefs(
 # template create-href and common/table_of_content.xsl), an "|outline" link is written
 # as "#a_" + the link's own visible text, so the heading target is lost. Footnote anchors
 # (#ftn0) sit between them in the exported HTML, so only #a_ hrefs are paired with
-# only outline URLs, and only when the counts agree.
+# only outline URLs, and only when the counts agree. A tracked deletion that splits
+# across a hyperlink leaves empty <a href="#a_"/> anchors in the split paragraphs;
+# requiring at least one char after #a_ skips them so the count guard still matches.
 _EXPORTED_OUTLINE_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")(#a_[^"]+)(")', re.IGNORECASE)
 
 

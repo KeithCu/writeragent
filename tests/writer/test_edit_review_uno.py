@@ -402,3 +402,9 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     with pytest.raises(TrackedChangesInSelection):
         refuse_tracked_insert_or_delete(doc, inner_ins)
     assert text.getString() == "StartINSEnd"
+
+    # Collapsed caret inside an Insert is not refused by refuse_tracked_insert_or_delete.
+    caret_ins = text.createTextCursor()
+    caret_ins.gotoStart(False)
+    caret_ins.goRight(6, False)
+    refuse_tracked_insert_or_delete(doc, caret_ins)
