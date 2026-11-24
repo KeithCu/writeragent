@@ -54,7 +54,7 @@ def test_short_page_is_returned_unchanged_and_searchable():
 
     url = "https://example.test/short"
     assert visit.forward([url]) == f"URL: {url}\n\n{text}"
-    found = find.forward(url, "beta")
+    found = find.forward("beta", url)
     assert "15 match(es)" in found
     assert "Part 1:" in found
 
@@ -135,11 +135,11 @@ def test_find_in_page_reports_part_and_context():
     page = store.get(url)
     assert page is not None
 
-    res = find.forward(url, "uniqueneedle")
+    res = find.forward("uniqueneedle", url)
     assert f"Part {page.part_count}:" in res
     assert "UniqueNeedle near the end" in res
 
-    literal_res = find.forward(url, "C++ $5")
+    literal_res = find.forward("C++ $5", url)
     assert "1 match(es)" in literal_res
     assert "C++ $5 special" in literal_res
 
@@ -147,7 +147,7 @@ def test_find_in_page_reports_part_and_context():
     many_url = "https://example.test/many"
     inner.forward.return_value = many_text
     visit.forward([many_url])
-    many_res = find.forward(many_url, "targetword")
+    many_res = find.forward("targetword", many_url)
     assert '25 match(es) for "targetword"' in many_res
     assert "(10 shown)" in many_res
     assert len(many_res.splitlines()) == 11
@@ -658,7 +658,7 @@ def test_find_in_page_output_respects_budget_chars(budget):
     url = "https://find-bound.test/page"
     store.put(url, many_text)
 
-    res = FindInPageTool(store).forward(url, "targetword")
+    res = FindInPageTool(store).forward("targetword", url)
     assert len(res) <= budget
     shown_lines = res.splitlines()[1:]
     assert len(shown_lines) >= 1
@@ -780,7 +780,7 @@ def test_parallel_flag_off_chunking_pagestore_and_stop(monkeypatch):
     out = visit.forward(url=url)
     assert "Part 1 of " in out
     assert "Part 2 of " in read.forward(url, 2)
-    assert "1 match(es)" in find.forward(url, "Line 0400:")
+    assert "1 match(es)" in find.forward("Line 0400:", url)
 
     # Stop returns promptly while a fetch is blocked.
     entered = threading.Event()
@@ -811,3 +811,110 @@ def test_parallel_flag_off_chunking_pagestore_and_stop(monkeypatch):
 
     assert stop_out == "[stopped] https://serial-stop.test/slow"
     assert blocked_store.get("https://serial-stop.test/slow") is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"text": "targetphrase"},
+        {"text": "targetphrase", "url": None},
+        {"text": "targetphrase", "url": ""},
+        {"text": "targetphrase", "url": "  "},
+    ],
+)
+def test_find_in_page_without_url_searches_every_stored_page(args):
+    from plugin.chatbot.web_research import WebResearchToolCallingAgent
+
+    store = PageStore()
+    url1 = "https://a.test/1"
+    url2 = "https://a.test/2"
+    url3 = "https://a.test/3"
+    store.put(url1, "First page mentions TargetPhrase near the top.")
+    store.put(url2, "Second page has nothing relevant.")
+    filler = "Standard filler sentence for pagination.\n" * 600
+    page3 = store.put(url3, filler + "Late occurrence of targetphrase here.\n")
+
+    agent = WebResearchToolCallingAgent(tools=[FindInPageTool(store)], model=MagicMock())
+    res = str(agent.execute_tool_call("find_in_page", args))
+
+    assert url1 in res
+    assert url3 in res
+    assert url2 not in res
+    assert res.index(url3) < res.index(url1)
+    assert "2 of 3" in res.splitlines()[0]
+    assert f"Part {page3.part_count}:" in res
+
+
+def test_find_in_page_url_is_optional_on_the_wire():
+    from plugin.contrib.smolagents.models import get_tool_json_schema
+
+    schema = get_tool_json_schema(FindInPageTool(PageStore()))
+    fn = schema["function"]
+    assert fn["parameters"]["required"] == ["text"]
+    assert "null" in fn["parameters"]["properties"]["url"]["type"]
+
+
+def test_find_in_page_all_shares_snippets_across_pages():
+    store = PageStore()
+    old1 = "https://old.test/1"
+    old2 = "https://old.test/2"
+    busy = "https://busy.test/many"
+    store.put(old1, "Old page one has TARGETWORD once.")
+    store.put(old2, "Old page two has TARGETWORD once.")
+    many_text = "\n".join(f"item {i}: TARGETWORD " + ("z" * 300) for i in range(25))
+    store.put(busy, many_text)
+
+    res = FindInPageTool(store).forward("targetword")
+    assert old1 in res
+    assert old2 in res
+    assert "Old page one has TARGETWORD once." in res
+    assert "Old page two has TARGETWORD once." in res
+    part_lines = [line for line in res.splitlines() if line.startswith("Part ")]
+    assert len(part_lines) <= 10
+    busy_line = next(line for line in res.splitlines() if busy in line)
+    assert "shown)" in busy_line
+
+    # Unused shares from newer 1-match pages pass to the older busy page.
+    store2 = PageStore()
+    store2.put(busy, many_text)
+    store2.put("https://new.test/1", "New page one has TARGETWORD once.")
+    store2.put("https://new.test/2", "New page two has TARGETWORD once.")
+    res2 = FindInPageTool(store2).forward("targetword")
+    busy_line2 = next(line for line in res2.splitlines() if busy in line)
+    assert "(8 shown)" in busy_line2
+
+
+@pytest.mark.parametrize("budget", [2_048, 4_096])
+def test_find_in_page_all_respects_budget_chars(budget):
+    many_text = "\n".join(f"item {i}: TARGETWORD " + ("z" * 300) for i in range(25))
+    store = PageStore(budget_chars=budget)
+    for i in range(100):
+        store.put(f"https://many.test/{i}", many_text)
+
+    res = FindInPageTool(store).forward("targetword")
+    assert len(res) <= budget
+    assert any(line.startswith("Part ") for line in res.splitlines())
+    assert "page(s) shown)" in res.splitlines()[0]
+
+
+def test_find_in_page_all_empty_store_no_match_and_blank_text():
+    store = PageStore()
+    find = FindInPageTool(store)
+    assert "No pages are stored" in find.forward("anything")
+
+    store.put("https://a.test/1", "Some unrelated content.")
+    store.put("https://a.test/2", "More unrelated content with needle.")
+    no_hit = find.forward("missingphrase")
+    assert "No match" in no_hit
+    assert "2" in no_hit
+    assert "needs a non-empty text" in find.forward("   ")
+    assert "No text is stored" in find.forward("needle", "https://a.test/unknown")
+
+
+def test_page_store_snapshot_is_a_copy():
+    store = PageStore()
+    store.put("https://a.test/1", "one")
+    store.put("https://a.test/2", "two")
+    snap = store.snapshot()
+    store.put("https://a.test/3", "three")
+    assert [url for url, _page in snap] == ["https://a.test/1", "https://a.test/2"]

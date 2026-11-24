@@ -203,11 +203,14 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
     return None
 
 
-def get_calc_init_script(doc: Any) -> str:
-    """Return the workbook init script on *doc*, checking INIT first then Init."""
-    scripts = get_document_scripts(doc)
+def _init_script_from_map(scripts: dict[str, str]) -> str:
     # .get keeps an explicit empty "INIT". `or` would treat "" as missing and return a stale "Init".
     return scripts.get("INIT", scripts.get("Init", ""))
+
+
+def get_calc_init_script(doc: Any) -> str:
+    """Return the workbook init script on *doc*, checking INIT first then Init."""
+    return _init_script_from_map(get_document_scripts(doc))
 
 
 def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
@@ -283,11 +286,22 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
     return guard_uno(doc)
 
 
-def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
-    """Kwargs for ``run_code_in_user_venv`` init execution (pass with separate ``session_id=``)."""
-    init_code = get_calc_init_script(doc).strip()
-    if not init_code:
+def build_python_eval_init_kwargs(doc: Any, *, shared_session: bool = False) -> dict[str, Any]:
+    """Kwargs for ``run_code_in_user_venv`` init execution (pass with separate ``session_id=``).
+
+    With *shared_session*, a document that has no init script still names its init
+    session. The worker then drops an init it ran earlier, with the shared namespace
+    that init seeded. Isolated cells have no namespace that outlives the call. Reset
+    Python Session leaves it False in both modes: it has already dropped the init,
+    and an empty dict tells it there is nothing to re-seed.
+    """
+    scripts, err = _load_document_script_map(doc)
+    if err is not None:
+        # An unreadable map is not a removed init script; naming the session would drop the kernel.
         return {}
+    init_code = _init_script_from_map(scripts).strip()
+    if not init_code:
+        return {"init_session_id": calc_init_session_id(doc)} if shared_session else {}
     return {
         "init_script": init_code,
         "init_session_id": calc_init_session_id(doc),

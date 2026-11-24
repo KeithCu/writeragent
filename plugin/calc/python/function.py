@@ -146,11 +146,12 @@ class CellContext:
     code: str = ""
 
 
-def _init_kwargs_for_doc(doc: Any) -> dict[str, Any]:
+def _init_kwargs_for_doc(doc: Any, *, shared_session: bool) -> dict[str, Any]:
     # Lazy: document_scripts loads the scripting domain registry, which the first =PY() must not load (test_function_module_avoids_document_helpers_import).
     from plugin.scripting.document_scripts import build_python_eval_init_kwargs
 
-    return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
+    # The {} default names no init session, so a failed read leaves the workbook kernel alone.
+    return best_effort(lambda: build_python_eval_init_kwargs(doc, shared_session=shared_session), "get_python_init_kwargs", {})
 
 
 def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellContext:
@@ -164,7 +165,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
         # (which the add-in upcall already holds) and reads ScDocument::GetMatrixFormulaRange
         # (sc/source/ui/unoobj/cursuno.cxx ScCellCursorObj::collapseToCurrentArray).
         is_matrix = cell_is_matrix(origin.sheet, origin.cell) if origin is not None else False
-        init_kwargs = _init_kwargs_for_doc(doc)
+        init_kwargs = _init_kwargs_for_doc(doc, shared_session=session_id is not None)
         scoped_dir = None
         try:
             # Lazy: plugin.doc.document_research is not in the LibrePy bundle; there the ImportError lands in the except below and the run has no scoped folder.
@@ -395,7 +396,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
                 target_doc is not None,
                 session_id,
-                bool(init_kwargs),
+                "init_script" in init_kwargs,
                 cell_ctx.on_main,
                 in_sync_host_dispatch(),
             )
