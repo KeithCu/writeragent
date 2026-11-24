@@ -236,6 +236,21 @@ def _export_sheet_csv(doc: Any, sheet_number: int, path: str) -> None:
         shutil.copyfile(os.path.join(tmp, written), path)
 
 
+def _lock_refusal(path: str) -> _FilterError | None:
+    """Error when a LibreOffice lock file exists for *path*, else None.
+
+    LibreOffice names the lock file after the file a symlink points to
+    (LockFileCommon::ResolveLinks in svl/source/misc/lockfilecommon.cxx).
+    """
+    folder, name = os.path.split(os.path.realpath(path))
+    if not os.path.isfile(os.path.join(folder, f".~lock.{name}#")):
+        return None
+    return _FilterError(
+        "FILE_LOCKED",
+        f"{path} is in use by another user or LibreOffice session, so it was not overwritten; use a different path.",
+    )
+
+
 class _AbortPrompts(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
     """Answer every question LibreOffice asks during a save with Abort, so no dialog opens.
 
@@ -292,16 +307,10 @@ def _save_failure(
             "FILE_LOCKED",
             f"{path} is in use by another LibreOffice session of this user, so it was not overwritten; use a different path.",
         )
-    if (
-        prompts.aborted
-        and prompts.request is None
-        and path
-        and os.path.isfile(os.path.join(os.path.dirname(path), f".~lock.{os.path.basename(path)}#"))
-    ):
-        return _FilterError(
-            "FILE_LOCKED",
-            f"{path} is in use by another user or LibreOffice session, so it was not overwritten; use a different path.",
-        )
+    if prompts.aborted and prompts.request is None:
+        locked = _lock_refusal(path)
+        if locked is not None:
+            return locked
     log.exception("%s for %s", fallback_code, path)
     return _FilterError(fallback_code, f"Failed to write {path}: {exc}")
 
@@ -517,6 +526,10 @@ class DocumentExport(ToolBase):
 
         sheet_number: int | None = None
         if sheet is not None:
+            # _export_sheet_csv copies the file itself, so LibreOffice does not check the target's lock.
+            locked = _lock_refusal(path)
+            if locked is not None:
+                return self._tool_error(locked.message, code=locked.code)
             # Keep outside the try block so UnoObjectError (with available and similar sheet names)
             # reaches execute_safe instead of becoming EXPORT_FAILED.
             sheet_number = CalcBridge(doc).get_sheet(sheet).getRangeAddress().Sheet + 1

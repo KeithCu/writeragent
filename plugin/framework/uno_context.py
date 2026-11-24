@@ -57,6 +57,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.url_utils import normalize_file_url
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
     process_events_to_idle as process_events_to_idle,
@@ -432,10 +433,27 @@ def _doc_identity_url(url: Any) -> str:
     """
     raw = str(url or "").strip()
     if raw.startswith("file:"):
-        from plugin.framework.url_utils import normalize_file_url
-
         raw = urllib.parse.quote(urllib.parse.unquote_to_bytes(normalize_file_url(raw)))
     return normalize_doc_url(raw)
+
+
+def _file_stat(url: Any) -> os.stat_result | None:
+    """Stat of the existing file a ``file:`` URL names, following symlinks, else None.
+
+    st_ino 0 means the OS gave no file identity (Python on Windows when it cannot open the
+    file), and two such files would compare equal.
+    """
+    raw = str(url or "").strip()
+    if not raw.startswith("file:"):
+        return None
+    import uno  # unit-test and child processes import this module without LibreOffice
+
+    try:
+        st = os.stat(uno.fileUrlToSystemPath(normalize_file_url(raw)))
+    except Exception:
+        # Missing or unreachable file, or a URL LibreOffice cannot convert.
+        return None
+    return st if st.st_ino else None
 
 
 def normalize_doc_url(url: Any) -> str:
@@ -631,7 +649,8 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
 
     ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
     ``document_list_open``); the RuntimeUID also matches unsaved/untitled
-    documents that have no URL yet.
+    documents that have no URL yet. A ``file:`` URL also matches an open
+    document that is the same file on disk, and an exact URL or uid match wins.
     Returns (doc, doc_type) or (None, None) if not found.
     doc_type is one of 'writer', 'calc', 'draw', or 'unknown'.
     """
@@ -639,23 +658,35 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         return (None, None)
     from plugin.framework import doc_type as _doc_type
 
+    def resolved(model: Any) -> tuple[Any, str]:
+        return (_guard_returned_uno(model), _doc_type.doc_type_family_label(_doc_type.get_document_type(model)))
+
     target = _doc_identity_url(url)
     try:
         desktop = get_desktop(ctx)
         if desktop is None:
             return (None, None)
+        others: list[tuple[Any, Any]] = []
         for model in iter_open_models(desktop):
             try:
-                doc_url = _doc_identity_url(model.getURL()) if hasattr(model, "getURL") else ""
+                model_url = model.getURL() if hasattr(model, "getURL") else ""
+                doc_url = _doc_identity_url(model_url)
                 uid = get_runtime_uid(model)
                 if (doc_url and doc_url == target) or (uid and uid == target):
-                    doc_type_enum = _doc_type.get_document_type(model)
-                    doc_type = _doc_type.doc_type_family_label(doc_type_enum)
-                    return (_guard_returned_uno(model), doc_type)
+                    return resolved(model)
+                others.append((model, model_url))
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.
                 log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
+        # A symlink, a hard link or different letter case can name an open file with another
+        # URL. LibreOffice writes through links (IsFileMovable in sfx2/source/doc/docfile.cxx).
+        target_stat = _file_stat(url)
+        if target_stat is not None:
+            for model, model_url in others:
+                model_stat = _file_stat(model_url)
+                if model_stat is not None and os.path.samestat(model_stat, target_stat):
+                    return resolved(model)
     except Exception as e:
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("resolve_document_by_url enumeration error")

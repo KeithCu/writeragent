@@ -293,9 +293,9 @@ There is **no** single shared converter. Live implementations:
 | `url_utils.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
 | sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. Stay local (no UNO). |
 
-`resolve_document_by_url` compares `_doc_identity_url(model.getURL())` to `_doc_identity_url(url)`, which repairs `file:/` to `file:///` and unifies `file:` percent-encoding before `normalize_doc_url`. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
+`resolve_document_by_url` compares `_doc_identity_url(model.getURL())` to `_doc_identity_url(url)`, which repairs `file:/` to `file:///` and unifies `file:` percent-encoding before `normalize_doc_url`. When no URL or uid matches, it compares device and inode of the request's file with each open document's file (`_file_stat`), so symlinks, hard links, and letter-case variants match the open document while an exact URL or uid match wins. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
 
-Tests: `tests/doc/test_document.py` (`normalize_doc_url` trailing slash), `tests/doc/test_text_helpers.py` (`file:/` repair + `get_document_path`).
+Tests: `tests/doc/test_document.py` (`normalize_doc_url` trailing slash), `tests/doc/test_text_helpers.py` (`file:/` repair + `get_document_path`), `tests/framework/test_uno_context.py` (same-file matching).
 
 ### 2.3 Untitled / empty URL / RuntimeUID
 

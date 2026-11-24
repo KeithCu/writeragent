@@ -302,21 +302,20 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
 def test_document_export_and_save_refuse_open_paths_uno(ctx, doc):
     tmp_dir = tempfile.mkdtemp(prefix="wa_open_refuse_")
     target = os.path.join(tmp_dir, "Report (1) é.odt")
+    link = os.path.join(tmp_dir, "link.odt")
+    hard = os.path.join(tmp_dir, "hard.odt")
     hidden_doc = None
     try:
         text = doc.getText()
         text.insertString(text.createTextCursor(), "original", False)
         doc.storeAsURL(uno.systemPathToFileUrl(target), ())
+        orig_url = doc.getURL()
         with open(target, "rb") as f:
             orig_bytes = f.read()
+        os.symlink(target, link)
+        os.link(target, hard)
 
         tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-        res_own_export = DocumentExport().execute(tool_ctx, path=target)
-        assert res_own_export["status"] == "error", res_own_export
-        assert res_own_export["code"] == "PATH_IS_OPEN"
-        with open(target, "rb") as f:
-            assert f.read() == orig_bytes
-
         desktop = get_desktop(ctx)
         hidden_doc = desktop.loadComponentFromURL(
             "private:factory/swriter",
@@ -328,26 +327,79 @@ def test_document_export_and_save_refuse_open_paths_uno(ctx, doc):
         htext.insertString(htext.createTextCursor(), "intruder", False)
         hidden_ctx = TestingFactory.create_context(doc=hidden_doc, ctx=ctx, env="native")
 
-        res_other_export = DocumentExport().execute(hidden_ctx, path=target)
-        assert res_other_export["status"] == "error", res_other_export
-        assert res_other_export["code"] == "PATH_IS_OPEN"
-        with open(target, "rb") as f:
-            assert f.read() == orig_bytes
+        for open_path in (target, link, hard):
+            res_own_export = DocumentExport().execute(tool_ctx, path=open_path)
+            assert res_own_export["status"] == "error", res_own_export
+            assert res_own_export["code"] == "PATH_IS_OPEN"
+            with open(target, "rb") as f:
+                assert f.read() == orig_bytes
 
-        res_other_save = DocumentSave().execute(hidden_ctx, path=target)
-        assert res_other_save["status"] == "error", res_other_save
-        assert res_other_save["code"] == "PATH_IS_OPEN"
-        with open(target, "rb") as f:
-            assert f.read() == orig_bytes
+            res_other_export = DocumentExport().execute(hidden_ctx, path=open_path)
+            assert res_other_export["status"] == "error", res_other_export
+            assert res_other_export["code"] == "PATH_IS_OPEN"
+            with open(target, "rb") as f:
+                assert f.read() == orig_bytes
+
+            res_other_save = DocumentSave().execute(hidden_ctx, path=open_path)
+            assert res_other_save["status"] == "error", res_other_save
+            assert res_other_save["code"] == "PATH_IS_OPEN"
+            with open(target, "rb") as f:
+                assert f.read() == orig_bytes
+
+        res_open_link = DocumentOpen().execute(tool_ctx, path=link)
+        assert res_open_link["status"] == "ok", res_open_link
+        assert res_open_link["already_open"] is True
+        assert res_open_link["document"]["uid"] == get_runtime_uid(doc)
 
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
         text.insertString(cursor, " edited", False)
-        res_save = DocumentSave().execute(tool_ctx)
+        res_save = DocumentSave().execute(tool_ctx, path=link)
         assert res_save["status"] == "ok", res_save
+        assert os.path.islink(link)
+        assert doc.getURL() == orig_url
+        with zipfile.ZipFile(target) as zf:
+            assert b"edited" in zf.read("content.xml")
     finally:
         if hidden_doc is not None:
             hidden_doc.close(True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_document_export_csv_sheet_refuses_locked_target_uno(ctx, doc):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_csv_locked_")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        sheets = doc.getSheets()
+        sheets.getByIndex(0).getCellByPosition(0, 0).setString("first")
+        sheets.insertNewByName("Second", 1)
+        sheets.getByIndex(1).getCellByPosition(0, 0).setString("sheet2-data")
+
+        real_csv = os.path.join(tmp_dir, "c.csv")
+        link_csv = os.path.join(tmp_dir, "link.csv")
+        lock_file = os.path.join(tmp_dir, ".~lock.c.csv#")
+        with open(real_csv, "w", encoding="utf-8") as f:
+            f.write("keep")
+        os.symlink(real_csv, link_csv)
+        with open(lock_file, "w", encoding="utf-8") as f:
+            f.write("Someone Else,other,otherhost,24.11.2026 10:00,file:///x;")
+
+        for target in (real_csv, link_csv):
+            res_locked = DocumentExport().execute(tool_ctx, path=target, sheet="Second")
+            assert res_locked["status"] == "error", res_locked
+            assert res_locked["code"] == "FILE_LOCKED"
+            with open(real_csv, encoding="utf-8") as f:
+                assert f.read() == "keep"
+
+        os.remove(lock_file)
+        res_ok = DocumentExport().execute(tool_ctx, path=link_csv, sheet="Second")
+        assert res_ok["status"] == "ok", res_ok
+        assert os.path.islink(link_csv)
+        with open(real_csv, encoding="utf-8") as f:
+            assert f.read().replace("\r\n", "\n") == "sheet2-data\n"
+    finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
