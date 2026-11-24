@@ -564,3 +564,42 @@ def test_mock_ocr_image_removed_mid_run_continues_and_returns_partial_uno(ctx, d
         assert body.index(tok1) < body.index(tok3)
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_mock_ocr_reports_image_kept_when_delete_cannot_be_tracked_uno(ctx, doc):
+    """Protected image cannot be deleted while recording changes, so it is kept and reported."""
+    fixture = _build_labeled_fixture(ctx, doc, image_count=2)
+    names = fixture["names"]
+    assert len(names) == 2
+
+    captured: list[tuple[str, str]] = []
+    try:
+        fixture["graphics"][1].setPropertyValue("ContentProtected", True)
+        doc.RecordChanges = True
+        _select_whole_document(doc)
+        with patch("plugin.vision.vision_runner.run_vision", side_effect=_make_fake_run_vision(captured)):
+            result = run_and_insert_vision_for_selection(
+                ctx,
+                doc,
+                helper="extract_structure",
+                params={"delete_image_after_insert": True},
+            )
+
+        assert result["status"] == "ok"
+        assert result["deleted_images"] == [names[0]]
+        assert result["kept_images_delete_not_trackable"] == [names[1]]
+
+        doc.RecordChanges = False
+        dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+        remaining = [name for name, _unused in list_graphic_objects(doc)]
+        assert remaining == [names[1]]
+        body = doc.getText().getString()
+        assert _ocr_token_for_name(captured, names[0]) in body
+        assert _ocr_token_for_name(captured, names[1]) in body
+    finally:
+        doc.RecordChanges = False
+        _cleanup_temp_paths(fixture["temp_paths"])
