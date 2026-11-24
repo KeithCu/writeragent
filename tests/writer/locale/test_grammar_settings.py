@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from plugin.writer.locale.grammar_settings import detect_language_mode
+from plugin.writer.locale.grammar_settings import detect_language_mode, engine_settings_changed
 
 
 @pytest.mark.parametrize(
@@ -26,3 +26,32 @@ def test_detect_language_mode(value: object, expected: str) -> None:
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(config, "get_config", lambda _key: value)
         assert detect_language_mode() == expected
+
+
+@pytest.mark.parametrize(
+    "keys, active_provider, grammar_model, expected",
+    [
+        pytest.param({"doc.grammar_proofreader_enabled"}, "harper", "", True, id="engine_key_harper"),
+        pytest.param({"doc.grammar_proofreader_model"}, "llm", "gpt-4o", True, id="grammar_model_key_llm"),
+        pytest.param({"endpoint"}, "llm", "", True, id="endpoint_llm"),
+        pytest.param({"endpoint"}, "llm", "gpt-4o", True, id="endpoint_llm_explicit_model"),
+        pytest.param({"text_model"}, "llm", "", True, id="text_model_llm_empty_grammar_model"),
+        pytest.param({"text_model"}, "llm", "   ", True, id="text_model_llm_blank_grammar_model"),
+        pytest.param({"text_model"}, "llm", "gpt-4o", False, id="text_model_llm_explicit_grammar_model"),
+        pytest.param({"endpoint"}, "harper", "", False, id="endpoint_harper"),
+        pytest.param({"text_model"}, "harper", "", False, id="text_model_harper"),
+        pytest.param({"endpoint"}, "off", "", False, id="endpoint_off"),
+        pytest.param({"text_model"}, "off", "", False, id="text_model_off"),
+        pytest.param(set(), "llm", "", False, id="empty_keys"),
+    ],
+)
+def test_engine_settings_changed(
+    keys: set[str], active_provider: str, grammar_model: str, expected: bool
+) -> None:
+    from plugin.framework import config
+    from plugin.writer.locale import grammar_settings
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(grammar_settings, "provider", lambda: active_provider)
+        mp.setattr(config, "get_config", lambda _key: grammar_model)
+        assert engine_settings_changed(keys) is expected

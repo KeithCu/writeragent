@@ -112,7 +112,12 @@ def test_tally_and_format_ab_report_verdicts() -> None:
 
     tally = eval_ab.tally_ab_results(a_details, b_better_details, models, tasks)
     assert tally["verdict"] == "B better"
-    report = eval_ab.format_ab_report(tally, suite="calc", repeats=2)
+    report = eval_ab.format_ab_report(
+        tally, suite="calc", repeats=2, ref="feature", a_source="aaa", b_source="bbb"
+    )
+    assert "A=feature@aaa" in report
+    assert "B=working-tree@bbb" in report
+    assert "origin/master" not in report
     assert "B better" in report
     assert "t_oracle" in report
     assert "n/a" in report
@@ -251,7 +256,9 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
     assert "B better" in out_a
     assert len(worktree_refs) == 1
     assert len(worktree_refs[0]) == 40
-    assert worktree_refs[0] == eval_ab.resolve_commit(repo, "master")
+    sha = eval_ab.resolve_commit(repo, "master")
+    assert worktree_refs[0] == sha
+    assert f"A=master@{sha[:12]}" in out_a
     files_after_a = {p.name for p in calc_dir.glob("*-r1.json")}
     assert len(files_after_a) == 2
 
@@ -268,6 +275,7 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
     out_c = capsys.readouterr().out
     assert "[skip] A-r1" in out_c
     assert "[run] B-r1" in out_c
+    assert f"B=working-tree@{sha[:12]}+" in out_c
     files_after_c = {p.name for p in calc_dir.glob("*-r1.json")}
     assert len(files_after_c - files_after_a) == 1
     assert next(iter(files_after_c - files_after_a)).startswith("B-")

@@ -773,13 +773,11 @@ def test_content_has_block_markup(html, expected):
     assert content_has_block_markup(html) is expected
 
 
-def test_collect_range_portions_magic_mock_returns_immediately():
-    from plugin.writer.html_import import _collect_range_portions
+def test_text_run_lengths_magic_mock_returns_empty():
+    from plugin.writer.html_import import _text_run_lengths
 
     mock_range = MagicMock()
-    has_special, portions = _collect_range_portions(mock_range)
-    assert has_special is False
-    assert portions == []
+    assert _text_run_lengths(mock_range) == []
 
 
 def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
@@ -799,30 +797,24 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    ("content", "recording", "start_edge", "end_edge", "expected_apply", "expected_note"),
+    ("content", "start_edge", "end_edge", "expected_apply", "expected_note"),
     [
-        ('<p data-lo-style="Heading2">content</p>', False, True, True, True, None),
-        ('<p data-lo-style="Heading2">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, True, True, True, None),
-        ('<p data-lo-para="text-align:center">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-para="text-align:center">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
-        ('<p data-lo-style="Heading2">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
-        # Geometry checked first: partial match while recording returns partial note.
-        pytest.param('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="style_partial_while_recording"),
-        ('<p data-lo-para="text-align:center">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
-        pytest.param('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="para_partial_while_recording"),
+        ('<p data-lo-style="Heading2">content</p>', True, True, True, None),
+        ('<p data-lo-style="Heading2">content</p>', True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', True, True, True, None),
+        ('<p data-lo-para="text-align:center">content</p>', True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
     ],
 )
-def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, expected_apply, expected_note):
+def test_lo_style_for_replaced_range(content, start_edge, end_edge, expected_apply, expected_note):
     from plugin.writer.html_import import _lo_style_for_replaced_range
 
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=recording):
-        apply, note = _lo_style_for_replaced_range(
-            MagicMock(), content, make_paragraph_edge_range(start_edge, end_edge)
-        )
+    apply, note = _lo_style_for_replaced_range(
+        content, make_paragraph_edge_range(start_edge, end_edge)
+    )
     assert apply is expected_apply
     assert note == expected_note
 
@@ -830,24 +822,23 @@ def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, e
 def test_lo_style_for_replaced_range_non_block_tokens():
     from plugin.writer.html_import import _lo_style_for_replaced_range
 
-    model = MagicMock()
     rng = MagicMock()
 
     # Span token -> (False, None), range cursor methods not probed
-    apply, note = _lo_style_for_replaced_range(model, '<span data-lo-style="Heading2">x</span>', rng)
+    apply, note = _lo_style_for_replaced_range('<span data-lo-style="Heading2">x</span>', rng)
     assert apply is False
     assert note is None
     rng.getText.assert_not_called()
 
     # Body-text mention -> (False, None)
-    apply, note = _lo_style_for_replaced_range(model, '<p>The attribute data-lo-style is cool</p>', rng)
+    apply, note = _lo_style_for_replaced_range('<p>The attribute data-lo-style is cool</p>', rng)
     assert apply is False
     assert note is None
     rng.getText.assert_not_called()
 
     # Table-only token -> (False, None)
     apply, note = _lo_style_for_replaced_range(
-        model, '<table><tr><td data-lo-style="Heading2">cell</td></tr></table>', rng
+        '<table><tr><td data-lo-style="Heading2">cell</td></tr></table>', rng
     )
     assert apply is False
     assert note is None
@@ -855,7 +846,7 @@ def test_lo_style_for_replaced_range_non_block_tokens():
 
     # Span para -> (False, None), range cursor methods not probed
     rng.reset_mock()
-    apply, note = _lo_style_for_replaced_range(model, '<span data-lo-para="text-align:center">x</span>', rng)
+    apply, note = _lo_style_for_replaced_range('<span data-lo-para="text-align:center">x</span>', rng)
     assert apply is False
     assert note is None
     rng.getText.assert_not_called()
@@ -863,7 +854,7 @@ def test_lo_style_for_replaced_range_non_block_tokens():
     # Table-only para -> (False, None)
     rng.reset_mock()
     apply, note = _lo_style_for_replaced_range(
-        model, '<table><tr><td data-lo-para="text-align:center">cell</td></tr></table>', rng
+        '<table><tr><td data-lo-para="text-align:center">cell</td></tr></table>', rng
     )
     assert apply is False
     assert note is None
@@ -1780,6 +1771,11 @@ class _FakeReplacePortion:
     def getString(self):
         return self._text
 
+    def getPropertyValue(self, name):
+        if name == "TextPortionType":
+            return self.TextPortionType
+        return None
+
 
 class _FakeReplacePara:
     def __init__(self, portions):
@@ -1867,67 +1863,6 @@ def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, 
     assert cursor.writes == []
     assert text.inserts == []
     ctx.getServiceManager.assert_not_called()
-
-
-def test_replace_preserving_format_skips_equal_runs():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, record_changes
-
-    text = _FakeReplaceText()
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX"), "AAAAAY")
-
-    assert text.cursor.moves == [(5, False), (1, True)]
-    assert text.cursor.writes == ["Y"]
-
-
-def test_replace_preserving_format_special_portion_keeps_one_step_loop():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, record_changes
-
-    text = _FakeReplaceText()
-    para = _FakeReplacePara([_FakeReplacePortion(portion_type="TextField")])
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "AAAAAX", paras=[para]), "AAAAAY")
-
-    # Special portion: each character is checked 1-by-1
-    assert text.cursor.moves == [(1, True)] * 6
-    assert text.cursor.writes == ["Y"]
-
-
-def test_replace_preserving_format_200_char_plain_issues_one_setstring():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, record_changes
-
-    old_str = "A" * 200
-    new_str = "B" * 200
-    text = _FakeReplaceText()
-    para = _FakeReplacePara([_FakeReplacePortion(old_str)])
-
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str, paras=[para]), new_str)
-
-    assert text.cursor.writes == [new_str]
-    assert len(text.cursor.writes) == 1
-
-
-def test_replace_preserving_format_two_portions_issue_two_setstrings():
-    from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, record_changes
-
-    p1 = _FakeReplacePortion("plain text ")
-    p2 = _FakeReplacePortion("bold text")
-    text = _FakeReplaceText()
-    para = _FakeReplacePara([p1, p2])
-
-    with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(
-            MagicMock(),
-            _FakeReplaceRange(text, "plain text bold text", paras=[para]),
-            "plain word BOLD TEXT",
-        )
-
-    assert text.cursor.writes == ["word", "BOLD TEXT"]
 
 
 def test_replace_preserving_format_equal_string_is_noop():

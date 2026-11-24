@@ -8,8 +8,9 @@
 Cell outcomes for ``=PY()`` fall into four kinds:
 
 - **Payload NaN** (quiet NaN carrying a Calc ``FormulaError`` in its low 32 bits):
-  ``py_addin_cell_value`` (error tokens and helper error dicts) and
-  ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes).
+  ``py_addin_cell_value`` (error tokens and helper error dicts),
+  ``addin_result_for_worker_status`` (failed worker runs other than setup/stop codes),
+  and the worker's ``NA_NAN`` (``calc_functions_util.py``).
   LibreOffice's ``GetDoubleErrorValue`` (``include/formula/errorcodes.hxx``) reads
   ``nan_parts.fraction_lo`` and ``ScInterpreter::PushDouble``
   (``sc/source/core/tool/interpr4.cxx``) turns it into a Calc error so ``ISERROR`` is true.
@@ -103,6 +104,11 @@ def calc_formula_error_double(code: int) -> float:
     """
     bits = 0x7FF8000000000000 | (code & 0xFFFF)
     return struct.unpack("d", struct.pack("Q", bits))[0]
+
+
+def is_na_double(val: float) -> bool:
+    """True when *val* is a NaN carrying ``ERR_NA`` in its low 32 bits (ignoring the sign bit, like ``GetDoubleErrorValue``)."""
+    return math.isnan(val) and (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == ERR_NA
 
 
 def calc_error_code_for_token(text: str) -> int | None:
@@ -442,6 +448,9 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
         # bool is an int. to_calc_compatible maps it to 1.0/0.0 and OverflowError to decimal text.
         return _spill_from_calc(to_calc_compatible(val))
     if isinstance(val, float):
+        # A NaN written with SetValue has no error code, so map NA_NAN to the ERR_NA void record.
+        if is_na_double(val):
+            return SpillValue(None, "err", error_code=ERR_NA)
         return SpillValue(float(val), "n")
 
     if isinstance(val, datetime.datetime):

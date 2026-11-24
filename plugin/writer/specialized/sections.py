@@ -237,7 +237,7 @@ def _commit(
     if err is not None:
         return err
     payload = result if isinstance(result, dict) else result()
-    flag_style_unreviewed(payload)
+    flag_style_unreviewed(payload, ctx.doc)
     return payload
 
 

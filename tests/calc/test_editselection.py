@@ -375,12 +375,6 @@ class _UndoManager:
     def isLocked(self) -> bool:
         return False
 
-    def isInContext(self) -> bool:
-        return self.open
-
-    def isUndoEnabled(self) -> bool:
-        return True
-
     def enterUndoContext(self, title: str) -> None:
         assert not self.open
         self.open = True

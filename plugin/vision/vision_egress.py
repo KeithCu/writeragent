@@ -20,9 +20,9 @@ log = logging.getLogger(__name__)
 # - "inserted": content was inserted and no image delete was requested.
 # - "image_deleted": content was inserted and the source image was removed.
 # - "empty": OCR found nothing and the document was not touched.
-# - "image_kept_for_review": content was inserted, but the requested image delete
-#   was skipped because Agent edit review is recording changes.
-VisionInsertOutcome = Literal["inserted", "image_deleted", "empty", "image_kept_for_review"]
+# - "image_kept": content was inserted, but the document is recording changes
+#   and LibreOffice cannot record deleting this picture.
+VisionInsertOutcome = Literal["inserted", "image_deleted", "empty", "image_kept"]
 
 
 def is_vision_result(value: Any) -> bool:
@@ -309,15 +309,6 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     return cursor
 
 
-def _writer_review_recording_enabled() -> bool:
-    """True when WriterAgent edit review recording is available and enabled."""
-    try:
-        from plugin.writer.edit_review import review_recording_enabled
-    except ImportError:
-        return False
-    return bool(review_recording_enabled())
-
-
 def ocr_found_content(result: dict[str, Any]) -> bool:
     """False when OCR ran but found no text or tables; Docling still returns skeleton HTML then."""
     if "full_text" not in result:
@@ -325,8 +316,12 @@ def ocr_found_content(result: dict[str, Any]) -> bool:
     return bool(str(result.get("full_text") or "").strip() or result.get("tables"))
 
 
-def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
-    """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic."""
+def _delete_inserted_image(ctx: Any, doc: Any, image_name: str | None) -> bool:
+    """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic.
+
+    Returns False only when LibreOffice cannot record deleting this picture as a
+    tracked change (IMAGE_DELETE_NOT_TRACKABLE); all other errors are raised.
+    """
     if not image_name:
         raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
     from plugin.doc.visual_helpers import delete_graphic, get_graphic_object_by_name
@@ -334,7 +329,13 @@ def _delete_inserted_image(doc: Any, image_name: str | None) -> None:
     target = get_graphic_object_by_name(doc, image_name)
     if target is None:
         raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
-    delete_graphic(doc, target)
+    try:
+        delete_graphic(ctx, doc, target)
+    except ToolExecutionError as exc:
+        if exc.code == "IMAGE_DELETE_NOT_TRACKABLE":
+            return False
+        raise
+    return True
 
 
 def insert_vision_result_into_writer(
@@ -349,12 +350,9 @@ def insert_vision_result_into_writer(
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     image_name = str((params or {}).get("image_name") or "").strip() or None
-    delete_requested = resolve_delete_image_after_insert(ctx, params)
-    # removeTextContent disposes the frame (SwXFrame::dispose -> DelLayoutFormat / DeleteAttributes), which is not a redline, so reject could not restore the image.
-    keep_for_review = delete_requested and _writer_review_recording_enabled()
-    delete_image = delete_requested and not keep_for_review
+    delete_image = resolve_delete_image_after_insert(ctx, params)
 
-    def _apply_insert() -> None:
+    def _apply_insert() -> VisionInsertOutcome:
         # One Ctrl+Z for insert plus optional image delete. A failed delete or
         # presence check rolls the insert back, so the image is never lost without its text.
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
@@ -364,12 +362,12 @@ def insert_vision_result_into_writer(
             if image_name and not _writer_graphic_present(doc, image_name):
                 raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
             if delete_image:
-                _delete_inserted_image(doc, image_name)
+                return "image_deleted" if _delete_inserted_image(ctx, doc, image_name) else "image_kept"
+        return "inserted"
 
     from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
-    run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
-    return "image_kept_for_review" if keep_for_review else ("image_deleted" if delete_image else "inserted")
+    return run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
 
 
 def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> VisionInsertOutcome:
@@ -411,14 +409,14 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                         fallback_html = vision_html_from_result(result)
                     insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
                 if delete_image:
-                    _delete_inserted_image(doc, image_name)
+                    _delete_inserted_image(ctx, doc, image_name)
             return outcome
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
             if delete_image:
-                _delete_inserted_image(doc, image_name)
+                _delete_inserted_image(ctx, doc, image_name)
         return outcome
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 

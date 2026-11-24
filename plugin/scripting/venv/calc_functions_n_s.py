@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    NA_NAN,
     as_nonzero,
     build_holiday_set,
     calc_function,
@@ -92,8 +93,8 @@ __all__ = [
 
 
 def na() -> float:
-    # Usually #N/A in Calc maps to NaN in Python data array
-    return float("nan")
+    # Quiet NaN carrying FormulaError::NotAvailable (0x7FFF) so Calc shows #N/A.
+    return NA_NAN
 
 
 def n(val: Any) -> float:

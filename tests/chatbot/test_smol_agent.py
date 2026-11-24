@@ -1300,3 +1300,115 @@ def test_writeragent_agent_still_validates_plain_smol_tools():
     with pytest.raises(AgentToolCallError):
         agent.execute_tool_call("plain", {"text": 123})
 
+
+def test_inner_call_recorder_records_editing_tool_that_raises():
+    from plugin.chatbot.smol_agent import InnerCallRecorder
+    from plugin.doc.specialized_catalog import InnerToolCall, record_edits
+    from plugin.framework.tool import ToolBase, ToolContext
+
+    events: list[str] = []
+
+    class _RaisingEditTool(ToolBase):
+        name = "edit_and_raise"
+        description = "Mutates then raises."
+        parameters = {"type": "object", "properties": {}}
+
+        def detects_mutation(self) -> bool:
+            return True
+
+        def execute(self, ctx: ToolContext, **kwargs):
+            del ctx, kwargs
+            events.append("mutated")
+            raise RuntimeError("boom after edit")
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+    calls: list[InnerToolCall] = []
+    recorder = InnerCallRecorder(_RaisingEditTool(), ctx, calls)
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        result = recorder.forward()
+
+    assert events == ["mutated"]
+    assert len(calls) == 1
+    assert calls[0].mutating is True
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+    payload: dict[str, object] = {}
+    record_edits(payload, calls)
+    assert payload["edits"] == {}
+    assert "note" not in payload
+
+
+def test_build_toolcalling_agent_prints_nothing_when_tool_with_password_fails(capsys):
+    from plugin.contrib.smolagents.models import (
+        ChatMessage,
+        ChatMessageToolCall,
+        ChatMessageToolCallFunction,
+        MessageRole,
+    )
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
+
+    class _SecretTool(SmolTool):
+        name = "sec"
+        description = "Secret tool."
+        inputs = {"password": {"type": "string", "description": "password"}}
+        output_type = "string"
+
+        def forward(self, password: str) -> str:
+            raise ValueError("boom")
+
+    class _ReplyTool(SmolTool):
+        name = "reply_to_user"
+        description = "Reply to user."
+        inputs = {"answer": {"type": "string", "description": "answer"}}
+        output_type = "string"
+
+        def forward(self, answer: str) -> str:
+            return answer
+
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = [
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="sec", arguments={"password": "hunter2"}),
+                    id="call_1",
+                    type="function",
+                )
+            ],
+        ),
+        ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                ChatMessageToolCall(
+                    function=ChatMessageToolCallFunction(name="reply_to_user", arguments={"answer": "done"}),
+                    id="call_2",
+                    type="function",
+                )
+            ],
+        ),
+    ]
+
+    with (
+        patch("plugin.chatbot.smol_agent.create_smol_model", return_value=mock_model),
+        patch("plugin.chatbot.smol_agent.get_config", return_value=5),
+    ):
+        agent = build_toolcalling_agent(
+            MagicMock(),
+            [_SecretTool(), _ReplyTool()],
+            instructions="i",
+            final_answer_tool_name="reply_to_user",
+            examples_block="e",
+        )
+        result = agent.run("t")
+
+    assert result == "done"
+    assert mock_model.generate.call_count == 2
+    assert capsys.readouterr().out == ""
+

@@ -36,7 +36,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
 
-from .specialized.textframes import text_box_frame
+from .search import text_box_frame
 from .specialized_base import ToolWriterStructuralBase
 
 if TYPE_CHECKING:

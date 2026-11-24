@@ -1121,3 +1121,45 @@ def test_shape_connect_arrowhead_uno(ctx, doc):
     assert conn_node["style"]["LineEndName"] == "Arrow"
     assert "LineStartName" not in conn_node["style"]
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_create_diagram_arrowheads_uno(ctx, doc):
+    from plugin.draw.shapes import CreateDiagram
+    from plugin.framework.tool import prepare_tool_call
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    tool = CreateDiagram()
+    prep = prepare_tool_call(
+        tool,
+        tctx,
+        "shape_create_diagram",
+        {
+            "layout": "horizontal_flow",
+            "nodes": [
+                {"id": "a", "text": "A"},
+                {"id": "b", "text": "B"},
+                {"id": "c", "text": "C"},
+            ],
+            "connections": [
+                {"from": "a", "to": "b", "line_end": "arrow"},
+                {"from": "b", "to": "c"},
+            ],
+        },
+    )
+    assert prep.error is None, prep.error
+    out = tool.execute(tctx, **prep.kwargs)
+    assert out.get("status") == "ok", out
+
+    arrow_conn = page.getByIndex(out["connections"][0]["index"])
+    assert arrow_conn.getPropertyValue("LineEndName") == "Arrow"
+    assert len(arrow_conn.getPropertyValue("LineEnd").Coordinates) > 0
+    assert arrow_conn.getPropertyValue("LineStartName") == ""
+    node_a = out["nodes"][0]
+    assert arrow_conn.EndPosition.X > node_a["x"] + node_a["width"]
+
+    plain_conn = page.getByIndex(out["connections"][1]["index"])
+    assert plain_conn.getPropertyValue("LineEndName") == ""
+    assert len(plain_conn.getPropertyValue("LineEnd").Coordinates) == 0
+

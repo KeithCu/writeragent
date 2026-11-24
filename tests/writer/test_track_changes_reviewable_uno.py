@@ -15,6 +15,7 @@
 # review UI helpers in test_inline_review_uno.py.
 import contextlib
 
+from plugin.doc.compound_undo import undo_titles
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     native_writer_tool_context,
@@ -749,10 +750,8 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     assert visible == "Original text words to delete.", visible
 
     undo = doc.getUndoManager()
-    try:
-        before_in_context = bool(undo.isInContext())
-    except Exception:
-        before_in_context = None
+    assert undo.isUndoPossible()
+    before_titles = undo_titles(doc)
 
     try:
         WriterStreamedRewriteSession(doc, rng, visible, track_reviewable=True)
@@ -765,8 +764,8 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     assert _redlines(doc) == before_redlines, "the existing Delete redline must be untouched"
     assert bool(doc.getPropertyValue("RecordChanges")) is before_recording
     assert get_string_without_tracked_deletions(rng) == visible
-    if before_in_context is not None:
-        assert bool(undo.isInContext()) is before_in_context, "refuse must not open an undo context"
+    assert undo.isUndoPossible(), "refuse must not leave an undo context open"
+    assert undo_titles(doc) == before_titles
 
 
 def _two_para_body(doc, ctx, p1="Alpha initiative", p2="project Beta"):
@@ -886,3 +885,155 @@ def test_plain_two_para_track_changes_reject_and_undo_uno(ctx, doc):
     um.undo()
     assert len(doc.getRedlines()) == 0
     assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_replace_keeps_bold_uno(ctx, doc):
+    """Recorded replace keeps bold on bold targets and plain between bold runs, in user-recording and review mode."""
+    text = doc.getText()
+    prev = get_config(_FLAG)
+
+    def _seed_bold_mid():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "aaa ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "Replace", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " bbb", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _seed_surgical():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "The ", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "quick", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, " fox ran far away", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _seed_plain_between_bold():
+        doc.setPropertyValue("RecordChanges", False)
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, "aaa ", False)
+        cur.setPropertyValue("CharWeight", 100.0)
+        text.insertString(cur, "Replace", False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        text.insertString(cur, " bbb", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+    def _runs():
+        para = text.createEnumeration().nextElement()
+        pe = para.createEnumeration()
+        out = []
+        while pe.hasMoreElements():
+            p = pe.nextElement()
+            if p.getPropertyValue("TextPortionType") == "Text" and p.getString():
+                out.append((p.getString(), float(p.getPropertyValue("CharWeight"))))
+        return out
+
+    tool = ApplyDocumentContent()
+    try:
+        for mode_label in ("user_recording", "review_record"):
+            if mode_label == "user_recording":
+                save({_FLAG: "off"})
+                def mode_ctx():
+                    return _recording(doc)
+            else:
+                save({_FLAG: "record"})
+                mode_ctx = contextlib.nullcontext
+
+            # aaa **Replace** bbb -> Swap (Accept)
+            _seed_bold_mid()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+                assert sorted(_redline_types(doc)) == ["Delete", "Insert"], _redline_types(doc)
+            _accept_all(doc, ctx)
+            assert _runs() == [("aaa ", 100.0), ("Swap", 150.0), (" bbb", 100.0)], (mode_label, _runs())
+
+            # aaa **Replace** bbb -> Swap (Reject)
+            _seed_bold_mid()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+            _reject_all(doc, ctx)
+            assert _runs() == [("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)], (mode_label, _runs())
+
+            # Surgical The **quick** fox ran far away -> slow (review mode enables surgical split)
+            if mode_label == "review_record":
+                _seed_surgical()
+                with mode_ctx():
+                    res = tool.execute(
+                        _tool_ctx(doc, ctx),
+                        target="search",
+                        old_content="The quick fox ran far away",
+                        content="The slow fox ran far away",
+                    )
+                    assert res.get("status") == "ok", res
+                _accept_all(doc, ctx)
+                assert _runs() == [("The ", 100.0), ("slow", 150.0), (" fox ran far away", 100.0)], (mode_label, _runs())
+
+            # Plain word between bold runs stays plain after Accept
+            _seed_plain_between_bold()
+            with mode_ctx():
+                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                assert res.get("status") == "ok", res
+            _accept_all(doc, ctx)
+            assert _runs() == [("aaa ", 150.0), ("Swap", 100.0), (" bbb", 150.0)], (mode_label, _runs())
+    finally:
+        save({_FLAG: prev})
+        doc.setPropertyValue("RecordChanges", False)
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recording_doc_with_review_off_flags_para_style_not_char_style_or_header_uno(ctx, doc):
+    from plugin.writer.page import PageSetHeaderFooterText
+    from plugin.writer.styles import ApplyStyle
+
+    _reset(doc, ctx, "Styled text.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tool_ctx = _tool_ctx(doc, ctx)
+        assert len(doc.getRedlines()) == 0
+        char_res = ApplyStyle().execute(
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="full_document"
+        )
+        assert char_res["status"] == "ok", char_res
+        assert "style_unreviewed" not in char_res
+        assert len(doc.getRedlines()) > 0
+
+        before_hdr = len(doc.getRedlines())
+        hdr_res = PageSetHeaderFooterText().execute(
+            tool_ctx, style="Standard", region="header", content="<p>Header note</p>"
+        )
+        assert hdr_res["status"] == "ok", hdr_res
+        assert "style_unreviewed" not in hdr_res
+        assert len(doc.getRedlines()) > before_hdr
+
+        para_res = ApplyStyle().execute(
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document", clear_direct="none"
+        )
+        assert para_res["status"] == "ok", para_res
+        assert para_res.get("style_unreviewed") is True
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _accept_all(doc, ctx)

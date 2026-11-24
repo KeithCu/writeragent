@@ -123,7 +123,7 @@ Do not start these without coordinating — others may already be working on the
 
 ### 2. `GetImage.execute` parameter validation (shipped)
 
-[`get_image.py`](../../plugin/writer/get_image.py) validates that at most one of `page`, `image`, or `selection` is passed (returning `"Pass only one of page, image, or selection."`), rejects `selection=false` with no `image`, and rejects `sheet_index` together with `page`. Param-error tests are in [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py).
+[`get_image.py`](../../plugin/writer/get_image.py) validates that at most one of `page`, `image`, or `selection` is passed (using `_one_mode`; Calc's sentence omits `page`), rejects `selection=false` with no `image`, and rejects `sheet_index` together with `page`. Param-error tests are in [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py).
 
 ### 3. MCP response: preserve metadata alongside image (low–medium)
 
@@ -133,7 +133,7 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp_server/mcp_pr
 
 ### 4. Calc parity for `image_get` (shipped)
 
-Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names (advertised in the schema only when the document type is Calc or unknown). **`page=`** is not in the Calc schema: `calc_png_Export` cannot choose a page (`GraphicExportFilter` reads only `PixelWidth`/`PixelHeight`; `DocumentToGraphicRenderer::getCurrentPage` is 1 off Writer). Writer and Draw/Impress `image_get` text names only that app's name source (`get_content`/`image_list`; `shape_get_tree`). Calc and unprobed callers keep the all-app text. Lookup and selection errors name the same source (Calc and unknown: `image_list` in the images domain). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
+Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names (advertised in the schema only when the document type is Calc or unknown). **`page=`** is not in the Calc schema: `calc_png_Export` cannot choose a page (`GraphicExportFilter` reads only `PixelWidth`/`PixelHeight`; `DocumentToGraphicRenderer::getCurrentPage` is 1 off Writer). Writer, Draw/Impress, and Calc `image_get` text names only that app's name source (`get_content`/`image_list`; `shape_get_tree`; Calc: `image_list` in the images domain, with no `page` mode); only unprobed callers keep the all-app text. Lookup and selection errors name the same source (Calc and unknown: `image_list` in the images domain). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
 
 ### 5. Page render fidelity — live UNO test (shipped)
 

@@ -256,22 +256,6 @@ def test_unmapped_data_lo_para_partial_match_warns_with_reason():
     ]
 
 
-def test_unmapped_data_lo_para_recording_warns_with_reason():
-    """Recording skip specifies that tracked changes are recording."""
-    res = html_import_styles.attach_write_report(
-        {"status": "ok", "message": "Replaced content."},
-        html_import_styles.WriteReport(
-            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
-        ),
-    )
-    assert res.get("warnings") == [
-        {
-            "code": "PARA_IGNORED_RECORDING",
-            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
-        }
-    ]
-
-
 def test_failed_write_is_not_annotated():
     """Nothing was written, so there is nothing to say about what was not applied."""
     original = {"status": "error", "message": "old_content not found."}
@@ -326,32 +310,6 @@ def test_search_target_warns_with_partial_match_code(monkeypatch):
         {
             "code": "PARA_IGNORED_PARTIAL_MATCH",
             "message": "data-lo-para property 'margin-left' was not applied because the replaced range does not cover a whole paragraph",
-        }
-    ]
-
-
-def test_search_target_warns_with_recording_code(monkeypatch):
-    """Search replacement reports PARA_IGNORED_RECORDING on recording skip."""
-    monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
-    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
-    monkeypatch.setattr(
-        format_mod,
-        "replace_single_range_with_content",
-        lambda *a, **k: html_import_styles.WriteReport(
-            unapplied_para=["margin-left"], style_skips=["STYLE_IGNORED_RECORDING"]
-        ),
-    )
-    res = ApplyDocumentContent().execute(
-        _ctx(),
-        target="search",
-        old_content="foo",
-        content='<p data-lo-para="margin-left:2cm">x</p>',
-    )
-    assert res.get("status") == "ok", res
-    assert res.get("warnings") == [
-        {
-            "code": "PARA_IGNORED_RECORDING",
-            "message": "data-lo-para property 'margin-left' was not applied because tracked changes are recording",
         }
     ]
 

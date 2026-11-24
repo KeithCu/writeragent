@@ -37,7 +37,7 @@ _CHARTS_NEUTRAL_HINT = (
 
 _SHAPES_HINT = (
     f"{SHAPE_UNITS_RULE} "
-    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert or shape_connect.'
+    'For arrowheads on lines or connectors, pass line_start="arrow" or line_end="arrow" ("none" clears) to shape_upsert, shape_connect, or each shape_create_diagram connection.'
 )
 
 _INDEXES_HINT = "For a read-only table-of-contents request, report each entry's text and level (links only when asked)."
@@ -282,10 +282,15 @@ def record_edits(payload: dict[str, Any], calls: Sequence[InnerToolCall]) -> Non
 
     The note is true on every exit because mutating is the tool kind; if no editing
     tool ran at all, the document is unchanged whether the run finished, stopped
-    early, or failed.
+    early, or failed. A nested delegation that failed after its own edits landed
+    reports them in ``edits``.
     """
     payload["edits"] = dict(
-        Counter(c.name for c in calls if c.mutating and not _is_error_result(c.result))
+        Counter(
+            c.name
+            for c in calls
+            if c.mutating and (not _is_error_result(c.result) or bool(c.result.get("edits")))
+        )
     )
     if not any(c.mutating for c in calls):
         payload["note"] = NO_EDIT_TOOL_NOTE

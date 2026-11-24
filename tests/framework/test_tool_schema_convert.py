@@ -650,15 +650,33 @@ def test_coerce_enum_leaves_ambiguous_or_short():
         ({"type": "array", "items": {"type": "integer"}}, '["3"]', [3]),
         ({"type": "array", "items": {"type": "integer"}}, 3.0, [3]),
         ({"type": "array", "items": {"type": "integer"}}, "x", ["x"]),
-        ({"type": "array", "items": {"type": "integer"}}, ["3"], ["3"]),
+        ({"type": "array", "items": {"type": "integer"}}, ["3"], [3]),
+        ({"type": "array", "items": {"type": "integer"}}, [True, None, "x", "3.5"], [True, None, "x", "3.5"]),
+        ({"type": "array", "items": {"type": "number"}}, ["0", "1.5"], [0, 1.5]),
         ({"type": "array", "items": {"type": "string"}}, 5, ["5"]),
+        ({"type": "array", "items": {"type": "string"}}, [2023], ["2023"]),
         ({"type": "array", "items": {"type": ["integer", "string"]}}, "3", ["3"]),
+        ({"type": "array", "items": {"type": ["integer", "string"]}}, ["3", 255], ["3", 255]),
         ({"type": "array", "items": {"type": "array"}}, "x", ["x"]),
+        ({"type": "array", "items": {"type": "array"}}, [["1"]], [["1"]]),
+        ({"type": "array", "items": {"type": "object"}}, [{"a": "1"}], [{"a": "1"}]),
     ],
 )
-def test_coerce_converts_elements_of_wrapped_list(prop, raw, expected):
+def test_coerce_converts_list_elements(prop, raw, expected):
     from plugin.framework.tool_schema import coerce_call_args
 
+    snapshot = list(raw) if isinstance(raw, list) else raw
     out = coerce_call_args({"v": prop}, {"v": raw})
     assert out["v"] == expected
     assert [type(x) for x in out["v"]] == [type(x) for x in expected]
+    if isinstance(raw, list):
+        assert raw == snapshot
+
+
+def test_coerce_keeps_array_string_union_literal():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    prop = {"type": ["array", "string"], "items": {"type": "string"}}
+    out = coerce_call_args({"v": prop}, {"v": '["a","b"]'})
+    assert out["v"] == '["a","b"]'
+    assert isinstance(out["v"], str)

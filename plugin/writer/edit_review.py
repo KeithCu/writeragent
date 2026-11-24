@@ -104,14 +104,17 @@ def review_recording_enabled() -> bool:
     return get_agent_edit_review_mode() in ("record", "wait")
 
 
-def flag_style_unreviewed(result: dict[str, Any]) -> None:
-    """Flag style and page-layout mutations for the user when review recording is active.
+def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> None:
+    """Flag style and page-layout mutations for the user when changes are being recorded.
 
-    Page-style and text-style edits do not create redlines; the flag tells the agent to say so.
+    Callers pass *doc* when the mutation never creates a redline (so the flag also fires
+    when the user has Track Changes > Record on while agent review is Off). Callers omit
+    *doc* when Writer records the change itself while the document is recording
+    (header/footer text, character styles).
     """
     if result.get("status") != "ok":
         return
-    if review_recording_enabled():
+    if review_recording_enabled() or (doc is not None and is_recording_changes(doc)):
         result["style_unreviewed"] = True
 
 

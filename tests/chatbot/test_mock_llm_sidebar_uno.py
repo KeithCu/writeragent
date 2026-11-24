@@ -1327,10 +1327,10 @@ def test_d4_think_then_look_up_not_tool_calls(ctx):
 def test_e1_offline_look_up_then_hello(ctx):
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    _send_and_wait("look up latest Python", timeout=90.0)
-    body = _transcript().lower()
-    assert "assistant:" in body or "python" in body or "research" in body or "look" in body, (
-        "E1 expected research wrap-up, got %r" % _transcript()[-500:]
+    _send_and_wait(
+        "look up latest Python",
+        timeout=90.0,
+        wait_for="Specialized agent finished look up latest Python",
     )
     snaps = _captures()
     assert any("delegate_to_subagent" in (row.get("decided_tools") or []) for row in snaps), (

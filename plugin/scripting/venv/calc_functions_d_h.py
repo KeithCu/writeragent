@@ -27,6 +27,7 @@ from .calc_functions_util import (
     format_quantized,
     match_criteria,
     npf_result,
+    require_samples,
     round_half_up,
     round_sig,
     scipy_stats,
@@ -734,7 +735,8 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
     # include filters columns. Those shapes are checked before a size tie.
     try:
         arr = np.asarray(range_arr)
-        crit = np.asarray(criteria)
+        # dtype=object: a mixed list such as [1, ""] would otherwise become a text array.
+        crit = np.asarray(criteria, dtype=object)
         row = (
             (arr.ndim == 1 and crit.size == arr.size)
             or (arr.ndim == 2 and (
@@ -747,12 +749,20 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
             or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
         )
         elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
-        if not (row or col or elem):
+        # An empty mask would otherwise select nothing and return if_empty.
+        if arr.size == 0 or crit.size == 0 or not (row or col or elem):
             return "#VALUE!"
-        # The include array is a matrix, not a GetBool flag: Calc reads its
-        # elements with GetDoubleArray (ScFilter, interpr1.cxx), so the text TRUE
-        # is an error there. float() keeps text other than numbers an error.
-        mask = np.asarray([x is not None and x != "" and bool(float(x)) for x in crit.ravel()])
+        # ScFilter (interpr1.cxx) reads include with GetDoubleArray and keeps i > 0. Text, numeric
+        # text too, is an error there; an empty cell is 0; an error element is the result.
+        include: list[bool] = []
+        for x in crit.ravel():
+            if isinstance(x, str) and x != "":
+                return "#VALUE!"
+            number = 0.0 if x is None or x == "" else float(x)
+            if math.isnan(number):
+                return number
+            include.append(number > 0)
+        mask = np.asarray(include, dtype=bool)
         out = arr[mask] if row else arr[:, mask] if col else arr[mask.reshape(arr.shape)]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
@@ -947,6 +957,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
         y_log = np.log(y)
         # GROWTH reads const the way TREND does; both are CalculateTrendGrowth (interpr5.cxx) with GetBool. A blank, 0, "0" or the text FALSE is false, and TRUE keeps the intercept. as_nonzero is that reading.
         use_const = as_nonzero(const)
+        require_samples(y.size, 1, use_const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))

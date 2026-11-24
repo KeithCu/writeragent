@@ -377,7 +377,15 @@ def _fmt_qual(val: float | None) -> str:
     return f"{val:.3f}"
 
 
-def format_ab_report(tally: dict[str, Any], *, suite: str, repeats: int) -> str:
+def format_ab_report(
+    tally: dict[str, Any],
+    *,
+    suite: str,
+    repeats: int,
+    ref: str,
+    a_source: str,
+    b_source: str,
+) -> str:
     """Format the per-task A/B comparison table and short verdict line."""
     rows = tally["rows"]
     overall = tally["overall"]
@@ -392,7 +400,7 @@ def format_ab_report(tally: dict[str, Any], *, suite: str, repeats: int) -> str:
     )
     sep = "-" * len(header)
     lines = [
-        f"Eval A/B (suite={suite}, repeats={repeats}, A=origin/master, B=working-tree)",
+        f"Eval A/B (suite={suite}, repeats={repeats}, A={ref}@{a_source}, B=working-tree@{b_source})",
         sep,
         header,
         sep,
@@ -451,7 +459,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--worktree-dir",
         type=Path,
         default=DEFAULT_WORKTREE_DIR,
-        help=f"Reused detached worktree for Side A (origin/master). Default: {DEFAULT_WORKTREE_DIR}.",
+        help=f"Reused detached worktree for Side A (--ref). Default: {DEFAULT_WORKTREE_DIR}.",
     )
     p.add_argument(
         "--ref",
@@ -488,9 +496,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: git failed: {err}", file=sys.stderr)
         return 2
 
+    a_source = a_commit[:12]
     config_id = run_config_id(models, tasks)
     keys = {
-        "A": f"{a_commit[:12]}-{config_id}",
+        "A": f"{a_source}-{config_id}",
         "B": f"{b_source}-{config_id}",
     }
 
@@ -531,7 +540,16 @@ def main(argv: list[str] | None = None) -> int:
     b_details = load_side_details(suite_dir, "B", keys["B"], args.repeats)
     tally = tally_ab_results(a_details, b_details, models, tasks)
     print()
-    print(format_ab_report(tally, suite=suite_name, repeats=args.repeats))
+    print(
+        format_ab_report(
+            tally,
+            suite=suite_name,
+            repeats=args.repeats,
+            ref=args.ref,
+            a_source=a_source,
+            b_source=b_source,
+        )
+    )
     return 0
 
 

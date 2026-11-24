@@ -28,8 +28,9 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, 
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit, safe_get_property
+from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.uno_context import uno_same
+from ..search import text_box_shapes
 from ..specialized_base import ToolWriterTextFramesBase, target_params
 from ..target_resolver import insert_at_target
 
@@ -62,37 +63,12 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
         missing_msg="Document does not support text frames.",
         not_found_msg="Text frame '%s' not found." % name,
         list_tool="frame_list",
-        extra_names=lambda: [box_name for _idx, _shape, box_name in _text_box_shapes(ctx.doc)],
+        extra_names=lambda: [box_name for _idx, _shape, box_name in text_box_shapes(ctx.doc)],
     )
 
 
-def text_box_frame(shape: Any) -> Any | None:
-    """The hidden TextFrame holding a Word-style text box's text, or None for any other shape.
-
-    A Word text box is a draw shape whose text lives in a hidden TextFrame (the shape's
-    TextBoxContent). getTextFrames() hides those frames from getElementNames() but still
-    serves them by name (sw/source/core/unocore/unocoll.cxx:SwXFrames::getByName vs
-    SwXFrameEnumeration). Fly entries on the draw page have no TextBox property.
-    """
-    if safe_get_property(shape, "TextBox", False):
-        return shape.getPropertyValue("TextBoxContent")
-    return None
-
-
-def _text_box_shapes(doc: Any) -> list[tuple[int, Any, str]]:
-    """(draw-page index, shape, frame name) for every Word-style text box."""
-    page = doc.getDrawPage()
-    boxes = []
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        frame = text_box_frame(shape)
-        if frame is not None:
-            boxes.append((i, shape, frame.getName()))
-    return boxes
-
-
 def _text_box_owner(doc: Any, frame_name: str) -> tuple[int, Any] | None:
-    return next(((i, shape) for i, shape, name in _text_box_shapes(doc) if name == frame_name), None)
+    return next(((i, shape) for i, shape, name in text_box_shapes(doc) if name == frame_name), None)
 
 
 # Types are checked by prepare_tool_call (plugin/framework/tool.py); only ranges are checked here.
@@ -147,7 +123,7 @@ class FrameList(ToolWriterTextFramesBase):
             return {"name": name, **_frame_size_fields(size), "content_preview": content_preview}
 
         frames = [entry(name, text_frames.getByName(name)) for name in text_frames.getElementNames()]
-        for idx, shape, name in _text_box_shapes(doc):
+        for idx, shape, name in text_box_shapes(doc):
             frames.append({**entry(name, text_frames.getByName(name)), "shape_index": idx, "shape_name": shape.getName()})
 
         return {"status": "ok", "frames": frames, "count": len(frames)}
@@ -414,7 +390,9 @@ class FrameDelete(ToolWriterTextFramesBase):
                 # TextFrame and then the shape; removing the frame alone leaves an empty shape behind.
                 doc.getDrawPage().remove(owner[1])
             else:
-                frame.getAnchor().getText().removeTextContent(frame)
+                # An AT_PAGE frame has no anchor range (sw/source/core/unocore/unoframe.cxx:SwXFrame::getSwAnchor),
+                # and SwXText::removeTextContent (sw/source/core/unocore/unotext.cxx) only calls dispose().
+                frame.dispose()
             return None
 
         err = commit_or_rollback_mutation(

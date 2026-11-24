@@ -115,7 +115,7 @@ def _child_frame(parent: tuple[str, str, str] | None, name: str) -> tuple[str, s
 def _note_user_frame(
     exc: BaseException,
     frame: tuple[str, str, str] | None,
-    node: ast.stmt | ast.expr,
+    node: ast.stmt | ast.expr | ast.excepthandler,
     *,
     explicit_raise: bool = False,
 ) -> None:
@@ -135,15 +135,17 @@ def _note_user_frame(
 # WriterAgent local patch (2026-11): format one exception's user frames and walk chained exceptions.
 def _format_user_frames(
     exc: BaseException,
-    frames: list[tuple[tuple[str, str, str], ast.stmt | ast.expr]],
+    frames: list[tuple[tuple[str, str, str], ast.stmt | ast.expr | ast.excepthandler]],
     code: str,
 ) -> str:
     """CPython-style traceback of the user frames recorded on *exc*, outermost first.
 
     Consecutive entries at one line of one function (recursion) print three times,
-    then "[Previous line repeated N more times]", as CPython prints them.
+    then "[Previous line repeated N more times]", as CPython prints them. An
+    exception without frames (a ``raise … from`` cause that was never raised)
+    prints its last line only, as in CPython.
     """
-    lines = ["Traceback (most recent call last):"]
+    lines = ["Traceback (most recent call last):"] if frames else []
     for ((name, source, filename), node), group in groupby(reversed(frames)):
         count = sum(1 for _entry in group)
         display_file = _EARLIER_CELL_FILE if filename == USER_CODE_FILE and source != code else filename
@@ -168,9 +170,11 @@ def _format_user_traceback(exc: BaseException, code: str) -> str:
     """CPython-style traceback of *exc* and the exceptions it chains from, oldest first.
 
     Exceptions without user frames (raised and caught inside the executor or a
-    library) are walked through but not printed, so no host path can appear.
-    The walk stops at a Return/Break/Continue signal, because compiled Python
-    has already left the handler there. *seen* ends a cycle made with ``raise a from b``.
+    library) are walked through but not printed, so no host path can appear. An
+    empty frame list marks a cause the user named in ``raise … from``; it prints
+    as one line. The walk stops at a Return/Break/Continue signal, because
+    compiled Python has already left the handler there. *seen* ends a cycle made
+    with ``raise a from b``.
     """
     blocks: list[str] = []
     seen: set[int] = set()
@@ -179,7 +183,7 @@ def _format_user_traceback(exc: BaseException, code: str) -> str:
     while link is not None and not isinstance(link, InterpreterSignal) and id(link) not in seen:
         seen.add(id(link))
         frames = link.__dict__.get(_USER_FRAMES_ATTR)
-        if frames:
+        if frames or (blocks and frames is not None):
             blocks.append(_format_user_frames(link, frames, code) + separator)
             separator = _CAUSE_SEPARATOR
         elif not blocks:
@@ -2041,11 +2045,16 @@ def evaluate_try(
     except Exception as e:
         matched = False
         for handler in try_node.handlers:
-            if handler.type is None or isinstance(
-                e,
-                evaluate_ast(handler.type, state, static_tools, custom_tools, authorized_imports),
-            ):
-                matched = True
+            # WriterAgent local patch (2026-11): an error in the except expression is on the except line, not the try line.
+            try:
+                matched = handler.type is None or isinstance(
+                    e,
+                    evaluate_ast(handler.type, state, static_tools, custom_tools, authorized_imports),
+                )
+            except _TRACED_ERRORS as type_error:
+                _note_user_frame(type_error, state.get(_FRAME_KEY), handler)
+                raise
+            if matched:
                 if handler.name:
                     state[handler.name] = e
                 stack: list[Exception] = state.setdefault(_ACTIVE_EXCEPTIONS_KEY, [])
@@ -2094,6 +2103,11 @@ def evaluate_raise(
             _note_user_frame(exc, state.get(_FRAME_KEY), raise_node, explicit_raise=True)
         # WriterAgent local patch (2026-11): `raise X from None` (cause evaluates to None) must also set __suppress_context__.
         if raise_node.cause is not None:
+            # WriterAgent local patch (2026-11): CPython calls a cause class here too. The empty list lets a cause that was never raised print its one line.
+            if isinstance(cause, type) and issubclass(cause, BaseException):
+                cause = cause()
+            if isinstance(cause, BaseException):
+                cause.__dict__.setdefault(_USER_FRAMES_ATTR, [])
             raise exc from cause
         raise exc
     else:
@@ -2118,19 +2132,6 @@ def evaluate_assert(
             raise AssertionError(f"Assertion failed: {test_code}")
 
 
-def _unwind_context_managers(contexts: list[Any], exc: Exception) -> None:
-    # Tip: innermost first; a manager that suppresses resets exc_info so outer managers see no exception.
-    exc_info = (type(exc), exc, exc.__traceback__)
-    for context in reversed(contexts):
-        try:
-            if context.__exit__(*exc_info):
-                exc_info = (None, None, None)
-        except Exception as exit_exc:
-            exc_info = (type(exit_exc), exit_exc, exit_exc.__traceback__)
-    if exc_info[1] is not None:
-        raise exc_info[1].with_traceback(exc_info[2])
-
-
 def evaluate_with(
     with_node: ast.With,
     state: dict[str, Any],
@@ -2138,58 +2139,43 @@ def evaluate_with(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> None:
-    # Context managers enter one by one; if a later __enter__ raises, previous
-    # managers must be exited in reverse. Previously, optional_vars used raw .id
-    # (crashing on tuple/list unpacks) and suppressing managers swallowed returns.
-    contexts = []
-    try:
-        for item in with_node.items:
-            context_expr = evaluate_ast(item.context_expr, state, static_tools, custom_tools, authorized_imports)
-            enter_result = context_expr.__enter__()
-            contexts.append(context_expr)
+    # WriterAgent local patch (2026-11): each item wraps the rest, as CPython compiles `with a, b:`. An __exit__
+    # error therefore reaches the outer managers and chains to the error being unwound.
+    def run_items(items: list[ast.withitem]) -> None:
+        if not items:
+            for stmt in with_node.body:
+                evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+            return
+        item = items[0]
+        context = evaluate_ast(item.context_expr, state, static_tools, custom_tools, authorized_imports)
+        enter_result = context.__enter__()
+        try:
             if item.optional_vars:
                 set_value(item.optional_vars, enter_result, state, static_tools, custom_tools, authorized_imports)
-    except (
-        InterpreterSignal,
-        FinalAnswerException,
-        ExecutionTimeoutError,
-        KeyboardInterrupt,
-        SystemExit,
-        GeneratorExit,
-    ):
-        for context in reversed(contexts):
+            run_items(items[1:])
+        except (
+            InterpreterSignal,
+            FinalAnswerException,
+            ExecutionTimeoutError,
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        ):
+            # A suppressing or failing manager must not cancel control-flow signals, alarms, or exit interrupts.
             try:
                 context.__exit__(None, None, None)
             except Exception:
-                continue
-        raise
-    except Exception as e:
-        _unwind_context_managers(contexts, e)
-        return
-
-    try:
-        for stmt in with_node.body:
-            evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
-    except (
-        InterpreterSignal,
-        FinalAnswerException,
-        ExecutionTimeoutError,
-        KeyboardInterrupt,
-        SystemExit,
-        GeneratorExit,
-    ):
-        # A suppressing manager must not cancel control-flow signals, alarms, or exit interrupts.
-        for context in reversed(contexts):
-            try:
-                context.__exit__(None, None, None)
-            except Exception:
-                continue
-        raise
-    except Exception as e:
-        _unwind_context_managers(contexts, e)
-    else:
-        for context in reversed(contexts):
+                pass
+            raise
+        except Exception as e:
+            # An inner __exit__ error has only its own frames; add this with line, as CPython does.
+            _note_user_frame(e, state.get(_FRAME_KEY), with_node)
+            if not context.__exit__(type(e), e, e.__traceback__):
+                raise
+        else:
             context.__exit__(None, None, None)
+
+    run_items(with_node.items)
 
 
 

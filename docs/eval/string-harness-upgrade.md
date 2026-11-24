@@ -88,8 +88,7 @@ hard pass (document + process) ; quality judge after the gate
 The 17 tasks export the same HTML / JSON the oracles already read.
 `=PY` rows use dest/process oracles (any empty cell outside A1:H500;
 all writes inspected; formula must mention the range). `apply_style`
-maps onto HTML tags / `data-lo-style`. `range_sort` is one 0-based
-column, stable, non-numeric last.
+maps onto HTML tags / `data-lo-style`. `sort_range` is a stable sort on one 0-based key column plus optional `then_by` tie-break columns, ordered as Calc does (numbers before text ascending, reversed descending, empties last).
 
 ---
 
@@ -204,7 +203,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 + Chatbot modules, no `plugin.app.bootstrap`) and
 `get_schemas("openai", doc_type=kind)` — the same filter as sidebar
 (`tool_loop.py`). Specialized tools stay off the list; Draw
-`shape_upsert` / Calc `range_sort` are advertised only via
+`shape_upsert` / Calc `sort_range` are advertised only via
 `delegate_to_subagent`. There is no committed JSON snapshot.
 
 Eval-only (not sidebar): `filter_eval_tool_schemas` / named presets
@@ -230,7 +229,7 @@ One table, not a growing `if name ==`:
 |------|--------------------------------------|
 | Writer | `get_document_content`, `apply_document_content`, `search_in_document` (and `find_text` alias) |
 | Draw | `shape_upsert`, `shape_connect`, `get_draw_tree`, `shape_summary` |
-| Calc | `get_sheet_summary`, `read_cell_range`, `write_formula_range`, `range_sort` |
+| Calc | `get_sheet_summary`, `read_cell_range`, `write_formula_range`, `sort_range` |
 
 Everything else in the advertised catalog returns:
 
