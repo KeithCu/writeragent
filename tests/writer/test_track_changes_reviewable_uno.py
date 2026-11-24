@@ -1208,13 +1208,21 @@ def test_format_of_user_insertion_keeps_it_rejectable_uno(ctx, doc):
 @with_native_doc("writer")
 def test_format_redline_author_uno(ctx, doc):
     """Format redlines are authored WriterAgent in record mode, and office author when review is off."""
-    from plugin.writer import review_authors
+    from com.sun.star.beans import NamedValue
     from plugin.writer.styles import StyleFormatText
 
+    def _read_office_author():
+        provider = ctx.getServiceManager().createInstanceWithContext(
+            "com.sun.star.configuration.ConfigurationProvider", ctx
+        )
+        node = NamedValue(Name="nodepath", Value="/org.openoffice.UserProfile/Data")
+        access = provider.createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationAccess", (node,)
+        )
+        return str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn"))
+
     prev = get_config(_FLAG)
-    access = review_authors._author_access(ctx)
-    prior_given = str(access.getPropertyValue("givenname"))
-    prior_sn = str(access.getPropertyValue("sn"))
+    prior_given, prior_sn = _read_office_author()
     try:
         _reset(doc, ctx, "Plain text.")
         save({_FLAG: "record"})
@@ -1228,9 +1236,7 @@ def test_format_redline_author_uno(ctx, doc):
         assert doc.getRedlines().getCount() == 1
         assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") == "WriterAgent"
 
-        access_after = review_authors._author_access(ctx)
-        assert str(access_after.getPropertyValue("givenname")) == prior_given
-        assert str(access_after.getPropertyValue("sn")) == prior_sn
+        assert _read_office_author() == (prior_given, prior_sn)
 
         _reset(doc, ctx, "Plain text.")
         save({_FLAG: "off"})

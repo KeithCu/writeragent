@@ -1668,8 +1668,7 @@ class ApplyStyle(FrameworkToolBase):
         family = kwargs.get("family", "ParagraphStyles")
         target = kwargs.get("target", "selection")
 
-        # Writing the root programmatic name clears CharStyleName and records a Format redline;
-        # an empty string makes SwUnoCursorHelper::SetCharStyle throw.
+        # The clear token writes the root style; see _ROOT_CHAR_STYLE.
         uno_value = _ROOT_CHAR_STYLE if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
         miss = self._style_not_found(ctx, style_name, family, uno_value, kwargs)
