@@ -104,3 +104,63 @@ def test_writer_snapshot_lists_chart_frame_image_and_names_delete_them_uno(ctx, 
     assert chart_name not in fresh_snap
     assert "Frame1" not in fresh_snap
 
+
+@native_test
+def test_scratch_documents_excluded_from_open_documents_and_events_uno(ctx):
+    """Scratch documents stay out of open_documents and deferred event reports; user-hidden docs count."""
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.scratch_writer import (
+        close_scratch_document,
+        is_scratch_document,
+        load_scratch_document,
+        run_after_scratch_loads,
+    )
+    from plugin.framework.uno_context import create_property_value, get_desktop, get_runtime_uid
+    from plugin.framework.uno_listeners import install_view_doc_listener
+
+    desktop = get_desktop(ctx)
+    svc = DocumentService()
+    reported_uid_sets: list[list[str]] = []
+
+    def _on_event(_source):
+        run_after_scratch_loads(
+            lambda: reported_uid_sets.append([get_runtime_uid(d) for d in svc.open_documents()])
+        )
+
+    listener = install_view_doc_listener(ctx, _on_event, "test_scratch_uno", on_unload=_on_event)
+    user_hidden = None
+    scratch_doc = None
+    try:
+        user_hidden = desktop.loadComponentFromURL(
+            "private:factory/scalc", "_blank", 0, (create_property_value("Hidden", True),)
+        )
+        assert user_hidden is not None
+        user_uid = get_runtime_uid(user_hidden)
+        assert user_uid
+        assert any(user_uid in uids for uids in reported_uid_sets), reported_uid_sets
+        assert user_uid in [get_runtime_uid(d) for d in svc.open_documents()]
+
+        reports_before = len(reported_uid_sets)
+        scratch_doc = load_scratch_document(desktop, "private:factory/sdraw")
+        assert scratch_doc is not None
+        scratch_uid = get_runtime_uid(scratch_doc)
+        assert scratch_uid
+        assert is_scratch_document(scratch_doc) is True
+        assert len(reported_uid_sets) > reports_before
+        assert all(scratch_uid not in uids for uids in reported_uid_sets), reported_uid_sets
+        assert scratch_uid not in [get_runtime_uid(d) for d in svc.open_documents()]
+
+        close_scratch_document(scratch_doc)
+        assert is_scratch_document(scratch_doc) is False
+        scratch_doc = None
+    finally:
+        if listener is not None:
+            broadcaster = ctx.getServiceManager().createInstanceWithContext(
+                "com.sun.star.frame.GlobalEventBroadcaster", ctx
+            )
+            broadcaster.removeDocumentEventListener(listener)
+        if scratch_doc is not None:
+            close_scratch_document(scratch_doc)
+        if user_hidden is not None:
+            user_hidden.close(True)
+

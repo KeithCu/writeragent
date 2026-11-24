@@ -15,7 +15,7 @@ from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
-from plugin.framework.scratch_writer import new_blank_writer
+from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.send_cancellation import SendCancelled, is_cancelled
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
@@ -186,4 +186,4 @@ def render_preview_page(ctx: Any, html: str, summary: str) -> PreviewImage:
             raise ToolExecutionError(reason or _("Could not render the preview page."), code="VISION_ERROR")
         return PreviewImage(graphic_from_bytes(ctx, png), _PREVIEW_PIXEL_WIDTH, height, summary)
     finally:
-        best_effort(lambda: doc.close(True), "vision preview: close scratch doc")
+        best_effort(lambda: close_scratch_document(doc), "vision preview: close scratch doc")

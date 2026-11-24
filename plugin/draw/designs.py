@@ -56,6 +56,7 @@ from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import available_miss_details
 from plugin.framework.errors import is_disposal
+from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url
 
@@ -317,10 +318,8 @@ def _close_hidden_doc(model: Any) -> None:
     except Exception:
         log.debug("setModified(False) on hidden design source failed", exc_info=True)
     try:
-        close_fn = getattr(model, "close", None)
-        if callable(close_fn):
-            close_fn(True)
-            return
+        close_scratch_document(model)
+        return
     except Exception:
         log.debug("close() on hidden design source failed", exc_info=True)
     try:
@@ -345,12 +344,11 @@ def _load_design_model(
     if desktop is None:
         raise RuntimeError("LibreOffice desktop is not available.")
     url = design.get("url") or path_to_file_url(design["path"])
-    props = []
+    props = (create_property_value("AsTemplate", True),) if as_template else ()
     if hidden:
-        props.append(create_property_value("Hidden", True))
-    if as_template:
-        props.append(create_property_value("AsTemplate", True))
-    model = desktop.loadComponentFromURL(url, target, 0, tuple(props))
+        model = load_scratch_document(desktop, url, target, 0, props)
+    else:
+        model = desktop.loadComponentFromURL(url, target, 0, props)
     if model is None:
         raise RuntimeError("loadComponentFromURL returned no document for %s" % url)
     return model

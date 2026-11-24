@@ -31,6 +31,7 @@ import tempfile
 from typing import Any, cast
 
 from plugin.doc import visual_helpers
+from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 
 log = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         raise ValueError("Region (%dx%d px) is too large for LibreOffice's maximum page size." % (rw, rh))
 
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-    draw = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, (_pv("Hidden", True),))
+    draw = load_scratch_document(desktop, "private:factory/sdraw")
     if draw is None:
         raise RuntimeError("LibreOffice could not open a scratch Draw document.")
     tmp_path = None
@@ -234,7 +235,7 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         return result
     finally:
         try:
-            draw.close(True)
+            close_scratch_document(draw)
         except Exception as close_ex:
             log.debug("Failed to close scratch Draw document: %s", close_ex)
         if tmp_path:

@@ -1012,3 +1012,105 @@ def test_watch_open_doc_types_reports_now_and_after_document_events(monkeypatch)
 
     svc.watch_open_doc_types(seen.append)
     broadcaster.addDocumentEventListener.assert_called_once()
+
+
+def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import plugin.doc.document_helpers as document_helpers
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+
+    def _office_doc(uid: str):
+        d = MagicMock()
+        d.supportsService.side_effect = lambda svc: svc == "com.sun.star.document.OfficeDocument"
+        d.getRuntimeUID.return_value = uid
+        return d
+
+    user_hidden = _office_doc("10")
+    scratch_doc = _office_doc("11")
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = scratch_doc
+    scratch_writer.load_scratch_document(desktop, "private:factory/sdraw")
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum([user_hidden, scratch_doc])
+    monkeypatch.setattr(document_helpers, "get_desktop", lambda: desktop)
+
+    docs = document_helpers.DocumentService().open_documents()
+    assert docs == [user_hidden]
+
+
+def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import plugin.doc.document_helpers as document_helpers
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", None)
+
+    ctx = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+    monkeypatch.setattr(document_helpers, "get_ctx", lambda: ctx)
+    monkeypatch.setattr(document_helpers, "_OPEN_DOC_TYPES_LISTENER", None)
+
+    def _doc(uid: str, service: str):
+        d = MagicMock()
+        d.getRuntimeUID.return_value = uid
+        d.supportsService.side_effect = lambda s: s in ("com.sun.star.document.OfficeDocument", service)
+        return d
+
+    calc_doc = _doc("1", "com.sun.star.sheet.SpreadsheetDocument")
+    scratch_draw = _doc("2", "com.sun.star.drawing.DrawingDocument")
+    user_writer = _doc("3", "com.sun.star.text.TextDocument")
+    desktop_docs = [calc_doc]
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = lambda: SimpleNamespace(createEnumeration=lambda: _Enum(desktop_docs))
+    monkeypatch.setattr(document_helpers, "get_desktop", lambda: desktop)
+
+    seen: list[frozenset[str]] = []
+    svc = document_helpers.DocumentService()
+    svc.watch_open_doc_types(seen.append)
+    assert seen == [frozenset({"calc"})]
+
+    listener = broadcaster.addDocumentEventListener.call_args.args[0]
+
+    def _scratch_load(*_args):
+        desktop_docs.append(scratch_draw)
+        listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=scratch_draw))
+        return scratch_draw
+
+    desktop.loadComponentFromURL.side_effect = _scratch_load
+    scratch_writer.load_scratch_document(desktop, "private:factory/sdraw")
+    assert seen == [frozenset({"calc"}), frozenset({"calc"})]
+
+    desktop_docs.append(user_writer)
+    listener.documentEventOccured(SimpleNamespace(EventName="OnViewCreated", ViewController=object(), Source=user_writer))
+    assert seen[-1] == frozenset({"calc", "writer"})

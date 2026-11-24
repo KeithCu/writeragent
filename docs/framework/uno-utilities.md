@@ -112,7 +112,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | `detect_doc_type` | `doc_type_family_label(get_document_type(doc))` (unknown → `"writer"`) |
 | `get_document_length` | `text_helpers.get_document_length` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
-| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes |
+| `open_doc_types` / `watch_open_doc_types` | `frozenset(open_documents_by_type())` (excluding registered scratch documents by `RuntimeUID`; user-hidden documents count) and one process-wide `GlobalEventBroadcaster` listener (`uno_listeners.install_view_doc_listener`) reporting open/unload changes (deferred past in-progress scratch loads via `run_after_scratch_loads`) |
 
 `get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
 
