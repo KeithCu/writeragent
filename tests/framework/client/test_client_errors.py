@@ -147,3 +147,8 @@ def test_429_detail_has_single_period():
 def test_nonzero_reason_unchanged():
     msg = format_http_error_response(500, "Internal Server Error", '{"error":{"message":"boom"}}')
     assert msg == "HTTP Error 500 from AI Provider: Internal Server Error. boom"
+
+
+def test_source_label_replaces_ai_provider():
+    msg = format_http_error_response(500, "Internal Server Error", "", source="https://lite.duckduckgo.com")
+    assert msg == "HTTP Error 500 from https://lite.duckduckgo.com: Internal Server Error"
