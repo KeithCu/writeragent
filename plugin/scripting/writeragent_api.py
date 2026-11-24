@@ -1103,13 +1103,14 @@ design = _DesignProxy()
 class _DocumentProxy:
     """Proxy for document tools."""
 
-    def export(self, path: str) -> _Item:
+    def export(self, path: str, *, sheet: str | None = None) -> _Item:
         """Write a copy of the target document to path (absolute or file:// URL) in the format the extension picks: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html, .pdf; Calc .ods, .ots, .xlsx, .xls, .csv, .html, .pdf; Impress .odp, .otp, .pptx, .ppt, .pdf; Draw .odg, .otg, .pdf, .png, .svg. The open document keeps its current file and format. An existing file is overwritten.
 
         Args:
             path (required): Target absolute file path or file:// URL.
+            sheet (optional): Calc .csv only: name of the sheet to export. Required when the workbook has more than one sheet.
         """
-        return _result(call_host_tool("document_export", path=path))
+        return _result(call_host_tool("document_export", path=path, sheet=sheet))
 
     def get_properties(self) -> _Item:
         """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
@@ -1137,7 +1138,7 @@ class _DocumentProxy:
         return _result(call_host_tool("document_redo", steps=steps))
 
     def save(self, *, path: str | None = None) -> _Item:
-        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. .txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. An existing file is overwritten. PDF and images are export-only: use document_export.
+        """Save the target document. Without path: save in place in its current format (an untitled or read-only document needs a path). With path (absolute or file:// URL): save it there and switch the document to that file; the extension picks the format: Writer .odt, .ott, .docx, .doc, .rtf, .txt, .html; Calc .ods, .ots, .xlsx, .xls, .csv, .html; Impress .odp, .otp, .pptx, .ppt; Draw .odg, .otg. .txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. A workbook with several sheets cannot be saved as .csv: use document_export with sheet. An existing file is overwritten. PDF and images are export-only: use document_export.
 
         Args:
             path (optional): Optional target absolute file path or file:// URL. Omit to save in place.

@@ -471,6 +471,18 @@ def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, 
     mock_resolve.assert_called_once()
 
 
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
+def test_open_document_for_read_refuses_already_open_unknown_type(mock_isfile):
+    existing = MagicMock()
+    with patch("plugin.doc.document_research.resolve_document_by_url", return_value=(existing, "unknown")):
+        model, doc_type, err, opened = open_document_for_read(MagicMock(), "/tmp/page.html")
+    assert model is None
+    assert doc_type is None
+    assert err is not None and "already open" in err
+    assert opened is False
+    existing.close.assert_not_called()
+
+
 def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
     """GHA 34636251918: leftover Hidden _default file load raised system bitmap."""
     monkeypatch.setattr(dr.sys, "platform", "win32")

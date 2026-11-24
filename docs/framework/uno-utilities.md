@@ -65,7 +65,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. The walk also stops at 200000 elements. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
-| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. A load that is not returned (unsupported type, or an exception after load) is closed. |
+| `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL` (HTML files forced to `HTML (StarWriter)`), or reuse an already-open component (returning an error if already open as `"unknown"`). A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close only if this call loaded a hidden sibling (not a user-visible doc). |
 | `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
