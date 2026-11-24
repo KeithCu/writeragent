@@ -245,7 +245,7 @@ def test_read_visible_body_offsets_uno(ctx):
         after_start = paras[-1].getStart()
         end_pos = text.getEnd()
 
-        body_text, offsets = read_visible_body(doc, [after_start, end_pos])
+        body_text, offsets, _struck = read_visible_body(doc, [after_start, end_pos])
         assert body_text == get_string_without_tracked_deletions(whole)
         assert offsets == [18, 23]
 
@@ -253,7 +253,7 @@ def test_read_visible_body_offsets_uno(ctx):
         whole.gotoStart(False)
         whole.gotoEnd(True)
         cell_pos = tbl.getCellByName("A1").getStart()
-        tbl_text, tbl_offsets = read_visible_body(doc, [cell_pos, text.getEnd()])
+        tbl_text, tbl_offsets, _struck2 = read_visible_body(doc, [cell_pos, text.getEnd()])
         assert tbl_text == get_string_without_tracked_deletions(whole)
         assert tbl_offsets == [None, 14]
 

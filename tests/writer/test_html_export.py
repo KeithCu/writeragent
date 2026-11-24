@@ -401,6 +401,20 @@ def test_range_xhtml_disposal_does_not_fall_back():
     temp_doc.storeToURL.assert_not_called()
 
 
+def test_range_starwriter_fallback_strips_deleted_mark():
+    from plugin.writer import html_export, xhtml_style_postprocess as xhtml_post
+
+    with patch.object(
+        html_export, "_export_starwriter_html", return_value=f"<p>{xhtml_post.DELETED_MARK}</p>"
+    ):
+        out = _run_range_export(
+            [_para("Standard")],
+            export_side_effect=RuntimeError("xhtml failed"),
+            passthrough_semantic=False,
+        )
+    assert xhtml_post.DELETED_MARK not in out
+
+
 def test_offset_window_slices_by_running_offset():
     from plugin.writer.html_export import _offset_window
 
@@ -965,7 +979,7 @@ def test_full_export_reads_flat_odf_once_when_no_break_is_split():
         return xhtml
 
     with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
-         patch("plugin.writer.xhtml_style_postprocess.split_deleted_breaks", return_value=None), \
+         patch("plugin.writer.xhtml_style_postprocess.expand_tracked_deletions", return_value=None), \
          patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
         html, _has_ruby = hx._export_full(MagicMock(), MagicMock())
 
@@ -1006,7 +1020,7 @@ def test_full_export_of_split_copy_reads_its_own_flat_odf():
         return xhtml
 
     with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
-         patch("plugin.writer.xhtml_style_postprocess.split_deleted_breaks", return_value="<split/>"), \
+         patch("plugin.writer.xhtml_style_postprocess.expand_tracked_deletions", return_value="<split/>"), \
          patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
          patch("plugin.writer.html_export.close_scratch_document"), \
          patch("plugin.writer.html_export._read_filter_text", side_effect=fake_read):
