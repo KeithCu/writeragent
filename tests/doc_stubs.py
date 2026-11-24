@@ -547,6 +547,19 @@ class CalcRangeStub:
                         addrs.append(_RangeAddress(c, r, c, r))
         return SimpleNamespace(getRangeAddresses=lambda: tuple(addrs))
 
+    def queryFormulaCells(self, flags):
+        addrs = []
+        for r in range(self._start_row, self._end_row + 1):
+            for c in range(self._start_col, self._end_col + 1):
+                cell = self._sheet.getCellByPosition(c, r)
+                if cell.getType() != _CELL_FORMULA:
+                    continue
+                formula = cell.getFormula()
+                is_err = formula.startswith("=#") or formula in ("#N/A", "=NA()")
+                if (not is_err and (flags & 3)) or (is_err and (flags & 4)):
+                    addrs.append(_RangeAddress(c, r, c, r))
+        return SimpleNamespace(getRangeAddresses=lambda: tuple(addrs))
+
     def setDataArray(self, data):
         for r_off, row in enumerate(data or ()):
             for c_off, value in enumerate(row):
@@ -676,6 +689,21 @@ class CalcSheetStub:
             self._modify_listeners.remove(listener)
         except ValueError:
             pass
+
+    def createCursor(self):
+        sheet = self
+
+        class _UsedCursor:
+            def gotoEndOfUsedArea(self, _expand=False):
+                pass
+
+            def getRangeAddress(self):
+                non_empty = [(c, r) for (c, r), cell in sheet._cells.items() if cell.getType() != 0]
+                if not non_empty:
+                    return _RangeAddress(0, 0, 0, 0)
+                return _RangeAddress(0, 0, max(c for c, _r in non_empty), max(r for _c, r in non_empty))
+
+        return _UsedCursor()
 
     def queryContentCells(self, _flags=0):
         """Return formula cells as a UNO-like enum (CellFlags.FORMULA = 16 in production).

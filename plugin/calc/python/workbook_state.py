@@ -118,6 +118,7 @@ class Debounce:
 class WorkbookState:
     key: str
     spills: dict[tuple[str, int, int], "SpillRecord"] = field(default_factory=dict)  # (sheet, row, col)
+    used_ends: dict[str, tuple[int, int]] = field(default_factory=dict)
     loaded: bool = False
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
     debounce: Debounce = field(default_factory=Debounce)
@@ -136,6 +137,7 @@ class WorkbookState:
     def clear(self) -> None:
         """Drop this workbook's spills, listeners, and debounce timers."""
         self.spills.clear()
+        self.used_ends.clear()
         self.listeners.clear()
         self.debounce.cancel_all()
         self.loaded = False
