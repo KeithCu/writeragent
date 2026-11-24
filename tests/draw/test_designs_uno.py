@@ -146,36 +146,32 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
 
 @native_test
 @with_native_doc("impress")
-def test_create_from_template_helper_non_default_master(ctx, doc):
-    """Internal helper only — design_apply must not open this new-doc path."""
+def test_design_source_is_a_separate_scratch_document_uno(ctx, doc):
     from plugin.draw.designs import (
         _blank_master_signal,
         _master_entries,
-        create_presentation_from_design,
-        resolve_design,
+        open_design_source_hidden,
     )
+    from plugin.framework.scratch_writer import close_scratch_document, is_scratch_document
+    from plugin.framework.uno_context import get_runtime_uid
 
     listed = _exec(doc, ctx, "design_list", {})
     design = _pick_known_design(listed)
     assert design, listed
-    entry = resolve_design(ctx, design["id"])
-    assert entry, listed
     factory = doc.getMasterPages().getByIndex(0)
     factory_name = factory.Name if hasattr(factory, "Name") else ""
-    new_doc = create_presentation_from_design(ctx, entry, hidden=True)
+
+    src1 = open_design_source_hidden(ctx, design)
+    src2 = None
     try:
-        masters = _master_entries(new_doc)
+        src2 = open_design_source_hidden(ctx, design)
+        assert get_runtime_uid(src1) != get_runtime_uid(src2)
+        assert src1.getURL() == ""
+        assert src2.getURL() == ""
+        assert is_scratch_document(src1)
+        assert is_scratch_document(src2)
+        masters = _master_entries(src1)
         assert _blank_master_signal(masters) is False, masters
-        names = [str(m.get("name") or "") for m in masters]
-        assert names, masters
-        assert any(n and n.lower() != "default" for n in names) or any(
-            int(m.get("shape_count") or 0) >= 3 for m in masters
-        ), "create-from-template still looks Default: factory=%s masters=%s" % (
-            factory_name,
-            masters,
-        )
-        assert doc.getDrawPages().getCount() >= 1
-        # The open deck is unchanged — helper opened a separate Hidden model.
         open_master = doc.getMasterPages().getByIndex(0)
         open_name = open_master.Name if hasattr(open_master, "Name") else ""
         assert open_name == factory_name, "open deck master changed: %s vs %s" % (
@@ -183,7 +179,9 @@ def test_create_from_template_helper_non_default_master(ctx, doc):
             factory_name,
         )
     finally:
-        TestingFactory.close_doc(new_doc)
+        if src2 is not None:
+            close_scratch_document(src2)
+        close_scratch_document(src1)
 
 
 @native_test
@@ -197,23 +195,22 @@ def test_apply_design_draw_not_impress(ctx, doc):
 @native_test
 @with_native_doc("impress")
 def test_apply_design_clones_shipped_template_chrome(ctx, doc):
-    from plugin.draw.designs import create_presentation_from_design, resolve_design
+    from plugin.draw.designs import open_design_source_hidden
+    from plugin.framework.scratch_writer import close_scratch_document
 
     listed = _exec(doc, ctx, "design_list", {})
-    available_ids = [d["id"] for d in (listed.get("designs") or [])]
+    designs_by_id = {d["id"]: d for d in (listed.get("designs") or [])}
 
     # Sunset
-    if "sunset" in available_ids:
-        entry = resolve_design(ctx, "sunset")
-        assert entry
-        hidden_doc = create_presentation_from_design(ctx, entry, hidden=True)
+    if "sunset" in designs_by_id:
+        hidden_doc = open_design_source_hidden(ctx, designs_by_id["sunset"])
         try:
             expected_bg_color = None
             src_m = hidden_doc.getMasterPages().getByIndex(0)
             if hasattr(src_m, "Background") and hasattr(src_m.Background, "FillColor"):
                 expected_bg_color = src_m.Background.FillColor
         finally:
-            TestingFactory.close_doc(hidden_doc)
+            close_scratch_document(hidden_doc)
 
         out_sunset = _exec(doc, ctx, "design_apply", {"design": "sunset"})
         assert out_sunset.get("status") == "ok", out_sunset
@@ -240,7 +237,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         assert len(sunset_masters) == 1
 
     # Beehive
-    if "beehive" in available_ids:
+    if "beehive" in designs_by_id:
         out_bee = _exec(doc, ctx, "design_apply", {"design": "beehive"})
         assert out_bee.get("status") == "ok", out_bee
         master = doc.getDrawPages().getByIndex(0).MasterPage
@@ -261,7 +258,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         assert has_bee_group, "Beehive cloned master missing populated GroupShape"
 
     # Vivid
-    if "vivid" in available_ids:
+    if "vivid" in designs_by_id:
         out_vivid = _exec(doc, ctx, "design_apply", {"design": "vivid"})
         assert out_vivid.get("status") == "ok", out_vivid
         master = doc.getDrawPages().getByIndex(0).MasterPage
@@ -276,8 +273,8 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         assert has_geom, "Vivid cloned master missing non-empty CustomShapeGeometry"
 
     # Grey Elegant
-    if "grey_elegant" in available_ids or "grey-elegant" in available_ids:
-        did = "grey_elegant" if "grey_elegant" in available_ids else "grey-elegant"
+    if "grey_elegant" in designs_by_id or "grey-elegant" in designs_by_id:
+        did = "grey_elegant" if "grey_elegant" in designs_by_id else "grey-elegant"
         out_grey = _exec(doc, ctx, "design_apply", {"design": did})
         assert out_grey.get("status") == "ok", out_grey
         applied = str(out_grey.get("applied_master") or "").lower()

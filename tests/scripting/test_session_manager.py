@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1033,6 +1034,98 @@ def test_enumerated_matching_models_empty_when_desktop_or_walk_fails() -> None:
     desktop.getComponents.side_effect = RuntimeError("walk failed")
     with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
         assert session_manager._enumerated_matching_models(ctx, lambda _m: True) == []
+
+
+def _components_enum(*models: Any) -> MagicMock:
+    def _create_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True] * len(models) + [False]
+        enum.nextElement.side_effect = list(models)
+        return enum
+
+    comps = MagicMock()
+    comps.createEnumeration.side_effect = _create_enum
+    return comps
+
+
+def test_focused_calc_document_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.thread_guard import unwrap_uno
+
+    user_doc = MagicMock()
+    scratch_doc = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.side_effect = lambda: _components_enum(user_doc, scratch_doc)
+
+    monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
+    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+
+    assert unwrap_uno(session_manager.focused_calc_document(MagicMock())) is user_doc
+
+    desktop.getComponents.side_effect = lambda: _components_enum(scratch_doc)
+    assert session_manager.focused_calc_document(MagicMock()) is None
+
+
+def test_reset_headless_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    user_doc = MagicMock()
+    scratch_doc = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.side_effect = lambda: _components_enum(user_doc, scratch_doc)
+
+    monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
+    monkeypatch.setattr(session_manager, "is_writer", lambda _m: False)
+    monkeypatch.setattr(session_manager, "is_draw", lambda _m: False)
+    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+
+    reset_calls: list[Any] = []
+    msgbox_calls: list[str] = []
+    monkeypatch.setattr(session_manager, "_reset_calc_python_sessions", lambda _ctx, d: reset_calls.append(d))
+    monkeypatch.setattr(session_manager, "_msgbox", lambda _ctx, msg: msgbox_calls.append(msg))
+
+    session_manager.reset_workbook_python_session(MagicMock())
+    assert [session_manager.unwrap_uno(d) for d in reset_calls] == [user_doc]
+    assert msgbox_calls == []
+
+
+def test_document_for_script_session_ignores_scratch_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.thread_guard import unwrap_uno
+
+    user_doc = MagicMock()
+    user_doc.getURL.return_value = "file:///doc.ods"
+    scratch_doc = MagicMock()
+    scratch_doc.getURL.return_value = "file:///doc.ods"
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = lambda: _components_enum(scratch_doc, user_doc)
+
+    monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
+    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+
+    found = session_manager.document_for_script_session(MagicMock(), "calc:file:///doc.ods")
+    assert unwrap_uno(found) is user_doc
+
+
+def test_enumerated_matching_models_skips_model_whose_predicate_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.thread_guard import unwrap_uno
+
+    broken = MagicMock()
+    valid = MagicMock()
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = lambda: _components_enum(broken, valid)
+
+    def _pred(model: Any) -> bool:
+        if model is broken:
+            raise RuntimeError("disposed")
+        return model is valid
+
+    monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
+    monkeypatch.setattr(session_manager, "is_scratch_document", lambda _m: False)
+
+    results = session_manager._enumerated_matching_models(MagicMock(), _pred)
+    assert [unwrap_uno(m) for m in results] == [valid]
 
 
 
