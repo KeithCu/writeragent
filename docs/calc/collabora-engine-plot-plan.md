@@ -19,11 +19,14 @@ WriterAgent / LibrePy is running in production as a desktop extension for LibreO
    if images:
        for i, img in enumerate(images):
            insert_image_result_on_sheet(img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
-       return _("Image inserted") if len(images) == 1 else _("Images inserted")
+       cells = _cells_beside_images(result)
+       if cells is None:
+           return _("Image inserted") if len(images) == 1 else _("Images inserted")
+       return finalize_python_return(cell_ctx, cells, index_arg=index_arg, data_token=data_token)
    ```
    When a smaller plot count is returned on recalc, higher plot slots on the cell are removed.
 3. **Smart Sizing & Geometry Snapping ([`plugin/calc/python/image_egress.py`](../../plugin/calc/python/image_egress.py)):**
-   * **Unmerged Single Cell:** Desktop no longer forces $10\text{ cm} \times 6\text{ cm}$ when the intrinsic aspect ratio is known: it scales the longer side to $10\text{ cm}$ with the shorter side proportional (falling back to $10\text{ cm} \times 6\text{ cm}$ if the aspect ratio cannot be determined), with `ResizeWithCell = False`.
+   * **Unmerged Single Cell:** An unmerged slot 0 stands beside the cell (0.1 mm inside its far edge so the anchor stays on the formula cell). Desktop no longer forces $10\text{ cm} \times 6\text{ cm}$ when the intrinsic aspect ratio is known: it scales the longer side to $10\text{ cm}$ with the shorter side proportional (falling back to $10\text{ cm} \times 6\text{ cm}$ if the aspect ratio cannot be determined), with `ResizeWithCell = False`.
    * **Merged Placeholder Cell:** If the user pre-merged a block of cells (e.g. `B2:H18`) as a chart area, LibrePy detects `target_cell.IsMerged` and checks if width $\ge 40\text{ mm}$ and height $\ge 30\text{ mm}$. If so, the graphic shape snaps exactly to the merged cell's geometry with `ResizeWithCell = True`.
    * **Thin Banner Protection:** If the target cell is a 1-row merged strip (e.g. `A1:H1` title banner), setting shape size to cell size would crush the plot to a 5mm unreadable sliver. LibrePy detects thin banners and falls back to aspect size (or standard $10\text{ cm} \times 6\text{ cm}$).
 4. **Lifecycle & Recalculation Replacement:**

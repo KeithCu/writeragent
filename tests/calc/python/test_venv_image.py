@@ -1239,10 +1239,36 @@ def test_mixed_aspect_slots_chain_edges():
     assert len(created_shapes) == 2
     slot0, slot1 = created_shapes
     assert slot0.getSize() == Size(10000, 5000)
-    assert slot0.getPosition() == Point(1000, 2000)
+    assert slot0.getPosition() == Point(3990, 2000)
     assert slot1.getSize() == Size(5000, 10000)
-    # Revert target: _slot_cursor chaining. Without chaining, slot 1 would be placed at 1000 + 1 * 5000 = 6000
-    assert slot1.getPosition() == Point(11000, 2000)
+    # Revert target: _slot_cursor chaining. Without chaining, slot 1 would start at 3990.
+    assert slot1.getPosition() == Point(13990, 2000)
+
+
+def test_zero_width_cell_keeps_slot0_at_cell_origin():
+    """A zero-width (hidden) column clamps the inset so slot 0 starts at cell_pos.X."""
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    cell_pos = Point(1000, 2000)
+    cell_size = Size(0, 1000)
+    with _sheet_insert_ctx(sheet, cell, temp_path="/tmp/zw.png", geometry=(cell_pos, cell_size)):
+        insert_image_result_on_sheet(_make_png_payload(100, 50), code="plt.show()", doc=doc, image_index=0)
+
+    assert len(created_shapes) == 1
+    assert created_shapes[0].getPosition() == Point(1000, 2000)
 
 
 def test_large_merge_slot0_fills_and_slot1_chains_at_aspect():
@@ -1276,6 +1302,7 @@ def test_large_merge_slot0_fills_and_slot1_chains_at_aspect():
     slot0, slot1 = created_shapes
     assert slot0.getPropertyValue("ResizeWithCell") is True
     assert slot0.getSize() == Size(8000, 5000)
+    assert slot0.getPosition() == Point(1000, 2000)
     # Revert target: the fill branch requiring image_index == 0. Without it, slot 1 also fills.
     assert slot1.getPropertyValue("ResizeWithCell") is False
     assert slot1.getSize() == Size(10000, 5000)
@@ -1310,9 +1337,9 @@ def test_rtl_sheet_slots_layout_right_to_left():
 
     assert len(created_shapes) == 2
     slot0, slot1 = created_shapes
-    # Revert target: RTL place-x calculation (cursor_x - target_width)
-    assert slot0.getPosition() == Point(-10000, 100)
-    assert slot1.getPosition() == Point(-15000, 100)
+    # Revert target: RTL place-x calculation (cursor_x - aspect_size.Width)
+    assert slot0.getPosition() == Point(-12990, 100)
+    assert slot1.getPosition() == Point(-17990, 100)
 
 
 def test_existing_slot_matching_byte_tag_skips_graphic_and_layout():
@@ -1429,7 +1456,7 @@ def test_new_shape_graphic_url_failure_leaves_draft_placeholder():
 
     # Collabora parity: draft placeholder is left on the drawing page
     assert shape in page.shapes
-    assert shape.getPosition() == Point(0, 0)
+    assert shape.getPosition() == Point(2990, 0)
     # Revert target: _aspect_size(None) for a failed load in _place_new_plot
     assert shape.getSize() == Size(10000, 6000)
     annotations.insertNew.assert_not_called()
@@ -1743,13 +1770,15 @@ def test_three_reanchored_slots_chain_reuse_and_sweep():
     _run(3)
     assert len(created) == 3
     slot0, slot1, slot2 = created
-    # Calc moved slots 1 and 2 to the cells under them, away from the formula cell (1, 2).
-    assert (slot1.getPropertyValue("Anchor")._col, slot2.getPropertyValue("Anchor")._col) == (4, 7)
+    # Calc moved slots 1 and 2 to the cells under them, away from the formula cell (1, 2);
+    # slot 0 stays anchored to the formula cell (1, 2).
+    assert slot0.getPropertyValue("Anchor")._col == 1
+    assert (slot1.getPropertyValue("Anchor")._col, slot2.getPropertyValue("Anchor")._col) == (5, 8)
     # Revert target: tag-decided ownership in _shape_matches_target_cell. Slot 2 sits at
     # slot 1's right edge, not on top of it.
-    assert slot0.getPosition() == Point(3000, 2000)
-    assert slot1.getPosition() == Point(13000, 2000)
-    assert slot2.getPosition() == Point(23000, 2000)
+    assert slot0.getPosition() == Point(5990, 2000)
+    assert slot1.getPosition() == Point(15990, 2000)
+    assert slot2.getPosition() == Point(25990, 2000)
 
     for shape in created:
         shape.props.pop("GraphicURL")
