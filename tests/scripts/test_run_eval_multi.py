@@ -139,6 +139,11 @@ def test_main_refuses_unlisted_gemini_staying_on_openrouter(
 
     monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
     monkeypatch.setattr(
+        run_eval_multi,
+        "to_dspy_examples",
+        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
+    )
+    monkeypatch.setattr(
         sys,
         "argv",
         [
@@ -176,6 +181,11 @@ def test_main_pricing_label_follows_route(
     if env_key is not None:
         monkeypatch.setenv("GEMINI_API_KEY", env_key)
     monkeypatch.setattr(llm_chat_eval, "enable_default_transcripts", lambda: None)
+    monkeypatch.setattr(
+        run_eval_multi,
+        "to_dspy_examples",
+        lambda examples, with_inputs=True: run_eval_multi.to_eval_examples(examples),
+    )
     monkeypatch.setattr(
         run_eval_multi,
         "_run_one_model",

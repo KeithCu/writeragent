@@ -100,7 +100,7 @@ def _model_config_for_id(model_id: str) -> ModelConfig:
             output_cost_per_million=base.output_cost_per_million,
             notes=base.notes,
         )
-    # main() has already refused ids that are neither priced nor allowed, so the rest run without a price.
+    # main() has already refused ids that are not priced, natively routed or allowed by --allow-unknown-model, so the rest run without a price.
     return ModelConfig(
         openrouter_id=model_id,
         display_name=model_id,
