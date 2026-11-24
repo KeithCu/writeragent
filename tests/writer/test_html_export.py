@@ -399,19 +399,29 @@ def test_offset_window_leading_and_adjacent_tables():
         assert window(MagicMock(), "Beta", [t1, t2], False) == ([], (0, 4))
 
 
+def test_offset_window_keeps_empty_paragraph_at_start():
+    from plugin.writer.html_export import _offset_window
+
+    _past_end, window = _offset_window(6, 8)
+    assert window(MagicMock(), "Alpha", [], False) == ([], None)
+    assert window(MagicMock(), "", [], False) == ([], (0, 0))
+    assert window(MagicMock(), "Beta", [], False) == ([], (0, 1))
+
+
 def test_offset_window_empty_and_struck_tables():
     from plugin.writer.html_export import _offset_window
 
     empty_t, struck_t = MagicMock(), MagicMock()
-    with patch("plugin.writer.html_export.table_visible_text", side_effect=lambda _t, opened: "" if opened else ""):
-        # Para "A" (0..1), empty_t (2..2), struck_t (3..3), para "B" (4..5)
-        _past_end, window = _offset_window(2, 3)
+    with patch("plugin.writer.html_export.table_visible_text", side_effect=lambda _t, opened: "" if opened else "Cell"):
+        # Para "A" (0..1), empty_t (2..6), para "B" (7..8)
+        _past_end, window = _offset_window(2, 6)
         assert window(MagicMock(), "A", [], False) == ([], None)
-        assert window(MagicMock(), "B", [empty_t, struck_t], True) == ([empty_t], None)
+        assert window(MagicMock(), "B", [empty_t], False) == ([empty_t], None)
 
-        _past_end, window = _offset_window(4, 5)
+        # Para "A" (0..1), struck_t (2..2, one break), para "B" (3..4)
+        _past_end, window = _offset_window(3, 4)
         assert window(MagicMock(), "A", [], False) == ([], None)
-        assert window(MagicMock(), "B", [empty_t, struck_t], True) == ([], (0, 1))
+        assert window(MagicMock(), "B", [struck_t], True) == ([], (0, 1))
 
 
 @pytest.mark.parametrize(

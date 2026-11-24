@@ -901,10 +901,10 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
 
 
 class VisibleBlock(NamedTuple):
-    para: Any | None
-    text: str
-    opened: bool
-    start: int
+    para: Any | None  # None for a table
+    text: str         # visible text, LF
+    opened: bool      # starts inside a tracked deletion
+    start: int        # visible offset
 
     @property
     def end(self) -> int:
@@ -953,7 +953,11 @@ def _visible_point(body: Any, block: VisibleBlock, offset: int, *, at_end: bool)
             if _portion_type(portion) != "Text":
                 return (portion.getEnd(), run_end) if at_end else (portion.getStart(), run)
             cursor = body.createTextCursorByRange(portion.getStart())
-            go_right(cursor, offset - run, False)  # one step per code point inside a Text portion
+            if not go_right(cursor, offset - run, False):  # one step per code point inside a Text portion
+                raise ToolExecutionError(
+                    "Could not reach character offset %d." % offset,
+                    code="TOOL_EXECUTION_ERROR",
+                )
             return cursor, offset
         run = run_end
     return block.para.getEnd(), offset
@@ -966,7 +970,9 @@ def visible_body_range(model: Any, start: int, end: int) -> VisibleBodyRange | N
     body = uno_call(model.getText, "Get document text")
     parts: list[str] = []
     cursor: Any = None
+    last_block: VisibleBlock | None = None
     for block in _body_blocks(model, body):
+        last_block = block
         parts.append(block.text)
         if cursor is None and start <= block.end:
             point, start = _visible_point(body, block, start, at_end=False)
@@ -978,7 +984,9 @@ def visible_body_range(model: Any, start: int, end: int) -> VisibleBodyRange | N
     text = "\n".join(parts)
     if cursor is None or start >= len(text):
         return None
-    cursor.gotoRange(body.getEnd(), True)
+    if last_block is None or last_block.para is None:
+        raise ToolExecutionError("Could not reach the end of the document.", code="TOOL_EXECUTION_ERROR")
+    cursor.gotoRange(last_block.para.getEnd(), True)
     return VisibleBodyRange(cursor, start, text[start:])
 
 

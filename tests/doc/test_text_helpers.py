@@ -410,6 +410,61 @@ def test_visible_body_range_rejects_table_offset_and_clamps_end():
     assert got.text == "After"
 
 
+def test_visible_body_range_early_walk_stop_ends_at_last_para():
+    from plugin.doc.text_helpers import visible_body_range
+
+    class _BoomEnum:
+        def __init__(self, first):
+            self._first = first
+            self._n = 0
+
+        def hasMoreElements(self):
+            return self._n < 2
+
+        def nextElement(self):
+            self._n += 1
+            if self._n == 1:
+                return self._first
+            raise RuntimeError("enum broke")
+
+    portion = _Portion("Keep")
+    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    para = _Paragraph([portion])
+    para.getStart = lambda: "p1_start"  # type: ignore[attr-defined]
+    para.getEnd = lambda: "p1_end"  # type: ignore[attr-defined]
+    cursor = MagicMock()
+    body = MagicMock()
+    body.createEnumeration.return_value = _BoomEnum(para)
+    body.createTextCursorByRange.return_value = cursor
+    model = MagicMock()
+    model.getText.return_value = body
+
+    got = visible_body_range(model, 1, 100)
+    assert got is not None
+    assert got.text == "eep"
+    cursor.gotoRange.assert_called_once_with("p1_end", True)
+    body.getEnd.assert_not_called()
+
+
+def test_visible_body_range_short_go_right_raises():
+    from plugin.doc.text_helpers import visible_body_range
+    from plugin.framework.errors import ToolExecutionError
+
+    portion = _Portion("Hello")
+    portion.getStart = lambda: "port_start"  # type: ignore[attr-defined]
+    para = _Paragraph([portion])
+    cursor = MagicMock()
+    cursor.goRight.return_value = False
+    body = MagicMock()
+    body.createEnumeration.return_value = _TextRange([para]).createEnumeration()
+    body.createTextCursorByRange.return_value = cursor
+    model = MagicMock()
+    model.getText.return_value = body
+
+    with pytest.raises(ToolExecutionError, match="offset 2"):
+        visible_body_range(model, 2, 4)
+
+
 def test_get_document_length_propagates_disposal():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.doc import text_helpers

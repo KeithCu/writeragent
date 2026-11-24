@@ -360,39 +360,83 @@ def test_visible_body_covers_leading_and_trailing_table_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_visible_body_range_round_trips_uno(ctx, doc):
-    from plugin.doc.text_helpers import read_visible_body, visible_body_range
+    from plugin.doc.text_helpers import _body_blocks, read_visible_body, visible_body_range, visible_range_text
     from plugin.framework.errors import ToolExecutionError
+    from plugin.tests.testing_utils import (
+        strike_across_paragraphs,
+        strike_across_table,
+        strike_all_after_leading_table,
+    )
 
-    body = doc.getText()
-    tbl = doc.createInstance("com.sun.star.text.TextTable")
-    tbl.initialize(1, 1)
-    body.insertTextContent(body.getEnd(), tbl, False)
-    tbl.getCellByName("A1").setString("cA1")
+    def _clear():
+        while doc.getTextTables().getCount() > 0:
+            doc.getTextTables().getByIndex(0).dispose()
+        doc.getText().setString("")
 
-    cur = body.createTextCursor()
-    cur.gotoEnd(False)
-    body.insertString(cur, "ab😀", False)
-    field = doc.createInstance("com.sun.star.text.TextField.DateTime")
-    body.insertTextContent(cur, field, False)
-    body.insertString(cur, "cd", False)
-    doc.setPropertyValue("RecordChanges", True)
-    try:
+    def _build_rich_layout():
+        _clear()
+        body = doc.getText()
+        lead = doc.createInstance("com.sun.star.text.TextTable")
+        lead.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), lead, False)
+        lead.getCellByName("A1").setString("cA1")
+
+        cur = body.createTextCursor()
+        cur.gotoEnd(False)
+        body.insertString(cur, "ab😀", False)
+        field = doc.createInstance("com.sun.star.text.TextField.DateTime")
+        body.insertTextContent(cur, field, False)
+        fn = doc.createInstance("com.sun.star.text.Footnote")
+        fn.setLabel("1")
+        body.insertTextContent(cur, fn, False)
+        body.insertControlCharacter(cur, 1, False)  # LINE_BREAK
+        body.insertString(cur, "漢字", False)
+        cur.goLeft(2, True)
+        cur.setPropertyValue("RubyText", "かんじ")
+        cur.collapseToEnd()
         body.insertString(cur, "STRUCK", False)
         cur.goLeft(len("STRUCK"), True)
-        cur.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-    cur.gotoEnd(False)
-    body.insertString(cur, "ef", False)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        assert doc.getRedlines().getCount() == 1
+        cur.gotoEnd(False)
+        body.insertString(cur, "ef", False)
 
-    text, _ = read_visible_body(doc)
-    for start in range(len(text)):
-        for end in range(start + 1, len(text) + 1):
-            try:
+        tail = doc.createInstance("com.sun.star.text.TextTable")
+        tail.initialize(1, 1)
+        body.insertTextContent(body.getEnd(), tail, False)
+        tail.getCellByName("A1").setString("zA1")
+
+    layouts = [
+        _build_rich_layout,
+        lambda: (_clear(), strike_across_paragraphs(doc, doc.getText())),
+        lambda: (_clear(), strike_across_table(doc, doc.getText())),
+        lambda: (_clear(), strike_all_after_leading_table(doc, ctx)),
+    ]
+
+    for setup in layouts:
+        setup()
+        body = doc.getText()
+        text, _ = read_visible_body(doc)
+        assert text == visible_range_text(doc, body)
+        table_ranges = [(b.start, b.end) for b in _body_blocks(doc, body) if b.para is None]
+
+        def _in_table(off: int) -> bool:
+            return any(ts <= off <= te for ts, te in table_ranges)
+
+        for start in range(len(text)):
+            for end in range(start + 1, len(text) + 1):
+                if _in_table(start) or _in_table(end):
+                    try:
+                        visible_body_range(doc, start, end)
+                    except ToolExecutionError:
+                        continue
+                    raise AssertionError(f"Expected ToolExecutionError for table offset ({start}, {end})")
                 found = visible_body_range(doc, start, end)
-            except ToolExecutionError:
-                continue
-            assert found is not None
-            _, got_offsets = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
-            assert got_offsets == [found.start, found.end]
-            assert text[found.start:found.end] == found.text
+                assert found is not None
+                _, got_offsets = read_visible_body(doc, [found.cursor.getStart(), found.cursor.getEnd()])
+                assert got_offsets == [found.start, found.end]
+                assert text[found.start:found.end] == found.text

@@ -63,13 +63,14 @@ def _build_cross_tool_doc(doc):
     fn.setLabel("1")
     text.insertTextContent(cur, fn, False)
     text.insertString(cur, " ", False)
+    text.insertString(cur, "DeletedWord ", False)
+    cur.goLeft(len("DeletedWord "), True)
     doc.setPropertyValue("RecordChanges", True)
     try:
-        text.insertString(cur, "DeletedWord ", False)
-        cur.goLeft(len("DeletedWord "), True)
         cur.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
+    assert doc.getRedlines().getCount() == 1
     cur.gotoEnd(False)
     text.insertString(cur, "TargetOne", False)
 
@@ -86,7 +87,7 @@ def _build_cross_tool_doc(doc):
 @with_native_doc("writer")
 def test_cross_tool_offsets_search_select_content_and_length_uno(ctx, doc):
     import re
-    from plugin.doc.text_helpers import get_document_length
+    from plugin.doc.text_helpers import visible_range_text
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.search import SearchInDocument
 
@@ -95,7 +96,7 @@ def test_cross_tool_offsets_search_select_content_and_length_uno(ctx, doc):
     controller = doc.getCurrentController()
 
     full = GetDocumentContent().execute(tctx, scope="full")
-    assert full["document_length"] == get_document_length(doc)
+    assert full["document_length"] == len(visible_range_text(doc, doc.getText()))
 
     for word in ("TargetOne", "TargetTwo"):
         s_res = SearchInDocument().execute(tctx, pattern=word, return_offsets=True)

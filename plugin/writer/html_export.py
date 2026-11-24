@@ -443,7 +443,7 @@ def _offset_window(start: int, end: int) -> tuple[Callable[[Any], bool], _Window
         para_start = pos
         para_end = para_start + len(para_text)
         pos = para_end + 1
-        if para_end <= start or para_start >= end:
+        if para_end < start or (para_text and para_end == start) or para_start >= end:
             return inside, None
         return inside, (max(0, start - para_start), len(para_text) - max(0, para_end - end))
 

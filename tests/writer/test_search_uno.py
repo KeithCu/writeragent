@@ -373,7 +373,14 @@ def test_apply_content_multi_paragraph_does_not_match_across_table_uno(ctx, doc)
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"
     assert doc.getTextTables().getCount() == 1
     assert tbl.getCellByName("A1").getString() == "Cell1"
-    assert "Beta" in text.getString()
+    from plugin.doc.text_helpers import iter_elements
+
+    paras = [
+        el.getString()
+        for el in iter_elements(text.createEnumeration())
+        if el.supportsService("com.sun.star.text.Paragraph")
+    ]
+    assert paras == ["Alpha", "Beta"]
 
 
 @native_test
