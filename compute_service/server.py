@@ -35,6 +35,7 @@ from compute_service.json_forward import (
     ExecuteRequestParts,
     VisionRequestParts,
     check_req_id,
+    dumps_response,
     is_multipart_content_type,
     parse_execute_request,
     parse_multipart_vision,
@@ -95,7 +96,7 @@ def _start_raw_json(start_response: Any, status: str, body: bytes, *, extra_head
 
 def _start_json(start_response: Any, status: str, payload: dict[str, Any], *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     """Serialize and send a JSON payload dict."""
-    return _start_raw_json(start_response, status, json.dumps(payload, allow_nan=False).encode("utf-8"), extra_headers=extra_headers)
+    return _start_raw_json(start_response, status, dumps_response(payload), extra_headers=extra_headers)
 
 
 def _error(start_response: Any, code: str, msg: str, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
