@@ -1286,12 +1286,63 @@ def test_plan_write_refuses_py_array_inside_its_data_range():
             with pytest.raises(CalcError) as exc_grow:
                 manipulator.plan_write("C1", f_grow, array=True, premeasured_array_size=(2, 2))
     assert exc_grow.value.code == "PY_CIRCULAR"
+    assert exc_grow.value.details == {
+        "data_range": "D1:D5",
+        "suggested_call": {
+            "tool": "write_range",
+            "arguments": {"range": ["Sheet1.E1:F2"], "values": f_grow, "array": True},
+        },
+    }
 
     with patch("plugin.calc.manipulator.accepts_returned_any", return_value=False):
         with pytest.raises(CalcError) as exc_old:
             manipulator.plan_write("A1", f_a1, array=True)
     assert exc_old.value.code == "PY_CIRCULAR"
     assert "array" not in (exc_old.value.details or {})["suggested_call"]["arguments"]
+
+
+def test_plan_write_py_suggestion_skips_column_occupied_below_top_row():
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    def _range(left: int, top: int, right: int, bottom: int):
+        rng = MagicMock()
+        rows = bottom - top + 1
+        cols = right - left + 1
+        if left <= 1 <= right and top <= 1 <= bottom:
+            grid = tuple(
+                tuple("x" if (top + r == 1 and left + c == 1) else "" for c in range(cols))
+                for r in range(rows)
+            )
+        else:
+            grid = tuple(("",) * cols for _ in range(rows))
+        rng.getFormulaArray.return_value = grid
+        return rng
+
+    sheet.getCellRangeByPosition.side_effect = _range
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    manipulator = CellManipulator(bridge)
+    formula = '=PY("result = data * 2"; A1:A5)'
+
+    with pytest.raises(CalcError) as exc_ordinary:
+        manipulator.plan_write("A1", formula)
+    assert exc_ordinary.value.code == "PY_CIRCULAR"
+    assert (exc_ordinary.value.details or {})["suggested_call"]["arguments"]["range"] == ["Sheet1.C1"]
+
+    with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
+        with pytest.raises(CalcError) as exc_array:
+            manipulator.plan_write("A1", formula, array=True)
+    assert exc_array.value.code == "PY_CIRCULAR"
+    assert (exc_array.value.details or {})["suggested_call"]["arguments"] == {
+        "range": ["Sheet1.C1"],
+        "values": formula,
+        "array": True,
+    }
 
 
 def test_commit_quotes_the_py_run_error():

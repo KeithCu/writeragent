@@ -771,10 +771,10 @@ def test_is_failed_run_text(monkeypatch: pytest.MonkeyPatch) -> None:
         assert not addin_values.is_failed_run_text(non_failure)
 
     translations = {
-        "Error: Python venv not found. Open Settings → Python, set the venv path, then Test.": "Viga: venv puudub.",
-        "Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.": "Viga: aeg otsas.",
-        "Error: Main-thread execution timed out ({0})": "Tõrge: lõim aegus ({0})",
-        "Error: {0}": "Tõrge: {0}",
+        "Error: Python venv not found. Open Settings → Python, set the venv path, then Test.": "Puudub: venv.",
+        "Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.": "Aegus: python.",
+        "Error: Main-thread execution timed out ({0})": "Lõim: aegus ({0})",
+        "Error: {0}": "Viga: {0}",
     }
     monkeypatch.setattr(addin_values, "_", lambda s: translations.get(s, s))
     for res in (
@@ -785,4 +785,8 @@ def test_is_failed_run_text(monkeypatch: pytest.MonkeyPatch) -> None:
         text = addin_values.addin_result_for_worker_status(res)
         assert isinstance(text, str) and addin_values.is_failed_run_text(text)
     assert addin_values.is_failed_run_text(addin_values.format_addin_error_for_display(TimeoutError("5s")))
+    assert not addin_values.is_failed_run_text("ok")
+
+    # An empty prefix after stripping {0} must be filtered out rather than matching every string.
+    monkeypatch.setattr(addin_values, "_", lambda s: "{0}" if s == "Error: {0}" else s)
     assert not addin_values.is_failed_run_text("ok")

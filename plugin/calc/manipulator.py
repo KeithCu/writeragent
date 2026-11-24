@@ -714,10 +714,18 @@ def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: i
         )
 
 
+# 525 is #NAME? (unknown function); 533 is FormulaError::NestedArray, which an empty FILTER
+# pushes (sc/source/core/tool/interpr1.cxx, lines 8342 and 8395). Other codes get no hint
+# because they are the formula's own errors.
 _ARRAY_ERROR_HINTS: dict[int, str] = {
     525: " — unknown function name (this LibreOffice may lack TAKE/VSTACK etc.)",
     533: " — e.g. FILTER with no matching row gives #CALC!",
 }
+
+
+def _squeeze_clip(text: str, limit: int = 400) -> str:
+    """Collapse whitespace and clip *text* for tool messages."""
+    return " ".join(text.split())[:limit]
 
 
 def _raise_if_array_failed(cell: Any, formula: str) -> None:
@@ -730,8 +738,7 @@ def _raise_if_array_failed(cell: Any, formula: str) -> None:
     if py_formula_or_none(formula) is not None:
         shown = cell.getString()
         if is_failed_run_text(shown):
-            clipped = " ".join(shown.split())[:400]
-            raise CalcError(f"=PY returned an error message instead of a result: {clipped}")
+            raise CalcError(f"=PY returned an error message instead of a result: {_squeeze_clip(shown)}")
 
 
 def _free_block_right_of(
@@ -753,15 +760,18 @@ def _free_block_right_of(
     except (TypeError, ValueError):
         return None
     top = min(r0, r1)
+    bottom = max(r0, r1)
     if top + rows - 1 > MAX_ROW:
         return None
     right = max(c0, c1)
     scan_end = min(MAX_COL - cols + 1, right + _PY_PLACEMENT_SCAN_COLS)
+    # Check occupancy over the data's full height too because the result usually matches it, leaving room for a spill.
+    check_bottom = max(bottom, top + rows - 1)
     for col in range(right + 1, scan_end + 1):
         box = (col, top, col + cols - 1, top + rows - 1)
         if any(arg_overlaps_box(other, box, sheet_name=sheet_name) for other in args):
             continue
-        if not _occupied_cells(sheet, *box):
+        if not _occupied_cells(sheet, col, top, col + cols - 1, check_bottom):
             return qualify_a1(sheet_name, format_range(*box, collapse_single=True))
     return None
 
@@ -829,7 +839,7 @@ def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) ->
     latest = _latest_py_diagnostic(doc, parts)
     if latest is None or latest is prior or not latest.is_error:
         return ""
-    return f" ({' '.join(latest.message.split())[:400]})"
+    return f" ({_squeeze_clip(latest.message)})"
 
 
 def _parse_json_array_string(s: str) -> list[Any] | None:
@@ -1555,8 +1565,7 @@ class CellManipulator:
                         detail = _py_run_detail(self.bridge.doc, parts, prior)
                         py_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
                     elif is_failed_run_text(shown):
-                        clipped = " ".join(shown.split())[:400]
-                        py_warning = f"; warning: {format_address(col, row)} shows an error message instead of a result: {clipped}"
+                        py_warning = f"; warning: {format_address(col, row)} shows an error message instead of a result: {_squeeze_clip(shown)}"
 
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
