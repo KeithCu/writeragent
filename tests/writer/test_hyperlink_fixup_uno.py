@@ -787,3 +787,294 @@ def test_outline_replace_after_emoji_uno(ctx, doc):
     res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
     assert res.get("status") == "ok", res
     assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW
+
+
+def _dispatch(ctx, doc, cmd: str) -> None:
+    helper = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
+
+
+def _portion_details(doc):
+    """Per portion: (text, HyperLinkURL, CharWeight, CharColor, CharUnderline)."""
+    from plugin.framework.uno_context import enum_has_more
+
+    out = []
+    paras = doc.getText().createEnumeration()
+    while enum_has_more(paras):
+        para = paras.nextElement()
+        if hasattr(para, "supportsService") and not para.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        portions = para.createEnumeration()
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            s = str(p.getString() or "")
+            if s:
+                out.append((
+                    s,
+                    _read_prop(p, "HyperLinkURL"),
+                    p.getPropertyValue("CharWeight"),
+                    p.getPropertyValue("CharColor"),
+                    p.getPropertyValue("CharUnderline"),
+                ))
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, doc):
+    from com.sun.star.awt.FontWeight import BOLD
+    from plugin.framework.config import get_config, save
+    from plugin.writer.record_changes import record_changes
+
+    def setup():
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "See ", False)
+        _append_linked(text, cursor, "Old title", _OUTLINE)
+        text.insertString(cursor, " here", False)
+        sel = text.createTextCursorByRange(cursor.getStart())
+        sel.gotoStartOfParagraph(False)
+        sel.goRight(4, False)
+        sel.goRight(len("Old title"), True)
+        sel.setPropertyValue("CharWeight", BOLD)
+
+    # User recording: Accept
+    setup()
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    details = _portion_details(doc)
+    assert [(s, u, w) for s, u, w, _c, _ul in details] == [
+        ("See ", "", 100.0),
+        ("Swap", _OUTLINE, float(BOLD)),
+        (" here", "", 100.0),
+    ], details
+
+    # User recording: Reject
+    setup()
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    details = _portion_details(doc)
+    assert [(s, u, w) for s, u, w, _c, _ul in details] == [
+        ("See ", "", 100.0),
+        ("Old title", _OUTLINE, float(BOLD)),
+        (" here", "", 100.0),
+    ], details
+
+    # Review mode: Accept & Reject
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        setup()
+        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        details = _portion_details(doc)
+        assert [(s, u, w) for s, u, w, _c, _ul in details] == [
+            ("See ", "", 100.0),
+            ("Swap", _OUTLINE, float(BOLD)),
+            (" here", "", 100.0),
+        ], details
+
+        setup()
+        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        details = _portion_details(doc)
+        assert [(s, u, w) for s, u, w, _c, _ul in details] == [
+            ("See ", "", 100.0),
+            ("Old title", _OUTLINE, float(BOLD)),
+            (" here", "", 100.0),
+        ], details
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_bold_mixed_single_link_hint_uno(ctx, doc):
+    from com.sun.star.awt.FontWeight import BOLD, NORMAL
+    from plugin.writer.record_changes import record_changes
+
+    def _setup_single_hint(trailing: str):
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "LongBold xy", _OUTLINE)
+        whole = text.createTextCursorByRange(cursor.getStart())
+        whole.gotoStartOfParagraph(False)
+        whole.gotoEndOfParagraph(True)
+        whole.setPropertyValue("CharWeight", NORMAL)
+        sel = text.createTextCursorByRange(cursor.getStart())
+        sel.gotoStartOfParagraph(False)
+        sel.goRight(len("LongBold"), True)
+        sel.setPropertyValue("CharWeight", BOLD)
+        if trailing:
+            text.insertString(cursor, trailing, False)
+            tail_sel = text.createTextCursorByRange(cursor.getEnd())
+            tail_sel.goLeft(len(trailing), True)
+            tail_sel.setPropertyValue("CharWeight", NORMAL)
+            tail_sel.setPropertyValue("HyperLinkURL", "")
+
+    # (a) Fully linked match ending inside one bold-mixed hint: Swap keeps the link on Accept.
+    _setup_single_hint("")
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="LongBold xy", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    assert _portion_urls(doc) == [("Swap", _OUTLINE)]
+
+    # (b) Match extends past the link while the longest run is inside the hint:
+    # Accept leaves Swap unlinked; Reject restores the original runs and URLs.
+    _setup_single_hint(" z")
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    assert _portion_urls(doc) == [("Swap", "")]
+
+    _setup_single_hint(" z")
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert _portion_urls(doc) == [("LongBold", _OUTLINE), (" xy", _OUTLINE), (" z", "")]
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_link_keeps_direct_color_and_no_underline_uno(ctx, doc):
+    from plugin.writer.record_changes import record_changes
+
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+    sel = text.createTextCursorByRange(cursor.getEnd())
+    sel.goLeft(len("Old title"), True)
+    sel.setPropertyValue("CharColor", 0x112233)
+    sel.setPropertyValue("CharUnderline", 0)
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="Old title", content="Swap")
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    details = _portion_details(doc)
+    assert details == [("Swap", _OUTLINE, 100.0, 0x112233, 0)], details
+
+
+@native_test
+@with_native_doc("writer")
+def test_surgical_review_edit_inside_link_stays_linked_on_accept_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "Alpha beta gamma delta epsilon ", False)
+        _append_linked(text, cursor, "Old title", _OUTLINE)
+        text.insertString(cursor, " zeta eta theta iota kappa.", False)
+        res = _apply(
+            doc,
+            ctx,
+            old_content="Alpha beta gamma delta epsilon Old title zeta eta theta iota kappa.",
+            content="Alpha beta gamma delta epsilon New title zeta eta theta iota kappa.",
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        urls = _portion_urls(doc)
+        assert ("New title", _OUTLINE) in urls, urls
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_unrecorded_partly_linked_match_plain_and_html_uno(ctx, doc):
+    text, cursor = _clear(doc)
+    text.insertString(cursor, "See ", False)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+    text.insertString(cursor, " here", False)
+    res = _apply(doc, ctx, old_content="See Old title here", content="Read New text now")
+    assert res.get("status") == "ok", res
+    assert _portion_urls(doc) == [
+        ("Read", ""),
+        (" New text", _OUTLINE),
+        (" now", ""),
+    ]
+
+    text, cursor = _clear(doc)
+    text.insertString(cursor, "See ", False)
+    _append_linked(text, cursor, "Old title", _OUTLINE)
+    text.insertString(cursor, " here", False)
+    res = _apply(doc, ctx, old_content="See Old title here", content="Read <i>New</i> text now")
+    assert res.get("status") == "ok", res
+    assert all(url == "" for _s, url in _portion_urls(doc))
+
+
+@native_test
+@with_native_doc("writer")
+def test_unrecorded_two_links_plain_and_html_uno(ctx, doc):
+    url_a = "https://a.example.com/"
+    url_b = "https://b.example.com/"
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Alpha ", url_a)
+    _append_linked(text, cursor, "Beta", url_b)
+    res = _apply(doc, ctx, old_content="Alpha Beta", content="Gamma delta epsilon")
+    assert res.get("status") == "ok", res
+    assert _portion_urls(doc) == [("Gamma ", url_a), ("delta epsilon", url_b)]
+
+    text, cursor = _clear(doc)
+    _append_linked(text, cursor, "Alpha ", url_a)
+    _append_linked(text, cursor, "Beta", url_b)
+    res = _apply(doc, ctx, old_content="Alpha Beta", content="Gamma <i>delta</i> epsilon")
+    assert res.get("status") == "ok", res
+    assert all(url == "" for _s, url in _portion_urls(doc))
+
+
+@native_test
+@with_native_doc("writer")
+def test_unrecorded_mid_paragraph_outline_link_leaves_neighbors_unlinked_uno(ctx, doc):
+    zed = "#Zed|outline"
+    for replacement in ("Swap", "<b>Swap</b>"):
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "See ", False)
+        _append_linked(text, cursor, "Old title", zed)
+        text.insertString(cursor, " here", False)
+        res = _apply(doc, ctx, old_content="Old title", content=replacement)
+        assert res.get("status") == "ok", res
+        assert _portion_urls(doc) == [("See ", ""), ("Swap", zed), (" here", "")], _portion_urls(doc)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_all_matches_across_paragraphs_does_not_merge_uno(ctx, doc):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.writer.record_changes import record_changes
+
+    def setup():
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "See foo", False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+        _append_linked(text, cursor, "foo", "https://example.com/")
+        text.insertString(cursor, " bar", False)
+
+    setup()
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="foo", content="baz", all_matches=True)
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    assert [[c for c, _u, _n, _t in row] for row in _body_paragraphs(doc)] == [
+        ["See foo"],
+        ["foo", " bar"],
+    ]
+
+    setup()
+    with record_changes(doc, True):
+        res = _apply(doc, ctx, old_content="foo", content="baz", all_matches=True)
+    assert res.get("status") == "ok", res
+    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    assert ["".join(c for c, _u, _n, _t in row) for row in _body_paragraphs(doc)] == [
+        "See baz",
+        "baz bar",
+    ]
