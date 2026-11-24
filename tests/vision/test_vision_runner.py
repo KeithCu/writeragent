@@ -16,14 +16,13 @@ from plugin.doc.visual_helpers import AmbiguousGraphicNameError
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_runner import (
     _resolve_locale_language,
-    get_selected_image_bytes,
-    resolve_vision_image_bytes,
+    resolve_vision_image,
     run_and_insert_vision_for_selection,
     run_trusted_vision,
 )
 
 
-def test_get_selected_image_bytes_returns_raw_bytes():
+def test_resolve_vision_image_selection_returns_raw_bytes():
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
@@ -31,19 +30,19 @@ def test_get_selected_image_bytes_returns_raw_bytes():
     with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
         "plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=raw
     ):
-        assert get_selected_image_bytes(ctx, doc) == raw
+        assert resolve_vision_image(ctx, doc, "") == (graphic, raw)
 
 
-def test_get_selected_image_bytes_raises_when_no_selection():
+def test_resolve_vision_image_selection_raises_when_no_selection():
     ctx = MagicMock()
     doc = MagicMock()
     with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
-            get_selected_image_bytes(ctx, doc)
+            resolve_vision_image(ctx, doc, "")
     assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
-def test_get_selected_image_bytes_raises_when_export_fails():
+def test_resolve_vision_image_selection_raises_when_export_fails():
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
@@ -51,12 +50,12 @@ def test_get_selected_image_bytes_raises_when_export_fails():
         "plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=RuntimeError("export failed")
     ):
         with pytest.raises(ToolExecutionError) as exc:
-            get_selected_image_bytes(ctx, doc)
+            resolve_vision_image(ctx, doc, "")
     assert exc.value.code == "IMAGE_EXPORT_FAILED"
     assert "Could not export the selected image" in str(exc.value)
 
 
-def test_get_selected_image_bytes_raises_when_export_returns_none():
+def test_resolve_vision_image_selection_raises_when_export_returns_none():
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
@@ -64,7 +63,7 @@ def test_get_selected_image_bytes_raises_when_export_returns_none():
         "plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=None
     ):
         with pytest.raises(ToolExecutionError) as exc:
-            get_selected_image_bytes(ctx, doc)
+            resolve_vision_image(ctx, doc, "")
     assert exc.value.code == "NO_IMAGE_SELECTED"
 
 
@@ -72,13 +71,7 @@ class DisposedException(Exception):
     pass
 
 
-@pytest.mark.parametrize(
-    ("fn_name", "call_kwargs"),
-    [
-        ("get_selected_image_bytes", {}),
-        ("resolve_vision_image_bytes", {"image_name": "Img1"}),
-    ],
-)
+@pytest.mark.parametrize("image_name", ["", "Img1"])
 @pytest.mark.parametrize(
     "exc_factory",
     [
@@ -86,27 +79,26 @@ class DisposedException(Exception):
         lambda: DocumentDisposedError("closed"),
     ],
 )
-def test_image_export_reraises_disposed_document(fn_name, call_kwargs, exc_factory):
+def test_image_export_reraises_disposed_document(image_name, exc_factory):
     ctx = MagicMock()
     doc = MagicMock()
-    fn = get_selected_image_bytes if fn_name == "get_selected_image_bytes" else resolve_vision_image_bytes
     with (
         patch("plugin.vision.vision_runner.selected_graphic_object", return_value=MagicMock()),
         patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=exc_factory()),
     ):
         with pytest.raises(DocumentDisposedError):
-            fn(ctx, doc, **call_kwargs)
+            resolve_vision_image(ctx, doc, image_name)
 
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision")
-@patch("plugin.vision.vision_runner.get_selected_image_bytes")
-def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_merge):
+@patch("plugin.vision.vision_runner.resolve_vision_image")
+def test_run_trusted_vision_builds_payload(mock_resolve, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
-    mock_bytes.return_value = b"png"
+    mock_resolve.return_value = (MagicMock(), b"png")
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
 
     result = run_trusted_vision(ctx, doc, helper="extract_text", params={"lang": "en"})
@@ -124,16 +116,13 @@ def test_run_trusted_vision_rejects_unknown_helper():
     assert exc.value.code == "VISION_ERROR"
 
 
-@patch("plugin.vision.vision_runner._get_graphic_object")
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision")
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
-def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge, mock_get_obj):
+@patch("plugin.vision.vision_runner.resolve_vision_image")
+def test_run_trusted_vision_passes_image_name_context(mock_resolve, mock_run_vision, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
-    graphic = MagicMock()
-    mock_get_obj.return_value = graphic
-    mock_bytes.return_value = b"png"
+    mock_resolve.return_value = (MagicMock(), b"png")
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
 
     run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1", "lang": "en"})
@@ -142,58 +131,50 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
     assert mock_run_vision.call_args.kwargs["context"] == {"source": "graphic_name", "image_name": "Photo1"}
 
 
-@patch("plugin.vision.vision_runner.get_selected_image_bytes")
-def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected):
-    ctx = MagicMock()
-    doc = MagicMock()
-    mock_selected.return_value = b"sel"
-    assert resolve_vision_image_bytes(ctx, doc, image_name="") == b"sel"
-
-
 @patch("plugin.vision.vision_runner.export_graphic_object_to_bytes")
 @patch("plugin.vision.vision_runner._get_graphic_object")
-def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
+def test_resolve_vision_image_by_name(mock_get_obj, mock_export):
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
     mock_export.return_value = b"named"
 
-    assert resolve_vision_image_bytes(ctx, doc, image_name="Photo1") == b"named"
+    assert resolve_vision_image(ctx, doc, "Photo1") == (graphic, b"named")
 
 
 @patch("plugin.vision.vision_runner._get_graphic_object")
-def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
+def test_resolve_vision_image_raises_when_name_missing(mock_get_obj):
     ctx = MagicMock()
     doc = MagicMock()
     mock_get_obj.return_value = None
     with pytest.raises(ToolExecutionError) as exc:
-        resolve_vision_image_bytes(ctx, doc, image_name="Missing")
+        resolve_vision_image(ctx, doc, "Missing")
     assert exc.value.code == "IMAGE_NOT_FOUND"
 
 
 @patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=RuntimeError("export crash"))
 @patch("plugin.vision.vision_runner._get_graphic_object")
-def test_resolve_vision_image_bytes_raises_when_export_fails(mock_get_obj, mock_export):
+def test_resolve_vision_image_raises_when_export_fails(mock_get_obj, mock_export):
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
     with pytest.raises(ToolExecutionError) as exc:
-        resolve_vision_image_bytes(ctx, doc, image_name="Photo1")
+        resolve_vision_image(ctx, doc, "Photo1")
     assert exc.value.code == "IMAGE_EXPORT_FAILED"
     assert "export crash" in str(exc.value)
 
 
 @patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=None)
 @patch("plugin.vision.vision_runner._get_graphic_object")
-def test_resolve_vision_image_bytes_raises_when_export_returns_none(mock_get_obj, mock_export):
+def test_resolve_vision_image_raises_when_export_returns_none(mock_get_obj, mock_export):
     ctx = MagicMock()
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
     with pytest.raises(ToolExecutionError) as exc:
-        resolve_vision_image_bytes(ctx, doc, image_name="Photo1")
+        resolve_vision_image(ctx, doc, "Photo1")
     assert exc.value.code == "IMAGE_NOT_FOUND"
 
 
@@ -201,11 +182,13 @@ def test_resolve_vision_image_bytes_raises_when_export_returns_none(mock_get_obj
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.framework.i18n.get_lo_locale", return_value="fr_FR")
 @patch("plugin.vision.vision_runner.run_vision")
-@patch("plugin.vision.vision_runner.get_selected_image_bytes")
-def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_vision, mock_get_lo_locale, _mock_merge):
+@patch("plugin.vision.vision_runner.resolve_vision_image")
+def test_run_trusted_vision_resolves_lang_from_locale(mock_resolve, mock_run_vision, mock_get_lo_locale, _mock_merge):
     ctx = MagicMock()
     doc = MagicMock()
-    mock_bytes.return_value = b"png"
+    graphic = MagicMock()
+    graphic.getPropertyValue.return_value = None
+    mock_resolve.return_value = (graphic, b"png")
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
 
     result = run_trusted_vision(ctx, doc, helper="extract_text", params={})
@@ -345,16 +328,15 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "t"})
-@patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png")
+@patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png"))
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())])
-def test_cancel_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_vision, _mock_merge):
+def test_cancel_reaches_run_vision(_mock_pairs, _mock_resolve, mock_run_vision, _mock_merge):
     """The tool's stop flag must reach the venv RPC; the UNO ctx carries none."""
     from plugin.framework.send_cancellation import SendCancellation
 
     ctx = MagicMock(spec=[])  # a UNO component context has no send_cancellation attribute
     scope = SendCancellation()
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn(*a)), \
-            patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()), \
             patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"), \
             patch("plugin.vision.vision_egress.insert_vision_result"):
         run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_text", cancel=scope)
@@ -377,7 +359,7 @@ def test_run_and_insert_single_image_failure_returns_its_error(mock_pairs, mock_
 
 
 def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
-    with patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as export, patch(
+    with patch("plugin.vision.vision_runner.resolve_vision_image") as export, patch(
         "plugin.vision.vision_runner.run_vision"
     ) as rpc:
         with pytest.raises(ToolExecutionError) as exc:
@@ -456,16 +438,15 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
     ],
 )
 def test_resolve_locale_keeps_region(char_locale, lo_locale, expected):
-    graphic = None if char_locale is None else MagicMock()
-    if graphic is not None:
-        graphic.getPropertyValue.return_value = char_locale
+    graphic = MagicMock()
+    graphic.getPropertyValue.return_value = char_locale
     with patch("plugin.framework.i18n.get_lo_locale", return_value=lo_locale):
         assert _resolve_locale_language(MagicMock(), graphic) == expected
 
 
 def test_run_trusted_vision_rejects_oversized_image_before_rpc():
     with patch("plugin.vision.vision_runner.VISION_IMAGE_MAX_BYTES", 4), patch(
-        "plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"12345"
+        "plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"12345")
     ), patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), patch(
         "plugin.vision.vision_runner.run_vision"
     ) as rpc:
@@ -492,14 +473,14 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
 
     def fake_export(*args, **kwargs):
         seen["export"] = depth["n"]
-        return b"png"
+        return MagicMock(), b"png"
 
     def fake_insert(*args, **kwargs):
         seen["insert"] = depth["n"]
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec), patch(
         "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
-    ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes", side_effect=fake_export), patch(
+    ), patch("plugin.vision.vision_runner.resolve_vision_image", side_effect=fake_export), patch(
         "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
     ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]), patch(
         "plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert
@@ -523,7 +504,7 @@ def test_vision_insert_marshaled_with_unscoped_scope():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec),
         patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
-        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
         patch("plugin.vision.vision_egress.insert_vision_result"),
@@ -626,8 +607,7 @@ def test_run_trusted_vision_calls_on_exported_with_sent_params():
 
     with (
         patch("plugin.vision.vision_runner.merge_vision_params", return_value={"image_name": "Img1", "lang": "fr"}),
-        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
-        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png-data"),
+        patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png-data")),
         patch("plugin.vision.vision_runner.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision),
     ):
@@ -954,8 +934,7 @@ def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
-        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
-        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_timeout),
     ):
         with pytest.raises(ToolExecutionError, match="Timed out"):
@@ -976,8 +955,7 @@ def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
-        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
-        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_second_timeout),
     ):
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False)
@@ -1009,8 +987,7 @@ def test_run_and_insert_worker_cancelled_returns_stopped_without_failed_image():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
-        patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()),
-        patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
+        patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_cancel_second),
     ):
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", insert_into_document=False, cancel=scope)
@@ -1056,6 +1033,61 @@ def test_run_trusted_vision_lookup_error_keeps_its_type():
     ):
         with pytest.raises(AmbiguousGraphicNameError, match="Several objects named 'Img1'"):
             run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Img1"})
+    mock_run_vision.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("export_patch", "expected_code", "expected_substr"),
+    [
+        ({"return_value": None}, "NO_IMAGE_SELECTED", None),
+        (
+            {"side_effect": RuntimeError("boom")},
+            "IMAGE_EXPORT_FAILED",
+            "Could not export the selected image: boom",
+        ),
+    ],
+    ids=["export_returns_none", "export_raises"],
+)
+def test_run_trusted_vision_selected_image_errors_do_not_name_an_empty_image(
+    export_patch, expected_code, expected_substr
+):
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.selected_graphic_object", return_value=MagicMock()),
+        patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", **export_patch),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(ToolExecutionError) as exc:
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"lang": "en"})
+    assert exc.value.code == expected_code
+    assert "''" not in str(exc.value)
+    if expected_substr is not None:
+        assert expected_substr in str(exc.value)
+    mock_run_vision.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("params", "lookup_target", "expected_code"),
+    [
+        ({"lang": "en"}, "plugin.vision.vision_runner.selected_graphic_object", "NO_IMAGE_SELECTED"),
+        ({"image_name": "Missing", "lang": "en"}, "plugin.vision.vision_runner._get_graphic_object", "IMAGE_NOT_FOUND"),
+    ],
+    ids=["selection_miss", "named_miss"],
+)
+def test_run_trusted_vision_looks_up_a_missing_image_once(params, lookup_target, expected_code):
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch(lookup_target, return_value=None) as mock_lookup,
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(ToolExecutionError) as exc:
+            run_trusted_vision(ctx, doc, helper="extract_text", params=params)
+    assert exc.value.code == expected_code
+    assert mock_lookup.call_count == 1
     mock_run_vision.assert_not_called()
 
 

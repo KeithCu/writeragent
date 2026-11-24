@@ -2405,3 +2405,33 @@ def test_image_replace_warns_untracked_only_when_recording(tmp_path):
             assert "tracked" not in res
             assert "warning" not in res
 
+
+def test_image_download_logs_hide_signed_query(tmp_path, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    url = "https://u:Hunter2pw@example.com/logo.png?sig=SignedSecret123"
+    caplog.set_level(logging.DEBUG)
+
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        return_value=HttpResult(200, png_bytes, "image/png"),
+    ):
+        _download_image_to_cache(url)
+    download_records = [r.getMessage() for r in caplog.records if "downloading" in r.getMessage()]
+    assert any("example.com" in msg for msg in download_records)
+    assert "Hunter2pw" not in caplog.text
+    assert "SignedSecret123" not in caplog.text
+
+    caplog.clear()
+    with patch(
+        "plugin.writer.images.image_utils.sync_request",
+        side_effect=AssertionError("sync_request called on cache hit"),
+    ):
+        _download_image_to_cache(url)
+    hit_records = [r.getMessage() for r in caplog.records if "cache hit" in r.getMessage()]
+    assert any("example.com" in msg for msg in hit_records)
+    assert "Hunter2pw" not in caplog.text
+    assert "SignedSecret123" not in caplog.text
+

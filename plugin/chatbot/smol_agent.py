@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.monitoring import LogLevel
@@ -182,6 +182,8 @@ class InnerCallRecorder(SmolToolAdapter):
     ``safe=True`` turns a raising tool into an error result. An exception that leaves
     ``forward`` means the tool did not run (except at interpreter shutdown); it is logged
     as a failed call and re-raised, which ends the model's current turn.
+    ``WriterAgentToolCallingAgent`` also calls ``record_not_run`` for calls it skips
+    after a turn has already failed.
     """
 
     _calls: list[InnerToolCall]
@@ -195,13 +197,17 @@ class InnerCallRecorder(SmolToolAdapter):
         super().__init__(tool, tctx, safe=True, inputs_style="specialized")
         self._calls = calls
 
+    def record_not_run(self, reason: str) -> None:
+        """Record that this tool did not run so outcome grading counts it as a failed call."""
+        error = make_tool_error(f"Tool '{self.name}' did not run: {reason}")
+        # mutating=False: no editing tool ran, so record_edits keeps NO_EDIT_TOOL_NOTE.
+        self._calls.append(InnerToolCall(self.name, error, mutating=False))
+
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         try:
             result = super().forward(*args, **kwargs)
         except Exception as exc:
-            error = make_tool_error(f"Tool '{self.name}' did not run: {resolve_exception_message(exc)}")
-            # mutating=False: no editing tool ran, so record_edits keeps NO_EDIT_TOOL_NOTE.
-            self._calls.append(InnerToolCall(self.name, error, mutating=False))
+            self.record_not_run(resolve_exception_message(exc))
             raise
         self._calls.append(InnerToolCall(self.name, result, self.mutating))
         return result
@@ -428,13 +434,19 @@ def create_smol_model(
     )
 
 
-class WriterAgentToolCallingAgent(ToolCallingAgent):
+class WriterAgentToolCallingAgent(PartialTurnToolCallingAgent):
     """ToolCallingAgent that skips smolagents' pre-validation for ``SmolToolAdapter`` tools.
 
     Smolagents validates argument types and unknown keys before the tool runs,
     which would reject coerced values (such as ``"1"`` or ``"true"``) and extra
     keys before WriterAgent's ``prepare_tool_call`` can coerce or drop them.
     """
+
+    def on_call_not_run(self, call: ToolCall) -> None:
+        tool = self.tools.get(call.name)
+        # A skipped finish call is already graded as an unfinished run.
+        if isinstance(tool, InnerCallRecorder) and not tool.is_final_answer_tool:
+            tool.record_not_run("the turn had already failed")
 
     def execute_tool_call(self, tool_name: str, arguments: dict[str, str] | str) -> Any:
         tool = self.tools.get(tool_name)

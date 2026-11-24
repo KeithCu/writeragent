@@ -434,3 +434,22 @@ def test_binomdist_blank_flag_is_mass_function():
     # ScBinomDist reads the flag with GetBool; a blank is 0, the mass function.
     assert calc.binomdist(3, 10, 0.5, "") == calc.binomdist(3, 10, 0.5, False)
 
+
+def test_a_c_approx_floor_counts_and_df():
+    assert math.isnan(calc.binomdist(-0.5, 2, 0.5, 0))
+    assert math.isnan(calc.binomdist(1, -0.5, 0.5, 0))
+    assert math.isnan(calc.combin(5, -0.5))
+    assert math.isnan(calc.combin(-0.5, 0))
+    assert math.isnan(calc.combina(5, -0.5))
+    assert math.isnan(calc.critbinom(-0.5, 0.5, 0.5))
+
+    assert math.isclose(calc.binomdist(2.9999999999999996, 3, 0.5, 0), 0.125)
+    assert calc.combin(0.29 * 100, 1) == 29
+    assert calc.combina(0.29 * 100, 1) == 29
+    assert calc.critbinom(0.29 * 100, 0.5, 1) == 29
+    assert calc.critbinom("10.9", 0.5, 0.5) == calc.critbinom(10, 0.5, 0.5)
+
+    assert calc.chidist(5.0, 0.29 * 100) == calc.chidist(5.0, 29)
+    assert calc.chiinv(0.5, 0.29 * 100) == calc.chiinv(0.5, 29)
+    assert calc.confidence(0.05, 2.0, 0.29 * 100) == calc.confidence(0.05, 2.0, 29)
+

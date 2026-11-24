@@ -26,6 +26,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.visual_helpers import color_param
 from plugin.doc.text_helpers import (
     DeletionState,
     TrackedDeletions,
@@ -98,6 +99,25 @@ def _page_style_layout_to_uno(val: Any) -> Any:
     return (ALL, LEFT, RIGHT, MIRRORED)[val]
 
 
+def _page_color_to_uno(val: Any) -> int:
+    """UNO BackColor for a back_color argument.
+
+    Integers pass through unchanged: a partly transparent page fill reads back with its
+    transparency in the high byte, and masking it to RGB would make the page opaque.
+    Strings must be parsed, because SwXStyle::SetPropertyValue<RES_BACKGROUND>
+    (sw/source/core/unocore/unostyle.cxx) ignores one it cannot convert without an error.
+    """
+    if isinstance(val, int):
+        return val
+    # Cycle: styles.py imports this module at load.
+    from .styles import style_color_to_uno
+
+    color = style_color_to_uno(val)
+    if color is None:
+        raise ToolExecutionError(f"back_color is not a color: {val!r}. Use '#RRGGBB', a color name, or 'transparent'.", code="INVALID_PARAM")
+    return color
+
+
 def _mirrored_region_skip(style_name: str, region: str) -> dict[str, Any]:
     shared = _region_kind(region)
     return {
@@ -141,7 +161,7 @@ _PAGE_SET_SPECS = (
     ("footer_height_mm", "FooterHeight", _mm_to_hmm),
     ("header_body_distance_mm", "HeaderBodyDistance", _mm_to_hmm),
     ("footer_body_distance_mm", "FooterBodyDistance", _mm_to_hmm),
-    ("back_color", "BackColor", None),
+    ("back_color", "BackColor", _page_color_to_uno),
     ("back_transparent", "BackTransparent", None),
     ("numbering_type", "NumberingType", None),
     ("footnote_height_mm", "FootnoteHeight", _mm_to_hmm),
@@ -795,7 +815,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
             "footer_height_mm": {"type": "number", "description": "Absolute footer height in mm."},
             "header_body_distance_mm": {"type": "number", "description": "Spacing from header to body in mm."},
             "footer_body_distance_mm": {"type": "number", "description": "Spacing from footer to body in mm."},
-            "back_color": {"type": "integer", "description": "Background color (RGB long)."},
+            "back_color": color_param("Page background color (hex: #FF0000 or name: yellow). -1 or 'transparent' for no fill."),
             "back_transparent": {"type": "boolean", "description": "Make background transparent."},
             "numbering_type": {
                 "type": "integer",
@@ -825,8 +845,8 @@ class PageSetStyleProperties(ToolWriterPageBase):
             return self._tool_error(blocked)
 
         # type/enum checks are done by the tool schema in ToolRegistry
-        # Convert before any UNO write. _mm_to_hmm and _page_style_layout_to_uno still
-        # raise on negatives and layouts outside 0..3; execute_safe codes that.
+        # Convert before any UNO write. _mm_to_hmm, _page_style_layout_to_uno and
+        # _page_color_to_uno still raise on negatives, layouts outside 0..3 and strings that are not colors; execute_safe codes that.
         pending: list[tuple[str, str, Any]] = []
         has_landscape = False
         landscape_val: Any = None

@@ -32,6 +32,7 @@ from plugin.doc.text_helpers import (
     iter_elements,
     normalize_linebreaks,
     starts_at_or_after,
+    visible_point_in_paragraph,
     visible_range_text,
     with_view_cursor_left_body_locked,
 )
@@ -520,8 +521,8 @@ def _paragraph_matches_part(
 ) -> tuple[bool, int | None]:
     """Compare a paragraph to a search part; return (ok, offset_len).
 
-    *head*: part must match the start of the paragraph; offset_len is goRight length.
-    *tail*: part must match the end; offset_len is goRight start offset from para start.
+    *head*: part must match the start of the paragraph; offset_len is the visible end offset.
+    *tail*: part must match the end; offset_len is the visible start offset.
     Neither flag: full paragraph must equal part (after normalize).
     """
     para_text = normalize_linebreaks(para_text)
@@ -602,19 +603,21 @@ def _chain_hit_range(
     first_start_cursor = None
     last_end_cursor = None
 
-    def _offset_cursor(base: Any, off: int | None) -> Any:
-        c = text.createTextCursorByRange(base)
-        if off:
-            c.goRight(off, False)
-        return c
-
-    anchor_start_cursor = text.createTextCursorByRange(found)
-    anchor_start_cursor.gotoStartOfParagraph(False)
+    def _edge(whole: Any, off: int | None, *, at_end: bool) -> Any:
+        """Position of visible offset *off* in the paragraph that cursor *whole* spans."""
+        para = next(iter_elements(whole.createEnumeration()), None)
+        if para is None or off is None:
+            # An empty paragraph after a table is not enumerated
+            # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx).
+            return whole
+        return visible_point_in_paragraph(
+            para, off, opened=deletions.state_at(whole).in_delete, at_end=at_end
+        )
 
     if is_anchor_first:
-        first_start_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
+        first_start_cursor = _edge(anchor_cursor, anchor_offset_len, at_end=False)
     if is_anchor_last:
-        last_end_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
+        last_end_cursor = _edge(anchor_cursor, anchor_offset_len, at_end=True)
 
     forward_cursor = text.createTextCursorByRange(found)
     forward_cursor.gotoRange(found.getEnd(), False)
@@ -632,7 +635,7 @@ def _chain_hit_range(
         if not ok:
             return None
         if is_last:
-            last_end_cursor = _offset_cursor(forward_cursor, offset_len)
+            last_end_cursor = _edge(check_cursor, offset_len, at_end=True)
 
     backward_cursor = text.createTextCursorByRange(found)
     backward_cursor.gotoRange(found.getStart(), False)
@@ -650,11 +653,10 @@ def _chain_hit_range(
         if not ok:
             return None
         if is_first:
-            first_start_cursor = _offset_cursor(backward_cursor, offset_len)
+            first_start_cursor = _edge(check_cursor, offset_len, at_end=False)
 
     start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
-    # last_end_cursor is collapsed (goRight with expand=False), so getEnd()
-    # equals its start; getEnd() stays correct if that cursor is ever widened.
+    # Both edges are collapsed positions; an empty paragraph's cursor is too.
     end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
 
     # Same-text combine failures propagate as UNO errors. Ranges in different

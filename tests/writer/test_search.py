@@ -725,7 +725,7 @@ def test_find_first_range_chain_combine_failure_propagates():
         cursor = MagicMock()
         cursor.getStart.return_value.getText.return_value = text
         cursor.getEnd.return_value.getText.return_value = text
-        if n["i"] == 8:
+        if n["i"] == 5:
             raise RuntimeError("combine failed")
         return cursor
 
@@ -754,9 +754,9 @@ def test_find_first_range_chain_cross_text_is_skipped():
     def _make(_arg):
         n["i"] += 1
         cursor = MagicMock()
-        if n["i"] == 3:
+        if n["i"] == 1:
             cursor.getStart.return_value.getText.return_value = body
-        if n["i"] == 6:
+        if n["i"] == 3:
             cursor.getEnd.return_value.getText.return_value = other
         return cursor
 
@@ -764,7 +764,7 @@ def test_find_first_range_chain_cross_text_is_skipped():
     with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         assert find_first_range(doc, "Hello\nWorld") is None
-    assert n["i"] == 7
+    assert n["i"] == 4
 
 
 def test_occurrence_range_or_error_payloads():

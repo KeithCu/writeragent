@@ -450,6 +450,63 @@ def _has_paragraph_format_redline(para: Any) -> bool:
     return False
 
 
+def _format_reject_drops_paragraph_restore(para: Any) -> bool:
+    """Return True if a whole-paragraph Format redline sits before ParagraphFormat in the table.
+
+    Reject All works from the end of the redline table; a ``Format`` redline over the whole
+    paragraph that sits before the ``ParagraphFormat`` one is rejected last, and its
+    ``ResetAttrs`` drops the direct formatting just restored (``lcl_RejectRedline``,
+    ``DocumentRedlineManager.cxx``; ``SwDoc::ResetAttrs``, ``docfmt.cxx``). Redline portions
+    at one position come in table order (``lcl_FillRedlineArray``, ``unoportenum.cxx``).
+    ``lcl_SetRedlines`` (``DocumentContentOperationsManager.cxx``) makes one Format redline
+    per run and paragraph, so a partial one is harmless.
+    """
+    leading: set[str] = set()  # Format redlines from the paragraph start, listed before any ParagraphFormat
+    closing: set[str] = set()  # redlines that end after the last text
+    at_start = True
+    has_paragraph_format = False
+    for portion in iter_elements_limited(para.createEnumeration(), _CAPTURE_PORTION_LIMIT):
+        if portion.getPropertyValue("TextPortionType") != "Redline":
+            if portion.getString():
+                at_start = False
+                closing.clear()
+            continue
+        identifier = portion.getPropertyValue("RedlineIdentifier")
+        kind = portion.getPropertyValue("RedlineType")
+        if not portion.getPropertyValue("IsStart"):
+            closing.add(identifier)
+        elif kind == "ParagraphFormat":
+            has_paragraph_format = True
+        elif kind == "Format" and at_start and not has_paragraph_format:
+            leading.add(identifier)
+    return has_paragraph_format and not leading.isdisjoint(closing)
+
+
+def _flag_stacked_format_redlines(res: dict[str, Any], cursors: list[Any]) -> None:
+    """Flag when a whole-paragraph Format redline will be rejected after ParagraphFormat.
+
+    Revert data is not readable through UNO, so a paragraph that had no direct formatting
+    is flagged too.
+    """
+    try:
+        for cursor in cursors:
+            for para in _capture_paragraphs(_CountingReader(), _expand_to_full_paragraphs(cursor).createEnumeration(), []):
+                if _format_reject_drops_paragraph_restore(para):
+                    res["style_unreviewed"] = True
+                    msg = (
+                        "Rejecting all changes may drop direct paragraph formatting (indents, alignment) "
+                        "from before the tracked changes, because a tracked character change covers a whole "
+                        "paragraph that also has a tracked paragraph change."
+                    )
+                    existing = res.get("warning")
+                    res["warning"] = f"{existing} {msg}" if existing else msg
+                    return
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        # Do not fail the tool: the style is already applied.
+        log.exception("Failed to inspect redlines for stacked Format warning")
+
+
 def _paragraph_revert_states(capture_cursor: Any, style_name: str | None = None) -> tuple[list[_ParagraphRevert], bool]:
     """Capture each touched paragraph's pre-change formatting for a ParagraphFormat redline.
 
@@ -552,7 +609,7 @@ def apply_paragraph_style_preserving_direct_char(
     overrides on hyperlinks, see ``read_link_look`` in ``hyperlink_fixup``), so overrides
     are detected by VALUE (Char* differs from the paragraph's current style default).
 
-    With *author* set, the caller has turned recording off, and each changed paragraph gets a
+    With *author* set, recording is off and each changed paragraph gets a
     ``ParagraphFormat`` redline via ``SwUnoCursorHelper::makeRedline`` whose Reject restores
     its style, direct paragraph formatting and numbering style.
 
@@ -1636,8 +1693,14 @@ def apply_to_cursors(
             )
         if outcome.mutate_error is not None:
             error = outcome.mutate_error
-            # Not rolled back with no finished range (assumes the group closed): the first write
-            # was refused before it changed anything, so the undo group is empty.
+            if not outcome.group_closed:
+                return [], tool._tool_error(
+                    "Applied to %d of %d; failed on one match: %s. The undo step could not be closed, so part of the change may be in the document."
+                    % (len(reports), len(cursors), error),
+                    code="TOOL_EXECUTION_ERROR",
+                )
+            # Not rolled back with no finished range: the first write was refused before it
+            # changed anything, so the undo group is empty.
             if outcome.rolled_back or not reports:
                 return [], tool._tool_error(
                     "Nothing was changed: %s" % (error,),
@@ -1807,7 +1870,6 @@ class ApplyStyle(FrameworkToolBase):
         family: str,
         target: str,
         reports: list[ParagraphStyleApplyReport | None],
-        doc: Any,
         *,
         char_tracked: bool,
     ) -> dict[str, Any]:
@@ -1827,7 +1889,7 @@ class ApplyStyle(FrameworkToolBase):
         if char_tracked:
             res["tracked"] = True
         if "tracked" not in res:
-            flag_style_unreviewed(res, doc if family == "ParagraphStyles" else None)
+            flag_style_unreviewed(res)
         if res.get("tracked"):
             return annotate_review_status(res)
         return res
@@ -1880,10 +1942,11 @@ class ApplyStyle(FrameworkToolBase):
         if family == "CharacterStyles":
             if review_recording_enabled():
                 recording_cm = record_changes(ctx.doc, True)
-        elif is_recording_changes(ctx.doc):
+        elif review_recording_enabled() or is_recording_changes(ctx.doc):
             author = paragraph_redline_author(ctx.ctx)
-            # Recording is off during the write: LibreOffice records the Char* restore as Format
-            # redlines whose Reject drops the run's formatting and keeps the new style.
+            # Recording is off during the write because LibreOffice would record the Char* restore
+            # as Format redlines whose Reject keeps the new style; makeRedline records the paragraph
+            # change itself, whether or not the document was recording.
             recording_cm = record_changes(ctx.doc, False)
         with recording_cm:
             # A caret has no text to record a Format redline on.
@@ -1902,7 +1965,9 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        res = self._success(style_name, family, target, reports, ctx.doc, char_tracked=char_tracked)
+        res = self._success(style_name, family, target, reports, char_tracked=char_tracked)
+        if res.get("tracked"):
+            _flag_stacked_format_redlines(res, cursors)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -2121,6 +2186,7 @@ class StyleFormatText(ToolWriterStyleBase):
 
         if tracked:
             res = annotate_review_status(res)
+            _flag_stacked_format_redlines(res, cursors)
         if untracked or not tracked:
             flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:

@@ -33,6 +33,7 @@ import typing
 from typing import Any, Callable
 import urllib.parse
 
+from plugin.framework.client.http_security import log_target
 # Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
@@ -1289,7 +1290,7 @@ class ImageInsert(ToolWriterImageBase):
             "path": {"type": "string", "description": ("Local file path or URL of the image to insert.")},
             "locator": {"type": "string", "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title').")},
             "paragraph": {"type": "integer", "description": "Paragraph index for insertion point."},
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. Active page or sheet if omitted."},
+            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index. Calc: 0-based sheet index. The user's page or sheet 2 is page=1. Active page or sheet if omitted."},
             "x_mm": {"type": "number", "description": "Draw/Impress: X position in millimetres (default: centered). Ignored on Calc."},
             "y_mm": {"type": "number", "description": "Draw/Impress: Y position in millimetres (default: centered). Ignored on Calc."},
             "width_mm": {"type": "number", "description": "Width in millimetres (must be positive; omitted derives from aspect ratio)."},
@@ -1698,14 +1699,14 @@ def _download_image_to_cache(
                     if name_base == url_hash:
                         try:
                             if now - entry.stat().st_mtime <= IMAGE_CACHE_MAX_AGE_SECONDS:
-                                log.debug("image_download: cache hit %s -> %s", url, entry.path)
+                                log.debug("image_download: cache hit %s -> %s", log_target(url), entry.path)
                                 return entry.path
                         except OSError:
                             pass
         except OSError:
             pass
 
-    log.info("image_download: downloading %s (hash %s)", url, url_hash)
+    log.info("image_download: downloading %s (hash %s)", log_target(url), url_hash)
 
     body, suffix = fetch_image_url(url, cancel=cancel)
     local_path = os.path.join(cache_dir, url_hash + suffix)
