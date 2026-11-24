@@ -806,7 +806,7 @@ def _copy_xtext_by_portions(
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
-    """Copy paragraphs, tables, fields, and direct char/para props inside *doc*.
+    """Copy paragraphs, tables, fields, graphics, and direct char/para props inside *doc*.
 
     Used by page-style clone. Does not select the source, does not use the
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
@@ -842,8 +842,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
             begin_next_paragraph(dest_text, cursor)
         fresh = supports_service(el, "com.sun.star.text.TextTable")
         if fresh:
-            # copy_table also clones cell graphics; page._copy_region_graphics
-            # handles only graphics anchored directly in src_text.
+            # copy_table also clones cell graphics.
             copy_table(el, doc, dest_text, cursor, None)
             continue
         for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
@@ -855,11 +854,15 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
                 if _copy_field_into(doc, dest_text, cursor, field):
                     fields_copied += 1
                 cursor.gotoEnd(False)
+            elif kind == "Frame":
+                clone_graphics(portion, doc, dest_text, cursor)
+                cursor.gotoEnd(False)
             elif kind == "Text":
                 if not chunk:
                     continue
                 copy_text_run(portion, dest_text, cursor, chunk)
         _copy_para_properties_to_end(dest_text, cursor, el)
+        clone_graphics(el, doc, dest_text, cursor)
 
     return fields_copied
 
@@ -917,15 +920,21 @@ def table_is_all_deleted(doc: Any, table: Any) -> bool:
     return cells_all_tracked_deleted([table.getCellByName(n) for n in names], doc)
 
 
-# TextGraphicObject property list (shared with page._copy_region_graphics).
+GRAPHIC_LAYOUT_PROPS = (
+    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",
+    "VertOrient", "VertOrientPosition", "VertOrientRelation",
+    "TextWrap", "SurroundContour", "SurroundAnchorOnly",
+    "LeftMargin", "RightMargin", "TopMargin", "BottomMargin",
+    "Title", "Description", "GraphicCrop", "Opaque",
+)
+
+# TextGraphicObject property list (shared with image_placeholders).
 # The temp Writer does not offer every orient property; the per-property except
 # is that miss, not a missing Graphic.
 ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
-    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",
-    "VertOrient", "VertOrientPosition", "VertOrientRelation",
-    "HyperLinkURL", "HyperLinkTarget", "Title", "Description",
-)
+    "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
+) + GRAPHIC_LAYOUT_PROPS
 
 
 def prefix_char_count(text_obj: Any, cursor: Any) -> int:

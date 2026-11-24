@@ -1029,3 +1029,45 @@ def test_page_style_clone_copies_cell_and_nested_cell_logos_uno(ctx, doc):
     cloned_style = resolve_page_style(doc, "ClonedWithCellLogos")
     scan = _scan_region_content(doc, cloned_style.getPropertyValue("HeaderText"))
     assert len(scan["images"]) == 2, scan
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx, doc):
+    from com.sun.star.text.WrapTextMode import NONE as WRAP_NONE
+    from plugin.writer.page import _region_shapes
+
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    logo_url = _file_url_for_path(_header_logo_path())
+    gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
+    gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+    gfx.setPropertyValue("Width", 500)
+    gfx.setPropertyValue("Height", 500)
+    gfx.setPropertyValue("TextWrap", WRAP_NONE)
+    gfx.setPropertyValue("LeftMargin", 150)
+    gfx.setPropertyValue("RightMargin", 250)
+    gfx.setPropertyValue("HoriOrient", 0)
+    gfx.setPropertyValue("VertOrient", 0)
+    gfx.setPropertyValue("HoriOrientPosition", 300)
+    gfx.setPropertyValue("VertOrientPosition", 100)
+    header.insertTextContent(header.getStart(), gfx, False)
+    gfx.setName("HeaderLayoutLogo")
+
+    res = copy_page_style(doc, s_name, "ClonedLayoutLogo")
+    assert res["shapes_copied"] == 1, res
+    assert res["skipped_shapes"] == [], res
+
+    cloned_style = resolve_page_style(doc, "ClonedLayoutLogo")
+    cloned_header = cloned_style.getPropertyValue("HeaderText")
+    shapes = _region_shapes(doc, cloned_header)
+    assert len(shapes) == 1
+    cloned_gfx = shapes[0][0]
+    assert cloned_gfx.getPropertyValue("TextWrap") == WRAP_NONE
+    assert cloned_gfx.getPropertyValue("LeftMargin") == 150
+    assert cloned_gfx.getPropertyValue("RightMargin") == 250
+    assert cloned_gfx.getPropertyValue("HoriOrientPosition") == 300
+    assert cloned_gfx.getPropertyValue("VertOrientPosition") == gfx.getPropertyValue("VertOrientPosition")

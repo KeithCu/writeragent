@@ -174,9 +174,9 @@ def test_text_analytics_topics_accepts_list_for_sections():
         assert meta["n_topics"] == len(res["topics"])
 
 
-def test_report_html_double_escapes_markup():
+def test_report_html_escapes_markup():
     html = ta.text_analytics_report_html({"status": "ok", "result": {"key_phrases": [{"lemma": "<script>"}]}})
-    assert "&amp;lt;script&amp;gt;" in html
+    assert "&lt;script&gt;" in html
     assert "<script>" not in html
 
 

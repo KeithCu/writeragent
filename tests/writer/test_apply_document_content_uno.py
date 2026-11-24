@@ -868,3 +868,171 @@ def test_full_document_bracketed_prose_not_parsed_as_list_uno(ctx, doc):
     body = doc.getText().getString()
     assert "[TODO]" in body
     assert "later" in body
+
+
+@native_test
+@with_native_doc("writer")
+def test_escaped_markup_stays_text_across_targets_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+
+    _clear_body(doc)
+    res = tool.execute(tctx, target="full_document", content="<p>A &lt;b&gt;lit&lt;/b&gt;</p>")
+    assert res.get("status") == "ok", res
+    assert "<b>lit</b>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="end", content="&lt;i&gt;end&lt;/i&gt;")
+    assert res.get("status") == "ok", res
+    assert "<i>end</i>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="beginning", content="&lt;u&gt;beg&lt;/u&gt;")
+    assert res.get("status") == "ok", res
+    assert "<u>beg</u>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="search", old_content="lit", position="replace", content="&lt;em&gt;rep&lt;/em&gt;")
+    assert res.get("status") == "ok", res
+    assert "<em>rep</em>" in doc.getText().getString()
+
+    res = tool.execute(tctx, target="search", old_content="<em>rep</em>", position="after", content=" &lt;code&gt;aft&lt;/code&gt;")
+    assert res.get("status") == "ok", res
+    assert "<code>aft</code>" in doc.getText().getString()
+
+    _select_match(doc, "<u>beg</u>")
+    res = tool.execute(tctx, target="selection", content="&lt;b&gt;sel&lt;/b&gt;")
+    assert res.get("status") == "ok", res
+    assert "<b>sel</b>" in doc.getText().getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_leading_sections_uno(ctx, doc):
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    # Protected leading section refuses without changing the document.
+    _clear_body(doc)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtLead")
+    sec.setPropertyValue("IsProtected", True)
+    text.insertTextContent(text.getStart(), sec, False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "Keep protected", False)
+    res_prot = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+    assert res_prot.get("status") == "error", res_prot
+    assert res_prot.get("code") == "PROTECTED_LEADING_SECTION", res_prot
+    assert "Keep protected" in text.getString()
+
+    # Visible leading section is replaced outside the section; one undo restores it.
+    sec.setPropertyValue("IsProtected", False)
+    res_vis = tool.execute(tctx, target="full_document", content="<p>Outside</p>")
+    assert res_vis.get("status") == "ok", res_vis
+    assert text.getString().strip() == "Outside"
+    assert doc.getTextSections().getCount() == 0
+    doc.getUndoManager().undo()
+    assert "Keep protected" in text.getString()
+    assert doc.getTextSections().getCount() == 1
+
+    # Leading TOC is replaced outside the index.
+    _clear_body(doc)
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    text.insertTextContent(text.getStart(), toc, False)
+    res_toc = tool.execute(tctx, target="full_document", content="<p>No TOC</p>")
+    assert res_toc.get("status") == "ok", res_toc
+    assert text.getString().strip() == "No TOC"
+    assert doc.getTextSections().getCount() == 0
+
+    # Recorded leading section: Reject restores original text, Accept keeps new text outside.
+    _clear_body(doc)
+    sec2 = doc.createInstance("com.sun.star.text.TextSection")
+    sec2.setName("RecLead")
+    text.insertTextContent(text.getStart(), sec2, False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    text.insertString(cur, "Original", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_rec = tool.execute(tctx, target="full_document", content="<p>NewRec</p>")
+        assert res_rec.get("status") == "ok", res_rec
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        assert "Original" in text.getString()
+        res_rec2 = tool.execute(tctx, target="full_document", content="<p>Accepted</p>")
+        assert res_rec2.get("status") == "ok", res_rec2
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        assert "Accepted" in text.getString()
+        assert "Original" not in text.getString()
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_object_and_cell_block_refuse_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    _clear_body(doc)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("SelFrame")
+    frame.setPropertyValue("Width", 1000)
+    frame.setPropertyValue("Height", 1000)
+    text.insertTextContent(text.getStart(), frame, False)
+    controller.select(frame)
+    res_frame = tool.execute(tctx, target="selection", content="x")
+    assert res_frame.get("status") == "error", res_frame
+    assert res_frame.get("code") == "SELECTION_NOT_TEXT", res_frame
+
+    _clear_body(doc)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getStart(), tbl, False)
+    controller.select(tbl.getCellRangeByName("A1:B1"))
+    res_cells = tool.execute(tctx, target="selection", content="x")
+    assert res_cells.get("status") == "error", res_cells
+    assert res_cells.get("code") == "SELECTION_NOT_TEXT", res_cells
+
+
+@native_test
+@with_native_doc("writer")
+def test_linked_picture_round_trip_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.writer.html_export import document_to_content
+
+    tctx = native_writer_tool_context(doc, ctx)
+    _clear_body(doc)
+    text = doc.getText()
+    text.setString("before")
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        gfx.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+        gfx.setPropertyValue("Width", 400)
+        gfx.setPropertyValue("Height", 400)
+        gfx.setPropertyValue("HyperLinkURL", "https://example.org/orig")
+        text.insertTextContent(text.getStart(), gfx, False)
+        gfx.setName("LinkedPic")
+
+        html = document_to_content(doc, ctx, scope="full", include_images=False)
+        res = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
+        assert res.get("status") == "ok", res
+        objs = doc.getGraphicObjects()
+        assert objs.getCount() == 1, (objs.getCount(), html, res)
+        restored = objs.getByIndex(0)
+        assert restored.getPropertyValue("HyperLinkURL") == "https://example.org/orig"
+    finally:
+        os.unlink(img_path)

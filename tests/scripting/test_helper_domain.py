@@ -445,14 +445,11 @@ def test_rps_ok_outcome_no_output_flag():
     assert "stdout" not in out_normal
 
 
-def test_escape_for_html_insert_survives_one_unescape():
-    import html
-
+def test_escape_for_html_insert_single_escapes():
     from plugin.scripting.helper_domain import escape_for_html_insert
 
     escaped = escape_for_html_insert("<b>&")
-    assert escaped == "&amp;lt;b&amp;gt;&amp;amp;"
-    assert html.unescape(escaped) == "&lt;b&gt;&amp;"
+    assert escaped == "&lt;b&gt;&amp;"
     assert escape_for_html_insert(3) == "3"
 
 

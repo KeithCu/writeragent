@@ -112,6 +112,7 @@ class GetPageObjects(ToolBase):
         doc_svc = ctx.services.document
         page = kwargs.get("page")
 
+        lo_page = 0
         if page is not None:
             if page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based, first page = 0).")
@@ -121,7 +122,13 @@ class GetPageObjects(ToolBase):
             if page >= total:
                 return self._tool_error(page_not_found_message(page, total))
             lo_page = page + 1
-        else:
+        try:
+            vc = doc.getCurrentController().getViewCursor()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return self._tool_error("Cannot resolve view cursor page: %s" % exc)
+
+        if page is None:
             lo_page = 0
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
@@ -139,15 +146,13 @@ class GetPageObjects(ToolBase):
                     return self._tool_error(str(e))
             else:
                 try:
-                    lo_page = doc.getCurrentController().getViewCursor().getPage()
+                    lo_page = vc.getPage()
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     return self._tool_error("Cannot resolve view cursor page: %s" % exc)
             if lo_page <= 0:
                 return self._tool_error("Cannot resolve page: invalid page %s" % lo_page)
 
-        controller = doc.getCurrentController()
-        vc = controller.getViewCursor()
         objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(doc, vc, lo_page))
         return {"status": "ok", "page": lo_page - 1, **objects}
 

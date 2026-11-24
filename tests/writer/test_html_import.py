@@ -1,6 +1,5 @@
 
 from contextlib import contextmanager
-import html as html_mod
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
@@ -38,18 +37,20 @@ def test_mixed_math_segments_produce_separate_ruby_spans_without_tex_source():
 
 
 def test_ensure_html_linebreaks_does_not_unescape_again():
-    """A second unescape used to turn entity-escaped markup into live tags.
+    """ensure_html_linebreaks leaves normalized character references escaped.
 
-    Insert/replace already unescape once. ``&amp;lt;p&amp;gt;`` arrives here as
-    ``&lt;p&gt;`` and must stay an entity, not a ``<p>`` element.
+    Entry points normalize complete references while keeping ``< > & " '``
+    escaped, so ``&lt;p&gt;`` must stay an entity, not a ``<p>`` element.
     """
-    once = html_mod.unescape("&amp;lt;p&amp;gt;hello&amp;lt;/p&amp;gt;")
-    assert once == "&lt;p&gt;hello&lt;/p&gt;"
-    out = ensure_html_linebreaks(once)
+    from plugin.writer.html_import_styles import normalize_character_references
+
+    norm = normalize_character_references("&lt;p&gt;hello&lt;/p&gt;")
+    assert norm == "&lt;p&gt;hello&lt;/p&gt;"
+    out = ensure_html_linebreaks(norm)
     assert "<p>hello</p>" not in out
     assert "&lt;p&gt;hello&lt;/p&gt;" in out
 
-    inside = html_mod.unescape("<p>see &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>")
+    inside = normalize_character_references("<p>see &lt;b&gt;x&lt;/b&gt;</p>")
     wrapped = ensure_html_linebreaks(inside)
     assert "<b>" not in wrapped
     assert "&lt;b&gt;x&lt;/b&gt;" in wrapped
@@ -63,11 +64,11 @@ def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
     assert "<p>" in out and "</p>" in out
 
 
-def test_insert_content_entry_points_decode_complete_entities():
+def test_insert_content_entry_points_normalize_complete_entities():
     from plugin.writer import html_import
 
     raw = "<p>&sect 2o &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>"
-    expected = "<p>&sect 2o &lt;b&gt;x&lt;/b&gt;</p>"
+    expected = "<p>&sect 2o &amp;lt;b&amp;gt;x&amp;lt;/b&amp;gt;</p>"
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
@@ -936,8 +937,8 @@ def test_styled_insert_epilogue_cursor_move():
         ("Hello\nWorld", 1, []),
         # Ruby markup without math is stripped to base text.
         ("<ruby>漢字<rt>かんじ</rt></ruby>", 1, []),
-        # Encoded HTML tags in prose are decoded before summarization.
-        ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 2, [{"level": 2, "text": "Sub"}]),
+        # Normalized HTML tags in prose stay text, not a heading block.
+        ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 1, []),
     ],
 )
 def test_summarize_written_blocks_fixtures(html: str, expected_count: int, expected_headings: list[dict[str, Any]]) -> None:
@@ -2299,4 +2300,46 @@ def test_insert_content_at_position_selection_none_end_refuses():
         with pytest.raises(ToolExecutionError) as exc_info:
             html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
     assert exc_info.value.code == "SELECTION_SPANS_TABLE"
+    ins.assert_not_called()
+
+
+def test_insert_inline_at_cursor_plain_decodes_complete_entities():
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    cursor = MagicMock()
+    text = cursor.getText.return_value
+    html_import.insert_inline_at_cursor(model, MagicMock(), cursor, "R&#36;5 &sect 2o &lt;b&gt;")
+    text.insertString.assert_called_once_with(cursor, "R$5 &sect 2o <b>", False)
+
+
+def test_insert_mixed_html_and_math_decodes_tex_entities():
+    from plugin.writer import html_import
+    from plugin.writer.math.math_mml_convert import MathConversionResult
+
+    model = MagicMock()
+    cursor = MagicMock()
+    with (
+        patch.object(html_import, "convert_latex_to_starmath", return_value=MathConversionResult(ok=True, starmath="a < b", error_message=None)) as conv,
+        patch.object(html_import, "insert_writer_math_formula"),
+    ):
+        html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "$a &lt; b$")
+    assert conv.call_args.args[1] == "a < b"
+
+
+def test_insert_content_at_position_non_text_selection_raises_coded_error():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    rng = MagicMock()
+    rng.getText.side_effect = RuntimeError("no text selection")
+
+    with (
+        patch.object(html_import, "_selection_is_draw_shape", return_value=False),
+        patch.object(html_import, "insert_html_fragment_at_cursor") as ins,
+    ):
+        with pytest.raises(ToolExecutionError) as exc_info:
+            html_import.insert_content_at_position(model, MagicMock(), "<p>x</p>", "selection", selection=rng)
+    assert exc_info.value.code == "SELECTION_NOT_TEXT"
     ins.assert_not_called()

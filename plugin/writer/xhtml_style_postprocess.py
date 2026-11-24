@@ -276,6 +276,8 @@ class _SemanticTransformer(HtmlPassthroughParser):
     _autostyle_overrides: dict[str, str]
     _colliding_tokens: set[str]
     _norm: dict[str, str]
+    _open: list[str]
+    _box_next: bool
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -283,6 +285,8 @@ class _SemanticTransformer(HtmlPassthroughParser):
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
         self._autostyle_overrides = autostyle_overrides or {}
+        self._open = []
+        self._box_next = False
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
         self._named_fingerprint: dict[str, list[str]] = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
@@ -379,10 +383,44 @@ class _SemanticTransformer(HtmlPassthroughParser):
             ins += ' class="%s"' % " ".join(remaining)
         return inject_attr(raw, ins) if ins else raw
 
+    def handle_comment(self, data: str) -> None:
+        # crosshair: off
+        # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl (draw:text-box) emits this comment
+        # before the text-box div inside a frame wrapper (createDrawFrame2).
+        if data.strip() == "Next 'div' was a 'draw:text-box'.":
+            self._box_next = True
+        super().handle_comment(data)
+
+    def _in_frame_after_box(self) -> bool:
+        # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl (createDrawFrame2) has no svg:title
+        # template, so a frame's title falls through as text in the wrapper after the text-box div closes.
+        return bool(self._open and self._open[-1] == "after_box")
+
+    def handle_data(self, data: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        super().handle_data(data)
+
+    def handle_entityref(self, name: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        super().handle_entityref(name)
+
+    def handle_charref(self, name: str) -> None:
+        # crosshair: off
+        if self._in_frame_after_box():
+            return
+        super().handle_charref(name)
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # crosshair: off
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
+        if t in ("div", "span"):
+            self._open.append("box" if self._box_next else "")
+            self._box_next = False
         if t == "table":
             self._table_depth += 1
             self._out.append(raw)
@@ -402,7 +440,12 @@ class _SemanticTransformer(HtmlPassthroughParser):
 
     def handle_endtag(self, tag: str) -> None:
         # crosshair: off
-        if tag.lower() == "table" and self._table_depth > 0:
+        t = tag.lower()
+        if t in ("div", "span") and self._open:
+            closed = self._open.pop()
+            if closed == "box" and self._open:
+                self._open[-1] = "after_box"
+        if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 

@@ -74,10 +74,9 @@ def ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
 
-    Do not ``html.unescape`` here. Insert and replace already unescape once,
-    and the StarWriter filter unescapes entities itself. A second unescape
-    turned ``&amp;lt;p&amp;gt;`` / ``&amp;lt;b&amp;gt;`` inside real markup
-    into live tags.
+    Do not ``html.unescape`` here. Entry points normalize complete character
+    references while keeping ``< > & " '`` escaped, and the StarWriter filter
+    decodes entities itself so escaped markup stays literal text.
     """
     if not isinstance(content, str) or not content:
         return content
@@ -239,7 +238,8 @@ def _insert_mixed_html_and_math_at_cursor(
             continue
         snippet = (seg.text or "").replace("\n", " ")[:120]
         if seg.kind == "tex":
-            res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
+            tex_text = html_import_styles.decode_complete_character_references(seg.text)
+            res = convert_latex_to_starmath(ctx, tex_text, display_block=seg.display_block)
         else:
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath:
@@ -354,6 +354,41 @@ def raise_if_hidden_start(model: Any) -> None:
         "nothing was changed. Show it first with section_set_visibility, or edit with another target.",
         code="HIDDEN_LEADING_SECTION",
     )
+
+
+def _sections_at(cursor: Any) -> list[Any]:
+    """Return the TextSection chain at *cursor*, innermost first."""
+    out: list[Any] = []
+    section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
+    while _uno_service_true(section, "com.sun.star.text.TextSection"):
+        out.append(section)
+        cur_sec: Any = section
+        section = uno_read(lambda: cur_sec.getParentSection(), None)
+    return out
+
+
+def raise_if_protected_start(model: Any) -> None:
+    """Refuse full_document when the document opens with a protected non-index section."""
+    text = uno_read(lambda: model.getText(), None)
+    if text is None:
+        return
+    cursor = uno_read(lambda: text.createTextCursor(), None)
+    if cursor is None:
+        return
+    cursor.gotoStart(False)
+    for section in _sections_at(cursor):
+        sec: Any = section
+        if (
+            uno_read(lambda: sec.getPropertyValue("IsProtected") is True, False)
+            and uno_read(lambda: sec.getPropertyValue("DocumentIndex"), None) is None
+        ):
+            sec_name = uno_read(lambda: sec.getName(), "")
+            named = f" ({sec_name!r})" if sec_name else ""
+            raise ToolExecutionError(
+                f"Document starts with a protected section{named}; nothing was changed. "
+                "Unprotect it first with section_set_protection, or edit with another target.",
+                code="PROTECTED_LEADING_SECTION",
+            )
 
 
 def _insert_mixed_or_plain_html(
@@ -737,13 +772,11 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        # No html.unescape here: apply_document_content.py already decoded complete
-        # character references on the plain path
-        # (html_import_styles.decode_complete_character_references), and a full
-        # unescape turns "&sect 2o" into "§ 2o"; the HTML import decodes entities
-        # in markup itself.
+        # insertString writes literal text without an HTML parser, so decode complete
+        # character references here while leaving incomplete ones like "&sect 2o" untouched.
         if not content_needs_html_import(swapped):
-            cursor.getText().insertString(cursor, swapped, False)
+            plain = html_import_styles.decode_complete_character_references(swapped)
+            cursor.getText().insertString(cursor, plain, False)
             return
         inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
         # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " would lose
@@ -976,7 +1009,7 @@ def insert_content_at_position(
     partial match.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        content = html_import_styles.decode_complete_character_references(swapped)
+        content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -1016,7 +1049,18 @@ def insert_content_at_position(
                 cursor = _doc_end_cursor()
             else:
                 try:
-                    rng_text = rng.getText()
+                    try:
+                        rng_text = rng.getText()
+                    except AttributeError:
+                        raise
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        raise ToolExecutionError(
+                            "An image, shape, frame, object or block of cells is selected, not text; "
+                            "nothing was changed. Put the caret in the text (set_selection), "
+                            "or use target='search' with old_content.",
+                            code="SELECTION_NOT_TEXT",
+                        ) from None
                     cursor = rng_text.createTextCursorByRange(rng.getStart())
                     # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
                     # returns null when an endpoint sits outside the cell's text; without this
@@ -1174,16 +1218,29 @@ def replace_full_document(
     ``delete_leading_tables``.
     """
     with image_placeholders.keep_placeholder_images(model, content, pre_swapped=kept_images) as swapped:
-        content = html_import_styles.decode_complete_character_references(swapped)
+        content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
+        recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
+        sections = _sections_at(cursor)
+        if sections:
+            # Inline on purpose: a held SwXParagraph breaks later enumeration (SwXParagraph::attachToText).
+            with record_changes.record_changes(model, False):
+                text.insertTextContentBefore(model.createInstance("com.sun.star.text.Paragraph"), sections[-1])
+            if not recording:
+                page_style = cursor.getPropertyValue("PageDescName")
+                page_number = cursor.getPropertyValue("PageNumberOffset")
+                cursor.gotoStart(False)  # now outside the section, so the section is deleted whole
+                if page_style:
+                    cursor.setPropertyValue("PageDescName", page_style)
+                    cursor.setPropertyValue("PageNumberOffset", page_number)
         cursor.gotoEnd(True)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
-        if not record_changes.is_recording_changes(model):
+        if not recording:
             _drop_absorb_paragraph_props(cursor)
             return _import_and_drop_leftover(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
@@ -1194,8 +1251,9 @@ def replace_full_document(
         # Import into a fresh empty paragraph opened before the deleted
         # text, then drop that paragraph if it is left over empty
         # (`_drop_leftover_paragraph`).
-        text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
-        cursor.goLeft(1, False)
+        if not sections:
+            text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
+            cursor.goLeft(1, False)
         # Untracked: the fresh absorb paragraph is new, so a recorded reset
         # would add a FORMAT redline; the deleted paragraph below keeps its
         # direct props for Reject.
@@ -1217,7 +1275,7 @@ def replace_single_range_with_content(
     Returns the WriteReport for this replacement.
     """
     with image_placeholders.keep_placeholder_images(model, content) as swapped:
-        prepared = html_import_styles.decode_complete_character_references(swapped)
+        prepared = html_import_styles.normalize_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).

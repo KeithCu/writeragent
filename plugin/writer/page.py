@@ -44,7 +44,7 @@ from .edit_review import flag_style_unreviewed, next_agent_edit_undo_title
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, xtext_to_content
 from .html_import import replace_xtext_with_html
 from .html_import_styles import attach_write_report
-from .range_copy import ANCHORED_GRAPHIC_PROPS, copy_flow_into_xtext, iter_nested_texts
+from .range_copy import copy_flow_into_xtext, iter_nested_texts
 from .search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     MatchMode,
@@ -410,62 +410,27 @@ def _shape_name(shape: Any) -> str:
     return text or "unnamed"
 
 
-def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int, list[str]]:
-    """Re-create floating graphics anchored in src_text inside dest_text.
-
-    Shapes live on the draw page, matched with uno_same the same way as
-    _scan_region_content. The walk snapshots the page first: insertTextContent
-    adds the clone, and continuing over getCount() would copy that clone too.
-    Non-graphic shapes are reported, not copied.
-    """
-    copied = 0
-    in_cells = 0
+def _region_graphics_report(doc: Any, src_text: Any, dest_text: Any) -> tuple[int, list[str]]:
+    """Report non-graphic shapes skipped and any graphic count shortfall after copy_flow_into_xtext."""
     skipped: list[str] = []
-    # An unreadable draw page copies no graphics; the clone still succeeds.
+    src_graphics = 0
     src_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, src_text), [])
-    for shape, anchor in src_shapes:
-        label = _shape_name(shape)
-        # `is True`: a mock supportsService() is truthy and would copy a frame.
-        if uno_read(lambda: shape.supportsService("com.sun.star.text.TextGraphicObject") is True, False) is not True:
-            skipped.append(label)
-            continue
-        if not uno_same(anchor.getText(), src_text):
-            # Cell graphics were already cloned by copy_flow_into_xtext -> copy_table.
-            in_cells += 1
-            continue
-        try:
-            clone = doc.createInstance("com.sun.star.text.TextGraphicObject")
-            if not clone:
-                skipped.append(label)
-                continue
-            for prop in ANCHORED_GRAPHIC_PROPS:
-                best_effort(
-                    lambda: clone.setPropertyValue(prop, shape.getPropertyValue(prop)),
-                    "page style clone: graphic %s has no %s" % (label, prop),
-                )
-            cursor = dest_text.createTextCursor()
-            cursor.gotoEnd(False)
-            dest_text.insertTextContent(cursor, clone, False)
+    for shape, _anchor in src_shapes:
+        s: Any = shape
+        # `is True`: a mock supportsService() is truthy and would count a frame as a graphic.
+        if uno_read(lambda: s.supportsService("com.sun.star.text.TextGraphicObject") is True, False) is True:
+            src_graphics += 1
+        else:
+            skipped.append(_shape_name(shape))
+
+    copied = 0
+    dest_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, dest_text), [])
+    for shape, _anchor in dest_shapes:
+        s = shape
+        if uno_read(lambda: s.supportsService("com.sun.star.text.TextGraphicObject") is True, False) is True:
             copied += 1
-        except Exception as exc:
-            if is_disposal(exc):
-                raise
-            log.warning("page style clone: could not copy graphic %s", label, exc_info=True)
-            skipped.append(label)
-    if in_cells:
-        dest_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, dest_text), [])
-        cloned = 0
-        for s, a in dest_shapes:
-            cell_shape: Any = s
-            is_gfx = uno_read(
-                lambda: cell_shape.supportsService("com.sun.star.text.TextGraphicObject") is True,
-                False,
-            )
-            if is_gfx is True and not uno_same(a.getText(), dest_text):
-                cloned += 1
-        copied += cloned
-        if cloned < in_cells:
-            skipped.append("%d image(s) in table cells" % (in_cells - cloned))
+    if copied < src_graphics:
+        skipped.append("%d image(s)" % (src_graphics - copied))
     return copied, skipped
 
 
@@ -516,7 +481,7 @@ def _copy_page_regions(
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
         # An unreadable source region is copied as empty; the clone still succeeds.
-        if uno_read(lambda: _region_holds_content(doc, src_text, include_images=False), False):
+        if uno_read(lambda: _region_holds_content(doc, src_text), False):
             # Region text is copied in-document via copy_flow_into_xtext instead of
             # select/clipboard/XHTML export, which can corrupt soffice when headers
             # hold titled draw frames processed through libxslt.
@@ -525,13 +490,14 @@ def _copy_page_regions(
             if (
                 not str(plain).strip()
                 and fields_copied == 0
+                and uno_read(lambda: _region_holds_content(doc, src_text, include_images=False), False)
                 and not uno_read(lambda: _scan_region_content(doc, dest_text)["has_table"], False)
                 and not _region_all_struck(doc, src_text)
             ):
                 raise RuntimeError(
                     "Page style clone: copied %s flow content was empty." % region
                 )
-        copied, skipped = _copy_region_graphics(doc, src_text, dest_text)
+        copied, skipped = _region_graphics_report(doc, src_text, dest_text)
         shapes_copied += copied
         skipped_shapes.extend(skipped)
     return shapes_copied, skipped_shapes
