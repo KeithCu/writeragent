@@ -352,10 +352,10 @@ def _items_to_declared_type(prop: dict[str, Any], values: list[Any]) -> list[Any
 def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Coerce top-level tool arguments toward their declared JSON Schema types and enums.
 
-    Returns a new dict without mutating *kwargs*. A list the caller sent is
-    not walked; elements are converted only when coercion itself made the list
-    and ``items.type`` is one scalar type. Nested ``properties`` are not walked.
-    Rules applied per property in order:
+    Returns a new dict without mutating *kwargs*. Elements of any list (sent by
+    the caller or produced by coercion) convert when ``items.type`` is one
+    scalar type; union, object, and array items, and nested ``properties``, are
+    not walked. Rules applied per property in order:
     - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds; unions that include ``string`` keep strings so the tool owns string parsing (such as forms ``items``).
     - Numeric strings match ASCII digits and finite floats only (Python ``int()``/``float()`` accept ``1_0``, full-width digits, ``nan``, and ``inf``); ``integer`` accepts whole values only.
     - Boolean words (``true``/``yes``/``1`` and ``false``/``no``/``0``, case-insensitive) convert to ``bool``.
@@ -377,8 +377,8 @@ def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         schema_type = prop.get("type")
         if schema_type is not None and not value_matches_type(v, schema_type):
             v = _to_declared_type(schema_type, v)
-            if isinstance(v, list):
-                v = _items_to_declared_type(prop, v)
+        if isinstance(v, list):
+            v = _items_to_declared_type(prop, v)
         enum = prop.get("enum")
         if isinstance(v, str) and isinstance(enum, list) and enum and v not in enum:
             v = _match_enum(v, enum)

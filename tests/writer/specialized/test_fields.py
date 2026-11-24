@@ -678,3 +678,18 @@ def test_fields_delete_prepare_coerces_scalar_id_string():
     prep = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": "3"})
     assert prep.error is None
     assert prep.kwargs["ids"] == [3]
+
+
+def test_fields_delete_prepare_coerces_list_elements_and_refuses_bool():
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+
+    prep = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": ["3", 4.0]})
+    assert prep.error is None
+    assert prep.kwargs["ids"] == [3, 4]
+    assert [type(x) for x in prep.kwargs["ids"]] == [int, int]
+
+    prep_bool = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": [True]})
+    assert prep_bool.error is None
+    res = FieldsDelete().execute(MagicMock(), **prep_bool.kwargs)
+    assert res["status"] == "error"
