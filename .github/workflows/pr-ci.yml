@@ -114,12 +114,14 @@ jobs:
           OPENGREP_VERSION: "v2.0.0"
           OPENGREP_SHA256: "37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0"
         run: |
-          # Fatal: typecheck runs opengrep-lint. Upstream install.sh looks up "latest" and
-          # downloads without retries, so fetch the pinned static binary directly with curl's
-          # retry. The speed limit turns a stalled transfer into a retry.
+          # Fatal here (unlike macOS/Windows): typecheck runs opengrep-lint. Upstream
+          # install.sh looks up "latest" without retries, so fetch the pinned static binary
+          # directly with curl's retry. Write with -o rather than piping so retries restart the
+          # file instead of duplicating bytes; the 1 MB/s speed floor drops slow connections so
+          # the ~160 MB asset finishes inside the 5-minute step.
           mkdir -p "$HOME/.local/bin"
           curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
-            --connect-timeout 20 --speed-limit 100000 --speed-time 20 \
+            --connect-timeout 20 --speed-limit 1000000 --speed-time 20 \
             -o "$HOME/.local/bin/opengrep" \
             "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_linux_x86"
           echo "${OPENGREP_SHA256}  $HOME/.local/bin/opengrep" | sha256sum -c -
