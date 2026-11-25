@@ -20,7 +20,7 @@ import urllib.parse
 from plugin.framework.i18n import _
 from plugin.framework.errors import NetworkError, http_status_message
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.client.http_security import public_target, redact_secrets
+from plugin.framework.client.http_security import log_target, public_target, redact_secrets
 from .responses_shim import responses_failed_message
 
 log = logging.getLogger(__name__)
@@ -359,18 +359,18 @@ def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
     Query string, userinfo, and opaque path segments are dropped or redacted so secrets never appear in logs.
+    A path without a leading "/" comes from an endpoint without a scheme and may start with userinfo.
     """
-    if not path or not str(path).startswith("/"):
-        return path
-    try:
-        parsed = urllib.parse.urlparse(endpoint or "")
-        if parsed.scheme and parsed.netloc:
-            path_only = public_target(str(path))
-            netloc = parsed.netloc.rpartition("@")[2]
-            return urllib.parse.urlunparse((parsed.scheme, netloc, path_only, "", "", ""))
-    except ValueError:
-        pass
-    return public_target(path)
+    shown = log_target(path)
+    if path.startswith("/"):
+        try:
+            parsed = urllib.parse.urlparse(endpoint or "")
+            if parsed.scheme and parsed.netloc:
+                netloc = parsed.netloc.rpartition("@")[2]
+                return urllib.parse.urlunparse((parsed.scheme, netloc, shown, "", "", ""))
+        except ValueError:
+            pass
+    return shown
 
 
 def log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:

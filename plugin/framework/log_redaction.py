@@ -5,7 +5,7 @@
 #
 # Word-bounded secret key matching (_is_word_start, _is_word_end, is_secret_key)
 # adapted from Hermes Agent (agent/redact.py), MIT License.
-"""Masks secret key/value pairs in log text.
+"""Masks secret key/value pairs and URLs in log text.
 
 Stdlib only, because the venv worker imports it and must not load
 ``plugin.framework.config`` or ``uno``.
@@ -101,6 +101,17 @@ def redact_secret_pairs_in_text(text: str) -> str:
         pos = at = stop
     out.append(text[pos:])
     return "".join(out)
+
+
+_URL_RE = re.compile(r"https?://\S+")
+
+
+def redact_urls_in_text(text: str) -> str:
+    """Mask every http(s) URL in *text*, host included.
+
+    For messages that can hold the MCP tunnel URL: the server has no auth, so the host alone is the credential.
+    """
+    return _URL_RE.sub(LOG_REDACT_SECRET_PLACEHOLDER, text)
 
 
 class RedactingFormatter(logging.Formatter):

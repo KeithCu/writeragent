@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
 from plugin.framework.errors import best_effort
+from plugin.framework.log_redaction import redact_urls_in_text
 from plugin.framework.logging import set_waiting_for_user
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
 from plugin.framework.i18n import _
@@ -104,8 +105,10 @@ def msgbox(
     *message* is shown as given: callers translate catalog strings. Runtime text
     (tracebacks, exception text) through ``_()`` breaks the DEAL_MAX_MSGID contract.
     """
+    # Status and Test Tunnel messages hold the public MCP URL, which is a credential.
+    logged = redact_urls_in_text(str(message))
     if not ctx:
-        log.info("MSGBOX (no ctx) - %s: %s", title, message)
+        log.info("MSGBOX (no ctx) - %s: %s", title, logged)
         return
     try:
         # A dialog inside execute() passes its peer. The frame container
@@ -115,14 +118,14 @@ def msgbox(
         if window is None:
             frame, window = _frame_container(ctx)
             if frame is None:
-                log.info("MSGBOX (no frame) - %s: %s", title, message)
+                log.info("MSGBOX (no frame) - %s: %s", title, logged)
                 return
         log.debug("msgbox execute start title=%s", title)
         _execute_message_box(ctx, window, box_type, 1, _(title), str(message))
         process_events_to_idle(ctx)
         log.debug("msgbox execute done title=%s", title)
     except Exception:
-        log.exception("MSGBOX fallback - %s: %s", title, message)
+        log.exception("MSGBOX fallback - %s: %s", title, logged)
 
 
 def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent_frame: Any = None) -> bool:
@@ -328,7 +331,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         msgbox(ctx, title, message, box_type=3)
         return
     if not ctx:
-        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, message)
+        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, redact_urls_in_text(message))
         return
     try:
         from plugin.chatbot.bug_report import build_github_issue_url, open_url_in_browser

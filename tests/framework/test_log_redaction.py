@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from plugin.framework.log_redaction import is_secret_key, redact_secret_pairs_in_text
+from plugin.framework.log_redaction import is_secret_key, redact_secret_pairs_in_text, redact_urls_in_text
 
 
 @pytest.mark.parametrize(
@@ -122,3 +122,16 @@ def test_redact_secret_pairs_leaves_other_text() -> None:
     ]
     for text in cases:
         assert redact_secret_pairs_in_text(text) == text
+
+
+def test_redact_urls_in_text() -> None:
+    text = "Tunnel ready (running at http://bore.pub:9999/mcp.) and https://xyz.trycloudflare.com/mcp"
+    redacted = redact_urls_in_text(text)
+    assert "bore.pub" not in redacted
+    assert "xyz.trycloudflare.com" not in redacted
+    assert "Tunnel ready (running at " in redacted
+    assert " and " in redacted
+    assert "<redacted>" in redacted
+
+    plain = "No URLs here, just localhost:18765"
+    assert redact_urls_in_text(plain) == plain
