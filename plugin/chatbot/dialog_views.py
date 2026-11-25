@@ -334,7 +334,13 @@ class SettingsDialog:
             btn = get_optional(self._dlg, btn_id)
             if not btn:
                 continue
-            starter = ProviderStarterListener(self._ctx, self._dlg, ep_url, signup_url)
+            starter = ProviderStarterListener(
+                self._ctx,
+                self._dlg,
+                ep_url,
+                signup_url,
+                get_listener=lambda: self._endpoint_listener,
+            )
             btn.addActionListener(starter)
             apply_provider_button_icon(btn, self._ctx, stem)
 
@@ -562,20 +568,33 @@ class ProviderStarterListener(BaseActionListener):
     _dlg: Any
     _endpoint_url: str
     _signup_url: str
+    _get_listener: Callable[[], Any] | None
 
-    def __init__(self, ctx: Any, dlg: Any, endpoint_url: str, signup_url: str) -> None:
+    def __init__(
+        self,
+        ctx: Any,
+        dlg: Any,
+        endpoint_url: str,
+        signup_url: str,
+        get_listener: Callable[[], Any] | None = None,
+    ) -> None:
         self._ctx = ctx
         self._dlg = dlg
         self._endpoint_url = endpoint_url
         self._signup_url = signup_url
+        self._get_listener = get_listener
 
     def on_action_performed(self, rEvent: Any) -> None:
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
         if endpoint_ctrl:
             set_control_text(endpoint_ctrl, self._endpoint_url)
+            listener = self._get_listener() if self._get_listener is not None else None
+            if listener is not None:
+                listener._sync_api_key(force=True)
             ak_ctrl = get_optional(self._dlg, "api_key")
             if ak_ctrl:
-                set_control_text(ak_ctrl, api_key_field_text(self._endpoint_url))
+                if listener is None:
+                    set_control_text(ak_ctrl, api_key_field_text(self._endpoint_url))
                 ak_ctrl.setFocus()
         open_system_url(self._ctx, self._signup_url)
 
@@ -626,7 +645,7 @@ class TestConnectionListener(BaseActionListener):
 
             main.post(_apply)
 
-        run_in_background(_worker, name="settings-test-conn")
+        run_in_background(_worker, name="settings-test-conn", dedicated=True)
 
 
 class _CtxDlgActionListener(BaseActionListener):
@@ -1271,6 +1290,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             self._pending_key_ref = None
             return
         self._pending_key_ref = text
+        self._cancel_pending()
         read_secret_in_background(
             ak_ctrl,
             text,

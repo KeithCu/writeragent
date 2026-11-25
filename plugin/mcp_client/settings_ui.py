@@ -145,8 +145,10 @@ class McpServersEditor:
                 )
             return
         set_control_text(self._controls["token"], token_text)
-        prev_url = self._snapshot[name][0] if name in self._snapshot else get_control_text(self._controls["url"]).strip()
-        self._snapshot[name] = (prev_url, token_text.strip())
+        self._snapshot[name] = (self._snapshot[name][0], token_text.strip())
+        if self._status.get(name) == _("Unlock the keyring or clear the Token field before renaming this server."):
+            self._status.pop(name, None)
+            set_control_text(self._controls["status"], "")
 
     def _start_token_read(self, name: str, raw_token: Any, token_ref: str) -> None:
         read_secret_in_background(

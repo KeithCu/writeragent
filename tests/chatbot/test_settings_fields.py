@@ -534,21 +534,11 @@ def test_field_specs_config_values_maps_select_caption_to_option_value():
     assert mapped == {"vision.layout_model": "heron", "vision.images_scale": 2.0}
 
 
-def test_read_secret_in_background_repaints_on_match_and_drops_on_change_or_close(monkeypatch):
-    import threading
+def test_read_secret_in_background_repaints_on_match(monkeypatch):
     from unittest.mock import MagicMock
-
     from plugin.chatbot import settings_fields
 
-    threads: list[threading.Thread] = []
-
-    def run_bg(fn, *args, **kwargs):
-        t = threading.Thread(target=fn, args=args)
-        t.start()
-        threads.append(t)
-        return t
-
-    monkeypatch.setattr(settings_fields, "run_in_background", run_bg)
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *args, **_kw: fn(*args))
     monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
 
     ctrl = MagicMock()
@@ -561,10 +551,19 @@ def test_read_secret_in_background_repaints_on_match_and_drops_on_change_or_clos
         on_done=lambda: done_calls.append("matched"),
         is_closed=lambda: False,
     )
-    threads[-1].join(timeout=2.0)
     assert done_calls == ["matched"]
 
+
+def test_read_secret_in_background_drops_when_text_changed(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.chatbot import settings_fields
+
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *args, **_kw: fn(*args))
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+
+    ctrl = MagicMock()
     ctrl.getText.return_value = "user-typed"
+    done_calls: list[str] = []
     settings_fields.read_secret_in_background(
         ctrl,
         "keystore:11111111",
@@ -572,10 +571,19 @@ def test_read_secret_in_background_repaints_on_match_and_drops_on_change_or_clos
         on_done=lambda: done_calls.append("changed"),
         is_closed=lambda: False,
     )
-    threads[-1].join(timeout=2.0)
-    assert done_calls == ["matched"]
+    assert done_calls == []
 
+
+def test_read_secret_in_background_drops_when_closed(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.chatbot import settings_fields
+
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *args, **_kw: fn(*args))
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+
+    ctrl = MagicMock()
     ctrl.getText.return_value = "keystore:11111111"
+    done_calls: list[str] = []
     settings_fields.read_secret_in_background(
         ctrl,
         "keystore:11111111",
@@ -583,19 +591,31 @@ def test_read_secret_in_background_repaints_on_match_and_drops_on_change_or_clos
         on_done=lambda: done_calls.append("closed"),
         is_closed=lambda: True,
     )
-    threads[-1].join(timeout=2.0)
-    assert done_calls == ["matched"]
+    assert done_calls == []
+
+
+def test_read_secret_in_background_calls_on_done_when_read_raises(monkeypatch):
+    from unittest.mock import MagicMock
+    import pytest
+    from plugin.chatbot import settings_fields
+
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *args, **_kw: fn(*args))
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+
+    ctrl = MagicMock()
+    ctrl.getText.return_value = "keystore:11111111"
+    done_calls: list[str] = []
 
     def boom() -> None:
         raise RuntimeError("boom")
 
-    settings_fields.read_secret_in_background(
-        ctrl,
-        "keystore:11111111",
-        read=boom,
-        on_done=lambda: done_calls.append("after_error"),
-        is_closed=lambda: False,
-    )
-    threads[-1].join(timeout=2.0)
-    assert done_calls == ["matched", "after_error"]
+    with pytest.raises(RuntimeError, match="boom"):
+        settings_fields.read_secret_in_background(
+            ctrl,
+            "keystore:11111111",
+            read=boom,
+            on_done=lambda: done_calls.append("after_error"),
+            is_closed=lambda: False,
+        )
+    assert done_calls == ["after_error"]
 

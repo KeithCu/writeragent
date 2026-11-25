@@ -93,7 +93,9 @@ _writes_failed: bool = False
 _read_failures_logged: set[str] = set()
 # Names whose last read hit a locked keyring (or a cancelled unlock prompt),
 # with the monotonic time of that read. Not cached, so a later read can prompt
-# again, but reads within LOCKED_RETRY_S return None without prompting.
+# again, but reads within LOCKED_RETRY_S return None without prompting:
+# background callers such as the grammar checker read on every request, and a
+# cancelled prompt must not come straight back for each of them.
 _locked: dict[str, float] = {}
 # Store-wide locked timestamp for backends with one_lock=True (Secret Service),
 # so cancelling one unlock prompt suppresses prompts for all names for LOCKED_RETRY_S.
@@ -746,6 +748,8 @@ def _answer_without_read(name: str) -> Any:
         if locked_at is not None and now - locked_at < LOCKED_RETRY_S:
             return None
         if _store_locked_at is not None and now - _store_locked_at < LOCKED_RETRY_S:
+            # Mark the name locked too; without it is_locked() stays False and
+            # _normalized_api_key_slot_patch deletes the orphan item.
             _locked.setdefault(name, _store_locked_at)
             return None
     return _UNSET
@@ -772,6 +776,7 @@ def _read_backend(
             now = time.monotonic()
             _locked[name] = now
             if backend.one_lock and not isinstance(exc, KeystoreStopped):
+                # Stop must not latch other names, or stopping a Send makes a tunnel start refuse.
                 _store_locked_at = now
         return None, False
     except KeystoreError as exc:

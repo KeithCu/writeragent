@@ -374,10 +374,10 @@ def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monke
 
     keystore.reset_for_tests(backend)
     try:
-        # 1. Direct backend.get raises KeystoreLocked when cancelled.
+        # 1. Direct backend.get raises KeystoreStopped when cancelled.
         scope0 = SendCancellation()
         active_scope["scope"] = scope0
-        with pytest.raises(keystore.KeystoreLocked):
+        with pytest.raises(keystore.KeystoreStopped):
             backend.get("k", cancel=scope0)
         assert freed["errors"] == 1
         assert scope0._hooks == []
@@ -417,6 +417,14 @@ def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monke
         before_retry = lookup_calls["n"]
         assert keystore.get_secret("k", cancel=scope2) is None
         assert lookup_calls["n"] == before_retry + 1
+
+        # 4. Stop on "k" does not latch another name "other".
+        scope3 = SendCancellation()
+        cancelled["val"] = 0
+        active_scope["scope"] = None
+        before_other = lookup_calls["n"]
+        assert keystore.get_secret("other", cancel=scope3) is None
+        assert lookup_calls["n"] == before_other + 1
     finally:
         keystore.reset_for_tests()
 
@@ -492,24 +500,33 @@ def test_one_lock_concurrent_reads_share_one_backend_call(fake_keystore):
     fake_keystore.one_lock = True
 
     entered = threading.Event()
+    b_ready = threading.Event()
     release = threading.Event()
+    entered_names: list[str] = []
 
-    def slow_locked(_name: str) -> None:
+    def slow_locked(name: str) -> None:
+        entered_names.append(name)
         entered.set()
         release.wait(timeout=2.0)
 
     fake_keystore.on_get = slow_locked
     results: list[str | None] = []
     t1 = threading.Thread(target=lambda: results.append(keystore.get_secret("a")))
-    t2 = threading.Thread(target=lambda: (entered.wait(timeout=2.0), results.append(keystore.get_secret("b"))))
+    t2 = threading.Thread(target=lambda: (b_ready.set(), results.append(keystore.get_secret("b"))))
     t1.start()
-    t2.start()
     assert entered.wait(timeout=2.0)
+    t2.start()
+    assert b_ready.wait(timeout=2.0)
+    # Wait briefly for t2 to block on the shared read lock before releasing t1.
+    t2.join(timeout=0.05)
+    assert t2.is_alive()
+    assert entered_names == ["a"]
     release.set()
     t1.join(timeout=2.0)
     t2.join(timeout=2.0)
 
     assert results == [None, None]
+    assert entered_names == ["a"]
     assert fake_keystore.get_calls == 1
 
 
@@ -535,7 +552,11 @@ def test_one_lock_success_clears_other_locked_marks_and_emits_unlocked(fake_keys
 
     events: list[str] = []
     bus = get_event_bus()
-    bus.subscribe("keystore:unlocked", lambda **_kw: events.append("unlocked"))
+
+    def handler(**_kw):
+        events.append("unlocked")
+
+    bus.subscribe("keystore:unlocked", handler)
     try:
         fake_keystore.one_lock = True
         fake_keystore.store.update({"a": "va", "b": "vb"})
@@ -558,16 +579,24 @@ def test_one_lock_success_clears_other_locked_marks_and_emits_unlocked(fake_keys
         assert keystore._store_locked_at is None
         assert events == ["unlocked"]
     finally:
-        bus.unsubscribe("keystore:unlocked", lambda **_kw: None)
+        bus.unsubscribe("keystore:unlocked", handler)
 
 
 def test_one_lock_missing_item_does_not_clear_latch(fake_keystore):
     from plugin.framework import keystore
 
     fake_keystore.one_lock = True
-    fake_keystore.store["a"] = "va"
-    fake_keystore.locked = True
+
+    def stop_a(name: str) -> None:
+        if name == "a":
+            raise keystore.KeystoreStopped("stopped")
+
+    fake_keystore.on_get = stop_a
     assert keystore.get_secret("a") is None
-    assert keystore.get_secret("missing") is None
     assert keystore.is_locked("a") is True
-    assert keystore._store_locked_at is not None
+
+    # Reading a missing item reaches the backend and must not clear "a"'s locked mark.
+    before = fake_keystore.get_calls
+    assert keystore.get_secret("missing") is None
+    assert fake_keystore.get_calls == before + 1
+    assert keystore.is_locked("a") is True

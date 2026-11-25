@@ -111,7 +111,11 @@ def read_secret_in_background(
     on_done: Callable[[], None],
     is_closed: Callable[[], bool],
 ) -> None:
-    """Read a keystore secret on a dedicated worker, then repaint on the UI thread if *ctrl* still holds *ref*."""
+    """Read a keystore secret on a dedicated worker, then repaint on the UI thread if *ctrl* still holds *ref*.
+
+    Each ref is a random token per slot, so comparing the live text to *ref*
+    suffices without a generation counter.
+    """
 
     def _apply() -> None:
         if is_closed() or get_control_text(ctrl) != ref:
@@ -122,8 +126,10 @@ def read_secret_in_background(
         try:
             read()
         finally:
+            # A failed read still posts so the caller clears any pending state.
             main.post(_apply)
 
+    # Dedicated thread: an OS unlock prompt can stay open indefinitely.
     run_in_background(_worker, name="settings-secret-read", dedicated=True)
 
 

@@ -1264,7 +1264,7 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
             listener.force_catalog_refresh = force_refresh
 
             with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
-                 patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+                 patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **_kw: fn()), \
                  patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
                 TestConnectionListener(MagicMock(), MagicMock(), listener).on_action_performed(MagicMock())
 
@@ -1963,7 +1963,7 @@ def test_settings_hf_button_uses_router():
     dialog._ctx = MagicMock()
     seen: list[str] = []
 
-    def _capture(_ctx, _dlg, endpoint_url, _signup):
+    def _capture(_ctx, _dlg, endpoint_url, _signup, **_kw):
         seen.append(endpoint_url)
         return MagicMock()
 
@@ -2343,7 +2343,7 @@ def test_test_connection_uses_endpoint_listener_key():
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda dlg, name: controls.get(name)), \
          patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c, *a, **k: c.getText()), \
          patch("plugin.chatbot.quick_setup.check_endpoint_connection", side_effect=lambda ep, key: sent.append((ep, key)) or (True, "ok")), \
-         patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+         patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **_kw: fn()), \
          patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
         listener.on_action_performed(None)
     assert sent and sent[0][1] == ""
@@ -2484,7 +2484,7 @@ def test_endpoint_change_replaces_a_ref_in_the_key_field() -> None:
 
 
 def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) -> None:
-    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.chatbot.dialog_views import SettingsDialog
     from plugin.framework import keystore
     from plugin.framework.config import get_config, save
 
@@ -2494,32 +2494,291 @@ def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) ->
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.get_calls = 0
 
+    class _FakeTextCtrl:
+        def __init__(self, text: str = "") -> None:
+            self._text = text
+            self._text_listeners: list[Any] = []
+            self._item_listeners: list[Any] = []
+
+        def getText(self) -> str:
+            return self._text
+
+        def setText(self, val: str) -> None:
+            self._text = val
+            for lst in list(self._text_listeners):
+                lst.textChanged(MagicMock())
+
+        def addTextListener(self, lst: Any) -> None:
+            self._text_listeners.append(lst)
+
+        def removeTextListener(self, lst: Any) -> None:
+            self._text_listeners.remove(lst)
+
+        def addItemListener(self, lst: Any) -> None:
+            self._item_listeners.append(lst)
+
+        def removeItemListener(self, lst: Any) -> None:
+            self._item_listeners.remove(lst)
+
+    ep_ctrl = _FakeTextCtrl(endpoint)
+    ak_ctrl = _FakeTextCtrl("")
+    ctrls = {"endpoint": ep_ctrl, "api_key": ak_ctrl}
+
+    timers: list[Any] = []
+
+    class _FakeTimer:
+        def __init__(self, _delay: float, fn: Any) -> None:
+            self.fn = fn
+            self.daemon = False
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    workers: list[Any] = []
+    view = SettingsDialog(MagicMock())
+    view._dlg = MagicMock()
+
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.config_ui_helpers.populate_endpoint_selector"),
+        patch("plugin.chatbot.dialog_views.populate_settings_control", side_effect=lambda c, f: c.setText(f["value"])),
+        patch("plugin.chatbot.dialog_views.sync_mcp_config_snippet"),
+        patch.object(view, "_setup_audio_listeners"),
+        patch("plugin.chatbot.dialog_views.threading.Timer", _FakeTimer),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
+        patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
+    ):
+        view._populate_fields(
+            [
+                {"name": "endpoint", "value": endpoint},
+                {"name": "api_key", "value": ref},
+            ],
+            endpoint,
+        )
+        assert view._endpoint_listener is not None
+        with patch.object(view._endpoint_listener, "_start_bg_fetch") as mock_bg:
+            view._endpoint_listener.start_key_read(endpoint)
+            view._schedule_initial_models_fetch(endpoint)
+            assert fake_keystore.get_calls == 0
+            assert ak_ctrl.getText() == ref
+            assert all(t.cancelled for t in timers)
+            assert len(workers) == 1
+            workers[0]()
+            assert ak_ctrl.getText() == "sk-or-secret"
+            active_timers = [t for t in timers if not t.cancelled]
+            assert len(active_timers) == 1
+            with patch("plugin.chatbot.dialog_views.main.post", side_effect=lambda fn: fn()):
+                active_timers[0].fn()
+            mock_bg.assert_called_once()
+
+
+def test_provider_starter_different_endpoint_syncs_and_starts_read(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener, ProviderStarterListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    together = "https://api.together.xyz"
+    save({"endpoint": "https://openrouter.ai/api", "api_keys_by_endpoint": {together: "sk-tog-secret"}})
+    ref = get_config("api_keys_by_endpoint")[together]
+    keystore.reset_for_tests(fake_keystore)
+
+    ep_state = {"val": "https://openrouter.ai/api"}
+    ak_state = {"val": ""}
+    ep_ctrl = MagicMock()
+    ep_ctrl.getText.side_effect = lambda: ep_state["val"]
+    ep_ctrl.setText.side_effect = lambda v: ep_state.__setitem__("val", v)
+    ak_ctrl = MagicMock()
+    ak_ctrl.getText.side_effect = lambda: ak_state["val"]
+    ak_ctrl.setText.side_effect = lambda v: ak_state.__setitem__("val", v)
+    ctrls = {"endpoint": ep_ctrl, "api_key": ak_ctrl}
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ep_ctrl)
+    # Simulate user typing a new key for endpoint A before clicking Together.
+    ak_state["val"] = "sk-typed-for-a"
+    listener._user_edited_key = True
+
+    starter = ProviderStarterListener(
+        MagicMock(), MagicMock(), together, "https://api.together.ai/settings/api-keys", get_listener=lambda: listener,
+    )
+    workers: list[Any] = []
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.dialog_views.open_system_url"),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
+        patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
+    ):
+        starter.on_action_performed(MagicMock())
+        # Emulate textChanged firing when endpoint text changed.
+        listener.textChanged(MagicMock())
+        listener.close()
+        assert ak_state["val"] == ref
+        assert len(workers) == 1
+        listener._closed = False
+        workers[0]()
+
+    assert ak_state["val"] == "sk-tog-secret"
+
+
+def test_provider_starter_same_endpoint_retries_read(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener, ProviderStarterListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    together = "https://api.together.xyz"
+    save({"endpoint": together, "api_keys_by_endpoint": {together: "sk-tog-retry"}})
+    ref = get_config("api_keys_by_endpoint")[together]
+    keystore.reset_for_tests(fake_keystore)
+
+    ep_ctrl = MagicMock()
+    ep_ctrl.getText.return_value = together
+    ak_state = {"val": ref}
+    ak_ctrl = MagicMock()
+    ak_ctrl.getText.side_effect = lambda: ak_state["val"]
+    ak_ctrl.setText.side_effect = lambda v: ak_state.__setitem__("val", v)
+    ctrls = {"endpoint": ep_ctrl, "api_key": ak_ctrl}
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), ep_ctrl)
+    listener._synced_endpoint = together
+    starter = ProviderStarterListener(
+        MagicMock(), MagicMock(), together, "https://api.together.ai/settings/api-keys", get_listener=lambda: listener,
+    )
+    workers: list[Any] = []
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.dialog_views.open_system_url"),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
+        patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
+    ):
+        starter.on_action_performed(MagicMock())
+        assert len(workers) == 1
+        workers[0]()
+
+    assert ak_state["val"] == "sk-tog-retry"
+
+
+def test_start_key_read_cancels_pending_debounce_timer() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    endpoint = "https://openrouter.ai/api"
     combo = MagicMock()
     combo.getText.return_value = endpoint
     api_ctrl = MagicMock()
-    api_ctrl.getText.return_value = ref
+    api_ctrl.getText.return_value = "keystore:deadbeef"
 
-    def get_opt(_dlg, name):
-        return api_ctrl if name == "api_key" else None
+    timers: list[Any] = []
 
-    workers: list[Any] = []
+    class _FakeTimer:
+        def __init__(self, _delay: float, fn: Any) -> None:
+            self.fn = fn
+            self.daemon = False
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
     with (
-        patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_opt),
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: api_ctrl if n == "api_key" else None),
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.threading.Timer", _FakeTimer),
+        patch("plugin.chatbot.dialog_views.main.post", side_effect=lambda fn: fn()),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background"),
+        patch.object(listener, "_start_bg_fetch") as mock_bg,
+    ):
+        listener._schedule_debounced_models_fetch()
+        assert len(timers) == 1
+        listener.start_key_read(endpoint)
+        assert timers[0].cancelled is True
+        # Even if the timer callback already fired into main.post, stale gen drops it.
+        timers[0].fn()
+        mock_bg.assert_not_called()
+
+
+def test_test_connection_with_ref_reads_key_on_worker(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import TestConnectionListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    endpoint = "https://openrouter.ai/api"
+    save({"api_keys_by_endpoint": {endpoint: "sk-conn-secret"}})
+    ref = get_config("api_keys_by_endpoint")[endpoint]
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    ep_ctrl = MagicMock()
+    ep_ctrl.getText.return_value = endpoint
+    ak_ctrl = MagicMock()
+    ak_ctrl.getText.return_value = ref
+    lbl = MagicMock()
+    btn = MagicMock()
+    ctrls = {"endpoint": ep_ctrl, "api_key": ak_ctrl, "lbl_test_status": lbl, "btn_test_conn": btn}
+
+    listener = MagicMock()
+    workers: list[tuple[Any, dict[str, Any]]] = []
+    tc = TestConnectionListener(MagicMock(), MagicMock(), listener)
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text"),
+        patch("plugin.chatbot.dialog_views.set_control_enabled"),
+        patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **kw: workers.append((fn, kw))),
+        patch("plugin.chatbot.dialog_views.main.post", side_effect=lambda fn: fn()),
+        patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "OK")) as mock_check,
+    ):
+        tc.on_action_performed(MagicMock())
+        assert fake_keystore.get_calls == 0
+        assert len(workers) == 1
+        assert workers[0][1].get("dedicated") is True
+        workers[0][0]()
+
+    mock_check.assert_called_once_with(endpoint, "sk-conn-secret")
+
+
+def test_settings_show_starts_config_secret_read(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    save({"mcp.tunnel_provider_token": "tok-tunnel-secret"})
+    ref = get_config("mcp.tunnel_provider_token")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    ctrl = MagicMock()
+    ctrl.getText.return_value = ref
+    workers: list[Any] = []
+    view = SettingsDialog(MagicMock())
+    with (
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
         patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
         patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
-        patch.object(listener, "_schedule_debounced_models_fetch") as mock_fetch,
     ):
-        listener.start_key_read(endpoint)
+        view._start_config_secret_read(ctrl, ref, "mcp.tunnel_provider_token")
         assert fake_keystore.get_calls == 0
         assert len(workers) == 1
         workers[0]()
 
-    api_ctrl.setText.assert_called_once_with("sk-or-secret")
-    mock_fetch.assert_called_once()
+    ctrl.setText.assert_called_once_with("tok-tunnel-secret")
 
 
 def test_selecting_endpoint_while_key_loading_starts_no_keyless_fetch(fake_keystore) -> None:
