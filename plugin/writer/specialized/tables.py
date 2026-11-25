@@ -517,12 +517,18 @@ def _cell_content(cell: Any) -> str | None:
     return None
 
 
-def _protected_cells(table: Any, axis: str, idx: int) -> list[str]:
-    """Cells in row or column *idx* marked ``IsProtected``; ``SwDoc::DeleteRow`` / ``DeleteCol`` (ndtbl.cxx) skip silently."""
-    return [
-        name for name in _band_cell_names(table, axis, idx)
-        if table.getCellByName(name).getPropertyValue("IsProtected")
-    ]
+def _protected_cells(table: Any, names: list[str]) -> list[str]:
+    """The cells of *table* among *names* that are marked ``IsProtected``."""
+    return [name for name in names if table.getCellByName(name).getPropertyValue("IsProtected")]
+
+
+def _protected_refusal(what: str, cells: list[str]) -> str:
+    """Refusal message when *what* ("this row", "table 'T'") cannot go because *cells* are protected."""
+    return (
+        "Cannot delete %s: cell(s) %s are protected. Leave it and ask the user to unprotect "
+        "them first (Table > Unprotect Cells), then delete it; do not change protected cells."
+        % (what, ", ".join(cells))
+    )
 
 
 def _split_rows_call(row_span: int) -> str:
@@ -813,14 +819,34 @@ def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], 
         return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
 
 
+def _require_no_protected_cells(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
+    """Refuse to delete a table that has, or sits inside, a protected cell.
+
+    LibreOffice's Delete Table does nothing then (SwDoc::DeleteRowCol, ndtbl.cxx; SwEditShell::Delete,
+    eddel.cxx), but SwXTextTable::dispose (unotbl.cxx) passes RowColMode::DeleteProtected, so
+    removeTextContent would delete it. Like LibreOffice, cells of tables nested inside do not count.
+    IsProtected is not inherited from a host cell, so the hosts are read one by one.
+    """
+    cells = _protected_cells(table, _writer_named_cells(table))
+    while nesting["is_nested"]:
+        host_name, host_cell = nesting["parent_table"], nesting["parent_cell"]
+        host = _get_table(doc, host_name)
+        cells += ["%s of table '%s'" % (n, host_name) for n in _protected_cells(host, [host_cell])]
+        nesting = _nesting_for(doc, host, host_name)
+    if cells:
+        raise ToolExecutionError(_protected_refusal("table '%s'" % name, cells), code="CELLS_PROTECTED")
+
+
 def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
     """Remove *table*. True when the deletion was recorded as a tracked change.
 
+    Refuses with ``CELLS_PROTECTED`` when the table has, or sits inside, a protected cell.
     ``table_delete`` and ``apply_content`` both call this. The caller
     wraps it in the EditReviewSession it already has, so RecordChanges is on
     before the tracked path runs. A second review wrapper here would nest
     sessions and tag the redlines twice.
     """
+    _require_no_protected_cells(doc, table, name, nesting)
     if uno_read(lambda: is_recording_changes(doc), False):
         _delete_writer_table_tracked(doc, uno_ctx, table, name)
         return True
@@ -1181,12 +1207,11 @@ class ManageTableStructure(ToolWriterTableBase):
                         "the %s and edit its other cells with table_set_cell."
                         % (axis_arg, ", ".join(nested), axis_arg, axis_arg)
                     )
-                protected = _protected_cells(table, axis_arg, idx)
+                # SwDoc::DeleteRow / DeleteCol (ndtbl.cxx) skip protected cells silently.
+                protected = _protected_cells(table, _band_cell_names(table, axis_arg, idx))
                 if protected:
                     return self._tool_error(
-                        "Cannot delete this %s: cell(s) %s are protected. Leave it and ask the user to unprotect "
-                        "them first (Table > Unprotect Cells), then delete it; do not change protected cells."
-                        % (axis_arg, ", ".join(protected)),
+                        _protected_refusal("this %s" % axis_arg, protected),
                         code="CELLS_PROTECTED",
                     )
                 if axis_arg == "row":
@@ -1497,6 +1522,7 @@ class TableDelete(ToolWriterTableBase):
         "Delete a table by name. Writer: removes a top-level or nested TextTable from its "
         "containing XText. Nested children of the deleted table are removed with it — this is "
         "the intentional remove (do not use table_set_cell, which refuses host cells). "
+        "Refuses a table that has, or is nested in, a protected cell. "
         "Draw/Impress: removes the TableShape from the page."
     )
     parameters: dict[str, Any] | None = {

@@ -39,6 +39,7 @@ from plugin.doc.text_helpers import (
     CLEARABLE_PARA_PROPERTIES,
     PROPERTY_READONLY,
     TrackedDeletions,
+    iter_elements,
     iter_elements_limited,
     record_walk_cap,
     reset_properties_to_default,
@@ -247,9 +248,9 @@ class _ParagraphRevert(NamedTuple):
 
 class _DirectFormatReport(NamedTuple):
     """Per-cursor result of StyleFormatText: cleared names, whether any ParagraphFormat redline
-    was recorded, whether every recordable touched paragraph was recorded (empty paragraphs
-    do not clear ``para_complete`` while another paragraph was recorded), and any direct
-    paragraph property names that Reject will drop.
+    was recorded, whether every recordable touched paragraph in this cursor was recorded (the
+    caller requires at least one cursor to record a paragraph so empty cells do not clear
+    ``para_complete``), and any direct paragraph property names that Reject will drop.
     """
 
     cleared: list[str]
@@ -1705,6 +1706,24 @@ def target_cursors(
     return [cursor_spanning_range(r) for r in ranges], None, mode
 
 
+def _covering_cursors(text: Any) -> Iterator[Any]:
+    """Cursors that cover leading tables and the rest of *text* (within a cell, stops at a leading section's end).
+
+    SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) steps past leading tables, so a
+    cursor over the whole text leaves them out. A cell can itself start with a nested table; its
+    cursor starts at its first paragraph because _expand_to_full_paragraphs cannot expand a range
+    that begins inside another table. Later tables lie inside the last cursor.
+    """
+    for el in iter_elements(text.createEnumeration()):
+        if not el.supportsService("com.sun.star.text.TextTable"):
+            cursor = cursor_spanning_range(el)
+            cursor.gotoEnd(True)
+            yield cursor
+            return
+        for name in el.getCellNames():
+            yield from _covering_cursors(el.getCellByName(name))
+
+
 def apply_to_cursors(
     tool: FrameworkToolBase,
     ctx: ToolContext,
@@ -2101,6 +2120,9 @@ class StyleFormatText(ToolWriterStyleBase):
         cursors, err, search_mode = target_cursors(self, ctx, kwargs)
         if err is not None:
             return err
+        if target == "full_document":
+            # The last one spans the body, which cursors[0] already does.
+            cursors += list(_covering_cursors(ctx.doc.getText()))[:-1]
         if target == "selection" and cursors[0].isCollapsed():
             return self._tool_error(
                 "Selection is empty (caret only): select text first, or use target='search'/set_selection.",
@@ -2116,8 +2138,8 @@ class StyleFormatText(ToolWriterStyleBase):
         char_tracked = False
         para_author: str | None = None
 
-        # One body-spanning cursor covers tables (including nested tables) because
-        # lcl_InsAttr and ResetAttrs walk every node in the range.
+        # Each cursor covers every table inside its range (nested ones too) because lcl_InsAttr
+        # and ResetAttrs walk every node; tables the document starts with have cursors of their own.
         def apply_one(cursor: Any) -> _DirectFormatReport:
             states, incomplete = (
                 _paragraph_revert_states(_expand_to_full_paragraphs(cursor))
@@ -2155,7 +2177,7 @@ class StyleFormatText(ToolWriterStyleBase):
             # get none.
             recordable = [s for s in states if s.recorded or not s.numbered]
             recorded, failed, unrestorable = _record_paragraph_formats(recordable, para_author)
-            complete = recorded > 0 and not failed and not incomplete and len(recordable) == len(states)
+            complete = not failed and not incomplete and len(recordable) == len(states)
             return _DirectFormatReport(actually_cleared, recorded > 0, complete, frozenset(unrestorable))
 
         with (record_changes(ctx.doc, True) if review_recording_enabled() else nullcontext()):
@@ -2168,7 +2190,7 @@ class StyleFormatText(ToolWriterStyleBase):
             return err
 
         tracked = char_tracked or any(r.para_recorded for r in reports)
-        para_complete = all(r.para_complete for r in reports)
+        para_complete = any(r.para_recorded for r in reports) and all(r.para_complete for r in reports)
         unrestorable = frozenset().union(*(r.unrestorable for r in reports))
         cleared_set = {name for rep in reports for name in rep.cleared}
         reset_done = [name for name in reset_names if name in cleared_set]

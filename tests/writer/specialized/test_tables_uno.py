@@ -1550,3 +1550,67 @@ def test_protected_section_refusal_while_recording_uno(ctx, doc):
     finally:
         sec.setPropertyValue("IsProtected", False)
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_delete_protected_cell_refused_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("ProtOuter")
+    outer.getCellByName("A1").setString("o1")
+    outer.getCellByName("B1").setString("o2")
+    outer.getCellByName("A2").setString("o3")
+    outer.getCellByName("B2").setString("o4")
+
+    undo_mgr = doc.getUndoManager()
+    try:
+        for recording in (False, True):
+            doc.setPropertyValue("RecordChanges", recording)
+            outer.getCellByName("B2").setPropertyValue("IsProtected", True)
+            cells_before = {c: outer.getCellByName(c).getString() for c in ("A1", "B1", "A2", "B2")}
+            undo_before = list(undo_mgr.getAllUndoActionTitles())
+            redlines_before = doc.getRedlines().getCount()
+
+            res = TableDelete().execute_safe(tool_ctx, name="ProtOuter")
+            assert res["status"] == "error" and res["code"] == "CELLS_PROTECTED", res
+            assert "B2" in res["message"]
+            assert doc.getTextTables().hasByName("ProtOuter")
+            assert {
+                c: outer.getCellByName(c).getString() for c in ("A1", "B1", "A2", "B2")
+            } == cells_before
+            assert doc.getRedlines().getCount() == redlines_before
+            assert list(undo_mgr.getAllUndoActionTitles()) == undo_before
+
+            outer.getCellByName("B2").setPropertyValue("IsProtected", False)
+            inner = doc.createInstance("com.sun.star.text.TextTable")
+            inner.initialize(1, 1)
+            host = outer.getCellByName("B2")
+            host.insertTextContent(host.getEnd(), inner, False)
+            inner.setName("ProtInner")
+            inner.getCellByName("A1").setString("in1")
+            host.setPropertyValue("IsProtected", True)
+            redlines_before_in = doc.getRedlines().getCount()
+
+            res_in = TableDelete().execute_safe(tool_ctx, name="ProtInner")
+            assert res_in["status"] == "error" and res_in["code"] == "CELLS_PROTECTED", res_in
+            assert "ProtOuter" in res_in["message"]
+            assert doc.getTextTables().hasByName("ProtInner")
+            assert doc.getRedlines().getCount() == redlines_before_in
+
+            if not recording:
+                host.setPropertyValue("IsProtected", False)
+                TableDelete().execute_safe(tool_ctx, name="ProtInner")
+                assert not doc.getTextTables().hasByName("ProtInner")
+
+        # Protected child cell does not block deleting the outer table.
+        host.setPropertyValue("IsProtected", False)
+        inner.getCellByName("A1").setPropertyValue("IsProtected", True)
+        res_outer = TableDelete().execute_safe(tool_ctx, name="ProtOuter")
+        assert res_outer["status"] == "ok" and res_outer["pending_review"] is True, res_outer
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

@@ -764,10 +764,21 @@ def api_key_needs_keystore_read(endpoint: Any) -> bool:
     return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
 
 
+def cached_api_key_for_endpoint(endpoint: Any) -> str:
+    """Return the API key for *endpoint* from plain text or cache without reading the OS."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    raw = _api_key_slot_raw(normalized)
+    if keystore.is_ref(raw):
+        return keystore.cached_secret(_api_key_secret_name(normalized)) or ""
+    return str(raw or "")
+
+
 def _secret_field_text(name: str, raw: Any) -> str:
     # Return the raw ref when the secret cannot be read: a blank field would be
     # saved as a clear, so pressing OK for an unrelated setting would drop the saved secret.
-    return _resolve_secret(name, raw) or str(raw or "")
+    if keystore.is_ref(raw):
+        return keystore.cached_secret(name) or str(raw)
+    return str(raw or "")
 
 
 def api_key_field_text(endpoint: Any) -> str:

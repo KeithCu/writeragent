@@ -11,6 +11,7 @@ import pytest
 from tests.harness.strip_bundle import requires_asserts
 
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.writer.specialized.tables import (
     TableDelete,
     TableGetCells,
@@ -1940,6 +1941,55 @@ def test_pending_insertions_detects_inserted_table_spans():
     assert _pending_insertions(_doc_with([_redline("Insert", t2, t3)]), names) == {"T2"}
     assert _pending_insertions(_doc_with([_redline("Insert", cell, body)]), names) == set()
     assert _pending_insertions(_doc_with([_redline("Delete", t2, body)]), names) == set()
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+def test_table_delete_refuses_protected_cell(tracked):
+    body = FakeBodyText()
+    if tracked:
+        table = _TrackingTable(2, 2, cells={"A1": "Item"}, protected={"B2"}, name="T", anchor_text=body)
+        doc = _TrackingDoc({"T": table})
+        tool_ctx = SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc))
+    else:
+        table = FakeTable(2, 2, cells={"A1": "Item"}, protected={"B2"}, name="T", anchor_text=body)
+        doc = FakeWriterDoc({"T": table}, body=body)
+        tool_ctx = SimpleNamespace(doc=doc)
+    res = TableDelete().execute_safe(tool_ctx, name="T")
+    assert res["status"] == "error"
+    assert res["code"] == "CELLS_PROTECTED"
+    assert "B2" in res["message"]
+    assert "Unprotect Cells" in res["message"]
+    assert body.removed == []
+    if tracked:
+        assert doc.dispatched == []
+
+
+def test_table_delete_refuses_nested_in_protected_cell():
+    parent = FakeParentTable(
+        2,
+        2,
+        nested_by_cell={"B2": [FakeTextTableElement("Child")]},
+        name="Outer",
+    )
+    parent._protected = {"B2"}
+    child = FakeTable(1, 1, cells={"A1": "Inner"}, name="Child")
+    doc = FakeWriterDoc({"Outer": parent, "Child": child})
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc), name="Child")
+    assert res["status"] == "error"
+    assert res["code"] == "CELLS_PROTECTED"
+    assert "Outer" in res["message"]
+    assert parent.cell_removes == []
+
+
+def test_record_table_deletions_refuses_protected_cell():
+    body = FakeBodyText()
+    table = FakeTable(1, 2, cells={"A1": "Fee"}, protected={"B1"}, name="Fee", anchor_text=body)
+    doc = FakeWriterDoc({"Fee": table}, body=body)
+    session = SimpleNamespace(record_mutation=lambda fn: fn())
+    with pytest.raises(ToolExecutionError) as exc_info:
+        record_table_deletions(session, doc, None, [(table, "Fee")])
+    assert exc_info.value.code == "CELLS_PROTECTED"
+    assert body.removed == []
 
 
 
