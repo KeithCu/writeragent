@@ -20,8 +20,12 @@ from plugin.tests.testing_utils import with_native_doc
 from tests.calc.python.calc_workbook_test_access import SHEET_MODIFY_LISTENERS
 
 
+# The orphan pass clears the block only when the used-area end has not moved.
+# A pooled workbook can keep a used_ends value from an earlier test, measured
+# before the pool reset emptied the sheet, so the pass would drop the record
+# and clear nothing.
 @native_test
-@with_native_doc("calc")
+@with_native_doc("calc", reuse=False)
 def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheets = doc.getSheets()
     sheet = sheets.getByIndex(0)
@@ -61,7 +65,7 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     dispatch_sheet_modified(ctx, original_name, SimpleNamespace(Source=sheet), doc)
 
     # Assert SHEET_MODIFY_LISTENERS has entry under new name and old name is gone
-    entries_for_doc = [k for k in SHEET_MODIFY_LISTENERS if k[1] in (original_name, new_name)]
+    entries_for_doc = [k for k in SHEET_MODIFY_LISTENERS if k[0] == st.key and k[1] in (original_name, new_name)]
     assert any(k[1] == new_name for k in entries_for_doc)
     assert not any(k[1] == original_name for k in entries_for_doc)
 

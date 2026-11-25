@@ -190,7 +190,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
         if name == "WriterAgentSpillRegistry":
             saved_payload = value
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc = CalcDocStub(url="file:///fake_doc.ods")
@@ -249,7 +249,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         if name == "WriterAgentSpillRegistry":
             stored[id(model)] = value
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc1 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-1"}, selection="B2")
@@ -814,7 +814,7 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
         "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]},
     })
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
     doc = CalcDocStub(url="file:///fake_malformed.ods")
@@ -1418,7 +1418,7 @@ def test_arm_spill_registry_loads_and_arms_sheets(monkeypatch: pytest.MonkeyPatc
         "MissingSheet:0,0": {"code": "c", "rows": 2, "cols": 1},
     })
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda _model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
 
@@ -1666,7 +1666,7 @@ def test_moved_formula_respills_before_modify_pass(
         if name == "WriterAgentSpillRegistry":
             saved.append(value)
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     sheet = CalcSheetStub("Sheet1")
@@ -2074,3 +2074,185 @@ def test_owned_rect_10000_row_linear_match(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert _spill._owned_rect(object(), 0, 0, rec, (-1, 0)) == (n - 1, 1)
     assert comparisons <= 5 * n
+
+
+def test_perform_deferred_spill_code_in_cell_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin, locate_formula_cell_in_doc
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    doc = CalcDocStub(
+        sheets=[CalcSheetStub("Sheet1"), CalcSheetStub("Sheet2")],
+        url="file:///code_in_cell.ods",
+        props={"RuntimeUID": "uid-code-in-cell"},
+    )
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    sheet2 = doc.getSheets().getByName("Sheet2")
+    code_same = "[[1, 2], [3, 4]]"
+    code_cross = "[[10], [20]]"
+
+    sheet1.getCellByPosition(3, 0).setString(code_same)  # D1
+    sheet1.getCellByPosition(0, 0).setFormula("=PY(D1)")  # A1
+    sheet2.getCellByPosition(0, 0).setString(code_cross)  # Sheet2.A1
+    sheet1.getCellByPosition(0, 4).setFormula("=PY(Sheet2.A1)")  # A5
+
+    monkeypatch.setattr(main, "is_current", lambda: True)
+    reset_calc_workbook_states()
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    try:
+        loc_same = locate_formula_cell_in_doc(doc, code_same)
+        assert loc_same is not None
+        prep_same = _spill.prepare_auto_spill(
+            _ctx_with_doc(doc), doc, state, FormulaOrigin.from_located(loc_same), code_same, [[1, 2], [3, 4]]
+        )
+        assert isinstance(prep_same, _spill.PreparedSpill)
+        perform_deferred_spill("Sheet1", 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet1, code=code_same, key=state.key)
+        assert sheet1.getCellByPosition(1, 0).getValue() == 2.0
+        assert sheet1.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet1.getCellByPosition(1, 1).getValue() == 4.0
+
+        perform_deferred_spill("Sheet1", 4, 0, [[10], [20]], doc=doc, sheet=sheet1, code=code_cross, key=state.key)
+        assert sheet1.getCellByPosition(0, 5).getValue() == 20.0
+
+        # cleanup_orphans must recognize both code-in-cell origins and keep their records.
+        _spill.cleanup_orphans(state, sheet1, doc=doc, sheet_name="Sheet1")
+        assert ("Sheet1", 0, 0) in state.spills
+        assert ("Sheet1", 4, 0) in state.spills
+    finally:
+        WorkbookState.forget_key(state.key)
+
+
+def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    stored = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
+
+    for fail_kind in ("getPropertyValue", "getPropertySetInfo"):
+        doc = CalcDocStub(url=f"file:///fail_{fail_kind}.ods", props={"RuntimeUID": f"uid-fail-{fail_kind}"})
+        bag = doc.getDocumentProperties().UserDefinedProperties
+        bag.values["WriterAgentSpillRegistry"] = stored
+        orig_get_value = bag.getPropertyValue
+        orig_get_info = bag.getPropertySetInfo
+        fail_read = True
+
+        def _maybe_fail_value(name: str, _orig=orig_get_value) -> Any:
+            if fail_read and name == "WriterAgentSpillRegistry":
+                raise RuntimeError("transient getPropertyValue error")
+            return _orig(name)
+
+        def _maybe_fail_info(_orig=orig_get_info) -> Any:
+            if fail_read:
+                raise RuntimeError("transient getPropertySetInfo error")
+            return _orig()
+
+        if fail_kind == "getPropertyValue":
+            monkeypatch.setattr(bag, "getPropertyValue", _maybe_fail_value)
+        else:
+            monkeypatch.setattr(bag, "getPropertySetInfo", _maybe_fail_info)
+
+        reset_calc_workbook_states()
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        try:
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert not st.loaded
+            assert st.spills == {}
+
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert bag.values["WriterAgentSpillRegistry"] == stored
+
+            fail_read = False
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert st.loaded
+            assert ("Sheet1", 0, 0) in st.spills
+
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+                "Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}
+            }
+        finally:
+            WorkbookState.forget_key(st.key)
+
+
+def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    doc = CalcDocStub(
+        sheets=[CalcSheetStub("Sheet1"), CalcSheetStub("Sheet2")],
+        url="file:///cleanup_loads.ods",
+        props={"RuntimeUID": "uid-cleanup-loads"},
+    )
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    bag = doc.getDocumentProperties().UserDefinedProperties
+    bag.values["WriterAgentSpillRegistry"] = json.dumps({
+        "Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1},
+        "Sheet2:0,0": {"code": "y", "rows": 3, "cols": 1},
+    })
+
+    monkeypatch.setattr(main, "is_current", lambda: True)
+    reset_calc_workbook_states()
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    active_state = state
+    try:
+        assert not state.loaded
+        state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="x", rows=2, cols=1)
+
+        _spill.cleanup_orphans(state, sheet1, doc=doc, sheet_name="Sheet1")
+
+        assert state.loaded
+        assert ("Sheet1", 0, 0) not in state.spills
+        assert ("Sheet2", 0, 0) in state.spills
+        assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+            "Sheet2:0,0": {"code": "y", "rows": 3, "cols": 1}
+        }
+
+        WorkbookState.forget_key(state.key)
+        reloaded_state = WorkbookState.for_doc(doc)
+        assert reloaded_state is not None
+        active_state = reloaded_state
+        assert not reloaded_state.loaded
+        _spill.load_spill_registry_for_doc(doc, reloaded_state)
+        assert ("Sheet1", 0, 0) not in reloaded_state.spills
+        assert ("Sheet2", 0, 0) in reloaded_state.spills
+    finally:
+        WorkbookState.forget_key(active_state.key)
+
+
+def test_load_spill_registry_unparsable_payload_marks_loaded_and_allows_recovery() -> None:
+    import json
+
+    for bad_payload in ("{not-json", "[1, 2]"):
+        doc = CalcDocStub(url="file:///bad_json.ods", props={"RuntimeUID": "uid-bad-json"})
+        bag = doc.getDocumentProperties().UserDefinedProperties
+        bag.values["WriterAgentSpillRegistry"] = bad_payload
+
+        reset_calc_workbook_states()
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        try:
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert st.loaded
+            assert st.spills == {}
+
+            st.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="recovered", rows=2, cols=1)
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+                "Sheet1:0,0": {"code": "recovered", "rows": 2, "cols": 1}
+            }
+        finally:
+            WorkbookState.forget_key(st.key)
+
+
+def test_load_spill_registry_missing_property_marks_loaded() -> None:
+    reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///clean_load.ods", props={"RuntimeUID": "uid-clean-load"})
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        _spill.load_spill_registry_for_doc(doc, st)
+        assert st.loaded
+        assert st.spills == {}
+    finally:
+        WorkbookState.forget_key(st.key)

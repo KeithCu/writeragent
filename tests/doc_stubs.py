@@ -563,6 +563,9 @@ class _UserDefinedPropertiesStub:
     def __init__(self):
         self.values = {}
 
+    def getPropertySetInfo(self):
+        return SimpleNamespace(hasPropertyByName=lambda name: name in self.values)
+
     def hasByName(self, name):
         return name in self.values
 

@@ -1012,3 +1012,61 @@ def test_scalar_result_protected_sheet_keeps_record_uno(ctx, doc):
         if sheet.isProtected():
             sheet.unprotect("")
         WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_code_in_cell_ref_auto_spills_uno(ctx, doc):
+    from plugin.calc.python.function import build_cell_context, finalize_python_return
+
+    sheets = doc.getSheets()
+    sheet = sheets.getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    sheets.insertNewByName("CodeSheet", 1)
+    code_sheet = sheets.getByName("CodeSheet")
+
+    code_same = "[[1, 2], [3, 4]]"
+    sheet.getCellByPosition(3, 0).setString(code_same)  # D1
+    sheet.getCellByPosition(0, 0).setFormula("=PY(D1)")  # A1
+
+    code_cross = "[[10], [20]]"
+    code_sheet.getCellByPosition(0, 0).setString(code_cross)  # CodeSheet.A1
+    sheet.getCellByPosition(0, 4).setFormula("=PY(CodeSheet.A1)")  # A5
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        cell_ctx = build_cell_context(ctx, doc, code_same, on_main=True)
+        assert finalize_python_return(cell_ctx, [[1, 2], [3, 4]]) == 1.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+
+        assert sheet.getCellByPosition(1, 0).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet.getCellByPosition(1, 1).getValue() == 4.0
+        rec = st.spills[(sheet_name, 0, 0)]
+        assert (rec.rows, rec.cols) == (2, 2)
+
+        cross_ctx = build_cell_context(ctx, doc, code_cross, on_main=True)
+        assert finalize_python_return(cross_ctx, [[10], [20]]) == 10.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:4:0")
+        assert sheet.getCellByPosition(0, 5).getValue() == 20.0
+        assert (st.spills[(sheet_name, 4, 0)].rows, st.spills[(sheet_name, 4, 0)].cols) == (2, 1)
+
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (sheet_name, 0, 0) in st.spills
+        assert (sheet_name, 4, 0) in st.spills
+
+        # Edit the code cell to a smaller result without changing =PY(D1) formula text;
+        # the old tail must clear via foreign + cleanup_orphans.
+        smaller_code = "[[7], [8]]"
+        sheet.getCellByPosition(3, 0).setString(smaller_code)
+        smaller_ctx = build_cell_context(ctx, doc, smaller_code, on_main=True)
+        assert finalize_python_return(smaller_ctx, [[7], [8]]) == 7.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        assert sheet.getCellByPosition(0, 1).getValue() == 8.0
+        assert sheet.getCellByPosition(1, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(1, 1).getType() == EMPTY
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (2, 1)
+    finally:
+        WorkbookState.forget_key(key)

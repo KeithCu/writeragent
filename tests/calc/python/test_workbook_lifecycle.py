@@ -356,7 +356,7 @@ def test_open_event_arms_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None
     doc = CalcDocStub(url="file:///open-arm.ods", props={"RuntimeUID": "uid-open-arm"})
     payload = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda _model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
 

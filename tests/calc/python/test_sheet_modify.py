@@ -212,7 +212,7 @@ def test_rename_keeps_spill_registry_when_memory_is_not_loaded(monkeypatch: pyte
     def mock_set(_doc, name, value):
         stored[name] = value
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set)
 
     doc = CalcDocStub(url="file:///unloaded-rename.ods", props={"RuntimeUID": "uid-unloaded-rename"})
@@ -233,7 +233,7 @@ def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda _doc, name, default=None: stored.get(name, default),
     )
     monkeypatch.setattr(
