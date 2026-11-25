@@ -11,6 +11,7 @@ import pytest
 from tests.harness.strip_bundle import requires_asserts
 
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.writer.specialized.tables import (
     TableDelete,
     TableGetCells,
@@ -1981,8 +1982,6 @@ def test_table_delete_refuses_nested_in_protected_cell():
 
 
 def test_record_table_deletions_refuses_protected_cell():
-    from plugin.framework.errors import ToolExecutionError
-
     body = FakeBodyText()
     table = FakeTable(1, 2, cells={"A1": "Fee"}, protected={"B1"}, name="Fee", anchor_text=body)
     doc = FakeWriterDoc({"Fee": table}, body=body)
@@ -1991,7 +1990,6 @@ def test_record_table_deletions_refuses_protected_cell():
         record_table_deletions(session, doc, None, [(table, "Fee")])
     assert exc_info.value.code == "CELLS_PROTECTED"
     assert body.removed == []
-
 
 
 

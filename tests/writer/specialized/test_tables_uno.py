@@ -1594,11 +1594,13 @@ def test_table_delete_protected_cell_refused_uno(ctx, doc):
             inner.setName("ProtInner")
             inner.getCellByName("A1").setString("in1")
             host.setPropertyValue("IsProtected", True)
+            redlines_before_in = doc.getRedlines().getCount()
 
             res_in = TableDelete().execute_safe(tool_ctx, name="ProtInner")
             assert res_in["status"] == "error" and res_in["code"] == "CELLS_PROTECTED", res_in
             assert "ProtOuter" in res_in["message"]
             assert doc.getTextTables().hasByName("ProtInner")
+            assert doc.getRedlines().getCount() == redlines_before_in
 
             if not recording:
                 host.setPropertyValue("IsProtected", False)
@@ -1612,4 +1614,3 @@ def test_table_delete_protected_cell_refused_uno(ctx, doc):
         assert res_outer["status"] == "ok" and res_outer["pending_review"] is True, res_outer
     finally:
         doc.setPropertyValue("RecordChanges", False)
-

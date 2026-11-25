@@ -55,7 +55,10 @@ replacement. Whitespace the model actually sent is kept.
 
 Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
 
-`table_delete` refuses with `CELLS_PROTECTED` when the table has, or is nested in, a protected cell (whether or not changes are recorded), and cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for removing every row), so the table would vanish unreviewable. It places the caret in a non-nested
+`table_delete` refuses with `CELLS_PROTECTED` when the table has, or is nested in, a protected cell
+(whether or not changes are recorded). It cannot use `removeTextContent` under tracking: Writer
+records nothing for it (nor for removing every row), so the table would vanish unreviewable. It
+places the caret in a non-nested
 cell, confirms via the view cursor that it landed in the target table (refusing with
 `TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an

@@ -247,9 +247,9 @@ class _ParagraphRevert(NamedTuple):
 
 class _DirectFormatReport(NamedTuple):
     """Per-cursor result of StyleFormatText: cleared names, whether any ParagraphFormat redline
-    was recorded, whether every recordable touched paragraph was recorded (empty paragraphs
-    do not clear ``para_complete`` while another paragraph was recorded), and any direct
-    paragraph property names that Reject will drop.
+    was recorded, whether every recordable touched paragraph in this cursor was recorded (the
+    caller requires at least one cursor to record a paragraph so empty cells do not clear
+    ``para_complete``), and any direct paragraph property names that Reject will drop.
     """
 
     cleared: list[str]
@@ -1692,7 +1692,7 @@ def target_cursors(
 
 
 def _covering_cursors(text: Any) -> Iterator[Any]:
-    """Cursors that together cover *text*: one per cell of the tables it starts with, then the rest.
+    """Cursors that cover leading tables and the rest of *text* (within a cell, stops at a leading section's end).
 
     SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) steps past leading tables, so a
     cursor over the whole text leaves them out. A cell can itself start with a nested table; its
@@ -2149,7 +2149,7 @@ class StyleFormatText(ToolWriterStyleBase):
             # get none.
             recordable = [s for s in states if s.recorded or not s.numbered]
             recorded, failed, unrestorable = _record_paragraph_formats(recordable, para_author)
-            complete = recorded > 0 and not failed and not incomplete and len(recordable) == len(states)
+            complete = not failed and not incomplete and len(recordable) == len(states)
             return _DirectFormatReport(actually_cleared, recorded > 0, complete, frozenset(unrestorable))
 
         with (record_changes(ctx.doc, True) if review_recording_enabled() else nullcontext()):
@@ -2162,7 +2162,7 @@ class StyleFormatText(ToolWriterStyleBase):
             return err
 
         tracked = char_tracked or any(r.para_recorded for r in reports)
-        para_complete = all(r.para_complete for r in reports)
+        para_complete = any(r.para_recorded for r in reports) and all(r.para_complete for r in reports)
         unrestorable = frozenset().union(*(r.unrestorable for r in reports))
         cleared_set = {name for rep in reports for name in rep.cleared}
         reset_done = [name for name in reset_names if name in cleared_set]

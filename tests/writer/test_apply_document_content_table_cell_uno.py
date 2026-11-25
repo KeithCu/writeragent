@@ -436,4 +436,3 @@ def test_emptying_a_table_with_a_protected_cell_is_refused_uno(ctx, doc):
             assert table.getCellByName("A1").getString() == "ONLY_FEE"
     finally:
         table.getCellByName("B1").setPropertyValue("IsProtected", False)
-

@@ -1178,6 +1178,11 @@ def test_style_format_text_full_document_covers_leading_tables_uno(ctx, doc):
     t2.getCellByName("A1").setString("Lead2")
     text.insertString(text.getEnd(), "Body text", False)
 
+    body_enum = text.createEnumeration()
+    assert body_enum.nextElement().supportsService("com.sun.star.text.TextTable")
+    assert body_enum.nextElement().supportsService("com.sun.star.text.TextTable")
+    assert host.getText().createEnumeration().nextElement().supportsService("com.sun.star.text.TextTable")
+
     before_fonts = {s: p["CharFontName"] for s, p in _portion_fonts(text)}
     undo_mgr = doc.getUndoManager()
     undo_before = len(undo_mgr.getAllUndoActionTitles())
@@ -1223,9 +1228,11 @@ def test_style_format_text_full_document_covers_leading_tables_uno(ctx, doc):
 @with_native_doc("writer", reuse=False)
 def test_style_format_text_full_document_leading_table_tracked_uno(ctx, doc):
     text = doc.getText()
-    t1 = _insert_table(doc, text, text.getStart(), rows=1, cols=1)
+    t1 = _insert_table(doc, text, text.getStart(), rows=1, cols=2)
     t1.getCellByName("A1").setString("TrackedLead")
+    # B1 stays empty so an empty leading cell does not clear para_complete.
     text.insertString(text.getEnd(), "TrackedBody", False)
+    assert text.createEnumeration().nextElement().supportsService("com.sun.star.text.TextTable")
 
     before = {s: (p["CharFontName"], p["ParaLeftMargin"]) for s, p in _portion_fonts(text)}
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -1237,6 +1244,8 @@ def test_style_format_text_full_document_leading_table_tracked_uno(ctx, doc):
             target="full_document",
         )
         assert res["status"] == "ok" and res.get("tracked") is True, res
+        assert "style_unreviewed" not in res, res
+        assert "Not fully recorded" not in (res.get("warning") or ""), res
         for s, props in _portion_fonts(text):
             assert props["CharFontName"] == "Arial", (s, props)
             assert abs(props["ParaLeftMargin"] - 400) <= 2, (s, props)
@@ -1260,6 +1269,9 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     tbl = _insert_table(doc, sec_anchor.getText(), sec_anchor.getStart(), rows=1, cols=1)
     tbl.getCellByName("A1").setString("SecLead")
     text.insertString(text.getEnd(), "AfterSec", False)
+    first_el = text.createEnumeration().nextElement()
+    assert first_el.supportsService("com.sun.star.text.TextTable")
+    assert first_el.getPropertyValue("TextSection") is not None
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = StyleFormatText().execute(
@@ -1272,5 +1284,4 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
     for s, props in portions:
         assert props["CharFontName"] == "Arial", (s, props)
-
 
