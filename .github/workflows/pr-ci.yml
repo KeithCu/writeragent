@@ -140,15 +140,15 @@ jobs:
         timeout-minutes: 5
         run: |
           python scripts/install_opengrep.py
-          # Use the resolved binary path so verify checks the same executable typecheck runs.
+          # Verify the installed binary directly and confirm its version matches the pin.
           og_path="$(python scripts/opengrep_path.py)"
           ver="$("$og_path" --version)"
           echo "$ver"
           expected="$(python -c 'from scripts.install_opengrep import OPENGREP_VERSION; print(OPENGREP_VERSION.lstrip("v"))')"
-          case "$ver" in
-            *"$expected"*) ;;
-            *) echo "::error::Expected opengrep $expected, got: $ver"; exit 1 ;;
-          esac
+          if ! printf '%s\n' "$ver" | grep -Eq "(^|[^0-9.])${expected//./\\.}([^0-9.]|$)"; then
+            echo "::error::Expected opengrep $expected, got: $ver"
+            exit 1
+          fi
 
       - name: Install Python dependencies
         run: |

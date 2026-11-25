@@ -63,9 +63,10 @@ def test_install_opengrep_posix_and_resolver_agree(tmp_path: Path) -> None:
     payload = b"#!/bin/sh\necho opengrep\n"
     digest = hashlib.sha256(payload).hexdigest()
     assets = {("Linux", "x86_64"): ("opengrep_linux_x86", digest)}
+    requested_paths: list[str] = []
 
     def handle(req: http.server.BaseHTTPRequestHandler) -> None:
-        assert req.path == f"/{install_opengrep.OPENGREP_VERSION}/opengrep_linux_x86"
+        requested_paths.append(req.path)
         req.send_response(200)
         req.send_header("Content-Length", str(len(payload)))
         req.end_headers()
@@ -80,6 +81,7 @@ def test_install_opengrep_posix_and_resolver_agree(tmp_path: Path) -> None:
             assets=assets,
         )
 
+    assert requested_paths == [f"/{install_opengrep.OPENGREP_VERSION}/opengrep_linux_x86"]
     assert exe == tmp_path / ".local" / "bin" / "opengrep"
     assert exe.read_bytes() == payload
     assert exe.stat().st_mode & 0o111
@@ -180,17 +182,13 @@ def test_install_opengrep_retries_short_body(
     assert exe.read_bytes() == payload
 
 
-def test_install_opengrep_retries_slow_stream(
+def test_install_opengrep_retries_slow_stream_and_allows_unbounded_local(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = b"0123456789"
     digest = hashlib.sha256(payload).hexdigest()
     assets = {("Linux", "x86_64"): ("opengrep_linux_x86", digest)}
     monkeypatch.setattr(install_opengrep.time, "sleep", lambda _s: None)
-
-    # First attempt: clock jumps 25s on the first chunk read so 10 B / 25s < 1 MB/s.
-    times = iter([0.0, 25.0, 25.0, 25.0])
-    monkeypatch.setattr(install_opengrep.time, "monotonic", lambda: next(times))
 
     attempts = 0
 
@@ -203,15 +201,30 @@ def test_install_opengrep_retries_slow_stream(
         req.wfile.write(payload)
 
     with _local_server(handle) as base_url:
+        with pytest.raises(RuntimeError, match="Failed to download"):
+            install_opengrep.install_opengrep(
+                system="Linux",
+                machine="x86_64",
+                home=tmp_path,
+                base_url=base_url,
+                assets=assets,
+                speed_limit_bps=10**12,
+                speed_time_s=0.0,
+            )
+        assert attempts == install_opengrep._MAX_ATTEMPTS
+
+        attempts = 0
         exe = install_opengrep.install_opengrep(
             system="Linux",
             machine="x86_64",
             home=tmp_path,
             base_url=base_url,
             assets=assets,
+            speed_limit_bps=0,
+            speed_time_s=0.0,
         )
 
-    assert attempts == 2
+    assert attempts == 1
     assert exe.read_bytes() == payload
 
 

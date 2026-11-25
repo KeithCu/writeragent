@@ -64,8 +64,8 @@ _ARCH_ALIASES = {
 
 _MAX_ATTEMPTS = 6
 _DOWNLOAD_TIMEOUT_S = 30
-# Match #3968's curl --speed-limit/--speed-time floor: urlopen(timeout=30) only
-# bounds each socket read, so a stalled ~300 kB/s stream would hit CI's 5-min cap.
+# CI's 5-min step timeout would kill a slow ~300 kB/s stream without a retry
+# because urlopen(timeout=30) only bounds each socket read; local installs skip it.
 _SPEED_LIMIT_BPS = 1_000_000
 _SPEED_TIME_S = 20.0
 _CHUNK_SIZE = 64 * 1024
@@ -106,7 +106,7 @@ def _download_with_sha256(
         raw_len = resp.headers.get("Content-Length")
         expected_len = int(raw_len) if raw_len is not None else None
         while True:
-            chunk = resp.read(_CHUNK_SIZE)
+            chunk = resp.read1(_CHUNK_SIZE)
             if not chunk:
                 break
             hasher.update(chunk)
@@ -114,7 +114,7 @@ def _download_with_sha256(
             bytes_read += len(chunk)
             window_bytes += len(chunk)
             elapsed = time.monotonic() - window_start
-            if elapsed >= speed_time_s:
+            if speed_limit_bps > 0 and elapsed >= speed_time_s:
                 if window_bytes / elapsed < speed_limit_bps:
                     raise TimeoutError(
                         f"Download below {speed_limit_bps} B/s for {speed_time_s}s"
@@ -128,7 +128,7 @@ def _download_with_sha256(
 
 
 def _extract_windows_zip(archive_path: Path, bin_dir: Path) -> None:
-    """Extract *archive_path* into *bin_dir* atomically per entry."""
+    """Extract *archive_path* into *bin_dir*, replacing each entry."""
     with zipfile.ZipFile(archive_path) as zf, tempfile.TemporaryDirectory(dir=bin_dir) as stage_raw:
         stage = Path(stage_raw)
         zf.extractall(stage)
@@ -199,7 +199,7 @@ def install_opengrep(
             last_err = exc
         except urllib.error.URLError as exc:
             tmp_path.unlink(missing_ok=True)
-            if isinstance(exc.reason, ssl.SSLError):
+            if isinstance(exc.reason, ssl.SSLCertVerificationError):
                 raise
             last_err = exc
         except (http.client.HTTPException, OSError) as exc:
@@ -217,8 +217,10 @@ def install_opengrep(
 
 
 def main() -> int:
-    exe_path = install_opengrep()
     gh_path = os.environ.get("GITHUB_PATH")
+    # Apply the 1 MB/s floor only in CI; local developers on slower links have no 5-min cap.
+    speed_limit_bps = _SPEED_LIMIT_BPS if gh_path else 0
+    exe_path = install_opengrep(speed_limit_bps=speed_limit_bps)
     if gh_path:
         with Path(gh_path).open("a", encoding="utf-8") as fh:
             fh.write(f"{exe_path.parent}\n")
