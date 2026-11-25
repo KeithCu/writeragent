@@ -250,7 +250,6 @@ def commit_or_rollback(
     mutate: Any,
     *,
     session: Any | None = None,
-    selection_pin: Any | None = None,
 ) -> UndoOutcome:
     """Run mutate inside an undo context with title.
 
@@ -264,10 +263,6 @@ def commit_or_rollback(
     without importing ``edit_review`` here. The snapshot is ``len(session.changes)`` taken
     before ``mutate()`` runs.
 
-    Optional ``selection_pin`` (duck-typed pin with ``snapshot`` and ``restore``) is
-    snapshotted before ``mutate()`` and restored when rollback undo runs, because a
-    model cursor collapses when its spanned text is deleted and stays collapsed on undo.
-
     ``mutate`` returns an error dict or None; any dict is treated as an error.
     """
     group = WriterCompoundUndo.try_enter(doc, title)
@@ -280,7 +275,6 @@ def commit_or_rollback(
     changes_snapshot: int | None = None
     if session is not None:
         changes_snapshot = len(session.changes)
-    pin_snapshot = selection_pin.snapshot() if selection_pin is not None else None
     try:
         res = mutate()
         if isinstance(res, dict):
@@ -312,11 +306,6 @@ def commit_or_rollback(
                         session.discard_changes_since(changes_snapshot)
                     except Exception:
                         log.debug("commit_or_rollback: session discard failed", exc_info=True)
-                if selection_pin is not None and pin_snapshot is not None:
-                    try:
-                        selection_pin.restore(pin_snapshot)
-                    except Exception:
-                        log.debug("commit_or_rollback: selection_pin restore failed", exc_info=True)
             if group.rollback_error is not None:
                 # Keep the original cause and use a code distinct from a clean rollback.
                 cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)

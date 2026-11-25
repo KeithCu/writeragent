@@ -42,8 +42,6 @@ import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
 
-from plugin.framework.uno_context import enum_has_more
-
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from plugin.framework.send_cancellation import ApprovalCallback, SendCancellation
@@ -94,96 +92,30 @@ def _name_looks_readonly(name: str) -> bool:
     return len(parts) >= 2 and any(p in _READ_NAME_TOKENS for p in parts[1:])
 
 
-def _cursor_location(text_obj: Any, point: Any) -> tuple[int, int] | None:
-    """Return ``(para_index, step_offset)`` of *point* within *text_obj*, or None."""
-    enum = text_obj.createEnumeration()
-    para_idx = 0
-    while enum_has_more(enum):
-        elem = enum.nextElement()
-        if elem.supportsService("com.sun.star.text.Paragraph") and text_obj.compareRegionStarts(elem.getEnd(), point) <= 0:
-            cur = text_obj.createTextCursorByRange(point)
-            steps = 0
-            while not cur.isStartOfParagraph():
-                if not cur.goLeft(1, False):
-                    break
-                steps += 1
-            return para_idx, steps
-        para_idx += 1
-    return None
-
-
-def _restore_location(text_obj: Any, loc: tuple[int, int]) -> Any | None:
-    """Reconstruct a collapsed cursor at ``(para_index, step_offset)`` in *text_obj*."""
-    para_idx, steps = loc
-    enum = text_obj.createEnumeration()
-    idx = 0
-    while enum_has_more(enum):
-        elem = enum.nextElement()
-        if idx == para_idx:
-            cur = text_obj.createTextCursorByRange(elem.getStart())
-            if steps > 0:
-                cur.goRight(steps, False)
-            return cur
-        idx += 1
-    return None
-
-
 class SelectionPin:
-    """Writer selection the current sidebar send acts on.
+    """Writer selection the current sidebar send acts on, scoped to one document.
 
-    Holds a model text cursor copied from the view when the user pressed Send.
-    A cursor keeps its place while the user moves the caret, follows text
-    inserted before it, and sits after text inserted at it, so a later
-    target="selection" edit lands where the user asked, not where the caret is
-    now. set_selection replaces the cursor. None range means "no text selection
-    at Send": readers fall back to the live view. MCP contexts carry no pin.
+    Holds a model text cursor copied from the view when the user pressed Send,
+    along with the owning ``doc`` because a cursor from another document raises
+    or edits the wrong file. A cursor keeps its place while the user moves the
+    caret, follows text inserted before it, and sits after text inserted at it,
+    so a later target="selection" edit lands where the user asked, not where the
+    caret is now. set_selection replaces the cursor. None range means "no text
+    selection at Send": readers fall back to the live view. MCP contexts carry
+    no pin.
     """
 
     __slots__: ClassVar[tuple[str, ...]] = ("range", "doc")
     range: Any
     doc: Any
 
-    def __init__(self, text_range: Any, doc: Any = None) -> None:
+    def __init__(self, text_range: Any, doc: Any) -> None:
         self.range = text_range
         self.doc = doc
 
-    def snapshot(self) -> tuple[Any, tuple[int, int], tuple[int, int]] | None:
-        """Capture ``(text_obj, start_loc, end_loc)`` before a mutation that may roll back."""
-        rng = self.range
-        if rng is None:
-            return None
-        try:
-            text_obj = rng.getText()
-            if text_obj is None:
-                return None
-            start_loc = _cursor_location(text_obj, rng.getStart())
-            if start_loc is None:
-                return None
-            if rng.isCollapsed():
-                return text_obj, start_loc, start_loc
-            end_loc = _cursor_location(text_obj, rng.getEnd())
-            if end_loc is None:
-                return None
-            return text_obj, start_loc, end_loc
-        except Exception:
-            log.debug("SelectionPin.snapshot failed", exc_info=True)
-            return None
-
-    def restore(self, snap: tuple[Any, tuple[int, int], tuple[int, int]]) -> None:
-        """Restore ``range`` from a snapshot after an undo rollback."""
-        text_obj, start_loc, end_loc = snap
-        start_cur = _restore_location(text_obj, start_loc)
-        if start_cur is None:
-            return
-        if end_loc == start_loc:
-            self.range = start_cur
-            return
-        end_cur = _restore_location(text_obj, end_loc)
-        if end_cur is None:
-            return
-        restored = text_obj.createTextCursorByRange(start_cur.getStart())
-        restored.gotoRange(end_cur.getStart(), True)
-        self.range = restored
+    def applies_to(self, doc: Any) -> bool:
+        """True when *doc* is the document this pin was captured from."""
+        return doc is not None and self.doc == doc
 
 
 class ToolContext:
@@ -296,8 +228,6 @@ class ToolContext:
     def derive(self, **overrides: Any) -> ToolContext:
         """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported rules."""
         values = {name: getattr(self, name) for name in self.__slots__}
-        if "doc" in overrides and overrides["doc"] != self.doc and "selection_pin" not in overrides:
-            values["selection_pin"] = None
         values.update(overrides)
         return ToolContext(**values)
 

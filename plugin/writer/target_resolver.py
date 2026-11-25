@@ -31,7 +31,7 @@ def _span_cursor(rng: Any, fail: str) -> Any:
 def request_selection_range(ctx: ToolContext) -> Any | None:
     """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set for ctx.doc, else live_selection_range(doc controller)."""
     pin = ctx.selection_pin
-    if pin is not None and pin.range is not None and (pin.doc is None or pin.doc == ctx.doc):
+    if pin is not None and pin.range is not None and pin.applies_to(ctx.doc):
         return pin.range
     controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
     return live_selection_range(controller)
@@ -48,7 +48,7 @@ def require_selection_range(ctx: ToolContext) -> Any:
 def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:
     """Move the turn's pinned Writer selection to *text_range* when a pin exists for ctx.doc."""
     pin = ctx.selection_pin
-    if pin is not None and text_range is not None and (pin.doc is None or pin.doc == ctx.doc):
+    if pin is not None and text_range is not None and pin.applies_to(ctx.doc):
         pin.range = clone_text_range(text_range)
 
 
@@ -190,7 +190,6 @@ def insert_at_target(
             f"Failed to insert {what}; the change was rolled back",
             code=code,
             session=session,
-            selection_pin=ctx.selection_pin,
         )
 
     return run_in_review_session(ctx.doc, ctx.ctx, commit)

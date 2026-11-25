@@ -193,7 +193,7 @@ def _insert_ctx():
     undo_mgr.enterUndoContext.side_effect = lambda title: entered.setdefault("title", title)
     undo_mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),) if "title" in entered else ()
     doc.getUndoManager.return_value = undo_mgr
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock(), selection_pin=None)
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock())
     return ctx, undo_mgr
 
 
@@ -329,7 +329,7 @@ def test_selection_uses_pinned_range_not_live_view():
     pinned_rng = MagicMock()
     pinned_cursor = MagicMock()
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
 
     res = resolve_target_cursor(ctx, "selection", None)
     assert res is pinned_cursor
@@ -339,8 +339,8 @@ def test_selection_uses_pinned_range_not_live_view():
 def test_selection_without_pin_reads_live_view():
     from plugin.framework.tool import SelectionPin
 
-    for pin in (None, SelectionPin(None)):
-        ctx, _ = _ctx()
+    ctx, _ = _ctx()
+    for pin in (None, SelectionPin(None, ctx.doc)):
         ctx.selection_pin = pin
         controller = MagicMock()
         ctx.doc.getCurrentController.return_value = controller
@@ -383,7 +383,7 @@ def test_require_selection_range_without_caret_raises():
 
     ctx.doc.getCurrentController.reset_mock()
     pinned_rng = MagicMock()
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
     assert require_selection_range(ctx) is pinned_rng
     ctx.doc.getCurrentController.assert_not_called()
 
@@ -405,22 +405,4 @@ def test_selection_pin_scoped_to_its_document():
     assert request_selection_range(ctx) is live_rng
     update_selection_pin(ctx, MagicMock())
     assert ctx.selection_pin.range is foreign_rng
-
-
-def test_insert_at_target_restores_selection_pin_on_rollback(monkeypatch):
-    from plugin.framework.tool import SelectionPin
-
-    ctx, undo_mgr = _insert_ctx()
-    pin = MagicMock(spec=SelectionPin)
-    snap = ("text_obj", (0, 6), (0, 11))
-    pin.snapshot.return_value = snap
-    ctx.selection_pin = pin
-    tool = _DummyTool()
-    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: MagicMock())
-
-    res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: {"status": "error", "message": "fail"}, what="item")
-    assert res["status"] == "error"
-    undo_mgr.undo.assert_called_once()
-    pin.snapshot.assert_called_once()
-    pin.restore.assert_called_once_with(snap)
 

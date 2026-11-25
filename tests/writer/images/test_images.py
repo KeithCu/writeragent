@@ -870,7 +870,7 @@ def test_image_insert_downloads_before_main_thread():
         res = ImageInsert().execute(ctx, path="https://example.com/logo.png", target="body", style="Standard", auto_height=True)
 
     assert res["status"] == "ok"
-    assert order == ["download", "main-enter", "main-exit"]
+    assert order == ["main-enter", "main-exit", "download", "main-enter", "main-exit"]
 
 
 def test_image_replace_downloads_between_uno_calls():
@@ -910,7 +910,7 @@ def test_image_insert_url_unscoped_after_download():
 
     def _run(fn, *args, **kwargs):
         calls.append(kwargs)
-        if kwargs.get("bound_scope") is not None:
+        if "bound_scope" in kwargs and kwargs.get("bound_scope") is not None:
             raise SendCancelled("cancelled")
         return fn(*args)
 
@@ -924,9 +924,9 @@ def test_image_insert_url_unscoped_after_download():
         res = ImageInsert().execute(ctx, path="https://example.com/logo.png", target="body", style="Standard", auto_height=True)
 
     assert res["status"] == "ok"
-    assert len(calls) == 1
-    assert calls[0].get("bound_scope") is None
-    assert "bound_scope" in calls[0]
+    assert len(calls) == 2
+    assert calls[-1].get("bound_scope") is None
+    assert "bound_scope" in calls[-1]
 
 
 def test_image_replace_url_existence_scoped_apply_unscoped():

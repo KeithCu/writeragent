@@ -1764,7 +1764,7 @@ def test_edit_selection_passes_pinned_range_to_html_import():
     pinned_rng = MagicMock()
     pinned_anchor = MagicMock()
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_anchor
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
 
     with patch.object(
         html_import,
@@ -1827,7 +1827,7 @@ def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() 
              side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED"),
          ), \
          patch("plugin.writer.apply_document_content.commit_or_rollback") as mock_cor:
-        def run_mutate(_doc, _title, mutate, session=None, selection_pin=None):
+        def run_mutate(_doc, _title, mutate, session=None):
             try:
                 mutate()
                 return SimpleNamespace(

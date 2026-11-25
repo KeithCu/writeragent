@@ -713,25 +713,3 @@ def test_undo_step_or_rollback_full_stack_empty_group():
     assert step.left_no_entry is True
     assert step.rolled_back is False
     mgr.undo.assert_not_called()
-
-
-def test_commit_or_rollback_restores_selection_pin_only_on_rollback():
-    from plugin.doc.compound_undo import commit_or_rollback
-
-    doc, mgr = _mock_undo_doc(titles_seq=[("Prev",), ("Title", "Prev")])
-    pin = MagicMock()
-    pin.snapshot.return_value = ("snap",)
-
-    outcome_fail = commit_or_rollback(
-        doc, "Title", lambda: {"status": "error", "message": "bad"}, selection_pin=pin
-    )
-    assert outcome_fail.rolled_back is True
-    pin.snapshot.assert_called_once()
-    pin.restore.assert_called_once_with(("snap",))
-
-    pin.reset_mock()
-    doc_ok, _mgr_ok = _mock_undo_doc(titles_seq=[("Prev",), ("Title", "Prev")])
-    outcome_ok = commit_or_rollback(doc_ok, "Title", lambda: None, selection_pin=pin)
-    assert outcome_ok.rolled_back is False
-    pin.snapshot.assert_called_once()
-    pin.restore.assert_not_called()

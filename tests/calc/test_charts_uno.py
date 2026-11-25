@@ -360,7 +360,7 @@ def test_writer_chart_position_cursor_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
-    tool_ctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tool_ctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = ChartUpsert().execute_safe(

@@ -43,6 +43,7 @@ from plugin.framework.errors import (
     name_miss_details,
     reraise_if_disposed,
     resolve_exception_message,
+    uno_read,
 )
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
@@ -94,14 +95,18 @@ def _flag_untracked_replace(result: dict[str, Any], doc: Any) -> None:
 
 
 def _pinned_writer_cursor(ctx: Any) -> Any:
-    """Model cursor at the pinned Writer selection (sidebar) or live selection at call start."""
-    if not is_writer_doc(ctx.doc):
+    """Clone a model cursor at the pinned or live Writer selection so it stays put while the user moves the caret.
+
+    Returns None when no text cursor can be made (for example, a graphic, frame,
+    shape, or cell block is selected, where ``vc.getText()`` throws), so image edits
+    still run and body inserts fall back to the view-cursor handler.
+    """
+    if not visual_helpers.is_writer_like(visual_helpers.get_visual_doc_type(ctx.doc)):
         return None
     rng = request_selection_range(ctx)
     if rng is None:
         return None
-    _, cursor = cursor_for_writer_view(rng)
-    return cursor
+    return uno_read(lambda: cursor_for_writer_view(rng)[1], None)
 
 
 def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> Any:
@@ -1361,6 +1366,16 @@ class ImageInsert(ToolWriterImageBase):
         target = kwargs["target"]
         style_name = kwargs["style"]
 
+        pinned_cursor = None
+        if (
+            target == "body"
+            and locator is None
+            and paragraph_index is None
+            and ctx.selection_pin is None
+            and _is_url(image_path)
+        ):
+            pinned_cursor = main.run(_pinned_writer_cursor, ctx)
+
         cancel = ctx.send_cancellation
         local_path = _local_image_path(self, image_path, cancel)
         if isinstance(local_path, dict):
@@ -1447,8 +1462,8 @@ class ImageInsert(ToolWriterImageBase):
                 if target_para is None:
                     return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
                 text_cursor = doc.getText().createTextCursorByRange(target_para.getEnd())
-            elif text_cursor is None:
-                text_cursor = _pinned_writer_cursor(ctx)
+            else:
+                text_cursor = pinned_cursor if pinned_cursor is not None else _pinned_writer_cursor(ctx)
 
             try:
                 graphic = _record_for_review(

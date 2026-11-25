@@ -162,7 +162,7 @@ def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc
     _reset_three_paras(doc)
     controller = _select_match(doc, "Beta two.")
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     vc = controller.getViewCursor()
     vc.gotoStart(False)
 
