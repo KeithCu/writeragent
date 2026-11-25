@@ -2152,7 +2152,6 @@ def _write_tiny_png():
 
 
 def _visible_paras(doc):
-    from plugin.doc.text_helpers import visible_range_text
     from plugin.framework.uno_context import enum_has_more
 
     paras = []
@@ -2160,7 +2159,17 @@ def _visible_paras(doc):
     while enum_has_more(enum):
         p = enum.nextElement()
         if p.supportsService("com.sun.star.text.Paragraph"):
-            paras.append(visible_range_text(doc, p))
+            parts = []
+            pe = p.createEnumeration()
+            while enum_has_more(pe):
+                part = pe.nextElement()
+                if part.getPropertyValue("TextPortionType") == "Frame":
+                    parts.append("<Frame>")
+                else:
+                    s = part.getString()
+                    if s:
+                        parts.append(s)
+            paras.append("".join(parts))
     return paras
 
 
@@ -2177,19 +2186,22 @@ def test_selection_as_character_object_inserts_after_it_uno(ctx):
         for recording in (False, True):
             for kind in ("graphic", "frame", "shape", "ole"):
                 for content, expected_paras in (
-                    ("Cap", ["IntroCap"]),
-                    ("<p>Cap</p>", ["Intro", "Cap"]),
+                    ("Cap", ["Intro<Frame>Cap"]),
+                    ("<p>Cap</p>", ["Intro<Frame>", "Cap"]),
                 ):
                     with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
                         doc.setPropertyValue("RecordChanges", False)
                         text = doc.getText()
                         text.setString("Intro")
+                        expected_name = None
                         if kind == "graphic":
                             obj = doc.createInstance("com.sun.star.text.TextGraphicObject")
+                            obj.setName("AsCharGfx")
                             obj.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
                             obj.setPropertyValue("AnchorType", AS_CHARACTER)
                             obj.setPropertyValue("Width", 400)
                             obj.setPropertyValue("Height", 400)
+                            expected_name = "AsCharGfx"
                             collection = doc.getGraphicObjects()
                         elif kind == "frame":
                             obj = doc.createInstance("com.sun.star.text.TextFrame")
@@ -2197,6 +2209,7 @@ def test_selection_as_character_object_inserts_after_it_uno(ctx):
                             obj.setPropertyValue("AnchorType", AS_CHARACTER)
                             obj.setPropertyValue("Width", 800)
                             obj.setPropertyValue("Height", 400)
+                            expected_name = "AsCharFrame"
                             collection = doc.getTextFrames()
                         elif kind == "shape":
                             obj = doc.createInstance("com.sun.star.drawing.RectangleShape")
@@ -2223,13 +2236,36 @@ def test_selection_as_character_object_inserts_after_it_uno(ctx):
                         assert collection.getCount() == 1
                         sel = controller.getSelection()
                         assert sel is not None and not sel.supportsService("com.sun.star.text.TextRanges")
+                        if expected_name is not None:
+                            assert sel.getName() == expected_name
 
                         if recording:
                             execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
                         else:
                             doc.getUndoManager().undo()
-                        assert _visible_paras(doc) == ["Intro"], (recording, kind, content)
+                        assert _visible_paras(doc) == ["Intro<Frame>"], (recording, kind, content)
                         assert collection.getCount() == 1
+
+        # Mid-paragraph as-character object with block content snaps after the paragraph.
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+            text = doc.getText()
+            text.setString("Intro")
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AS_CHARACTER)
+            g.setPropertyValue("Width", 400)
+            g.setPropertyValue("Height", 400)
+            text.insertTextContent(text.getEnd(), g, False)
+            text.insertString(text.getEnd(), "Outro", False)
+            assert _visible_paras(doc) == ["Intro<Frame>Outro"]
+            doc.getCurrentController().select(g)
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx), target="selection", content="<p>Cap</p>"
+            )
+            assert res.get("status") == "ok", res
+            assert res.get("snapped_to_paragraph") is True, res
+            assert "after the paragraph that holds it" in res.get("message", ""), res
+            assert _visible_paras(doc) == ["Intro<Frame>Outro", "Cap"]
 
         # Direct insert_content_at_position caller with an as-character graphic selected.
         with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
@@ -2243,7 +2279,7 @@ def test_selection_as_character_object_inserts_after_it_uno(ctx):
             text.insertTextContent(text.getEnd(), g, False)
             doc.getCurrentController().select(g)
             insert_content_at_position(doc, ctx, "RESULT", "selection")
-            assert _visible_paras(doc) == ["BodyRESULT"]
+            assert _visible_paras(doc) == ["Body<Frame>RESULT"]
             assert doc.getGraphicObjects().getCount() == 1
     finally:
         os.unlink(img_path)
@@ -2252,7 +2288,7 @@ def test_selection_as_character_object_inserts_after_it_uno(ctx):
 @native_test
 def test_selection_floating_or_several_objects_refuse_uno(ctx):
     import os
-    from com.sun.star.text.TextContentAnchorType import AT_CHARACTER, AT_PARAGRAPH
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
     from plugin.tests.testing_utils import TestingFactory
 
     img_path = _write_tiny_png()
@@ -2274,18 +2310,18 @@ def test_selection_floating_or_several_objects_refuse_uno(ctx):
             )
             assert res.get("status") == "error", res
             assert res.get("code") == "SELECTION_NOT_TEXT", res
-            assert _visible_paras(doc) == [""]
+            assert _visible_paras(doc) == ["<Frame>"]
             assert doc.getGraphicObjects().getCount() == 1
 
-        # Two selected shapes.
+        # Two selected as-character shapes.
         with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
             text = doc.getText()
             text.setString("Keep")
             s1 = doc.createInstance("com.sun.star.drawing.RectangleShape")
-            s1.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            s1.setPropertyValue("AnchorType", AS_CHARACTER)
             s1.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 500, 500))
             s2 = doc.createInstance("com.sun.star.drawing.RectangleShape")
-            s2.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            s2.setPropertyValue("AnchorType", AS_CHARACTER)
             s2.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 500, 500))
             text.insertTextContent(text.getStart(), s1, False)
             text.insertTextContent(text.getStart(), s2, False)
@@ -2294,13 +2330,15 @@ def test_selection_floating_or_several_objects_refuse_uno(ctx):
             )
             shapes.add(s1)
             shapes.add(s2)
-            doc.getCurrentController().select(shapes)
+            ctrl = doc.getCurrentController()
+            ctrl.select(shapes)
+            assert ctrl.getSelection().getCount() == 2
             res = ApplyDocumentContent().execute(
                 native_writer_tool_context(doc, ctx), target="selection", content="x"
             )
             assert res.get("status") == "error", res
             assert res.get("code") == "SELECTION_NOT_TEXT", res
-            assert _visible_paras(doc) == ["Keep"]
+            assert _visible_paras(doc) == ["<Frame><Frame>Keep"]
             assert doc.getDrawPage().getCount() == 2
     finally:
         os.unlink(img_path)
@@ -2316,8 +2354,8 @@ def test_image_insert_then_selection_insert_lands_after_image_uno(ctx):
     try:
         for recording in (False, True):
             for content, expected_paras in (
-                ("Caption", ["StartCaption"]),
-                ("<p>Caption</p>", ["Start", "Caption"]),
+                ("Caption", ["Start<Frame>Caption"]),
+                ("<p>Caption</p>", ["Start<Frame>", "Caption"]),
             ):
                 with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
                     doc.setPropertyValue("RecordChanges", recording)

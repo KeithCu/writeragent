@@ -1450,9 +1450,9 @@ class ApplyDocumentContent(ToolBase):
             res["snapped_to_paragraph"] = True
         if after_object:
             res["message"] = (
-                "An object is selected, not text: inserted the content after the paragraph that holds it; the object was not changed."
+                "An object is selected (or its shape text is being edited), not body text: inserted the content after the paragraph that holds it; the object was not changed."
                 if report.snapped_to_paragraph
-                else "An object is selected, not text: inserted the content after it; the object was not changed."
+                else "An object is selected (or its shape text is being edited), not body text: inserted the content after it; the object was not changed."
             )
         res = attach_edited_context(res, anchor)
         return html_import_styles.attach_write_report(

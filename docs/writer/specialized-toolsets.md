@@ -504,11 +504,13 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   nested tables (a full rewrite is supposed to replace the document), but it refuses when the
   document has any hidden or conditional section (`HIDDEN_SECTION`; a full read returns hidden text and
   re-importing it would drop the condition or make the section visible or delete it) or protected non-index section
-  (`PROTECTED_SECTION`, a read-then-write would replace them without their protection) outside headers and footers and the tables and frames in them. A visible
+  (`PROTECTED_SECTION`, a read-then-write would replace them without their protection) outside headers and footers
+  and the tables and frames in them. A visible
   leading section or TOC is replaced with new content placed outside it. `target='selection'`
   refuses when the range starts in a table and ends outside it (`SELECTION_SPANS_TABLE`) or
-  when a floating image, shape, frame or OLE object, several objects, or a cell block is selected, or the view has no caret
-  (Print Preview) (`SELECTION_NOT_TEXT`); one selected as-character object inserts right after it. Body
+  when a floating image, shape, frame or OLE object, several objects, or a cell block is selected, or the view
+  has no caret (Print Preview) (`SELECTION_NOT_TEXT`); one selected as-character object inserts right after it
+  (or after its paragraph for block content). Body
   search-replace is not treated as a host-cell wipe just because the document has top-level tables.
 - **Picture links in body write-back.** Wrapping a picture's placeholder wrapper in `<a href>` (with no other text inside the `<a>`) sets `HyperLinkURL`, `HyperLinkName`, and `HyperLinkTarget` on the restored picture; removing the `<a>` clears all three. Link changes also apply to a picture that survives the edit; that change is not a tracked change, so Undo reverts it and Reject All does not. A linked picture inside a text link splits the text link around it.
 - **`apply_content` verifies table imports and rejects bad regex early.** Any insert/replace whose content contains `<table>` compares the table count immediately around the HTML import (after any clearing) and returns `TABLE_INSERT_FAILED` when no table was added; a closed document is `DOCUMENT_DISPOSED`, not "no tables". The check runs inside the edit's undo group (and per match for `all_matches`, plus header/footer HTML writes), so a failed table insert is rolled back, review redlines included, and the document is left as it was. `target='search'` with `regex=true` and a pattern LibreOffice's ICU engine rejects (checked with the `TextSearch2` service; Python-only syntax such as `(?P<name>...)` is rejected, `\p{Lu}` is accepted) returns `INVALID_REGEX` before any matching, the same code `dry_run` reports.

@@ -255,6 +255,9 @@ def _caret_after_selected_object(controller: Any) -> Any | None:
 
     Only as-character objects have an unambiguous place in the text. Text inserted at a
     floating object's anchor can land before it, and while recording Reject can delete the object.
+    Editing text inside a drawing shape (``ShellMode::DrawText``) also reports a one-element
+    ``ShapeCollection`` (``SwXTextView::getSelection``, ``unotxvw.cxx``), so it reaches this
+    path and inserts after the shape.
     """
     selection = controller.getSelection()
     if selection is None or selection.supportsService(_TEXT_RANGES_SERVICE):
