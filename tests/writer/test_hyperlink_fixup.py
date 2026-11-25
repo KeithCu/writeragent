@@ -907,6 +907,36 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {"Step One: Install": "Step Three: Install", "Step Two: Configure": "Step One: Configure"},
             [],
         ),
+        (
+            [(1, "第一部分"), (1, "费用")],
+            [(1, "费用"), (1, "分析")],
+            {},
+            ["第一部分"],
+        ),
+        (
+            [(1, "第一部分"), (1, "费用")],
+            [(1, "第二部分"), (1, "费用")],
+            {"第一部分": "第二部分"},
+            [],
+        ),
+        (
+            [(1, "第一章节"), (1, "费用")],
+            [(1, "费用"), (1, "节日")],
+            {},
+            ["第一章节"],
+        ),
+        (
+            [(1, "第一章 — 绪论"), (1, "费用")],
+            [(1, "费用"), (1, "第一章 — 背景")],
+            {},
+            ["第一章 — 绪论"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Sales 2023: Europe")],
+            [(1, "Glossary"), (1, "Appendix B"), (1, "Sales 2024: Europe")],
+            {},
+            ["Appendix A", "Sales 2023: Europe"],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):

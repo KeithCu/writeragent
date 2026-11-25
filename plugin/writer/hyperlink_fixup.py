@@ -102,12 +102,13 @@ _NUMBER_WORD = (
 )
 _CJK_NUMERAL = "[〇零一二三四五六七八九十百千]+"
 # "第一章", "第12条", "第三部分": the section counter is part of the number, not title text.
-_CJK_LABEL = rf"第\s*(?:\d+|{_CJK_NUMERAL})\s*(?:部分|[章節节條条款項项回篇編编卷部課课話话講讲])"
+# Short counters refuse their two-character forms so (?=\w) in _LEADING_LABEL_RE cannot backtrack to 部/章.
+_CJK_LABEL = rf"第\s*(?:\d+|{_CJK_NUMERAL})\s*(?:部分|章节|章節|部(?!分)|章(?![节節])|[節节條条款項项回篇編编卷課课話话講讲])"
 # Shared numbering is not evidence of the same title; strip "Chapter 1: ", "Chapter One: ", "第一章 ",
 # "一、" and "（一）" labels before comparing. A title that is only a label is kept whole.
 _LEADING_LABEL_RE = re.compile(
     rf"^(?:\w+\s+(?:\w{{1,4}}|{_NUMBER_WORD})\s*[:.\-\u2013\u2014]\s+"
-    rf"|{_CJK_LABEL}[\s:：、.．]*"
+    rf"|{_CJK_LABEL}[\s:：、.．\-\u2013\u2014]*"
     rf"|(?:{_CJK_NUMERAL}[、.．]|[（(]{_CJK_NUMERAL}[）)])\s*)(?=\w)"
 )
 # A number, number word, CJK numeral, Roman numeral or single letter that can number a heading, in casefolded text.
@@ -830,6 +831,7 @@ def _number_label(title: str) -> str:
 
 
 def _differ_only_in_number(old: str, new: str) -> bool:
+    """True when *old* and *new* differ only in number (a case-only change returns False)."""
     was, now = old.casefold(), new.casefold()
     return was != now and _NUMBER_RE.sub("#", was) == _NUMBER_RE.sub("#", now)
 
