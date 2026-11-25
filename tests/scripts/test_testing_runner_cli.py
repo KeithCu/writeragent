@@ -841,3 +841,9 @@ def test_terminate_kills_the_office_behind_a_stuck_launcher(monkeypatch) -> None
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+        if proc.stdout is not None:
+            proc.stdout.close()

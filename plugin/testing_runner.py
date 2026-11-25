@@ -1031,7 +1031,8 @@ def _ensure_writeragent_bind() -> None:
 def _rebootstrap_ctx(ctx: Any) -> None:
     """Bind config and the extension to a live UNO context.
 
-    Recycle and the initial run_all_tests bootstrap both do this. Each caller keeps its own try/except.
+    Recycle and the initial run_all_tests bootstrap both do this.
+    Each caller keeps its own try/except.
     """
     from plugin.framework.uno_context import set_fallback_ctx
     from plugin.framework.config import init_config, reset_config_for_tests
@@ -1642,6 +1643,8 @@ def run_all_tests(ctx: Any) -> str:
             skip_keeper_close = False
             for i, module_path in enumerate(ordered_candidates):
                 if not office.urp_bridge_dead:
+                    # Nothing closes the component context except office shutdown, so any
+                    # failure here means the office is dead.
                     try:
                         ctx.getServiceManager()
                     except Exception as exc:
@@ -1735,7 +1738,7 @@ def run_all_tests(ctx: Any) -> str:
             {
                 "name": "office",
                 "failed": 1,
-                "log": ["office died between suites; remaining suites did not run"],
+                "log": ["office died; remaining suites did not run"],
             }
         )
         total_failed += 1

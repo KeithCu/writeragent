@@ -25,12 +25,12 @@ its last hidden Draw doc.
 
 `python -m plugin.testing_runner` aliases `sys.modules["plugin.testing_runner"]` to the `__main__` module before `main()`, so recycle/breadcrumb state lives on one object.
 
-The runner checks `getServiceManager()` **between suites**. Any failure
+The runner checks `getServiceManager()` **before each suite**. Any failure
 stops the run, and no second office is started. If no test failed, the
 run still fails with one `office` suite entry. Inside a suite, the next
 `@with_native_doc` open is the first place a dead bridge is noticed.
 
-Only a "Binary URP bridge" message counts as a dead bridge. A closed document raises the same `com.sun.star.lang.DisposedException` class on a healthy office, so it fails its own test and the run continues.
+Inside a suite, only a "Binary URP bridge" message counts as a dead bridge. A closed document raises the same `com.sun.star.lang.DisposedException` class on a healthy office, so it fails its own test and the run continues. The check before each suite is broader because nothing closes the component context except office shutdown, so there is no closed-document case there.
 
 `close_doc` still swallows most errors (a failed close must not hide the
 test body). Dispose during close is now **logged** (`LIFECYCLE close_doc dispose`).
@@ -931,8 +931,8 @@ current=<victim> start_pids=… now_pids=… pids_changed=0|1
 bridge=alive|disposed|no_probe|error:…
 ```
 
-`bridge=` is `ctx.getServiceManager()` at **TEST start** (same check as
-the check before each suite). Factory-open failures also include `pre_open=` from a
+`bridge=` is `ctx.getServiceManager()` at **TEST start** (same call as the
+check before each suite). Factory-open failures also include `pre_open=` from a
 probe immediately before `loadComponentFromURL`:
 
 - `pre_open=disposed` — office was already dead; the previous TEST end is the
