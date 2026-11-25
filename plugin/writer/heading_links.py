@@ -86,12 +86,16 @@ def retarget_renamed_links(
     session: EditReviewSession,
     doc: Any,
     before: list[tuple[int, str]] | None,
+    edits: int = 1,
 ) -> tuple[int, dict[str, StaleReason]]:
-    """Retarget outline links when *before* headings were renamed or removed, returning ``(count, stale)`` where *stale* maps URL to reason."""
+    """Retarget outline links when *before* headings were renamed or removed, returning ``(count, stale)`` where *stale* maps URL to reason.
+
+    *edits* is the number of places the edit replaced.
+    """
     if not before:
         return 0, {}
     after = document_headings(doc)
-    renames, lost = heading_renames(before, after)
+    renames, lost = heading_renames(before, after, edits)
     if not renames and not lost:
         return 0, {}
     successors: dict[str, str | None] = {text: text for _level, text in after}

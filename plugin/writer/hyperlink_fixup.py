@@ -64,20 +64,20 @@ only the inserted runs, untracked, and adds ``hyperlink_note`` to the report whe
 a live run still carries the link. Recorded plain replaces carry their own link
 when the whole match shares one URL, and partly linked matches are not painted.
 
-When an edit renames a heading (``heading_renames``), ``retarget_outline_links``
+When an edit renames headings (``heading_renames``), ``retarget_outline_links``
 finds every ``#old|outline`` portion in the document (including numbered and
 percent-encoded outline URLs) and updates it to ``#new|outline`` — directly when
 not recording or inside a tracked insert, and via tracked Delete + Insert when
-recording changes. Returned stale URLs carry a reason: field runs that cannot be
-retyped (``field``), or a title mapped to ``None`` in ``successors`` that no
-heading replaces (``no_heading``, left unchanged).
+recording changes. ``heading_renames`` pairs by position only, when heading count
+and levels are unchanged and no more titles differ than places replaced. Returned
+stale URLs carry a reason: field runs that cannot be retyped (``field``), or a
+title mapped to ``None`` whose successor is not certain (``no_heading``, left
+unchanged).
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 import logging
 import re
 from typing import Any, Iterator, Literal
@@ -92,29 +92,6 @@ from plugin.writer.record_changes import is_recording_changes, record_changes, r
 log = logging.getLogger("writeragent.writer.hyperlink")
 
 _OUTLINE_SUFFIX = "|outline"
-# Lowest SequenceMatcher ratio that counts as "the same title, reworded".
-_SIMILAR_TITLE = 0.6
-_UNIT_WORD = "one|two|three|four|five|six|seven|eight|nine"
-# English number words up to ninety-nine, in casefolded text.
-_NUMBER_WORD = (
-    rf"(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\s](?:{_UNIT_WORD}))?|{_UNIT_WORD}"
-    "|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
-)
-_CJK_NUMERAL = "[〇零一二三四五六七八九十百千]+"
-# "第一章", "第12条", "第三部分": the section counter is part of the number, not title text.
-# Short counters refuse their two-character forms so (?=\w) in _LEADING_LABEL_RE cannot backtrack to 部/章.
-_CJK_LABEL = rf"第\s*(?:\d+|{_CJK_NUMERAL})\s*(?:部分|章节|章節|部(?!分)|章(?![节節])|[節节條条款項项回篇編编卷課课話话講讲])"
-# Shared numbering is not evidence of the same title; strip "Chapter 1: ", "Chapter One: ", "第一章 ",
-# "一、" and "（一）" labels before comparing. A title that is only a label is kept whole.
-_LEADING_LABEL_RE = re.compile(
-    rf"^(?:\w+\s+(?:\w{{1,4}}|{_NUMBER_WORD})\s*[:.\-\u2013\u2014]\s+"
-    rf"|{_CJK_LABEL}[\s:：、.．\-\u2013\u2014]*"
-    rf"|(?:{_CJK_NUMERAL}[、.．]|[（(]{_CJK_NUMERAL}[）)])\s*)(?=\w)"
-)
-# A number, number word, CJK numeral, Roman numeral or single letter that can number a heading, in casefolded text.
-_NUMBER_RE = re.compile(
-    rf"{_CJK_LABEL}|\d+(?:\.\d+)*|{_CJK_NUMERAL}|\b(?:{_NUMBER_WORD}|[ivxlcdm]+|[^\W\d_])\b"
-)
 # Why a link still names an old heading title.
 StaleReason = Literal["field", "no_heading"]
 _URL = "HyperLinkURL"
@@ -801,150 +778,32 @@ def restore_links(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     return restore_outline_hyperlinks(doc, anchor, snapshot, plain, override)
 
 
-def _similar_titles(
-    before: list[tuple[int, str]], after: list[tuple[int, str]], old_free: set[str], new_free: set[str],
-) -> dict[str, str]:
-    """Pair each title in *old_free* with the one in *new_free* it clearly resembles.
-
-    Both titles must be the other's single best match among all headings of the same level.
-    Headings that kept their title compete too: "Q1 results" resembles the kept "Q2 results"
-    as much as the added "Q4 results", so it is left unpaired.
-    """
-    old_keys = [_LEADING_LABEL_RE.sub("", old.casefold(), count=1) for _lv, old in before]
-    new_keys = [_LEADING_LABEL_RE.sub("", new.casefold(), count=1) for _lv, new in after]
-    scores: dict[tuple[int, int], float] = {}
-    matcher = SequenceMatcher(autojunk=False)
-    for j, ((new_level, new), new_key) in enumerate(zip(after, new_keys)):
-        matcher.set_seq2(new_key)  # SequenceMatcher caches seq2, so it changes least often
-        for i, ((old_level, old), old_key) in enumerate(zip(before, old_keys)):
-            if old_level != new_level or (old not in old_free and new not in new_free):
-                continue
-            matcher.set_seq1(old_key)
-            # The two quick ratios are cheap upper bounds of ratio().
-            if matcher.real_quick_ratio() < _SIMILAR_TITLE or matcher.quick_ratio() < _SIMILAR_TITLE:
-                continue
-            ratio = matcher.ratio()
-            if ratio >= _SIMILAR_TITLE:
-                scores[i, j] = ratio
-
-    def single_best(axis: int) -> set[tuple[int, int]]:
-        groups: dict[int, list[tuple[float, tuple[int, int]]]] = {}
-        for pair, ratio in scores.items():
-            groups.setdefault(pair[axis], []).append((ratio, pair))
-        best = set()
-        for group in groups.values():
-            top = max(ratio for ratio, _pair in group)
-            winners = [pair for ratio, pair in group if ratio == top]
-            if len(winners) == 1:
-                best.add(winners[0])
-        return best
-
-    pairs = [(before[i][1], after[j][1]) for i, j in sorted(single_best(0) & single_best(1))]
-    return {old: new for old, new in pairs if old in old_free and new in new_free}
-
-
-def _number_label(title: str) -> str:
-    """The casefolded title up to its first number ("step 1" of "Step 1: Install"), or ""."""
-    folded = title.casefold()
-    match = _NUMBER_RE.search(folded)
-    return folded[: match.end()] if match else ""
-
-
-def _differ_only_in_number(old: str, new: str) -> bool:
-    """True when *old* and *new* differ only in number (a case-only change returns False)."""
-    was, now = old.casefold(), new.casefold()
-    return was != now and _NUMBER_RE.sub("#", was) == _NUMBER_RE.sub("#", now)
-
-
-def _is_number_only_pair(old: str, new: str) -> bool:
-    """True when the titles differ only in number and no text follows it ("Appendix A", "Appendix B")."""
-    return _differ_only_in_number(old, new) and not re.search(r"\w", old.casefold()[len(_number_label(old)):])
-
-
-def _number_passed_on(
-    old: str,
-    new: str,
-    old_labels: Counter[str],
-    new_labels: Counter[str],
-    relabelled: set[tuple[str, str]],
-) -> bool:
-    """True unless *old* and *new* differ only in number and nothing shows a renumbering.
-
-    In a renumbering another heading takes over the old number or gave up the new one, or its
-    chapter was renumbered the same way. A label several headings share ("Sales 2023: Europe",
-    "Sales 2023: Asia") is not such a number.
-    """
-    if not _differ_only_in_number(old, new):
-        return True
-    a, b = _number_label(old), _number_label(new)
-    if a == b:
-        return False
-    if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
-        return True
-    while a != b:
-        parent_a, parent_b = re.sub(r"\.\d+$", "", a), re.sub(r"\.\d+$", "", b)
-        if parent_a == a or parent_b == b:
-            return False
-        a, b = parent_a, parent_b
-        if (a, b) in relabelled:  # its chapter was renumbered the same way
-            return True
-    return False
-
-
 def heading_renames(
     before: list[tuple[int, str]],
     after: list[tuple[int, str]],
+    edits: int,
 ) -> tuple[dict[str, str], list[str]]:
     """Return ``(renames, lost)``: old title to new title, and old titles with no successor.
 
-    A rename joins two headings of one level whose titles are each unique on their own side
-    and absent from the other. Titles are paired by similarity first; a title that is only a
-    number pairs only where position agrees, and after a move, titles that differ only in a
-    number pair only when the number was passed on. Headings with no similar title (a
-    translation, say) are paired by position inside a ``replace`` stretch whose levels match,
-    but only when no known heading changed place and every number-only pair is in place: after
-    a move, position says nothing.
+    Headings are paired by position, only when the edit kept their number and levels and no
+    more titles differ than the *edits* places it replaced. One replacement that changes
+    several titles may also have reordered them, and position would then point links at the
+    wrong heading. A renamed title must be unique on its own side and absent from the other.
     """
     old_titles = [text for _level, text in before]
     new_titles = [text for _level, text in after]
-    old_counts, new_counts = Counter(old_titles), Counter(new_titles)
-    old_free = {t for t, n in old_counts.items() if n == 1 and t not in new_counts}
-    new_free = {t for t, n in new_counts.items() if n == 1 and t not in old_counts}
-    similar = _similar_titles(before, after, old_free, new_free)
-    # A number alone does not identify a heading, so these pairs need position to confirm them.
-    number_only = {old: new for old, new in similar.items() if _is_number_only_pair(old, new)}
-    renames = {old: new for old, new in similar.items() if old not in number_only}
-
-    # Align with each similar title counted as unchanged.
-    old_of = {new: old for old, new in renames.items()}
-    aligned = [old_of.get(title, title) for title in new_titles]
-    by_position: dict[str, str] = {}
-    removed: set[str] = set()
-    added: set[str] = set()
-    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old_titles, aligned, autojunk=False).get_opcodes():
-        if tag == "equal":
-            continue
-        removed.update(old_titles[i1:i2])
-        added.update(aligned[j1:j2])
-        if tag == "replace" and [lv for lv, _t in before[i1:i2]] == [lv for lv, _t in after[j1:j2]]:
-            by_position.update(
-                (old, new)
-                for old, new in zip(old_titles[i1:i2], new_titles[j1:j2])
-                if old in old_free and new in new_free
-            )
-    # A title on both sides is a heading that moved, and a number-only pair out of place may be one.
-    if not removed & added and number_only.items() <= by_position.items():
-        renames.update(by_position)
-    else:
-        old_labels = Counter(map(_number_label, old_titles))
-        new_labels = Counter(map(_number_label, new_titles))
-        relabelled = {(_number_label(o), _number_label(n)) for o, n in similar.items()}
-        renames = {
-            o: n
-            for o, n in renames.items()
-            if _number_passed_on(o, n, old_labels, new_labels, relabelled)
-        }
-    return renames, [t for t in old_counts if t not in new_counts and t not in renames]
+    renames: dict[str, str] = {}
+    if [level for level, _text in before] == [level for level, _text in after]:
+        changed = [(old, new) for old, new in zip(old_titles, new_titles) if old != new]
+        if len(changed) <= edits:
+            renames = {
+                old: new
+                for old, new in changed
+                if old_titles.count(old) == 1 and new_titles.count(new) == 1
+                and old not in new_titles and new not in old_titles
+            }
+    lost = [t for t in dict.fromkeys(old_titles) if t not in new_titles and t not in renames]
+    return renames, lost
 
 
 def _linked_ranges(doc: Any) -> list[Any]:
@@ -1007,7 +866,7 @@ def retarget_outline_links(
     delete the old run, while runs already inside a tracked Insert are written
     directly because Reject removes them whole. Returned stale URLs carry a reason:
     field runs that cannot be retyped (``field``), or a title mapped to ``None``
-    that no heading replaces (``no_heading``, left unchanged).
+    whose successor is not certain (``no_heading``, left unchanged).
     """
     recording = is_recording_changes(doc)
     stale: dict[str, StaleReason] = {}

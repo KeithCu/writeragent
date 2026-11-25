@@ -914,7 +914,7 @@ def attach_write_report(
         cause = (
             "they hold a field, which cannot be rewritten as a tracked change."
             if reason == "field"
-            else "the edit removed that heading and no new heading clearly replaces it. "
+            else "the edit removed that heading, or changed headings in a way that does not show which one replaces it. "
             "Point them at the right heading or remove them."
         )
         diags.append({

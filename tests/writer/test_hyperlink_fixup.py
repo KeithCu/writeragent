@@ -624,323 +624,56 @@ def test_restore_keeps_inherited_look_without_direct_color():
 
 
 @pytest.mark.parametrize(
-    ("before", "after", "expected_renames", "expected_lost"),
+    ("before", "after", "edits", "expected_renames", "expected_lost"),
     [
-        # Two renames around an equal title
-        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], {"A": "A2", "B": "B2"}, []),
-        # A rename plus an added heading gives the rename only
-        ([(1, "A"), (2, "B")], [(1, "A2"), (2, "B"), (2, "C")], {"A": "A2"}, []),
-        # A repeated old title gives none and is reported lost
-        ([(1, "Dup"), (2, "Dup")], [(1, "X"), (2, "Y")], {}, ["Dup"]),
-        # A level change gives none and is reported lost
-        ([(1, "A")], [(2, "A2")], {}, ["A"]),
-        # A swap gives none
-        ([(1, "A"), (1, "B")], [(1, "B"), (1, "A")], {}, []),
-        # Two headings renamed to the same title gives none
-        ([(1, "A"), (1, "B")], [(1, "Same"), (1, "Same")], {}, ["A", "B"]),
-        # Swap plus rename pairs by title similarity
+        # One title renamed in place with no resemblance
+        ([(1, "Scope"), (1, "Fees")], [(1, "Alcance"), (1, "Fees")], 1, {"Scope": "Alcance"}, []),
+        # Number-only title renamed in place
+        ([(1, "Appendix A"), (1, "Costs")], [(1, "Appendix B"), (1, "Costs")], 1, {"Appendix A": "Appendix B"}, []),
+        # Two renames around a kept title within edit budget
+        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], 2, {"A": "A2", "B": "B2"}, []),
+        # Two renames exceed a single-edit budget and are left unpaired
+        ([(1, "A"), (1, "Keep"), (2, "B")], [(1, "A2"), (1, "Keep"), (2, "B2")], 1, {}, ["A", "B"]),
+        # Two retitled headings in one edit may have swapped places
         (
             [(1, "Project scope"), (1, "Delivery costs")],
             [(1, "Total delivery costs"), (1, "Agreed project scope")],
-            {"Project scope": "Agreed project scope", "Delivery costs": "Total delivery costs"},
-            [],
+            1,
+            {},
+            ["Project scope", "Delivery costs"],
         ),
-        # Numbered chapter prefixes: follow Intro and Methods rather than chapter numbers
-        (
-            [(1, "Chapter 1: Intro"), (1, "Chapter 2: Methods")],
-            [(1, "Chapter 1: Methods"), (1, "Chapter 2: Intro")],
-            {"Chapter 1: Intro": "Chapter 2: Intro", "Chapter 2: Methods": "Chapter 1: Methods"},
-            [],
-        ),
-        # Renamed heading moved past kept headings
-        (
-            [(1, "Project scope"), (1, "Costs"), (1, "Risks")],
-            [(1, "Costs"), (1, "Risks"), (1, "Agreed project scope")],
-            {"Project scope": "Agreed project scope"},
-            [],
-        ),
-        # Rename next to an added heading
-        (
-            [(1, "Project scope"), (1, "Costs")],
-            [(1, "Background"), (1, "Agreed project scope"), (1, "Costs")],
-            {"Project scope": "Agreed project scope"},
-            [],
-        ),
-        # Rename next to a deleted heading
+        # Added heading changes count so A is left unpaired
+        ([(1, "A"), (1, "B")], [(1, "A2"), (1, "B"), (1, "C")], 1, {}, ["A"]),
+        # Removed heading changes count so remaining retitle is left unpaired
         (
             [(1, "Old annex"), (1, "Project scope"), (1, "Costs")],
             [(1, "Agreed project scope"), (1, "Costs")],
-            {"Project scope": "Agreed project scope"},
-            ["Old annex"],
+            1,
+            {},
+            ["Old annex", "Project scope"],
         ),
-        # In-place translation pairs by position when nothing moved
-        (
-            [(1, "Scope"), (2, "Costs"), (1, "Risks")],
-            [(1, "Alcance"), (2, "Presupuesto"), (1, "Peligros")],
-            {"Scope": "Alcance", "Costs": "Presupuesto", "Risks": "Peligros"},
-            [],
-        ),
-        # Swap plus rename alongside an unrelated deleted/added pair
-        (
-            [(1, "Project scope"), (1, "Delivery costs"), (1, "Old annex")],
-            [(1, "Total delivery costs"), (1, "Agreed project scope"), (1, "Glossary")],
-            {"Project scope": "Agreed project scope", "Delivery costs": "Total delivery costs"},
-            ["Old annex"],
-        ),
-        # Kept titles compete in similarity so Q1 results does not pair with Q4 results
+        # Shifted series leaves Q1 results unpaired when edit budget is 1
         (
             [(1, "Q1 results"), (1, "Q2 results"), (1, "Q3 results")],
             [(1, "Q2 results"), (1, "Q3 results"), (1, "Q4 results")],
+            1,
             {},
             ["Q1 results"],
         ),
-        # Ambiguous 1-to-2 split leaves A unpaired and lost
-        ([(1, "A")], [(1, "A2"), (1, "A3")], {}, ["A"]),
-        # Shared "Chapter N:" prefix must not dominate unrelated in-place retitles
-        (
-            [
-                (1, "Chapter 1: Introduction"),
-                (1, "Chapter 2: Literature Review"),
-                (1, "Chapter 3: Methodology"),
-                (1, "Chapter 4: Results"),
-            ],
-            [
-                (1, "Chapter 1: Background"),
-                (1, "Chapter 2: Related Work"),
-                (1, "Chapter 3: Approach"),
-                (1, "Chapter 4: Findings"),
-            ],
-            {
-                "Chapter 1: Introduction": "Chapter 1: Background",
-                "Chapter 2: Literature Review": "Chapter 2: Related Work",
-                "Chapter 3: Methodology": "Chapter 3: Approach",
-                "Chapter 4: Results": "Chapter 4: Findings",
-            },
-            [],
-        ),
-        # Shared "Article N." prefix must not dominate unrelated in-place retitles
-        (
-            [(1, "Article 1. Definitions"), (1, "Article 2. Term"), (1, "Article 3. Fees")],
-            [(1, "Article 1. Interpretation"), (1, "Article 2. Duration"), (1, "Article 3. Charges")],
-            {
-                "Article 1. Definitions": "Article 1. Interpretation",
-                "Article 2. Term": "Article 2. Duration",
-                "Article 3. Fees": "Article 3. Charges",
-            },
-            [],
-        ),
-        # Renumbered "Step N:" headings still follow their body text when a step is inserted
-        (
-            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
-            [(1, "Step 1: Download"), (1, "Step 2: Install"), (1, "Step 3: Configure")],
-            {"Step 1: Install": "Step 2: Install", "Step 2: Configure": "Step 3: Configure"},
-            [],
-        ),
-        # Number-only changes after a move are left unpaired unless the number was passed on
-        (
-            [(1, "Appendix A"), (1, "Costs")],
-            [(1, "Costs"), (1, "Appendix B")],
-            {},
-            ["Appendix A"],
-        ),
-        (
-            [(1, "Sales 2023: Europe"), (1, "Costs")],
-            [(1, "Costs"), (1, "Sales 2024: Europe")],
-            {},
-            ["Sales 2023: Europe"],
-        ),
-        (
-            [(1, "Sales 2023: Europe"), (1, "Sales 2023: Asia"), (1, "Costs")],
-            [(1, "Costs"), (1, "Sales 2023: Asia"), (1, "Sales 2024: Europe")],
-            {},
-            ["Sales 2023: Europe"],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Costs")],
-            [(1, "Final costs"), (1, "Appendix B")],
-            {"Costs": "Final costs"},
-            ["Appendix A"],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Costs")],
-            [(1, "Appendix B"), (1, "Costs")],
-            {"Appendix A": "Appendix B"},
-            [],
-        ),
-        (
-            [(1, "1. Scope"), (1, "2. Costs")],
-            [(1, "1. Costs"), (1, "2. Scope")],
-            {"1. Scope": "2. Scope", "2. Costs": "1. Costs"},
-            [],
-        ),
-        (
-            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
-            [(1, "Step 1: Configure"), (1, "Step 2: Download"), (1, "Step 3: Install")],
-            {"Step 1: Install": "Step 3: Install", "Step 2: Configure": "Step 1: Configure"},
-            [],
-        ),
-        (
-            [(1, "1 Background"), (2, "1.1 History"), (2, "1.2 Prior work"), (1, "2 Costs")],
-            [(1, "1 Costs"), (1, "2 Background"), (2, "2.1 History"), (2, "2.2 Prior work")],
-            {
-                "1 Background": "2 Background",
-                "1.1 History": "2.1 History",
-                "1.2 Prior work": "2.2 Prior work",
-                "2 Costs": "1 Costs",
-            },
-            [],
-        ),
-        (
-            [(1, "Release 2.1: Notes"), (1, "Costs")],
-            [(1, "Costs"), (1, "Release 3.1: Notes")],
-            {},
-            ["Release 2.1: Notes"],
-        ),
-        (
-            [(1, "1 First quarter"), (2, "1.1 Summary"), (1, "2 Second quarter")],
-            [(1, "1 First quarter"), (1, "2 Second quarter"), (2, "2.1 Summary")],
-            {},
-            ["1.1 Summary"],
-        ),
-        # Number-only pairs need position to confirm them
-        (
-            [(1, "Appendix A"), (1, "Scope")],
-            [(1, "Alcance"), (1, "Appendix B")],
-            {},
-            ["Appendix A", "Scope"],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Costs")],
-            [(1, "Glossary"), (1, "Appendix B"), (1, "Costs")],
-            {},
-            ["Appendix A"],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Scope")],
-            [(1, "Appendix B"), (1, "Alcance")],
-            {"Appendix A": "Appendix B", "Scope": "Alcance"},
-            [],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Costs")],
-            [(1, "Appendix B"), (1, "Costs"), (1, "Glossary")],
-            {"Appendix A": "Appendix B"},
-            [],
-        ),
-        (
-            [(1, "Section 1"), (2, "Section 1.1 History"), (1, "Costs")],
-            [(1, "Costs"), (1, "Section 2"), (2, "Section 2.1 History")],
-            {"Section 1.1 History": "Section 2.1 History"},
-            ["Section 1"],
-        ),
-        # CJK numerals and counters
-        (
-            [(1, "第一章"), (1, "Costs")],
-            [(1, "Costs"), (1, "第二章")],
-            {},
-            ["第一章"],
-        ),
-        (
-            [(1, "第一章"), (1, "费用")],
-            [(1, "第二章"), (1, "费用")],
-            {"第一章": "第二章"},
-            [],
-        ),
-        (
-            [(1, "第1章"), (1, "费用")],
-            [(1, "价格"), (1, "第2章")],
-            {},
-            ["第1章", "费用"],
-        ),
-        (
-            [(1, "第一条 定义"), (1, "费用")],
-            [(1, "费用"), (1, "第二条 定义")],
-            {},
-            ["第一条 定义"],
-        ),
-        (
-            [(1, "第一章 绪论"), (1, "费用")],
-            [(1, "费用"), (1, "第一章 背景")],
-            {},
-            ["第一章 绪论"],
-        ),
-        (
-            [(1, "十一、总则"), (1, "十二、附则")],
-            [(1, "十一、附则"), (1, "十二、总则")],
-            {"十一、总则": "十二、总则", "十二、附则": "十一、附则"},
-            [],
-        ),
-        (
-            [(1, "（一）总则"), (1, "（二）附则")],
-            [(1, "（一）附则"), (1, "（二）总则")],
-            {"（一）总则": "（二）总则", "（二）附则": "（一）附则"},
-            [],
-        ),
-        # English number words
-        (
-            [(1, "Chapter One"), (1, "Scope")],
-            [(1, "Alcance"), (1, "Chapter Two")],
-            {},
-            ["Chapter One", "Scope"],
-        ),
-        (
-            [(1, "Chapter Twenty-One"), (1, "Costs")],
-            [(1, "Costs"), (1, "Chapter Twenty-Two")],
-            {},
-            ["Chapter Twenty-One"],
-        ),
-        (
-            [(1, "Chapter One"), (1, "Costs")],
-            [(1, "Chapter Two"), (1, "Costs")],
-            {"Chapter One": "Chapter Two"},
-            [],
-        ),
-        (
-            [(1, "Chapter Seventeen: Costs"), (1, "Risks")],
-            [(1, "Risks"), (1, "Chapter Seventeen: Scope")],
-            {},
-            ["Chapter Seventeen: Costs"],
-        ),
-        (
-            [(1, "Step One: Install"), (1, "Step Two: Configure")],
-            [(1, "Step One: Configure"), (1, "Step Two: Download"), (1, "Step Three: Install")],
-            {"Step One: Install": "Step Three: Install", "Step Two: Configure": "Step One: Configure"},
-            [],
-        ),
-        (
-            [(1, "第一部分"), (1, "费用")],
-            [(1, "费用"), (1, "分析")],
-            {},
-            ["第一部分"],
-        ),
-        (
-            [(1, "第一部分"), (1, "费用")],
-            [(1, "第二部分"), (1, "费用")],
-            {"第一部分": "第二部分"},
-            [],
-        ),
-        (
-            [(1, "第一章节"), (1, "费用")],
-            [(1, "费用"), (1, "节日")],
-            {},
-            ["第一章节"],
-        ),
-        (
-            [(1, "第一章 — 绪论"), (1, "费用")],
-            [(1, "费用"), (1, "第一章 — 背景")],
-            {},
-            ["第一章 — 绪论"],
-        ),
-        (
-            [(1, "Appendix A"), (1, "Sales 2023: Europe")],
-            [(1, "Glossary"), (1, "Appendix B"), (1, "Sales 2024: Europe")],
-            {},
-            ["Appendix A", "Sales 2023: Europe"],
-        ),
+        # Level change gives none and is reported lost
+        ([(1, "A")], [(2, "A2")], 1, {}, ["A"]),
+        # A swap gives none
+        ([(1, "A"), (1, "B")], [(1, "B"), (1, "A")], 1, {}, []),
+        # Repeated old title gives none and is reported lost
+        ([(1, "Dup"), (2, "Dup")], [(1, "X"), (2, "Y")], 2, {}, ["Dup"]),
+        # Two headings renamed to the same title gives none
+        ([(1, "A"), (1, "B")], [(1, "Same"), (1, "Same")], 2, {}, ["A", "B"]),
+        # New title held by another heading before is left unpaired
+        ([(1, "A"), (1, "B")], [(1, "B"), (1, "C")], 2, {}, ["A"]),
     ],
 )
-def test_heading_renames(before, after, expected_renames, expected_lost):
-    assert heading_renames(before, after) == (expected_renames, expected_lost)
+def test_heading_renames(before, after, edits, expected_renames, expected_lost):
+    assert heading_renames(before, after, edits) == (expected_renames, expected_lost)
 
 
 @pytest.mark.parametrize(
