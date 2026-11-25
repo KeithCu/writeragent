@@ -15,6 +15,7 @@ import numpy as np
 
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
 
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import FUNCTION_EMITTERS, TranslationError, translate_formula
@@ -1066,6 +1067,28 @@ def test_translate_lookup_ifs_switch_miss_is_na():
     assert _eval('=IFNA(IFS(FALSE;1);"x")', None) == "x"
     assert _eval('=IFNA(SWITCH(A1;1;10);"x")', 3) == "x"
     assert calc.isna(_eval("=VLOOKUP(9;A1:B2;2;0)", table)) is True
+
+
+def test_translate_omitted_args_and_lookup_helpers():
+    for formula in ("=LINEST(A1:A3;;0)", "=IF(A1;;3)", "=FV(0.1;3;;5)", "=ROUND(2.5;)"):
+        res = translate_formula(formula, "C1")
+        assert res.ok is False and res.reason == "UNSUPPORTED_ARITY"
+
+    quoted_none = translate_formula('=IF(A1;"None";3)', "C1")
+    assert quoted_none.ok is True
+
+    def _eval(formula: str, data: object) -> object:
+        res = translate_formula(formula, "C1")
+        assert res.ok and res.code is not None
+        ns: dict[str, object] = {"data": data, "np": np, "calc": calc}
+        exec(f"result = {res.code}", ns)
+        return ns["result"]
+
+    table = CalcRange([[1, 10], [2, 20], [3, 30]])
+    assert _eval("=VLOOKUP(2.5;A1:B3;2)", table) == 20
+    assert _eval("=HLOOKUP(2.5;A1:C2;2)", CalcRange([[1, 2, 3], [10, 20, 30]])) == 20
+    assert _eval('=IFNA(INDEX(A1:A2;9);"x")', CalcRange([[1], [2]])) == "#REF!"
+    assert _eval('=IFNA(INDEX(A1:A2;MATCH(99;A1:A2;0));"x")', CalcRange([[1], [2]])) == "x"
 
 
 

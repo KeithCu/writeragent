@@ -732,7 +732,7 @@ def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
 
     class _RejectingCtx:
         def getValueByName(self, _name: Any) -> Any:
-            raise addin_values.RuntimeException("uno.Any instance not accepted during method call")
+            raise addin_values.RuntimeException("uno.Any instance not accepted during method call", None)
 
     assert addin_values.accepts_returned_any(_RejectingCtx()) is False
     assert addin_values.accepts_returned_any(MagicMock()) is True
@@ -785,3 +785,18 @@ def test_is_failed_run_text(monkeypatch: pytest.MonkeyPatch) -> None:
     # An empty prefix after stripping {0} must be filtered out rather than matching every string.
     monkeypatch.setattr(addin_values, "_", lambda s: "{0}" if s == "Error: {0}" else s)
     assert not addin_values.is_failed_run_text("ok")
+
+
+def test_has_setup_failure_text(monkeypatch) -> None:
+    venv_msg = addin_values._venv_not_found_text()
+    timeout_msg = addin_values._timed_out_text()
+
+    assert addin_values.has_setup_failure_text(venv_msg)
+    assert addin_values.has_setup_failure_text(timeout_msg)
+    assert addin_values.has_setup_failure_text(f"prefix: {venv_msg} suffix")
+    assert addin_values.has_setup_failure_text(f"prefix: {timeout_msg}")
+    assert not addin_values.has_setup_failure_text("Error: disk full")
+    assert not addin_values.has_setup_failure_text("")
+
+    monkeypatch.setattr(addin_values, "_", lambda _s: "")
+    assert not addin_values.has_setup_failure_text("anything")

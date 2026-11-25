@@ -113,7 +113,7 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     """Compare scratch getString() with html_to_search_text after ruby strip."""
     from plugin.framework.html_stripper import html_to_search_text
     from plugin.writer.html_import import insert_html_fragment_at_cursor
-    from plugin.writer.html_ruby import extract_and_strip_ruby
+    from plugin.writer.html_ruby import strip_ruby
 
     fixtures = [
         "<p>First paragraph</p><p>Second paragraph</p>",
@@ -125,7 +125,7 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     for html in fixtures:
         text.setString("")
         cur = text.createTextCursor()
-        base_html, _unused = extract_and_strip_ruby(html)
+        base_html = strip_ruby(html)
         insert_html_fragment_at_cursor(cur, base_html)
         scratch_text = text.getString().strip().replace("\r\n", "\n")
         search_text = html_to_search_text(base_html).strip()
@@ -2828,6 +2828,156 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
 
 
 @native_test
+def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
+    """Untracked full_document Undo restores formatting of a lone paragraph; reuse=False because a reused doc can hide formatting loss."""
+    from com.sun.star.lang import Locale
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _state(doc: Any) -> list[tuple[str, int, str, dict[str, Any]]]:
+        out = []
+        for para in _body_paragraphs(doc):
+            s = para.getString()
+            if s:
+                out.append((
+                    s,
+                    int(para.getPropertyValue("ParaLeftMargin")),
+                    str(para.getPropertyValue("ListLabelString") or ""),
+                    _first_text_portion_props(para),
+                ))
+        return out
+
+    try:
+        save({flag: "off"})
+        for char_style in ("", "Emphasis"):
+            for words in (["Only"], ["First", "Second"]):
+                case = (char_style, words)
+                with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+                    doc.setPropertyValue("RecordChanges", False)
+                    tctx = native_writer_tool_context(doc, ctx)
+                    text = doc.getText()
+                    text.setString("")
+                    cur = text.createTextCursor()
+                    for idx, word in enumerate(words):
+                        if idx:
+                            text.insertString(cur, "\r", False)
+                        text.insertString(cur, word, False)
+                    cur.gotoStart(False)
+                    cur.gotoEnd(True)
+                    cur.setPropertyValue("CharWeight", 150.0)
+                    cur.setPropertyValue("CharHeight", 30.0)
+                    cur.setPropertyValue("CharColor", 0xFF0000)
+                    cur.setPropertyValue("CharLocale", Locale("pt", "PT", ""))
+                    if char_style:
+                        cur.setPropertyValue("CharStyleName", char_style)
+                    cur.setPropertyValue("ParaLeftMargin", 800)
+                    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+                    expected_seeded = _state(doc)
+                    assert len(expected_seeded) == len(words), case
+                    for _s, margin, label, props in expected_seeded:
+                        assert margin > 0, case
+                        assert label != "", case
+                        assert props["weight"] == 150.0, case
+                        assert props["height"] == 30.0, case
+                        assert props["color"] == 0xFF0000, case
+                        assert props["char_style"] == char_style, case
+                        assert props["lang"] == "pt", case
+                    doc.getUndoManager().clear()
+
+                    res = ApplyDocumentContent().execute(
+                        tctx, target="full_document", content=["<p>Done</p>"]
+                    )
+                    assert res.get("status") == "ok", (case, res)
+                    std_height = float(
+                        doc.getStyleFamilies()
+                        .getByName("ParagraphStyles")
+                        .getByName("Standard")
+                        .getPropertyValue("CharHeight")
+                    )
+                    expected_done = [(
+                        "Done",
+                        0,
+                        "",
+                        {
+                            "weight": 100.0,
+                            "height": std_height,
+                            "color": -1,
+                            "char_style": "",
+                            "lang": "pt",
+                        },
+                    )]
+                    assert _state(doc) == expected_done, case
+
+                    doc.getUndoManager().undo()
+                    assert len(_body_paragraphs(doc)) == len(words), case
+                    assert _state(doc) == expected_seeded, case
+
+                    doc.getUndoManager().redo()
+                    assert _state(doc) == expected_done, case
+    finally:
+        save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, doc: Any) -> None:
+    """Replacing a restarted chapter heading preserves its start number in search and full_document."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.chapter_numbering_fixtures import enable_chapter_numbering
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    enable_chapter_numbering(doc, levels=2, suffix="")
+
+    def _seed() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Old Heading", False)
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        cur.setPropertyValue("ParaIsNumberingRestart", True)
+        cur.setPropertyValue("NumberingStartValue", 5)
+        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "5"
+
+    try:
+        for mode in ("off", "record"):
+            save({flag: mode})
+            for target in ("search", "full_document"):
+                _seed()
+                kwargs: dict[str, Any] = {
+                    "target": target,
+                    "content": ["<h1>One</h1><h1>Two</h1>"],
+                }
+                if target == "search":
+                    kwargs["old_content"] = "Old Heading"
+                res = ApplyDocumentContent().execute(tctx, **kwargs)
+                assert res.get("status") == "ok", res
+                if mode == "record":
+                    assert doc.getRedlines().getCount() > 0, (mode, target)
+                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                labels = [
+                    (p.getString(), str(p.getPropertyValue("ListLabelString") or ""))
+                    for p in _body_paragraphs(doc)
+                    if p.getString()
+                ]
+                assert labels == [("One", "5"), ("Two", "6")], (mode, target, labels)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_insert_at_caret_is_one_undo_step_uno(ctx: Any, doc: Any) -> None:
     """Caret inserts via units, text analytics, and html_import land in one undo step."""
@@ -2989,7 +3139,7 @@ def test_failed_insert_on_full_undo_stack_does_not_undo_prior_insert_uno(ctx: An
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> None:
-    """full_document keeps the first old character's language in every mode, even over a leading section."""
+    """full_document keeps the first old body character's language in every mode, skipping index text."""
     from com.sun.star.lang import Locale
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.config import get_config, save
@@ -3006,7 +3156,7 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
         loc.Language = lang
         return loc
 
-    def _seed(*, leading_section: bool, first_chars_it: bool) -> None:
+    def _seed(*, leading_section: bool, first_chars_it: bool, leading_toc: bool) -> None:
         doc.setPropertyValue("RecordChanges", False)
         text = doc.getText()
         text.setString("")
@@ -3029,6 +3179,11 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
             c.gotoStart(False)
             c.goRight(2, True)
             c.setPropertyValue("CharLocale", _locale("it"))
+        if leading_toc:
+            toc = doc.createInstance("com.sun.star.text.ContentIndex")
+            toc.setPropertyValue("Title", "Table of Contents")
+            text.insertTextContent(text.getStart(), toc, False)
+            toc.update()
 
     def _assert_all_text_portions_lang(expected: str) -> None:
         paras = _body_paragraphs(doc)
@@ -3044,13 +3199,17 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
 
     try:
         save({flag: "off"})
-        for leading_section, first_chars_it, expected in [
-            (False, False, "pt"),
-            (True, False, "pt"),
-            (False, True, "it"),
+        for leading_section, first_chars_it, leading_toc, expected in [
+            (False, False, False, "pt"),
+            (True, False, False, "pt"),
+            (False, True, False, "it"),
+            (False, False, True, "pt"),
         ]:
             for record in (False, True):
-                _seed(leading_section=leading_section, first_chars_it=first_chars_it)
+                _seed(leading_section=leading_section, first_chars_it=first_chars_it, leading_toc=leading_toc)
+                if leading_toc:
+                    first_para = next(iter_elements(doc.getText().createEnumeration()))
+                    assert first_para.getPropertyValue("CharLocale").Language != "pt"
                 doc.setPropertyValue("RecordChanges", record)
                 res = ApplyDocumentContent().execute(
                     tctx, target="full_document", content="<p>One</p><p>Two</p>"
@@ -3061,4 +3220,149 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
                 _assert_all_text_portions_lang(expected)
     finally:
         save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_ruby_after_8190_chars_and_table_or_in_cell_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_export import document_to_content
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    pad = "x" * 8190
+
+    # 1. Existing 8190-char paragraph + table in document, ruby appended at end.
+    text.setString(pad)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    res = ApplyDocumentContent().execute(
+        tctx, target="end", content="<p><ruby>漢字<rt>かんじ</rt></ruby></p>"
+    )
+    assert res.get("status") == "ok", res
+    html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>漢字<rt>かんじ</rt></ruby>" in html
+    assert "かんじ" not in text.getString()
+    assert "WA-RUBY" not in text.getString()
+
+    # 2. Same 8190-char paragraph + table + ruby inside one full_document import, plus ruby in a cell.
+    res = ApplyDocumentContent().execute(
+        tctx,
+        target="full_document",
+        content=(
+            f"<p>{pad}</p>"
+            "<table><tr><td><ruby>東京<rt>とうきょう</rt></ruby></td></tr></table>"
+            "<p><ruby>京都<rt>きょうと</rt></ruby></p>"
+        ),
+    )
+    assert res.get("status") == "ok", res
+    html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>東京<rt>とうきょう</rt></ruby>" in html
+    assert "<ruby>京都<rt>きょうと</rt></ruby>" in html
+    body_text = text.getString()
+    assert "とうきょう" not in body_text
+    assert "きょうと" not in body_text
+    assert "WA-RUBY" not in body_text
+    cell_text = doc.getTextTables().getByIndex(0).getCellByName("A1").getString()
+    assert "とうきょう" not in cell_text
+    assert "WA-RUBY" not in cell_text
+    assert "WA-RUBY" not in html
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """Trailing bare text or inline math after a table must not merge with the next paragraph."""
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+
+    def _seed(empty_first: bool = False) -> list[tuple[str, str]]:
+        doc.setPropertyValue("RecordChanges", False)
+        if len(doc.getRedlines()):
+            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        tables = doc.getTextTables()
+        for idx in range(tables.getCount() - 1, -1, -1):
+            tables.getByIndex(idx).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        if empty_first:
+            cur.setPropertyValue("ParaStyleName", "Heading 2")
+        else:
+            cur.setPropertyValue("ParaStyleName", "Standard")
+            text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 3")
+        text.insertString(cur, "Omega", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "End", False)
+        return _body_style_and_text(doc)
+
+    def _select_target(target_kind: str) -> None:
+        controller = doc.getCurrentController()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        if target_kind == "whole":
+            cur.gotoEndOfParagraph(True)
+        elif target_kind == "mid_caret":
+            cur.goRight(2, False)
+        controller.select(cur)
+
+    contents = [
+        "<table><tr><td>C</td></tr></table><p>x $y$</p>",
+        r"<table><tr><td>C</td></tr></table>\(y\)",
+        "<table><tr><td>C</td></tr></table>tail",
+    ]
+    targets = [("whole", False), ("mid_caret", False), ("empty_caret", True)]
+
+    try:
+        for html in contents:
+            for target_kind, empty_first in targets:
+                _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                assert doc.getTextTables().getCount() == 1, (html, target_kind)
+
+                _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                doc.setPropertyValue("RecordChanges", True)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                assert doc.getTextTables().getCount() == 1, (html, target_kind)
+
+                expected_seed = _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                doc.setPropertyValue("RecordChanges", True)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                assert _body_style_and_text(doc) == expected_seed, (html, target_kind)
+                assert len(doc.getRedlines()) == 0, (html, target_kind)
+
+        expected_seed = _seed(empty_first=False)
+        doc.setPropertyValue("RecordChanges", True)
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="full_document",
+            content="<table><tr><td>C</td></tr></table>tail",
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == expected_seed
+        assert len(doc.getRedlines()) == 0
+    finally:
         doc.setPropertyValue("RecordChanges", False)

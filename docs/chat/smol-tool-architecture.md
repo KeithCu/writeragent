@@ -187,7 +187,7 @@ Chat-mode and orchestration tools use the `<domain>_<verb>[_<object>]` naming co
 
 - **Specialized gateways:** `delegate_to_subagent`, `delegate_to_subagent`, `delegate_to_subagent`
 - **Python / domain delegation:** `python_run_script`, `python_delegate_domains`
-- **Finish:** `workflow_finished`, `ppt_master_finished`
+- **Finish:** `workflow_finished`, `ppt_master_finished` (`ppt_master_finished` ends a PPT-Master session when its call succeeds in a turn that did not fail; text in other tools' results does not end it)
 - **Peer orchestration:** `peer_send_work`, `peer_send_result`
 - **Document research:** `research_list_nearby_files`, `research_grep_nearby_files`, `research_search_nearby_files`, `research_delegate_read`
 - **Sidebar modes:** `brainstorming_search_web`, `brainstorming_save_design_spec`, `writing_plan_search_web`, `writing_plan_write_section`, `deep_research_search_web`

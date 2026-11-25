@@ -1489,4 +1489,58 @@ def test_char_props_clones_direct_formatting_and_link_styles():
     assert _char_props(_Para([p_redline]), with_link=True) == {}
 
 
+@pytest.mark.parametrize("recording", [True, False])
+@pytest.mark.parametrize("kind", ["alphabetical", "bibliography"])
+def test_indexes_add_mark_flags_tracked_only_when_recorded(recording: bool, kind: str):
+    tool = IndexesAddMark()
+    ctx = MagicMock()
+    cursor = MagicMock()
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.specialized.indexes.is_recording_changes", return_value=recording),
+    ):
+        res = tool.execute(ctx, text="Key", kind=kind, target="selection")
+
+    assert res["status"] == "ok"
+    if recording:
+        assert res["tracked"] is True
+        assert res["pending_review"] is True
+    else:
+        assert "tracked" not in res
+        assert "pending_review" not in res
+
+
+@pytest.mark.parametrize(
+    ("target", "recording", "collapsed", "expect_pending"),
+    [
+        ("search", True, False, True),
+        ("search", True, True, False),
+        ("search", False, False, False),
+        ("beginning", True, True, False),
+    ],
+)
+def test_indexes_create_pending_review_only_for_recorded_search_strike(
+    target: str, recording: bool, collapsed: bool, expect_pending: bool
+):
+    tool = IndexesCreate()
+    ctx = MagicMock()
+    doc = ctx.doc
+    doc.getPropertyValue.return_value = recording
+    doc.getRedlines.return_value.getCount.return_value = 0
+    doc.getRedlines.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    doc.createInstance.return_value = MagicMock()
+    cursor = MagicMock()
+    cursor.isCollapsed.return_value = collapsed
+    kwargs = {"kind": "toc", "target": target, "create_from_outline": True}
+    if target == "search":
+        kwargs["old_content"] = "MATCH"
+    with patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor):
+        res = tool.execute(ctx, **kwargs)
+
+    assert res["status"] == "ok"
+    assert ("pending_review" in res) is expect_pending
+    if recording:
+        assert res["tracked"] is False
+
+
 

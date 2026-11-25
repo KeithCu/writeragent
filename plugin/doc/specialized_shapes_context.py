@@ -104,7 +104,7 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
         if size is None:
             return ""
         w, h = size
-        return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w} x {h} (1/100 mm); {n_pages} page(s) total."
+        return f" Document canvas ({product_label}): active slide/page index {idx} (0-based: the user's page {idx + 1}), size {w} x {h} (1/100 mm); {n_pages} page(s) total."
 
     return uno_read(_body, "")
 

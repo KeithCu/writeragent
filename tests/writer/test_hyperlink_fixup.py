@@ -373,7 +373,7 @@ def test_restore_rewrites_the_whole_outline_span_and_leaves_the_bookmark():
     match = _match(doc, 7, 16)
     snapshot = capture_outline_hyperlinks(match)
     _replace_equal(title, "New title")
-    reports = restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 7, 7), snapshot, "New title", None)
     assert prefix.url == "#1.New title|outline"
     assert title.url == "#1.New title|outline"
     assert title.name == "New title"
@@ -396,7 +396,7 @@ def test_restore_repaints_a_run_whose_url_the_html_path_dropped():
     title.name = ""
     title.target = ""
     title.link_style = ""
-    restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    restore_outline_hyperlinks(doc, _match(doc, 7, 7), snapshot, "New title", None)
     assert prefix.url == "#1.New title|outline"
     assert title.url == "#1.New title|outline"
     assert title.name == "New title"
@@ -411,7 +411,7 @@ def test_restore_leaves_the_url_when_the_matched_text_is_not_in_it():
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
     _replace_equal(title, "New title")
     title.url = ""
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "New title", None)
     assert title.url == "#1.Other|outline"
     assert title.name == "Old title"
     assert reports[0]["hyperlink_updated"] is False
@@ -427,7 +427,7 @@ def test_restore_puts_a_table_url_back_when_the_replace_clears_it():
     assert snapshot.preserve_url == table_url
     _replace_equal(title, "Cover")
     title.url = ""
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Cover", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "Cover", None)
     assert title.url == table_url
     assert "|outline" not in title.url
     assert reports == []
@@ -442,7 +442,7 @@ def test_restore_puts_a_bookmark_url_back_when_the_replace_clears_it():
     assert snapshot.preserve_url == _BOOKMARK
     _replace_equal(title, "New title")
     title.url = ""
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "New title", None)
     assert title.url == _BOOKMARK
     assert reports == []
 
@@ -453,7 +453,7 @@ def test_restore_override_sets_the_exact_url():
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
     _replace_equal(title, "New title")
     reports = restore_outline_hyperlinks(
-        _match(doc, 0, 0), snapshot, "New title", "#9.Custom|outline")
+        doc, _match(doc, 0, 0), snapshot, "New title", "#9.Custom|outline")
     assert title.url == "#9.Custom|outline"
     assert reports[0]["hyperlink_url_after"] == "#9.Custom|outline"
 
@@ -465,7 +465,7 @@ def test_restore_does_not_paint_an_override_onto_a_bookmark():
     _replace_equal(title, "New title")
     title.url = ""
     reports = restore_outline_hyperlinks(
-        _match(doc, 0, 0), snapshot, "New title", "#9.Custom|outline")
+        doc, _match(doc, 0, 0), snapshot, "New title", "#9.Custom|outline")
     assert title.url == _BOOKMARK
     assert reports == []
 
@@ -477,7 +477,7 @@ def test_restore_accepts_deleting_the_whole_outline_link():
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
     title.text = ""
     title.url = ""
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "", None)
     assert title.url == ""
     assert reports[0]["hyperlink_url_after"] == ""
     assert reports[0]["hyperlink_updated"] is False
@@ -492,7 +492,7 @@ def test_restore_does_not_paint_one_outline_url_across_a_second_link():
     assert [link.url for link in snapshot.links] == [
         "#1.Alpha Beta|outline", "#2.Beta|outline"]
     _replace_equal(left, "Gamma ")
-    restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma Beta", None)
+    restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "Gamma Beta", None)
     assert left.url == "#1.Gamma Beta|outline"
     assert right.url == "#2.Beta|outline"
 
@@ -503,7 +503,7 @@ def test_restore_does_not_put_the_first_url_on_a_neighbor_it_does_not_contain():
     right = _Slice("Beta", "#2.Beta|outline")
     doc = _Doc([left, right])
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
-    restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "AlphaBeta", None)
+    restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "AlphaBeta", None)
     assert left.url == "#1.Alpha|outline"
     assert right.url == "#2.Beta|outline"
 
@@ -516,7 +516,7 @@ def test_restore_does_not_paint_a_bookmark_across_an_overlapping_outline_link():
     assert snapshot.preserve_url == _BOOKMARK
     assert len(snapshot.links) == 1
     _replace_equal(left, "Gamma ")
-    restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma Beta", None)
+    restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "Gamma Beta", None)
     assert left.url == "#1.Other|outline"
     assert right.url == _BOOKMARK
 
@@ -529,7 +529,7 @@ def test_restore_puts_back_black_and_no_underline_after_url_write():
     doc = _Doc([prefix, title, suffix], stomp_look_on_url=True)
     snapshot = capture_outline_hyperlinks(_match(doc, 7, 16))
     _replace_equal(title, "New title")
-    restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    restore_outline_hyperlinks(doc, _match(doc, 7, 7), snapshot, "New title", None)
     assert prefix.url == "#1.New title|outline"
     assert title.url == "#1.New title|outline"
     assert suffix.url == "#1.New title|outline"
@@ -552,7 +552,7 @@ def test_restore_selects_after_a_non_bmp_prefix():
     doc = _Doc([prefix, title, suffix])
     snapshot = capture_outline_hyperlinks(_match(doc, 2, 11))
     _replace_equal(title, "New title")
-    reports = restore_outline_hyperlinks(_match(doc, 2, 2), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 2, 2), snapshot, "New title", None)
     assert title.url == "#1.New title|outline"
     assert suffix.url == "#1.New title|outline"
     assert reports[0]["hyperlink_updated"] is True
@@ -586,7 +586,7 @@ def test_paint_refuses_a_selection_that_does_not_match_the_replacement():
 def test_restore_without_anchor_raises_hyperlink_update_failed():
     snapshot = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
     with pytest.raises(ToolExecutionError, match="Could not locate the replaced text") as exc_info:
-        restore_outline_hyperlinks(None, snapshot, "x", None)
+        restore_outline_hyperlinks(_Doc([]), None, snapshot, "x", None)
     assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
 
 
@@ -601,7 +601,7 @@ def test_restore_ignores_a_marker_without_link_properties():
     doc = _Doc([title, marker])
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 9))
     _replace_equal(title, "New title")
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "New title", None)
     assert title.url == "#1.New title|outline"
     assert reports[0]["hyperlink_updated"] is True
     assert reports[0]["hyperlink_url_after"] == "#1.New title|outline"
@@ -615,7 +615,7 @@ def test_restore_keeps_inherited_look_without_direct_color():
     doc = _Doc([prefix, title, suffix], stomp_look_on_url=True)
     snapshot = capture_outline_hyperlinks(_match(doc, 7, 16))
     _replace_equal(title, "New title")
-    restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    restore_outline_hyperlinks(doc, _match(doc, 7, 7), snapshot, "New title", None)
     for sl in (prefix, title, suffix):
         assert sl.url == "#1.New title|outline"
         assert sl.link_style == "Index Link"
@@ -736,6 +736,207 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {"Step 1: Install": "Step 2: Install", "Step 2: Configure": "Step 3: Configure"},
             [],
         ),
+        # Number-only changes after a move are left unpaired unless the number was passed on
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Costs"), (1, "Appendix B")],
+            {},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Sales 2023: Europe"), (1, "Costs")],
+            [(1, "Costs"), (1, "Sales 2024: Europe")],
+            {},
+            ["Sales 2023: Europe"],
+        ),
+        (
+            [(1, "Sales 2023: Europe"), (1, "Sales 2023: Asia"), (1, "Costs")],
+            [(1, "Costs"), (1, "Sales 2023: Asia"), (1, "Sales 2024: Europe")],
+            {},
+            ["Sales 2023: Europe"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Final costs"), (1, "Appendix B")],
+            {"Costs": "Final costs"},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Appendix B"), (1, "Costs")],
+            {"Appendix A": "Appendix B"},
+            [],
+        ),
+        (
+            [(1, "1. Scope"), (1, "2. Costs")],
+            [(1, "1. Costs"), (1, "2. Scope")],
+            {"1. Scope": "2. Scope", "2. Costs": "1. Costs"},
+            [],
+        ),
+        (
+            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
+            [(1, "Step 1: Configure"), (1, "Step 2: Download"), (1, "Step 3: Install")],
+            {"Step 1: Install": "Step 3: Install", "Step 2: Configure": "Step 1: Configure"},
+            [],
+        ),
+        (
+            [(1, "1 Background"), (2, "1.1 History"), (2, "1.2 Prior work"), (1, "2 Costs")],
+            [(1, "1 Costs"), (1, "2 Background"), (2, "2.1 History"), (2, "2.2 Prior work")],
+            {
+                "1 Background": "2 Background",
+                "1.1 History": "2.1 History",
+                "1.2 Prior work": "2.2 Prior work",
+                "2 Costs": "1 Costs",
+            },
+            [],
+        ),
+        (
+            [(1, "Release 2.1: Notes"), (1, "Costs")],
+            [(1, "Costs"), (1, "Release 3.1: Notes")],
+            {},
+            ["Release 2.1: Notes"],
+        ),
+        (
+            [(1, "1 First quarter"), (2, "1.1 Summary"), (1, "2 Second quarter")],
+            [(1, "1 First quarter"), (1, "2 Second quarter"), (2, "2.1 Summary")],
+            {},
+            ["1.1 Summary"],
+        ),
+        # Number-only pairs need position to confirm them
+        (
+            [(1, "Appendix A"), (1, "Scope")],
+            [(1, "Alcance"), (1, "Appendix B")],
+            {},
+            ["Appendix A", "Scope"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Glossary"), (1, "Appendix B"), (1, "Costs")],
+            {},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Scope")],
+            [(1, "Appendix B"), (1, "Alcance")],
+            {"Appendix A": "Appendix B", "Scope": "Alcance"},
+            [],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Appendix B"), (1, "Costs"), (1, "Glossary")],
+            {"Appendix A": "Appendix B"},
+            [],
+        ),
+        (
+            [(1, "Section 1"), (2, "Section 1.1 History"), (1, "Costs")],
+            [(1, "Costs"), (1, "Section 2"), (2, "Section 2.1 History")],
+            {"Section 1.1 History": "Section 2.1 History"},
+            ["Section 1"],
+        ),
+        # CJK numerals and counters
+        (
+            [(1, "第一章"), (1, "Costs")],
+            [(1, "Costs"), (1, "第二章")],
+            {},
+            ["第一章"],
+        ),
+        (
+            [(1, "第一章"), (1, "费用")],
+            [(1, "第二章"), (1, "费用")],
+            {"第一章": "第二章"},
+            [],
+        ),
+        (
+            [(1, "第1章"), (1, "费用")],
+            [(1, "价格"), (1, "第2章")],
+            {},
+            ["第1章", "费用"],
+        ),
+        (
+            [(1, "第一条 定义"), (1, "费用")],
+            [(1, "费用"), (1, "第二条 定义")],
+            {},
+            ["第一条 定义"],
+        ),
+        (
+            [(1, "第一章 绪论"), (1, "费用")],
+            [(1, "费用"), (1, "第一章 背景")],
+            {},
+            ["第一章 绪论"],
+        ),
+        (
+            [(1, "十一、总则"), (1, "十二、附则")],
+            [(1, "十一、附则"), (1, "十二、总则")],
+            {"十一、总则": "十二、总则", "十二、附则": "十一、附则"},
+            [],
+        ),
+        (
+            [(1, "（一）总则"), (1, "（二）附则")],
+            [(1, "（一）附则"), (1, "（二）总则")],
+            {"（一）总则": "（二）总则", "（二）附则": "（一）附则"},
+            [],
+        ),
+        # English number words
+        (
+            [(1, "Chapter One"), (1, "Scope")],
+            [(1, "Alcance"), (1, "Chapter Two")],
+            {},
+            ["Chapter One", "Scope"],
+        ),
+        (
+            [(1, "Chapter Twenty-One"), (1, "Costs")],
+            [(1, "Costs"), (1, "Chapter Twenty-Two")],
+            {},
+            ["Chapter Twenty-One"],
+        ),
+        (
+            [(1, "Chapter One"), (1, "Costs")],
+            [(1, "Chapter Two"), (1, "Costs")],
+            {"Chapter One": "Chapter Two"},
+            [],
+        ),
+        (
+            [(1, "Chapter Seventeen: Costs"), (1, "Risks")],
+            [(1, "Risks"), (1, "Chapter Seventeen: Scope")],
+            {},
+            ["Chapter Seventeen: Costs"],
+        ),
+        (
+            [(1, "Step One: Install"), (1, "Step Two: Configure")],
+            [(1, "Step One: Configure"), (1, "Step Two: Download"), (1, "Step Three: Install")],
+            {"Step One: Install": "Step Three: Install", "Step Two: Configure": "Step One: Configure"},
+            [],
+        ),
+        (
+            [(1, "第一部分"), (1, "费用")],
+            [(1, "费用"), (1, "分析")],
+            {},
+            ["第一部分"],
+        ),
+        (
+            [(1, "第一部分"), (1, "费用")],
+            [(1, "第二部分"), (1, "费用")],
+            {"第一部分": "第二部分"},
+            [],
+        ),
+        (
+            [(1, "第一章节"), (1, "费用")],
+            [(1, "费用"), (1, "节日")],
+            {},
+            ["第一章节"],
+        ),
+        (
+            [(1, "第一章 — 绪论"), (1, "费用")],
+            [(1, "费用"), (1, "第一章 — 背景")],
+            {},
+            ["第一章 — 绪论"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Sales 2023: Europe")],
+            [(1, "Glossary"), (1, "Appendix B"), (1, "Sales 2024: Europe")],
+            {},
+            ["Appendix A", "Sales 2023: Europe"],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):
@@ -743,7 +944,7 @@ def test_heading_renames(before, after, expected_renames, expected_lost):
 
 
 @pytest.mark.parametrize(
-    ("url", "renames", "expected"),
+    ("url", "successors", "expected"),
     [
         ("#Old title|outline", {"Old title": "New title"}, "#New title|outline"),
         ("#1.Old title|outline", {"Old title": "New title"}, "#1.New title|outline"),
@@ -754,12 +955,17 @@ def test_heading_renames(before, after, expected_renames, expected_lost):
         ("#2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#2027. Plan|outline"),
         ("#1.2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#1.2027. Plan|outline"),
         ("#50% off|outline", {"50% off": "40% off"}, "#40% off|outline"),
-        ("#Other|outline", {"Old title": "New title"}, None),
-        ("#__RefHeading___Toc123", {"Old title": "New title"}, None),
+        ("#Other|outline", {"Old title": "New title"}, "#Other|outline"),
+        ("#__RefHeading___Toc123", {"Old title": "New title"}, "#__RefHeading___Toc123"),
+        ("#2.1 Scope|outline", {"1 Scope": "1 Aim", "2.1 Scope": "2.1 Scope"}, "#2.1 Scope|outline"),
+        ("#1.Scope|outline", {"Scope": "1.Scope", "1.Scope": "1.Scope"}, "#1.Scope|outline"),
+        ("#1.1.Plan|outline", {"Plan": None, "1.Plan": "1.Plan"}, "#1.1.Plan|outline"),
+        ("#1.Plan|outline", {"Plan": None}, None),
+        ("#caf%c3%a9|outline", {"café": "café"}, "#caf%c3%a9|outline"),
     ],
 )
-def test_renamed_url(url, renames, expected):
-    assert _renamed_url(url, renames) == expected
+def test_renamed_url(url, successors, expected):
+    assert _renamed_url(url, successors) == expected
 
 
 def test_restore_partly_linked_does_not_paint_outline_url():
@@ -771,7 +977,7 @@ def test_restore_partly_linked_does_not_paint_outline_url():
     assert snapshot.fully_linked is False
     # Simulate an HTML replace that dropped the link on the replaced text.
     doc.slices = [_Slice("Read New text now")]
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Read New text now", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "Read New text now", None)
     assert doc.slices[0].url == ""
     assert reports[0]["hyperlink_updated"] is False
 
@@ -783,7 +989,7 @@ def test_restore_two_non_outline_urls_does_not_paint():
     snapshot = capture_outline_hyperlinks(_match(doc, 0, len(doc.text())))
     assert snapshot.multi_preserve is True
     doc.slices = [_Slice("Gamma delta epsilon")]
-    restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma delta epsilon", None)
+    restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "Gamma delta epsilon", None)
     assert doc.slices[0].url == ""
 
 
@@ -796,7 +1002,7 @@ def test_restore_mid_paragraph_outline_link_leaves_neighbors_unlinked():
     snapshot = capture_outline_hyperlinks(_match(doc, 4, 13))
     assert snapshot.whole_paragraph is False
     doc.slices = [lead, _Slice("Swap"), tail]
-    restore_outline_hyperlinks(_match(doc, 4, 4), snapshot, "Swap", None)
+    restore_outline_hyperlinks(doc, _match(doc, 4, 4), snapshot, "Swap", None)
     assert lead.url == ""
     assert tail.url == ""
     assert doc.slices[1].url == zed
@@ -810,7 +1016,7 @@ def test_restore_whole_paragraph_toc_row_writes_whole_paragraph():
     snapshot = capture_outline_hyperlinks(_match(doc, 13, 14))
     assert snapshot.whole_paragraph is True
     page.text = "\t6"
-    restore_outline_hyperlinks(_match(doc, 13, 13), snapshot, "6", None)
+    restore_outline_hyperlinks(doc, _match(doc, 13, 13), snapshot, "6", None)
     assert all(sl.url == _OUTLINE and sl.color == 0x112233 for sl in (num, title, page))
 
 
@@ -820,7 +1026,7 @@ def test_restore_reports_a_dropped_link():
     doc = _Doc([left, right])
     snapshot = capture_outline_hyperlinks(_match(doc, 0, 10))
     doc.slices = [_Slice("New title")]
-    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "New title", None)
+    reports = restore_outline_hyperlinks(doc, _match(doc, 0, 0), snapshot, "New title", None)
     assert doc.slices[0].url == ""
     assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in reports] == [
         ("", False),
@@ -833,7 +1039,7 @@ def test_restore_reports_a_dropped_link():
     doc2 = _Doc([left2, right2, tail2])
     snapshot2 = capture_outline_hyperlinks(_match(doc2, 0, 10))
     doc2.slices = [_Slice("New title"), tail2]
-    reports2 = restore_outline_hyperlinks(_match(doc2, 0, 0), snapshot2, "New title", None)
+    reports2 = restore_outline_hyperlinks(doc2, _match(doc2, 0, 0), snapshot2, "New title", None)
     assert [(r["hyperlink_url_after"], r["hyperlink_updated"]) for r in reports2] == [
         ("#1.New title|outline", True),
         ("", False),
@@ -851,7 +1057,7 @@ def test_restore_whole_row_with_different_names_keeps_them():
     s3.text = "\t6"
     s3.url = ""
     s3.name = ""
-    restore_outline_hyperlinks(_match(doc, 12, 12), snapshot, "\t6", None)
+    restore_outline_hyperlinks(doc, _match(doc, 12, 12), snapshot, "\t6", None)
     assert s1.name == "n1"
     assert s2.name == "n2"
     assert s3.name == "n3"
@@ -900,3 +1106,31 @@ def test_keep_links_while_recording_reports_empty_when_only_struck_text_linked()
     reports2 = restore_links(doc2, _match(doc2, 0, 0), snap2, "New", None)
     assert all(r["hyperlink_url_after"] == "" for r in reports2)
     assert all("hyperlink_note" not in r for r in reports2)
+
+
+def test_final_reports_seeds_deletion_state_from_earlier_paragraph(monkeypatch):
+    from plugin.doc.text_helpers import DeletionState
+    from plugin.writer import hyperlink_fixup
+
+    url = "#1.T|outline"
+    del_end = _Slice("", text_type="Redline")
+    del_end.RedlineType = "Delete"
+    del_end.IsStart = False
+
+    class _FakeTracked:
+        def __init__(self, _doc):
+            pass
+
+        def state_at(self, _cursor):
+            return DeletionState(in_delete=True)
+
+    monkeypatch.setattr(hyperlink_fixup, "TrackedDeletions", _FakeTracked)
+
+    doc = _Doc([_Slice("Old", url), del_end, _Slice(" plain ", "")])
+    plans = [{"url": url, "new_url": None}]
+    reports = hyperlink_fixup._final_reports(doc, doc, _match(doc, 0, 0), plans, set(), True)
+    assert reports == [{"hyperlink_url": url, "hyperlink_url_after": "", "hyperlink_updated": False}]
+
+    doc_after = _Doc([_Slice("Old", ""), del_end, _Slice("New", url)])
+    reports_after = hyperlink_fixup._final_reports(doc_after, doc_after, _match(doc_after, 0, 0), plans, set(), True)
+    assert reports_after == [{"hyperlink_url": url, "hyperlink_url_after": url, "hyperlink_updated": False}]

@@ -177,3 +177,14 @@ def test_full_url_for_request_path_redacts_userinfo_and_path_secret():
         f"/s/{secret_uuid}/v1/models/gemini-3.1-pro-preview:generateContent?key=k",
     )
     assert out == "https://proxy.example/s/<redacted>/v1/models/gemini-3.1-pro-preview:generateContent"
+
+
+def test_full_url_for_request_path_redacts_path_without_leading_slash():
+    from plugin.framework.client.errors import _full_url_for_request_path
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    out = _full_url_for_request_path(
+        f"u:topsecret@h.example/s/{secret_uuid}",
+        f"topsecret@h.example/s/{secret_uuid}/v1/chat/completions?key=k",
+    )
+    assert out == "h.example/s/<redacted>/v1/chat/completions"

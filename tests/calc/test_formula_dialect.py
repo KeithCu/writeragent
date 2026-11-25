@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from plugin.calc.array_formula import CellRect
 from plugin.calc.formula_dialect import (
     API_LANGUAGE,
     CONV_OOO,
@@ -234,3 +235,36 @@ def test_to_api_skips_create_instance_for_plain_formula() -> None:
 def test_make_cell_address_sets_fields() -> None:
     addr = make_cell_address(2, 3, 4)
     assert (addr.Sheet, addr.Column, addr.Row) == (2, 3, 4)
+
+
+def test_references_extracts_single_and_range_refs_on_sheet() -> None:
+    def _ref(col: int, row: int, sheet: int = 0, *, rel_col: int = 0, rel_row: int = 0, rel_sheet: int = 0, flags: int = 0) -> SimpleNamespace:
+        return SimpleNamespace(
+            Column=col,
+            Row=row,
+            Sheet=sheet,
+            RelativeColumn=rel_col,
+            RelativeRow=rel_row,
+            RelativeSheet=rel_sheet,
+            Flags=flags,
+        )
+
+    tokens = [
+        SimpleNamespace(Data=_ref(0, 0, rel_col=2, rel_row=4, flags=16)),  # relative single ref C5 on current sheet
+        SimpleNamespace(Data=SimpleNamespace(Reference1=_ref(5, 10, sheet=1), Reference2=_ref(1, 3, sheet=1))),  # reversed absolute range B4:F11 on sheet 1
+        SimpleNamespace(Data=SimpleNamespace(Reference1=_ref(0, 0, sheet=2), Reference2=_ref(1, 1, sheet=2))),  # other sheet
+        SimpleNamespace(Data=_ref(3, 7, rel_sheet=0, flags=16)),  # relative sheet -> current sheet
+        SimpleNamespace(Data="text_token"),
+        SimpleNamespace(Data=None),
+    ]
+    api = SimpleNamespace(parseFormula=lambda _t, _pos: tokens, CompileEnglish=True, FormulaConvention=-1, OpCodeMap=None)
+    xl = _ScriptedParser(lambda _t: [])
+    xl_refs = _ScriptedParser(lambda _t: [])
+    xl_ooo = _ScriptedParser(lambda _t: [])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
+
+    assert dialects.references("=SUM(C5;F11:B4;Sheet3.A1:B2;D8)", sheet=1) == [
+        CellRect(2, 4, 2, 4),
+        CellRect(1, 3, 5, 10),
+        CellRect(3, 7, 3, 7),
+    ]

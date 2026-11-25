@@ -690,6 +690,7 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 | Picker selection persist | User changes dropdown → `select_script` IPC → `set_config(last_python_script_name_*)` (same as native XDL `_ScriptSelectListener`). |
 | Switch script | `onDropdownChange` loads from `scriptIndex[name].code` (from `scripts_list.sections`). |
 | Save | Intercepted in `scripts_manager.js` → `save_script` IPC (user or document origin; `requested: true` during `request_save`, which locks the editor until `load_follows` + `load` or a plain `scripts_list`/error). |
+| New | Saved first (`save_script` IPC with the starter template); the editor switches to the new script only when `scripts_list` confirms it (and the active script and buffer are unchanged); a failure leaves script and text unchanged. |
 | Delete | Intercepted in `scripts_manager.js` → `delete_script` IPC (user or document origin) after confirmation. |
 
 ---

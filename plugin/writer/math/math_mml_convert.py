@@ -41,6 +41,25 @@ class MathConversionResult:
 
 MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
 
+_MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+# Quoted attribute values may hold ">".
+_MATH_OPEN_TAG_RE = re.compile(r"<math((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
+_DEFAULT_XMLNS_RE = re.compile(r"\sxmlns\s*=\s*(?:\"[^\"]*\"|'[^']*')")
+
+
+def _with_mathml_namespace(root: str) -> str:
+    """Set the MathML default namespace on the <math> root.
+
+    HTML treats <math> as MathML whatever xmlns says, but LibreOffice's importer skips children
+    outside that namespace (XML_ELEMENT(MATH, ...) in starmath/source/mathml/mathmlimport.cxx)
+    and returns an empty formula. Prefixed declarations such as xmlns:xlink stay.
+    """
+    return _MATH_OPEN_TAG_RE.sub(
+        lambda m: '<math xmlns="%s"%s>' % (_MATHML_NS, _DEFAULT_XMLNS_RE.sub("", m.group(1))),
+        root,
+        count=1,
+    )
+
 
 def math_root(fragment: str) -> str | None:
     """Extract a <math>...</math> root element from MathML markup."""
@@ -121,7 +140,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     if not root:
         return MathConversionResult(False, None, "not_math_root")
 
-    payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
+    payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + _with_mathml_namespace(root)
     try:
         with with_temp_buffer(content=payload, ext=".mml") as (_path, url):
             desktop = get_desktop(ctx)

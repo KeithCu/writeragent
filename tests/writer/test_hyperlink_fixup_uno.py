@@ -1284,3 +1284,47 @@ def test_recorded_replace_over_two_links_reports_empty_and_partial_keeps_uno(ctx
         ], links2
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_cross_paragraph_deletion_seeds_hyperlink_after_uno(ctx, doc):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+    for rec in (False, True):
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "Para1 ", False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+        _append_linked(text, cursor, "OldT", "#1.T|outline")
+        text.insertString(cursor, " ", False)
+        _append_linked(text, cursor, "Title", "#1.T|outline")
+
+        enum = text.createEnumeration()
+        paras = []
+        while enum_has_more(enum):
+            paras.append(enum.nextElement())
+        # Delete from para 1 through linked "OldT" in para 2.
+        del_cur = text.createTextCursorByRange(paras[0].getStart())
+        del_cur.goRight(3, False)
+        p2_end = text.createTextCursorByRange(paras[1].getStart())
+        p2_end.goRight(4, False)
+        del_cur.gotoRange(p2_end.getStart(), True)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            del_cur.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            res = _apply(doc, ctx, old_content="Title", content="")
+            assert res.get("status") == "ok", res
+            links = res.get("hyperlinks") or []
+            assert len(links) == 1, res
+            assert links[0]["hyperlink_url_after"] == "", links
+            assert "hyperlink_note" not in links[0], links
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert all(url == "" for _chunk, url in _portion_urls(doc))
+        finally:
+            doc.setPropertyValue("RecordChanges", False)

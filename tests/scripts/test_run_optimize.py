@@ -21,7 +21,6 @@ import run_optimize  # noqa: E402
 
 def test_parse_args_defaults_and_overrides() -> None:
     defaults = run_optimize.parse_args([])
-    assert defaults.student == "llm"
     assert defaults.slice == "calc_core"
     assert defaults.auto == "light"
     assert defaults.backend == "string"
@@ -30,8 +29,6 @@ def test_parse_args_defaults_and_overrides() -> None:
 
     args = run_optimize.parse_args(
         [
-            "--student",
-            "react-mock",
             "--tools",
             "calc_minimal",
             "--schema-density",
@@ -44,7 +41,6 @@ def test_parse_args_defaults_and_overrides() -> None:
             "1",
         ]
     )
-    assert args.student == "react-mock"
     assert args.tools == "calc_minimal"
     assert args.schema_density == "skinny"
     assert args.slice == "apply_html"

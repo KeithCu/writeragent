@@ -25,7 +25,8 @@ Cell outcomes for ``=PY()`` fall into four kinds:
   ``addin_result_for_worker_status``, host exceptions in
   ``format_addin_error_for_display``, size errors in ``function.py``,
   and missing-caller in ``addin_impl.py``. Write tools recognise this kind
-  with ``is_failed_run_text``.
+  with ``is_failed_run_text``, and nested ``=PY`` array writes check
+  ``has_setup_failure_text`` across all result cells.
 
 Worker failure codes in ``addin_result_for_worker_status`` map as follows:
 
@@ -254,8 +255,7 @@ def accepts_returned_any(ctx: Any) -> bool:
     than the version number because Collabora Office 26.04 has the change too.
     """
     try:
-        # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
-        ctx.getValueByName(getattr(uno, "Any")("string", ""))
+        ctx.getValueByName(cast("Any", uno).Any("string", ""))
     except RuntimeException:
         return False
     return True
@@ -286,12 +286,10 @@ def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
     corner = rows[0][0] if rows[0] else ""
     if (len(rows) == 1 and len(rows[0]) == 1) or not accepts_returned_any(ctx):
         return corner
-    # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
-    uno_any = getattr(uno, "Any")
     all_str = all(isinstance(cell, str) for row in rows for cell in row)
     uno_type = "[][]string" if all_str else "[][]any"
     log.debug("PYTHON matrix_result: type=%s rows=%d", uno_type, len(rows))
-    return uno_any(uno_type, rows)
+    return cast("Any", uno).Any(uno_type, rows)
 
 
 def _venv_not_found_text() -> str:
@@ -324,6 +322,11 @@ def is_failed_run_text(text: str) -> bool:
     )
     # An empty prefix would match everything.
     return text.startswith(tuple(p for p in prefixes if p))
+
+
+def has_setup_failure_text(text: str) -> bool:
+    """True when *text* contains the fixed venv-not-found or timeout message anywhere, because ``"x"&PY(..)`` puts text before it."""
+    return any(t and t in text for t in (_venv_not_found_text(), _timed_out_text()))
 
 
 def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:

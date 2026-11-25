@@ -22,6 +22,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 - **`Makefile`** — `make ty`: ensures `import uno` (via `make fix-uno` if needed), then `python -m ty check --exclude plugin/contrib/ --exclude plugin/lib/`.
 - **Dev dependency**: **`types-unopy`** (LibreOffice API stubs, installed via `uv sync --frozen --dev`). **`make fix-uno`** links system UNO into `.venv` so `uno` and `com.sun.star` resolve; without that, the checker cannot see extension types. A missing `.venv` or missing system `uno.py` produces a non-zero exit and error output on stderr even under `-q`.
 - **Windows / ARM64 note**: **`make fix-uno`** is a static-analysis helper, not proof that external Python can run PyUNO. On Windows, especially ARM64, LibreOffice's `pyuno.pyd` still depends on matching Python ABI and native DLL loading; the extension runtime uses LibreOffice's own Python. **`pyspector`** is omitted from the dev group on Windows CPython 3.13 (no wheel; the sdist needs the Windows SDK to link). On Windows, **`make pyspector`** skips when the import is missing, so **`uv sync`** and **`make typecheck`** still finish. Linux and macOS keep the wheel and run the scan. **`scripts/run_pyspector.py`** and **`scripts/run_timed.py`** pin stdio to UTF-8 so PySpector's banner (U+1F4A1) does not crash a cp1252 console; PR CI also sets `PYTHONUTF8=1` and installs Opengrep on Windows (Linux/macOS already did).
+- **Ubuntu PR CI opengrep pin**: The job downloads a pinned, checksummed opengrep release binary (`OPENGREP_VERSION` / `OPENGREP_SHA256` in [`.github/workflows/pr-ci.yml`](../../.github/workflows/pr-ci.yml)). To upgrade, change both values, taking the digest from the GitHub release asset (a major release may rename the asset). `make opengrep-install` installs the latest release locally, so local and CI versions can differ.
 
 ### mypy (optional)
 
@@ -64,7 +65,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Optional and `None` narrowing
 
 - **`reportOptionalMemberAccess`**: Pyright is aggressive about **calling methods on values that may be `None`**. **`DrawBridge.get_active_page()`** can return **`None`**; Draw shape tools in **`plugin/draw/shapes.py`** already **`if page is None:`** before **`page.getCount()`** / other use. Copy that guard (or raise) on new call sites — do not treat this as an open cleanup.
-- **`reportPossiblyUnboundVariable`**: Assignments only on some branches (e.g. **`compiled`** only inside **`if use_regex:`**, or **`restore_snapshot`** only inside **`try`**) can be flagged when a later branch uses the name. **Fix**: initialize before the branch (**`compiled = None`**) or declare **`restore_snapshot: dict[str, Any] | None = None`** before **`try`**, then assign (**`search.py`**, **`testing_runner.py`**).
+- **`reportPossiblyUnboundVariable`**: Assignments only on some branches (e.g. **`compiled`** only inside **`if use_regex:`**) can be flagged when a later branch uses the name. **Fix**: initialize before the branch (**`compiled = None`**) (**`search.py`**).
 
 ### Overrides, bases, and variance
 

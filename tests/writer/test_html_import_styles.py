@@ -209,6 +209,49 @@ def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None
     assert html_import_styles.attach_write_report(err_res, html_import_styles.WriteReport(math=entries)) == err_res
 
 
+def test_attach_math_objects_distinguishes_lost_position_from_conversion_failure() -> None:
+    lost_entry = {
+        "kind": "tex",
+        "display_block": True,
+        "snippet": "x^2",
+        "ok": False,
+        "error": html_import_styles.MATH_POSITION_LOST,
+    }
+    res_lost = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Done"},
+        html_import_styles.WriteReport(math=[lost_entry]),
+    )
+    assert len(res_lost["warnings"]) == 1
+    diag_lost = res_lost["warnings"][0]
+    assert diag_lost["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert "x^2" in diag_lost["message"]
+    assert "[Math import failed]" not in diag_lost["message"]
+
+    mixed_entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {
+            "kind": "tex",
+            "display_block": True,
+            "snippet": r"\sqrt{",
+            "ok": False,
+            "error": "NoAvailableTokensError",
+        },
+        lost_entry,
+    ]
+    res_mixed = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Done"},
+        html_import_styles.WriteReport(math=mixed_entries),
+    )
+    assert res_mixed["math_objects"] == mixed_entries
+    assert len(res_mixed["warnings"]) == 1
+    diag_mixed = res_mixed["warnings"][0]
+    assert diag_mixed["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert r"\sqrt{" in diag_mixed["message"]
+    assert "NoAvailableTokensError" in diag_mixed["message"]
+    assert "x^2" in diag_mixed["message"]
+    assert "[Math import failed]" in diag_mixed["message"]
+
+
 def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
     """A partial-match style skip with a token builds a diagnostic, suggested call, and updates message."""
     from plugin.framework.errors import suggest_call
@@ -704,7 +747,10 @@ def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected
         # The paragraph cursor enumerates nothing, so there is no paragraph to format.
         para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
 
-    solid_style, none_style = html_import_styles._get_fill_style_enums()
+    import uno
+
+    solid_style = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    none_style = uno.Enum("com.sun.star.drawing.FillStyle", "NONE")
 
     failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=[para_decl]
@@ -962,10 +1008,75 @@ def test_parse_data_lo_para_start_and_end_fallback_when_enum_missing():
     from plugin.writer.html_import_styles import parse_data_lo_para
 
     runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
-    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown", None)):
         props_start, unsupported_start = parse_data_lo_para("text-align:start")
         props_end, unsupported_end = parse_data_lo_para("text-align:end")
     assert props_start == {"text-align": ("ParaAdjust", 0)}
     assert unsupported_start == []
     assert props_end == {"text-align": ("ParaAdjust", 1)}
     assert unsupported_end == []
+
+
+@pytest.mark.parametrize(
+    "empty_block",
+    [
+        '<p data-lo-style="Textbody"></p>',
+        '<p data-lo-style="Textbody">   \n\t </p>',
+        '<p data-lo-style="Textbody"/>',
+        '<p data-lo-style="Textbody"><span></span></p>',
+        '<ul><li data-lo-style="Textbody"></li></ul>',
+    ],
+)
+def test_extract_block_lo_styles_drops_empty_block_before_content(empty_block: str):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = f'<p data-lo-style="Standard">A</p>{empty_block}<h1 data-lo-style="Heading1">B</h1>'
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles[0] == "Standard"
+    assert styles[-1] == "Heading1"
+    assert "Textbody" not in styles
+
+
+def test_extract_block_lo_styles_keeps_alignment_after_empty_first_blockquote_para():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<blockquote data-lo-style="Textbody"><p></p><p>Inner</p></blockquote>'
+        '<h1 data-lo-style="Heading1">B</h1>'
+    )
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert len(styles) == 3
+    assert styles[0] == "Standard"
+    assert styles[-1] == "Heading1"
+
+
+@pytest.mark.parametrize(
+    "kept_block,expected_style",
+    [
+        ('<p data-lo-style="Textbody">&nbsp;</p>', "Textbody"),
+        ('<p data-lo-style="Textbody"><br/></p>', "Textbody"),
+        ('<p data-lo-style="Textbody"><img src="x.png"/></p>', "Textbody"),
+    ],
+)
+def test_extract_block_lo_styles_keeps_non_empty_blocks(kept_block: str, expected_style: str):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = f'<p data-lo-style="Standard">A</p>{kept_block}<h1 data-lo-style="Heading1">B</h1>'
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles == ["Standard", expected_style, "Heading1"]
+
+
+def test_extract_block_lo_styles_keeps_trailing_empty_block_and_reports_dropped_para():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<p data-lo-style="Textbody" data-lo-para="margin-left:1cm"></p>'
+        '<p data-lo-style="Heading1">B</p>'
+        '<p data-lo-style="Quotations"></p>'
+    )
+    _clean, styles, paras, skipped = extract_block_lo_styles(html)
+    assert styles == ["Standard", "Heading1", "Quotations"]
+    assert paras == [None, None, None]
+    assert skipped == ["margin-left:1cm"]

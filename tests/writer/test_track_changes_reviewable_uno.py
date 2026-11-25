@@ -615,6 +615,90 @@ def test_insert_content_at_position_recorded_by_session_uno(ctx, doc):
     _reject_all(doc, ctx)
 
 
+@native_test
+@with_native_doc("writer")
+def test_domain_result_inserts_recorded_in_review_mode_uno(ctx, doc):
+    """Units, text analytics, and symbolic math inserts record tagged redlines in Record/Wait."""
+    from plugin.scripting.symbolic import insert_symbolic_result_into_writer
+    from plugin.scripting.text_analytics import insert_text_analytics_result_into_doc
+    from plugin.scripting.units import insert_units_result_into_writer
+
+    prev = get_config(_FLAG)
+    text = doc.getText()
+
+    def _seed_two():
+        _reset(doc, ctx, "")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 3")
+        text.insertString(cur, "Omega", False)
+        cur.gotoStart(False)
+        cur.goRight(2, False)
+        doc.getCurrentController().select(cur)
+        return [("Standard", "Alpha"), ("Heading 3", "Omega")]
+
+    def _body_styles_and_texts():
+        out = []
+        e = text.createEnumeration()
+        while e.hasMoreElements():
+            el = e.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                out.append((str(el.getPropertyValue("ParaStyleName")), el.getString() or ""))
+        return out
+
+    units_res = {"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h"}
+    ta_res = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
+    sym_res = {"status": "ok", "latex": "x^2", "helper": "solve"}
+
+    cases = [
+        ("units", lambda: insert_units_result_into_writer(ctx, doc, units_res), "text", "36 km/h"),
+        ("text_analytics", lambda: insert_text_analytics_result_into_doc(ctx, doc, ta_res), "text", "Text Analytics"),
+        ("symbolic_inline", lambda: insert_symbolic_result_into_writer(ctx, doc, sym_res, display_block=False), "embedded", None),
+        ("symbolic_block", lambda: insert_symbolic_result_into_writer(ctx, doc, sym_res, display_block=True), "embedded", None),
+    ]
+
+    try:
+        for mode in ("record", "wait"):
+            save({_FLAG: mode})
+            for name, fn, check_kind, expected_substr in cases:
+                expected_seed = _seed_two()
+                fn()
+                rls = _redlines(doc)
+                assert any(r["type"] == "Insert" for r in rls), (mode, name, rls)
+                assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), (mode, name, rls)
+                assert doc.getPropertyValue("RecordChanges") is False, (mode, name)
+                assert not any(
+                    b.startswith("wa_review_") for b in doc.getBookmarks().getElementNames()
+                ), (mode, name)
+                if check_kind == "text":
+                    assert expected_substr in text.getString(), (mode, name)
+                else:
+                    assert doc.getEmbeddedObjects().getCount() == 1, (mode, name)
+                _reject_all(doc, ctx)
+                assert _body_styles_and_texts() == expected_seed, (mode, name)
+                assert doc.getEmbeddedObjects().getCount() == 0, (mode, name)
+                assert doc.getTextTables().getCount() == 0, (mode, name)
+
+        save({_FLAG: "record"})
+        _seed_two()
+        insert_units_result_into_writer(ctx, doc, units_res)
+        _accept_all(doc, ctx)
+        assert _para_text(doc) == "Al36 km/hpha"
+
+        save({_FLAG: "off"})
+        _seed_two()
+        insert_units_result_into_writer(ctx, doc, units_res)
+        assert _redlines(doc) == []
+        assert _para_text(doc) == "Al36 km/hpha"
+    finally:
+        save({_FLAG: prev})
+        if len(doc.getRedlines()):
+            _reject_all(doc, ctx)
+
+
 # --- extend-selection: append the continuation as ONE tracked INSERTION (the original is never
 # --- struck), tagged as an agent change -- via WriterStreamedAppendSession --------------------
 
@@ -2405,6 +2489,74 @@ def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, d
         assert res_wm["tracked"] is False
         assert res_wm.get("style_unreviewed") is True
         assert "WritingMode" in res_wm.get("warning", "")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, doc):
+    import uno
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "Background tracked.")
+    p0 = _paragraphs(doc)[0]
+    p0.setPropertyValue("FillColor", 0x112233)
+    p0.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+
+        _reject_all(doc, ctx)
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0x112233
+
+        res2 = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+        )
+        assert res2["status"] == "ok", res2
+        _accept_all(doc, ctx)
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx, doc):
+    from plugin.tests.testing_utils import libreoffice_version
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "WritingModeAutomatic check.")
+    p0 = _paragraphs(doc)[0]
+    if not p0.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic"):
+        return
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert _paragraphs(doc)[0].getPropertyValue("WritingModeAutomatic") is False
+
+        _reject_all(doc, ctx)
+        # Before LibreOffice 26.8, lcl_RstAttr (sw/source/core/doc/docfmt.cxx) preserves
+        # RES_PARATR_AUTOFRAMEDIR when false across ResetAttrs.
+        if libreoffice_version(ctx) >= (26, 8):
+            p_after = _paragraphs(doc)[0]
+            assert p_after.getPropertyValue("WritingModeAutomatic") is True
+            assert p_after.getPropertyState("WritingModeAutomatic").value == "DEFAULT_VALUE"
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})

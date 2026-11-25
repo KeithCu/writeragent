@@ -1071,6 +1071,7 @@ def test_index_create_recorded_search_and_pending_change_guard_uno(ctx, doc):
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is False and "warning" in res
+        assert res["pending_review"] is True
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert "MATCH" in text.getString()
         assert "hello " in text.getString() and " world" in text.getString()
@@ -1160,6 +1161,7 @@ def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is False and "warning" in res
+        assert res["pending_review"] is True
         assert doc.getPropertyValue("RecordChanges") is False
         redlines = doc.getRedlines()
         assert redlines.getCount() == 1
@@ -1246,6 +1248,7 @@ def test_index_add_mark_in_record_mode_accept_and_reject_uno(ctx, doc):
             text.setString("hello MATCH world")
             res = IndexesAddMark().execute(tctx, target="search", old_content="MATCH", **extra)
             assert res["status"] == "ok", (kind, res)
+            assert res["tracked"] is True and res["pending_review"] is True, (kind, res)
             assert doc.getPropertyValue("RecordChanges") is False
             redlines = doc.getRedlines()
             assert redlines.getCount() == 1, (kind, redlines.getCount())
@@ -1291,3 +1294,65 @@ def test_index_add_mark_in_record_mode_accept_and_reject_uno(ctx, doc):
                 assert upd["status"] == "ok", (kind, upd)
                 assert expected_entry not in text.getString(), (kind, text.getString())
                 _clear_indexes(doc)
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_create_after_pending_agent_mark_is_refused_uno(ctx, doc):
+    from unittest.mock import patch
+    from plugin.framework.uno_context import execute_dispatch
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"):
+        text.setString("hello world")
+        mark_res = IndexesAddMark().execute(tctx, text="Key", kind="alphabetical", target="end")
+        assert mark_res["status"] == "ok", mark_res
+        rl_before = doc.getRedlines().getCount()
+        text_before = text.getString()
+
+        refused = IndexesCreate().execute(
+            tctx, kind="alphabetical", target="end", create_from_outline=True
+        )
+        assert refused["status"] == "error", refused
+        assert refused["code"] == "INDEX_IN_TRACKED_CHANGE", refused
+        assert text.getString() == text_before
+        assert doc.getRedlines().getCount() == rl_before
+
+    execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
+    created = IndexesCreate().execute(
+        tctx, kind="alphabetical", target="end", create_from_outline=True
+    )
+    assert created["status"] == "ok", created
+    assert doc.getDocumentIndexes().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    text.setString("body text")
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+        ins_res = ApplyDocumentContent().execute(tctx, target="beginning", content="TOC_HERE ")
+        assert ins_res["status"] == "ok", ins_res
+        res = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="TOC_HERE"
+        )
+        assert res["status"] == "ok", res
+        assert "pending_review" not in res, res
+        assert res["tracked"] is False, res
+        redlines = doc.getRedlines()
+        types = [redlines.getByIndex(i).RedlineType for i in range(redlines.getCount())]
+        assert "Delete" not in types, types
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

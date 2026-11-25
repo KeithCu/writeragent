@@ -13,7 +13,7 @@ view, so set_selection updates that pin when present; MCP contexts carry no pin.
 from typing import Any
 import logging
 
-from plugin.doc.text_helpers import visible_body_range
+from plugin.doc.text_helpers import TrackedDeletions, normalize_linebreaks, visible_body_range
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
@@ -28,10 +28,13 @@ from plugin.writer.target_resolver import update_selection_pin
 log = logging.getLogger("writeragent.writer")
 
 
-def _read_selection_fields(target_range: Any) -> dict[str, Any]:
-    """Read selected text and length, returning a warning on failure."""
+def _read_selection_fields(doc: Any, target_range: Any) -> dict[str, Any]:
+    """Read visible selected text and length, returning a warning on failure."""
     try:
-        selected = target_range.getString()
+        deletions = TrackedDeletions(doc)
+        selected = normalize_linebreaks(
+            deletions.visible_text(target_range) if deletions.overlaps(target_range) else target_range.getString()
+        )
     except Exception as exc:
         reraise_if_disposed(exc)
         log.exception("set_selection: could not read selected text")
@@ -145,7 +148,7 @@ class SetSelection(ToolBase):
         else:
             controller.select(found)
             update_selection_pin(ctx, found)
-            fields = _read_selection_fields(found)
+            fields = _read_selection_fields(doc, found)
             res = {
                 "status": "ok",
                 **fields,

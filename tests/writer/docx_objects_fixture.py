@@ -12,7 +12,7 @@ import tempfile
 import uno
 from com.sun.star.awt import Point, Size
 from com.sun.star.beans import PropertyValue
-from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
 
 
 def _pv(name: str, value) -> PropertyValue:
@@ -93,4 +93,42 @@ def build_docx_objects_doc(ctx, doc):
         docx_url, "_blank", 0, (_pv("Hidden", True),)
     )
     reloaded.setPropertyValue("RecordChanges", True)
+    return reloaded, docx_path
+
+
+def build_grouped_text_boxes(ctx, doc, anchor_type=None):
+    """Build a group of two Word text boxes, save as .docx, and reload with Hidden=True.
+
+    Returns ``(reloaded_doc, docx_path)``. Callers must close *reloaded_doc* and unlink *docx_path*.
+    """
+    sm = ctx.getServiceManager()
+    page = doc.getDrawPage()
+    collection = sm.createInstanceWithContext("com.sun.star.drawing.ShapeCollection", ctx)
+
+    for idx, x in enumerate((1000, 5000)):
+        shape = doc.createInstance("com.sun.star.drawing.CustomShape")
+        shape.setName(f"S{idx}")
+        shape.setPropertyValue("AnchorType", AT_PARAGRAPH)
+        shape.setSize(Size(3000, 2000))
+        shape.setPosition(Point(x, 1000))
+        page.add(shape)
+        collection.add(shape)
+
+    group = page.group(collection)
+    group.setName("Grp")
+    for idx in range(group.getCount()):
+        child = group.getByIndex(idx)
+        child.setPropertyValue("TextBox", True)
+        child.setString(f"in box {idx}")
+
+    if anchor_type is not None:
+        group.setPropertyValue("AnchorType", anchor_type)
+
+    fd, docx_path = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    docx_url = uno.systemPathToFileUrl(docx_path)
+    doc.storeToURL(docx_url, (_pv("FilterName", "MS Word 2007 XML"),))
+
+    desktop = sm.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    reloaded = desktop.loadComponentFromURL(docx_url, "_blank", 0, (_pv("Hidden", True),))
     return reloaded, docx_path

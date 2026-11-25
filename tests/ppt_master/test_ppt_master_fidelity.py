@@ -275,7 +275,11 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
 
     # Case 4: skip_visual=True after structural metrics read
+    from plugin.framework import scratch_writer
+
     doc4 = DummyDoc()
+    doc4.getRuntimeUID = lambda: "fidelity-uid"  # type: ignore[attr-defined]
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"fidelity-uid"})
     monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc4, DummyPage()))
     monkeypatch.setattr(
         fidelity,
@@ -294,6 +298,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
         skip_visual=True,
     )
     assert doc4.closed is True
+    assert scratch_writer.is_scratch_uid("fidelity-uid") is False
 
 
 def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):

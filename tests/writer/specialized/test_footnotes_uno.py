@@ -132,3 +132,38 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
     assert res["status"] == "ok"
     assert res.get("tracked") is True
     assert _supplier(doc, "footnote").getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.footnotes import FootnotesInsert
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "beta"
+    found = doc.findFirst(sd)
+    assert found is not None
+    controller = doc.getCurrentController()
+    controller.select(found)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = FootnotesInsert().execute(tctx, note="footnote", text="Pinned note")
+    assert res["status"] == "ok", res
+    assert doc.getFootnotes().getCount() == 1
+
+    anchor = doc.getFootnotes().getByIndex(0).getAnchor()
+    before = anchor.getText().createTextCursorByRange(anchor.getStart())
+    before.gotoStart(True)
+    assert before.getString() == "Alpha beta"
+    assert "Second para" in text.getString()

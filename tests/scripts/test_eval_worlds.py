@@ -324,16 +324,6 @@ def test_calc_py_dest_snapshot() -> None:
     assert "=PY" in dump
 
 
-def test_apply_style_heading_html() -> None:
-    world = WriterWorld("<p>Background</p><p>Other</p>")
-    res = world.apply_style(style="Heading 1", target="search", old_content="Background")
-    assert res["status"] == "ok"
-    html = world.get_html()
-    assert "<h1>" in html
-    assert "Background" in html
-    assert "Other" in html
-
-
 def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
@@ -348,6 +338,7 @@ def test_calc_write_formula_range_rejects_length_mismatch() -> None:
     calc = CalcWorld("Item\tAmt\nAnn\t1\nBea\t2\nCal\t3\nDee\t4")
     res = calc.write_range(range=["C2:C9"], values=["a", "b", "c", "d"])
     assert res["status"] == "error"
+    assert res["code"] == "CALC_ERROR"
     assert "4 values" in res["message"]
     assert "8 cells" in res["message"]
     # Must not zip-truncate into the extra rows.
@@ -458,6 +449,7 @@ def test_range_sort_invalid_sort_column_errors() -> None:
     calc = CalcWorld("A\tB\n1\t2\n3\t4")
     res = calc.sort_range(range=["A1:B3"], sort_column=2, ascending=True, has_header=True)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "sort_column must be an integer from 0 to 1" in res["message"]
 
 
@@ -505,6 +497,7 @@ def test_range_sort_then_by_invalid_leaves_grid() -> None:
         has_header=True,
     )
     assert bad_item["status"] == "error"
+    assert bad_item["code"] == "INVALID_PARAM"
     assert calc._grid == before
 
     out_of_width = calc.sort_range(
@@ -515,6 +508,7 @@ def test_range_sort_then_by_invalid_leaves_grid() -> None:
         has_header=True,
     )
     assert out_of_width["status"] == "error"
+    assert out_of_width["code"] == "INVALID_PARAM"
     assert "then_by column" in out_of_width["message"]
     assert calc._grid == before
 
@@ -533,8 +527,9 @@ def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:
 
     bad = calc.write_range(range=["A2:B4"], values=[["X", 1], ["Y", 2]])
     assert bad["status"] == "error"
-    assert "2x2" in bad["message"]
-    assert "3x2" in bad["message"]
+    assert bad["code"] == "CALC_ERROR"
+    assert "2×2" in bad["message"]
+    assert "3×2" in bad["message"]
     assert calc._grid[1] == ["Tool", 2100]
 
 
@@ -590,6 +585,7 @@ def test_write_range_refuses_delimited_text() -> None:
     before = [list(row) for row in calc._grid]
     res = calc.write_range(range=["A2"], values="x,1\ny,2")
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert calc._grid == before
 
 

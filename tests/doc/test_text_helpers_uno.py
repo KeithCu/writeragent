@@ -500,3 +500,368 @@ def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ct
     text.insertTextContent(text.getEnd(), tbl, False)
     controller.select(tbl.getCellRangeByName("A1:B2"))
     assert get_selection_text(doc) is None
+
+
+@native_test
+@with_native_doc("writer")
+def test_removes_anchored_matches_accept_all_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.doc.text_helpers import TrackedDeletions
+    from plugin.framework.uno_context import execute_dispatch
+
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png_bytes)
+    try:
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        from com.sun.star.beans import PropertyValue
+        pv = PropertyValue()
+        pv.Name = "URL"
+        pv.Value = "file://" + img_path
+        graphic = provider.queryGraphic((pv,))
+
+        def _check(name, expected, setup_fn, *, target_fn=None):
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText() if target_fn is None else target_fn()
+            text.setString("")
+            gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            gfx.setPropertyValue("Graphic", graphic)
+            gfx.setPropertyValue("Width", 200)
+            gfx.setPropertyValue("Height", 200)
+            setup_fn(text, gfx)
+            gfx.setName(name)
+            predicted = TrackedDeletions(doc).removes_anchored(gfx)
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            actual = not doc.getGraphicObjects().hasByName(name)
+            assert predicted is expected and actual is expected, (
+                f"{name}: expected={expected}, predicted={predicted}, actual={actual}"
+            )
+
+        def _delete_range(text, start_para, start_off, end_para, end_off):
+            enum = text.createEnumeration()
+            paras = []
+            while enum.hasMoreElements():
+                paras.append(enum.nextElement())
+            c = text.createTextCursorByRange(paras[start_para].getStart())
+            if start_off:
+                c.goRight(start_off, False)
+            end_c = text.createTextCursorByRange(paras[end_para].getStart())
+            if end_off:
+                end_c.goRight(end_off, False)
+            c.gotoRange(end_c, True)
+            doc.setPropertyValue("RecordChanges", True)
+            c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _set_paras(text, lines):
+            text.setString("")
+            c = text.createTextCursor()
+            for idx, line in enumerate(lines):
+                if idx:
+                    text.insertControlCharacter(c, 0, False)
+                if line:
+                    text.insertString(c, line, False)
+
+        # AT_PARAGRAPH cases
+        def _para_mid(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 2, 1, 2)
+
+        def _para_first_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_last_of_multi(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            _delete_range(text, 0, 1, 1, 3)
+
+        def _para_break_only(text, gfx):
+            _set_paras(text, ["one", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 3, 1, 0)
+
+        def _para_empty_first(text, gfx):
+            _set_paras(text, ["", "two"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 1)
+
+        def _para_single_whole(text, gfx):
+            _set_paras(text, ["one"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 3)
+
+        def _para_single_not_whole(text, gfx):
+            _set_paras(text, ["aa", "bb"])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 0, 2)
+
+        # AT_CHARACTER cases
+        def _at_char(offset):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AT_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                _delete_range(text, 0, 1, 0, 3)
+            return _fn
+
+        def _header_text():
+            styles = doc.getStyleFamilies().getByName("PageStyles")
+            s_name = "Standard" if styles.hasByName("Standard") else styles.getElementNames()[0]
+            style = styles.getByName(s_name)
+            style.setPropertyValue("HeaderIsOn", True)
+            return style.getPropertyValue("HeaderText")
+
+        def _para_table_then_struck(text, gfx):
+            tbl = doc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            text.insertTextContent(text.getStart(), tbl, False)
+            cur = text.createTextCursor()
+            cur.gotoEnd(False)
+            text.insertString(cur, "Acme", False)
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getEnd(), gfx, False)
+            del_c = text.createTextCursorByRange(text.getStart())
+            del_c.gotoEnd(True)
+            doc.setPropertyValue("RecordChanges", True)
+            del_c.setString("")
+            doc.setPropertyValue("RecordChanges", False)
+
+        def _para_two_empty_break(text, gfx):
+            _set_paras(text, ["", ""])
+            gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            text.insertTextContent(text.getStart(), gfx, False)
+            _delete_range(text, 0, 0, 1, 0)
+
+        # AS_CHARACTER cases
+        def _as_char(offset, del_end=4):
+            def _fn(text, gfx):
+                text.setString("abcd")
+                gfx.setPropertyValue("AnchorType", AS_CHARACTER)
+                c = text.createTextCursor()
+                c.gotoStart(False)
+                if offset:
+                    c.goRight(offset, False)
+                text.insertTextContent(c, gfx, False)
+                # Anchor sits before the character at `offset`, shifting remaining chars by 1.
+                _delete_range(text, 0, 1, 0, del_end)
+            return _fn
+
+        _check("p_mid", False, _para_mid)
+        _check("p_first", True, _para_first_of_multi)
+        _check("p_last", True, _para_last_of_multi)
+        _check("p_break", False, _para_break_only)
+        _check("p_empty_first", True, _para_empty_first)
+        _check("p_single_whole", True, _para_single_whole)
+        _check("p_single_whole_hdr", True, _para_single_whole, target_fn=_header_text)
+        _check("p_single_not_whole", False, _para_single_not_whole)
+        _check("p_table_then_struck_hdr", False, _para_table_then_struck, target_fn=_header_text)
+        _check("p_two_empty_break", True, _para_two_empty_break)
+        _check("at_char_inside", True, _at_char(2))
+        _check("at_char_start", False, _at_char(1))
+        _check("at_char_end", False, _at_char(3))
+        _check("as_char_start", True, _as_char(1))
+        _check("as_char_end", True, _as_char(3))
+        _check("as_char_after", False, _as_char(4, del_end=4))
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_content_control_and_in_content_metadata_visible_reads_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length, read_visible_body, visible_body_range
+    from plugin.framework.html_stripper import html_to_search_text
+    from plugin.writer.html_export import document_to_content
+
+    for service in ("com.sun.star.text.ContentControl", "com.sun.star.text.InContentMetadata"):
+        text = doc.getText()
+        text.setString("xx CTRL yy")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(3, False)
+        cur.goRight(4, True)
+        ctrl = doc.createInstance(service)
+        text.insertTextContent(cur, ctrl, True)
+
+        body = read_visible_body(doc)[0]
+        assert body == "xx CTRL yy"
+        assert get_document_length(doc) == 10
+        rng = visible_body_range(doc, 3, 7)
+        assert rng is not None
+        assert rng.cursor.getString() == "CTRL"
+
+    # Tracked deletion inside ContentControl: range HTML text matches full HTML text.
+    text = doc.getText()
+    text.setString("xx CTRL yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cur, ctrl, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_rng = visible_body_range(doc, 4, 6)
+        assert del_rng is not None
+        del_rng.cursor.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert read_visible_body(doc)[0] == "xx CL yy"
+    full_txt = html_to_search_text(document_to_content(doc, ctx, scope="full")).strip()
+    range_txt = html_to_search_text(document_to_content(doc, ctx, scope="range", range_start=0, range_end=8)).strip()
+    assert full_txt == "xx CL yy"
+    assert range_txt == full_txt
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_after_astral_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_body_range, visible_range_text
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "😀😀b", False)
+    text.insertControlCharacter(cur, _PARAGRAPH_BREAK, False)
+    text.insertString(cur, "second", False)
+
+    first_para = _first_paragraph(doc)
+    b_cur = text.createTextCursorByRange(first_para.getStart())
+    b_cur.goRight(2, False)
+    b_cur.gotoRange(first_para.getEnd(), True)
+    assert visible_range_text(doc, b_cur) == "b"
+
+    tail_cur = text.createTextCursorByRange(first_para.getEnd())
+    tail_cur.gotoEnd(True)
+    assert visible_range_text(doc, tail_cur) == "\nsecond"
+
+    # Single paragraph with astral prefix.
+    text.setString("😀abcdef")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(2, False)
+    cur.gotoEnd(True)
+    assert visible_range_text(doc, cur) == "bcdef"
+
+    # Astral text, a field, and a tracked deletion in one paragraph.
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "😀a ", False)
+    field = doc.createInstance("com.sun.star.text.TextField.Author")
+    field.setPropertyValue("IsFixed", True)
+    field.setPropertyValue("Content", "Ann")
+    text.insertTextContent(cur, field, False)
+    text.insertString(cur, " GONE 😀z", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursorByRange(cur)
+        del_cur.goLeft(len(" 😀z"), False)
+        del_cur.goLeft(len("GONE "), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    body = read_visible_body(doc)[0]
+    for a, b in ((0, 3), (1, 6), (2, 7), (3, 9), (7, len(body))):
+        rng = visible_body_range(doc, a, b)
+        assert rng is not None
+        assert visible_range_text(doc, rng.cursor) == body[a:b]
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_of_search_hit_in_cell_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    doc.getText().insertTextContent(doc.getText().getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("😀😀xx needle yy")
+
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "needle"
+    found = doc.findFirst(sd)
+    assert found is not None
+    assert visible_range_text(doc, found) == "needle"
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_table_edge_and_field_selections_uno(ctx, doc):
+    from plugin.doc.text_helpers import live_selection_range, visible_range_text
+    from plugin.framework.uno_context import execute_dispatch, uno_same
+
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    # Ctrl+A in a document starting with a table.
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+
+    cell = tbl.getCellByName("A1")
+    controller.select(cell.getStart())
+    for _ in range(3):
+        execute_dispatch(ctx, controller, ".uno:SelectAll")
+    sel = live_selection_range(controller)
+    assert sel is not None and not uno_same(sel.getText(), text)
+    assert "tail" in sel.getString()
+    # "T0" without "tail" is the known enumeration limit when Ctrl+A starts in a leading table.
+    assert visible_range_text(doc, sel) == "T0"
+
+    # Selection inside an Input field.
+    text.setString("Dear ")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    inp = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp.setPropertyValue("Content", "Customer")
+    text.insertTextContent(cur, inp, False)
+    text.insertString(cur, " name", False)
+
+    inp_cur = text.createTextCursor()
+    inp_cur.gotoStart(False)
+    inp_cur.goRight(len("Dear ") + 1, False)
+    inp_cur.goRight(len("Custom"), True)
+    got_inp = visible_range_text(doc, inp_cur)
+    assert got_inp == "Custom", (got_inp, inp_cur.getString())
+
+    # Selection starting inside a MetadataField.
+    text.setString("xx inner yy")
+    mcur = text.createTextCursor()
+    mcur.gotoStart(False)
+    mcur.goRight(len("xx "), False)
+    mcur.goRight(len("inner"), True)
+    meta = doc.createInstance("com.sun.star.text.textfield.MetadataField")
+    text.insertTextContent(mcur, meta, True)
+
+    tail_cur = text.createTextCursor()
+    tail_cur.gotoStart(False)
+    tail_cur.goRight(len("xx in") + 1, False)
+    tail_cur.gotoEnd(True)
+    assert visible_range_text(doc, tail_cur) == "ner yy"

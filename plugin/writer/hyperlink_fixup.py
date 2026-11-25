@@ -69,8 +69,8 @@ finds every ``#old|outline`` portion in the document (including numbered and
 percent-encoded outline URLs) and updates it to ``#new|outline`` — directly when
 not recording or inside a tracked insert, and via tracked Delete + Insert when
 recording changes. Returned stale URLs carry a reason: field runs that cannot be
-retyped (``field``), or a ``lost`` title that no heading replaces (``no_heading``,
-left unchanged).
+retyped (``field``), or a title mapped to ``None`` in ``successors`` that no
+heading replaces (``no_heading``, left unchanged).
 """
 
 from __future__ import annotations
@@ -85,17 +85,36 @@ from urllib.parse import quote, unquote
 
 import uno
 
-from plugin.doc.text_helpers import DeletionState, go_right, iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
-from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering, redline_spans
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
 _OUTLINE_SUFFIX = "|outline"
 # Lowest SequenceMatcher ratio that counts as "the same title, reworded".
 _SIMILAR_TITLE = 0.6
-# Shared numbering is not evidence of the same title; strip "word + short number" labels before comparing.
-_LEADING_LABEL_RE = re.compile(r"^\w+\s+\w{1,4}\s*[:.\-\u2013\u2014]\s+(?=\w)")
+_UNIT_WORD = "one|two|three|four|five|six|seven|eight|nine"
+# English number words up to ninety-nine, in casefolded text.
+_NUMBER_WORD = (
+    rf"(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\s](?:{_UNIT_WORD}))?|{_UNIT_WORD}"
+    "|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
+)
+_CJK_NUMERAL = "[〇零一二三四五六七八九十百千]+"
+# "第一章", "第12条", "第三部分": the section counter is part of the number, not title text.
+# Short counters refuse their two-character forms so (?=\w) in _LEADING_LABEL_RE cannot backtrack to 部/章.
+_CJK_LABEL = rf"第\s*(?:\d+|{_CJK_NUMERAL})\s*(?:部分|章节|章節|部(?!分)|章(?![节節])|[節节條条款項项回篇編编卷課课話话講讲])"
+# Shared numbering is not evidence of the same title; strip "Chapter 1: ", "Chapter One: ", "第一章 ",
+# "一、" and "（一）" labels before comparing. A title that is only a label is kept whole.
+_LEADING_LABEL_RE = re.compile(
+    rf"^(?:\w+\s+(?:\w{{1,4}}|{_NUMBER_WORD})\s*[:.\-\u2013\u2014]\s+"
+    rf"|{_CJK_LABEL}[\s:：、.．\-\u2013\u2014]*"
+    rf"|(?:{_CJK_NUMERAL}[、.．]|[（(]{_CJK_NUMERAL}[）)])\s*)(?=\w)"
+)
+# A number, number word, CJK numeral, Roman numeral or single letter that can number a heading, in casefolded text.
+_NUMBER_RE = re.compile(
+    rf"{_CJK_LABEL}|\d+(?:\.\d+)*|{_CJK_NUMERAL}|\b(?:{_NUMBER_WORD}|[ivxlcdm]+|[^\W\d_])\b"
+)
 # Why a link still names an old heading title.
 StaleReason = Literal["field", "no_heading"]
 _URL = "HyperLinkURL"
@@ -239,7 +258,7 @@ def hyperlink_fields(reports: list[dict[str, Any]]) -> dict[str, Any]:
     return {"hyperlinks": reports} if reports else {}
 
 
-def _final_reports(text: Any, anchor: Any, plans: list[dict[str, Any]],
+def _final_reports(doc: Any, text: Any, anchor: Any, plans: list[dict[str, Any]],
                    written: set[str], measured: bool) -> list[dict[str, Any]]:
     """Reports for what the document holds after the edit.
 
@@ -248,14 +267,13 @@ def _final_reports(text: Any, anchor: Any, plans: list[dict[str, Any]],
     a tracked deletion are ignored). *measured* is False when the replacement broke the
     paragraph, so the rest of the link may be in a later one and the old URL is reported.
     """
-    left: set[str] = set()
-    state = DeletionState()
-    for p in _iter_portions(text, anchor.getStart(), include_redlines=True):
-        if _prop(p, "TextPortionType") == "Redline":
-            state.apply_marker(p)
-            continue
-        if not state.in_delete and p.getString():
-            left.add(_prop(p, _URL))
+    if not plans:
+        return []
+    left = {
+        _prop(p, _URL)
+        for p, live in _portions_with_live(doc, text, anchor.getStart())
+        if live and p.getString()
+    }
     reports = []
     for plan in plans:
         url = plan["url"]
@@ -321,6 +339,20 @@ def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False
             ):
                 continue
             yield portion
+
+
+def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bool]]:
+    """Portions of the paragraph at *pos* without redline markers, and whether each is outside a tracked deletion.
+
+    The state starts from the document's redlines: a deletion opened in an earlier
+    paragraph has no start marker in this one.
+    """
+    state = TrackedDeletions(doc).state_at(_paragraph_cursor(text, pos))
+    for portion in _iter_portions(text, pos, include_redlines=True):
+        if _prop(portion, "TextPortionType") == "Redline":
+            state.apply_marker(portion)
+        else:
+            yield portion, not state.in_delete
 
 
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
@@ -572,7 +604,7 @@ def _put_back_url(snapshot: OutlineSnapshot) -> str:
     return ""
 
 
-def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
+def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
                                fallback_plain: str | None,
                                override: str | None) -> list[dict[str, Any]]:
     """Write the planned outline URL onto the whole span, using *anchor* (the match start).
@@ -647,7 +679,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                     restored = True
             if not restored:
                 _paint(text, anchor, snapshot, new_plain, put_back, snapshot.props, required=False)
-        return _final_reports(text, anchor, plans, set(), measured)
+        return _final_reports(doc, text, anchor, plans, set(), measured)
 
     by_url = {plan["url"]: plan for plan in writable}
 
@@ -691,7 +723,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                _plan_props(paint, title_props), required=True)
         written.add(paint["url"])
 
-    reports = _final_reports(text, anchor, plans, written, measured)
+    reports = _final_reports(doc, text, anchor, plans, written, measured)
     log.debug("outline hyperlink updated: %s", reports)
     return reports
 
@@ -717,14 +749,10 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
         # Collected before writing: setPropertyValue can split a portion mid-enumeration.
         offset, stop = -len(snapshot.prefix), len(raw)
         unlinked = []
-        state = DeletionState()
-        for portion in _iter_portions(text, anchor.getStart(), include_redlines=True):
-            if _prop(portion, "TextPortionType") == "Redline":
-                state.apply_marker(portion)
-                continue
+        for portion, live in _portions_with_live(doc, text, anchor.getStart()):
             chunk = str(portion.getString() or "")
             if (
-                not state.in_delete
+                live
                 and chunk
                 and offset >= 0
                 and offset + len(chunk) <= stop
@@ -738,7 +766,7 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
                 cursor.gotoRange(end, True)
                 write_link(cursor, url, snapshot.props)
     plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
-    reports = _final_reports(anchor.getText(), anchor, plans, set(), raw is not None)
+    reports = _final_reports(doc, anchor.getText(), anchor, plans, set(), raw is not None)
     for plan, report in zip(plans, reports):
         if plan["new_url"] is not None and report["hyperlink_url_after"]:
             report["hyperlink_note"] = _RECORDING_NOTE
@@ -750,7 +778,7 @@ def restore_links(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     """Fix the links of a replaced match: rename outline targets, or only keep them while recording."""
     if is_recording_changes(doc):
         return _keep_links_while_recording(doc, anchor, snapshot, plain, override)
-    return restore_outline_hyperlinks(anchor, snapshot, plain, override)
+    return restore_outline_hyperlinks(doc, anchor, snapshot, plain, override)
 
 
 def _similar_titles(
@@ -795,6 +823,54 @@ def _similar_titles(
     return {old: new for old, new in pairs if old in old_free and new in new_free}
 
 
+def _number_label(title: str) -> str:
+    """The casefolded title up to its first number ("step 1" of "Step 1: Install"), or ""."""
+    folded = title.casefold()
+    match = _NUMBER_RE.search(folded)
+    return folded[: match.end()] if match else ""
+
+
+def _differ_only_in_number(old: str, new: str) -> bool:
+    """True when *old* and *new* differ only in number (a case-only change returns False)."""
+    was, now = old.casefold(), new.casefold()
+    return was != now and _NUMBER_RE.sub("#", was) == _NUMBER_RE.sub("#", now)
+
+
+def _is_number_only_pair(old: str, new: str) -> bool:
+    """True when the titles differ only in number and no text follows it ("Appendix A", "Appendix B")."""
+    return _differ_only_in_number(old, new) and not re.search(r"\w", old.casefold()[len(_number_label(old)):])
+
+
+def _number_passed_on(
+    old: str,
+    new: str,
+    old_labels: Counter[str],
+    new_labels: Counter[str],
+    relabelled: set[tuple[str, str]],
+) -> bool:
+    """True unless *old* and *new* differ only in number and nothing shows a renumbering.
+
+    In a renumbering another heading takes over the old number or gave up the new one, or its
+    chapter was renumbered the same way. A label several headings share ("Sales 2023: Europe",
+    "Sales 2023: Asia") is not such a number.
+    """
+    if not _differ_only_in_number(old, new):
+        return True
+    a, b = _number_label(old), _number_label(new)
+    if a == b:
+        return False
+    if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
+        return True
+    while a != b:
+        parent_a, parent_b = re.sub(r"\.\d+$", "", a), re.sub(r"\.\d+$", "", b)
+        if parent_a == a or parent_b == b:
+            return False
+        a, b = parent_a, parent_b
+        if (a, b) in relabelled:  # its chapter was renumbered the same way
+            return True
+    return False
+
+
 def heading_renames(
     before: list[tuple[int, str]],
     after: list[tuple[int, str]],
@@ -802,16 +878,22 @@ def heading_renames(
     """Return ``(renames, lost)``: old title to new title, and old titles with no successor.
 
     A rename joins two headings of one level whose titles are each unique on their own side
-    and absent from the other. Titles are paired by similarity first. Headings with no similar
-    title (a translation, say) are paired by position inside a ``replace`` stretch whose levels
-    match, but only when no known heading changed place: after a move, position says nothing.
+    and absent from the other. Titles are paired by similarity first; a title that is only a
+    number pairs only where position agrees, and after a move, titles that differ only in a
+    number pair only when the number was passed on. Headings with no similar title (a
+    translation, say) are paired by position inside a ``replace`` stretch whose levels match,
+    but only when no known heading changed place and every number-only pair is in place: after
+    a move, position says nothing.
     """
     old_titles = [text for _level, text in before]
     new_titles = [text for _level, text in after]
     old_counts, new_counts = Counter(old_titles), Counter(new_titles)
     old_free = {t for t, n in old_counts.items() if n == 1 and t not in new_counts}
     new_free = {t for t, n in new_counts.items() if n == 1 and t not in old_counts}
-    renames = _similar_titles(before, after, old_free, new_free)
+    similar = _similar_titles(before, after, old_free, new_free)
+    # A number alone does not identify a heading, so these pairs need position to confirm them.
+    number_only = {old: new for old, new in similar.items() if _is_number_only_pair(old, new)}
+    renames = {old: new for old, new in similar.items() if old not in number_only}
 
     # Align with each similar title counted as unchanged.
     old_of = {new: old for old, new in renames.items()}
@@ -830,8 +912,18 @@ def heading_renames(
                 for old, new in zip(old_titles[i1:i2], new_titles[j1:j2])
                 if old in old_free and new in new_free
             )
-    if not removed & added:  # a title on both sides is a heading that moved
+    # A title on both sides is a heading that moved, and a number-only pair out of place may be one.
+    if not removed & added and number_only.items() <= by_position.items():
         renames.update(by_position)
+    else:
+        old_labels = Counter(map(_number_label, old_titles))
+        new_labels = Counter(map(_number_label, new_titles))
+        relabelled = {(_number_label(o), _number_label(n)) for o, n in similar.items()}
+        renames = {
+            o: n
+            for o, n in renames.items()
+            if _number_passed_on(o, n, old_labels, new_labels, relabelled)
+        }
     return renames, [t for t in old_counts if t not in new_counts and t not in renames]
 
 
@@ -850,31 +942,43 @@ _OUTLINE_URL_RE = re.compile(r"#(.*)(\|outline|%7Coutline)", re.I | re.S)
 _OUTLINE_NUM_PREFIX_RE = re.compile(r"\d+\.")
 
 
-def _renamed_url(url: str, renames: dict[str, str]) -> str | None:
+def _renamed_url(url: str, successors: dict[str, str | None]) -> str | None:
+    """The URL *url* should have now: itself when its heading kept its title, None when it is lost.
+
+    *successors* maps each known title to its title now. The longest match wins: ``SwDoc::GotoOutline``
+    (sw/source/core/doc/docnum.cxx) tries a live automatic number first, and titles alone do not
+    show automatic numbering, so the full title is preferred here. "#2.1 Scope|outline" names the
+    heading "2.1 Scope" when there is one, and only otherwise "1 Scope" numbered 2.
+    """
     match = _OUTLINE_URL_RE.fullmatch(url)
     if match is None:
-        return None
+        return url
     body, suffix = match.group(1), match.group(2)
-    if body in renames:
-        return "#" + renames[body] + suffix
+    if body in successors:
+        new = successors[body]
+        return None if new is None else "#" + new + suffix
     decoded = unquote(body)
     pos = 0
-    while True:
-        new_title = renames.get(decoded[pos:])
-        if new_title is not None:
-            new = decoded[:pos] + new_title
-            return "#" + (quote(new) if decoded != body else new) + suffix
+    while decoded[pos:] not in successors:
         num = _OUTLINE_NUM_PREFIX_RE.match(decoded, pos)
         if num is None:
-            return None
+            return url
         pos = num.end()
+    title = decoded[pos:]
+    new = successors[title]
+    if new is None or new == title:  # a kept title keeps the URL's own encoding
+        return None if new is None else url
+    target = decoded[:pos] + new
+    return "#" + (quote(target) if decoded != body else target) + suffix
 
 
 def retarget_outline_links(
-    doc: Any, renames: dict[str, str], lost: list[str],
+    doc: Any, successors: dict[str, str | None],
 ) -> tuple[int, dict[str, StaleReason]]:
-    """Update ``#old|outline`` portions across *doc* for each entry in *renames*.
+    """Update ``#old|outline`` portions across *doc* according to *successors*.
 
+    *successors* maps each known heading title to its title now (itself when kept,
+    ``None`` when lost). Links to titles that remain in the document are left alone.
     When recording changes, a tracked attribute write keeps the new URL, but
     ``lcl_SetRedline`` (``DocumentContentOperationsManager.cxx``) clears
     ``RES_TXTATR_INETFMT`` from the saved old attributes so ``lcl_RejectRedline``
@@ -882,24 +986,33 @@ def retarget_outline_links(
     Reject. Plain-text runs therefore re-insert the text with the new URL and
     delete the old run, while runs already inside a tracked Insert are written
     directly because Reject removes them whole. Returned stale URLs carry a reason:
-    field runs that cannot be retyped (``field``), or a ``lost`` title that no
-    heading replaces (``no_heading``, left unchanged).
+    field runs that cannot be retyped (``field``), or a title mapped to ``None``
+    that no heading replaces (``no_heading``, left unchanged).
     """
     recording = is_recording_changes(doc)
     stale: dict[str, StaleReason] = {}
-    lost_titles = {title: title for title in lost}
-    count = 0
+    spans = redline_spans(doc)
+    edits: list[tuple[Any, Any, str, bool]] = []
+    prev_para: Any = None
+    # Every run is chosen before the first write: the writes add tracked changes that *spans* does not have.
     for linked in _linked_ranges(doc):
         text = linked.getText()
+        # findAll returns one range per link, in document order, and the walk below covers the whole
+        # paragraph. Walking a paragraph twice would retype its runs twice.
+        para_start = _paragraph_cursor(text, linked.getStart()).getStart()
+        if prev_para is not None and _same_point(text, prev_para, para_start):
+            continue
+        prev_para = para_start
         runs: list[tuple[Any, str, str, bool]] = []
-        blocked: set[str] = set()  # per paragraph: one field link must not block the others
-        for portion in _iter_portions(text, linked.getStart()):
+        blocked: dict[str, StaleReason] = {}  # per paragraph: one field link must not block the others
+        for portion in _iter_portions(text, para_start):
             url = _prop(portion, _URL)
-            new_url = _renamed_url(url, renames) if url else None
-            gone = bool(url) and new_url is None and _renamed_url(url, lost_titles) is not None
-            if (new_url is None and not gone) or not portion.getString():
+            if not url or not portion.getString():
                 continue
-            kinds = redline_kinds_covering(doc, portion)
+            new_url = _renamed_url(url, successors)
+            if new_url == url:
+                continue
+            kinds = redline_kinds_covering(spans, portion)
             if "Delete" in kinds:
                 continue
             if new_url is None:
@@ -907,27 +1020,25 @@ def retarget_outline_links(
                 continue
             tracked = recording and "Insert" not in kinds
             if tracked and _prop(portion, "TextPortionType") != "Text":
-                blocked.add(url)
+                blocked[url] = "field"
             runs.append((portion, url, new_url, tracked))
-        # Last run first: retyping a run moves the text after it.
-        for portion, url, new_url, tracked in reversed(runs):
-            if url in blocked:
-                stale[url] = "field"
-                continue
-            props = read_link_props(portion)
-            target = text.createTextCursorByRange(portion)
-            if not tracked:
-                with record_changes(doc, False):
-                    write_link(target, new_url, props)
-            else:
-                start = text.createTextCursorByRange(target.getStart())
-                retyped = text.createTextCursorByRange(target.getEnd())
-                # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
-                text.insertString(retyped, target.getString(), True)
-                with record_changes(doc, False):
-                    write_link(retyped, new_url, props)
-                # The insertion stretched the run's own range, so delete up to the new text.
-                start.gotoRange(retyped.getStart(), True)
-                start.setString("")
-            count += 1
-    return count, stale
+        stale.update(blocked)
+        edits += [(text, portion, new_url, tracked) for portion, url, new_url, tracked in runs if url not in blocked]
+    # Last run first: retyping a run moves the text after it.
+    for text, portion, new_url, tracked in reversed(edits):
+        props = read_link_props(portion)
+        target = text.createTextCursorByRange(portion)
+        if not tracked:
+            with record_changes(doc, False):
+                write_link(target, new_url, props)
+        else:
+            start = text.createTextCursorByRange(target.getStart())
+            retyped = text.createTextCursorByRange(target.getEnd())
+            # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
+            text.insertString(retyped, target.getString(), True)
+            with record_changes(doc, False):
+                write_link(retyped, new_url, props)
+            # The insertion stretched the run's own range, so delete up to the new text.
+            start.gotoRange(retyped.getStart(), True)
+            start.setString("")
+    return len(edits), stale

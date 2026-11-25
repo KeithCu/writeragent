@@ -30,6 +30,8 @@ import os
 import tempfile
 from typing import Any, cast
 
+import uno
+
 from plugin.doc import visual_helpers
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
 
@@ -146,8 +148,6 @@ def mark_rectangles(marks: list[tuple[Box, str, int]], region: Box, stroke: int)
     return out
 
 
-# uno / PropertyValue imports in this module stay function-local (lazy) so tests that swap
-# sys.modules["uno"] / the LibrePy import graph are not left with a stale module-level binding.
 def _pv(name: str, value: Any) -> Any:
     from com.sun.star.beans import PropertyValue
 
@@ -156,7 +156,6 @@ def _pv(name: str, value: Any) -> Any:
 
 def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]], stroke: int) -> Any:
     """Return a new XGraphic: *graphic* cut to *region* (pixels) with *marks* drawn on it."""
-    import uno
     from com.sun.star.awt import Point, Size
     from com.sun.star.drawing.FillStyle import NONE as FILL_NONE
     from com.sun.star.drawing.LineStyle import NONE as LINE_NONE
@@ -218,8 +217,10 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         # FilterData must travel as a typed Any through uno.invoke; a plain tuple of
         # PropertyValue is dropped and the page comes out at 96 DPI instead of rw x rh px.
         # (The BMP export ignores PixelWidth even then, so the page always goes out as PNG.)
-        uno_any = getattr(uno, "Any")  # pyuno helper the stubs do not export (same as rich_text)
-        filter_data = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", (_pv("PixelWidth", rw), _pv("PixelHeight", rh))))
+        filter_data = cast("Any", uno).Any(
+            "[]com.sun.star.beans.PropertyValue",
+            cast("Any", (_pv("PixelWidth", rw), _pv("PixelHeight", rh))),
+        )
         args = (
             _pv("URL", uno.systemPathToFileUrl(tmp_path)),
             _pv("MediaType", "image/png"),
@@ -247,8 +248,6 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
 
 
 def _load(provider: Any, path: str) -> Any:
-    import uno
-
     graphic = provider.queryGraphic((_pv("URL", uno.systemPathToFileUrl(path)),))
     if graphic is None:
         raise RuntimeError("LibreOffice could not read back the marked picture.")
@@ -256,8 +255,6 @@ def _load(provider: Any, path: str) -> Any:
 
 
 def _store(provider: Any, graphic: Any, path: str, mime: str) -> None:
-    import uno
-
     provider.storeGraphic(graphic, (_pv("URL", uno.systemPathToFileUrl(path)), _pv("MimeType", mime)))
 
 

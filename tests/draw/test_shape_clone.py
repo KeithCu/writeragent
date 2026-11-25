@@ -19,7 +19,7 @@ from plugin.draw.shape_clone import (
     copy_prop,
     reimport_graphic,
 )
-from tests.draw.shape_fakes import FakePage, FakeShape
+from tests.draw.shape_fakes import FailingPosShape, FakePage, FakeShape
 
 
 def test_clone_shape_sets_geometry_after_add():
@@ -146,9 +146,10 @@ def test_clone_shape_rejected_prop_records_warning():
     src_shape.getPropertyValue.side_effect = lambda n: 1 if n == "ZOrder" else (0, 0)
 
     warnings: list[str] = []
-    # Position / Size still raise
+    # Position / Size still raise, and the partial clone is removed from dest_master.
     with pytest.raises(RuntimeError, match="Failed to set Position"):
         clone_shape(dest_doc, dest_master, src_shape, shape_index=2, warnings=warnings)
+    dest_master.remove.assert_called_once_with(clone)
     # ZOrder was attempted before Position / Size and recorded its warning
     assert "rejected ZOrder on shape 2" in warnings
 
@@ -400,4 +401,55 @@ def test_clone_shape_copies_fill_gradient_and_hatch(fill_style: Any, prop_name: 
     )
     clone_shape(doc, page, source)
     assert dest.props.get(prop_name) is fill_struct
+
+
+def test_failed_group_child_removes_the_whole_group_clone():
+    class FakeGroup(FakeShape):
+        def __init__(self, shape_type: str) -> None:
+            super().__init__(shape_type)
+            self.children: list[Any] = []
+
+        def add(self, shape: Any) -> None:
+            self.children.append(shape)
+
+        def remove(self, shape: Any) -> None:
+            self.children.remove(shape)
+
+        def getCount(self) -> int:
+            return len(self.children)
+
+        def getByIndex(self, index: int) -> Any:
+            return self.children[index]
+
+    src_child = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
+    src_group = FakeGroup("com.sun.star.drawing.GroupShape")
+    src_group.add(src_child)
+
+    group_clone = FakeGroup("com.sun.star.drawing.GroupShape")
+    child_clone = FailingPosShape("com.sun.star.drawing.RectangleShape")
+    created = [group_clone, child_clone]
+    doc = MagicMock()
+    doc.createInstance.side_effect = lambda _t: created.pop(0)
+    page = FakePage()
+
+    with pytest.raises(RuntimeError, match="Position"):
+        clone_shape(doc, page, src_group)
+    assert page.getCount() == 0
+    assert group_clone.getCount() == 0
+
+
+def test_disposal_during_clone_does_not_touch_the_container():
+    class DisposedException(Exception):
+        pass
+
+    src = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
+    clone = FakeShape("com.sun.star.drawing.RectangleShape")
+    clone.setPropertyValue = MagicMock(side_effect=DisposedException("disposed"))  # type: ignore[method-assign]
+    doc = MagicMock()
+    doc.createInstance.return_value = clone
+    page = MagicMock()
+
+    with pytest.raises(DisposedException):
+        clone_shape(doc, page, src)
+    page.remove.assert_not_called()
 

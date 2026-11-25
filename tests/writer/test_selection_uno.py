@@ -128,3 +128,36 @@ def test_set_selection_offset_in_leading_table_errors_and_preserves_selection_un
     assert err["status"] == "error"
     assert err["code"] == "INVALID_PARAM"
     assert controller.getSelection().getByIndex(0).getString() == "TargetOne"
+
+
+@native_test
+@with_native_doc("writer")
+def test_set_selection_search_reports_visible_text_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("Word OLD here")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Word "), False)
+        cur.goRight(len("OLD "), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = SetSelection().execute(tctx, search_text="Word OLD here")
+    assert res["status"] == "ok", res
+    assert res["selected_text"] == "Word here"
+    assert res["length"] == 9
+
+    # Chained two-paragraph needle over struck text.
+    from tests.writer.test_search_uno import _build_chain_deletion_doc
+
+    _build_chain_deletion_doc(doc, text)
+
+    chain_needle = "Line 1\nLine 2 match"
+    res_chain = SetSelection().execute(tctx, search_text=chain_needle)
+    assert res_chain["status"] == "ok", res_chain
+    assert res_chain["selected_text"] == chain_needle
+    assert res_chain["length"] == len(chain_needle)

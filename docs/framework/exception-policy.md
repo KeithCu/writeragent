@@ -77,9 +77,9 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`html_import.py`) | None |
 | `SELECTION_SPANS_TABLE` | error | Selection starts in a table and ends outside it (`html_import.py`) | None |
-| `SELECTION_NOT_TEXT` | error | Selection is an object (image, frame, shape, OLE, or cell block) rather than text (`html_import.py`) | None |
-| `HIDDEN_LEADING_SECTION` | error | `full_document` on a document starting with a hidden section (`html_import.py`) | None |
-| `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (`html_import.py`) | None |
+| `SELECTION_NOT_TEXT` | error | Selection is an object (image, frame, shape, OLE, or cell block) rather than text, or the view has no caret (Print Preview) (`html_import.py`) | None |
+| `HIDDEN_SECTION` | error | `full_document` on a document with a hidden section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
+| `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
@@ -90,7 +90,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `html_import_styles.attach_write_report`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'`. |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
-| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula not converted or not placed during HTML/math import (`html_import_styles.attach_write_report`) | None |
 | `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark, or matches several headings (`html_import_styles.resolve_heading_links`); carries `link_target`; message lists close or colliding heading names | None |
 | `LINK_TARGET_STALE` | warning | Outline hyperlink (`#old\|outline`) still naming an old heading title because it holds a field while recording or the edit removed that heading with no clear successor (`html_import_styles.attach_write_report`); carries `link_target` | None |
 

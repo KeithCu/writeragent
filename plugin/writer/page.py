@@ -59,6 +59,7 @@ from .search import (
     resolve_case_sensitive,
 )
 from .specialized_base import ToolWriterPageBase, enum_param
+from .target_resolver import require_selection_range
 
 log = logging.getLogger("writeragent.writer")
 
@@ -311,26 +312,32 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
 def _region_shapes(
     doc: Any,
     text_obj: Any,
-) -> list[tuple[Any, Any]]:
-    """Return (shape, anchor) pairs for shapes anchored in text_obj or the cells of its live tables.
+) -> tuple[list[tuple[Any, Any]], bool]:
+    """Return ``(live_shapes, has_struck)`` for shapes anchored in *text_obj* or its live tables.
 
     Snapshots shapes from the draw page first so copy's insertTextContent does
     not mutate the list being iterated. A read failure raises and each caller
     decides its fallback. A page-anchored shape has no anchor
     (SwXShape::getAnchor, sw/source/core/unocore/unodraw.cxx) and is skipped.
+    Shapes that Accept All would remove are left out of *live_shapes* and set *has_struck*.
     """
     draw_page = doc.getDrawPage()
     count = int(draw_page.getCount())
     shapes = [draw_page.getByIndex(i) for i in range(min(count, _SCAN_SHAPE_LIMIT))]
-    texts = list(iter_nested_texts(doc, text_obj, TrackedDeletions(doc).state_at(text_obj)))
+    deletions = TrackedDeletions(doc)
+    texts = list(iter_nested_texts(doc, text_obj, deletions.state_at(text_obj)))
     out: list[tuple[Any, Any]] = []
+    struck = False
     for shape in shapes:
         anchor = shape.getAnchor()
         if anchor is not None:
             anchor_text = anchor.getText()
             if any(uno_same(anchor_text, t) for t in texts):
-                out.append((shape, anchor))
-    return out
+                if deletions.removes_anchored(shape):
+                    struck = True
+                else:
+                    out.append((shape, anchor))
+    return out, struck
 
 
 def _empty_scan() -> dict[str, Any]:
@@ -401,11 +408,10 @@ def _scan_xtext(doc: Any, xtext: Any, state: DeletionState, out: dict[str, Any],
 def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
     """Report live fields and anchored images in a header/footer as get-side extras.
 
-    HTML ``content`` already carries structure; ``fields`` and ``paragraph_count`` describe
-    the region as Accept All would leave it (cell fields included, struck tables and struck
-    fields left out), and ``images`` leaves out logos inside struck tables (logos struck in
-    plain paragraphs are still listed). ``has_struck`` is set when something was left out,
-    for the disable guard. Returns
+    HTML ``content`` already carries structure; ``fields``, ``images``, and
+    ``paragraph_count`` describe the region as Accept All would leave it (cell fields
+    included; struck tables, struck fields, and struck logos left out). ``has_struck`` is
+    set when something was left out, for the disable guard. Returns
     ``{"fields": [...], "images": [...], "has_table": bool, "has_struck": bool, "paragraph_count": int}``.
     Raises on a read failure; lenient callers wrap the call in ``uno_read`` with ``_empty_scan()``.
     """
@@ -417,8 +423,10 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
         out["warning"] = notes[0]
     # Images anchored in the region live on the draw page, whatever their anchor type, so they are
     # found by matching the anchor's text object rather than by walking portions.
-    for shape, _anchor in _region_shapes(doc, text_obj):
+    shapes, struck = _region_shapes(doc, text_obj)
+    for shape, _anchor in shapes:
         out["images"].append(_shape_name(shape))
+    out["has_struck"] = out["has_struck"] or struck
     return out
 
 
@@ -467,7 +475,7 @@ def _region_graphics_report(doc: Any, src_text: Any, dest_text: Any) -> tuple[in
     """Report non-graphic shapes skipped and any graphic count shortfall after copy_flow_into_xtext."""
     skipped: list[str] = []
     src_graphics = 0
-    src_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, src_text), [])
+    src_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, src_text)[0], [])
     for shape, _anchor in src_shapes:
         s: Any = shape
         # `is True`: a mock supportsService() is truthy and would count a frame as a graphic.
@@ -477,7 +485,7 @@ def _region_graphics_report(doc: Any, src_text: Any, dest_text: Any) -> tuple[in
             skipped.append(_shape_name(shape))
 
     copied = 0
-    dest_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, dest_text), [])
+    dest_shapes: list[tuple[Any, Any]] = uno_read(lambda: _region_shapes(doc, dest_text)[0], [])
     for shape, _anchor in dest_shapes:
         s = shape
         if uno_read(lambda: s.supportsService("com.sun.star.text.TextGraphicObject") is True, False) is True:
@@ -1087,24 +1095,24 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
 
 
-# A field is one cursor step, but getString() expands it to the digits the reader
-# sees. goRight follows the cursor step, so the search string is built from portions
-# (\x01 per TextField), not from getString(). doc.findFirst is the wrong tool here
-# too: it hits the body first, and it cannot see a header on a page style no page uses.
-_FIELD_CURSOR_STEP = "\x01"
+# A field or a struck character is one cursor step in goRight, because getString() expands
+# a field to the digits the reader sees, so the search string uses \x01 per TextField and per
+# struck character rather than getString(). doc.findFirst is the wrong tool here too: it hits
+# the body first, and it cannot see a header on a page style no page uses.
+_OPAQUE_CURSOR_STEP = "\x01"
 
 
 def _portion_cursor_text(portion: Any) -> str:
     """Text this portion contributes to a goRight index. A field is one step."""
     kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
     if kind == "TextField":
-        return _FIELD_CURSOR_STEP
+        return _OPAQUE_CURSOR_STEP
     chunk = uno_read(portion.getString, None)
     return chunk if isinstance(chunk, str) else ""
 
 
-def _paragraph_cursor_text(para: Any) -> str | None:
-    """Concatenate portion steps for one paragraph. None when it cannot be walked."""
+def _paragraph_cursor_text(para: Any, state: DeletionState) -> str | None:
+    """Concatenate portion steps for one paragraph, masking struck text. None when unreadable."""
     portions = uno_read(para.createEnumeration, None)
     if portions is None:
         return None
@@ -1112,8 +1120,13 @@ def _paragraph_cursor_text(para: Any) -> str | None:
     seen = 0
     for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
         seen += 1
-        parts.append(_portion_cursor_text(portion))
-    record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None)
+        if uno_read(lambda: portion.getPropertyValue("TextPortionType"), None) == "Redline":
+            state.apply_marker(portion)
+            continue
+        step = _portion_cursor_text(portion)
+        parts.append(_OPAQUE_CURSOR_STEP * len(step) if state.in_delete else step)
+    if record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None):
+        state.in_delete = False
     return "".join(parts)
 
 
@@ -1145,21 +1158,26 @@ def _match_offsets(hay: str, needle: str, case_sensitive: bool) -> list[int]:
     return hits
 
 
-def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tuple[list[tuple[Any, int]], list[str]]:
+def _find_region_matches(
+    doc: Any, text_obj: Any, needle: str, case_sensitive: bool
+) -> tuple[list[tuple[Any, int]], list[str]]:
     """Return (paragraph, offset) hits and any walk-cap notes.
 
     The offset indexes the portion-walk string that goRight steps through. A match may span
-    portions (mixed bold). It does not span a paragraph break.
+    portions (mixed bold). It does not span a paragraph break, and skips tables and struck text.
     """
     hits: list[tuple[Any, int]] = []
     notes: list[str] = []
     enum = uno_read(text_obj.createEnumeration, None)
     if enum is None:
         return hits, notes
+    state = TrackedDeletions(doc).state_at(text_obj)
     seen = 0
     for para in iter_elements_limited(enum, _SCAN_PARA_LIMIT):
         seen += 1
-        hay = _paragraph_cursor_text(para)
+        if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
+            continue
+        hay = _paragraph_cursor_text(para, state)
         if hay is None:
             continue
         for offset in _match_offsets(hay, needle, case_sensitive):
@@ -1212,7 +1230,7 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 
-    for shape, anchor in _region_shapes(doc, text_obj):
+    for shape, anchor in _region_shapes(doc, text_obj)[0]:
         if uno_read(lambda: shape.getPropertyValue("AnchorType"), None) != AT_CHARACTER:
             continue
         for cursor in cursors:
@@ -1344,7 +1362,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         # type/enum checks are done by the tool schema in ToolRegistry
         if old_content == "":
             return self._tool_error("old_content must be a non-empty string.")
-        if _FIELD_CURSOR_STEP in old_content:
+        if _OPAQUE_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
         explicit = explicit_case_sensitive(kwargs.get("case_sensitive"))
         all_matches = kwargs["all_matches"]
@@ -1382,7 +1400,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         hits: list[tuple[Any, int]] = []
         notes: list[str] = []
         for cs in case_ladder(explicit):
-            hits, notes = _find_region_matches(text_obj, old_content, cs)
+            hits, notes = _find_region_matches(ctx.doc, text_obj, old_content, cs)
             if hits:
                 break
         res = self._replace_in_region_text(
@@ -1610,7 +1628,7 @@ def _page_break_ok(message: str, page_style: str | None, restart: int | None) ->
 
 
 class PageInsertBreak(ToolWriterPageBase):
-    """Insert a page break at a text anchor (before_text/after_text) or at the view cursor.
+    """Insert a page break at a text anchor (before_text/after_text) or at the request's selection.
 
     Optional page_style applies that existing page style from the new page
     (PageDescName). Optional restart_page_number (with page_style) restarts
@@ -1674,7 +1692,7 @@ class PageInsertBreak(ToolWriterPageBase):
             res.setdefault("matched_case_sensitive", resolve_case_sensitive(raw_cs))
             return res
 
-        return self._insert_view_cursor_break(doc, page_style, restart)
+        return self._insert_selection_break(ctx, page_style, restart)
 
     def _break_at_match(
         self,
@@ -1732,24 +1750,19 @@ class PageInsertBreak(ToolWriterPageBase):
         res.update(mode.result_fields())
         return res
 
-    def _insert_view_cursor_break(
+    def _insert_selection_break(
         self,
-        doc: Any,
+        ctx: ToolContext,
         page_style: str | None,
         restart: int | None,
     ) -> dict[str, Any]:
-        view_cursor = doc.getCurrentController().getViewCursor()
-        if not view_cursor:
-            return self._tool_error("Could not obtain view cursor.")
+        rng = require_selection_range(ctx)
 
         # BreakType is a paragraph property. A collapsed model cursor at the
-        # view start applies it to the paragraph that contains the selection.
-        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-        # and this path must not move that selection. insertControlCharacter
-        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-        # text; do not put that back.
-        text = view_cursor.getText()
-        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        # selection start applies it to the paragraph that contains the selection
+        # without moving that selection; do not use insertControlCharacter
+        # (PARAGRAPH_BREAK), which splits the paragraph and destroys selected text.
+        cursor = rng.getText().createTextCursorByRange(rng.getStart())
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)

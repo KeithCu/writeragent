@@ -476,3 +476,22 @@ def test_section_password_params_are_secret_keys() -> None:
     pw_keys = [k for k in props if "password" in k]
     assert len(pw_keys) == 2
     assert all(is_secret_key(k) for k in pw_keys)
+
+
+def test_section_create_refuses_spanning_tracked_change(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.specialized import sections as sections_mod
+
+    doc = MagicMock()
+    doc.getTextSections.return_value.hasByName.return_value = False
+    cursor = MagicMock()
+    cursor.getPropertyValue.return_value = None
+    ctx = MagicMock(doc=doc)
+
+    monkeypatch.setattr(sections_mod, "_paragraph_span", lambda *args, **kwargs: cursor)
+    monkeypatch.setattr(sections_mod, "tracked_change_spans_past", lambda _doc, _cur: True)
+
+    res = SectionCreate().execute(ctx, name="S1", locator="paragraph:0")
+    assert res["status"] == "error"
+    assert res["code"] == "SECTION_IN_TRACKED_CHANGE"
+    doc.createInstance.assert_not_called()

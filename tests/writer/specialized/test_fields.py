@@ -722,3 +722,22 @@ def test_fields_delete_prepare_coerces_list_elements_and_refuses_bool():
     res = FieldsDelete().execute(MagicMock(), **prep_bool.kwargs)
     assert res["status"] == "error"
     assert "only integers" in res["message"]
+
+
+@pytest.mark.parametrize("recording", [True, False])
+def test_fields_insert_flags_tracked_only_when_recorded(mock_ctx, recording: bool):
+    cursor = MagicMock()
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.specialized.fields.is_recording_changes", return_value=recording),
+        patch("plugin.writer.specialized.fields.insert_recorded_content"),
+    ):
+        res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="selection")
+
+    assert res["status"] == "ok"
+    if recording:
+        assert res["tracked"] is True
+        assert res["pending_review"] is True
+    else:
+        assert "tracked" not in res
+        assert "pending_review" not in res

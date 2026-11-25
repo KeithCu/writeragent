@@ -20,7 +20,10 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    ILLEGAL_ARGUMENT_NAN,
     NA_NAN,
+    OMITTED,
+    VALUE_NAN,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -36,6 +39,7 @@ from .calc_functions_util import (
     npf_result,
     parse_weekend,
     propagate_errors,
+    py_str,
     scipy_stats,
     serial_to_date,
     yearfrac,
@@ -99,6 +103,7 @@ def na() -> float:
     return NA_NAN
 
 
+@propagate_errors
 def n(val: Any) -> float:
     # N() of any text is 0, including a numeric-looking string such as "5".
     if is_number(val):
@@ -109,6 +114,7 @@ def n(val: Any) -> float:
     return 0.0
 
 
+@propagate_errors
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -116,11 +122,16 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     # approx_floor(float(+inf)) raises OverflowError, which the worker returns
     # as #NUM! (Excel NEGBINOMDIST is #NUM!).
     k = approx_floor(float(x))
-    r_val = approx_floor(float(r))
+    s = approx_floor(float(r))
     prob = float(p)
-    if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
-        return float("nan")
-    return float(st.nbinom.pmf(k, r_val, prob))
+    # ScNegBinomDist (interpr3.cxx) only rejects f + s <= 1 and p outside [0, 1].
+    if k + s <= 1 or prob < 0 or prob > 1:
+        return ILLEGAL_ARGUMENT_NAN
+    if k <= 0:
+        return prob**s  # its product loop does not run; s >= 1 here
+    if s < 1 or prob == 0:  # a factor (i + s) is 0 at i = -s, or p**s is 0; pow(0, s < 0) is infinite
+        return float("nan") if prob == 0 and s < 0 else 0.0
+    return float(st.nbinom.pmf(float(k), float(s), prob))  # scipy refuses ints above int64
 
 
 @propagate_errors
@@ -179,6 +190,7 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
@@ -197,6 +209,7 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     p = float(prob)
     m = float(mean)
@@ -208,10 +221,12 @@ def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def normsdist(z: Any) -> float:
     return normdist(z, 0, 1, True)
 
 
+@propagate_errors
 def normsinv(prob: Any) -> float:
     return norminv(prob, 0, 1)
 
@@ -237,13 +252,13 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float | str:
-    # ScNPV (interpr2.cxx): the first error among the cash flows is the result;
+    # ScNPV (interpr2.cxx): the first error in argument order (rate first) is the result;
     # booleans are numbers; blank and text cells are skipped without a period.
-    r = float(rate)
     cells = [v for arg in args for v in np.asarray(arg, dtype=object).ravel()]
-    err = first_error(cells)
+    err = first_error([*np.asarray(rate, dtype=object).ravel(), *cells])
     if err is not None:
         return err
+    r = float(rate)
     res = 0.0
     period = 0
     try:
@@ -263,18 +278,19 @@ def npv(rate: Any, *args: Any) -> float | str:
 _NUMBER_TEXT = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
 
 
+@propagate_errors
 @calc_function
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     # When the group separator equals the decimal separator, do not strip it.
     # numbervalue("1,5", ",") is 1.5, not 15.
-    s = str(text)
-    dec = str(dec_sep)
-    grp = str(grp_sep)
+    s = py_str(text)
+    dec = py_str(dec_sep)
+    grp = py_str(grp_sep)
     # ScNumberValue requires a one-character decimal separator.
     if len(dec) != 1:
         return float("nan")
     if not s:
-        return 0.0
+        return VALUE_NAN
     if grp != dec:
         # A decimal mark inside the group separator is IllegalArgument.
         if dec in grp:
@@ -465,8 +481,10 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
         if len(d) == 0:
             return float("nan")
         val = float(x)
-        sig = int(float(significance))
-        if sig < 1 or sig > 15:
+        sig = approx_floor(float(significance))
+        if sig < 1:
+            return ILLEGAL_ARGUMENT_NAN
+        if sig > 15:
             return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
@@ -491,6 +509,7 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
         return float("nan")
 
 
+@propagate_errors
 def permut(n: Any, k: Any) -> float:
     n_val = approx_floor(float(n))
     k_val = approx_floor(float(k))
@@ -513,6 +532,7 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
 
+@propagate_errors
 def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
     # ScPoissonDist (interpr3.cxx) floors x with approxFloor; inf raises
     # OverflowError, which the worker shows as #NUM!.
@@ -533,16 +553,20 @@ def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
 
 @propagate_errors
 @calc_function
-def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
-    d = np.asarray(data, dtype=float).ravel()
-    p = np.asarray(probs, dtype=float).ravel()
-    if len(d) != len(p) or len(d) == 0:
-        # ScProbability (interpr3.cxx) returns #N/A on empty or mismatched ranges.
+def prob(data: Any, probs: Any, x_start: Any, x_end: Any = OMITTED) -> float:
+    # ScProbability (interpr3.cxx) compares both dimensions and returns #N/A on
+    # empty or mismatched ranges.
+    d = np.asarray(data, dtype=float)
+    p = np.asarray(probs, dtype=float)
+    if d.ndim != p.ndim:  # a flat list is a row or a column; a scalar is one cell
+        d, p = (a.ravel() if a.size == max(a.shape, default=1) else a for a in (d, p))
+    if d.shape != p.shape or d.size == 0:
         return NA_NAN
+    d, p = d.ravel(), p.ravel()
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)
-    end = float(x_end) if x_end is not None else start
+    end = start if x_end is OMITTED else (0.0 if x_end is None else float(x_end))
     mask = (d >= start) & (d <= end)
     return float(np.sum(p[mask]))
 
@@ -606,16 +630,15 @@ def _translate_calc_replacement(rep: str) -> str:
     return re.sub(r"\$\$|\$&|\$[0-9]+", _sub, rep)
 
 
-def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "") -> str | float:
+@propagate_errors
+def regex(text: Any, expr: Any, replacement: Any = OMITTED, flags: Any = "") -> str | float:
     # Calc replacements are $1, $&, and $$. re.sub wants \g<n>, \g<0>, and a literal $.
     # ScRegex (interpr1.cxx): the 4th argument is an occurrence or a flag
     # string. Search returns the whole match. m.group(1) is None when an
     # optional group does not participate, so REGEX("b", "(a)?b") returned None.
     try:
-        if text is None:
-            text = ""
-        text_str = str(text)
-        expr_str = str(expr)
+        text_str = py_str(text)
+        expr_str = py_str(expr)
         occurrence = 1
         re_flags = 0
         global_replace = False
@@ -628,7 +651,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
             if occurrence < 0:
                 return float("nan")
         else:
-            flag_text = str(flags).lower()
+            flag_text = py_str(flags).lower()
             if any(ch not in "gi" for ch in flag_text):
                 return float("nan")
             if "i" in flag_text:
@@ -637,7 +660,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         # Occurrence 0 is the original text, even when the pattern is invalid.
         if occurrence == 0:
             return text_str
-        if replacement is None:
+        if replacement is OMITTED:
             # "g" with no replacement does not comma-join every match.
             match = next(
                 islice(re.finditer(expr_str, text_str, flags=re_flags), occurrence - 1, None),
@@ -646,7 +669,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
             if match is None:
                 return "#N/A"
             return match.group(0)
-        rep_str = _translate_calc_replacement(str(replacement))
+        rep_str = _translate_calc_replacement(py_str(replacement))
         seen = 0
 
         def _replace_nth(match: re.Match[str]) -> str:
@@ -661,6 +684,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         return float("nan")
 
 
+@propagate_errors
 def rept(text: Any, n: Any) -> str | float:
     # A text count must not return "". GetStringPositionArgument does not.
     count = int(float(n))
@@ -668,7 +692,7 @@ def rept(text: Any, n: Any) -> str | float:
     # first, then returns #VALUE! when the count is still negative.
     if count < 0:
         return float("nan")
-    body = str(text)
+    body = py_str(text)
     # Cap at Excel's 32767 string length to avoid memory blowups.
     if count and body and count > 32767 // len(body):
         return float("nan")
@@ -681,6 +705,7 @@ def rsq(data_y: Any, data_x: Any) -> float:
     return pearson(data_y, data_x) ** 2
 
 
+@propagate_errors
 def sec(x: Any) -> float:
     xv = float(x)
     if not math.isfinite(xv):
@@ -688,6 +713,7 @@ def sec(x: Any) -> float:
     return float(1.0 / math.cos(xv))
 
 
+@propagate_errors
 def sech(x: Any) -> float:
     # 1/cosh(x) goes to 0 as |x| grows. OverflowError is that limit, not an error.
     xv = float(x)
@@ -901,6 +927,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         return float("nan")
 
 
+@propagate_errors
 def sqrtpi(number: Any) -> float:
     n = float(number)
     if n < 0:
@@ -910,6 +937,7 @@ def sqrtpi(number: Any) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def standardize(x: Any, mean: Any, stdev: Any) -> float:
     val = float(x)
     m = float(mean)
@@ -1097,10 +1125,5 @@ def sumsq(*args: Any) -> float | str:
             total += num * num
     # TreatDoubleError: overflow produces NaN.
     return finite_or_nan(float(total))
-
-
-def py_str(val: Any) -> str:
-    """Stringify for inline ``=PY()`` code without emitting the ``str(`` token."""
-    return str(val)
 
 

@@ -9,9 +9,10 @@ Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
 insert as the body path, pointed at a region ``XText``). It applies
 data-lo-style and data-lo-para like a ``full_document`` write.
 
-CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``extract_and_strip_ruby``
-drops the reading before import; ``apply_ruby_spans`` sets ``RubyText`` on each
-base run. Not a text field — do not use ``TextField.Ruby``.
+CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``ruby_placeholders``
+swaps each ``<ruby>`` for a ``[[WA-RUBY:…]]`` token before its base;
+``_place_ruby`` deletes the token and sets ``RubyText`` on the base run.
+Not a text field — do not use ``TextField.Ruby``.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, Iterator
 
 
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
@@ -35,8 +36,8 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks as _normalize,
     reset_direct_char_formatting,
     reset_properties_to_default,
+    section_own_shown,
 )
-from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
@@ -120,7 +121,7 @@ def html_to_plain_text(html_string: str) -> str:
     if "<" not in html_string and "&" not in html_string:
         return html_string.strip()
 
-    stripped, _unused_ruby = html_ruby.extract_and_strip_ruby(html_string)
+    stripped = html_ruby.strip_ruby(html_string)
     return html_to_search_text(stripped).strip()
 
 
@@ -211,21 +212,24 @@ def _place_formulas(
 ) -> list[dict[str, Any]]:
     """Replace ``[[WA-MATH:<nonce>:<i>]]`` placeholders in *text_obj* with Math formulas.
 
-    Must run after style/ruby application (offsets are measured before formulas change the
-    text) and after ``restore_style`` (a style write resets a centred display-math paragraph).
+    Must run after style/ruby application and after ``restore_style`` (a style
+    write resets a centred display-math paragraph).
     """
     if not formulas:
         return []
     prefix = f"[[WA-MATH:{nonce}:"
     hits = field_restore.find_tokens(text_obj, prefix, _MATH_TOKEN_RE)
     by_idx = {int(m.group(2)): cur for cur, m in hits}
+    # Read before any split, because splitting for one display formula can leave
+    # the next one alone in what was a heading.
+    alone = {idx for idx, cur in by_idx.items() if _range_covers_whole_paragraphs(cur)}
     attempts: list[dict[str, Any]] = []
     for idx, seg in enumerate(formulas):
         cursor = by_idx.get(idx)
         if cursor is None:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             attempts.append(
-                _math_attempt_entry(seg, snippet, ok=False, error="formula position lost in the HTML import")
+                _math_attempt_entry(seg, snippet, ok=False, error=html_import_styles.MATH_POSITION_LOST)
             )
             continue
         if seg.kind == "tex":
@@ -250,6 +254,11 @@ def _place_formulas(
                 cursor.gotoEndOfParagraph(False)
             if not cursor.isStartOfParagraph():
                 text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # A split keeps the heading style on a formula at the heading's start (and everywhere in a
+            # style that follows itself), which would add an empty-looking entry to the outline. A formula
+            # that was the whole heading keeps the style its author chose.
+            if idx not in alone and cursor.getPropertyValue("OutlineLevel") > 0:
+                cursor.setPropertyValue("ParaStyleName", "Text body")
             cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
         insert_writer_math_formula(model, cursor, res.starmath, display_block=False)
         attempts.append(_math_attempt_entry(seg, snippet, ok=True))
@@ -276,10 +285,33 @@ def _insert_start_from_anchor(text_obj: Any, anchor: Any, cursor: Any) -> Any:
         return cursor
 
 
+def _place_ruby(text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str) -> None:
+    """Paint ``RubyText`` on the base text after each ``[[WA-RUBY:<nonce>:<i>]]`` token."""
+    if not spans:
+        return
+    prefix = html_ruby.ruby_token_prefix(nonce)
+    hits = field_restore.find_tokens(text_obj, prefix, html_ruby.RUBY_TOKEN_RE)
+    for cursor, m in hits:
+        idx = int(m.group(2))
+        if idx >= len(spans):
+            continue
+        span = spans[idx]
+        cursor.setString("")
+        if not go_right(cursor, len(span.base), True) or cursor.getString() != span.base:
+            log.warning("_place_ruby: base %r did not match at token %d", span.base, idx)
+            continue
+        cursor.setPropertyValue("RubyText", span.reading)
+        cursor.setPropertyValue("RubyIsAbove", bool(span.is_above))
+        # 0 = com.sun.star.text.RubyAdjust.LEFT
+        cursor.setPropertyValue("RubyAdjust", 0)
+    if len(hits) < len(spans):
+        log.warning("_place_ruby: found %d of %d ruby tokens", len(hits), len(spans))
+
+
 def _apply_ruby_and_restore_fields(
-    model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
+    model: Any, text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str
 ) -> None:
-    html_ruby.apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
+    _place_ruby(text_obj, spans, nonce)
     if model is not None:
         field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
 
@@ -312,58 +344,66 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
-def raise_if_hidden_start(model: Any) -> None:
-    """Refuse full_document when the document opens with a hidden section.
-
-    SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) skips hidden
-    sections, so full_document would leave the hidden section in place and
-    overwrite only what follows it.
-    """
-    text = uno_read(lambda: model.getText(), None)
-    if text is None:
-        return
-    enum = uno_read(lambda: text.createEnumeration(), None)
-    if enum is None:
-        return
-    first = None
-    for el in iter_elements(enum):
-        if not _uno_service_true(el, "com.sun.star.text.TextTable"):
-            first = el
-            break
-    if first is None:
-        return
-    cursor = uno_read(lambda: text.createTextCursor(), None)
-    if cursor is None:
-        return
-    cursor.gotoStart(False)
-    if uno_read(lambda: text.compareRegionStarts(first.getStart(), cursor), None) != 1:
-        return
-    hidden = next((sec for sec in _sections_at(first) if not sec.getPropertyValue("IsVisible")), None)
-    named = f" ({hidden.getName()!r})" if hidden is not None else ""
-    raise ToolExecutionError(
-        f"Document starts with a hidden section{named} that target='full_document' cannot reach; "
-        "nothing was changed. Show it first with section_set_visibility, or edit with another target.",
-        code="HIDDEN_LEADING_SECTION",
-    )
+def _in_index(element: Any) -> bool:
+    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+    # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
+    # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
+    sections = _sections_at(element)
+    return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
 
 
-def raise_if_protected_sections(model: Any) -> None:
-    """Refuse full_document when it would delete a protected section.
+def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(name, section)`` for each text section outside headers and footers.
 
-    Index sections (such as TOCs) are protected by default; refusing them would
-    block ``full_document`` on every document with a TOC. Headers and footers
-    are not part of the rewrite; checking the anchor text's implementation name
-    (``SwXHeadFootText``) rather than ``TextSection`` handles table-only body
+    A section in a table cell or text frame belongs to the text that holds the
+    table or frame anchor (``ParentText`` via ``SwXCell::getPropertyValue`` in
+    ``sw/source/core/unocore/unotbl.cxx`` and ``SwXFrame::getPropertyValue``
+    in ``sw/source/core/unocore/unoframe.cxx``). A frame anchored to a page
+    number has no parent text, so its sections count as body sections. Checking
+    the implementation name rather than ``TextSection`` handles table-only body
     sections whose anchor text is ``SwXBodyText``.
     """
     sections = model.getTextSections()
-    names = []
     for name in sections.getElementNames():
         section = sections.getByName(name)
-        if not section.getPropertyValue("IsProtected") or section.getPropertyValue("DocumentIndex") is not None:
-            continue
-        if section.getAnchor().getText().getImplementationName() != "SwXHeadFootText":
-            names.append(name)
+        text = section.getAnchor().getText()
+        while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
+            text = text.getPropertyValue("ParentText")
+        if text is None or text.getImplementationName() != "SwXHeadFootText":
+            yield name, section
+
+
+def raise_if_hidden_section(model: Any) -> None:
+    """Refuse full_document when the document has any hidden body section.
+
+    A full read returns hidden section text, and importing that HTML back
+    creates a visible section instead. Also ``SwXTextCursor::gotoStart``
+    (``sw/source/core/unocore/unoobj.cxx``) skips a leading hidden section,
+    leaving it in place while overwriting what follows.
+    """
+    hidden_names = [
+        name for name, sec in _iter_body_sections(model)
+        if not section_own_shown(sec)
+    ]
+    if hidden_names:
+        names = ", ".join(repr(n) for n in hidden_names)
+        raise ToolExecutionError(
+            f"Document has hidden sections ({names}) that target='full_document' would delete or skip over; "
+            "nothing was changed. Show them first with section_set_visibility, or edit with another target.",
+            code="HIDDEN_SECTION",
+        )
+
+
+def raise_if_protected_sections(model: Any) -> None:
+    """Refuse full_document when it would delete a protected body section.
+
+    Index sections (such as TOCs) are protected by default; refusing them would
+    block ``full_document`` on every document with a TOC.
+    """
+    names = [
+        name for name, section in _iter_body_sections(model)
+        if section.getPropertyValue("IsProtected") and section.getPropertyValue("DocumentIndex") is None
+    ]
     if names:
         raise ToolExecutionError(
             "Document has protected section(s) %s and target='full_document' replaces the whole document; "
@@ -395,15 +435,14 @@ def _insert_mixed_or_plain_html(
     # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(unescaped_content)
-    # Expand literal \n and \t before measuring ruby offsets and StarWriter import
+    # Expand literal \n and \t before StarWriter import
     clean = html_import_styles.expand_escapes(clean)
-    # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
-    clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
+    # Replace <ruby> with a placeholder + base so StarWriter does not concatenate reading; paint RubyText after.
+    clean, ruby_spans = html_ruby.ruby_placeholders(clean, nonce)
     has_table = "<table" in clean.lower()
     tables_before = _table_count(model) if has_table else None
     styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
-    ruby_skip = html_ruby.ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
     imported_end = _parked_cursor(cursor) if styled else None
     # Tip: the live cursor (and any cursor parked at the insert point) ends up after the imported
@@ -450,8 +489,8 @@ def _insert_mixed_or_plain_html(
         failures = html_import_styles.declared_para_names(block_paras)
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
     failures.extend(html_import_styles.declared_para_names(skipped_paras))
-    _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
-    # Run after styles and ruby so offsets are measured before formulas change the text.
+    _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
+    # Run after styles and ruby so a style write cannot reset a centred display-math paragraph.
     math_entries = _place_formulas(model, ctx, text_obj, formulas, nonce)
     return html_import_styles.WriteReport(
         unapplied_para=failures,
@@ -511,7 +550,12 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
+
+    Trailing content outside a block (``<table>...</table>tail``) takes over the
+    paragraph at the insert point and leaves *leftover* at its end. That paragraph
+    is not empty, so merging it forward would join the next paragraph onto it.
     """
+    at_paragraph_start = leftover.isStartOfParagraph()
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() != "":
         return
@@ -525,7 +569,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # Join the leftover onto the last imported block by deleting that block's break.
     # While recording, the break belongs to our own tracked insertion, so deleting it
     # removes it rather than adding a Delete redline.
-    if _delete_preceding_break(leftover) or not merge_forward_after_table:
+    if _delete_preceding_break(leftover) or not merge_forward_after_table or not at_paragraph_start:
         return
     if leftover.goRight(1, True):
         if leftover.getString() in _PARAGRAPH_BREAKS:
@@ -615,43 +659,21 @@ def _uno_service_true(obj: Any, service: str) -> bool:
     return val is True or (type(val) is int and val == 1)
 
 
-def _selection_is_draw_shape(obj: Any) -> bool:
-    """True when the controller selection is a Draw/Writer shape, not a text range.
-
-    After ``create_shape`` / ``shape.upsert``, Writer selects the new shape so the
-    user can see handles. That selection is not an ``XTextCursor`` host:
-    ``insertDocumentFromURL`` then raises ``AttributeError: insertDocumentFromURL``
-    (opaque dialog: Failed to insert result: insertDocumentFromURL).
-    """
-    if obj is None:
-        return False
-    try:
-        if is_graphic_object(obj):
-            return True
-    except Exception:
-        log.debug("_selection_is_draw_shape: graphic probe failed", exc_info=True)
-    return any(
-        _uno_service_true(obj, s)
-        for s in ("com.sun.star.drawing.Shape", "com.sun.star.drawing.CustomShape")
-    )
-
-
-
-def paragraph_has_non_text_portion(
+def non_text_portion_type(
     para: Any,
     *,
     ignore_markers: bool = False,
     ignore_bookmarks: bool = False,
-) -> bool:
-    """True when *para* holds an image, field, frame, or other non-text portion.
+) -> str | None:
+    """First non-text ``TextPortionType`` in *para*, ``"unreadable"`` on read failure, or ``None``.
 
-    ``getString()`` is empty for those, so a paragraph holding only a picture
-    would look empty and the import would merge its first block into it. When
-    *ignore_markers* is True, ``Redline`` and ``SoftPageBreak`` markers are
-    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions
-    (``_drop_leftover_paragraph`` joins the paragraph, which keeps its
-    bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes the
-    paragraph and must keep user bookmarks). ``ReferenceMark`` and
+    ``getString()`` is empty for images, fields, frames, and comments, so a paragraph
+    holding only one of those would look empty and the import would merge its first block
+    into it. When *ignore_markers* is True,
+    ``Redline`` and ``SoftPageBreak`` markers are ignored; *ignore_bookmarks* also
+    ignores ``Bookmark`` portions (``_drop_leftover_paragraph`` joins the paragraph,
+    which keeps its bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes
+    the paragraph and must keep user bookmarks). ``ReferenceMark`` and
     ``DocumentIndexMark`` always count as content.
     """
     ignored: tuple[str, ...] = ("Text",)
@@ -662,14 +684,29 @@ def paragraph_has_non_text_portion(
     try:
         portions = para.createEnumeration()
         for portion in iter_elements(portions):
-            if portion.getPropertyValue("TextPortionType") not in ignored:
-                return True
+            kind = portion.getPropertyValue("TextPortionType")
+            if kind not in ignored:
+                return str(kind)
     except Exception as exc:
         # Fail safe: an unreadable portion may be a frame, field, or image.
         reraise_if_disposed(exc)
         log.debug("Failed to inspect paragraph portions: %s", exc)
-        return True
-    return False
+        return "unreadable"
+    return None
+
+
+def paragraph_has_non_text_portion(
+    para: Any,
+    *,
+    ignore_markers: bool = False,
+    ignore_bookmarks: bool = False,
+) -> bool:
+    """True when *para* holds an image, field, frame, or other non-text portion."""
+    return non_text_portion_type(
+        para,
+        ignore_markers=ignore_markers,
+        ignore_bookmarks=ignore_bookmarks,
+    ) is not None
 
 
 
@@ -732,7 +769,7 @@ def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
     inline_html, formulas = math_placeholders(inline_html, nonce)
     inline_html = html_import_styles.expand_escapes(inline_html)
-    inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
+    inline_html, ruby_spans = html_ruby.ruby_placeholders(inline_html, nonce)
     return inline_html, ruby_spans, formulas, nonce
 
 
@@ -794,9 +831,8 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
             return []
         inline_html, ruby_spans, formulas, nonce = _prep_inline_html(swapped)
         text = cursor.getText()
-        ruby_skip = html_ruby.ruby_skip(text, cursor, ruby_spans)
         _insert_raw_inline_html(model, text, cursor, inline_html)
-        _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
+        _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce)
         return _place_formulas(model, ctx, text, formulas, nonce)
 
 
@@ -1049,97 +1085,59 @@ def insert_content_at_position(
         elif position == "end":
             cursor.gotoEnd(False)
         elif position == "selection":
-            # Prefer a real text selection (table/frame-aware). Draw shape selections (post
-            # shape.upsert) and empty selections fall back to the view text cursor, then
-            # document end — RPS Universal Sample must not require the user to select text.
-            def _doc_end_cursor() -> Any:
-                c = text.createTextCursor()
-                c.gotoEnd(False)
-                return c
-
             # Explicit selection (such as a pinned Send-time cursor) skips the live view read.
+            rng: Any
             if selection is not None:
                 rng = selection
             else:
                 controller = uno_read(lambda: model.getCurrentController(), None)
                 rng = live_selection_range(controller)
-            if rng is not None and _selection_is_draw_shape(rng):
-                log.debug(
-                    "insert_content_at_position: selection is Draw/Writer shape; "
-                    "falling back to document end"
+            # None: the view has no caret (Print Preview). SwXTextViewCursor::getText
+            # (sw/source/uibase/uno/unotxvw.cxx) raises when an object is selected.
+            rng_text = uno_read(lambda: rng.getText(), None) if rng is not None else None
+            if rng is None or rng_text is None:
+                raise ToolExecutionError(
+                    "The selection is not text: an image, shape, frame, object or block of cells is "
+                    "selected, or the view has no caret (Print Preview). Nothing was changed. Put the "
+                    "caret in the text (set_selection), or use target='search' with old_content.",
+                    code="SELECTION_NOT_TEXT",
                 )
-                rng = None
-
-            if rng is None:
-                cursor = _doc_end_cursor()
+            cursor = rng_text.createTextCursorByRange(rng.getStart())
+            # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
+            # returns null when an endpoint sits outside the cell's text; a null cursor
+            # cannot be inserted at.
+            if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
+                raise ToolExecutionError(
+                    "The selection starts in a table and ends outside it; nothing was "
+                    "changed. Use target='full_document' if the whole document is "
+                    "selected, otherwise target='search' with old_content.",
+                    code="SELECTION_SPANS_TABLE",
+                )
+            # A collapsed range is the user's caret.
+            caret = rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
+            raise_if_range_hosts_nested_table(rng)
+            # Inline content (plain text or inline tags, no newline)
+            # replaces the selection in place, like typing over it. Otherwise
+            # ensure_html_linebreaks wraps it in <p>, which splits the host
+            # paragraph on import (SwHTMLParser::CallParser in
+            # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
+            # selections go through _replace_whole_paragraphs.
+            inline = not caret and not content_is_block(content)
+            # Trim a lone trailing break; otherwise a recorded Shift+Down selection
+            # deletes the paragraph break and Accept joins the next paragraph.
+            if not caret:
+                rng = _without_trailing_break(rng)
+            styled, note = _lo_style_for_replaced_range(content, rng)
+            if not caret and not inline and _range_covers_whole_paragraphs(rng):
+                whole_paragraphs = rng
             else:
-                try:
-                    try:
-                        rng_text = rng.getText()
-                    except AttributeError:
-                        raise
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        raise ToolExecutionError(
-                            "An image, shape, frame, object or block of cells is selected, not text; "
-                            "nothing was changed. Put the caret in the text (set_selection), "
-                            "or use target='search' with old_content.",
-                            code="SELECTION_NOT_TEXT",
-                        ) from None
-                    cursor = rng_text.createTextCursorByRange(rng.getStart())
-                    # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
-                    # returns null when an endpoint sits outside the cell's text; without this
-                    # check the document-end fallback below would append at the end of the doc.
-                    if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
-                        raise ToolExecutionError(
-                            "The selection starts in a table and ends outside it; nothing was "
-                            "changed. Use target='full_document' if the whole document is "
-                            "selected, otherwise target='search' with old_content.",
-                            code="SELECTION_SPANS_TABLE",
-                        )
-                    if not hasattr(cursor, "insertDocumentFromURL"):
-                        raise AttributeError("insertDocumentFromURL")
-                    # A collapsed range is the user's caret.
-                    caret = rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
-                    # Clear only real text selections (never shapes).
-                    if hasattr(rng, "setString"):
-                        raise_if_range_hosts_nested_table(rng)
-                        # Inline content (plain text or inline tags, no newline)
-                        # replaces the selection in place, like typing over it. Otherwise
-                        # ensure_html_linebreaks wraps it in <p>, which splits the host
-                        # paragraph on import (SwHTMLParser::CallParser in
-                        # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
-                        # selections go through _replace_whole_paragraphs.
-                        inline = not caret and not content_is_block(content)
-                        # Trim a lone trailing break; otherwise a recorded Shift+Down selection
-                        # deletes the paragraph break and Accept joins the next paragraph.
-                        if not caret:
-                            rng = _without_trailing_break(rng)
-                        styled, note = _lo_style_for_replaced_range(content, rng)
-                        if not caret and not inline and _range_covers_whole_paragraphs(rng):
-                            whole_paragraphs = rng
-                        else:
-                            if inline and recording and _within_one_paragraph(rng):
-                                # Insert after the struck text so plain text inherits its character
-                                # formatting. Multi-paragraph ranges keep inserting at the start so
-                                # Accept keeps the first paragraph's style rather than the last's
-                                # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
-                                cursor = rng.getText().createTextCursorByRange(rng.getEnd())
-                            rng.setString("")
-                except AttributeError as e:
-                    # No text cursor (a shape that was not classified earlier).
-                    # ToolExecutionError (nested table) and a closed document must
-                    # not become an insert at the document end.
-                    log.debug(
-                        "insert_content_at_position: text selection unusable (%s); using document end",
-                        e,
-                    )
-                    styled = False
-                    note = None
-                    caret = False
-                    inline = False
-                    whole_paragraphs = None
-                    cursor = _doc_end_cursor()
+                if inline and recording and _within_one_paragraph(rng):
+                    # Insert after the struck text so plain text inherits its character
+                    # formatting. Multi-paragraph ranges keep inserting at the start so
+                    # Accept keeps the first paragraph's style rather than the last's
+                    # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
+                    cursor = rng.getText().createTextCursorByRange(rng.getEnd())
+                rng.setString("")
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
 
@@ -1257,8 +1255,18 @@ def replace_full_document(
         recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
         # Read before the delete: without recording, setString("") leaves one paragraph with the
-        # last old paragraph's character formatting.
-        language = language_at_start(cursor)
+        # last old paragraph's character formatting. An index's own text is usually in the
+        # document default language, so the first paragraph outside any index decides; a body
+        # that is only an index has none, and its start is used.
+        language = language_at_start(
+            next(
+                (
+                    el for el in iter_elements(text.createEnumeration())
+                    if not _uno_service_true(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                ),
+                cursor,
+            )
+        )
         # Leading tables outside sections are already deleted or struck (delete_leading_tables).
         # A table inside a section counts as the start: gotoStart would step past that section.
         first = next(
@@ -1291,7 +1299,16 @@ def replace_full_document(
             if trailing:
                 text.insertTextContentAfter(model.createInstance("com.sun.star.text.Paragraph"), trailing[-1])
         cursor.gotoStart(False)
+        one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
+        # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
+        # sw/source/core/undo/unattr.cxx, calls DontExpandFormat, which turns paragraph attributes
+        # into text attributes via FormatToTextAttr), so Undo would bring a lone paragraph back
+        # without its font, size and language. Undo restores several paragraphs with their own
+        # formatting, and resetting a long document first doubles the delete time.
+        reset_first = one_paragraph and not recording
+        if reset_first:
+            reset_direct_char_formatting(cursor, language)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
@@ -1311,7 +1328,8 @@ def replace_full_document(
         # paragraph would become direct formatting on every imported paragraph.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
-            reset_direct_char_formatting(cursor, language)
+            if not reset_first:
+                reset_direct_char_formatting(cursor, language)
         return _import_and_drop_leftover(model, ctx, cursor, content)
 
 
@@ -1374,9 +1392,8 @@ def replace_single_range_with_content(
             # the host paragraph, and apply_paragraph_style_preserving_direct_char expands
             # to whole paragraphs.
             inline_html, ruby_spans, formulas, nonce = _prep_inline_html(prepared)
-            ruby_skip = html_ruby.ruby_skip(text_obj, anchor, ruby_spans)
             _insert_raw_inline_html(model, text_obj, cursor, inline_html)
-            _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+            _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
             # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
             # Skip it while Track Changes is recording: setString("") above leaves the old text in
             # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -1455,8 +1472,9 @@ def replace_xtext_with_html(
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
-    expanded = html_import_styles.expand_escapes(expanded)
-    expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
+    expanded = html_import_styles.normalize_character_references(expanded)
+    expanded = html_import_styles.expand_prose_escapes(expanded)
+    expanded, ruby_spans = html_ruby.ruby_placeholders(expanded, nonce)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = ensure_html_linebreaks(clean)
@@ -1471,15 +1489,30 @@ def replace_xtext_with_html(
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
+        elements = list(iter_elements(text_obj.createEnumeration()))
         if not record_changes.is_recording_changes(model):
             # Explicit table removal keeps the remaining paragraph's style, whereas
             # SwXText::setString alone resets it to Standard.
-            for el in list(iter_elements(text_obj.createEnumeration())):
+            for el in elements:
                 if _uno_service_true(el, "com.sun.star.text.TextTable"):
                     text_obj.removeTextContent(el)
-        # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-        # around tables so every shape clears, including table-only headers.
-        text_obj.setString("")
+            text_obj.setString("")
+        elif elements and (
+            _uno_service_true(elements[0], "com.sun.star.text.TextTable")
+            or _uno_service_true(elements[-1], "com.sun.star.text.TextTable")
+        ):
+            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
+            # around tables, needed when the region starts or ends with a table because a text
+            # cursor cannot span across it. While recording, that helper stays as a struck empty
+            # paragraph. Do not remove the helper with dispose(): a later Undo aborts LibreOffice.
+            text_obj.setString("")
+        else:
+            # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+            # starts and ends with a paragraph, so Reject All restores the structure without extras.
+            cursor = text_obj.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
         cursor = text_obj.createTextCursor()
         cursor.gotoStart(False)

@@ -81,7 +81,12 @@ class HarnessOffice:
         self.recycle_after_suite: bool = False
         self.lc: SimpleNamespace = SimpleNamespace(**_LC_INITIAL)
         self.urp_bridge_dead: bool = False
-        self.throwaway_profile_dir: Path | None = None
+        self.throwaway_profile_dirs: list[Path] = []
+
+    @property
+    def throwaway_profile_dir(self) -> Path | None:
+        """Profile of the live headless soffice: the last one created. None under --user-profile."""
+        return self.throwaway_profile_dirs[-1] if self.throwaway_profile_dirs else None
 
     def reset_death_signals(self, *, clear_proc: bool = False) -> None:
         with self.stderr_lock:
@@ -691,7 +696,7 @@ def _soffice_bootstrap_command() -> tuple[list[str], str]:
     profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
     # Seed after the lookup so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
-    _office.throwaway_profile_dir = profile_dir
+    _office.throwaway_profile_dirs.append(profile_dir)
     _seed_throwaway_profile_with_user_oxt(profile_dir)
     profile_url = profile_dir.as_uri()
     # Same pipe name shape as officehelper / tools_lo; we own --accept now.
@@ -955,6 +960,20 @@ def _terminate_bootstrap_soffice() -> None:
             proc.kill()
 
 
+def _remove_throwaway_profiles() -> None:
+    """Stop the headless soffice and delete every profile this run created.
+
+    A ``--user-profile`` run created none, so its office is left alone. Windows
+    may keep files that a surviving soffice.bin still holds open.
+    """
+    if not _office.throwaway_profile_dirs:
+        return
+    _terminate_bootstrap_soffice()
+    for profile in _office.throwaway_profile_dirs:
+        shutil.rmtree(profile, ignore_errors=True)
+    _office.throwaway_profile_dirs.clear()
+
+
 # Windows: must run on the original soffice, before any suite-end recycle.
 _WINDOWS_FIRST_IN_DIR = frozenset({"test_designs_uno.py"})
 
@@ -1006,9 +1025,13 @@ def _rebootstrap_ctx(ctx: Any) -> None:
     all do this. Each caller keeps its own try/except.
     """
     from plugin.framework.uno_context import set_fallback_ctx
-    from plugin.framework.config import init_config
+    from plugin.framework.config import init_config, reset_config_for_tests
 
     set_fallback_ctx(ctx)
+    # Each headless office has its own profile, and init_config keeps the first
+    # path it resolved; without this reset a client save() after a recycle
+    # would not reach the live soffice.
+    reset_config_for_tests()
     init_config(ctx)
     _ensure_writeragent_bind()
     if not _office.options.use_user_profile:
@@ -1173,7 +1196,9 @@ def teardown(func: Any) -> Any:
 
 
 def _is_uno_bridge_disposed(exc: BaseException) -> bool:
-    return type(exc).__name__ == "DisposedException" or "Binary URP bridge" in str(exc)
+    # A closed document raises the same DisposedException class on a healthy office, so only
+    # the bridge's own message (binaryurp/source/bridge.cxx makeCall and checkDisposed) means URP is dead.
+    return "Binary URP bridge" in str(exc)
 
 
 def _mark_urp_dead(exc: BaseException, where: str) -> None:
@@ -1546,11 +1571,8 @@ def run_all_tests(ctx: Any) -> str:
                 )
 
     # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
-    # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
-    # …); if the first suite only pulled in a partial UNO graph, a later suite's
-    # first ``get_tools()`` could otherwise see an empty registry or hit import
-    # edge cases. Extension startup already calls ``mark_initialized``; this is a
-    # no-op then.
+    # UNO test file, so every suite's get_tools() sees the full registry.
+    # Extension startup already calls mark_initialized; this is a no-op then.
     try:
         _rebootstrap_ctx(ctx)
     except Exception as e:
@@ -1581,10 +1603,6 @@ def run_all_tests(ctx: Any) -> str:
 
     if os.path.isdir(tests_root):
         # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
-        from tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
-
-        _MISSING = object()
-
         # Gather all candidates
         test_candidates = []
         has_scripts = os.path.isdir(os.path.join(os.path.dirname(tests_root), "scripts"))
@@ -1646,7 +1664,6 @@ def run_all_tests(ctx: Any) -> str:
                 rel_path = os.path.relpath(module_path, tests_root)
                 sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
 
-                restore_snapshot: Dict[str, Any] = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                 try:
                     spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
                     assert spec is not None and spec.loader is not None
@@ -1698,13 +1715,6 @@ def run_all_tests(ctx: Any) -> str:
                         }
                     )
                     total_failed += 1
-                finally:
-                    # Prevent sys.modules mocking from polluting later native tests.
-                    for k, v in restore_snapshot.items():
-                        if v is _MISSING:
-                            sys.modules.pop(k, None)
-                        else:
-                            sys.modules[k] = v
 
         if skip_keeper_close:
             # Leftover peer docs / Impress: do not close(True). Kill soffice.
@@ -1841,7 +1851,7 @@ def main() -> int:
 
     summary = json.loads(summary_json)
 
-    # Force-close LibreOffice via the Makefile/caller instead of in-process to avoid hangs.
+    # _exit_after_summary stops a headless office after a clean pass; the caller reaps the rest.
 
     # Print a compact "tail" summary so callers can scan results quickly
     # even when the output above includes verbose tracebacks/log spam.
@@ -1862,14 +1872,19 @@ def _exit_after_summary(code: int) -> None:
     ``Fatal Python error: Aborted``) once every suite has already printed
     ``total_passed`` with zero failures. That turned a green Ubuntu
     ``test-uno`` into make Error 134 (GHA 35527291175, tip cc281f17).
-    ``os._exit(0)`` skips atexit and GC of UNO proxies. The Makefile
-    ``lo-kill`` still reaps soffice.
+    A clean pass stops the headless office and deletes its profiles before
+    ``os._exit(0)`` skips atexit and GC of UNO proxies. A failure keeps both
+    so diagnostics remain available; the Makefile ``lo-kill`` still reaps
+    anything left.
 
     A non-zero *code* still raises ``SystemExit`` so real test / bootstrap
     failures stay visible. Do not hard-exit 0 when the summary failed.
     """
     if code == 0:
+        _remove_throwaway_profiles()
         os._exit(0)
+    for profile in _office.throwaway_profile_dirs:
+        _progress("OFFICE PROFILE kept for debugging: %s" % profile)
     raise SystemExit(code)
 
 

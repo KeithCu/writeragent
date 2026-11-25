@@ -34,7 +34,6 @@ import time
 from typing import Any
 
 from oracles import LO_ALT_RENDERING
-from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
 _lo_queue: queue.Queue[Any] = queue.Queue()
 _lo_thread = None
@@ -59,11 +58,6 @@ FACTORY_URLS = {
     "writer": "private:factory/swriter",
     "draw": "private:factory/sdraw",
     "calc": "private:factory/scalc",
-}
-
-# Eval-schema names → production ToolRegistry names.
-_TOOL_ALIASES = {
-    "write_cell_range": "write_range",
 }
 
 
@@ -510,27 +504,6 @@ def prepare_example(kind: str, initial_content: str, fixture: str = "") -> None:
     LOBackend.call(_do)
 
 
-def set_document(content: str):
-    """Writer-only helper (legacy DSPy / boot smoke). Prefer ``prepare_example``."""
-
-    def _do():
-        _set_writer_text(content)
-
-    LOBackend.call(_do)
-
-
-def get_content() -> str:
-    def _do():
-        doc = LOBackend.acquire_document()
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        return cursor.getString()
-
-    return LOBackend.call(_do)
-
-
 def _compact_writer_html(html: str) -> str:
     """Normalize Writer HTML so dataset substring checks survive LO export.
 
@@ -578,91 +551,6 @@ def get_content_as_html() -> str:
     return LOBackend.call(_do)
 
 
-def writer_get_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
-    def _do():
-        doc = LOBackend.acquire_document()
-        from plugin.app import get_tools
-
-        params = {"scope": scope}
-        if max_chars is not None:
-            params["max_chars"] = max_chars
-        if start is not None:
-            params["start"] = start
-        if end is not None:
-            params["end"] = end
-        for k, v in kwargs.items():
-            if v is not None:
-                params[k] = v
-
-        ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("get_content", ctx, **params)
-        return json.dumps(res, ensure_ascii=False)
-
-    return LOBackend.call(_do)
-
-
-def writer_apply_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
-    def _do():
-        doc = LOBackend.acquire_document()
-        from plugin.app import get_tools
-
-        params = {"content": content, "old_content": old_content}
-        if all_matches:
-            params["all_matches"] = True
-        for k, v in kwargs.items():
-            if v is not None:
-                params[k] = v
-        ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("apply_content", ctx, **params)
-        return json.dumps(res, ensure_ascii=False)
-
-    return LOBackend.call(_do)
-
-
-def find_text(
-    search: str,
-    start: int = 0,
-    limit: int | None = None,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> str:
-    def _do():
-        doc = LOBackend.acquire_document()
-        from plugin.writer.search import find_text_ranges
-
-        try:
-            ranges = find_text_ranges(doc, search, case_sensitive=case_sensitive)
-            if limit:
-                ranges = ranges[:limit]
-            return json.dumps({"status": "ok", "ranges": ranges}, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)})
-
-    return LOBackend.call(_do)
-
-
-def _sheet_headers_and_used(doc) -> tuple[list[str], str]:
-    sheet = doc.getSheets().getByIndex(0)
-    cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    addr = cursor.getRangeAddress()
-    from plugin.calc.address_utils import index_to_column
-
-    used = (
-        f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:"
-        f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
-    )
-    header_range = sheet.getCellRangeByPosition(
-        addr.StartColumn, addr.StartRow, addr.EndColumn, addr.StartRow
-    )
-    data = header_range.getDataArray()
-    headers: list[str] = []
-    if data:
-        for val in data[0]:
-            headers.append("" if val == "" else str(val))
-    return headers, used
-
-
 def _read_sheet_cells(doc) -> tuple[list[list[Any]], dict[str, str]]:
     """Read grid values and formulas anchored at A1.
 
@@ -696,48 +584,6 @@ def _read_sheet_cells(doc) -> tuple[list[list[Any]], dict[str, str]]:
     return grid, formulas
 
 
-def normalize_lo_tool(
-    name: str,
-    args: dict[str, Any],
-    *,
-    kind: str = "writer",
-    headers: list[str] | None = None,
-    used_range: str | None = None,
-) -> tuple[str, dict[str, Any]]:
-    """Map eval tool names/args to production ``get_tools().execute`` kwargs."""
-    unused = kind
-    del unused
-    prod = _TOOL_ALIASES.get(name, name)
-    params = dict(args or {})
-    if "page_index" in params and "page" not in params:
-        params["page"] = params.pop("page_index")
-
-    if prod == "write_range":
-        rng = params.get("range")
-        if isinstance(rng, str):
-            params["range"] = [rng]
-        values = params.get("values")
-        if isinstance(values, (list, tuple)):
-            params["values"] = json.dumps(list(values))
-        elif isinstance(values, (int, float)) and not isinstance(values, bool):
-            params["values"] = str(values)
-
-    if prod == "sort_range":
-        col = params.get("sort_column")
-        if isinstance(col, str) and headers:
-            try:
-                params["sort_column"] = headers.index(col)
-            except ValueError:
-                params["sort_column"] = 0
-        rng = params.get("range")
-        if not rng and used_range:
-            params["range"] = [used_range]
-        elif isinstance(rng, str):
-            params["range"] = [rng]
-
-    return prod, params
-
-
 def _execute_lo_tool_impl(
     name: str,
     args: dict[str, Any],
@@ -753,18 +599,10 @@ def _execute_lo_tool_impl(
 
     kind = LOBackend.current_kind()
     doc = LOBackend.acquire_document()
-    headers = None
-    used = None
-    if kind == "calc" and name in ("sort_range", "write_cell_range", "write_range", "get_sheet_summary"):
-        try:
-            headers, used = _sheet_headers_and_used(doc)
-        except Exception:
-            headers, used = None, None
-    prod, params = normalize_lo_tool(name, args, kind=kind, headers=headers, used_range=used)
     ctx = _tool_ctx(doc, kind)
     if python_tool_domain:
         ctx.python_tool_domain = python_tool_domain
-    res = get_tools().execute_unguarded(prod, ctx, **params)
+    res = get_tools().execute_unguarded(name, ctx, **args)
     if not isinstance(res, dict):
         res = {"status": "ok", "result": res}
     return json.dumps(res, ensure_ascii=False)
@@ -854,51 +692,3 @@ def get_eval_export(kind: str) -> str:
     if kind == "calc":
         return get_calc_export()
     return get_content_as_html() or ""
-
-
-def dspy_get_content(scope: str = "full", max_chars: int = None, start: int = None, end: int = None) -> str:
-    """Read the LibreOffice document. Returns JSON with content."""
-    return writer_get_content(scope, max_chars, start, end)
-
-
-def dspy_apply_content(content: str, old_content: str = "", all_matches: bool = False) -> str:
-    """Modify the LibreOffice document. Content can be plain text or HTML. Returns JSON status."""
-    return writer_apply_content(content, old_content, all_matches)
-
-
-def dspy_find_text(
-    search: str,
-    start: int = 0,
-    limit: int | None = None,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> str:
-    """Search the LibreOffice document for text. Returns JSON with ranges."""
-    return find_text(search, start, limit, case_sensitive)
-
-
-VERBOSE = False
-
-
-def with_logging(func, name):
-    def wrapper(*args, **kwargs):
-        if VERBOSE:
-            print(f"  [Tool] {name} {args} {kwargs}")
-        res = func(*args, **kwargs)
-        if VERBOSE:
-            print(f"  [Tool->] {res}")
-        return res
-
-    wrapper.__name__ = name
-    wrapper.__doc__ = func.__doc__
-    return wrapper
-
-
-def get_tools_subset(names: list[str] | None = None):
-    mapping = {
-        "get_content": dspy_get_content,
-        "apply_content": dspy_apply_content,
-        "find_text": dspy_find_text,
-    }
-    if names is None:
-        names = ["get_content", "apply_content", "find_text"]
-    return [with_logging(mapping[n], n) for n in names if n in mapping]

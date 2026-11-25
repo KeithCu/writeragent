@@ -29,6 +29,7 @@ from plugin.framework.doc_type import (
     DocumentType,
     doc_type_label_for_enum,
     get_document_type,
+    is_writer,
 )
 from plugin.doc.text_helpers import FAILED, KeepViewSelection
 from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
@@ -867,17 +868,19 @@ def get_graphic_object_by_name(
     )
 
 
-def no_image_selected_error(message: str | None = None) -> ToolExecutionError:
-    return ToolExecutionError(
-        message or _("Select an embedded image (or a range containing images), then Run again."),
-        code="NO_IMAGE_SELECTED",
+def no_image_selected_error(doc: Any) -> ToolExecutionError:
+    message = (
+        _("Select an embedded image (or a range containing images), then Run again.")
+        if is_writer(doc)
+        else _("Select an embedded image, then Run again.")
     )
+    return ToolExecutionError(message, code="NO_IMAGE_SELECTED")
 
 
-def find_image(doc: Any, image_name: str, graphic: Any | None = None, *, no_selection: str | None = None) -> Any:
+def find_image(doc: Any, image_name: str, graphic: Any | None = None) -> Any:
     """Return *graphic* when given, else the image named *image_name*, else (empty name) the selected image.
 
-    Raises IMAGE_NOT_FOUND for an unknown name and NO_IMAGE_SELECTED (text: *no_selection*) when nothing is selected.
+    Raises IMAGE_NOT_FOUND for an unknown name and NO_IMAGE_SELECTED when nothing is selected.
     """
     if graphic is not None:
         return graphic
@@ -892,7 +895,7 @@ def find_image(doc: Any, image_name: str, graphic: Any | None = None, *, no_sele
         return found
     found = selected_graphic_object(doc)
     if found is None:
-        raise no_image_selected_error(no_selection)
+        raise no_image_selected_error(doc)
     return found
 
 

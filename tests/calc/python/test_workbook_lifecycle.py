@@ -17,7 +17,6 @@ from plugin.calc.python.geometric_recalc import (
     EvalIndexKey,
     GeometricRecord,
     _RUNTIME,
-    clear_in_memory_geometric_state,
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
 )
@@ -125,17 +124,16 @@ def test_unload_clears_in_memory_spill_state():
 
 def test_unload_clears_in_memory_geometric_state():
     reset_geometric_runtime_for_tests()
-    key = "calc:file:///gone-geo.ods"
+    key = "key-geo"
     _RUNTIME.records[(key, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
     replace_geometric_strip_safe(key, frozenset({EvalIndexKey(key, "x", 2)}))
-    state = WorkbookState(key="key-geo")
-    listener = _CalcPythonUnloadListener("key-geo", key, state)
+    state = WorkbookState(key=key)
+    listener = _CalcPythonUnloadListener(key, "calc:file:///gone-geo.ods", state)
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert (key, "Sheet1", "A2") not in _RUNTIME.records
     assert _RUNTIME.strip_safe == frozenset()
-    clear_in_memory_geometric_state(workbook_key=key)
 
 
 def test_ensure_registers_listener_once():
@@ -298,6 +296,7 @@ def test_remember_keeps_strong_ref_until_forget_key():
 def test_release_calc_state_clears_state_once():
     """_release_calc_state calls state.clear once."""
     state = MagicMock(spec=WorkbookState)
+    state.key = "key-dedupe"
     listener = _CalcPythonUnloadListener("key-dedupe", "calc:wb-dedupe", state)
     with patch(
         "plugin.calc.python.workbook_lifecycle.reset_python_session",
@@ -703,15 +702,16 @@ def test_unload_keeps_session_shared_with_another_listener(monkeypatch: pytest.M
     ):
         listener_scratch.on_document_event(MagicMock(EventName="OnUnload"))
         reset_mock.assert_not_called()
-        geo_mock.assert_not_called()
+        geo_mock.assert_called_once_with(workbook_key="uid-scratch")
 
+        geo_mock.reset_mock()
         listener_user.on_document_event(MagicMock(EventName="OnUnload"))
         reset_mock.assert_called_once_with(
             sid,
             timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
         )
-        geo_mock.assert_called_once_with(workbook_key=sid)
+        geo_mock.assert_called_once_with(workbook_key="uid-user")
 
 
 def test_unload_resets_on_reload_when_two_non_scratch_listeners_share_session(monkeypatch: pytest.MonkeyPatch):
@@ -737,7 +737,7 @@ def test_unload_resets_on_reload_when_two_non_scratch_listeners_share_session(mo
             timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
         )
-        geo_mock.assert_called_once_with(workbook_key=sid)
+        geo_mock.assert_called_once_with(workbook_key="uid-old")
 
 
 def test_unload_resets_user_close_even_while_scratch_copy_is_open(monkeypatch: pytest.MonkeyPatch):
@@ -763,7 +763,7 @@ def test_unload_resets_user_close_even_while_scratch_copy_is_open(monkeypatch: p
             timeout_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=lifecycle._UNLOAD_RESET_TIMEOUT_SEC,
         )
-        geo_mock.assert_called_once_with(workbook_key=sid)
+        geo_mock.assert_called_once_with(workbook_key="uid-user")
 
 
 

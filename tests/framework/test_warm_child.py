@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+import plugin.framework.warm_child as warm_child_mod
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.send_cancellation import SendCancellation
@@ -1112,6 +1113,7 @@ def test_cancel_during_publish_is_not_lost(
     try:
         with warm.lease(Deadline(10.0), cancel=scope) as leased:
             assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
         assert len(spawned) == 1
         assert warm.child is None
     finally:
@@ -1147,30 +1149,164 @@ def test_cancel_during_spawn_kills_the_unpublished_child(
         warm.retire()
 
 
-def test_kill_after_ready_frame_is_interrupted(
-    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("when", ["before_ready", "after_ready"])
+@pytest.mark.parametrize(
+    ("action", "expected_code"),
+    [
+        ("kill", "WORKER_SPAWN_FAILED"),
+        ("retire", "SERVICE_SHUTDOWN"),
+        ("cancel", "CANCELLED"),
+        ("shutdown_all", "SERVICE_SHUTDOWN"),
+    ],
+)
+def test_stop_during_handshake_reports_the_stop(
+    tmp_path: Any,
+    supervisor: Supervisor,
+    monkeypatch: pytest.MonkeyPatch,
+    when: str,
+    action: str,
+    expected_code: str,
 ) -> None:
-    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
+    preamble = "import time\ntime.sleep(60)" if when == "before_ready" else ""
+    warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path, preamble=preamble)), supervisor=supervisor)
+    scope = SendCancellation()
+    scope.register_on_cancel(warm.kill)
 
-    def _fake_spawn(managed: ManagedSubprocess, *, on_ready: Any = None) -> None:
-        del on_ready
-        managed.popen = _FakePopen()  # type: ignore[assignment]
+    def _stop() -> None:
+        if action == "kill":
+            warm.kill()
+        elif action == "retire":
+            warm.retire()
+        elif action == "cancel":
+            scope.cancel()
+        else:
+            supervisor.shutdown_all()
 
-    def _kill_on_ready(child: Child, *_args: Any, **_kwargs: Any) -> tuple[str, Any]:
-        del child
-        t = threading.Thread(target=warm.kill)
-        t.start()
-        t.join(timeout=5.0)
-        return ("ready", {"status": "ready", "pid": 4242})
+    orig_read_ready = warm_child_mod.read_ready_frame_during_io
+    recorded_children: list[Child] = []
+    recorded_tags: list[str] = []
+    stop_done: list[bool] = []
 
-    monkeypatch.setattr(supervisor, "spawn", _fake_spawn)
-    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", _kill_on_ready)
+    def _hook(child: Child, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+        recorded_children.append(child)
+        if when == "before_ready":
+            timer = threading.Timer(0.2, _stop)
+            timer.start()
+            try:
+                tag, detail = orig_read_ready(child, *args, **kwargs)
+            finally:
+                timer.join(timeout=5.0)
+                stop_done.append(not timer.is_alive())
+        else:
+            tag, detail = orig_read_ready(child, *args, **kwargs)
+            t = threading.Thread(target=_stop)
+            t.start()
+            t.join(timeout=5.0)
+            stop_done.append(not t.is_alive())
+        recorded_tags.append(tag)
+        return (tag, detail)
+
+    monkeypatch.setattr(warm_child_mod, "read_ready_frame_during_io", _hook)
     try:
-        with warm.lease(Deadline(10.0)) as leased:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
             assert isinstance(leased, dict)
-            assert leased["code"] == "WORKER_SPAWN_FAILED"
+            assert leased["code"] == expected_code
+        assert recorded_tags == (["interrupted"] if when == "before_ready" else ["ready"])
+        assert stop_done == [True]
         assert warm.child is None
         assert warm._generation == 0
+        assert len(recorded_children) == 1
+        popen = recorded_children[0].managed.popen
+        assert popen is not None
+        assert _wait_until(time.monotonic() + 5.0, lambda: popen.poll() is not None)
+    finally:
+        warm.retire()
+
+
+def test_cancel_without_kill_hook_during_hung_handshake_reports_the_cancel(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The venv worker leases with a scope that has no kill hook, so a Stop leaves
+    # the hung child running and the handshake ends as "timeout".
+    monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 0.4)
+    warm = WarmChild(
+        _spec(tmp_path, _stdio_worker(tmp_path, preamble="import time\ntime.sleep(60)")),
+        supervisor=supervisor,
+    )
+    scope = SendCancellation()
+    orig_read_ready = warm_child_mod.read_ready_frame_during_io
+    recorded_children: list[Child] = []
+    recorded_tags: list[str] = []
+
+    def _cancel_then_read(child: Child, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+        recorded_children.append(child)
+        scope.cancel()
+        tag, detail = orig_read_ready(child, *args, **kwargs)
+        recorded_tags.append(tag)
+        return (tag, detail)
+
+    monkeypatch.setattr(warm_child_mod, "read_ready_frame_during_io", _cancel_then_read)
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert recorded_tags == ["timeout"]
+        assert warm.child is None
+        assert warm._generation == 0
+        assert len(recorded_children) == 1
+        popen = recorded_children[0].managed.popen
+        assert popen is not None
+        assert popen.poll() is not None
+    finally:
+        warm.retire()
+
+
+@pytest.mark.parametrize("missing_interpreter", [False, True])
+@pytest.mark.parametrize(
+    ("action", "expected_code"),
+    [
+        ("retire", "SERVICE_SHUTDOWN"),
+        ("cancel", "CANCELLED"),
+        ("shutdown_all", "SERVICE_SHUTDOWN"),
+    ],
+)
+def test_stop_between_refusal_check_and_spawn_reports_the_stop(
+    tmp_path: Any,
+    supervisor: Supervisor,
+    monkeypatch: pytest.MonkeyPatch,
+    missing_interpreter: bool,
+    action: str,
+    expected_code: str,
+) -> None:
+    if missing_interpreter:
+        spec = ChildSpec(
+            name="warm-test",
+            argv=["/nonexistent/writeragent-python", "unused.py"],
+            env={},
+            log_start_failure=False,
+        )
+    else:
+        spec = _spec(tmp_path, _stdio_worker(tmp_path))
+    warm = WarmChild(spec, supervisor=supervisor)
+    scope = SendCancellation()
+    scope.register_on_cancel(warm.kill)
+    orig_spawn = supervisor.spawn
+
+    def _stop_then_spawn(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
+        if action == "retire":
+            warm.retire()
+        elif action == "cancel":
+            scope.cancel()
+        else:
+            supervisor.shutdown_all()
+        orig_spawn(managed, timeout_sec=timeout_sec)
+
+    monkeypatch.setattr(supervisor, "spawn", _stop_then_spawn)
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == expected_code
+        assert warm.child is None
     finally:
         warm.retire()
 
@@ -1245,26 +1381,11 @@ def test_cancel_before_lease_clears_the_slot_refuses_spawn(
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     scope = SendCancellation()
     scope.register_on_cancel(warm.kill)
-    real_lock = warm._io_lock
-    cancelled_once = False
-
-    class _LockProxy:
-        def acquire(self, *args: Any, **kwargs: Any) -> bool:
-            nonlocal cancelled_once
-            acquired = real_lock.acquire(*args, **kwargs)
-            if acquired and not cancelled_once:
-                cancelled_once = True
-                scope.cancel()
-            return acquired
-
-        def release(self) -> None:
-            real_lock.release()
-
     spawn_mock = MagicMock(wraps=supervisor.spawn)
     monkeypatch.setattr(supervisor, "spawn", spawn_mock)
-    warm._io_lock = _LockProxy()  # type: ignore[assignment]
     try:
-        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+        # refuse runs after the first cancel check and before the lock is taken.
+        with warm.lease(Deadline(10.0), cancel=scope, refuse=scope.cancel) as leased:
             assert isinstance(leased, dict)
             assert leased["code"] == "CANCELLED"
         assert warm.child is None
@@ -1274,7 +1395,6 @@ def test_cancel_before_lease_clears_the_slot_refuses_spawn(
             assert not isinstance(leased2, dict)
         assert warm.child is not None
     finally:
-        warm._io_lock = real_lock
         warm.retire()
 
 
@@ -1311,29 +1431,12 @@ def test_cancel_of_idle_child_before_ensure_live_does_not_respawn(
 
 
 def test_cancelled_scope_of_one_lease_does_not_refuse_the_next(tmp_path: Any, supervisor: Supervisor) -> None:
-    from plugin.framework.send_cancellation import SendCancellation
-
     warm = WarmChild(_spec(tmp_path, _stdio_worker(tmp_path)), supervisor=supervisor)
     scope1 = SendCancellation()
     scope1.register_on_cancel(warm.kill)
-    real_lock = warm._io_lock
-    cancelled_once = False
-
-    class _LockProxy:
-        def acquire(self, *args: Any, **kwargs: Any) -> bool:
-            nonlocal cancelled_once
-            acquired = real_lock.acquire(*args, **kwargs)
-            if acquired and not cancelled_once:
-                cancelled_once = True
-                scope1.cancel()
-            return acquired
-
-        def release(self) -> None:
-            real_lock.release()
-
-    warm._io_lock = _LockProxy()  # type: ignore[assignment]
     try:
-        with warm.lease(Deadline(10.0), cancel=scope1) as leased1:
+        # refuse runs after the first cancel check and before the lock is taken.
+        with warm.lease(Deadline(10.0), cancel=scope1, refuse=scope1.cancel) as leased1:
             assert isinstance(leased1, dict)
             assert leased1["code"] == "CANCELLED"
 
@@ -1342,5 +1445,4 @@ def test_cancelled_scope_of_one_lease_does_not_refuse_the_next(tmp_path: Any, su
             assert not isinstance(leased2, dict)
         assert warm.child is not None
     finally:
-        warm._io_lock = real_lock
         warm.retire()

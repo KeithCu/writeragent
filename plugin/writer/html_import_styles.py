@@ -18,7 +18,7 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import normalize_linebreaks, set_paragraph_background
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 from plugin.framework.errors import (
     Diagnostic,
@@ -32,6 +32,7 @@ from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
 from .hyperlink_fixup import StaleReason
+from .math.html_math_segment import segment_html_with_mixed_math
 from .record_changes import record_changes
 
 if TYPE_CHECKING:
@@ -223,6 +224,13 @@ class _OpenBlock:
         self.slot_index: int | None = slot_index
 
 
+# StarWriter import keeps a block that holds one of these, and drops a block with no text at all.
+_CONTENT_TAGS: frozenset[str] = frozenset({
+    "table", "br", "hr", "img", "input", "select", "textarea",
+    "object", "embed", "iframe",
+})
+
+
 class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     """Collect data-lo-style and data-lo-para per TOP-LEVEL block (document order) and strip
     the attributes from the HTML, so the StarWriter import sees clean markup and we apply the
@@ -236,6 +244,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         super().__init__()
         self.styles: list[str | None] = []
         self.paras: list[str | None] = []
+        self.filled: list[bool] = []
         self.skipped_para: list[str] = []
         # Open block-level elements: _OpenBlock(tag, shared?), or _OpenBlock(tag, None) for a transparent <div>.
         self._open: list[_OpenBlock] = []
@@ -284,12 +293,36 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         slot_idx = len(self.styles)
         self.styles.append(style)
         self.paras.append(para)
+        self.filled.append(False)
         self._on_slot_created(slot_idx, tag, style)
         return slot_idx
+
+    def _innermost_slot(self) -> int | None:
+        return next((b.slot_index for b in reversed(self._open) if b.slot_index is not None), None)
+
+    def _mark_filled(self) -> None:
+        slot = self._innermost_slot()
+        if slot is not None and not self._table_depth:
+            self.filled[slot] = True
+
+    def handle_data(self, data: str) -> None:
+        super().handle_data(data)
+        if data.strip(" \t\r\n\f"):
+            self._mark_filled()
+
+    def handle_entityref(self, name: str) -> None:
+        super().handle_entityref(name)
+        self._mark_filled()
+
+    def handle_charref(self, name: str) -> None:
+        super().handle_charref(name)
+        self._mark_filled()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
+        if t in _CONTENT_TAGS:
+            self._mark_filled()
         if t == "table":
             self._table_depth += 1
             para = self._para_of(attrs)
@@ -319,6 +352,8 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
         t = tag.lower()
+        if t in _CONTENT_TAGS:
+            self._mark_filled()
         if self._table_depth == 0 and self._is_block(t, attrs):
             slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
             self._on_block_popped(_OpenBlock(t, False, slot_idx))
@@ -428,10 +463,9 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
     def _append_text(self, text: str) -> None:
         if self._table_depth > 0 or self._ignored_depth > 0:
             return
-        for item in reversed(self._open):
-            if item.slot_index is not None and item.slot_index < len(self.slots):
-                self.slots[item.slot_index].text_parts.append(text)
-                break
+        slot_index = self._innermost_slot()
+        if slot_index is not None and slot_index < len(self.slots):
+            self.slots[slot_index].text_parts.append(text)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         t = tag.lower()
@@ -502,9 +536,17 @@ def normalize_character_references(text: str) -> str:
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
-    Every write entry point runs this once, before measuring ruby offsets or importing.
+    Every write entry point runs this once, before importing.
     """
     return text.replace("\\n", "\n").replace("\\t", "\t")
+
+
+def expand_prose_escapes(text: str) -> str:
+    """``expand_escapes`` outside math, so TeX such as ``\\nu`` and ``\\tau`` keeps its backslash."""
+    return "".join(
+        expand_escapes(seg.text) if seg.kind == "html" else seg.source
+        for seg in segment_html_with_mixed_math(text)
+    )
 
 
 def plain_paragraphs(content: str) -> list[str]:
@@ -517,15 +559,15 @@ def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
     Normalizes complete character references (keeping < > & " ' escaped),
-    expands escapes, strips ruby, normalizes line breaks, escapes prose angle
+    expands escapes outside math, strips ruby, normalizes line breaks, escapes prose angle
     brackets, and strips boilerplate.
     """
     if not isinstance(content, str) or not content:
         return ""
 
     content = normalize_character_references(content)
-    content = expand_escapes(content)
-    content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content = expand_prose_escapes(content)
+    content = html_ruby.strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)
@@ -584,6 +626,8 @@ def extract_block_lo_styles(
 ) -> tuple[str, list[str | None], list[str | None], list[str]]:
     """Return ``(clean_html, styles, para_css, skipped_para)`` per top-level block.
 
+    Drops empty blocks before a non-empty one (StarWriter import makes no paragraph
+    for them) and reports their ``data-lo-para`` in ``skipped_para``.
     Short-circuits (returns the html unchanged, three empty lists) when neither data-lo-style
     nor data-lo-para is present in the markup."""
     if not html or ("data-lo-style" not in html and "data-lo-para" not in html):
@@ -591,7 +635,18 @@ def extract_block_lo_styles(
     ex = _BlockLoStyleExtractor()
     ex.feed(html)
     ex.close()
-    return "".join(ex._out), ex.styles, ex.paras, ex.skipped_para
+    # StarWriter import makes no paragraph for an empty block, so its slot would push every later
+    # style one paragraph down. Trailing empty slots have nothing after them to push.
+    last = max((i for i, f in enumerate(ex.filled) if f), default=-1)
+    keep_list = [i for i, f in enumerate(ex.filled) if f or i > last]
+    keep_set = set(keep_list)
+    dropped = [p for i, p in enumerate(ex.paras) if p and i not in keep_set]
+    return (
+        "".join(ex._out),
+        [ex.styles[i] for i in keep_list],
+        [ex.paras[i] for i in keep_list],
+        ex.skipped_para + dropped,
+    )
 
 
 def resolve_paragraph_style_token(
@@ -645,6 +700,9 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
 
 
 MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
+# Set as ``error`` on math_objects entries whose placeholder was not found after import,
+# so nothing stands for them in the document.
+MATH_POSITION_LOST = "formula position lost in the HTML import"
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
 
 StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH"]
@@ -707,10 +765,10 @@ def attach_write_report(
     at least one formula conversion. Empty attempts or error results are returned unchanged
     because a failed or rolled-back edit left none of these objects in the document. ``ok``
     means a Math object was inserted into the document, not accepted in review; the review
-    outcome is reported separately under ``review``. If any formula conversion failed, a
-    ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while preserving the overall
-    ``ok`` status, so review workflows and surrounding edit metadata (counts, edited context)
-    remain intact.
+    outcome is reported separately under ``review``. If any formula was not converted or
+    not placed, a ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while
+    preserving the overall ``ok`` status, so review workflows and surrounding edit metadata
+    (counts, edited context) remain intact.
     """
     if result.get("status") != "ok":
         return result
@@ -772,19 +830,27 @@ def attach_write_report(
         result["math_objects"] = list(report.math)
         failed = [m for m in report.math if not m.get("ok")]
         if failed:
-            listing = "; ".join(
-                f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
-                for m in failed
-            )
-            diags.append({
-                "code": MATH_IMPORT_FAILED,
-                "message": (
-                    f"The content was written, but {len(failed)} of {len(report.math)} "
-                    f"formula(s) could not be converted to a Math object and stand in the "
+            total = len(report.math)
+            lost = [m for m in failed if m.get("error") == MATH_POSITION_LOST]
+            marked = [m for m in failed if m.get("error") != MATH_POSITION_LOST]
+            parts: list[str] = []
+            if marked:
+                listing = "; ".join(
+                    f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
+                    for m in marked
+                )
+                parts.append(
+                    f"{len(marked)} of {total} formula(s) could not be converted to a Math object and stand in the "
                     f"document as literal '[Math import failed] <formula>' text: {listing}. "
-                    f"Correct the formula and replace that literal text with target='search'."
-                ),
-            })
+                    "Correct the formula and replace that literal text with target='search'."
+                )
+            if lost:
+                listing = "; ".join(m.get("snippet", "") for m in lost)
+                parts.append(
+                    f"{len(lost)} of {total} formula(s) were not inserted because their position was lost in the "
+                    f"HTML import: {listing}. Insert each one again where it belongs."
+                )
+            diags.append({"code": MATH_IMPORT_FAILED, "message": "The content was written, but " + " ".join(parts)})
 
     if report.links_retargeted:
         result["links_retargeted"] = report.links_retargeted
@@ -1001,43 +1067,19 @@ def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
     return [name for css_list in css_lists for css in css_list if css for name in _declaration_names(css)]
 
 
-def _get_fill_style_enums() -> tuple[Any, Any]:
-    """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
-    import uno
-    return (
-        uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
-        uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
-    )
-
-
 def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list[str]:
     """Apply parsed UNO paragraph properties to one Writer paragraph (``SwXParagraph``).
 
     Everything is set on the paragraph element, not on a text cursor: the paragraph is the
-    only object that exposes the drawing-fill properties a background needs (see below), and
-    it accepts ParaAdjust and the margins just as well. Returns the CSS property names that
-    failed to apply.
+    only object that exposes the drawing-fill properties a background needs (see
+    ``set_paragraph_background``), and it accepts ParaAdjust and the margins just as well.
+    Returns the CSS property names that failed to apply.
     """
     failed: list[str] = []
     for css_name, (uno_prop, val) in mapped.items():
         try:
             if css_name == "background-color":
-                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
-                # converting to fill attributes (only SwXStyle::SetPropertyValue in
-                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
-                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
-                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
-                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
-                # Direct paragraph backgrounds must set FillColor and FillStyle on the
-                # SwXParagraph element itself (FILL_PROPERTIES_SW in
-                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
-                # on COMPLETE_TEXT_CURSOR_MAP).
-                solid_style, none_style = _get_fill_style_enums()
-                if val == -1:
-                    para_obj.setPropertyValue("FillStyle", none_style)
-                else:
-                    para_obj.setPropertyValue("FillColor", val)
-                    para_obj.setPropertyValue("FillStyle", solid_style)
+                set_paragraph_background(para_obj, val)
             else:
                 para_obj.setPropertyValue(uno_prop, val)
         except Exception as exc:

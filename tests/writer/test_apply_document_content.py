@@ -171,7 +171,6 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>novo</p>"], target="search", old_content="clausula", position="after")
@@ -196,7 +195,6 @@ def test_position_before_inserts_at_match_start():
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             ctx, content=["<p>prefix</p>"], target="search", old_content="clause", position="before")
@@ -230,7 +228,6 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
     ctx = _edit_ctx()
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
@@ -254,7 +251,6 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=0)), \
          patch.object(html_import, "insert_html_after_paragraph", return_value=html_import_styles.WriteReport(tables_added=0)):
         res = ApplyDocumentContent().execute(
@@ -276,7 +272,6 @@ def test_position_after_table_preserves_table():
     ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1]
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=1)):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
@@ -300,7 +295,6 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
     ctx.doc.getTextTables.return_value.getCount.return_value = 0
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor", return_value=html_import_styles.WriteReport(tables_added=0)), \
          patch.object(html_import, "insert_html_after_paragraph", return_value=html_import_styles.WriteReport(tables_added=0)):
         res = ApplyDocumentContent().execute(
@@ -319,7 +313,6 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
             _edit_ctx(), content=["<h2>Nova</h2>"], target="search", old_content="meio", position="before")
@@ -337,7 +330,6 @@ def test_position_before_inline_stays_at_the_exact_match_edge():
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
@@ -358,7 +350,6 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
@@ -915,7 +906,6 @@ def test_position_after_string_with_backslash_is_not_block():
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         res = ApplyDocumentContent().execute(
@@ -1443,7 +1433,6 @@ def test_position_after_cell_probe_reraises_disposed():
     cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
         with pytest.raises(Exception) as exc_info:
             ApplyDocumentContent().execute(
@@ -1876,3 +1865,61 @@ def test_dry_run_rejects_non_string_content_list_items() -> None:
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "content list items must be strings."
+
+
+@pytest.mark.parametrize("left", [True, False])
+def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session = MagicMock()
+    session.left_tracked_changes.return_value = left
+    with (
+        patch("plugin.writer.apply_document_content.main.is_current", return_value=True),
+        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="record"),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+        patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session),
+        patch.object(
+            ApplyDocumentContent,
+            "_dispatch_edit",
+            return_value={"status": "ok", "message": "Replaced 1 occurrence."},
+        ),
+    ):
+        res = ApplyDocumentContent().execute(ctx, target="search", old_content="A", content="B")
+
+    assert res["status"] == "ok"
+    assert ("pending_review" in res) is left
+
+
+def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session = MagicMock()
+    session.changes = []
+    session.left_tracked_changes.return_value = True
+    with (
+        patch("plugin.writer.apply_document_content.main.is_current", return_value=False),
+        patch("plugin.writer.apply_document_content._run_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="wait"),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="wait"),
+        patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session),
+        patch.object(
+            ApplyDocumentContent,
+            "_dispatch_edit",
+            return_value={"status": "ok", "message": "Replaced 1 occurrence."},
+        ),
+    ):
+        res = ApplyDocumentContent().execute(ctx, target="search", old_content="A", content="")
+
+    assert res["status"] == "ok"
+    assert res["pending_review"] is True
+    assert res["review_mode"] == "wait"
+    session.wait_for_review.assert_not_called()
+
+
+def test_replacement_plain_preserves_tex_escapes() -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    assert ApplyDocumentContent._replacement_plain(r"$\nu$") == r"$\nu$"
+    assert ApplyDocumentContent._replacement_plain(r"Line\nTwo") == "Line\nTwo"

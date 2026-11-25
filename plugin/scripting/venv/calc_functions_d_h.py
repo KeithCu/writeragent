@@ -17,10 +17,13 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .calc_functions_t_z import vlookup
 from .calc_functions_util import (
     DIV0_NAN,
+    ILLEGAL_ARGUMENT_NAN,
     NESTED_ARRAY_NAN,
     RegressionError,
+    VALUE_NAN,
     approx_floor,
     as_nonzero,
     coupon_schedule,
@@ -36,6 +39,7 @@ from .calc_functions_util import (
     match_criteria,
     npf_result,
     propagate_errors,
+    py_str,
     round_half_up,
     round_sig,
     scipy_stats,
@@ -103,6 +107,7 @@ __all__ = [
     "gestep",
     "growth",
     "harmean",
+    "hlookup",
     "hypgeomdist",
 ]
 
@@ -255,7 +260,8 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         row = db_arr[r_idx]
         if not any(
             all(
-                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
+                # lcl_createExcelQuery (doubleref.cxx): an error criterion cell has no text, so it restricts nothing.
+                is_criteria_blank(c) or is_calc_error(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
                 for j, c in enumerate(crit_arr[i])
             )
             for i in range(1, crit_arr.shape[0])
@@ -338,32 +344,29 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
 
 @propagate_errors
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
-    # 1 <= period <= life + 1, and cost, salvage, life, and month must be valid.
-    # Period 0 is #NUM!, not 0.
+    # ScDB (interpr2.cxx): period is a double and month uses approxFloor;
+    # salvage > cost, life > 1200, and period > life + 1 are Err:502.
     c = float(cost)
     s = float(salvage)
     life_val = float(life)
-    p = int(float(period))
-    m = int(float(month))
-    if c <= 0 or s < 0 or life_val <= 0 or m < 1 or m > 12:
-        return float("nan")
-    if p < 1 or p > life_val + 1:
-        return float("nan")
+    per = float(period)
+    m = approx_floor(float(month))
+    if m < 1 or m > 12 or life_val > 1200 or s < 0 or per > life_val + 1 or s > c or c <= 0 or life_val <= 0 or per <= 0:
+        return ILLEGAL_ARGUMENT_NAN
     # LibreOffice ScDB rounds the depreciation rate half away from zero with
     # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
     # is half-to-even, which rounded ties down.
     rate = float(round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
-    val = c
+    written = c * rate * m / 12.0
+    if approx_floor(per) == 1:
+        return written
     dep = 0.0
-    for i in range(1, p + 1):
-        if i == 1:
-            dep = val * rate * m / 12.0
-        elif i == life_val + 1:
-            dep = val * rate * (12 - m) / 12.0
-        else:
-            dep = val * rate
-        val -= dep
-    return float(dep)
+    for _idx in range(2, approx_floor(min(life_val, per)) + 1):
+        dep = (c - written) * rate
+        written += dep
+    if per > life_val:
+        dep = (c - written) * rate * (12 - m) / 12.0
+    return dep
 
 
 def dcount(db: Any, field: Any, criteria: Any) -> float | str:
@@ -400,19 +403,20 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
     return float(dep)
 
 
+@propagate_errors
 def decimal(text: Any, radix: Any) -> float:
     # Every character must be a digit for this radix. Python int() accepts
     # 0x, signs, and underscores; Excel and Calc DECIMAL do not.
     # ScDecimal (interpr2.cxx) takes GetString(). An integral numeric cell
     # arrives as 111.0, and str(111.0) is "111.0", so the dot failed the
     # digit check. The cell's text has no trailing ".0".
-    r = int(float(radix))
+    r = approx_floor(float(radix))
     if r < 2 or r > 36:
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
     if isinstance(text, float) and math.isfinite(text) and text.is_integer():
         s = str(int(text))
     else:
-        s = str(text).strip()
+        s = py_str(text).strip()
     if not s:
         return float("nan")
     valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
@@ -421,6 +425,7 @@ def decimal(text: Any, radix: Any) -> float:
     return float(int(s, r))
 
 
+@propagate_errors
 def delta(n1: Any, n2: Any = 0) -> float:
     return 1.0 if float(n1) == float(n2) else 0.0
 
@@ -630,8 +635,13 @@ def effect(nominal_rate: Any, npery: Any) -> float:
     return finite_or_nan(res)
 
 
-def encodeurl(text: Any) -> str:
-    return urllib.parse.quote(str(text), safe="")
+@propagate_errors
+def encodeurl(text: Any) -> str | float:
+    # ScEncodeURL (interpr7.cxx) pushes NoValue (#VALUE!) for an empty string.
+    s = py_str(text)
+    if not s:
+        return VALUE_NAN
+    return urllib.parse.quote(s, safe="")
 
 
 @propagate_errors
@@ -640,6 +650,7 @@ def eomonth(start_date: Any, months: Any) -> float:
     return _month_shift_serial(start_date, months, end_of_month=True)
 
 
+@propagate_errors
 def erf(lower: Any, upper: Any | None = None) -> float:
     lo = float(lower)
     if upper is None:
@@ -647,6 +658,7 @@ def erf(lower: Any, upper: Any | None = None) -> float:
     return math.erf(float(upper)) - math.erf(lo)
 
 
+@propagate_errors
 def erfc(x: Any) -> float:
     return float(math.erfc(float(x)))
 
@@ -710,6 +722,7 @@ def even(n: Any) -> float:
     return float(math.floor(v / 2.0) * 2)
 
 
+@propagate_errors
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     st = scipy_stats()
     if st is None:
@@ -730,13 +743,20 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     return float(st.expon.pdf(x_val, scale=1.0 / lam))
 
 
-def fact(n: Any) -> float:
+@propagate_errors
+def fact(n: Any) -> float | str:
+    # ScFact / Fakultaet (interpr3.cxx): < 0 is Err:502 before flooring, then approxFloor,
+    # and > 170 pushes NoValue (#VALUE!).
     v = float(n)
-    if v < 0 or v > 170:  # math.factorial limit
-        return float("nan")
-    return float(math.factorial(int(v)))
+    if v < 0:
+        return ILLEGAL_ARGUMENT_NAN
+    k = approx_floor(v)
+    if k > 170:
+        return "#VALUE!"
+    return float(math.factorial(k))
 
 
+@propagate_errors
 def factdouble(n: Any) -> float:
     # n < 0 or n > 300 is #NUM!. LibreOffice ScInterpreter caps FACTDOUBLE at 300;
     # a larger n walks down to 0 by twos.
@@ -749,18 +769,19 @@ def factdouble(n: Any) -> float:
     return float(res)
 
 
+@propagate_errors
 def fdist(x: Any, r1: Any, r2: Any) -> float:
     st = scipy_stats()
     if st is None:
         return float("nan")
 
     x_val = float(x)
-    # ScFDist (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
-    df1 = float(approx_floor(float(r1)))
-    df2 = float(approx_floor(float(r2)))
-    # st.f.sf of a negative x is 1, and df below 1 is finite. Excel is #NUM!.
-    if x_val < 0 or df1 < 1 or df2 < 1:
-        return float("nan")
+    # ScFDist (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # st.f.sf of a negative x is 1, and df below 1 is finite; Calc returns Err:502.
+    df1 = approx_floor(float(r1))
+    df2 = approx_floor(float(r2))
+    if x_val < 0 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:
+        return ILLEGAL_ARGUMENT_NAN
     return float(st.f.sf(x_val, df1, df2))  # Calc returns right-tailed by default for FDIST
 
 
@@ -772,20 +793,11 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         arr = np.asarray(range_arr)
         # dtype=object: a mixed list such as [1, ""] would otherwise become a text array.
         crit = np.asarray(criteria, dtype=object)
-        row = (
-            (arr.ndim == 1 and crit.size == arr.size)
-            or (arr.ndim == 2 and (
-                (crit.ndim == 1 and crit.size == arr.shape[0])
-                or (crit.ndim == 2 and crit.shape == (arr.shape[0], 1))
-            ))
-        )
-        col = arr.ndim == 2 and (
-            (crit.ndim == 1 and crit.size == arr.shape[1])
-            or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
-        )
-        # ScFilter (interpr1.cxx:8258-8263) refuses a two-dimensional include (NoValue);
-        # an empty mask would otherwise select nothing and return if_empty.
-        if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
+        # ScFilter (interpr1.cxx) checks 2-D include first (#VALUE!), then evaluates
+        # include errors and checks for an empty match before checking shape (Err:504).
+        # A two-dimensional include must be refused here because an empty mask would
+        # otherwise select nothing and return if_empty.
+        if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1):
             return "#VALUE!"
         # ScFilter (interpr1.cxx) reads include in order: an error element is the result,
         # other non-empty text is an error (Calc's internal 536, shown here as #VALUE!),
@@ -797,32 +809,47 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
             if isinstance(x, str) and x != "":
                 return "#VALUE!"
             include.append(x is not None and x != "" and float(x) > 0)
+        if not any(include):
+            return if_empty
+        row = (
+            (arr.ndim == 1 and crit.size == arr.size)
+            or (arr.ndim == 2 and (
+                (crit.ndim == 1 and crit.size == arr.shape[0])
+                or (crit.ndim == 2 and crit.shape == (arr.shape[0], 1))
+            ))
+        )
+        col = arr.ndim == 2 and (
+            (crit.ndim == 1 and crit.size == arr.shape[1])
+            or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
+        )
+        # ScFilter needs more than one include element along the filtered axis.
+        if crit.size == 1 or not (row or col):
+            return "Err:504"
         mask = np.asarray(include, dtype=bool)
         out = arr[mask] if row else arr[:, mask]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
-    if out.size == 0:
-        return if_empty
     return out.tolist()
 
 
+@propagate_errors
 def finv(p: Any, r1: Any, r2: Any) -> float:
     st = scipy_stats()
     if st is None:
         return float("nan")
 
     prob = float(p)
-    # ScFInv (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
-    df1 = float(approx_floor(float(r1)))
-    df2 = float(approx_floor(float(r2)))
-    # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
-    # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
-    if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
-        return float("nan")
+    # ScFInv (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # It also rejects fP <= 0 and fP > 1; prob == 0 would otherwise return inf from isf.
+    df1 = approx_floor(float(r1))
+    df2 = approx_floor(float(r2))
+    if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:
+        return ILLEGAL_ARGUMENT_NAN
     result = float(st.f.isf(prob, df1, df2))
     return finite_or_nan(result)
 
 
+@propagate_errors
 def fisher(x: Any) -> float:
     # |x|>=1 is #NUM!. math.atanh raises ValueError (#VALUE!) at 1 and beyond.
     x_val = float(x)
@@ -831,6 +858,7 @@ def fisher(x: Any) -> float:
     return float(math.atanh(x_val))
 
 
+@propagate_errors
 def fisherinv(y: Any) -> float:
     return float(math.tanh(float(y)))
 
@@ -900,6 +928,7 @@ def fvschedule(principal: Any, schedule: Any) -> float:
     return p
 
 
+@propagate_errors
 def gamma(x: Any) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (gamma(200)) is #NUM! on that path.
     x_val = float(x)
@@ -908,6 +937,7 @@ def gamma(x: Any) -> float:
     return float(math.gamma(x_val))
 
 
+@propagate_errors
 def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     st = scipy_stats()
     if st is None:
@@ -931,6 +961,7 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     return float(st.gamma.pdf(x_val, a, scale=b))
 
 
+@propagate_errors
 def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -947,6 +978,7 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     return finite_or_nan(result)
 
 
+@propagate_errors
 def gammaln(x: Any) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (lgamma(1e308)) is #NUM! on that path.
     # x <= 0 is #NUM!. math.lgamma of a negative non-integer is finite.
@@ -956,6 +988,7 @@ def gammaln(x: Any) -> float:
     return float(math.lgamma(x_val))
 
 
+@propagate_errors
 def gauss(x: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -973,21 +1006,16 @@ def geomean(*args: Any) -> float:
     return float(np.exp(np.mean(np.log(arr))))
 
 
+@propagate_errors
 def gestep(number: Any, step: Any = 0) -> float:
     return 1.0 if float(number) >= float(step) else 0.0
 
 
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
-        y = np.asarray(known_y, dtype=float)
-        # A blank or non-finite y is #NUM! here; y <= 0 is Err:502 (CheckMatrix with _bLOG, interpr5.cxx).
-        if not np.all(np.isfinite(y)):
-            return "#NUM!"
-        if np.any(y <= 0):
-            return "Err:502"
-        return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
+        return trend_fit(known_y, known_x, new_x, const, log=True)
     except RegressionError as exc:
-        return str(exc)
+        return exc.args[0]
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -1001,6 +1029,11 @@ def harmean(*args: Any) -> float:
     return float(len(arr) / np.sum(1.0 / arr))
 
 
+def hlookup(lookup_val: Any, table: Any, row_index: Any, is_sorted: Any = True) -> Any:
+    return vlookup(lookup_val, np.atleast_2d(np.asarray(table, dtype=object)).T, row_index, is_sorted)
+
+
+@propagate_errors
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -1010,7 +1043,12 @@ def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
     n = approx_floor(float(n_sample))
     K = approx_floor(float(successes))
     N = approx_floor(float(n_pop))
-    # scipy returns 0 for an impossible draw. Excel is #NUM!.
-    if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
-        return float("nan")
+    # ScHypGeomDist (interpr3.cxx) rejects x < 0, n < x, N < n, N < M, M < 0 (Err:502);
+    # an impossible draw is 0.0, and an empty population (N == 0) is 1.0 (scipy returns NaN).
+    if k < 0 or n < k or N < n or N < K or K < 0:
+        return ILLEGAL_ARGUMENT_NAN
+    if n - k > N - K or k > K:
+        return 0.0
+    if N == 0:
+        return 1.0
     return float(st.hypergeom.pmf(k, N, K, n))

@@ -24,13 +24,19 @@ from typing import TYPE_CHECKING, Any
 
 import uno
 
-from plugin.doc.text_helpers import TrackedDeletions, get_string_without_tracked_deletions, iter_elements
+from plugin.doc.text_helpers import (
+    TrackedDeletions,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    section_own_shown,
+)
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 
 from ..edit_review import flag_style_unreviewed
 from ..page import apply_column_layout, column_layout_error
+from ..record_changes import record_changes, tracked_change_spans_past
 from ..specialized_base import ToolWriterSectionBase, index_error
 from ..target_resolver import resolve_target_cursor
 
@@ -134,21 +140,14 @@ def _section_summary(name: str, section: Any) -> dict[str, Any]:
     }
 
 
-def _section_own_shown(section: Any) -> bool:
-    visible = bool(section.getPropertyValue("IsVisible"))
-    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
-    # condition (section.cxx constructor), so only the OR reflects this section's own state.
-    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
-
-
 def _visibility_fields(section: Any) -> dict[str, Any]:
     visible = bool(section.getPropertyValue("IsVisible"))
     # SwSection::CalcHiddenFlag (sw/source/core/docnode/section.cxx) hides a section when it
     # or any ancestor section is hidden.
-    shown = _section_own_shown(section)
+    shown = section_own_shown(section)
     parent = section.getParentSection()
     while shown and parent is not None:
-        shown = _section_own_shown(parent)
+        shown = section_own_shown(parent)
         parent = parent.getParentSection()
     return {
         "is_visible": visible,
@@ -412,12 +411,23 @@ class SectionCreate(ToolWriterSectionBase):
                 code="INDEX_SECTION",
             )
 
+        if tracked_change_spans_past(doc, cursor):
+            return self._tool_error(
+                "A pending tracked change runs past both ends of these paragraphs; a section would split it, and "
+                "accepting or rejecting it would then lose other text. Widen locator/end_locator to cover the whole "
+                "change, or have the user accept or reject it first.",
+                code="SECTION_IN_TRACKED_CHANGE",
+            )
+
         section = doc.createInstance("com.sun.star.text.TextSection")
         section.setName(name)
 
         # With bAbsorb=True the whole range is attached and no text is deleted (unotext.cxx:SwXText::insertTextContent).
+        # While recording, SwDoc::InsertSwSection (sw/source/core/docnode/ndsect.cxx) marks the section's existing text
+        # as a tracked insertion, so Reject would delete it.
         def mutate() -> None:
-            cursor.getText().insertTextContent(cursor, section, True)
+            with record_changes(doc, False):
+                cursor.getText().insertTextContent(cursor, section, True)
 
         return _commit(
             self,

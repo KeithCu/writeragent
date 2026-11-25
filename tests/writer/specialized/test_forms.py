@@ -301,7 +301,7 @@ def test_form_control_create_writer_inserts_on_anchor_host():
 
     doc.createInstance.return_value = MagicMock()
 
-    ctx = SimpleNamespace(doc=doc)
+    ctx = SimpleNamespace(doc=doc, selection_pin=None)
     res = _create_control(ctx, control="text", name="fld")
     assert res["status"] == "ok"
     host.insertTextContent.assert_called_once()
@@ -409,7 +409,7 @@ def test_form_create_control_date_default_value_applied(monkeypatch):
 
     model = SimpleNamespace(Date=None, DefaultDate=None)
     monkeypatch.setattr(uno, "createUnoStruct", lambda _name: SimpleNamespace(Year=0, Month=0, Day=0))
-    res = _create_control(SimpleNamespace(doc=_make_doc(model)), control="date", name="dt", default_value="2026-10-18")
+    res = _create_control(SimpleNamespace(doc=_make_doc(model), selection_pin=None), control="date", name="dt", default_value="2026-10-18")
     assert res["status"] == "ok"
     assert (model.DefaultDate.Year, model.DefaultDate.Month, model.DefaultDate.Day) == (2026, 10, 18)
     assert model.Date is model.DefaultDate
@@ -417,7 +417,7 @@ def test_form_create_control_date_default_value_applied(monkeypatch):
     # Older UNO fallback: when createUnoStruct fails, YYYYMMDD integer is assigned.
     model_long = SimpleNamespace(Date=None, DefaultDate=None)
     monkeypatch.setattr(uno, "createUnoStruct", MagicMock(side_effect=RuntimeError("no struct")))
-    res_long = _create_control(SimpleNamespace(doc=_make_doc(model_long)), control="date", name="dt2", default_value="2026-10-18")
+    res_long = _create_control(SimpleNamespace(doc=_make_doc(model_long), selection_pin=None), control="date", name="dt2", default_value="2026-10-18")
     assert res_long["status"] == "ok"
     assert model_long.DefaultDate == 20261018
     assert model_long.Date == 20261018
@@ -543,7 +543,7 @@ def test_form_create_control_listbox():
     selection.getByIndex.return_value = anchor
     controller.getSelection.return_value = selection
 
-    ctx = SimpleNamespace(doc=doc)
+    ctx = SimpleNamespace(doc=doc, selection_pin=None)
     res = _create_control(ctx, control="listbox", name="Choice", items=["a", "b"])
 
     assert res["status"] == "ok"
@@ -765,7 +765,7 @@ def test_writer_create_does_not_call_scanner(monkeypatch):
     doc.getCurrentController.return_value = ctrl
 
     tool = FormCreate()
-    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock()), fields=[{"control": "text", "name": "f1"}])
+    res = tool.execute(SimpleNamespace(doc=doc, ctx=MagicMock(), selection_pin=None), fields=[{"control": "text", "name": "f1"}])
     assert res["status"] == "ok"
     assert len(cursor_inits) == 0
 
@@ -949,7 +949,7 @@ def test_forms_generate_rejects_duplicate_name_in_batch(monkeypatch):
 
     tool = FormGenerate()
     content = "{FIELD:control='text' name='same_name'} {FIELD:control='text' name='same_name'}"
-    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock()), content)
+    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock(), selection_pin=None), content)
     assert res["status"] == "error"
     assert "Duplicate control name 'same_name' in batch." in res["message"]
 

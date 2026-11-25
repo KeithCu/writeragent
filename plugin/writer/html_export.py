@@ -9,8 +9,8 @@ Public entries: ``document_to_content`` and ``xtext_to_content``.
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
-semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_ruby.extract_and_strip_ruby`` / ``apply_ruby_spans``).
+semantic post-process. Apply swaps ``<ruby>`` for placeholders then sets
+``RubyText`` on the base run (``html_ruby.ruby_placeholders`` / ``html_import._place_ruby``).
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from plugin.doc.text_helpers import (
     starts_at_or_after,
     table_visible_text,
     visible_portions,
+    visible_range_text,
     walk_cap_warning,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
@@ -564,7 +565,8 @@ def _copy_window_to_scratch(
     copied_ruby = []
     math_records: list[tuple[str, str, bool]] = []
 
-    state = TrackedDeletions(model).state_at(text)
+    deletions = TrackedDeletions(model)
+    state = deletions.state_at(text)
     tables: list[Any] = []
     need_break = False
     for el in iter_elements(enum):
@@ -587,9 +589,9 @@ def _copy_window_to_scratch(
         struck = state.strikes_paragraph(el, opened)
 
         inside, trim = window(el, para_text, tables, opened)
-        if opened:
-            # A table before a paragraph that starts inside a deletion is struck whole.
-            inside = []
+        if deletions:
+            # A table struck by a spanning deletion or by Delete Table is not live content.
+            inside = [t for t in inside if not range_copy.table_is_struck(model, t, DeletionState(opened))]
         tables = []
         for table in inside:
             temp_cursor.gotoEnd(False)
@@ -598,7 +600,7 @@ def _copy_window_to_scratch(
             # Range reads with include_images=False emit placeholders named after the clone;
             # keeping the source name (when unused in temp_doc) prevents a later write-back
             # (image_placeholders) from restoring a different picture of that name.
-            range_copy.copy_table(table, temp_doc, temp_text, temp_cursor, math_records)
+            range_copy.copy_table(model, table, temp_doc, temp_text, temp_cursor, math_records, mark_struck=True)
             for para, table_state in iter_table_paragraphs(table):
                 copied_ruby.extend(
                     html_ruby.ruby_spans_in_window(para, 0, len(para.getString()), table_state)
@@ -621,13 +623,13 @@ def _copy_window_to_scratch(
             temp_cursor.setString(para_text + xhtml_post.DELETED_MARK if struck else para_text)
             src_style = range_copy.source_style(model, style, style_cache) if applied else None
             range_copy.paint_direct_formatting(el, portions, temp_text, trim_start, trim_end, src_style)
-            range_copy.clone_window_graphics(el, portions, temp_doc, temp_text, trim_start, trim_end)
+            range_copy.clone_window_graphics(el, portions, temp_doc, temp_text, trim_start, trim_end, deletions)
         else:
             _copy_formula_runs(
                 portions, trim_start, trim_end, temp_doc, temp_text, temp_cursor, math_records
             )
             if trim_start == 0:
-                range_copy.clone_graphics(el, temp_doc, temp_text, temp_cursor)
+                range_copy.clone_graphics(el, temp_doc, temp_text, temp_cursor, deletions)
 
         # RubyText lives on the empty Ruby start mark, not the Text run, so
         # _COPIED_CHAR_PROPERTIES cannot recreate ruby on the temp doc.
@@ -725,29 +727,52 @@ def _range_to_content_via_temp_doc(
 
 
 
+def _has_section_display(model: Any) -> bool:
+    """True when any text section has IsVisible=False (LO writes ``text:display``)."""
+    sections = model.getTextSections()
+    return any(not sections.getByIndex(i).getPropertyValue("IsVisible") for i in range(sections.getCount()))
+
+
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, expanding tracked deletions first.
+    """Export the full document via XHTML, expanding tracked deletions and hidden sections first.
 
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
-    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks; when
-    tracked deletions cross a paragraph break or empty a paragraph, expand them
-    in the flat-ODF sidecar and export a hidden copy instead.
+    ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
+    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks and
+    ``text:section[@text:display='none']``; when tracked deletions cross a
+    paragraph break or empty a paragraph, or any section has ``IsVisible``
+    false, rewrite the flat-ODF sidecar and export a hidden copy instead.
+    Tables Accept All removes are left out of the copy.
     """
-    fodt: str | None = None
-    if TrackedDeletions(model):
-        fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        expanded = xhtml_post.expand_tracked_deletions(fodt)
-        if expanded is not None:
-            with with_temp_buffer(expanded, ext=FODT_EXTENSION) as (_path, url):
-                copy = load_scratch_document(get_desktop(ctx), url)
-                if copy is None:
-                    raise ToolExecutionError("Could not read the document (no scratch document).")
-                try:
-                    # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
-                    return _export_semantic(copy, read_ruby=True)
-                finally:
-                    best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
-    return _export_semantic(model, read_ruby=True, fodt=fodt)
+    deletions = bool(TrackedDeletions(model))
+    if not deletions and not _has_section_display(model):
+        return _export_semantic(model, read_ruby=True)
+    struck: list[str] = []
+    if deletions:
+        # Judged on the model: the copy's struck cells hold marker text, so there they read as live.
+        tables = model.getTextTables()
+        struck = [
+            name for name in tables.getElementNames()
+            if range_copy.table_is_struck(model, tables.getByName(name), DeletionState())
+        ]
+    fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+    expanded = xhtml_post.expand_tracked_deletions(fodt) if deletions else None
+    readable = xhtml_post.show_hidden_sections(expanded or fodt)
+    if readable == fodt and not struck:
+        return _export_semantic(model, read_ruby=True, fodt=fodt)
+    with with_temp_buffer(readable, ext=FODT_EXTENSION) as (_path, url):
+        copy = load_scratch_document(get_desktop(ctx), url)
+        if copy is None:
+            raise ToolExecutionError("Could not read the document (no scratch document).")
+        try:
+            copy_tables = copy.getTextTables()
+            for name in struck:
+                if copy_tables.hasByName(name):  # a nested one goes with its host
+                    copy_tables.getByName(name).dispose()
+            # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
+            return _export_semantic(copy, read_ruby=True)
+        finally:
+            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
 
 
 def document_to_content(
@@ -840,9 +865,10 @@ def document_to_content(
         content = _export_starwriter_html(model)
         content = finish(content, None, "the HTML export came back empty")
         if walk_warnings is not None:
-            walk_warnings.append(
-                "XHTML export failed; content came from the legacy HTML export and has no style tokens."
-            )
+            warning = "XHTML export failed; content came from the legacy HTML export and has no style tokens."
+            if TrackedDeletions(model):
+                warning += " It still includes text that pending tracked deletions remove."
+            walk_warnings.append(warning)
         return _done(content, "starwriter")
     except Exception as e:
         # Disposal is not a double export failure.
@@ -863,11 +889,17 @@ def _reason(error: Exception) -> str:
 
 
 def _raise_if_empty_export(model: Any, content: str, why: str) -> None:
-    """Raise when an export produced nothing although the document has text."""
+    """Raise when an export produced nothing although the document has visible text."""
     if content and content.strip():
         return
-    has_text = uno_read(lambda: bool(model.getText().getString().strip()), True)
-    if has_text:
+
+    def has_text() -> bool:
+        body = model.getText()
+        # Portions cannot see content-control text, so the raw text decides when nothing is struck.
+        text = visible_range_text(model, body) if TrackedDeletions(model) else body.getString()
+        return bool(text.strip())
+
+    if uno_read(has_text, True):
         raise ToolExecutionError(why)
 
 

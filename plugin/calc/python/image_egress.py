@@ -76,6 +76,8 @@ class _PlotTag(NamedTuple):
     owner: tuple[int, int]
     sha: str | None
     anchor: tuple[int, int] | None
+    # Read from Name because UserDefinedAttributes is absent (reloaded from XLSX).
+    from_name: bool = False
 
 
 def _plot_slot_name(image_index: int) -> str:
@@ -232,7 +234,8 @@ def _read_plot_tag(shape: Any) -> _PlotTag | None:
             return _parse_plot_tag(attrs.getByName(_PLOT_TAG_ATTR).Value)
         name = shape.getPropertyValue("Name")
         match = _PLOT_NAME_RE.fullmatch(name) if isinstance(name, str) else None
-        return _parse_plot_tag(match.group(2)) if match is not None else None
+        tag = _parse_plot_tag(match.group(2)) if match is not None else None
+        return tag._replace(from_name=True) if tag is not None else None
     except (AttributeError, TypeError):
         return None
 
@@ -352,11 +355,15 @@ def _slot_cursor(
     return cursor_x, cursor_y
 
 
-def _moved_owner(shape: Any, tag: _PlotTag) -> tuple[int, int] | None:
+def _moved_owner(sheet: Any, shape: Any, tag: _PlotTag) -> tuple[int, int] | None:
     """Return the shifted owner (col, row) when *shape*'s anchor moved since the tag was written, else None."""
     if tag.anchor is None:
         return None
     now = _anchor_cell(shape)
+    # Each XLSX save and load moves a right-to-left sheet's anchors one column nearer
+    # (XclObjAny::WriteFromTo, xcl97rec.cxx, writes a negative colOff there), so only the row says whether the plot moved.
+    if now is not None and tag.from_name and sheet_is_rtl(sheet):
+        now = (tag.anchor[0], now[1])
     if now is None or now == tag.anchor:
         return None
     return (tag.owner[0] + now[0] - tag.anchor[0], tag.owner[1] + now[1] - tag.anchor[1])
@@ -387,8 +394,7 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
       together (row/column insertion or deletion above or left of them), so it matches.
     - Otherwise the anchor moved on its own (user drag, or columns inserted between the formula
       and slot k); the recorded owner keeps the plot unless another ``=PY()`` formula moved into
-      the shifted owner cell (this also covers an RTL sheet reloaded from XLSX, where the anchor
-      comes back one column nearer).
+      the shifted owner cell (RTL XLSX reloads are handled in ``_moved_owner``).
 
     If a plot is dragged so that the shifted owner lands on another ``=PY()`` formula, that
     formula claims it and the duplicate sweep removes the claimant's own plot if it appears later
@@ -401,7 +407,7 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
     if addr_key is None:
         return False
     here = (addr_key[1], addr_key[2])
-    moved = _moved_owner(shape, tag)
+    moved = _moved_owner(sheet, shape, tag)
     if moved is None:
         return tag.owner == here
     if moved == here:
@@ -431,20 +437,34 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
         return []
 
 
-def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
+def _detach_copy(doc: Any, shape: Any) -> bool:
+    """Rename an XLSX-only duplicate plot so it becomes an ordinary picture; return True if kept."""
+    tag = _read_plot_tag(shape)
+    if tag is None or not tag.from_name:
+        return False
+    name = f"{shape.getPropertyValue('Name')} 1"
+    # SdrObject::SetName (svx/source/svdraw/svdobj.cxx) records undo; tool removals stay recorded.
+    with undo_lock(doc, hide=False):
+        shape.setPropertyValue("Name", name)
+    return True
+
+
+def _drop_extra_plot_slots(doc: Any, draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
 
-    A second shape for a slot that is already taken (for example a plot pasted from another
-    workbook whose name did not collide under ``SdrObject::MakeNameUnique``) is never refreshed,
-    because ``_resolve_slot`` uses the first one, so it is removed too. An in-document paste is
-    renamed (e.g. ``WriterAgentPlot wa-plot:1,2@1, 1``) and is never a slot.
+    A second shape for a slot that is tagged only by its name is a copy made in another
+    spreadsheet program that keeps duplicate names, so it is renamed like Calc's own paste
+    and kept; any other duplicate is never refreshed (``_resolve_slot`` uses the first one),
+    so it is removed.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
-        if slot_idx >= image_count or slot_idx in taken:
+        if slot_idx in taken:
+            if not best_effort(partial(_detach_copy, doc, s), "_drop_extra_plot_slots: detach copy", True):
+                best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
+        elif slot_idx >= image_count:
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
-        else:
-            taken.add(slot_idx)
+        taken.add(slot_idx)
 
 
 def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: Any) -> None:
@@ -457,7 +477,7 @@ def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: A
     if _holds_py_formula(sheet, (addr.Column, addr.Row)):
         return
     with undo_lock(doc, hide=False):
-        _drop_extra_plot_slots(draw_page, _anchored_plot_slots(sheet, cell), 0)
+        _drop_extra_plot_slots(doc, draw_page, _anchored_plot_slots(sheet, cell), 0)
     _remove_image_note(doc, sheet, cell)
 
 
@@ -965,7 +985,7 @@ def _insert_image_result_on_sheet_impl(
                 # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
                 # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
                 if image_count is not None and image_index == 0 and target_cell is not None:
-                    _drop_extra_plot_slots(draw_page, slots, image_count)
+                    _drop_extra_plot_slots(doc, draw_page, slots, image_count)
         if um is not None and shape is None:
             best_effort(
                 partial(attach_to_newest_undo, um, partial(_drop_egress_of_undone_formula, doc, sheet, target_cell, draw_page)),

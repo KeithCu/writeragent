@@ -22,6 +22,8 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import nan_error_code
 
 _INF = float("inf")
 
@@ -35,7 +37,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("n", (_INF,), "inf", "n-out-of-range"),
     ("negbinomdist", ("text", 5, 0.5), ValueError, "negbinomdist-text"),
     ("negbinomdist", ("", 5, 0.5), ValueError, "negbinomdist-blank"),
-    ("negbinomdist", (2, 5, 0), "nan", "negbinomdist-zero-prob"),
+    ("negbinomdist", (2, 5, 0), 0.0, "negbinomdist-zero-prob"),
     ("negbinomdist", (_INF, 5, 0.5), OverflowError, "negbinomdist-out-of-range"),
     ("networkdays", ("text", 46185), "nan", "networkdays-text"),
     ("networkdays", ("", 46185), "nan", "networkdays-blank"),
@@ -73,7 +75,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("npv", ("", 100, 200), ValueError, "npv-blank"),
     ("npv", (None, 100, 200), TypeError, "npv-blank-none"),
     ("numbervalue", ("text",), "nan", "numbervalue-text"),
-    ("numbervalue", ("",), 0.0, "numbervalue-blank"),
+    ("numbervalue", ("",), "nan", "numbervalue-blank"),
     ("numbervalue", (0,), 0.0, "numbervalue-zero"),
     ("numbervalue", ("1.2.3",), "nan", "numbervalue-out-of-range"),
     ("odd", ("",), ValueError, "odd-blank"),
@@ -372,15 +374,15 @@ def test_regex_occurrence_and_whole_match():
     # Search returns the whole match even when an optional group did not participate.
     assert calc.regex("b", "(a)?b") == "b"
     assert calc.regex("abc-123", "([a-z]+)-([0-9]+)") == "abc-123"
-    assert calc.regex("ababa", "a", None, 2) == "a"
-    assert calc.regex("a1b2", r"[a-z]\d", None, 2) == "b2"
+    assert calc.regex("ababa", "a", flags=2) == "a"
+    assert calc.regex("a1b2", r"[a-z]\d", flags=2) == "b2"
     assert calc.regex("ababa", "a", "X", 2) == "abXba"
     assert calc.regex("abc", "z") == "#N/A"
     # Occurrence 0 is the original text, before the pattern is compiled.
-    assert calc.regex("abc", "[", None, 0) == "abc"
-    assert calc.regex("aba", "a", None, "g") == "a"
-    assert math.isnan(calc.regex("abc", "b", None, "x"))
-    assert math.isnan(calc.regex("abc", "b", None, -1))
+    assert calc.regex("abc", "[", flags=0) == "abc"
+    assert calc.regex("aba", "a", flags="g") == "a"
+    assert math.isnan(calc.regex("abc", "b", flags="x"))
+    assert math.isnan(calc.regex("abc", "b", flags=-1))
 
 
 def test_rept_length_cap_and_bad_count():
@@ -533,13 +535,16 @@ def test_npv_error_propagation_and_text_skip():
     import struct
 
     assert calc.npv(0.1, "#N/A", "#DIV/0!") == "#N/A"
+    assert calc.npv("#N/A", 100) == "#N/A"
+    assert calc.npv("#DIV/0!", "#N/A") == "#DIV/0!"
+    assert calc.npv("abc", "#N/A") == "#N/A"
     assert calc.npv(0.1, " Err:502 ", 100) == "Err:502"
     assert math.isnan(calc.npv(-1, 5))
     assert calc.npv(-1, "#N/A") == "#N/A"
     assert math.isclose(calc.npv(0.1, "12", 5), 5 / 1.1)
-    na_res = calc.npv(0.1, 100, calc.na(), 100)
-    assert isinstance(na_res, float) and math.isnan(na_res)
-    assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
+    for na_res in (calc.npv(0.1, 100, calc.na(), 100), calc.npv(calc.na(), 100)):
+        assert isinstance(na_res, float) and math.isnan(na_res)
+        assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
 
 
 def test_poisson_approx_floor():
@@ -590,6 +595,10 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
 
     # PERCENTRANK with huge significance returns quickly with NaN
     assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
+    assert calc.percentrank([1, 2, 3], 2, 0.9999999999999999) == calc.percentrank([1, 2, 3], 2, 1)
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+    bad_sig = calc.percentrank([1, 2, 3], 2, 0.9)
+    assert math.isnan(bad_sig) and nan_error_code(bad_sig) == 502
 
 
 def test_na_returns_err_na_payload():
@@ -600,9 +609,38 @@ def test_na_returns_err_na_payload():
 
 
 def test_negbinomdist_and_permut_approx_floor():
-    assert math.isnan(calc.negbinomdist(-0.5, 2, 0.5))
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    for bad in (
+        calc.negbinomdist(-0.5, 2, 0.5),
+        calc.negbinomdist(0, 1, 0.5),
+        calc.negbinomdist(-1, 2, 0.5),
+    ):
+        assert math.isnan(bad) and nan_error_code(bad) == 502
+    assert math.isclose(calc.negbinomdist(-0.5, 3, 0.5), 0.125)
+    assert calc.negbinomdist(2, 1, 0) == 0.0
+    assert calc.negbinomdist(0, 2, 0) == 0.0
+    assert calc.negbinomdist(2, 0, 0.5) == 0.0
+    assert calc.negbinomdist(5, -1, 0.5) == 0.0
+    assert calc.negbinomdist(1e20, 3, 0.5) == 0.0
+    zero_neg = calc.negbinomdist(5, -1, 0)
+    assert math.isnan(zero_neg) and nan_error_code(zero_neg) == 0
+    na_prob = calc.negbinomdist(2, 0, calc.na())
+    assert math.isnan(na_prob) and nan_error_code(na_prob) == 0x7FFF
     assert math.isnan(calc.permut(5, -0.5))
     assert calc.permut(0.29 * 100, 1) == 29
+
+
+def test_prob_compares_dimensions():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    for bad in (
+        calc.prob([[1, 2, 3]], [[0.2], [0.3], [0.5]], 1),
+        calc.prob([[1, 2], [3, 4]], [[0.25, 0.25, 0.25, 0.25]], 1),
+    ):
+        assert math.isnan(bad) and nan_error_code(bad) == 0x7FFF
+    assert math.isclose(calc.prob([1, 2, 3], [[0.2], [0.3], [0.5]], 2), 0.3)
+    assert calc.prob(1, 1, 1) == 1.0
 
 
 def test_sumsq_error_propagation():
@@ -640,4 +678,17 @@ def test_npv_booleans_and_text():
     assert math.isclose(calc.npv(0.1, [1, True]), 1.0 / 1.1 + 1.0 / 1.21)
     assert math.isclose(calc.npv(0.1, [True, False], 10), 1.0 / 1.1 + 10.0 / 1.331)
     assert math.isclose(calc.npv(0.1, ["1"], 10), 10.0 / 1.1)
+
+
+def test_numbervalue_empty_text_is_value_error():
+    res = calc.numbervalue("")
+    assert math.isnan(res) and nan_error_code(res) == 519
+
+
+def test_blank_one_cell_args_in_prob_regex_and_numbervalue():
+    blank = CalcRange([[None]])
+    assert calc.prob([-1, 0, 1], [0.2, 0.5, 0.3], -1, blank) == pytest.approx(0.7)
+    assert calc.regex("abc", "b", blank) == "ac"
+    assert calc.regex("None here", blank) == ""
+    assert calc.numbervalue("1e3", ".", blank) == 1000.0
 

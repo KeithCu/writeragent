@@ -13,7 +13,9 @@ import time
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.sandbox import build_sandbox_policy
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
 
 
 def test_conditional_aggregates():
@@ -292,11 +294,14 @@ def test_financial_group_a():
 
     assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
     assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
-    # nper is truncated toward zero; fractional nper must not change CUMIPMT/CUMPRINC for whole periods.
-    whole = calc.cumipmt(0.09 / 12, 12, 125000, 1, 12, 0)
-    assert calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 12, 0) == whole
-    assert math.isnan(calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 13, 0))
-    assert calc.cumprinc(0.09 / 12, 12.2, 125000, 1, 12, 0) == calc.cumprinc(0.09 / 12, 12, 125000, 1, 12, 0)
+    # ScCumIpmt/ScCumPrinc use nper unrounded and require type to be 0 or 1.
+    assert math.isclose(calc.cumipmt(0.01, 12.2, 1000, 1, 12, 0), -67.12136844503922)
+    assert math.isclose(calc.cumprinc(0.01, 12.2, 1000, 1, 12, 0), -982.6087080380048)
+    bad_end = calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 13, 0)
+    assert math.isnan(bad_end) and nan_error_code(bad_end) == 502
+    for bad_type in (0.5, 1.5):
+        res_t = calc.cumipmt(0.09 / 12, 12, 125000, 1, 12, bad_type)
+        assert math.isnan(res_t) and nan_error_code(res_t) == 502
     # XNPV: cash flows at dates
     assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 
@@ -570,7 +575,7 @@ def test_address_bad_input_returns_value_error():
     assert calc.address(1, 1) == "$A$1"
     assert calc.address("x", 1) == "#VALUE!"
     assert calc.address(1, float("inf")) == "#VALUE!"
-    assert calc.address(float("nan"), 1) == "#VALUE!"
+    assert math.isnan(calc.address(float("nan"), 1))
     assert calc.address(1, 1, float("inf")) == "#VALUE!"
     # Row/col below 1 after int() truncation. 0.9 becomes 0.
     assert calc.address(0, 1) == "#VALUE!"
@@ -600,9 +605,16 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert calc.bitrshift(8, -1) == 16.0
     assert math.isnan(calc.bitxor(float("inf"), 1))
     assert calc.bitand(5, 3) == 1.0
+    assert calc.bitand(2.9999999999999996, 3) == 3.0
     # Calc shifts the other way. BITLSHIFT(8, -1) is 4, BITRSHIFT(8, -1) is 16.
     assert calc.bitlshift(1, 2) == 4.0
+    assert calc.bitlshift(1, 54) == 2.0**54
+    assert math.isnan(calc.bitlshift(2, 1023))
+    assert math.isnan(calc.bitlshift(0, 1024))
+    assert math.isnan(calc.bitlshift(1, 1024))
+    assert calc.bitlshift(8, -0.5) == 4.0
     assert calc.bitrshift(8, 1) == 4.0
+    assert calc.bitrshift(8, 2000) == 0.0
     assert calc.char(float("inf")) == "#VALUE!"
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
@@ -617,16 +629,39 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     # math.comb(3, 5) is 0. ScCombin rejects k > n.
     assert math.isnan(calc.combin(3, 5))
     assert math.isnan(calc.combin(5, -1))
-    # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are #NUM!.
+    # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are Err:502.
     assert math.isnan(calc.combina(-2, 6))
     assert math.isnan(calc.combina(-1, 2))
-    # Excel COMBINA(3, 5) is 21. ScCombinA rejects k > n; we do not.
-    assert calc.combina(3, 5) == 21.0
-    assert calc.combina(0, 0) == 1.0
-    assert calc.combina(0, 1) == 0.0
+    # ScCombinA rejects k > n (Err:502); COMBINA(0, 0) is 0 in Calc.
+    c_oor = calc.combina(3, 5)
+    assert math.isnan(c_oor) and nan_error_code(c_oor) == 502
+    assert calc.combina(0, 0) == 0.0
+    c_zero_one = calc.combina(0, 1)
+    assert math.isnan(c_zero_one) and nan_error_code(c_zero_one) == 502
     # Reduced k ~ 5e8 does not fit in float64. Without the lgamma guard
     # math.comb builds that integer and this hits the 60s pytest timeout.
     assert math.isnan(calc.combin(10**9, 5 * 10**8))
+
+
+@pytest.mark.parametrize(
+    ("fn", "args"),
+    [
+        (calc.bitand, (-1, 1)),
+        (calc.bitlshift, (-1, 1)),
+        (calc.tdist, (1, 10, 3)),
+        (calc.tinv, (1.5, 10)),
+        (calc.tinv, (0.05, 0.5)),
+        (calc.trimmean, ([1, 2, 3, 4], 1)),
+        (calc.trimmean, ([1, 2, 3, 4], -0.1)),
+        (calc.ttest, ([1, 2, 3], [2, 3, 4], 3, 1)),
+        (calc.ttest, ([1, 2, 3], [2, 3, 4], 2, 4)),
+        (calc.hypgeomdist, (1, 2, 11, 10)),
+        (calc.combina, (-1, 2)),
+    ],
+)
+def test_domain_errors_return_illegal_argument_502(fn, args):
+    res = fn(*args)
+    assert math.isnan(res) and nan_error_code(res) == 502
 
 
 def test_chidist_chiinv_and_critbinom_reject_bad_arguments():
@@ -692,13 +727,16 @@ def test_aggregate_error_options_and_text():
 
 def test_base_returns_num_error_token():
     assert calc.base(255, 16) == "FF"
-    assert calc.base(-1, 10) == "#NUM!"
-    assert calc.base(10, 1) == "#NUM!"
-    assert calc.base("x", 10) == "#NUM!"
+    assert calc.base(-1, 10) == "Err:502"
+    assert calc.base(10, 1) == "Err:502"
+    assert calc.base("x", 10) == "#VALUE!"
     assert calc.base(float("inf"), 10) == "#NUM!"
     assert calc.base(15, 16, 4) == "000F"
+    assert calc.base(0.29 * 100, 10) == "29"
+    assert calc.base(10, 1.9999999999999998) == "1010"
+    assert len(calc.base(5, 2, 65534)) == 65534
     # zfill(1e9) would allocate a gigabyte string.
-    assert calc.base(1, 2, 10**9) == "#NUM!"
+    assert calc.base(1, 2, 10**9) == "Err:502"
 
 
 def _excel_serial(year: int, month: int, day: int) -> float:
@@ -750,14 +788,14 @@ def test_even_rounds_away_from_zero_and_rejects_text():
     assert math.isnan(calc.even(float("nan")))
 
 
-def test_filter_shape_mismatch_is_value_error():
+def test_filter_shape_mismatch_is_err_504():
     assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
-    # FILTER must return #VALUE! when include length mismatches, not raise IndexError.
-    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "#VALUE!"
+    # FILTER returns Err:504 when include length mismatches, not raise IndexError.
+    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "Err:504"
     # Column vector include filters rows.
     assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == [[1.0, 2.0], [5.0, 6.0]]
-    # Mismatched column vector length returns #VALUE!.
-    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False]]) == "#VALUE!"
+    # Mismatched column vector length returns Err:504.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False]]) == "Err:504"
 
 
 def test_numeric_coercions_return_nan_not_raise():
@@ -868,20 +906,21 @@ def test_mround_zero_multiple_returns_zero():
     assert calc.mround(10, 2) == 10.0
 
 
-def test_logest_nonpositive_y_is_value_error():
-    # LOGEST must return #VALUE! when any y<=0; np.log would yield -inf/nan and bogus coefficients.
-    assert calc.logest([1, 0, 4]) == "#VALUE!"
-    assert calc.logest([1, -2, 4]) == "#VALUE!"
-    assert calc.logest([0]) == "#VALUE!"
-    assert calc.logest([[1.0], [0.0], [4.0]]) == "#VALUE!"
-    assert calc.logest(["1", "2", "4"]) == "#VALUE!"
+def test_logest_nonpositive_y_is_illegal_argument():
+    # LOGEST returns Err:502 when any y <= 0 (CheckMatrix, interpr5.cxx).
+    assert calc.logest([1, 0, 4]) == "Err:502"
+    assert calc.logest([1, -2, 4]) == "Err:502"
+    assert calc.logest([0]) == "Err:502"
+    assert calc.logest([[1.0], [0.0], [4.0]]) == "Err:502"
+    assert calc.logest([0, 2, 3], [1, 2]) == "Err:502"
+    assert calc.logest(["1", "2", "4"]) == "Err:502"
     coeffs = calc.logest([1, 2, 4, 8, 16])
     assert math.isclose(coeffs[0], 2.0)
     assert math.isclose(coeffs[1], 0.5)
 
 
 def test_mode_error_without_duplicates_and_lowest_tie():
-    assert math.isnan(calc.mode([1, 2, 3]))
+    assert calc.mode([1, 2, 3]) == "#VALUE!"
     assert calc.isna(calc.mode([1, 2, 3])) is False
     assert calc.mode([2, 2, 1, 1]) == 1
     assert calc.mode([1, 1, 2]) == 1
@@ -1604,5 +1643,140 @@ def test_input_error_code_is_kept(err_kind: str):
     _check(calc.pearson([1.0, err], [1.0, 2.0]))
     _check(calc.trimmean([1.0, err, 3.0], 0.2))
     assert calc.large([1, float("nan"), 3], 1) == 3.0
+
+
+@pytest.mark.parametrize(
+    ("name", "tail"),
+    [
+        ("acot", ()),
+        ("acoth", ()),
+        ("address", (1,)),
+        ("arabic", ()),
+        ("asc", ()),
+        ("base", (2,)),
+        ("besseli", (1,)),
+        ("besselj", (1,)),
+        ("besselk", (1,)),
+        ("bessely", (1,)),
+        ("betadist", (1, 2)),
+        ("betainv", (1, 2)),
+        ("binomdist", (1, 0.5, 1)),
+        ("bitand", (1,)),
+        ("bitlshift", (1,)),
+        ("bitor", (1,)),
+        ("bitrshift", (1,)),
+        ("bitxor", (1,)),
+        ("char", ()),
+        ("chidist", (1,)),
+        ("chiinv", (1,)),
+        ("clean", ()),
+        ("code", ()),
+        ("combin", (1,)),
+        ("combina", (1,)),
+        ("complex", (1,)),
+        ("confidence", (1, 10)),
+        ("cot", ()),
+        ("coth", ()),
+        ("critbinom", (0.5, 0.5)),
+        ("csc", ()),
+        ("csch", ()),
+        ("decimal", (2,)),
+        ("delta", (0,)),
+        ("encodeurl", ()),
+        ("erf", ()),
+        ("erfc", ()),
+        ("expondist", (1,)),
+        ("fact", ()),
+        ("factdouble", ()),
+        ("fdist", (1, 1)),
+        ("finv", (1, 1)),
+        ("fisher", ()),
+        ("fisherinv", ()),
+        ("gamma", ()),
+        ("gammadist", (1, 1)),
+        ("gammainv", (1, 1)),
+        ("gammaln", ()),
+        ("gauss", ()),
+        ("gestep", ()),
+        ("hypgeomdist", (1, 1, 2)),
+        ("imabs", ()),
+        ("imaginary", ()),
+        ("imargument", ()),
+        ("imconjugate", ()),
+        ("imcos", ()),
+        ("imcosh", ()),
+        ("imcot", ()),
+        ("imcsc", ()),
+        ("imcsch", ()),
+        ("imdiv", ("1+i",)),
+        ("imexp", ()),
+        ("imln", ()),
+        ("imlog10", ()),
+        ("imlog2", ()),
+        ("impower", (2,)),
+        ("improduct", ()),
+        ("imreal", ()),
+        ("imsec", ()),
+        ("imsech", ()),
+        ("imsin", ()),
+        ("imsinh", ()),
+        ("imsqrt", ()),
+        ("imsub", ("1+i",)),
+        ("imsum", ()),
+        ("imtan", ()),
+        ("imtanh", ()),
+        ("jis", ()),
+        ("loginv", (0, 1)),
+        ("lognormdist", (0, 1)),
+        ("multinomial", ()),
+        ("munit", ()),
+        ("n", ()),
+        ("normdist", (0, 1, 1)),
+        ("norminv", (0, 1)),
+        ("normsdist", ()),
+        ("normsinv", ()),
+        ("numbervalue", ()),
+        ("permut", (1,)),
+        ("poisson", (1,)),
+        ("regex", ("a",)),
+        ("rept", (1,)),
+        ("sec", ()),
+        ("sech", ()),
+        ("sqrtpi", ()),
+        ("standardize", (0, 1)),
+        ("t", ()),
+        ("tdist", (1, 1)),
+        ("tinv", (1,)),
+        ("unichar", ()),
+        ("unicode", ()),
+        ("weibull", (1, 1)),
+    ],
+)
+def test_decorated_scalar_helpers_propagate_error_code(name: str, tail: tuple[object, ...]):
+    fn = getattr(calc, name)
+    assert fn("#DIV/0!", *tail) == "#DIV/0!"
+    na_res = fn(NA_NAN, *tail)
+    assert isinstance(na_res, float) and math.isnan(na_res) and nan_error_code(na_res) == 0x7FFF
+
+
+def test_last_argument_error_wins_and_blank_text_range():
+    assert calc.bitand("#DIV/0!", "#N/A") == "#N/A"
+    res = calc.normdist(DIV0_NAN, NA_NAN, 1, 1)
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 0x7FFF
+
+    blank = CalcRange([[None]])
+    assert calc.clean(blank) == ""
+    assert calc.asc(blank) == ""
+    assert calc.jis(blank) == ""
+    assert calc.rept(blank, 3) == ""
+    assert calc.py_str(blank) == ""
+    assert calc.regex(blank, "x") == "#N/A"
+    assert calc.text(blank, "0.00") == "0.00"
+    assert calc.code(blank) == 0.0
+    assert calc.textjoin(",", True, blank) == ""
+    assert nan_error_code(calc.encodeurl(blank)) == 519
+    assert nan_error_code(calc.encodeurl("")) == 519
+    assert nan_error_code(calc.numbervalue(blank)) == 519
+    assert calc.t(CalcRange([["hi"]])) == "hi"
 
 

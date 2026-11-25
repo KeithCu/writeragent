@@ -702,7 +702,8 @@ class TunnelManager:
                     return
                 url = parse_line(line)
                 if url:
-                    log.info("MCP tunnel URL (%s): %s", provider_name, url)
+                    # MCP has no auth, so the public URL is the credential and stays out of the log.
+                    log.info("MCP tunnel URL acquired (%s)", provider_name)
                     self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url, "now": time.monotonic()}))
 
         def _on_exit(rc: int) -> None:
@@ -897,7 +898,7 @@ class TunnelManager:
                 return False
             session = self._replace_session()
             if self.is_running and self._state.port == int(port) and self._state.provider == provider and self._state.provider_token == token:
-                log.info("Tunnel already running (%s) at %s", provider, self.public_url)
+                log.info("Tunnel already running (%s)", provider)
                 if self.public_url:
                     self._state = dataclasses.replace(self._state, last_error=None)
                 return True
@@ -1011,8 +1012,9 @@ def _health_probe_ok(url: str, timeout: float) -> bool:
         req = urllib.request.Request(url, headers={"User-Agent": "WriterAgent-Probe"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.getcode() == 200
-    except Exception:
-        log.debug("MCP tunnel health probe failed for %s", url, exc_info=True)
+    except Exception as exc:
+        # Type name only: the public URL is a credential, and TLS errors quote its host.
+        log.debug("MCP tunnel health probe failed (%s)", type(exc).__name__)
         return False
 
 

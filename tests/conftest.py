@@ -500,7 +500,6 @@ lang = _create_mock_module("com.sun.star.lang")
 
 util = _create_mock_module("com.sun.star.util")
 setattr(util, "XModifyListener", MockBase)  # ReviewModifyListener in review_view_attachment subclasses it
-setattr(util, "MalformedNumberFormatException", type("MalformedNumberFormatException", (Exception,), {}))
 
 
 class MockXEventListener:
@@ -512,15 +511,40 @@ setattr(lang, "XServiceDisplayName", MockXServiceDisplayName)
 setattr(lang, "XServiceInfo", MockXServiceInfo)
 setattr(lang, "XServiceName", MockXServiceName)
 setattr(lang, "XInitialization", MockBase)
-setattr(lang, "DisposedException", Exception)
-setattr(lang, "IllegalArgumentException", Exception)
 
 uno_mod = _create_mock_module("com.sun.star.uno")
-setattr(uno_mod, "Exception", Exception)
-setattr(uno_mod, "RuntimeException", type("RuntimeException", (Exception,), {}))
-
 container = _create_mock_module("com.sun.star.container")
-setattr(container, "NoSuchElementException", Exception)
+
+
+# Same names, bases and initialiser rule as the classes pyuno builds. __name__ is the full UNO
+# name and the bases follow the IDL (createClass in pyuno/source/module/pyuno_except.cxx), so a
+# narrow except catches here what it catches in LibreOffice. Positional arguments are all or
+# none (fillStruct in pyuno_module.cxx). Keyword and copy construction are not modelled.
+def _uno_exception(module: types.ModuleType, name: str, base: type[Exception], **members: Any) -> type[Exception]:
+    defaults = {**getattr(base, "_uno_members", {}), **members}
+
+    def __init__(self, *args):
+        if args and len(args) != len(defaults):
+            raise _UnoRuntimeException(f"{type(self).__name__} takes 0 or {len(defaults)} arguments, got {len(args)}", None)
+        Exception.__init__(self, *args)
+        for member, value in zip(defaults, args or defaults.values(), strict=True):
+            setattr(self, member, value)
+
+    def __str__(self):
+        return self.Message
+
+    cls = type(f"{module.__name__}.{name}", (base,), {"_uno_members": defaults, "__init__": __init__, "__str__": __str__})
+    setattr(module, name, cls)
+    return cls
+
+
+_UnoException = _uno_exception(uno_mod, "Exception", Exception, Message="", Context=None)
+_UnoRuntimeException = _uno_exception(uno_mod, "RuntimeException", _UnoException)
+_uno_exception(lang, "DisposedException", _UnoRuntimeException)
+_uno_exception(lang, "IllegalArgumentException", _UnoRuntimeException, ArgumentPosition=0)
+_uno_exception(lang, "IndexOutOfBoundsException", _UnoException)
+_uno_exception(container, "NoSuchElementException", _UnoException)
+_uno_exception(util, "MalformedNumberFormatException", _UnoException, CheckPos=0)
 
 class MockXSidebarPanel: pass
 class MockXToolPanel: pass
@@ -605,8 +629,7 @@ setattr(frame, "XDispatchProvider", MockXDispatchProvider)
 setattr(frame, "XStatusListener", MockXStatusListener)
 setattr(frame, "XTerminateListener", MockBase)
 
-# Shared UNO mock modules loaded once for the session. Module-level
-# setup_uno_mocks() is a no-op when these shells are already present.
+# Shared UNO mock modules loaded once for the session.
 document = _create_mock_module("com.sun.star.document")
 setattr(document, "ChangedByOthersRequest", MockChangedByOthersRequest)
 setattr(document, "LockedOnSavingRequest", MockLockedOnSavingRequest)
@@ -640,13 +663,12 @@ class MockXCallback:
 setattr(util, "Date", MockDate)
 setattr(clipboard, "XClipboardListener", MockXClipboardListener)
 setattr(awt, "XCallback", MockXCallback)
-# setup_uno_mocks also publishes unohelper.Base as its own sys.modules entry.
+# unohelper.Base is also its own sys.modules entry.
 sys.modules["unohelper.Base"] = MockUnohelperBase
 
 # Some test modules replace these entries at import (for example unohelper = MagicMock()).
 # The next module then subclasses MagicMock and collection dies with a metaclass conflict.
-# Snapshot the session shells and put them back before each test module imports, so a
-# per-file setup_uno_mocks() call is not required to undo that.
+# Snapshot the session shells and put them back before each test module imports.
 _PYTEST_UNO_SHELLS = {
     name: mod
     for name, mod in list(sys.modules.items())
@@ -728,6 +750,7 @@ def _setup_grammar_persistence_test_env():
     root_logger = logging.getLogger()
     plugin_logger = logging.getLogger("plugin")
     old_wa_handlers = list(wa_logger.handlers)
+    old_wa_level = wa_logger.level
     old_root_handlers = list(root_logger.handlers)
     old_plugin_handlers = list(plugin_logger.handlers)
     old_plugin_level = plugin_logger.level
@@ -770,6 +793,7 @@ def _setup_grammar_persistence_test_env():
                     h.close()
                 except Exception:
                     pass
+        wa_logger.setLevel(old_wa_level)
         # init_logging attaches the debug file handler to the plugin logger
         # (not root). Drop handlers this test added before the temp dir goes.
         plugin_logger.setLevel(old_plugin_level)

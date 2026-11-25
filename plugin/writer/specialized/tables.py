@@ -23,7 +23,7 @@ from plugin.doc.text_helpers import (
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
-from plugin.writer.html_import import paragraph_has_non_text_portion, run_writer_mutation_with_optional_review
+from plugin.writer.html_import import non_text_portion_type, run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
@@ -35,6 +35,7 @@ from ..table_nesting import (
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
+from ..target_resolver import request_selection_range
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
@@ -365,17 +366,23 @@ def _delete_writer_table_tracked(
     raise RuntimeError("the table was removed but no tracked change was recorded")
 
 
-def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
-    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
-    if any("." in name for name in positions):
-        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
-        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+def _column_edges(table: Any) -> list[list[int]]:
+    """Per-row horizontal cell edges (0 .. _UNO_TABLE_COLUMN_SUM) from TableColumnSeparators."""
     rows = table.getRows()
     n_rows = int(rows.getCount())
     edges: list[list[int]] = []
     for r_idx in range(n_rows):
         seps = rows.getByIndex(r_idx).getPropertyValue("TableColumnSeparators")
         edges.append([0, *(int(s.Position) for s in seps), _UNO_TABLE_COLUMN_SUM])
+    return edges
+
+
+def _column_band_cells(table: Any, positions: dict[str, tuple[int, int]], idx: int) -> list[str]:
+    """Cell names in column *idx*, mirroring ``swnewtable.cxx`` (``lcl_SearchSelBox`` / ``ExpandColumnSelection``)."""
+    if any("." in name for name in positions):
+        # Untracked removeByIndex refuses too: unotbl.cxx:SwXTableColumns::removeByIndex / lcl_EnsureTableNotComplex.
+        raise ValueError("This table has split cells LibreOffice cannot delete a column from; edit the cells instead.")
+    edges = _column_edges(table)
     if not edges or idx < 0 or idx + 1 >= len(edges[0]):
         return []
     lo, hi = edges[0][idx], edges[0][idx + 1]
@@ -430,8 +437,17 @@ def _row_spanning_cells(table: Any, idx: int) -> list[tuple[str, int]]:
     return [(name, span) for name, span in spans if span > 1]
 
 
-def _cell_has_content(cell: Any) -> bool:
-    """True when *cell* holds text or any field, mark, comment, frame, picture or shape.
+_PORTION_LABELS = {
+    "Annotation": "a comment",
+    "Bookmark": "a bookmark",
+    "Frame": "a frame, image or shape",
+    "TextField": "a field",
+    "Footnote": "a footnote",
+}
+
+
+def _cell_content(cell: Any) -> str | None:
+    """Short label for what *cell* holds, or ``None`` when empty.
 
     Raw text counts, so a pending tracked deletion is content: removing it would lose the
     user's chance to reject it. AT_PARAGRAPH objects are not portions; only the paragraph's
@@ -439,12 +455,22 @@ def _cell_has_content(cell: Any) -> bool:
     sw/source/core/unocore/unoparagraph.cxx). Nested tables are the caller's earlier check.
     """
     if cell.getString().strip("\n"):
-        return True
-    return any(
-        paragraph_has_non_text_portion(para, ignore_markers=True)
-        or enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent"))
-        for para in iter_elements(cell.createEnumeration())
-    )
+        return "text, or a pending tracked deletion"
+    for para in iter_elements(cell.createEnumeration()):
+        kind = non_text_portion_type(para, ignore_markers=True)
+        if kind is not None:
+            return _PORTION_LABELS.get(kind, kind)
+        if enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent")):
+            return "a frame, image or shape"
+    return None
+
+
+def _protected_cells(table: Any, axis: str, idx: int) -> list[str]:
+    """Cells in row or column *idx* marked ``IsProtected``; ``SwDoc::DeleteRow`` / ``DeleteCol`` (ndtbl.cxx) skip silently."""
+    return [
+        name for name in _band_cell_names(table, axis, idx)
+        if table.getCellByName(name).getPropertyValue("IsProtected")
+    ]
 
 
 def _split_rows_hint(row_span: int) -> str:
@@ -454,23 +480,44 @@ def _split_rows_hint(row_span: int) -> str:
     return "Split it repeatedly with table_split_cell (direction='rows')"
 
 
-def _column_wide_cell(table: Any, idx: int) -> tuple[str, int] | None:
-    """First cell in a row where column *idx* shares a merged cell with other columns, and max span.
+def _column_wide_cell(table: Any, idx: int) -> tuple[str, int, int] | None:
+    """Widest merged cell in the band around column *idx*, its column span, and total columns deleted.
 
     ``SwXTableColumns::removeByIndex`` (``sw/source/core/unocore/unotbl.cxx``) calls
     ``SwDoc::DeleteCol`` (``sw/source/core/docnode/ndtbl.cxx``), which expands the
     selection across any wider cell; a full-width row makes LibreOffice delete the whole table.
     """
     by_row: dict[int, list[str]] = {}
+    positions: dict[str, tuple[int, int]] = {}
     for name in _band_cell_names(table, "column", idx):
         pos = writer_cell_position(name)
         if pos is not None:
+            positions[name] = pos
             by_row.setdefault(pos[1], []).append(name)
     if not any(len(cells) > 1 for cells in by_row.values()):
         return None
-    narrowest = min(by_row.values(), key=len)
-    widest = max(len(cells) for cells in by_row.values())
-    return narrowest[0], widest
+    edges = _column_edges(table)
+    seps = sorted({p for row in edges for p in row[1:-1]})
+
+    def columns(left: int, right: int) -> int:
+        count = 1
+        last = left
+        for p in seps:
+            if last + 1 < p < right - 1:
+                count += 1
+                last = p
+        return count
+
+    bounds = {
+        name: (edges[row][col], edges[row][col + 1])
+        for name, (col, row) in positions.items()
+    }
+    cell = max(bounds, key=lambda name: columns(*bounds[name]))
+    return (
+        cell,
+        columns(*bounds[cell]),
+        columns(min(b[0] for b in bounds.values()), max(b[1] for b in bounds.values())),
+    )
 
 
 def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
@@ -580,7 +627,8 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
     err_msg = (
         "LibreOffice did not record deleting this %s as a tracked change, so it was left in place. "
-        "If the table or its text is a pending tracked insertion, the user must accept or reject that first."
+        "If the table or its text is a pending tracked insertion, the user must accept or reject that first; "
+        "if a protected merged cell reaches into it, the user must unprotect it (Table > Unprotect Cells)."
         % axis
     )
     controller = doc.getCurrentController()
@@ -914,6 +962,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
+        "refuses to delete a row or column that holds a protected cell; "
         "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
         "refuses to delete a column that a wider (merged) cell covers together with other columns; "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
@@ -974,25 +1023,30 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
+                protected = _protected_cells(table, axis_arg, idx)
+                if protected:
+                    return self._tool_error(
+                        "Cannot delete this %s: cell(s) %s are protected. "
+                        "Ask the user to unprotect them first (Table > Unprotect Cells)."
+                        % (axis_arg, ", ".join(protected)),
+                        code="CELLS_PROTECTED",
+                    )
                 if axis_arg == "row":
                     # PrepareDelBoxes (sw/source/core/table/swnewtable.cxx) hands the covered box below only
                     # the remaining span, so whatever the spanning cell holds goes with its start row.
-                    held = next(
-                        (s for s in _row_spanning_cells(table, idx) if _cell_has_content(table.getCellByName(s[0]))),
-                        None,
-                    )
-                    if held is not None:
-                        cell_name, row_span = held
-                        return self._tool_error(
-                            "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
-                            "so its content would be deleted too. %s, move the content to keep into a lower row, "
-                            "then delete the row." % (cell_name, row_span, _split_rows_hint(row_span)),
-                            code="ROW_HAS_SPANNING_CELL",
-                        )
+                    for cell_name, row_span in _row_spanning_cells(table, idx):
+                        found = _cell_content(table.getCellByName(cell_name))
+                        if found is not None:
+                            return self._tool_error(
+                                "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
+                                "so its content (%s) would be deleted too. %s, move the content to keep into a lower row, "
+                                "then delete the row." % (cell_name, row_span, found, _split_rows_hint(row_span)),
+                                code="ROW_HAS_SPANNING_CELL",
+                            )
                 else:
                     wide = _column_wide_cell(table, idx)
                     if wide is not None:
-                        cell_name, col_span = wide
+                        cell_name, col_span, doomed_cols = wide
                         split_hint = (
                             "Split it with table_split_cell (direction='columns', parts=%d)" % col_span
                             if col_span <= 20
@@ -1002,7 +1056,7 @@ class ManageTableStructure(ToolWriterTableBase):
                             "Cannot delete this column: cell '%s' spans %d columns, so %d columns "
                             "would be deleted. %s, move the text to keep into another part, then "
                             "delete the column. If the column edges still do not line up, edit the "
-                            "cells instead." % (cell_name, col_span, col_span, split_hint),
+                            "cells instead." % (cell_name, col_span, doomed_cols, split_hint),
                             code="COLUMN_HAS_SPANNING_CELL",
                         )
             if insert:
@@ -1016,6 +1070,15 @@ class ManageTableStructure(ToolWriterTableBase):
                         _delete_band_tracked(ctx.doc, uno_ctx, table, name, axis_arg, idx)
                         return True
                     edit_table_band(band, action, idx, axis_arg)
+                    # removeByIndex ignores the outcome of SwDoc::DeleteRow/DeleteCol, and a
+                    # protected cell merged from above is not in the band's names but may still block.
+                    if band.getCount() == count:
+                        raise ToolExecutionError(
+                            "LibreOffice left this %s in place. A protected merged cell may reach into it "
+                            "(the user can clear that with Table > Unprotect Cells), or the table may be a DDE link."
+                            % axis_arg,
+                            code="TABLE_BAND_NOT_DELETED",
+                        )
                     return False
 
                 tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))
@@ -1233,7 +1296,7 @@ class TableInsert(ToolWriterTableBase):
                     host.insertTextContent(host.getEnd(), table, False)
                 else:
                     text = doc.getText()
-                    cursor = uno_read(lambda: doc.getCurrentController().getViewCursor(), None)
+                    cursor = request_selection_range(ctx)
                     if cursor is None:
                         cursor = text.getEnd()
                     try:
@@ -1242,13 +1305,13 @@ class TableInsert(ToolWriterTableBase):
                         if is_disposal(exc):
                             raise
                         # Body XText + cursor already in a cell: do not guess a nest target.
-                        # doc.getText().insertTextContent(viewCursor, table) raises when the
+                        # doc.getText().insertTextContent(cursor, table) raises when the
                         # cursor already sits in a nested XText (table cell, frame):
                         # "End of content node doesn't have the proper start node".
                         msg = str(exc).lower()
                         if "start node" in msg and "content node" in msg:
                             raise ValueError(
-                                "Cannot insert a table at the view cursor (it is probably inside a cell). "
+                                "Cannot insert a table at the cursor (it is probably inside a cell). "
                                 "Pass parent and cell to nest, or move the cursor out of the table."
                             )
                         raise

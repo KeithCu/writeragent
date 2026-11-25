@@ -286,6 +286,23 @@ def test_apply_content_inline_math_keeps_space_after_formula_uno(ctx: Any, doc: 
 
 @native_test
 @with_native_doc("writer")
+def test_mathml_without_default_xmlns_converts_uno(ctx: Any, doc: Any) -> None:
+    for mml in (
+        "<math><mi>x</mi><mo>+</mo><mi>y</mi></math>",
+        "<math xmlns=''><mi>x</mi><mo>+</mo><mi>y</mi></math>",
+    ):
+        res = convert_mathml_to_starmath(ctx, mml)
+        assert res.ok, res.error_message
+        assert res.starmath.strip() == "x + y", res.starmath
+
+    html_import.replace_full_document(doc, ctx, "<p>a <math><mi>x</mi><mo>+</mo><mi>y</mi></math> b</p>")
+    assert _embed_count(doc) == 1
+    assert _first_math_formula(doc).strip() == "x + y"
+    assert "[Math import failed]" not in doc.getText().getString()
+
+
+@native_test
+@with_native_doc("writer")
 def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any, doc: Any) -> None:
     from unittest.mock import patch
 
@@ -509,6 +526,395 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
             paras8 = [p.getString() for p in _paras()]
             assert paras8 == ["first", "second [Math import failed] bad third", "fourth"], paras8
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    apply_tool = ApplyDocumentContent()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    text = doc.getText()
+
+    def _reset(body: str) -> None:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString(body)
+
+    def _para_portions(para: Any) -> list[str]:
+        out: list[str] = []
+        pe = para.createEnumeration()
+        while enum_has_more(pe):
+            p = pe.nextElement()
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Redline":
+                continue
+            out.append("Frame" if ptype == "Frame" else p.getString())
+        return out
+
+    def _paras() -> list[Any]:
+        out: list[Any] = []
+        pe = text.createEnumeration()
+        while enum_has_more(pe):
+            el = pe.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                out.append(el)
+        return out
+
+    for rec in (False, True):
+        try:
+            for pos in ("before", "after"):
+                # 1. Inline math
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content=r"\(x^2\)", position=pos,
+                )
+                assert res.get("status") == "ok", res
+                assert res.get("inserted") is True, res
+                assert len(res.get("math_objects") or []) == 1, res
+                paras = _paras()
+                assert len(paras) == 1
+                expected_inline = ["mid ", "Frame", "MATCH end"] if pos == "before" else ["mid MATCH", "Frame", " end"]
+                assert _para_portions(paras[0]) == expected_inline, (rec, pos, _para_portions(paras[0]))
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+
+                # 2. Block HTML with math
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_blk = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content=r"<p>A \(x\) B</p>", position=pos,
+                )
+                assert res_blk.get("status") == "ok", res_blk
+                assert len(res_blk.get("math_objects") or []) == 1, res_blk
+                paras = _paras()
+                assert len(paras) == 2
+                math_idx, orig_idx = (0, 1) if pos == "before" else (1, 0)
+                assert _para_portions(paras[math_idx]) == ["A ", "Frame", " B"]
+                assert paras[orig_idx].getString() == "mid MATCH end"
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+
+                # 3. Display math centered paragraph
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_disp = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content="$$y=1$$", position=pos,
+                )
+                assert res_disp.get("status") == "ok", res_disp
+                assert len(res_disp.get("math_objects") or []) == 1, res_disp
+                paras = _paras()
+                expected_disp = ["mid ", "", "MATCH end"] if pos == "before" else ["mid MATCH", "", " end"]
+                assert [p.getString() for p in paras] == expected_disp, (rec, pos, [p.getString() for p in paras])
+                assert _para_portions(paras[1]) == ["Frame"]
+                assert paras[1].getPropertyValue("ParaAdjust") == 3  # Center
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_math_tokens_across_soft_page_break_uno(ctx: Any, doc: Any) -> None:
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    std_page = page_styles.getByName("Standard")
+    page_props = ("Width", "Height", "LeftMargin", "RightMargin", "TopMargin", "BottomMargin")
+    saved_page = {k: std_page.getPropertyValue(k) for k in page_props}
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    para_props = ("CharHeight", "ParaWidows", "ParaOrphans")
+    saved_para: list[tuple[Any, dict[str, Any]]] = []
+    for style_name in ("Standard", "Text body"):
+        if para_styles.hasByName(style_name):
+            st = para_styles.getByName(style_name)
+            saved_para.append((st, {k: st.getPropertyValue(k) for k in para_props}))
+
+    try:
+        std_page.setPropertyValue("Width", 6000)
+        std_page.setPropertyValue("Height", 6000)
+        for margin in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
+            std_page.setPropertyValue(margin, 500)
+        for st, _saved in saved_para:
+            st.setPropertyValue("CharHeight", 30.0)
+            st.setPropertyValue("ParaWidows", 0)
+            st.setPropertyValue("ParaOrphans", 0)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+
+        content = " ".join(rf"word\(x_{{{i}}}\)" for i in range(12))
+        res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
+        assert res.get("status") == "ok", res
+        math_objs = res.get("math_objects") or []
+        assert len(math_objs) == 12, res
+        assert all(m.get("ok") for m in math_objs), math_objs
+        assert _embed_count(doc) == 12
+        assert "[[WA-MATH" not in doc.getText().getString()
+    finally:
+        for k, v in saved_page.items():
+            std_page.setPropertyValue(k, v)
+        for st, saved in saved_para:
+            for k, v in saved.items():
+                st.setPropertyValue(k, v)
+
+
+@native_test
+@with_native_doc("writer")
+def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) -> None:
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    apply_tool = ApplyDocumentContent()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    text = doc.getText()
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    custom_style_name = "CustomSelfOutlineHeading"
+    if not para_styles.hasByName(custom_style_name):
+        st = doc.createInstance("com.sun.star.style.ParagraphStyle")
+        para_styles.insertByName(custom_style_name, st)
+        st.setParentStyle("Heading 1")
+        st.setPropertyValue("OutlineLevel", 1)
+        st.setPropertyValue("FollowStyle", custom_style_name)
+
+    def _reset_doc(heading_text: str, heading_style: str = "Heading 1") -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.setPropertyValue("ParaStyleName", "Text body")
+        text.insertString(cur, "intro", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        cur.setPropertyValue("ParaStyleName", heading_style)
+        text.insertString(cur, heading_text, False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        cur.setPropertyValue("ParaStyleName", "Text body")
+        text.insertString(cur, "tail", False)
+        doc.getUndoManager().clear()
+
+    def _para_portions(para: Any) -> list[str]:
+        # Reject All can leave a paragraph's text split across adjacent portions at a former redline boundary.
+        out: list[str] = []
+        pe = para.createEnumeration()
+        while enum_has_more(pe):
+            p = pe.nextElement()
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Redline":
+                continue
+            if ptype == "Frame":
+                out.append("Frame")
+            else:
+                s = p.getString()
+                if out and out[-1] != "Frame":
+                    out[-1] += s
+                else:
+                    out.append(s)
+        return out
+
+    def _paras() -> list[Any]:
+        out: list[Any] = []
+        pe = text.createEnumeration()
+        while enum_has_more(pe):
+            el = pe.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                out.append(el)
+        return out
+
+    def _snapshot() -> list[tuple[str, int, list[str]]]:
+        return [
+            (
+                str(el.getPropertyValue("ParaStyleName")),
+                int(el.getPropertyValue("OutlineLevel")),
+                _para_portions(el),
+            )
+            for el in _paras()
+        ]
+
+    def _assert_redlines_only_insert_delete() -> None:
+        re_enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(re_enum):
+            rl = re_enum.nextElement()
+            rl_type = str(rl.getPropertyValue("RedlineType"))
+            assert rl_type in {"Insert", "Delete"}, rl_type
+
+    def _restore_and_check(rec: bool, before_snap: list[tuple[str, int, list[str]]], before_adjusts: list[int]) -> None:
+        if rec:
+            _assert_redlines_only_insert_delete()
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+        else:
+            doc.getUndoManager().undo()
+        assert _snapshot() == before_snap, (rec, _snapshot(), before_snap)
+        assert [int(p.getPropertyValue("ParaAdjust")) for p in _paras()] == before_adjusts
+
+    def _heading_cursor() -> Any:
+        heading = _paras()[1]
+        return text.createTextCursorByRange(heading.getStart())
+
+    for rec in (False, True):
+        try:
+            # 1. Caret at start of Heading 1
+            _reset_doc("Alpha Beta")
+            before_snap = _snapshot()
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            doc.setPropertyValue("RecordChanges", rec)
+            cur = _heading_cursor()
+            cur.gotoStartOfParagraph(False)
+            um = doc.getUndoManager()
+            um.enterUndoContext("caret-start")
+            try:
+                html_import.insert_content_at_position(doc, ctx, "$$y=1$$", "selection", selection=cur)
+            finally:
+                um.leaveUndoContext()
+            snap = _snapshot()
+            assert snap == [
+                ("Text body", 0, ["intro"]),
+                ("Text body", 0, ["Frame"]),
+                ("Heading 1", 1, ["Alpha Beta"]),
+                ("Text body", 0, ["tail"]),
+            ], (rec, snap)
+            assert _paras()[1].getPropertyValue("ParaAdjust") == 3
+            _restore_and_check(rec, before_snap, before_adj)
+
+            # 2. Search replace of heading's first word (unrecorded only)
+            if not rec:
+                _reset_doc("Alpha Beta")
+                before_snap = _snapshot()
+                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+                res = apply_tool.execute(tool_ctx, target="search", old_content="Alpha", content="$$y=1$$")
+                assert res.get("status") == "ok", res
+                snap = _snapshot()
+                assert snap == [
+                    ("Text body", 0, ["intro"]),
+                    ("Text body", 0, ["Frame"]),
+                    ("Heading 1", 1, [" Beta"]),
+                    ("Text body", 0, ["tail"]),
+                ], snap
+                assert _paras()[1].getPropertyValue("ParaAdjust") == 3
+                _restore_and_check(False, before_snap, before_adj)
+
+            # 3. Caret at middle and end of self-following custom outline style
+            for where in ("middle", "end"):
+                _reset_doc("AlphaBeta", heading_style=custom_style_name)
+                before_snap = _snapshot()
+                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+                doc.setPropertyValue("RecordChanges", rec)
+                cur = _heading_cursor()
+                if where == "middle":
+                    cur.goRight(5, False)
+                else:
+                    cur.gotoEndOfParagraph(False)
+                um.enterUndoContext(f"caret-{where}")
+                try:
+                    html_import.insert_content_at_position(doc, ctx, "$$y=1$$", "selection", selection=cur)
+                finally:
+                    um.leaveUndoContext()
+                snap = _snapshot()
+                expected_tail = (
+                    [(custom_style_name, 1, ["Beta"])] if where == "middle" else []
+                )
+                assert snap == [
+                    ("Text body", 0, ["intro"]),
+                    (custom_style_name, 1, ["Alpha" if where == "middle" else "AlphaBeta"]),
+                    ("Text body", 0, ["Frame"]),
+                    *expected_tail,
+                    ("Text body", 0, ["tail"]),
+                ], (rec, where, snap)
+                assert _paras()[2].getPropertyValue("ParaAdjust") == 3
+                _restore_and_check(rec, before_snap, before_adj)
+
+            # 4. <h1>$$a$$ $$b$$ Title</h1> at end
+            _reset_doc("Alpha Beta")
+            before_snap = _snapshot()
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            doc.setPropertyValue("RecordChanges", rec)
+            res = apply_tool.execute(tool_ctx, target="end", content="<h1>$$a$$ $$b$$ Title</h1>")
+            assert res.get("status") == "ok", res
+            snap = _snapshot()
+            assert snap[-3:] == [
+                ("Text body", 0, ["Frame"]),
+                ("Text body", 0, ["Frame"]),
+                ("Heading 1", 1, ["Title"]),
+            ], (rec, snap)
+            paras = _paras()
+            assert paras[-3].getPropertyValue("ParaAdjust") == 3
+            assert paras[-2].getPropertyValue("ParaAdjust") == 3
+            _restore_and_check(rec, before_snap, before_adj)
+
+            # 5. $$a$$ $$b$$ at heading's end
+            _reset_doc("Alpha")
+            before_snap = _snapshot()
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            doc.setPropertyValue("RecordChanges", rec)
+            cur = _heading_cursor()
+            cur.gotoEndOfParagraph(False)
+            um.enterUndoContext("caret-two-end")
+            try:
+                html_import.insert_content_at_position(doc, ctx, "$$a$$ $$b$$", "selection", selection=cur)
+            finally:
+                um.leaveUndoContext()
+            snap = _snapshot()
+            assert snap == [
+                ("Text body", 0, ["intro"]),
+                ("Heading 1", 1, ["Alpha"]),
+                ("Text body", 0, ["Frame"]),
+                ("Text body", 0, ["Frame"]),
+                ("Text body", 0, ["tail"]),
+            ], (rec, snap)
+            paras = _paras()
+            assert paras[2].getPropertyValue("ParaAdjust") == 3
+            assert paras[3].getPropertyValue("ParaAdjust") == 3
+            _restore_and_check(rec, before_snap, before_adj)
+
+            # 6. <h1>$$y=1$$</h1> at end keeps Heading 1 (deliberate exception)
+            _reset_doc("Alpha")
+            before_snap = _snapshot()
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            doc.setPropertyValue("RecordChanges", rec)
+            res = apply_tool.execute(tool_ctx, target="end", content="<h1>$$y=1$$</h1>")
+            assert res.get("status") == "ok", res
+            snap = _snapshot()
+            assert snap[-1] == ("Heading 1", 1, ["Frame"]), (rec, snap)
+            assert _paras()[-1].getPropertyValue("ParaAdjust") == 3
+            _restore_and_check(rec, before_snap, before_adj)
         finally:
             doc.setPropertyValue("RecordChanges", False)
 

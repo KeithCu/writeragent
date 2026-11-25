@@ -27,6 +27,8 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, cast
 
+import uno
+
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX, normalize_cell_address
 from plugin.chatbot.dialogs import set_prop
@@ -267,8 +269,6 @@ def _tighten_list_indent(body_range: Any) -> None:
     Modifies NumberingRules for paragraphs with NumberingIsNumber to tight
     values suitable for the narrow sidebar.
     """
-    import uno
-
     from plugin.framework.uno_context import enum_has_more
 
     enum = body_range.createEnumeration()
@@ -301,9 +301,7 @@ def _tighten_list_indent(body_range: Any) -> None:
                 if p.Name == "LeftMargin":
                     log.debug("_tighten_list_indent: level=%d orig LeftMargin=%s text=%r", level, p.Value, para.getString()[:40])
                     p.Value = abs(flo) + 115 + level * 225
-            # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
-            uno_any = getattr(uno, "Any")
-            any_props = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", tuple(props)))
+            any_props = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", cast("Any", tuple(props)))
             uno.invoke(rules, "replaceByIndex", (level, any_props))
             para.NumberingRules = rules
             return True

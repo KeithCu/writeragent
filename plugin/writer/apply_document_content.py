@@ -491,7 +491,7 @@ class ApplyDocumentContent(ToolBase):
             "position": enum_param(
                 ["replace", "before", "after"],
                 (
-                    "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
+                    "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
                 ),
                 default="replace",
             ),
@@ -568,7 +568,7 @@ class ApplyDocumentContent(ToolBase):
         """Visible text a search replace will insert, for outline-URL substitution."""
         if html_import.content_has_markup(content):
             return html_import.plain_text_if_markup(content)
-        return html_import_styles.expand_escapes(content)
+        return html_import_styles.expand_prose_escapes(content)
 
     def _read_outline_snapshot(self, found: Any, log_message: str) -> OutlineSnapshot:
         try:
@@ -698,7 +698,7 @@ class ApplyDocumentContent(ToolBase):
                                       "formatting preserved)." % shape_name),
                           "replaced_count": 1, "review_bypassed": True},
                         None)
-                    return annotate_review_status(result)
+                    return result
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -1064,16 +1064,17 @@ class ApplyDocumentContent(ToolBase):
         wait_seconds = self._review_wait_seconds()
         session_box: list[Any] = []
 
-        def _do_edit() -> tuple[dict[str, Any], Any]:
+        def _do_edit() -> tuple[dict[str, Any], Any, bool]:
             parsed = self._parse_edit_params(ctx, kwargs)
             if isinstance(parsed, dict):
-                return parsed, None
+                return parsed, None, False
             parsed, diags = self._resolve_heading_links(ctx.doc, parsed)
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
-            return result, session
+            pending = result.get("status") == "ok" and session.left_tracked_changes()
+            return result, session, pending
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
@@ -1085,8 +1086,8 @@ class ApplyDocumentContent(ToolBase):
             # bookmarks are released in `finally` even if the edit raises mid-way (e.g. the 2nd
             # of 3 replace-all matches fails after the 1st).
             try:
-                result = _run_on_main_thread(_do_edit)[0]
-                return annotate_review_status(result)
+                result, _session, pending = _run_on_main_thread(_do_edit)
+                return annotate_review_status(result) if pending else result
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
@@ -1099,7 +1100,7 @@ class ApplyDocumentContent(ToolBase):
             # 60s edit budget: matches the synchronous MCP path's processing timeout; the
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
-            result, session = _run_on_main_thread(_do_edit)
+            result, session, pending = _run_on_main_thread(_do_edit)
         except Exception as e:
             if session_box:
                 self._release_review_session(session_box[0])
@@ -1109,7 +1110,7 @@ class ApplyDocumentContent(ToolBase):
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
                 self._release_review_session(session)
-            return result
+            return annotate_review_status(result) if pending else result
 
         # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
         # The callback marshals onto the chat drain queue, so it is safe from this worker thread.
@@ -1340,7 +1341,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        html_import.raise_if_hidden_start(ctx.doc)
+        html_import.raise_if_hidden_section(ctx.doc)
         html_import.raise_if_protected_sections(ctx.doc)
         content = params.content
         plain = params.plain
@@ -1642,9 +1643,14 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
     ) -> dict[str, Any]:
         doc = ctx.doc
-        content = params.content
         plain = params.plain
         use_preserve = params.use_preserve
+        # Plain content was normalized in _parse_edit_params. Markup is normalized here, before the
+        # math guard and the block test, because the inserts below do not decode HTML5-only names.
+        content = (
+            params.content if use_preserve
+            else html_import_styles.normalize_character_references(params.content)
+        )
         has_table = params.has_table
         occurrence = params.occurrence
         position = params.position
@@ -1652,15 +1658,8 @@ class ApplyDocumentContent(ToolBase):
         # there so review mode records only new text, not a tracked delete+reinsert of the
         # unchanged clause.
         #
-        # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
-        # roll back either way): math segments are not wired into the next-to-match insert
-        # below, and the HTML import path is not cell-safe (same nested-XText hazard the
-        # replace path detects).
-        if html_import.html_fragment_contains_mixed_math(str(content)):
-            return self._tool_error(
-                "position='before'/'after' does not support content with math segments yet; "
-                "use position='replace' including the math, or target='end'.",
-                code="INVALID_PARAM")
+        # One guarded gap remains: the HTML import path is not cell-safe (same nested-XText
+        # hazard the replace path detects), so a match in a table cell is refused below.
         # TextTable is None outside a cell. A throw is a closed document;
         # do not treat it as "not a cell" and run the cell-unsafe import.
         in_cell = found.getText().createTextCursorByRange(

@@ -24,6 +24,8 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 _INF = float("inf")
 
@@ -71,9 +73,9 @@ _BAD_INPUTS: list[tuple[str, str, tuple[Any, ...], Any]] = [
     ("tinv", "out-of-range-prob", (1.5, 10), "nan"),
     ("tinv", "out-of-range-df", (0.05, 0.5), "nan"),
     # trend: an empty known_y is Err:504. A flat zero series fits.
-    ("trend", "text", (["a", "b"],), "#VALUE!"),
-    ("trend", "blank", ([None, None],), "#VALUE!"),
-    ("trend", "blank-none", (None,), "#VALUE!"),
+    ("trend", "text", (["a", "b"],), "Err:502"),
+    ("trend", "blank", ([None, None],), "Err:502"),
+    ("trend", "blank-none", (None,), "Err:502"),
     ("trend", "out-of-range-shape", ([1.0, 2.0, 3.0], [1.0, 2.0]), "Err:502"),
     # trimmean: text cells, a blank cell, and a text percent are already NaN.
     # Percent 0 is the untrimmed mean.
@@ -147,10 +149,10 @@ _BAD_INPUTS: list[tuple[str, str, tuple[Any, ...], Any]] = [
     ("xirr", "out-of-range-length", ([-100, 110], [0]), "nan"),
     ("xirr", "out-of-range-guess", ([-100, 110], [0, 365], -2), "nan"),
     ("xirr", "text-guess", ([-100, 110], [0, 365], "g"), "nan"),
-    # xlookup: a return array shorter than the match used to raise.
-    ("xlookup", "out-of-range-return", ("b", ["a", "b"], [1]), "#VALUE!"),
-    ("xlookup", "out-of-range-rows", ("c", ["a", "b", "c"], [["x"], ["y"]]), "#VALUE!"),
-    ("xlookup", "out-of-range-column", ("b", [["a"], ["b"]], [[10]]), "#VALUE!"),
+    # xlookup: return shape mismatches report Err:504.
+    ("xlookup", "out-of-range-return", ("b", ["a", "b"], [1]), "Err:504"),
+    ("xlookup", "out-of-range-rows", ("c", ["a", "b", "c"], [["x"], ["y"]]), "Err:504"),
+    ("xlookup", "out-of-range-column", ("b", [["a"], ["b"]], [[10]]), "Err:504"),
     # xmatch: a blank that occurs in the lookup vector is a hit, not an error.
     ("xmatch", "text", ("z", [1, 2, 3]), "nan"),
     ("xmatch", "zero", (0, [1, 2, 3]), "nan"),
@@ -660,6 +662,85 @@ def test_xlookup_invalid_mode_is_err_504():
 
 
 def test_t_z_approx_floor_df():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
     assert calc.tdist(1, 0.29 * 100, 1) == calc.tdist(1, 29, 1)
     assert calc.tinv(0.5, 0.29 * 100) == calc.tinv(0.5, 29)
+    assert math.isclose(calc.tdist(1, 1e20, 1), 0.15865525393145707)
+    assert math.isclose(calc.tinv(0.05, 1e20), 1.95996398454005)
+    assert calc.tdist(1, 10, 1.9999999999999998) == calc.tdist(1, 10, 2)
+    assert calc.tdist(1, 10, 2.9) == calc.tdist(1, 10, 2)
+    assert calc.ttest([1, 2, 3], [2, 3, 5], 1.9999999999999998, 2.9) == calc.ttest([1, 2, 3], [2, 3, 5], 2, 2)
+    assert math.isclose(calc.trimmean([i * i for i in range(1, 101)], 0.58), 2697.1666666666665)
+    bad_df = calc.tdist(1, 0.5, 1)
+    assert math.isnan(bad_df) and nan_error_code(bad_df) == 502
 
+
+def test_xlookup_size_is_checked_before_search():
+    assert calc.xlookup("z", ["a", "b"], [1], "NF") == "Err:504"
+    assert calc.xlookup("b", [["a"], ["b"]], [[1, 2]]) == "Err:504"
+    assert calc.xlookup("a", [["a"]], [[1], [2]]) == "Err:504"
+    assert calc.xlookup("a", [["a", "b"], ["c", "d"]], [1, 2, 3, 4]) == "Err:504"
+    assert calc.xlookup("a", [["a"]], [[1, 2]]) == [1, 2]
+
+
+def test_text_before_after_empty_delimiter_and_text():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    assert calc.textafter("a-b", "", 1, 0, 1) == ""
+    assert calc.textafter("a-b", "", -1, 0, 1) == "a-b"
+    assert calc.textbefore("a-b", "", 1, 0, 1) == "a-b"
+    assert calc.textbefore("a-b", "", -1, 0, 1) == ""
+    assert calc.textafter("a-b", "", 2, 0, 1, "NF") == "NF"
+    empty_res = calc.textafter("", "-", 1, 0, 1, "NF")
+    assert isinstance(empty_res, float) and math.isnan(empty_res) and nan_error_code(empty_res) == 0x7FFF
+
+
+def test_vlookup_xmatch_xlookup_text_and_trend_errors():
+    table = CalcRange([[1, 10], [2, 20], [3, 30]])
+    assert calc.vlookup(2.5, table, 2) == 20
+    assert calc.vlookup(CalcRange([[2]]), table, CalcRange([[2]]), False) == 20
+    assert calc.vlookup("#DIV/0!", table, 3, False) == "Err:502"
+    assert calc.vlookup(2, table, "#DIV/0!", False) == "#DIV/0!"
+    assert calc.vlookup(2, table, "x", False) == "#VALUE!"
+    assert calc.vlookup(2, table, 2, "x") == "#VALUE!"
+    assert calc.vlookup(2, table, 0, False) == "Err:502"
+    assert calc.vlookup("#DIV/0!", table, 2, False) == "#DIV/0!"
+    assert nan_error_code(calc.vlookup(None, table, 2, False)) == 0x7FFF
+    assert nan_error_code(calc.vlookup(NA_NAN, table, 2)) == 0x7FFF
+    assert calc.vlookup(True, [[1, "yes"]], 2, False) == "yes"
+    assert calc.vlookup("1", [[1, "yes"]], 2, False) == "yes"
+    assert nan_error_code(calc.vlookup(5, [["5", "no"]], 2, False)) == 0x7FFF
+    assert calc.vlookup("b*", [["Alpha", 1], ["Banana", 2]], 2, False) == 2
+
+    assert calc.xmatch(CalcRange([[2]]), [1, 2, 3]) == 2.0
+    assert calc.xmatch("#DIV/0!", [1, 2]) == "#DIV/0!"
+    assert nan_error_code(calc.xmatch("#DIV/0!", [1, 2], 9)) == 504
+    assert calc.xlookup(CalcRange([[2]]), [1, 2, 3], [10, 20, 30]) == 20
+    assert calc.xlookup("#DIV/0!", [1, 2], [10, 20]) == "#DIV/0!"
+    assert calc.xlookup("#DIV/0!", [1, 2], [10, 20], "nf") == "nf"
+    assert calc.ifna(lambda: calc.xlookup("#N/A", [1, 2], [10, 20]), "nf") == "nf"
+    assert calc.ifna(lambda: calc.xlookup("#DIV/0!", [1, 2], [10, 20]), "nf") == "#DIV/0!"
+
+    assert calc.textafter("A-B", "-", 1, 2) == "B"
+    assert calc.textafter("A-B", "-", 1, "1") == "B"
+    assert calc.textbefore("A-B", "-", 1, 2) == "A"
+    assert calc.textbefore("A-B", "-", 1, "1") == "A"
+    assert nan_error_code(calc.textafter("a-b", "-", 1, "q")) == 519
+    assert nan_error_code(calc.textbefore("a-b", "-", 1, "q")) == 519
+    assert calc.textafter("a-b-c", "-", 1.9) == "b-c"
+    assert calc.textbefore("a-b-c", "-", -1.9) == "a-b"
+    assert nan_error_code(calc.textafter("a-b", "-", 0.5)) == 0x7FFF
+    assert nan_error_code(calc.textafter("a-b", "-", -0.5)) == 0x7FFF
+    assert nan_error_code(calc.textafter("a-b", "-", None)) == 0x7FFF
+    assert nan_error_code(calc.textafter("a-b", "-", "x")) == 519
+    assert nan_error_code(calc.textbefore("a-b", "-", "x")) == 519
+    assert calc.textafter("a-b", "-", 1, 0, 0, "#DIV/0!") == "#DIV/0!"
+    assert calc.textsplit("a-b", "-", None, False, 0, "#DIV/0!") == [["a", "b"]]
+
+    trend_res = calc.trend([2, 4, 6], [1, 2, 3], [4, "#DIV/0!", 5])
+    assert math.isclose(trend_res[0], 8.0) and trend_res[1] == "#DIV/0!" and math.isclose(trend_res[2], 10.0)
+    assert calc.trend([1, 2, 3], [1, 2, 3], 4, "#DIV/0!") == "#DIV/0!"
+    growth_res = calc.growth([1, 2, 4], [1, 2, 3], [4, "#N/A"])
+    assert math.isclose(growth_res[0], 8.0, rel_tol=1e-9) and growth_res[1] == "#N/A"
+    assert math.isnan(calc.ztest([1, 2, 3, 4], 2, CalcRange([[None]])))

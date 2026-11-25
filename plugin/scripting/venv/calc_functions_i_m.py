@@ -20,22 +20,30 @@ from typing import Any, Callable
 
 import numpy as np
 
+from plugin.contrib.smolagents.local_python_executor import InterpreterError
+
 from .calc_functions_util import (
+    RegressionError,
     as_nonzero,
+    cell_value,
     clean_paired_arrays,
     collect_a_values,
     extract_numeric_array,
     finite_or_nan,
+    first_error,
     from_complex,
     is_calc_error,
     is_number,
+    least_squares,
     match_criteria,
     nan_error_code,
     npf_result,
-    orient_columns,
     propagate_errors,
-    require_samples,
+    py_str,
+    regression_inputs,
     serial_to_date,
+    sorted_match,
+    whole_number,
     yearfrac,
 )
 from .calc_functions_d_h import duration
@@ -72,6 +80,7 @@ __all__ = [
     "imsum",
     "imtan",
     "imtanh",
+    "index",
     "intercept",
     "intrate",
     "ipmt",
@@ -112,28 +121,28 @@ __all__ = [
 ]
 
 
-def _if_caught(
-    f: Callable[[], Any],
-    alt: Any,
-    pred: Callable[[Any], bool],
-    caught: tuple[type[Exception], ...],
-) -> Any:
+def iferror(f: Callable[[], Any], alt: Any) -> Any:
+    # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
     try:
         val = f()
-        return alt if pred(val) else val
-    except caught:
+        return alt if is_calc_error(val) else val
+    except Exception:
         return alt
 
 
-def iferror(f: Callable[[], Any], alt: Any) -> Any:
-    # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
-    return _if_caught(f, alt, is_calc_error, (Exception,))
-
-
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
-    # These are what an #N/A operand raises in translated code (np.int64 of NaN or of the token,
-    # text + number, an INT_MIN index on x86 or date); other exceptions are other errors and propagate.
-    return _if_caught(f, alt, isna, (ValueError, TypeError, IndexError, OverflowError))
+    # Catches #N/A values and ValueError/TypeError/OverflowError from an #N/A operand
+    # (e.g. np.int64 of a NaN or token, text + number, or a date built from INT_MIN).
+    # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not
+    # hidden; IndexError is not caught because translated INDEX and lookups use helpers that
+    # return error values.
+    try:
+        val = f()
+        return alt if isna(val) else val
+    except InterpreterError:
+        raise
+    except (ValueError, TypeError, OverflowError):
+        return alt
 
 
 def _parse_complex(val: Any) -> tuple[complex, str]:
@@ -171,7 +180,8 @@ def _im_suffix(first: str, second: str = "") -> str:
 _IM_ERRORS = (ValueError, TypeError, OverflowError, ZeroDivisionError)
 
 
-def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
+def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], Any]:
+    @propagate_errors
     def wrapper(inumber: Any) -> str:
         try:
             number, suffix = _parse_complex(inumber)
@@ -182,7 +192,8 @@ def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
     return wrapper
 
 
-def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any], str]:
+def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any], Any]:
+    @propagate_errors
     def wrapper(inumber1: Any, inumber2: Any) -> str:
         try:
             left, left_suffix = _parse_complex(inumber1)
@@ -194,7 +205,8 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
     return wrapper
 
 
-def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
+def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], Any]:
+    @propagate_errors
     def wrapper(inumber: Any) -> float:
         # getImabs / getImargument return finiteOrThrow(result). A
         # non-finite magnitude is NaN here. inf would not trip IFERROR:
@@ -237,6 +249,7 @@ def imlog2(c: complex) -> complex:
     return cmath.log(c, 2)
 
 
+@propagate_errors
 def impower(inumber: Any, number: Any) -> str:
     try:
         number_c, suffix = _parse_complex(inumber)
@@ -276,6 +289,7 @@ def _im_fold(args: tuple[Any, ...], op: Callable[[complex, complex], complex]) -
         return "#VALUE!"
 
 
+@propagate_errors
 def improduct(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left * right)
 
@@ -289,12 +303,39 @@ imsqrt = _im_unary(cmath.sqrt)
 imsub = _im_binary(lambda left, right: left - right)
 
 
+@propagate_errors
 def imsum(*args: Any) -> str:
     return _im_fold(args, lambda left, right: left + right)
 
 
 imtan = _im_unary(cmath.tan)
 imtanh = _im_unary(cmath.tanh)
+
+
+def index(source: Any, row: Any = 0, col: Any = None) -> Any:
+    # ScIndex (interpr1.cxx) pops the column first, so its error wins; 0 or a blank is the whole row or column.
+    err = first_error([cell_value(col), cell_value(row)])
+    if err is not None:
+        return err
+    try:
+        r, c = whole_number(row), whole_number(col)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    if r < 0 or c < 0:
+        return "Err:502"
+    arr = np.asarray(source, dtype=object)
+    if arr.ndim < 2:
+        arr = arr.reshape(-1, 1)
+    # A one-row range with only a row argument is indexed along the row.
+    if col is None and arr.shape[0] == 1:
+        r, c = 0, r
+    if r > arr.shape[0] or c > arr.shape[1]:
+        return "#REF!"
+    if r:
+        arr = arr[r - 1 : r]
+    if c:
+        arr = arr[:, c - 1 : c]
+    return arr[0, 0] if arr.size == 1 else arr.tolist()
 
 
 @propagate_errors
@@ -497,16 +538,15 @@ _JIS_KANA_RE = re.compile(r"[\uff61-\uff9f]+")
 _JIS_TRANS = str.maketrans({0x20: "\u3000", **{cp: chr(cp + 0xFEE0) for cp in range(0x21, 0x7F)}})
 
 
+@propagate_errors
 def jis(text: Any) -> str:
     # Convert half-width ASCII (0x21-0x7E) to full-width (U+FF01-U+FF5E), space to
     # U+3000, and half-width katakana (U+FF61-U+FF9F) to full-width via NFKC.
-    if text is None:
-        return ""
     # nan and inf are not integers; str() is their text
     if isinstance(text, float) and text.is_integer():
         s = str(int(text))
     else:
-        s = str(text)
+        s = py_str(text)
     return _JIS_KANA_RE.sub(
         lambda match: unicodedata.normalize("NFKC", match.group()),
         s.translate(_JIS_TRANS),
@@ -548,52 +588,24 @@ def large(r: Any, k: Any) -> float:
     return float(np.partition(arr, -ki)[-ki])
 
 
-def _numeric_only(arg: Any) -> np.ndarray:
-    raw = np.asarray(arg, dtype=object).ravel()
-    if any(isinstance(v, str) for v in raw):
-        raise ValueError
-    arr = np.asarray(arg, dtype=float)
-    if np.any(np.isnan(arr)):
-        raise ValueError
-    return arr
+def _regression_line(args: tuple[Any, ...], kwargs: dict[str, Any], *, log: bool) -> list[float]:
+    """Shared fit for LINEST and LOGEST: coefficients in ``[mk, …, m1, b]`` order.
 
-
-def _regression_inputs(
-    args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> tuple[np.ndarray, np.ndarray, bool]:
-    """Shared known_y / known_x / const parse for LINEST and LOGEST.
-
-    Illegal ranges raise ValueError, and linest / logest catch that and
-    return "#VALUE!". Omitted known_x (the one-argument call) is ``1..n``.
-    A present blank (``None``) is not that omission: ``ScLinest`` uses
-    ``1..n`` only for ``IsMissing``. The fourth argument, ``stats``, is
-    ignored. ``CalculateRGPRKP`` builds a 5-row statistics matrix this
-    helper does not port.
+    ``const=False`` forces ``b = 0``. Omitted ``known_x`` (the one-argument call) is ``1..n``;
+    a present ``None`` is a blank cell, not an omission (``ScLinest`` uses ``1..n`` only for
+    ``IsMissing``). The fourth argument, ``stats``, is ignored because the 5-row statistics
+    matrix is not ported.
     """
-    data_y = _numeric_only(args[0]).ravel()
-    if data_y.size == 0:
+    if not args:
         raise ValueError
-    if len(args) <= 1:
-        data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
-    elif args[1] is None:
-        raise ValueError
-    else:
-        data_x = orient_columns(_numeric_only(args[1]), len(data_y), axis=0)
-    if data_x.shape[0] != len(data_y):
-        raise ValueError
-    raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
-    const = as_nonzero(raw_const)
-    require_samples(data_x.shape[0], data_x.shape[1], const)
-    return data_y, data_x, const
-
-
-def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
-    """Coefficients in ``[mk, …, m1, b]`` order. ``const=False`` forces ``b = 0``."""
-    design = np.c_[data_x, np.ones(data_x.shape[0])] if const else data_x
-    coeffs = np.linalg.lstsq(design, data_y, rcond=None)[0]
-    n_slopes = data_x.shape[1]
-    intercept_b = float(coeffs[n_slopes]) if const else 0.0
-    return [float(v) for v in coeffs[:n_slopes][::-1]] + [intercept_b]
+    y, x, with_intercept = regression_inputs(
+        args[0],
+        None if len(args) <= 1 else np.asarray(args[1], dtype=object),
+        kwargs.get("const", args[2] if len(args) > 2 else True),
+        log=log,
+    )
+    center, base, slopes = least_squares(y, x, with_intercept)
+    return [float(v) for v in slopes[::-1]] + [float(base - center @ slopes)]
 
 
 _REGRESSION_ERRORS = (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError)
@@ -603,8 +615,9 @@ def linest(*args: Any, **kwargs: Any) -> Any:
     # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        data_y, data_x, const = _regression_inputs(args, kwargs)
-        return _fit_line(data_y, data_x, const)
+        return _regression_line(args, kwargs, log=False)
+    except RegressionError as exc:
+        return exc.args[0]
     except _REGRESSION_ERRORS:
         return "#VALUE!"
 
@@ -613,15 +626,14 @@ def logest(*args: Any, **kwargs: Any) -> Any:
     # Excel order reverses the slopes. const=False forces b = 1. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        data_y, data_x, const = _regression_inputs(args, kwargs)
-        if np.any(data_y <= 0):
-            return "#VALUE!"
-        fitted = _fit_line(np.log(data_y), data_x, const)
-        return [float(np.exp(v)) for v in fitted]
+        return [float(np.exp(v)) for v in _regression_line(args, kwargs, log=True)]
+    except RegressionError as exc:
+        return exc.args[0]
     except _REGRESSION_ERRORS:
         return "#VALUE!"
 
 
+@propagate_errors
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
     prob = float(p)
     m = float(mean)
@@ -638,6 +650,7 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
     return finite_or_nan(res)
 
 
+@propagate_errors
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
@@ -658,18 +671,6 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     else:
         res = math.exp(-0.5 * z * z) / (x_val * s * math.sqrt(2.0 * math.pi))
     return finite_or_nan(res)
-
-
-def _lookup_number(val: Any) -> float | None:
-    """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
-    if isinstance(val, (bool, np.bool_, int, float, np.integer, np.floating)):
-        try:
-            number = float(val)
-        except (ValueError, TypeError, OverflowError):
-            return None
-        # a NaN key compares false and is already a miss (#N/A)
-        return number
-    return None
 
 
 def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
@@ -699,6 +700,10 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
     # not become the text "None". A miss is #N/A, not Python None.
     if not args:
         return "#N/A"
+    lookup_val = cell_value(lookup_val)
+    err = first_error([lookup_val])
+    if err is not None:
+        return err
     parsed = _lookup_keys(np.asarray(args[0], dtype=object))
     if parsed is None:
         return "#N/A"
@@ -713,16 +718,7 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
         ):
             return "#VALUE!"
         result = result_arr.ravel()
-    query_num = _lookup_number(lookup_val)
-
-    def _matches(value: Any) -> bool:
-        if query_num is not None:
-            cell = _lookup_number(value)
-            return cell is not None and cell <= query_num
-        if isinstance(lookup_val, str) and lookup_val != "" and isinstance(value, str) and value != "":
-            return value.casefold() <= lookup_val.casefold()
-        return False
-    best_idx = max((i for i, value in enumerate(vec) if _matches(value)), default=None)
+    best_idx = sorted_match(lookup_val, vec)
     if best_idx is None or best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
@@ -808,13 +804,13 @@ def mode(*args: Any) -> Any:
     # A Calc bool is a numeric cell, so True and 1 are the same value and
     # must stay merged.
     arr = extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
+    # ScModalValue (interpr3.cxx) pushes NoValue (#VALUE!) for empty or no repeat.
     if not arr.size:
-        return float("nan")
+        return "#VALUE!"
     counts = Counter(arr.tolist())
     best = max(counts.values())
-    # No repeat is #VALUE! in Calc (ScModalValue, interpr3.cxx); this returns a plain NaN (#NUM!).
     if best < 2:
-        return float("nan")
+        return "#VALUE!"
     # Tie-break is the lowest value, the first run after ScModalValue sorts.
     # mode([2, 2, 1, 1]) was 2 when Counter's first key won.
     return float(min(value for value, count in counts.items() if count == best))
@@ -855,6 +851,7 @@ def mtrans(matrix: Any) -> Any:
         return "#VALUE!"
 
 
+@propagate_errors
 def multinomial(*args: Any) -> float:
     vals: list[int] = []
     for arg in args:
@@ -886,6 +883,7 @@ def multinomial(*args: Any) -> float:
     return float(acc)
 
 
+@propagate_errors
 def munit(dimension: Any) -> Any:
     # ScEMat (interpr5.cxx): GetUInt32 truncates, then dimension 0 is
     # IllegalArgument, so np.eye(0) must not return []. Above 1024 the identity

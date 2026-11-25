@@ -1356,7 +1356,7 @@ def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
     assert paragraph_deletion_flags(rl_model, [p1, p2, p3]) == [False, True, True]
 
 
-def test_tracked_deletions_state_at_and_covers():
+def test_tracked_deletions_state_at_and_overlaps():
     from plugin.doc.text_helpers import TrackedDeletions
     from tests.testing_utils import FakeUnoEnum
 
@@ -1454,11 +1454,14 @@ def test_tracked_deletions_state_at_and_covers():
     # Not comparable -> not inside.
     assert td.state_at(MagicMock(getStart=lambda: "bad", createEnumeration=lambda: FakeUnoEnum([]))).in_delete is False
 
-    # covers: [2, 5] inclusive.
-    assert td.covers(_Range(2, 5)) is True
-    assert td.covers(_Range(3, 4)) is True
-    assert td.covers(_Range(1, 3)) is False
-    assert td.covers(_Range(4, 6)) is False
+    # overlaps: [2, 5) half-open.
+    assert td.overlaps(_Range(2, 5)) is True
+    assert td.overlaps(_Range(3, 4)) is True
+    assert td.overlaps(_Range(1, 3)) is True
+    assert td.overlaps(_Range(4, 6)) is True
+    assert td.overlaps(_Range(0, 2)) is False
+    assert td.overlaps(_Range(5, 7)) is False
+    assert td.overlaps(MagicMock()) is False
 
 
 def test_bounds_cover():
@@ -1566,12 +1569,17 @@ def test_build_heading_tree_keeps_unseen_live_headings():
         def createEnumeration(self):
             raise RuntimeError("unenumerable")
 
-    h_ctl = _RawTextPara([FakeUnoPortion("ContentControl", "")], "Ctl Heading", OutlineLevel=1)
+    h_ctl = _RawTextPara(
+        [FakeUnoPortion("ContentControl", inner=[FakeUnoPortion("Text", "Ctl Heading")])],
+        "Ctl Heading",
+        OutlineLevel=1,
+    )
+    h_meta = _RawTextPara([FakeUnoPortion("TextField", "")], "Meta Heading", OutlineLevel=1)
     h_bad = _UnenumerablePara([], OutlineLevel=1)
     h_next = FakeUnoPara([FakeUnoPortion("Text", "After")], OutlineLevel=1)
 
     body = MagicMock()
-    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_bad, h_next])
+    body.createEnumeration.return_value = FakeUnoEnum([h_ctl, h_meta, h_bad, h_next])
     model = MagicMock()
     model.getText.return_value = body
     model.getRedlines.return_value.hasElements.return_value = False
@@ -1579,9 +1587,129 @@ def test_build_heading_tree_keeps_unseen_live_headings():
     tree = build_heading_tree(model)
     assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
         ("Ctl Heading", 0),
-        ("Unreadable", 1),
-        ("After", 2),
+        ("Meta Heading", 1),
+        ("Unreadable", 2),
+        ("After", 3),
     ]
+
+
+def test_visible_portions_flattens_nested_content_control_and_redlines():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    inner_ctl = FakeUnoPortion(
+        "ContentControl",
+        inner=[
+            FakeUnoPortion("Text", "ab"),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+            FakeUnoPortion("Text", "cd"),
+        ],
+    )
+    outer_ctl = FakeUnoPortion(
+        "ContentControl",
+        inner=[FakeUnoPortion("Text", "xx "), inner_ctl],
+    )
+    para = FakeUnoPara([
+        outer_ctl,
+        FakeUnoPortion("Text", "ef"),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", " yy"),
+    ])
+    state = DeletionState()
+    assert [c for _p, c in visible_portions(para, state=state)] == ["xx ", "ab", " yy"]
+    assert state.in_delete is False
+
+
+def test_visible_portions_limit_counts_inner_portions():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    para = FakeUnoPara([
+        FakeUnoPortion("ContentControl", inner=[FakeUnoPortion("Text", "a"), FakeUnoPortion("Text", "b")]),
+        FakeUnoPortion("Text", "c"),
+    ])
+    truncated: list[int] = []
+    chunks = [c for _p, c in visible_portions(para, limit=1, truncated_out=truncated, state=DeletionState())]
+    assert chunks == ["a"]
+    assert truncated == [1]
+
+
+def test_visible_portions_abort_on_unreadable_inner_portion():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _BadTypePortion(FakeUnoPortion):
+        def getPropertyValue(self, name: str):
+            raise RuntimeError("unreadable")
+
+    para = FakeUnoPara([
+        FakeUnoPortion(
+            "ContentControl",
+            inner=[FakeUnoPortion("Text", "a"), _BadTypePortion("Text", "b"), FakeUnoPortion("Text", "c")],
+        ),
+    ])
+    chunks = [c for _p, c in visible_portions(para, abort_on_portion_error=True, state=DeletionState())]
+    assert chunks == ["a"]
+
+
+def test_visible_portions_unreadable_container_enum_respects_abort():
+    from plugin.doc.text_helpers import DeletionState, iter_portions, visible_portions
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    class _BadContainerPortion(FakeUnoPortion):
+        def getPropertyValue(self, name: str):
+            if name == "ContentControl":
+                raise RuntimeError("broken container")
+            return super().getPropertyValue(name)
+
+    para = FakeUnoPara([
+        FakeUnoPortion("Text", "before "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        _BadContainerPortion("ContentControl", ""),
+        FakeUnoPortion("Text", "after"),
+    ])
+    abort_state = DeletionState()
+    assert [c for _p, c in visible_portions(para, abort_on_portion_error=True, state=abort_state)] == ["before "]
+    assert abort_state.in_delete is False
+
+    skip_state = DeletionState()
+    assert [c for _p, c in visible_portions(para, abort_on_portion_error=False, state=skip_state)] == ["before "]
+    p_ok = FakeUnoPortion("Text", "a")
+    assert list(iter_portions(FakeUnoEnum([p_ok, _BadContainerPortion("ContentControl", ""), FakeUnoPortion("Text", "b")]))) == [
+        (p_ok, "Text")
+    ]
+
+
+def test_flat_portions_next_element_error_and_disposal():
+    import pytest
+    from plugin.doc.text_helpers import _flat_portions
+    from plugin.framework.errors import DocumentDisposedError
+    from tests.testing_utils import FakeUnoPortion
+
+    class _FlakyEnum:
+        def __init__(self, fail_with: Exception):
+            self._step = 0
+            self._fail_with = fail_with
+
+        def hasMoreElements(self) -> bool:
+            return self._step < 2
+
+        def nextElement(self):
+            self._step += 1
+            if self._step == 1:
+                raise self._fail_with
+            return FakeUnoPortion("Text", "ok")
+
+    items = list(_flat_portions(_FlakyEnum(RuntimeError("transient"))))
+    assert items[0] == (None, None)
+    assert items[1][1] == "Text"
+
+    class _DisposedError(Exception):
+        pass
+
+    _DisposedError.__name__ = "DisposedException"
+    with pytest.raises(DocumentDisposedError):
+        list(_flat_portions(_FlakyEnum(_DisposedError("gone"))))
 
 
 def test_visible_point_in_paragraph():
@@ -1792,6 +1920,40 @@ def test_reset_direct_char_formatting_reads_language_from_start():
     assert cursor_vals == start_langs
 
 
+def test_strikes_text_true_when_anchored_content_keeps_strikes_paragraph_false():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    def _text(s: str):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
+        p.getString.return_value = s
+        return p
+
+    portions = [_marker(True), _text("struck"), _marker(False)]
+    p_enum = MagicMock()
+    p_enum.hasMoreElements.side_effect = [True, True, True, False]
+    p_enum.nextElement.side_effect = portions
+
+    content_enum = MagicMock()
+    content_enum.hasMoreElements.return_value = True
+
+    para = MagicMock()
+    para.createEnumeration.return_value = p_enum
+    para.createContentEnumeration.return_value = content_enum
+    para.getString.return_value = "struck"
+
+    state = DeletionState()
+    list(visible_portions(para, state=state))
+    assert state.strikes_text(para, False) is True
+    assert state.strikes_paragraph(para, False) is False
 def test_reset_direct_char_formatting_uses_given_language():
     from plugin.doc.text_helpers import reset_direct_char_formatting
 
@@ -1823,3 +1985,37 @@ def test_reset_direct_char_formatting_uses_given_language():
 
     assert cursor_vals == given
     at_start.getPropertyValue.assert_not_called()
+
+
+def test_strikes_text_tracks_struck_inline_frame_only():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    def _frame():
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
+        p.getString.return_value = ""
+        return p
+
+    def _run(portions, *, opened: bool) -> bool:
+        p_enum = MagicMock()
+        p_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+        p_enum.nextElement.side_effect = portions
+        para = MagicMock()
+        para.createEnumeration.return_value = p_enum
+        para.getString.return_value = ""
+        state = DeletionState(in_delete=opened)
+        list(visible_portions(para, state=state))
+        return state.strikes_text(para, opened)
+
+    # [Frame, end marker] inside an open deletion: inline image is struck.
+    assert _run([_frame(), _marker(False)], opened=True) is True
+    # [end marker, Frame]: inline image is live.
+    assert _run([_marker(False), _frame()], opened=True) is False

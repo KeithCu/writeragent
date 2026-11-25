@@ -710,11 +710,11 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
         assert sv_res["status"] == "ok", sv_res
         res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>NEW</p>")
         assert res.get("status") == "error", (res, with_table)
-        assert res.get("code") == "HIDDEN_LEADING_SECTION", res
+        assert res.get("code") == "HIDDEN_SECTION", res
         assert "secret" in doc.getTextSections().getByName(f"HiddenTop_{with_table}").getAnchor().getString()
         assert "tail" in text.getString()
 
-    # 2b. Negative cases for raise_if_hidden_start: visible leading section, hidden middle section, leading table.
+    # 2b. Visible leading section is allowed, hidden middle section is refused (HIDDEN_SECTION), leading table is allowed.
     _clear_body(doc)
     cur = text.createTextCursor()
     cur.gotoStart(False)
@@ -736,7 +736,10 @@ def test_selection_spans_table_hidden_section_table_verify_and_titled_pic_uno(ct
     text.insertString(cur, "mid", False)
     assert SectionCreate().execute(tctx, name="HidMid", locator="paragraph:1")["status"] == "ok"
     assert SectionSetVisibility().execute(tctx, name="HidMid", visible=False)["status"] == "ok"
-    assert ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>").get("status") == "ok"
+    mid_res = ApplyDocumentContent().execute(tctx, target="full_document", content="<p>OK2</p>")
+    assert mid_res.get("status") == "error", mid_res
+    assert mid_res.get("code") == "HIDDEN_SECTION", mid_res
+    assert "mid" in doc.getTextSections().getByName("HidMid").getAnchor().getString()
 
     _clear_body(doc)
     tbl = doc.createInstance("com.sun.star.text.TextTable")
@@ -1027,6 +1030,66 @@ def test_selection_object_and_cell_block_refuse_uno(ctx, doc):
     assert res_cells.get("status") == "error", res_cells
     assert res_cells.get("code") == "SELECTION_NOT_TEXT", res_cells
 
+    _clear_body(doc)
+    line = doc.createInstance("com.sun.star.drawing.LineShape")
+    line.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 1000, 0))
+    text.insertTextContent(text.getStart(), line, False)
+    controller.select(line)
+    res_line = tool.execute(tctx, target="selection", content="x")
+    assert res_line.get("status") == "error", res_line
+    assert res_line.get("code") == "SELECTION_NOT_TEXT", res_line
+
+    _clear_body(doc)
+    ole = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    ole.setPropertyValue("CLSID", "078B7ABA-54FC-457F-8551-6147e776a997")
+    text.insertTextContent(text.getStart(), ole, False)
+    controller.select(ole)
+    res_ole = tool.execute(tctx, target="selection", content="x")
+    assert res_ole.get("status") == "error", res_ole
+    assert res_ole.get("code") == "SELECTION_NOT_TEXT", res_ole
+
+
+@native_test
+def test_selection_in_print_preview_refuses_uno(ctx):
+    from plugin.framework.errors import best_effort
+    from plugin.framework.uno_context import execute_dispatch, get_desktop
+
+    desktop = get_desktop(ctx)
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+    try:
+        doc.getText().setString("Hello preview")
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:PrintPreview")
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx),
+            target="selection",
+            content="INS",
+        )
+        assert res.get("status") == "error", res
+        assert res.get("code") == "SELECTION_NOT_TEXT", res
+        assert doc.getText().getString() == "Hello preview"
+    finally:
+        best_effort(lambda: doc.close(True), "close preview writer doc")
+
+
+@native_test
+@with_native_doc("writer")
+def test_before_after_markup_decodes_html5_entities_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    for pos, content in (
+        ("before", "<b>&check; &lt;b&gt; &sect 2o R&#36;5</b> "),
+        ("after", "<p>&check; &lt;b&gt; &sect 2o R&#36;5</p>"),
+    ):
+        _clear_body(doc)
+        doc.getText().setString("anchor")
+        res = tool.execute(tctx, target="search", old_content="anchor", position=pos, content=content)
+        assert res.get("status") == "ok", res
+        body = doc.getText().getString()
+        assert "✓" in body, body
+        assert "<b>" in body, body
+        assert "R$5" in body, body
+        assert "&check;" not in body, body
+
 
 @native_test
 @with_native_doc("writer")
@@ -1049,8 +1112,16 @@ def test_linked_picture_round_trip_uno(ctx, doc):
     try:
         text = doc.getText()
 
-        def _setup_pic(anchor_type, url: str, name: str) -> None:
+        def _setup_pic(anchor_type, url: str, name: str, *, link_name: str = "", link_target: str = "") -> None:
             _clear_body(doc)
+            while doc.getGraphicObjects().getCount():
+                doc.getGraphicObjects().getByIndex(0).dispose()
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.gotoEnd(True)
+            cur.setPropertyToDefault("HyperLinkURL")
+            cur.setPropertyToDefault("HyperLinkName")
+            cur.setPropertyToDefault("HyperLinkTarget")
             text.setString("before")
             gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
             gfx.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
@@ -1058,11 +1129,21 @@ def test_linked_picture_round_trip_uno(ctx, doc):
             gfx.setPropertyValue("Width", 400)
             gfx.setPropertyValue("Height", 400)
             gfx.setPropertyValue("HyperLinkURL", url)
+            if link_name:
+                gfx.setPropertyValue("HyperLinkName", link_name)
+            if link_target:
+                gfx.setPropertyValue("HyperLinkTarget", link_target)
             text.insertTextContent(text.getStart(), gfx, False)
             gfx.setName(name)
 
-        # AT_PARAGRAPH: keep, change href, and remove <a> via full_document.
-        _setup_pic(AT_PARAGRAPH, "https://example.org/orig", "LinkedPara")
+        # AT_PARAGRAPH: keep, change href, and remove <a> via full_document (clearing name and target).
+        _setup_pic(
+            AT_PARAGRAPH,
+            "https://example.org/orig",
+            "LinkedPara",
+            link_name="origName",
+            link_target="_blank",
+        )
         html = document_to_content(doc, ctx, scope="full", include_images=False)
         res = ApplyDocumentContent().execute(tctx, target="full_document", content=html)
         assert res.get("status") == "ok", res
@@ -1077,7 +1158,10 @@ def test_linked_picture_round_trip_uno(ctx, doc):
         html_unlinked = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", html_changed, flags=re.DOTALL)
         res_rm = ApplyDocumentContent().execute(tctx, target="full_document", content=html_unlinked)
         assert res_rm.get("status") == "ok", res_rm
-        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == ""
+        pic = doc.getGraphicObjects().getByIndex(0)
+        assert pic.getPropertyValue("HyperLinkURL") == ""
+        assert pic.getPropertyValue("HyperLinkName") == ""
+        assert pic.getPropertyValue("HyperLinkTarget") == ""
 
         # AT_CHARACTER via full_document.
         _setup_pic(AT_CHARACTER, "https://example.org/atchar", "LinkedAtChar")
@@ -1096,6 +1180,87 @@ def test_linked_picture_round_trip_uno(ctx, doc):
         res_as = ApplyDocumentContent().execute(tctx, target="selection", content=html_as)
         assert res_as.get("status") == "ok", res_as
         assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://example.org/aschar"
+
+        # Wrapping an unlinked picture's wrapper in <a href target="_blank"> for each anchor type.
+        for anchor_type, name, tag in (
+            (AT_PARAGRAPH, "WrapPara", "div"),
+            (AT_CHARACTER, "WrapAtChar", "div"),
+            (AS_CHARACTER, "WrapAsChar", "span"),
+        ):
+            _setup_pic(anchor_type, "", name)
+            html_plain = document_to_content(doc, ctx, scope="full", include_images=False)
+            wrapped = re.sub(
+                rf'(<{tag}\b[^>]*\bid="{name}"[^>]*>.*?</{tag}>)',
+                r'<a href="https://example.org/wrapped" target="_blank">\1</a>',
+                html_plain,
+                count=1,
+                flags=re.DOTALL,
+            )
+            assert "https://example.org/wrapped" in wrapped, html_plain
+            res_w = ApplyDocumentContent().execute(tctx, target="full_document", content=wrapped)
+            assert res_w.get("status") == "ok", res_w
+            pic = doc.getGraphicObjects().getByIndex(0)
+            assert pic.getPropertyValue("HyperLinkURL") == "https://example.org/wrapped"
+            assert pic.getPropertyValue("HyperLinkTarget") == "_blank"
+            body = text.getString()
+            assert body == "before", (anchor_type, repr(body))
+            reexp = document_to_content(doc, ctx, scope="full", include_images=False)
+            assert reexp.count("<a ") == 1, reexp
+
+        # Unlinked AS_CHARACTER picture inside a text link stays unlinked while text keeps its link.
+        _setup_pic(AS_CHARACTER, "", "InsideTextLink")
+        html_in = document_to_content(doc, ctx, scope="full", include_images=False)
+        text_linked = re.sub(
+            r'(<div\b[^>]*data-lo-style="Standard"[^>]*>)(.*?)(</div>)',
+            r'\1<a href="https://example.org/text">\2</a>\3',
+            html_in,
+            count=1,
+            flags=re.DOTALL,
+        )
+        assert "https://example.org/text" in text_linked, html_in
+        res_tl = ApplyDocumentContent().execute(tctx, target="full_document", content=text_linked)
+        assert res_tl.get("status") == "ok", res_tl
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == ""
+        desc = doc.createSearchDescriptor()
+        desc.SearchString = "before"
+        found_txt = doc.findFirst(desc)
+        url_got = found_txt.getPropertyValue("HyperLinkURL")
+        assert url_got == "https://example.org/text", (url_got, text_linked)
+
+        # Recorded AS_CHARACTER wrap: only Insert/Delete redlines; Accept leaves one linked picture.
+        _setup_pic(AS_CHARACTER, "", "RecWrapAsChar")
+        html_rec = document_to_content(doc, ctx, scope="full", include_images=False)
+        wrapped_rec = re.sub(
+            r'(<span\b[^>]*\bid="RecWrapAsChar"[^>]*>.*?</span>)',
+            r'<a href="https://example.org/rec" target="_blank">\1</a>',
+            html_rec,
+            count=1,
+            flags=re.DOTALL,
+        )
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res_rw = ApplyDocumentContent().execute(tctx, target="full_document", content=wrapped_rec)
+            assert res_rw.get("status") == "ok", res_rw
+            from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+            rl_types: set[str] = set()
+            rls = doc.getRedlines().createEnumeration()
+            while enum_has_more(rls):
+                rl_types.add(str(rls.nextElement().getPropertyValue("RedlineType")))
+            assert rl_types == {"Insert", "Delete"}, rl_types
+            gfx_objs = doc.getGraphicObjects()
+            assert any(
+                gfx_objs.getByIndex(i).getPropertyValue("HyperLinkURL") == "https://example.org/rec"
+                and gfx_objs.getByIndex(i).getPropertyValue("HyperLinkTarget") == "_blank"
+                for i in range(gfx_objs.getCount())
+            )
+            execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert doc.getGraphicObjects().getCount() == 1
+            pic = doc.getGraphicObjects().getByIndex(0)
+            assert pic.getPropertyValue("HyperLinkURL") == "https://example.org/rec"
+            assert pic.getPropertyValue("HyperLinkTarget") == "_blank"
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
     finally:
         os.unlink(img_path)
 
@@ -1237,6 +1402,137 @@ def test_full_document_allows_protected_header_section_uno(ctx, doc):
     assert res.get("status") == "ok", res
     assert doc.getText().getString().strip() == "BodyNew"
     assert doc.getTextSections().hasByName("ProtHeaderSec")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_allows_hidden_footer_section_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("FooterIsOn", True)
+    ftext = style.getPropertyValue("FooterText")
+    ftext.setString("FooterText")
+    fcur = ftext.createTextCursor()
+    fcur.gotoStart(False)
+    fcur.gotoEnd(True)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("HidFooterSec")
+    sec.setPropertyValue("IsVisible", False)
+    ftext.insertTextContent(fcur, sec, True)
+
+    doc.getText().setString("BodyOld")
+    res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+    assert res.get("status") == "ok", res
+    assert doc.getText().getString().strip() == "BodyNew"
+    assert doc.getTextSections().hasByName("HidFooterSec")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_allows_sections_in_header_footer_containers_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("HeaderIsOn", True)
+    style.setPropertyValue("FooterIsOn", True)
+    htext = style.getPropertyValue("HeaderText")
+    ftext = style.getPropertyValue("FooterText")
+
+    def _add_section(target_text, name: str, content: str, *, protected: bool = True, visible: bool = True) -> None:
+        target_text.setString(content)
+        cur = target_text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName(name)
+        sec.setPropertyValue("IsProtected", protected)
+        sec.setPropertyValue("IsVisible", visible)
+        target_text.insertTextContent(cur, sec, True)
+
+    # Header table cell with protected section.
+    htbl1 = doc.createInstance("com.sun.star.text.TextTable")
+    htbl1.initialize(1, 1)
+    htext.insertTextContent(htext.getEnd(), htbl1, False)
+    hcell1 = htbl1.getCellByName("A1")
+    _add_section(hcell1, "HCellProtSec", "HeaderCellProt")
+
+    # Second header table cell with hidden section.
+    htbl2 = doc.createInstance("com.sun.star.text.TextTable")
+    htbl2.initialize(1, 1)
+    htext.insertTextContent(htext.getEnd(), htbl2, False)
+    _add_section(htbl2.getCellByName("A1"), "HCellHidSec", "HeaderCellHid", protected=False, visible=False)
+
+    # Header text frame with protected section.
+    hframe = doc.createInstance("com.sun.star.text.TextFrame")
+    htext.insertTextContent(htext.getEnd(), hframe, False)
+    _add_section(hframe.getText(), "HFrameProtSec", "HeaderFrameProt")
+
+    # Footer table cell hosting a nested 1x1 table whose cell holds a protected section.
+    ftbl = doc.createInstance("com.sun.star.text.TextTable")
+    ftbl.initialize(1, 1)
+    ftext.insertTextContent(ftext.getEnd(), ftbl, False)
+    fcell = ftbl.getCellByName("A1")
+    fnest = doc.createInstance("com.sun.star.text.TextTable")
+    fnest.initialize(1, 1)
+    fcell.insertTextContent(fcell.getEnd(), fnest, False)
+    fncell = fnest.getCellByName("A1")
+    _add_section(fncell, "FNestProtSec", "FooterNestProt")
+
+    try:
+        for rec in (False, True):
+            doc.getText().setString("BodyOld")
+            doc.setPropertyValue("RecordChanges", rec)
+            res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+            assert res.get("status") == "ok", res
+            assert _body_para_strings(doc)[0] == "BodyNew"
+            sections = doc.getTextSections()
+            for name in ("HCellProtSec", "HCellHidSec", "HFrameProtSec", "FNestProtSec"):
+                assert sections.hasByName(name), name
+            assert hcell1.getString() == "HeaderCellProt"
+            assert fncell.getString() == "FooterNestProt"
+            assert hframe.getText().getString() == "HeaderFrameProt"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_refuses_protected_section_in_body_frame_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _setup_frame(*, at_page: bool):
+        _clear_body(doc)
+        text.setString("BodyOld")
+        frame = doc.createInstance("com.sun.star.text.TextFrame")
+        if at_page:
+            frame.setPropertyValue("AnchorType", AT_PAGE)
+            frame.setPropertyValue("AnchorPageNo", 1)
+        text.insertTextContent(text.getEnd(), frame, False)
+        ftext = frame.getText()
+        ftext.setString("FrameProt")
+        fcur = ftext.createTextCursor()
+        fcur.gotoStart(False)
+        fcur.gotoEnd(True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("BodyFrameProtSec")
+        sec.setPropertyValue("IsProtected", True)
+        ftext.insertTextContent(fcur, sec, True)
+        return frame
+
+    for at_page in (False, True):
+        frame = _setup_frame(at_page=at_page)
+        assert (frame.getPropertyValue("ParentText") is None) == at_page
+        assert doc.getTextFrames().getCount() == 1
+        res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PROTECTED_SECTION", res
+        assert "BodyFrameProtSec" in res.get("message", "")
+        assert frame.getText().getString() == "FrameProt"
 
 
 @native_test
@@ -1440,3 +1736,58 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
     assert doc.getTextTables().getCount() == 1
     assert doc.getTextSections().getCount() == 1
     assert doc.getTextTables().getByIndex(0).getCellByName("A1").getString() == "Cell"
+
+
+@native_test
+@with_native_doc("writer")
+def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+
+        # (a) Replacement equal to match leaves zero redlines and no pending_review flag.
+        _clear_body(doc)
+        text.setString("hello MATCH world")
+        res_noop = tool.execute(tctx, target="search", old_content="MATCH", content="MATCH")
+        assert res_noop["status"] == "ok", res_noop
+        assert "pending_review" not in res_noop
+        assert doc.getRedlines().getCount() == 0
+        assert text.getString() == "hello MATCH world"
+
+        # (b) Real replacement leaves a redline and pending_review=True.
+        res_edit = tool.execute(tctx, target="search", old_content="MATCH", content="OTHER")
+        assert res_edit["status"] == "ok", res_edit
+        assert res_edit["pending_review"] is True
+        assert doc.getRedlines().getCount() > 0
+
+        # (c) Delete stacked on a user-recorded insertion stays untagged but still reports pending_review.
+        _clear_body(doc)
+        text.setString("hello world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(5, False)
+            text.insertString(cur, " USERINS", False)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        res_stack = tool.execute(tctx, target="search", old_content=" USERINS", content="")
+        assert res_stack["status"] == "ok", res_stack
+        assert res_stack["pending_review"] is True
+        redlines = doc.getRedlines()
+        deletes = [
+            redlines.getByIndex(i)
+            for i in range(redlines.getCount())
+            if redlines.getByIndex(i).RedlineType == "Delete"
+        ]
+        assert deletes
+        assert all(not str(rl.RedlineComment or "").startswith("wa-review:") for rl in deletes)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc import visual_helpers
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
@@ -51,13 +51,17 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
 def discover_vision_images(doc: Any) -> list[tuple[str, Any | None]]:
     """Return ``(name, graphic_or_none)`` pairs for the current selection.
 
-    An unnamed image cannot be found again by name, so its shape is kept; named
-    images are looked up by name.
+    Writer images are looked up by name because Writer insert resolves and
+    presence-checks by name (``insert_vision_result_into_writer``); in other
+    documents a name may be empty or repeat on another sheet, so the shape is
+    kept.
     """
     pairs = visual_helpers.graphic_objects_in_selection(doc)
     if not pairs:
-        raise visual_helpers.no_image_selected_error()
-    return [(name, None if name else graphic) for name, graphic in pairs]
+        raise visual_helpers.no_image_selected_error(doc)
+    if is_writer(doc):
+        return [(name, None) for name, _unused in pairs]
+    return pairs
 
 
 def resolve_vision_image(ctx: Any, doc: Any, image_name: str, graphic: Any | None = None) -> tuple[Any, bytes]:
@@ -76,8 +80,10 @@ def resolve_vision_image(ctx: Any, doc: Any, image_name: str, graphic: Any | Non
             message = _("Could not export the selected image: {error}").format(error=exc)
         raise ToolExecutionError(message, code="IMAGE_EXPORT_FAILED", details={"image_name": image_name}) from exc
     if not png_bytes:
+        # A kept shape of a closed document exports as no data; this read raises DocumentDisposedError.
+        uno_read(doc.getURL, "")
         if not image_name:
-            raise visual_helpers.no_image_selected_error()
+            raise visual_helpers.no_image_selected_error(doc)
         raise ToolExecutionError(
             _("Image '{name}' could not be exported.").format(name=image_name),
             code="IMAGE_NOT_FOUND",
@@ -131,7 +137,7 @@ def run_trusted_vision(
     the UNO component context, which never carries the tool's stop flag.
     *on_exported*, if given, runs on the calling thread after the export and
     size check with the exact params dict the OCR call sends and the PNG bytes.
-    *graphic* is the shape discovery found for an unnamed image.
+    *graphic* is the shape discovery found for a non-Writer image.
     """
     name = _validate_helper(helper)
     params_dict = merge_vision_params(ctx, dict(params) if params is not None else None)
@@ -286,7 +292,7 @@ def run_and_insert_vision_for_selection(
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers graphics while the selection is intact, then OCRs and inserts by
-    ``image_name`` (or the kept discovered shape for an unnamed Calc/Draw/Impress
+    ``image_name`` (or the kept discovered shape for a Calc/Draw/Impress
     image) so a text-range selection is collapsed before any edit and intervening
     text is never replaced.
 
@@ -303,7 +309,7 @@ def run_and_insert_vision_for_selection(
     def _discover() -> list[tuple[str, Any | None]]:
         if explicit_name:
             return [(explicit_name, None)]
-        # Capture names (and shapes for unnamed images) before any insert collapses/clears the selection.
+        # Capture names (and shapes for non-Writer images) before any insert collapses/clears the selection.
         return discover_vision_images(doc)
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)

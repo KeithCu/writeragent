@@ -442,6 +442,23 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     return cleared
 
 
+def set_paragraph_background(para: Any, color: int) -> None:
+    """Set the direct background of paragraph *para* (``SwXParagraph``); -1 means no fill."""
+    # Setting ParaBackColor on a cursor or paragraph writes only RES_BACKGROUND without
+    # converting to fill attributes (only SwXStyle::SetPropertyValue in
+    # sw/source/core/unocore/unostyle.cxx converts it), so it is lost on save and a style
+    # fill wins over it. Fill properties exist only on SwXParagraph (FILL_PROPERTIES_SW in
+    # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap), and ParaBackColor reads
+    # derive from them via getSvxBrushItemFromSourceSet
+    # (svx/source/unodraw/unobrushitemhelper.cxx), returning COL_AUTO (-1) when FillStyle
+    # is missing or NONE.
+    if color == -1:
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+    else:
+        para.setPropertyValue("FillColor", color)
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+
+
 def writable_char_names(rng: Any) -> list[str] | None:
     """Return writable Char* property names on *rng*, or None when property info is missing."""
     info = rng.getPropertySetInfo()
@@ -556,8 +573,10 @@ class DeletionState:
     markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
     its cells carry no markers. ``saw_delete`` records that a Delete marker was read, for
     callers that must tell struck text from text they cannot read. ``visible_portions``
-    resets ``para_live`` and ``para_opens`` for each paragraph, and ``lead_live`` says
-    whether the paragraph where the open deletion starts has visible content before it.
+    resets ``para_live``, ``para_opens``, and ``para_frame`` for each paragraph, and ``lead_live``
+    says whether the paragraph where the open deletion starts has visible content before it.
+    ``para_frame`` says that the paragraph holds a struck inline frame or image, which
+    ``getString()`` does not show.
     """
 
     in_delete: bool = False
@@ -565,6 +584,7 @@ class DeletionState:
     para_live: bool = False
     para_opens: bool = False
     lead_live: bool = False
+    para_frame: bool = False
 
     def apply_marker(self, portion: Any) -> None:
         """Update the state from one ``Redline`` portion."""
@@ -579,6 +599,14 @@ class DeletionState:
         except Exception as exc:
             log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
 
+    def strikes_text(self, para: Any, opened: bool) -> bool:
+        """``strikes_paragraph`` without its check for anchored frames and images."""
+        if self.para_live:
+            return False
+        return self.para_opens or (
+            opened and (self.in_delete or self.lead_live or self.para_frame or bool(para.getString().strip()))
+        )
+
     def strikes_paragraph(self, para: Any, opened: bool) -> bool:
         """True when a pending deletion leaves nothing visible of *para*, the paragraph just walked.
 
@@ -586,12 +614,7 @@ class DeletionState:
         struck one only holds the end marker and is not struck; one merged into live text is
         (``lead_live``: Backspace on a blank line).
         """
-        if self.para_live:
-            return False
-        struck = self.para_opens or (
-            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
-        )
-        if not struck:
+        if not self.strikes_text(para, opened):
             return False
         if opened and self.in_delete:
             # Middle of a multi-paragraph deletion: any anchored content is inside the deletion too.
@@ -603,6 +626,57 @@ class DeletionState:
             False,
         )
         return not has_anchored
+
+
+_NESTING_PORTIONS = ("ContentControl", "InContentMetadata")
+
+
+def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(portion, type)`` flattening ``ContentControl`` and ``InContentMetadata``.
+
+    ``lcl_ExportHints`` (``sw/source/core/unocore/unoportenum.cxx``) puts those
+    container portions' inner runs and redline markers into a child enumeration
+    instead of emitting them at top level, leaving the outer portion's
+    ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
+    (``unocontentcontrol.cxx``) refreshes that list for each control, including
+    nested controls, so one recursive call flattens arbitrary nesting. Yields
+    ``(None, None)`` when ``nextElement()`` fails (after ``reraise_if_disposed``),
+    and ``(portion, None)`` when a portion's type or child enumeration is unreadable.
+    """
+    while enum_has_more(portion_enum):
+        try:
+            portion = portion_enum.nextElement()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            yield None, None
+            continue
+        kind = _portion_type(portion)
+        if kind in _NESTING_PORTIONS:
+            try:
+                inner = portion.getPropertyValue(kind).createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                yield portion, None
+                continue
+            yield from _flat_portions(inner)
+        else:
+            yield portion, kind
+
+
+def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str]]:
+    """Yield ``(portion, type)`` from *portion_enum*, flattening nested controls and stopping at the first unreadable portion."""
+    for portion, kind in _flat_portions(portion_enum):
+        if kind is None:
+            break
+        yield portion, kind
+
+
+def section_own_shown(section: Any) -> bool:
+    """True when *section* itself is shown (ignoring ancestor section visibility)."""
+    visible = bool(section.getPropertyValue("IsVisible"))
+    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
+    # condition (section.cxx constructor), so only the OR reflects this section's own state.
+    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
 
 
 def visible_portions(
@@ -631,14 +705,14 @@ def visible_portions(
     """
     if state is None:
         state = DeletionState()
-    state.para_live = state.para_opens = False
+    state.para_live = state.para_opens = state.para_frame = False
     try:
         portion_enum = para.createEnumeration()
     except Exception:
         state.in_delete = False
         return
     seen = 0
-    while enum_has_more(portion_enum):
+    for portion, portion_type in _flat_portions(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
             # The end marker was not read, and an open state would hide the rest of the document.
@@ -647,15 +721,6 @@ def visible_portions(
                 truncated_out.append(seen)
             return
         seen += 1
-        try:
-            portion = portion_enum.nextElement()
-        except Exception:
-            if abort_on_portion_error:
-                # The end marker was not read, and an open state would hide the rest of the document.
-                state.in_delete = False
-                return
-            continue
-        portion_type = _portion_type(portion)
         if portion_type is None:
             if abort_on_portion_error:
                 # The end marker was not read, and an open state would hide the rest of the document.
@@ -666,6 +731,8 @@ def visible_portions(
             state.apply_marker(portion)
             continue
         if state.in_delete:
+            if portion_type == "Frame":
+                state.para_frame = True
             continue
         try:
             chunk = portion.getString()
@@ -741,9 +808,117 @@ class TrackedDeletions:
                 return DeletionState(in_delete=True)
         return DeletionState()
 
-    def covers(self, text_range: Any) -> bool:
-        """True when *text_range* lies wholly inside one pending Delete redline."""
-        return any(bounds_cover(b, text_range) for b in self._bounds)
+    def visible_text(self, text_range: Any) -> str:
+        """Visible text of *text_range*: a whole ``XText`` or any range inside one.
+
+        Cursors come from the range's own text because a search hit in a cell enumerates the
+        whole table (``SwXTextDocument::findFirst``, unotxdoc.cxx). Ranges spanning a table edge
+        (Ctrl+A in a leading table, or a body range with an end in a cell) cannot be spanned on
+        their own ``XText`` and fall back to enumerating *text_range*. When raw text before the
+        range start contains an astral code point (U+10000+), the range is read from its
+        paragraph start and the lead dropped because ``lcl_CreatePortions`` (unoportenum.cxx)
+        skips UTF-16 units as code points.
+        """
+        text = text_range.getText()
+        if uno_same(text, text_range):
+            return get_string_without_tracked_deletions(text, self.state_at(text))
+
+        def _span_cursor() -> Any | None:
+            start_cur = text.createTextCursorByRange(text_range.getStart())
+            end_cur = text.createTextCursorByRange(text_range.getEnd())
+            if start_cur is None or end_cur is None:
+                return None
+            start_cur.gotoRange(end_cur, True)
+            return start_cur
+
+        span = uno_read(_span_cursor, None, object_type="TextRange")
+        if span is None:
+            return get_string_without_tracked_deletions(text_range, self.state_at(text_range))
+
+        lead = text.createTextCursorByRange(span.getStart())
+        lead.gotoStartOfParagraph(False)
+        lead.gotoRange(span.getStart(), True)
+        # Only use the lead-drop walk when raw lead text has an astral code point (U+10000+);
+        # otherwise read span directly so selections starting inside Input/Metadata fields work.
+        if any(ord(ch) > 0xFFFF for ch in lead.getString()):
+            wide = text.createTextCursorByRange(lead.getStart())
+            wide.gotoRange(span.getEnd(), True)
+            skip = len(get_string_without_tracked_deletions(lead, self.state_at(lead)))
+            return get_string_without_tracked_deletions(wide, self.state_at(wide))[skip:]
+        return get_string_without_tracked_deletions(span, self.state_at(span))
+
+    def overlaps(self, text_range: Any) -> bool:
+        """True when a pending Delete redline strikes part of *text_range*."""
+        return any(
+            uno_read(
+                lambda: text.compareRegionStarts(start, text_range.getEnd()) == 1
+                and text.compareRegionStarts(text_range, end) == 1,
+                False,
+                object_type="TextRange",
+            )
+            for text, start, end in self._bounds
+        )
+
+    def strikes(self, text_range: Any) -> bool:
+        """True when pending deletions, one or several together, leave nothing visible of *text_range*.
+
+        Judged by portion-readable text: a hit of struck text plus only a live ``MetadataField``
+        reads ``""`` and is treated as struck.
+        """
+        return self.overlaps(text_range) and not self.visible_text(text_range)
+
+    def removes_anchored(self, shape: Any) -> bool:
+        """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
+        if not self._bounds:
+            return False
+        anchor = shape.getAnchor()
+        if anchor is None:
+            return False
+        kind = shape.getPropertyValue("AnchorType").value
+        return any(
+            uno_read(lambda: _deletion_removes_anchor(b, kind, anchor), False, object_type="TextRange")
+            for b in self._bounds
+        )
+
+
+def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: Any) -> bool:
+    """Match Writer's Accept-All frame deletion for ``AS_CHARACTER``, ``AT_CHARACTER``, and ``AT_PARAGRAPH``.
+
+    Follows ``IsDestroyFrameAnchoredAtChar``, ``IsSelectFrameAnchoredAtPara``, and
+    ``IsNotBackspaceHeuristic`` (``sw/source/core/undo/undobj.cxx``).
+    """
+    text, start, end = bounds
+    point = anchor.getStart()
+    after_start = text.compareRegionStarts(start, point)
+    before_end = text.compareRegionStarts(point, end)
+    if kind == "AS_CHARACTER":  # a character inside [start, end)
+        return after_start >= 0 and before_end == 1
+    if kind == "AT_CHARACTER" and after_start == 1 and before_end == 1:
+        return True
+    para = text.createTextCursorByRange(point)
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    if not bounds_cover(bounds, para):
+        return False
+    # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
+    # as the whole text when the first enumerated element is not a table.
+    first = next(iter_elements(text.createEnumeration()), None)
+    if (
+        not uno_read(
+            lambda: first is not None and first.supportsService(_TEXT_TABLE_SERVICE) is True,
+            False,
+            object_type="TextRange",
+        )
+        and text.compareRegionStarts(start, text.getStart()) == 0
+        and text.compareRegionEnds(text.getEnd(), end) == 0
+    ):
+        return True
+    if text.compareRegionStarts(start, para) == 0 and text.compareRegionEnds(para, end) == 0:
+        # Deleting just this paragraph's text keeps the paragraph (whole-text case handled above).
+        return False
+    # Deleting only the break between two paragraphs keeps both anchors (IsNotBackspaceHeuristic).
+    step = text.createTextCursorByRange(start.getStart())
+    return not (step.goRight(1, False) and text.compareRegionStarts(step, end) == 0)
 
 
 def iter_table_paragraphs(table: Any) -> Iterator[tuple[Any, DeletionState]]:
@@ -862,8 +1037,8 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
 
 @main_thread_only
 def visible_range_text(doc: Any, text_range: Any) -> str:
-    """Return *text_range* visible text, seeded from *doc*'s pending tracked deletions."""
-    return get_string_without_tracked_deletions(text_range, TrackedDeletions(doc).state_at(text_range))
+    """Return visible text of *text_range* (any range or whole ``XText`` of *doc*)."""
+    return TrackedDeletions(doc).visible_text(text_range)
 
 
 @main_thread_only
@@ -889,17 +1064,17 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     """Visible text of *para*, or None when a tracked deletion strikes all of it.
 
-    Portions cannot read text inside an inline content control or metadata field
-    (``lcl_ExportHints`` in ``sw/source/core/unocore/unoportenum.cxx`` moves inner portions into a
-    child list), so the raw ``para.getString()`` read is used when no deletion touches the
-    paragraph. Blank visible text alone does not mean struck; it is struck when it starts inside a
-    deletion, or has raw text and a Delete marker.
+    Portions cannot read text inside a ``MetadataField`` (a ``TextField`` portion
+    whose ``getString()`` is empty), so the raw ``para.getString()`` read is used
+    when no deletion touches the paragraph. Blank visible text alone does not mean
+    struck; it is struck when it starts inside a deletion, or has raw text and a
+    Delete marker.
     """
     state = DeletionState(starts_deleted)
     text = get_string_without_tracked_deletions(para, state)
     if not (starts_deleted or state.saw_delete):
-        # No marker seen, so raw text is the visible text, except for a deletion wholly inside a
-        # content control or metadata field: its markers are in the child list.
+        # No marker seen, so raw text is the visible text, except for a deletion
+        # wholly inside a metadata field.
         return normalize_linebreaks(para.getString())
     if not text.strip() and (starts_deleted or para.getString().strip()):
         return None

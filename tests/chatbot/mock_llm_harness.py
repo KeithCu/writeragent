@@ -13,11 +13,12 @@ import os
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from http.server import ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
+
+from tests.harness.uno_profile_config import settle_soffice_config
 
 try:
     from scripts.mock_llm_server import (
@@ -233,7 +234,7 @@ def start_mock_sidebar_session(
         set_text_model(MOCK_MODEL_ID, update_lru=False)
         # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
         if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-            time.sleep(2.1)
+            settle_soffice_config()
     except BaseException:
         if httpd is not None:
             try:

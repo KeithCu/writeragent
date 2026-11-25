@@ -129,9 +129,9 @@ The new import pipeline should be:
 1. receive HTML input
 2. detect whether math is present
 3. if no math is present, use the existing HTML import flow unchanged
-4. if math is present, replace math segments with `[[WA-MATH:<nonce>:<i>]]` placeholders and import the whole HTML fragment in one pass through the StarWriter filter (preserving paragraphs, styles, lists, tables, and ruby)
+4. if math is present, replace math segments with `[[WA-MATH:<nonce>:<i>]]` placeholders and import the whole HTML fragment in one pass through the StarWriter filter (preserving paragraphs, styles, lists, tables, and ruby). `expand_prose_escapes` expands `\n`/`\t` only outside math so TeX backslashes stay intact.
 5. convert each math segment into a LibreOffice Math command string
-6. replace each `[[WA-MATH:...]]` placeholder with a real formula object at its cursor position (breaking around display math without leaving empty neighbour paragraphs)
+6. replace each `[[WA-MATH:...]]` placeholder with a real formula object at its cursor position (tokens are matched across the paragraph's joined portions so soft page breaks do not split them; display math at a mid-paragraph match splits the paragraph without leaving empty neighbour paragraphs). `position=before/after` on `apply_content` carries math through this same path.
 
 ### Design principle
 
@@ -152,7 +152,8 @@ When multiple representations exist in one fragment, prefer the most structured 
 ### Inline vs display math
 
 - **Inline:** formula object at cursor within the paragraph.
-- **Display:** paragraph breaks around the object so it stands on its own line, in a centered paragraph.
+- **Display:** paragraph breaks around the object so it stands on its own line, in a centered paragraph. When display math shares a heading paragraph with other text or formulas, its formula paragraph becomes `Text body` so no empty-looking heading enters the outline; a heading holding only one formula keeps its style.
+- **Headers and footers:** `page_set_header_footer_text` writes keep TeX as literal text with its backslashes (escapes expand only outside TeX and MathML).
 
 ### Preferred conversion target
 
@@ -256,6 +257,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 ### Implementation notes (LibreOffice / Writer)
 
 - **StarMath `newline` (word)** — Not ASCII `\n`. LibreOffice MathML import builds a root layout that serializes with the `newline` **operator** (`starmath` `SmNodeToTextVisitor`, root table-of-lines from `mathmlimport.cxx`). Writer’s **embedded** formula paint often showed **`?`** per `newline`; we **collapse** those tokens for Writer embeds in `math_mml_convert.py` (comment points at LO sources). **Tradeoff:** true multi-line / `mtable` via `newline` is not preserved until we add a policy (see **Current status**).
+- **Root `xmlns`** — `convert_mathml_to_starmath` (`math_mml_convert.py`) sets `xmlns="http://www.w3.org/1998/Math/MathML"` on the `<math>` root before loading into LibreOffice Math so un-namespaced or HTML-namespaced `<math>` fragments convert.
 - **List `content` arrays** — `"\n".join` still used in `apply_content`; newlines stay **between** HTML fragments only; optional change to `"".join` is backlog, not done.
 - **Cursor** — After each `insertDocumentFromURL`, cursor must move to document end or later segments overwrite earlier HTML.
 - **DEBUG logging** — Optional verbose logs in `apply_document_content.py` / `html_import.py` / `math_mml_convert.py`; trim or gate when stable.
@@ -265,7 +267,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 These are **not** Phase 2 TeX work unless noted:
 
 - [ ] Full **minimum test matrix** row coverage (e.g. malformed MathML fixture, KaTeX-shaped HTML file fixture, table-with-math) beyond what `test_writer_mathml_import` already hits.
-- [x] **Structured** tool reporting on `apply_content` return JSON: `math_objects` reports attempted conversions on ok results; any conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted in the document. General `warnings` stays the `data-lo-para` list.
+- [x] **Structured** tool reporting on `apply_content` return JSON: `math_objects` reports attempted conversions on ok results; any conversion or placement failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, with marker text inserted for failed conversions and no marker text when a formula's position was lost. General `warnings` stays the `data-lo-para` list.
 - [ ] **KaTeX/MathJax DOM** detection without relying on `<math>` (only needed if we must handle math with no MathML).
 - [ ] **Reviewer-facing** example document set in-repo (optional `docs/` or fixtures zip).
 
@@ -556,10 +558,10 @@ The implementation could become an open-ended parser project.
 
 | # | Question | Resolution (as of 2026-04) |
 |---|-----------|----------------------------|
-| 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document; not silent. |
+| 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document for failed conversions (a formula whose position was lost leaves no marker text); not silent. |
 | 2 | Ship MathML-only before TeX? | **Yes** historically; **Phase 2 TeX path is now shipped** (MathML still preferred in prompts). |
 | 3 | Auto-repair malformed MathML? | **No** — unclosed `<math>` tails fall back to HTML segment behavior; no repair pass. |
-| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string and debug logs remain. Successful `apply_content` returns include `math_objects` for attempted conversions; any conversion failure reports a `MATH_IMPORT_FAILED` entry in `warnings` with `math_objects`, while preserving the edit's ok status and metadata. General `warnings` stays the `data-lo-para` list. |
+| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string (for failed conversions) and debug logs remain. Successful `apply_content` returns include `math_objects` for attempted conversions; any conversion or placement failure reports a `MATH_IMPORT_FAILED` entry in `warnings` with `math_objects`, while preserving the edit's ok status and metadata. General `warnings` stays the `data-lo-para` list. |
 
 ## Task sequence (for agents)
 

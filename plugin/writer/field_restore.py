@@ -13,12 +13,13 @@ restore them back into live UNO text fields afterwards.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 import logging
 import re
 import uuid
 from typing import Any
 
-from plugin.doc.text_helpers import FAILED, iter_elements
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
@@ -316,27 +317,43 @@ def find_tokens(
                 if isinstance(para_text, str) and prefix not in para_text:
                     continue
                 portions = uno_read(lambda: para.createEnumeration(), None)
+                chunks: list[str] = []
+                offsets: list[int] = []
+                para_portions: list[Any] = []
+                pos = 0
                 for portion in iter_elements(portions):
                     kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), FAILED)
                     if kind is FAILED:
                         break
                     if kind == "TextField":
+                        chunk = "\x00"
+                    else:
+                        raw_chunk = uno_read(lambda: portion.getString() or "", "")
+                        chunk = raw_chunk if isinstance(raw_chunk, str) else str(raw_chunk)
+                    if chunk:
+                        chunks.append(chunk)
+                        offsets.append(pos)
+                        para_portions.append(portion)
+                        pos += len(chunk)
+                # LibreOffice exports a soft page break as its own portion
+                # (unoportenum.cxx:lcl_ExportSoftPageBreak), so a token laid out across two
+                # pages is several portions. Match over the joined paragraph and start the
+                # cursor from the portion holding the token's first character so offsets stay
+                # local to that portion.
+                joined = "".join(chunks)
+                for m in token_re.finditer(joined):
+                    tok = m.group(0)
+                    if not tok.startswith(prefix):
                         continue
-                    chunk = uno_read(lambda: portion.getString() or "", "")
-                    if not isinstance(chunk, str):
-                        chunk = str(chunk)
-                    for m in token_re.finditer(chunk):
-                        tok = m.group(0)
-                        if not tok.startswith(prefix):
-                            continue
-                        cur = xtext.createTextCursorByRange(portion.getStart())
-                        if cur.goRight(m.start(), False) is False:
-                            continue
-                        if cur.goRight(len(tok), True) is False:
-                            continue
-                        if cur.getString() != tok:
-                            continue
-                        hits.append((cur, m))
+                    idx = bisect_right(offsets, m.start()) - 1
+                    cur = xtext.createTextCursorByRange(para_portions[idx].getStart())
+                    if not go_right(cur, m.start() - offsets[idx], False):
+                        continue
+                    if cur.goRight(len(tok), True) is False:
+                        continue
+                    if cur.getString() != tok:
+                        continue
+                    hits.append((cur, m))
         except Exception as exc:
             reraise_if_disposed(exc)
             log.debug("find_tokens enumeration failed: %s", exc)

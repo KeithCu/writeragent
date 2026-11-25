@@ -205,7 +205,6 @@ class TestGrammarIgnoreRules:
         dp = DocumentPersistence("2")
         with patch.object(dp, "_persist_to_udprops") as mock_save:
             with (
-                patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
                 patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
                 patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp) as mock_get,
             ):
@@ -317,7 +316,6 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
     dp = DocumentPersistence("2")
     with patch.object(dp, "_persist_to_udprops") as mock_save:
         with (
-            patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound"),
             patch("plugin.writer.locale.ai_grammar_proofreader.WriterAgentAiGrammarProofreader._resolve_doc_id_for_ignore", return_value="2"),
             patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
         ):
