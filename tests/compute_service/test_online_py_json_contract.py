@@ -117,7 +117,7 @@ class TestOnlinePyJsonContract:
         assert out["result"] == [[1, value_2], [value_3, value_4]]
 
     def test_column_vector_stays_nested(self) -> None:
-        # C++ parse keeps [[1],[2],[3]] as 3×1 (emit may flatten ranges the other way).
+        # Egress: a nested N×1 result keeps its column shape on the wire.
         out = _execute_code("result = [[1], [2], [3]]")
         assert out["status"] == "ok"
         assert out["result"] == [[1], [2], [3]]
@@ -143,13 +143,13 @@ class TestOnlinePyJsonContract:
         assert out.get("result") is None
 
     def test_request_body_shape(self) -> None:
-        # Document the AddIn request (id + code + optional data + mode).
-        # mode is decoded only for validation (routing uses ?session_id=), and
-        # the worker dict below is hand-built after parse_execute_request.
+        # Merged Online (Gerrit 8123) posts one JSON object and flattens a 1×N or N×1
+        # range, so each cell is its own input. The service ignores `mode`; routing
+        # uses `?session_id=`.
         body = {
             "id": "py-test-1",
             "code": "result = float(np.sum(data))",
-            "data": [[1, 2, 3]],
+            "data": [1, 2, 3],
             "mode": "isolated",
         }
         raw_body = json.dumps(body, allow_nan=False).encode("utf-8")
@@ -200,6 +200,18 @@ class TestOnlinePyJsonContract:
                 "result = [len(ranges), list(data.shape)]",
                 [1, [3, 1]],
                 id="column_range",
+            ),
+            pytest.param(
+                [[1, 2, 3]],
+                "result = [len(ranges), list(data.shape)]",
+                [1, [1, 3]],
+                id="row_range",
+            ),
+            pytest.param(
+                [1, 2, 3],
+                "result = [len(ranges), [list(r.shape) for r in ranges]]",
+                [3, [[1, 1], [1, 1], [1, 1]]],
+                id="merged_kit_flat_range",
             ),
         ],
     )
