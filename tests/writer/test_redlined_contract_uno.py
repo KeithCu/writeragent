@@ -27,7 +27,7 @@ from tests.writer.redlined_contract_fixture import (
     build_redlined_contract,
 )
 
-# Median seconds allowed on the 301-page redlined contract: three to five times the numbers in
+# Median seconds allowed on the 301-page redlined contract: three to six times the numbers in
 # docs/writer/redline-timings.md, so only a change in complexity fails, not a slower machine.
 MEDIAN_CEILINGS_S = {
     "get_content full": 15.0,

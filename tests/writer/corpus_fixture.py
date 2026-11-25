@@ -5,8 +5,8 @@
 """Word-style .docx and flat ODF documents for the Writer corpus UNO suite.
 
 Plain text generation, no UNO and no python-docx (LibreOffice's bundled Python does not have
-it): each builder writes the WordprocessingML that Word itself writes for that feature, so the
-documents go through LibreOffice's Word import filter.
+it): each builder writes WordprocessingML modelled on what Word writes for that feature (not
+saved by Word itself), so the documents go through LibreOffice's Word import filter.
 """
 
 from __future__ import annotations
@@ -42,9 +42,15 @@ class CorpusDoc:
     old: str
     new: str
     redline_authors: tuple[str, ...] = ()
+    redlines: tuple[tuple[str, str], ...] = ()
     tables: int = 0
     indexes: int = 0
     header_images: tuple[str, ...] = ()
+    footnotes: int = 0
+    endnotes: int = 0
+    comments: int = 0
+    bookmarks: tuple[str, ...] = ()
+    sections: tuple[str, ...] = ()
 
 
 class _Word:
@@ -168,14 +174,16 @@ def write_docx(path: Path, body: str, *, header: str = "", footer: str = "", not
         + override % ("document", "document.main") + "".join(override % (name, name) for name in xml_parts) + "</Types>",
         "_rels/.rels": relations % (relation % ("rId1", "officeDocument", "word/document.xml")),
         "word/_rels/document.xml.rels": relations % "".join(relation % ("rId_" + name, name, name + ".xml") for name in xml_parts),
-        "word/_rels/header.xml.rels": relations % (relation % ("rId1", "image", "media/logo.png")),
         "word/document.xml": f"<w:document {_NS}><w:body>{body}<w:sectPr>{references}{page}</w:sectPr></w:body></w:document>",
     }
+    if header:
+        parts["word/_rels/header.xml.rels"] = relations % (relation % ("rId1", "image", "media/logo.png"))
     parts.update({f"word/{name}.xml": f"<w:{root} {_NS}>{content}</w:{root}>" for name, (root, content) in xml_parts.items()})
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, xml in parts.items():
             archive.writestr(name, _XML + xml)
-        archive.write(logo_32_path(), "word/media/logo.png")
+        if header:
+            archive.write(logo_32_path(), "word/media/logo.png")
 
 
 _PAGE_FOOTER = para(run("Page ") + field("PAGE", run("1")), "Header")
@@ -194,6 +202,7 @@ def write_contract(path: Path, *, struck_before_heading: bool = False) -> None:
         + para(run("The Customer may ") + w.ins(ASSOCIATE, "not ") + run("assign this Agreement without consent."), "Clause")
         + para(run("Services"), "Heading1")
         + para(run("The Supplier shall deliver the Services promptly."), "Clause")
+        # Reverse order triggers F1 (struck clause before Heading1).
         + (kept + struck if struck_before_heading else struck + kept)
         + para(run("Fees"), "Heading1")
         + para(run("Fees are payable within thirty days."), "Clause")
@@ -204,6 +213,7 @@ def write_contract(path: Path, *, struck_before_heading: bool = False) -> None:
         )
         + para(run("End of Agreement."))
     )
+    # No space between logo and text: a space comes back as a no-break space (F7).
     write_docx(path, body, header=para(logo() + run("Acme LLP"), "Header"), footer=_PAGE_FOOTER)
 
 
@@ -283,13 +293,36 @@ def _write_sections(path: Path) -> None:
 
 CONTRACT = CorpusDoc(
     "contract", ".docx", write_contract, "Fees are payable within thirty days.", "Fees are payable within sixty days.",
-    redline_authors=(OPPOSING, ASSOCIATE), tables=1, indexes=1, header_images=("Logo",))
+    redline_authors=(OPPOSING, ASSOCIATE),
+    redlines=(
+        ("Delete", OPPOSING), ("Delete", ASSOCIATE), ("Delete", ASSOCIATE), ("Delete", OPPOSING),
+        ("Insert", OPPOSING), ("Insert", ASSOCIATE), ("Insert", OPPOSING),
+    ),
+    tables=1, indexes=1, header_images=("Logo",), sections=("Table of Contents1",),
+)
 ROW_CHANGES = CorpusDoc(
     "row_changes", ".docx", _write_row_changes, "Plain closing text.", "Changed closing text.",
-    redline_authors=(OPPOSING, ASSOCIATE), tables=1)
-NOTES = CorpusDoc("notes", ".docx", _write_notes, "Plain closing clause.", "Changed closing clause.", redline_authors=(OPPOSING,))
+    redline_authors=(OPPOSING, ASSOCIATE),
+    redlines=(
+        ("Insert", OPPOSING), ("Insert", OPPOSING), ("Insert", OPPOSING),
+        ("Delete", ASSOCIATE), ("Delete", ASSOCIATE), ("Delete", ASSOCIATE), ("Delete", ASSOCIATE),
+        ("Format", OPPOSING),
+    ),
+    tables=1,
+)
+NOTES = CorpusDoc(
+    "notes", ".docx", _write_notes, "Plain closing clause.", "Changed closing clause.",
+    redline_authors=(OPPOSING,), redlines=(("Insert", OPPOSING),),
+    footnotes=1, endnotes=1, comments=1, bookmarks=("_Ref1",),
+)
 LETTER = CorpusDoc("letter", ".docx", _write_letter, "We write about the agreement.", "We write about the contract.", header_images=("Logo",))
-SECTIONS = CorpusDoc("sections", ".fodt", _write_sections, "Closing paragraph.", "Changed paragraph.")
+SECTIONS = CorpusDoc(
+    "sections", ".fodt", _write_sections, "Closing paragraph.", "Changed paragraph.",
+    sections=("Locked", "Secret"),
+)
 REDLINED_ODF = CorpusDoc(
     "redlined_odf", ".fodt", _write_redlined_odf, "End of Agreement.", "End of this Agreement.",
-    redline_authors=(OPPOSING,), tables=1, indexes=1)
+    redline_authors=(OPPOSING,),
+    redlines=(("Delete", OPPOSING),) * 8 + (("Insert", OPPOSING),) * 7,
+    tables=1, indexes=1, sections=("Table of Contents1",),
+)

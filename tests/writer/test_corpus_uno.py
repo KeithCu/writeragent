@@ -89,21 +89,27 @@ def _body_text(doc: Any) -> list[Any]:
     return [entry if entry[0] == "table" else entry[-1] for entry in _body(doc)]
 
 
-def _header_images(ctx: Any, doc: Any) -> tuple[str, ...]:
-    return tuple(_ok(ctx, doc, "page_get_header_footer_text", region="header").get("images") or ())
-
-
-def _header_text(doc: Any) -> str:
+def _region(ctx: Any, doc: Any, region: str) -> tuple[str, tuple[str, ...], tuple[Any, ...]]:
     style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
-    return style.getPropertyValue("HeaderText").getString() if style.getPropertyValue("HeaderIsOn") else ""
+    is_on_prop, text_prop = ("HeaderIsOn", "HeaderText") if region == "header" else ("FooterIsOn", "FooterText")
+    text = style.getPropertyValue(text_prop).getString() if style.getPropertyValue(is_on_prop) else ""
+    read = _ok(ctx, doc, "page_get_header_footer_text", region=region)
+    return text, tuple(read.get("images") or ()), tuple(read.get("fields") or ())
 
 
 def _counts(ctx: Any, doc: Any) -> dict[str, Any]:
+    # Text and counts only, not object names: a DOCX save adds graphics/sections and renames tables.
+    header_text, header_images, header_fields = _region(ctx, doc, "header")
+    footer_text, footer_images, footer_fields = _region(ctx, doc, "footer")
     return {
         "redlines": sorted((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc)),
         "body": _body_text(doc),
-        "header": _header_text(doc),
-        "header images": len(_header_images(ctx, doc)),
+        "header": header_text,
+        "header images": len(header_images),
+        "header fields": header_fields,
+        "footer": footer_text,
+        "footer images": len(footer_images),
+        "footer fields": footer_fields,
         "indexes": doc.getDocumentIndexes().getCount(),
         "footnotes": doc.getFootnotes().getCount(),
         "endnotes": doc.getEndnotes().getCount(),
@@ -112,7 +118,13 @@ def _counts(ctx: Any, doc: Any) -> dict[str, Any]:
 
 
 def _state(ctx: Any, doc: Any) -> dict[str, Any]:
-    return {**_counts(ctx, doc), "body": _body(doc), "sections": doc.getTextSections().getElementNames()}
+    # Bookmarks are omitted: get_tree adds _mcp_* heading bookmarks by design.
+    return {
+        **_counts(ctx, doc),
+        "body": _body(doc),
+        "sections": doc.getTextSections().getElementNames(),
+        "record_changes": bool(doc.getPropertyValue("RecordChanges")),
+    }
 
 
 def _assert_same(label: str, before: dict[str, Any], after: dict[str, Any]) -> None:
@@ -121,7 +133,7 @@ def _assert_same(label: str, before: dict[str, Any], after: dict[str, Any]) -> N
 
 
 def _read_calls(doc: Any) -> list[tuple[str, dict[str, Any]]]:
-    """Every registered Writer read tool with the arguments this document allows.
+    """Every registered Writer read tool declaring ``TextDocument`` with the arguments this document allows.
 
     A read tool without required parameters is called with none. One that needs arguments must be
     listed here, so a new read tool cannot stay uncovered silently.
@@ -158,8 +170,11 @@ def _read_calls(doc: Any) -> list[tuple[str, dict[str, Any]]]:
         "style_get_info": [{"style": "Standard"}],
         "table_get_cells": [{"name": n} for n in tables],
     }
+    tools = get_tools().get_tools(filter_doc_type=False, exclude_tiers=_OTHER_TIERS)
+    registered = {tool.name for tool in tools}
+    assert set(arguments).issubset(registered), f"unknown tools in arguments: {set(arguments) - registered}"
     calls: list[tuple[str, dict[str, Any]]] = []
-    for tool in get_tools().get_tools(filter_doc_type=False, exclude_tiers=_OTHER_TIERS):
+    for tool in tools:
         name = tool.name
         if name in arguments:
             calls.extend((name, args) for args in arguments[name])
@@ -171,22 +186,36 @@ def _read_calls(doc: Any) -> list[tuple[str, dict[str, Any]]]:
 
 def _check_import(ctx: Any, case: CorpusDoc, doc: Any) -> None:
     """The fixture really has what its name says, so the checks below cannot pass on an empty import."""
-    assert {r["RedlineAuthor"] for r in list_redlines(doc)} == set(case.redline_authors)
+    redlines = sorted((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc))
+    assert {author for _, author in redlines} == set(case.redline_authors)
+    if case.redlines:
+        assert redlines == sorted(case.redlines)
     assert sum(entry[0] == "table" for entry in _body(doc)) == case.tables
     assert doc.getDocumentIndexes().getCount() == case.indexes
-    assert _header_images(ctx, doc) == case.header_images
+    assert _region(ctx, doc, "header")[1] == case.header_images
+    assert doc.getFootnotes().getCount() == case.footnotes
+    assert doc.getEndnotes().getCount() == case.endnotes
+    assert _ok(ctx, doc, "comment_list").get("count") == case.comments
+    assert tuple(doc.getBookmarks().getElementNames()) == case.bookmarks
+    sections = doc.getTextSections()
+    assert tuple(sections.getElementNames()) == case.sections
+    if "Locked" in case.sections:
+        assert sections.getByName("Locked").getPropertyValue("IsProtected") is True
+    if "Secret" in case.sections:
+        assert sections.getByName("Secret").getPropertyValue("IsVisible") is False
 
 
 def _check_reads(ctx: Any, path: Path) -> None:
     with _opened(ctx, path) as doc:
         before = _state(ctx, doc)
         failed = []
-        for name, args in _read_calls(doc):
+        calls = _read_calls(doc)
+        for name, args in calls:
             result = _tool(ctx, doc, name, **args)
             if result.get("status") != "ok":
-                failed.append(f"{name}({args}): {result.get('code')} {result.get('message')}")
+                failed.append(f"{name}({args}): {result}")
         assert not failed, failed
-        _assert_same("reading", before, _state(ctx, doc))
+        _assert_same(f"reading ({[name for name, _ in calls]})", before, _state(ctx, doc))
 
 
 def _has_redline(cell: Any) -> bool:
@@ -205,6 +234,7 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
         before = _state(ctx, doc)
         _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.old)
         for region in ("header", "footer"):
+            # include_images=False: default header write-back loses the logo image (F3).
             read = _ok(ctx, doc, "page_get_header_footer_text", region=region, include_images=False)
             if read["is_on"]:
                 _ok(ctx, doc, "page_set_header_footer_text", region=region, content=read["content"])
@@ -291,6 +321,26 @@ def test_corpus_read_keeps_struck_clause_before_heading_uno(ctx):
         write_contract(path, struck_before_heading=True)
         with _opened(ctx, path) as doc:
             before = _body(doc)
+            idx = next(i for i, entry in enumerate(before) if entry[-1] == "This whole clause is struck.")
+            assert before[idx][0] == "Clause"
+            assert before[idx + 1][:2] == ("Heading 1", "3.") and before[idx + 1][3] == "Fees"
             _ok(ctx, doc, "get_content")
-            if _body(doc) != before:
-                raise unittest.SkipTest("known gap: the ODF store behind get_content restyles the struck clause")
+            after = _body(doc)
+            if after != before:
+                diffs = [
+                    i
+                    for i in range(max(len(before), len(after)))
+                    if i >= len(before) or i >= len(after) or before[i] != after[i]
+                ]
+                if (
+                    len(after) == len(before)
+                    and diffs == [idx, idx + 1, idx + 2]
+                    and after[idx][0] == "Heading 1"
+                    and after[idx][3] == "This whole clause is struck."
+                    and after[idx + 1][:2] == ("Heading 1", "4.")
+                    and after[idx + 1][3] == "Fees"
+                    and after[idx + 2][:2] == ("Clause", "4.1")
+                    and after[idx + 2][3] == "Fees are payable within thirty days."
+                ):
+                    raise unittest.SkipTest("known gap: the ODF store behind get_content restyles the struck clause")
+                assert after == before, f"unexpected body change: {[(before[i], after[i]) for i in diffs]}"
