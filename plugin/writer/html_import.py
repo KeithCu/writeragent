@@ -220,13 +220,16 @@ def _place_formulas(
     prefix = f"[[WA-MATH:{nonce}:"
     hits = field_restore.find_tokens(text_obj, prefix, _MATH_TOKEN_RE)
     by_idx = {int(m.group(2)): cur for cur, m in hits}
+    # Read before any split, because splitting for one display formula can leave
+    # the next one alone in what was a heading.
+    alone = {idx for idx, cur in by_idx.items() if _range_covers_whole_paragraphs(cur)}
     attempts: list[dict[str, Any]] = []
     for idx, seg in enumerate(formulas):
         cursor = by_idx.get(idx)
         if cursor is None:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             attempts.append(
-                _math_attempt_entry(seg, snippet, ok=False, error="formula position lost in the HTML import")
+                _math_attempt_entry(seg, snippet, ok=False, error=html_import_styles.MATH_POSITION_LOST)
             )
             continue
         if seg.kind == "tex":
@@ -251,6 +254,11 @@ def _place_formulas(
                 cursor.gotoEndOfParagraph(False)
             if not cursor.isStartOfParagraph():
                 text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # A split keeps the heading style on a formula at the heading's start (and everywhere in a
+            # style that follows itself), which would add an empty-looking entry to the outline. A formula
+            # that was the whole heading keeps the style its author chose.
+            if idx not in alone and cursor.getPropertyValue("OutlineLevel") > 0:
+                cursor.setPropertyValue("ParaStyleName", "Text body")
             cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
         insert_writer_math_formula(model, cursor, res.starmath, display_block=False)
         attempts.append(_math_attempt_entry(seg, snippet, ok=True))
@@ -1431,7 +1439,7 @@ def replace_xtext_with_html(
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
     expanded = html_import_styles.normalize_character_references(expanded)
-    expanded = html_import_styles.expand_escapes(expanded)
+    expanded = html_import_styles.expand_prose_escapes(expanded)
     expanded, ruby_spans = html_ruby.ruby_placeholders(expanded, nonce)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)

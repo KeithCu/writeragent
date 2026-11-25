@@ -90,7 +90,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `html_import_styles.attach_write_report`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
-| `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
+| `MATH_IMPORT_FAILED` | warning | Formula not converted or not placed during HTML/math import (`html_import_styles.attach_write_report`) | None |
 | `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark, or matches several headings (`html_import_styles.resolve_heading_links`); carries `link_target`; message lists close or colliding heading names | None |
 | `LINK_TARGET_STALE` | warning | Outline hyperlink (`#old\|outline`) still naming an old heading title because it holds a field while recording or the edit removed that heading with no clear successor (`html_import_styles.attach_write_report`); carries `link_target` | None |
 
