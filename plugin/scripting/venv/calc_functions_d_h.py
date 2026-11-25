@@ -45,12 +45,14 @@ from .calc_functions_util import (
     scipy_stats,
     serial_to_date,
     trend_fit,
+    whole_number,
     yearfrac,
 )
 from .coerce import header_label
 
 
 __all__ = [
+    "date",
     "datedif",
     "datevalue",
     "daverage",
@@ -155,6 +157,11 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
             month += 1
         dim = calendar.monthrange(year, month)[1]
     return dt.date(year, month, day)
+
+
+@propagate_errors
+def date(year: Any, month: Any, day: Any) -> float:
+    return date_to_serial(dt.date(whole_number(year), whole_number(month), whole_number(day)))
 
 
 @propagate_errors

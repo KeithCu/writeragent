@@ -947,6 +947,21 @@ def test_translate_int_argument_truncates_toward_zero():
     assert exec_result(res, "abcdef") == "abc"
 
 
+def test_translate_left_mid_date_propagate_nan():
+    for formula, data in [
+        ("=LEFT(A1;B1)", ["abcdef", float("nan")]),
+        ("=LEFT(A1;2)", float("nan")),
+        ("=MID(A1;B1;C1)", ["abcdef", float("nan"), 2]),
+        ("=MID(A1;B1;C1)", ["abcdef", 2, float("nan")]),
+        ("=DATE(A1;B1;C1)", [float("nan"), 10, 5]),
+        ("=DATE(A1;B1;C1)", [2023, float("nan"), 5]),
+        ("=DATE(A1;B1;C1)", [2023, 10, float("nan")]),
+    ]:
+        res = translate_formula(formula, "A1")
+        assert res.ok
+        assert math.isnan(exec_result(res, data)), formula
+
+
 def test_translate_does_not_rewrite_text_literals():
     res_t = translate_formula('=T("int(x)")', "A1")
     assert res_t.ok

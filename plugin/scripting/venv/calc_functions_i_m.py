@@ -21,6 +21,7 @@ from typing import Any, Callable
 import numpy as np
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError
+from plugin.scripting.calc_range import CalcRange
 
 from .calc_functions_util import (
     RegressionError,
@@ -100,6 +101,7 @@ __all__ = [
     "jis",
     "kurt",
     "large",
+    "left",
     "linest",
     "logest",
     "loginv",
@@ -109,6 +111,7 @@ __all__ = [
     "maxa",
     "mdeterm",
     "mduration",
+    "mid",
     "mina",
     "minverse",
     "mirr",
@@ -123,9 +126,12 @@ __all__ = [
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
+    # Re-raise InterpreterError before the broad catch so sandbox refusals are not hidden.
     try:
         val = f()
-        return alt if is_calc_error(val) else val
+        return alt if is_calc_error(cell_value(val)) else val
+    except InterpreterError:
+        raise
     except Exception:
         return alt
 
@@ -133,9 +139,8 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     # Catches #N/A values and ValueError/TypeError/OverflowError from an #N/A operand
     # (e.g. np.int64 of a NaN or token, text + number, or a date built from INT_MIN).
-    # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not
-    # hidden; IndexError is not caught because translated INDEX and lookups use helpers that
-    # return error values.
+    # Same InterpreterError re-raise as iferror; IndexError is not caught because
+    # translated INDEX and lookups use helpers that return error values.
     try:
         val = f()
         return alt if isna(val) else val
@@ -442,17 +447,21 @@ def irr(values: Any, guess: Any = 0.1) -> float:
 
 
 def isblank(val: Any) -> bool:
+    # ScIsEmpty (interpr1.cxx:2007) is true only for CELLTYPE_NONE, not =""; keep scalar "" for legacy callers.
+    if isinstance(val, CalcRange):
+        return val.shape == (1, 1) and val.values[0][0] is None
     return is_blank_value(val)
 
 
 def iserr(val: Any) -> bool:
     # Real Calc error tokens and NaN, excluding #N/A. '#hashtag' is text.
+    val = cell_value(val)
     return is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
     # Real Calc error tokens and any NaN. '#hashtag' is text.
-    return is_calc_error(val)
+    return is_calc_error(cell_value(val))
 
 
 def _parity(val: Any) -> int | None:
@@ -462,7 +471,7 @@ def _parity(val: Any) -> int | None:
     """
     try:
         # int(nan) raises ValueError, which the handler below already turns into not-even / not-odd
-        return int(float(val))
+        return int(float(cell_value(val)))
     except (ValueError, TypeError, OverflowError):
         return None
 
@@ -474,11 +483,12 @@ def iseven(val: Any) -> bool:
 
 def islogical(val: Any) -> bool:
     # np.bool_ is not a subclass of bool; both are logical in Calc.
-    return isinstance(val, (bool, np.bool_))
+    return isinstance(cell_value(val), (bool, np.bool_))
 
 
 def isna(val: Any) -> bool:
     """True for the two tokens egress shows as #N/A or a NaN carrying #N/A."""
+    val = cell_value(val)
     if isinstance(val, str):
         return val.strip() in ("#N/A", "#N/A N/A")
     return is_calc_error(val) and nan_error_code(float(val)) == 0x7FFF
@@ -492,7 +502,7 @@ def isnontext(val: Any) -> bool:
 
 
 def isnumber(val: Any) -> bool:
-    return is_number(val)
+    return is_number(cell_value(val))
 
 
 def isodd(val: Any) -> bool:
@@ -530,6 +540,7 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
 
 def istext(val: Any) -> bool:
     # Text, except a real Calc error token. '#hashtag' is text.
+    val = cell_value(val)
     return isinstance(val, str) and not is_calc_error(val)
 
 
@@ -631,6 +642,17 @@ def logest(*args: Any, **kwargs: Any) -> Any:
         return exc.args[0]
     except _REGRESSION_ERRORS:
         return "#VALUE!"
+
+
+@propagate_errors
+def left(text: Any, n: Any = 1) -> str:
+    return py_str(text)[: whole_number(n)]
+
+
+@propagate_errors
+def mid(text: Any, start: Any, n: Any) -> str:
+    s = max(0, whole_number(start) - 1)
+    return py_str(text)[s : s + whole_number(n)]
 
 
 @propagate_errors

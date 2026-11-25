@@ -18,6 +18,8 @@ from typing import Any
 
 import numpy as np
 
+from plugin.scripting.calc_range import CalcRange
+
 from .calc_functions_util import (
     ILLEGAL_ARGUMENT_NAN,
     ILLEGAL_PARAMETER_NAN,
@@ -1020,10 +1022,12 @@ def _is_calc_range(arg: Any) -> bool:
         return False
     if isinstance(arg, np.ndarray):
         return arg.ndim >= 1
-    return isinstance(arg, (list, tuple))
+    return isinstance(arg, (list, tuple, CalcRange))
 
 
 def _flatten_range(arg: Any) -> list[Any]:
+    if isinstance(arg, CalcRange):
+        return _flatten_range(arg.values)
     if isinstance(arg, np.ndarray):
         return [v.item() if isinstance(v, np.generic) else v for v in arg.ravel()]
     flat: list[Any] = []

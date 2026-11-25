@@ -35,7 +35,6 @@ from .calc_functions_util import (
     is_calc_error,
     match_criteria,
     multi_criteria_mask,
-    npf_result,
     propagate_errors,
     py_str,
     round_half_up,
@@ -1002,8 +1001,26 @@ def _cum_payment(
     t = float(type_val)
     if t not in (0, 1) or r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return ILLEGAL_ARGUMENT_NAN
-    pers = np.arange(s, e + 1)
-    return npf_result(kind, r, pers, n, p, 0, int(t))
+    # O(1) closed form in log1p/expm1 avoids both np.arange OOM and small-rate cancellation.
+    rate_log = math.log1p(r)
+    m = e - s + 1
+    n_log = n * rate_log
+    denom_neg = math.expm1(-n_log)
+    if denom_neg == 0.0:
+        return float("nan")
+    if n_log > 700.0:
+        # Both (e - n) <= 0 and (s - 1 - n) < 0, so exp(...) <= 1 and expm1(n_log) cannot overflow.
+        cum_princ = -p * (math.exp((e - n) * rate_log) - math.exp((s - 1 - n) * rate_log)) / (-denom_neg)
+    else:
+        cum_princ = -p * math.exp((s - 1) * rate_log) * math.expm1(m * rate_log) / math.expm1(n_log)
+    pmt_val = p * r / denom_neg
+    if int(t) == 1:
+        cum_princ /= 1.0 + r
+        if s == 1:
+            cum_princ -= p * r / (1.0 + r)
+        pmt_val /= 1.0 + r
+    res = cum_princ if kind == "ppmt" else m * pmt_val - cum_princ
+    return res if math.isfinite(res) else float("nan")
 
 
 @propagate_errors

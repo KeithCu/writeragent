@@ -18,6 +18,7 @@ FORMULA_LIKE_TYPES: frozenset[CellType] = frozenset({"formula", "py_formula", "a
 #   UNSUPPORTED_ARITY (wrong argument count), PARSE_ERROR (parser or codegen cannot read it)
 # - emit: PROMPT and ARRAY_FORMULA (cell kinds never converted), CIRCULAR_REF,
 #   EMIT_ERROR (unexpected exception for that one cell)
+# - verify: VERIFY_MISMATCH (converted cell value disagreed with the snapshot and was restored)
 ReportCode = Literal[
     "UNSUPPORTED_FUNCTION",
     "UNSUPPORTED_ARITY",
@@ -26,6 +27,7 @@ ReportCode = Literal[
     "ARRAY_FORMULA",
     "CIRCULAR_REF",
     "EMIT_ERROR",
+    "VERIFY_MISMATCH",
 ]
 
 
