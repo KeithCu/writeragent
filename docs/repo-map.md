@@ -110,7 +110,7 @@ Start here by task.
 | UNO Dialogs & Wizards | [framework/uno-dialogs.md](framework/uno-dialogs.md) |
 | UNO exception policy (disposed vs leaf catches) | [framework/exception-policy.md](framework/exception-policy.md) |
 | LLM Hacks & Workarounds | [chat/llm-hacks.md](chat/llm-hacks.md) |
-| Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
+| Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md), [POST-1.0.md](../POST-1.0.md) |
 | LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
 | Eval-2 headed benchmarks (sibling of string-pack hard/partial/cost; separate JSON/charts) | [eval/eval-2/benchmarks.md](eval/eval-2/benchmarks.md), [eval/eval-2/README.md](eval/eval-2/README.md) |
 | Manifest generation | [framework/manifest-generation.md](framework/manifest-generation.md) |

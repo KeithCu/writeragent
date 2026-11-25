@@ -159,7 +159,7 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
-  section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
+  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
   and footers and the tables and frames in them, and places new content outside a leading section
   or TOC (while recording, a paragraph is added untracked before a leading section and after a
   trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`

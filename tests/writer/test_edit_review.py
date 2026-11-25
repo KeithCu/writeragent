@@ -1476,3 +1476,29 @@ def test_left_tracked_changes_keeps_first_snapshot_across_mutations():
         assert session.left_tracked_changes() is True
 
 
+def test_string_skipping_redline_inside_content_control():
+    from plugin.writer.edit_review import _string_skipping_redline
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    para = FakeUnoPara([
+        FakeUnoPortion("Text", "xx "),
+        FakeUnoPortion(
+            "ContentControl",
+            inner=[
+                FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+                FakeUnoPortion("Text", "OLD"),
+                FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+                FakeUnoPortion("Redline", redline_type="Insert", is_start=True),
+                FakeUnoPortion("Text", "NEW"),
+                FakeUnoPortion("Redline", redline_type="Insert", is_start=False),
+            ],
+        ),
+        FakeUnoPortion("Text", " yy"),
+    ])
+    text_range = MagicMock()
+    text_range.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
+
+    assert _string_skipping_redline(text_range, "Delete") == "xx NEW yy"
+    assert _string_skipping_redline(text_range, "Insert") == "xx OLD yy"
+
+
