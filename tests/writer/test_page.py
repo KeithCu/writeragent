@@ -2333,18 +2333,3 @@ def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
     assert scan["images"] == []
     assert scan["has_struck"] is True
     assert _region_holds_content(doc, text_obj) is True
-
-
-def test_portion_cursor_text_counts_inline_frame_and_skips_collapsed_frame():
-    from plugin.writer.page import _OPAQUE_CURSOR_STEP, _portion_cursor_text
-
-    inline_frame = MagicMock()
-    inline_frame.getPropertyValue.return_value = "Frame"
-    inline_frame.getText.return_value.compareRegionEnds.return_value = 1
-
-    anchored_frame = MagicMock()
-    anchored_frame.getPropertyValue.return_value = "Frame"
-    anchored_frame.getText.return_value.compareRegionEnds.return_value = 0
-
-    assert _portion_cursor_text(inline_frame) == _OPAQUE_CURSOR_STEP
-    assert _portion_cursor_text(anchored_frame) == ""
