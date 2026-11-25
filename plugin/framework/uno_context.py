@@ -569,7 +569,13 @@ def enum_has_more(enum: Any) -> bool:
     return enum.hasMoreElements() is True
 
 
-def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
+def iter_open_models(
+    desktop: Any,
+    *,
+    strict: bool = True,
+    label: str = "iter_open_models",
+    include_scratch: bool = False,
+) -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
     LibreOffice's desktop enumeration is a finite snapshot
@@ -578,12 +584,20 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
     ``nextElement`` ends the walk.
 
     Handles frame controller unwrapping and guards against truthy mock loops.
+    Registered scratch documents (see ``plugin.framework.scratch_writer``) are
+    skipped by default; pass ``include_scratch=True`` to include them.
     An element that fails to resolve is skipped; an enumeration failure ends
     the walk. With *strict* a real disposal is re-raised; without it the walk
     also skips models whose ``getCurrentController`` raises.
     """
     if desktop is None:
         return
+    is_scratch = None
+    if not include_scratch:
+        # Breaks uno_context <-> scratch_writer import cycle.
+        from plugin.framework.scratch_writer import is_scratch_document
+
+        is_scratch = is_scratch_document
     try:
         comps = desktop.getComponents()
         if comps is None:
@@ -603,6 +617,8 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
                     controller = elem.getController()
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
+                if model is not None and is_scratch is not None and is_scratch(model):
+                    continue
                 if model is not None and not strict:
                     getattr(model, "getCurrentController", lambda: None)()
             except Exception as e:

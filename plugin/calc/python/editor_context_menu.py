@@ -15,6 +15,7 @@ import unohelper
 
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
+from plugin.framework.scratch_writer import is_scratch_document
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, resolve_package_extension_id, uno_same
 from plugin.framework.uno_listeners import controller_alive, install_view_doc_listener
@@ -48,7 +49,11 @@ def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
     model = uno_read(controller.getModel, None)
-    return bool(model and uno_read(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
+    return bool(
+        model
+        and uno_read(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False)
+        and not is_scratch_document(model)
+    )
 
 
 def _looks_like_cell_context_menu(container: Any) -> bool:

@@ -364,6 +364,55 @@ def test_collect_open_file_urls_skips_geturl_failure():
         assert out == {budget_norm: budget_url}
 
 
+def test_collect_open_file_urls_skips_scratch_document():
+    import plugin.framework.scratch_writer as scratch_writer
+
+    with tempfile.TemporaryDirectory() as tmp:
+        real_path = os.path.join(tmp, "Real.odt")
+        scratch_path = os.path.join(tmp, "Scratch.odt")
+        for p in (real_path, scratch_path):
+            with open(p, "wb"):
+                pass
+        real_url = path_to_file_url(real_path)
+        scratch_url = path_to_file_url(scratch_path)
+        real_norm = os.path.normpath(os.path.abspath(real_path))
+        scratch_norm = os.path.normpath(os.path.abspath(scratch_path))
+
+        scratch_doc = MagicMock(name="scratch_doc")
+        scratch_doc.getURL.return_value = scratch_url
+        scratch_doc.getRuntimeUID.return_value = "scratch-research-1"
+
+        real_doc = MagicMock(name="real_doc")
+        real_doc.getURL.return_value = real_url
+        real_doc.getRuntimeUID.return_value = "real-1"
+
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, False]
+        enum.nextElement.side_effect = [scratch_doc, real_doc]
+        desktop = MagicMock()
+        desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+        with scratch_writer._scratch_lock:
+            saved = set(scratch_writer._scratch_uids)
+            scratch_writer._scratch_uids.add("scratch-research-1")
+        try:
+            with (
+                patch("plugin.doc.document_research.get_desktop", return_value=desktop),
+                patch(
+                    "plugin.doc.document_research.system_path_from_url",
+                    side_effect=lambda url: real_norm if url == real_url else (scratch_norm if url == scratch_url else None),
+                ),
+            ):
+                out = _collect_open_file_urls(
+                    object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
+                )
+            assert out == {real_norm: real_url}
+        finally:
+            with scratch_writer._scratch_lock:
+                scratch_writer._scratch_uids.clear()
+                scratch_writer._scratch_uids.update(saved)
+
+
 def test_close_document_research_document_skips_reused_open():
     model = MagicMock()
     close_document_research_document(model, opened_for_document_research=False)
