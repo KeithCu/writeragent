@@ -225,6 +225,9 @@ class _OpenBlock:
 
 
 # StarWriter import keeps a block that holds one of these, and drops a block with no text at all.
+# An empty paragraph before a <table> moves behind it and is reused by the next block (BuildTable),
+# and <hr> turns the empty paragraph into its own Horizontal Line (InsertHorzRule), so neither fills
+# the block that holds it.
 _CONTENT_TAGS: frozenset[str] = frozenset({
     "br", "img", "input", "select", "textarea",
     "object", "embed", "iframe",
@@ -288,6 +291,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
             and parent.shared is False
             and tag != "hr"
             and parent.slot_index is not None
+            and parent.slot_index == len(self.styles) - 1
             and not self.filled[parent.slot_index]
         ):
             parent.shared = True
@@ -331,14 +335,12 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
             popped = self._open.pop()
             self._on_block_popped(popped)
 
-    def _emit_void_block(self, t: str, attrs: list[tuple[str, str | None]], raw: str) -> None:
+    def _emit_hr(self, attrs: list[tuple[str, str | None]], raw: str) -> None:
         self._close_para_level()
-        if self._open and self._open[-1].shared is False:
-            self._open[-1].shared = True
-        slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
+        slot_idx = self._slot("hr", self._style_of(attrs), self._para_of(attrs))
         # StarWriter always creates a Horizontal Line paragraph for <hr>.
         self.filled[slot_idx] = True
-        self._on_block_popped(_OpenBlock(t, False, slot_idx))
+        self._on_block_popped(_OpenBlock("hr", False, slot_idx))
         self._out.append(_strip_data_lo_attrs(raw))
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -354,7 +356,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
             self._out.append(_strip_data_lo_attrs(raw))
             return
         if self._table_depth == 0 and t == "hr":
-            self._emit_void_block(t, attrs, raw)
+            self._emit_hr(attrs, raw)
             return
         if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
             # Inline tags, and blocks inside a table: attributes are stripped (cell styles are out
@@ -379,7 +381,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         if t in _CONTENT_TAGS:
             self._mark_filled()
         if self._table_depth == 0 and t == "hr":
-            self._emit_void_block(t, attrs, raw)
+            self._emit_hr(attrs, raw)
         elif self._table_depth == 0 and self._is_block(t, attrs):
             self._close_para_level()
             slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))

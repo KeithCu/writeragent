@@ -1157,6 +1157,15 @@ def test_block_summarizer_marks_filled_on_text_and_hr():
             '<p data-lo-style="Standard">A<p/><h1 data-lo-style="Heading1">B</h1>',
             ["Standard", "Heading1"],
         ),
+        (
+            '<blockquote><div><p data-lo-style="Standard">a</p></div>'
+            '<p data-lo-style="Quotations">b</p></blockquote>',
+            ["Standard", "Quotations"],
+        ),
+        (
+            '<blockquote><div><hr></div><p data-lo-style="Quotations">q</p></blockquote>',
+            [None, "Quotations"],
+        ),
     ],
 )
 def test_extract_block_lo_styles_nested_and_void_shapes(html: str, expected: list[str | None]):
