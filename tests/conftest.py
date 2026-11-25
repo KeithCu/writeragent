@@ -369,6 +369,24 @@ def _ensure_writeragent_logger_propagates():
 
 
 @pytest.fixture(autouse=True)
+def _redact_caplog_output(request):
+    """Apply RedactingFormatter to pytest's caplog handler, matching writeragent_debug.log."""
+    if "caplog" not in request.fixturenames:
+        yield
+        return
+    from plugin.framework.log_redaction import RedactingFormatter
+
+    caplog = request.getfixturevalue("caplog")
+    old_formatter = caplog.handler.formatter
+    fmt = getattr(old_formatter, "_fmt", None) or "%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"
+    caplog.handler.setFormatter(RedactingFormatter(fmt))
+    try:
+        yield
+    finally:
+        caplog.handler.setFormatter(old_formatter)
+
+
+@pytest.fixture(autouse=True)
 def _suppress_unmocked_extension_update_checks(request):
     """Headless unit tests outside test_extension_update_check must not spawn background update workers."""
     if "test_extension_update_check" in getattr(request.module, "__name__", ""):

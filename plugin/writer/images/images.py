@@ -33,7 +33,6 @@ import typing
 from typing import Any, Callable
 import urllib.parse
 
-from plugin.framework.client.http_security import log_target
 # Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
@@ -1700,14 +1699,14 @@ def _download_image_to_cache(
                     if name_base == url_hash:
                         try:
                             if now - entry.stat().st_mtime <= IMAGE_CACHE_MAX_AGE_SECONDS:
-                                log.debug("image_download: cache hit %s -> %s", log_target(url), entry.path)
+                                log.debug("image_download: cache hit %s -> %s", url, entry.path)
                                 return entry.path
                         except OSError:
                             pass
         except OSError:
             pass
 
-    log.info("image_download: downloading %s (hash %s)", log_target(url), url_hash)
+    log.info("image_download: downloading %s (hash %s)", url, url_hash)
 
     body, suffix = fetch_image_url(url, cancel=cancel)
     local_path = os.path.join(cache_dir, url_hash + suffix)

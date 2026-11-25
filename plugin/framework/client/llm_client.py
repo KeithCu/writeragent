@@ -74,7 +74,7 @@ from .errors import (
     stream_error_is_overload,
     stream_error_message,
 )
-from .http_security import log_target, public_target, redact_secrets, secrets_from_target
+from .http_security import public_target, redact_secrets, secrets_from_target
 from .http_transport import LlmHttpTransport, parse_strict_json
 from .request_controls import (
     RetryBudget,
@@ -471,7 +471,7 @@ class LlmClient:
         )
 
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % public_target(path))
+        log.debug("URL: %s", path)
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         log_chat_request_body_diag(self, path, body, headers, tools)
@@ -563,7 +563,7 @@ class LlmClient:
         # log.debug...
         log.debug("=== Image Request ===")
         # Path/query must not include API keys.
-        log.debug("URL: %s" % public_target(path))
+        log.debug("URL: %s", path)
 
         # Persistent transport supports cancellation and 429/503 retries.
         try:
@@ -675,7 +675,7 @@ class LlmClient:
         # get_url_path_and_query keeps both.
         req_path = get_url_path_and_query(url)
         log.debug("=== STT Request ===")
-        log.debug("URL: %s" % public_target(req_path))
+        log.debug("URL: %s", req_path)
         log.debug("STT Model: %s" % model_name)
         res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
@@ -712,7 +712,7 @@ class LlmClient:
     ) -> Any:
         """Common low-level streaming engine."""
         log.info("=== Starting streaming loop (persistent) ===")
-        log.debug("Request Path: %s", log_target(path))
+        log.debug("Request Path: %s", path)
 
         # Do not clear cancellation here — that races with stop() on another thread
         # (B13). UI clears via ``clear_stop()`` at the start of a new send.

@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.contrib.smolagents.tools import Tool
-from plugin.framework.client.http_security import log_target
 from plugin.framework.url_utils import get_url_domain
 from plugin.framework.worker_pool import run_in_background
 
@@ -365,7 +364,7 @@ class PagedVisitTool(Tool):
                     try:
                         text = self._inner.forward(target_url)
                     except Exception as exc:
-                        log.exception("visit_webpage failed for %s", log_target(target_url))
+                        log.exception("visit_webpage failed for %s", target_url)
                         text = f"Error fetching the webpage: {exc}"
                     results_q.put((target_url, text))
 

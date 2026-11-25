@@ -70,6 +70,7 @@ _T = TypeVar("_T", int, float)
 _S = TypeVar("_S")
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, UnoObjectError, uno_call
+from plugin.framework.log_redaction import register_known_secret
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -629,14 +630,19 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
         if text == keystore.get_secret(name):
             return str(current)
     if text and keystore.can_store() and keystore.set_secret(name, text):
+        register_known_secret(text)
         return keystore.new_ref()
+    register_known_secret(text)
     return text
 
 
 def _resolve_secret(name: str, raw: Any, cancel: SendCancellation | None = None) -> str:
     if keystore.is_ref(raw):
-        return keystore.get_secret(name, cancel=cancel) or ""
-    return str(raw or "")
+        val = keystore.get_secret(name, cancel=cancel) or ""
+    else:
+        val = str(raw or "")
+    register_known_secret(val)
+    return val
 
 
 def _entry_secret_name(key: str, entry_name: str, field: str) -> str:

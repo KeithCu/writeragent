@@ -553,7 +553,7 @@ class LlmHttpTransport:
                     if cross_origin:
                         self._redirect_origin = new_origin
                         self.close()
-                    log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
+                    log.debug("Following HTTP %s to %s", status, new_origin + new_path)
                     method = new_method
                     wire_headers = new_headers
                     path = new_path

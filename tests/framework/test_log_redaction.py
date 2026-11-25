@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import io
 import json
+import logging
 from typing import Any
 
 import pytest
 
-from plugin.framework.log_redaction import is_secret_key, redact_secret_pairs_in_text, redact_urls_in_text
+from plugin.framework.log_redaction import (
+    RedactingFormatter,
+    clear_known_secrets,
+    is_secret_key,
+    redact_secret_pairs_in_text,
+    redact_urls_in_text,
+    register_known_secret,
+)
 
 
 @pytest.mark.parametrize(
@@ -135,3 +144,96 @@ def test_redact_urls_in_text() -> None:
 
     plain = "No URLs here, just localhost:18765"
     assert redact_urls_in_text(plain) == plain
+
+
+def _format_with_arbitrary_logger(logger_name: str, msg: str, *args: Any, exc_info: Any = None) -> str:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(RedactingFormatter("%(name)s | %(levelname)s | %(message)s"))
+    logger = logging.getLogger(logger_name)
+    prev_level = logger.level
+    prev_propagate = logger.propagate
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    logger.addHandler(handler)
+    try:
+        logger.warning(msg, *args, exc_info=exc_info)
+        return stream.getvalue()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(prev_level)
+        logger.propagate = prev_propagate
+
+
+def test_redacting_formatter_masks_urls_on_arbitrary_loggers() -> None:
+    out1 = _format_with_arbitrary_logger(
+        "test.arbitrary.tts",
+        "TTS POST %s failed",
+        "https://user:supersecret@api.example.com:8443/v1/chat?api_key=sk-query123&model=gpt-4#frag",
+    )
+    assert "supersecret" not in out1
+    assert "sk-query123" not in out1
+    assert "frag" not in out1
+    assert "https://api.example.com:8443/v1/chat" in out1
+
+    out2 = _format_with_arbitrary_logger(
+        "test.arbitrary.images",
+        "Downloading %s for model",
+        "http://[::1]:11434/s/123e4567-e89b-12d3-a456-426614174000/v1/models/MyModel2026",
+    )
+    assert "123e4567-e89b-12d3-a456-426614174000" not in out2
+    assert "http://[::1]:11434/s/<redacted>/v1/models/MyModel2026" in out2
+
+    out3 = _format_with_arbitrary_logger(
+        "test.arbitrary.badurl",
+        "Error for %s: %s",
+        "http://u:pw@h.example:1a34/s/123e4567-e89b-12d3-a456-426614174000/v1",
+        "https://[::1/v1?e=a@b&key=hunter2",
+    )
+    assert "pw" not in out3
+    assert "hunter2" not in out3
+    assert "http://h.example:1a34/s/<redacted>/v1:" in out3
+
+    out4 = _format_with_arbitrary_logger(
+        "test.arbitrary.relpath",
+        "Request Path: %s",
+        "/v1beta/models/gemini:generateContent?key=AIzaSecretValue&alt=sse",
+    )
+    assert "AIzaSecretValue" not in out4
+    assert "/v1beta/models/gemini:generateContent?key=<redacted>&alt=sse" in out4
+
+
+def test_redacting_formatter_masks_known_secrets_across_arbitrary_loggers() -> None:
+    clear_known_secrets()
+    try:
+        register_known_secret("sk-known-secret-987654")
+        register_known_secret("ab")  # Too short; must not redact ordinary substrings.
+
+        out1 = _format_with_arbitrary_logger(
+            "test.arbitrary.one",
+            "Auth failed with key sk-known-secret-987654 about ab",
+        )
+        assert "sk-known-secret-987654" not in out1
+        assert "<redacted> about ab" in out1
+
+        try:
+            raise RuntimeError("Upstream rejected sk-known-secret-987654")
+        except RuntimeError:
+            out2 = _format_with_arbitrary_logger("test.arbitrary.two", "Call failed", exc_info=True)
+        assert "sk-known-secret-987654" not in out2
+        assert "Upstream rejected <redacted>" in out2
+    finally:
+        clear_known_secrets()
+
+
+def test_resolve_auth_registers_known_secret() -> None:
+    from plugin.framework.client.auth import resolve_auth_for_config
+
+    clear_known_secrets()
+    try:
+        resolve_auth_for_config({"endpoint": "https://api.openai.com/v1", "api_key": "sk-auth-registered-5555"})
+        out = _format_with_arbitrary_logger("test.arbitrary.auth", "Echoed sk-auth-registered-5555")
+        assert "sk-auth-registered-5555" not in out
+        assert "Echoed <redacted>" in out
+    finally:
+        clear_known_secrets()
