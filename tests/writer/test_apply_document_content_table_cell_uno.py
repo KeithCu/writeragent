@@ -20,6 +20,11 @@ from plugin.tests.testing_utils import (
     TestingFactory,
     with_native_doc,
 )
+from tests.writer.doc_builders import (
+    accept_all_changes,
+    insert_named_table,
+    reject_all_changes,
+)
 
 
 @native_test
@@ -68,33 +73,11 @@ def test_apply_document_content_refuses_host_cell_with_nested_table_uno(ctx, doc
     assert nested.getCellByName("A1").getString() == "KEEP_INNER"
 
 
-def _insert_table(doc, name, rows, cols, cells):
-    """Insert a named text table and return it. *cells* maps cell name -> string."""
-    text = doc.getText()
-    table = doc.createInstance("com.sun.star.text.TextTable")
-    table.initialize(rows, cols)
-    text.insertTextContent(text.getEnd(), table, False)
-    table.setName(name)
-    for cell_name, value in cells.items():
-        table.getCellByName(cell_name).setString(value)
-    return table
-
-
-def _accept_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
-
-
-def _reject_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
-
-
 @native_test
 @with_native_doc("writer")
 def test_empty_one_cell_leaves_the_table_uno(ctx, doc):
     """Clearing one cell while a sibling still has text is a text edit, not a table delete."""
-    table = _insert_table(doc, "Fee", 2, 2, {"A1": "Custas", "B1": "Honorarios"})
+    table = insert_named_table(doc, "Fee", 2, 2, {"A1": "Custas", "B1": "Honorarios"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
         tool_ctx, content=[""], old_content="Custas", target="search"
@@ -112,7 +95,7 @@ def test_empty_one_cell_leaves_the_table_uno(ctx, doc):
 def test_empty_replacement_of_the_last_text_deletes_the_table_uno(ctx, doc):
     """The office failure: blanking the table's only text used to leave the shell and report success."""
     text = doc.getText()
-    _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
+    insert_named_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     text.insertString(text.getEnd(), "KEEP_OUTSIDE", False)
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
@@ -129,7 +112,7 @@ def test_empty_replacement_of_the_last_text_deletes_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_substring_clear_inside_a_cell_keeps_the_table_uno(ctx, doc):
     """Deleting part of a cell is not deleting the table, even when the other cells are empty."""
-    table = _insert_table(doc, "Fee", 1, 1, {"A1": "Custas processuais"})
+    table = insert_named_table(doc, "Fee", 1, 1, {"A1": "Custas processuais"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
         tool_ctx, content=[""], old_content="Custas", target="search"
@@ -146,7 +129,7 @@ def test_substring_clear_inside_a_cell_keeps_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_emptying_an_inner_table_deletes_only_the_inner_table_uno(ctx, doc):
     """The inner table's last text deletes that table. The outer table and its other cell stay."""
-    outer = _insert_table(doc, "Outer", 2, 2, {"A1": "KEEP_HOST"})
+    outer = insert_named_table(doc, "Outer", 2, 2, {"A1": "KEEP_HOST"})
     host = outer.getCellByName("B2")
     inner = doc.createInstance("com.sun.star.text.TextTable")
     inner.initialize(1, 1)
@@ -170,7 +153,7 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
     """Under review the delete is a tracked change. removeTextContent would drop the table with no redline."""
     from plugin.framework.config import get_config, save
 
-    _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
+    insert_named_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     before = doc.getRedlines().getCount()
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     flag = "doc.agent_edit_review_mode"
@@ -185,7 +168,7 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
         assert res.get("pending_review") is True, res
         assert doc.getTextTables().hasByName("Fee"), "the table stays until the user accepts"
         assert doc.getRedlines().getCount() > before
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert doc.getTextTables().hasByName("Fee") is False
     finally:
         save({flag: prev})
@@ -197,7 +180,7 @@ def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
     """Rejecting the tracked delete puts the table and its text back."""
     from plugin.framework.config import get_config, save
 
-    _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
+    insert_named_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -207,7 +190,7 @@ def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
             tool_ctx, content=[""], old_content="ONLY_FEE", target="search"
         )
         assert res.get("status") == "ok" and res.get("pending_review") is True, res
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getTextTables().hasByName("Fee")
         assert "ONLY_FEE" in doc.getTextTables().getByName("Fee").getCellByName("A1").getString()
     finally:
@@ -229,7 +212,7 @@ def test_all_matches_of_every_remaining_cell_deletes_the_table_uno(ctx, doc):
     Those matches must not also be cleared as text: that would be a second redline on a
     table the delete already removes.
     """
-    _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE"})
+    insert_named_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
     assert res.get("table_deleted") == "Fee", res
@@ -243,7 +226,7 @@ def test_all_matches_clears_body_text_and_deletes_the_table_uno(ctx, doc):
     """A body hit of the same string is a text edit. The table whose only text is that string is deleted."""
     text = doc.getText()
     text.insertString(text.getEnd(), "FEE", False)
-    _insert_table(doc, "Fee", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "Fee", 1, 1, {"A1": "FEE"})
     text.insertString(text.getEnd(), "KEEP_OUTSIDE", False)
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
@@ -258,8 +241,8 @@ def test_all_matches_clears_body_text_and_deletes_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_all_matches_deletes_every_table_whose_only_text_is_that_string_uno(ctx, doc):
     """Two tables, each with only that string, both go. table_deleted is the list of names."""
-    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
-    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
     assert sorted(res.get("table_deleted") or []) == ["FeeA", "FeeB"], res
@@ -271,7 +254,7 @@ def test_all_matches_deletes_every_table_whose_only_text_is_that_string_uno(ctx,
 @with_native_doc("writer")
 def test_all_matches_keeps_the_table_when_one_cell_has_more_text_uno(ctx, doc):
     """One fully covered cell must not condemn a sibling that still has other text."""
-    table = _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE extra"})
+    table = insert_named_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE extra"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
     assert "table_deleted" not in res
@@ -286,8 +269,8 @@ def test_all_matches_keeps_the_table_when_one_cell_has_more_text_uno(ctx, doc):
 @with_native_doc("writer")
 def test_first_match_deletes_only_the_first_table_uno(ctx, doc):
     """The same last-text string in two tables: the default search deletes only the first."""
-    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
-    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE")
     assert res.get("status") == "ok", res
     assert res.get("table_deleted") == "FeeA", res
@@ -300,8 +283,8 @@ def test_first_match_deletes_only_the_first_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_occurrence_deletes_only_the_second_table_uno(ctx, doc):
     """occurrence=1 is the second table, not both."""
-    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
-    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    insert_named_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", occurrence=1)
     assert res.get("status") == "ok", res
     assert res.get("table_deleted") == "FeeB", res
@@ -318,7 +301,7 @@ def test_empty_host_caption_refuses_and_keeps_the_nested_table_uno(ctx, doc):
     The outer table must not be auto-deleted, and the text replace must still refuse:
     setString on the host cell would wipe the inner table.
     """
-    outer = _insert_table(doc, "Outer", 1, 1, {"A1": "HOST_CAPTION"})
+    outer = insert_named_table(doc, "Outer", 1, 1, {"A1": "HOST_CAPTION"})
     host = outer.getCellByName("A1")
     inner = doc.createInstance("com.sun.star.text.TextTable")
     inner.initialize(1, 1)
@@ -339,7 +322,7 @@ def test_empty_host_caption_refuses_and_keeps_the_nested_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_empty_replacement_of_a_merged_banner_deletes_the_table_uno(ctx, doc):
     """A merged A1:B1 is one cell. Covered names are absent from getCellNames; the banner is the last text."""
-    table = _insert_table(doc, "Fee", 2, 2, {"A1": "BANNER"})
+    table = insert_named_table(doc, "Fee", 2, 2, {"A1": "BANNER"})
     cursor = table.createCursorByCellName("A1")
     cursor.gotoCellByName("B1", True)
     cursor.mergeRange()
@@ -362,7 +345,7 @@ def _cell_with_two_paragraphs(cell, first, second):
 @with_native_doc("writer")
 def test_clearing_the_first_paragraph_of_a_cell_keeps_the_table_uno(ctx, doc):
     """A match of one paragraph is not the cell's whole text, so the table stays."""
-    table = _insert_table(doc, "Fee", 1, 1, {})
+    table = insert_named_table(doc, "Fee", 1, 1, {})
     cell = table.getCellByName("A1")
     _cell_with_two_paragraphs(cell, "Line1", "Line2")
     res = _apply_clear(ctx, doc, "Line1")
@@ -378,7 +361,7 @@ def test_clearing_the_first_paragraph_of_a_cell_keeps_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_empty_replacement_of_a_two_paragraph_cell_deletes_the_table_uno(ctx, doc):
     """The cell's own getString is the last text. Search must agree with that string or the shell stays."""
-    table = _insert_table(doc, "Fee", 1, 1, {})
+    table = insert_named_table(doc, "Fee", 1, 1, {})
     cell = table.getCellByName("A1")
     _cell_with_two_paragraphs(cell, "Line1", "Line2")
     full = cell.getString().strip()
@@ -419,7 +402,7 @@ def test_apply_document_content_table_position_after_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_emptying_a_table_with_a_protected_cell_is_refused_uno(ctx, doc):
-    table = _insert_table(doc, "Fee", 1, 2, {"A1": "ONLY_FEE"})
+    table = insert_named_table(doc, "Fee", 1, 2, {"A1": "ONLY_FEE"})
     table.getCellByName("B1").setPropertyValue("IsProtected", True)
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     try:

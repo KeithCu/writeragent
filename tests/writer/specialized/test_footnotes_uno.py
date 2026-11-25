@@ -1,17 +1,16 @@
-"""Regression tests for footnote/endnote deletion mechanics.
+"""Live UNO tests for footnote/endnote deletion and pinned-selection insertion.
 
-Pins the behavior documented in ``FootnotesDelete``
-(plugin/writer/specialized/footnotes.py): clearing the reference-mark character
-(``note.getAnchor().setString("")``) drops the whole note -- supplier entry,
-reference mark, and note text.
+The deletion tests run ``FootnotesDelete`` on a live document and check both the
+supplier and the visible body text. One test pins the underlying anchor-clear
+mechanism under change recording.
 """
 
 from types import SimpleNamespace
 
-from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.specialized.footnotes import FootnotesDelete
+from tests.writer.doc_builders import list_redline_types, reject_all_changes
 
 
 def _insert_note(doc, note_type, text):
@@ -41,30 +40,36 @@ def _assert_single_note_deleted(doc, note_type):
     assert _body_text(doc) == "probe text ", f"reference mark must vanish from body, got {_body_text(doc)!r}"
 
 
+def _delete_first_note(doc, note_type):
+    res = FootnotesDelete().execute(SimpleNamespace(doc=doc), note=note_type, index=0)
+    assert res["status"] == "ok", res
+    assert "tracked" not in res, res
+
+
 @native_test
 @with_native_doc("writer")
-def test_footnote_delete_via_anchor_clears_supplier(ctx, doc):
-    """The shipped FootnotesDelete idiom clears a footnote and its reference mark."""
+def test_footnote_delete_clears_supplier(ctx, doc):
+    """FootnotesDelete clears a footnote and its reference mark."""
     doc.getText().setString("probe text ")
-    note = _insert_note(doc, "footnote", "note body")
+    _insert_note(doc, "footnote", "note body")
     assert _supplier(doc, "footnote").getCount() == 1
     assert _body_text(doc) == "probe text 1"
 
-    note.getAnchor().setString("")
+    _delete_first_note(doc, "footnote")
 
     _assert_single_note_deleted(doc, "footnote")
 
 
 @native_test
 @with_native_doc("writer")
-def test_endnote_delete_via_anchor_clears_supplier(ctx, doc):
-    """The shipped FootnotesDelete idiom clears an endnote and its reference mark."""
+def test_endnote_delete_clears_supplier(ctx, doc):
+    """FootnotesDelete clears an endnote and its reference mark."""
     doc.getText().setString("probe text ")
-    note = _insert_note(doc, "endnote", "note body")
+    _insert_note(doc, "endnote", "note body")
     assert _supplier(doc, "endnote").getCount() == 1
     assert _body_text(doc) == "probe text i"
 
-    note.getAnchor().setString("")
+    _delete_first_note(doc, "endnote")
 
     _assert_single_note_deleted(doc, "endnote")
 
@@ -74,11 +79,11 @@ def test_endnote_delete_via_anchor_clears_supplier(ctx, doc):
 def test_delete_one_of_two_keeps_the_other(ctx, doc):
     """Deletion is surgical: the surviving note and its mark are untouched."""
     doc.getText().setString("probe text ")
-    note1 = _insert_note(doc, "footnote", "first")
+    _insert_note(doc, "footnote", "first")
     _insert_note(doc, "footnote", "second")
     assert _body_text(doc) == "probe text 12"
 
-    note1.getAnchor().setString("")
+    _delete_first_note(doc, "footnote")
 
     assert _supplier(doc, "footnote").getCount() == 1, "the other note must survive"
     survivor = _supplier(doc, "footnote").getByIndex(0)
@@ -104,16 +109,11 @@ def test_anchor_delete_records_redline_when_recording_on(ctx, doc):
     # The footnote is still there, only marked for deletion.
     assert _supplier(doc, "footnote").getCount() == 1, "note must survive as a tracked deletion"
 
-    redlines = []
-    e = doc.getRedlines().createEnumeration()
-    while enum_has_more(e):
-        redlines.append(str(e.nextElement().getPropertyValue("RedlineType")))
+    redlines = list_redline_types(doc)
     assert "Delete" in redlines, f"anchor-clear under RecordChanges must record a Delete redline, got {redlines}"
 
     # Reject the tracked deletion: the note (and its mark) come back.
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+    reject_all_changes(doc, ctx)
     assert _supplier(doc, "footnote").getCount() == 1
     assert _body_text(doc) == "probe text 1", f"reject must restore the mark, got {_body_text(doc)!r}"
 
@@ -131,6 +131,8 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
 
     assert res["status"] == "ok"
     assert res.get("tracked") is True
+    assert "marked for deletion" in res["message"]
+    assert list_redline_types(doc) == ["Delete"]
     assert _supplier(doc, "footnote").getCount() == 1
 
 

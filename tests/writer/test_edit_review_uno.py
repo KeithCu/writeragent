@@ -15,46 +15,13 @@ import uno  # noqa: F401
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.edit_review import EditReviewSession, _BOOKMARK_PREFIX
-
-_PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
+from tests.writer.doc_builders import accept_all_changes, list_redlines, reject_all_changes, reset_body
 
 
 def _find(doc, needle):
     sd = doc.createSearchDescriptor()
     sd.setSearchString(needle)
     return doc.findFirst(sd)
-
-
-def _body(doc, ctx, *paragraphs):
-    text = doc.getText()
-    doc.setPropertyValue("RecordChanges", False)
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    for i, para in enumerate(paragraphs):
-        if i:
-            text.insertControlCharacter(cur, _PARA_BREAK, False)
-        text.insertString(cur, para, False)
-    if _redlines(doc):
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
-
-
-def _redlines(doc):
-    out = []
-    e = doc.getRedlines().createEnumeration()
-    while e.hasMoreElements():
-        rl = e.nextElement()
-        entry = {"type": rl.getPropertyValue("RedlineType")}
-        for prop in ("RedlineComment", "RedlineAuthor"):
-            try:
-                entry[prop] = str(rl.getPropertyValue(prop))
-            except Exception:
-                entry[prop] = ""
-        out.append(entry)
-    return out
 
 
 def _replace_fn(doc, old, new):
@@ -93,10 +60,10 @@ def _wa_bookmarks(doc):
 @native_test
 @with_native_doc("writer")
 def test_disabled_session_is_inert_uno(ctx, doc):
-    _body(doc, ctx, "Alpha paragraph.")
+    reset_body(doc, ctx, "Alpha paragraph.")
     with EditReviewSession(doc, ctx, enabled=False) as session:
         session.record_mutation(_replace_fn(doc, "Alpha paragraph.", "Alpha edited."))
-    assert _redlines(doc) == [], "disabled session must not record redlines"
+    assert list_redlines(doc) == [], "disabled session must not record redlines"
     assert _find(doc, "Alpha edited.") is not None, "edit applied directly"
     result = session.wait_for_review(timeout=0.1)
     assert result == {"complete": True, "timed_out": False, "changes": []}, result
@@ -105,12 +72,12 @@ def test_disabled_session_is_inert_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_records_tags_author_and_restores_uno(ctx, doc):
-    _body(doc, ctx, "Alpha paragraph.")
+    reset_body(doc, ctx, "Alpha paragraph.")
     doc.setPropertyValue("ShowChanges", False)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         assert doc.getPropertyValue("ShowChanges") is True, "session start must make markup visible"
         session.record_mutation(_replace_fn(doc, "Alpha paragraph.", "Alpha edited."))
-    rls = _redlines(doc)
+    rls = list_redlines(doc)
     assert len(rls) == 2, "a replace records a Delete+Insert pair, got %r" % rls
     token = session.changes[0].token
     assert token.startswith("wa-review:"), token
@@ -126,7 +93,7 @@ def test_bookkeeping_stays_off_the_undo_stack_uno(ctx, doc):
     """The user's first Ctrl+Z after an agent edit must undo the VISIBLE change, not toggle our
     invisible wa_review anchor bookmarks. Recording + cleanup lock the document undo manager
     around the tag/bookmark bookkeeping, so the user's undo stack only holds the real edit."""
-    _body(doc, ctx, "This clause is important.")
+    reset_body(doc, ctx, "This clause is important.")
     doc.setPropertyValue("RecordChanges", False)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "This clause is important.", "This clause is essential."))
@@ -138,37 +105,37 @@ def test_bookkeeping_stays_off_the_undo_stack_uno(ctx, doc):
     assert "bookmark" not in title.lower() and _BOOKMARK_PREFIX not in title, \
         "internal bookkeeping leaked onto the user's undo stack: top=%r" % title
     # One undo must revert the edit (drop a redline), not no-op on an invisible bookmark.
-    before = len(_redlines(doc))
+    before = len(list_redlines(doc))
     helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:Undo", "", 0, ())
-    assert len(_redlines(doc)) < before, \
+    assert len(list_redlines(doc)) < before, \
         "the first undo must revert the agent edit, not toggle an invisible bookmark (had %d redlines)" % before
 
 
 @native_test
 @with_native_doc("writer")
 def test_user_redlines_do_not_block_completion_uno(ctx, doc):
-    _body(doc, ctx, "User paragraph.", "Agent paragraph.")
+    reset_body(doc, ctx, "User paragraph.", "Agent paragraph.")
     # the USER has their own pending tracked change before the agent edits
     doc.setPropertyValue("RecordChanges", True)
     _replace_fn(doc, "User paragraph.", "User edited paragraph.")()
     doc.setPropertyValue("RecordChanges", False)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Agent paragraph.", "Agent edited paragraph."))
-    untagged = [r for r in _redlines(doc) if not r["RedlineComment"].startswith("wa-review:")]
-    assert len(untagged) == 2, "the user's own redlines must NOT get the session token: %r" % _redlines(doc)
+    untagged = [r for r in list_redlines(doc) if not r["RedlineComment"].startswith("wa-review:")]
+    assert len(untagged) == 2, "the user's own redlines must NOT get the session token: %r" % list_redlines(doc)
     _resolve_at(doc, ctx, "Agent edited", True)  # resolve only the agent's change
     result = session.wait_for_review(timeout=2, poll=0.05)
     assert result["complete"] is True, "user's pending redline must not block completion: %r" % result
-    assert [r for r in _redlines(doc) if not r["RedlineComment"].startswith("wa-review:")], \
+    assert [r for r in list_redlines(doc) if not r["RedlineComment"].startswith("wa-review:")], \
         "the user's redline must still be pending (untouched)"
-    _body(doc, ctx, "reset")  # clear the leftover user redline for the next test
+    reset_body(doc, ctx, "reset")  # clear the leftover user redline for the next test
 
 
 @native_test
 @with_native_doc("writer")
 def test_outcomes_accept_and_reject_per_change_uno(ctx, doc):
-    _body(doc, ctx, "First clause here.", "Second clause here.")
+    reset_body(doc, ctx, "First clause here.", "Second clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "First clause here.", "First clause EDITED."),
                                 original_preview="First clause here.", proposed_preview="First clause EDITED.")
@@ -187,7 +154,7 @@ def test_outcomes_accept_and_reject_per_change_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_outcome_modified_when_user_edits_during_review_uno(ctx, doc):
-    _body(doc, ctx, "Stable clause here.")
+    reset_body(doc, ctx, "Stable clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Stable clause here.", "Stable clause EDITED."))
     _resolve_at(doc, ctx, "Stable clause EDITED", True)
@@ -203,14 +170,14 @@ def test_outcome_modified_when_user_edits_during_review_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_timeout_reports_pending_uno(ctx, doc):
-    _body(doc, ctx, "Waiting clause here.")
+    reset_body(doc, ctx, "Waiting clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Waiting clause here.", "Waiting clause EDITED."))
     result = session.wait_for_review(timeout=0.3, poll=0.05)  # nobody reviews
     assert result["complete"] is False and result["timed_out"] is True, result
     assert result["changes"][0]["outcome"] == "pending", result
     assert _wa_bookmarks(doc) == [], "bookmarks cleaned even on timeout"
-    _body(doc, ctx, "reset")  # clear the unresolved change
+    reset_body(doc, ctx, "reset")  # clear the unresolved change
 
 
 @native_test
@@ -218,7 +185,7 @@ def test_timeout_reports_pending_uno(ctx, doc):
 def test_stop_checker_aborts_wait_uno(ctx, doc):
     from plugin.framework.send_cancellation import SendCancellation
 
-    _body(doc, ctx, "Abort clause here.")
+    reset_body(doc, ctx, "Abort clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Abort clause here.", "Abort clause EDITED."))
     scope = SendCancellation()
@@ -226,7 +193,7 @@ def test_stop_checker_aborts_wait_uno(ctx, doc):
     result = session.wait_for_review(timeout=30, poll=0.05, cancel=scope)
     assert result["complete"] is False and result["timed_out"] is False, \
         "cancel abort is not a timeout: %r" % result
-    _body(doc, ctx, "reset")
+    reset_body(doc, ctx, "reset")
 
 
 @native_test
@@ -234,7 +201,7 @@ def test_stop_checker_aborts_wait_uno(ctx, doc):
 def test_wait_for_review_routes_uno_via_runner_uno(ctx, doc):
     """Off-main-thread callers (MCP HTTP / chat worker) pass uno_runner=main.call;
     every document touch in the wait loop must flow through it."""
-    _body(doc, ctx, "Runner clause here.")
+    reset_body(doc, ctx, "Runner clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Runner clause here.", "Runner clause EDITED."))
     _resolve_at(doc, ctx, "Runner clause EDITED", True)
@@ -252,7 +219,7 @@ def test_wait_for_review_routes_uno_via_runner_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_prior_recording_on_is_preserved_uno(ctx, doc):
-    _body(doc, ctx, "Tracked clause here.")
+    reset_body(doc, ctx, "Tracked clause here.")
     doc.setPropertyValue("RecordChanges", True)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Tracked clause here.", "Tracked clause EDITED."))
@@ -260,13 +227,13 @@ def test_prior_recording_on_is_preserved_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", False)
     assert session.changes, "change recorded under user tracking too"
     session.cleanup()
-    _body(doc, ctx, "reset")
+    reset_body(doc, ctx, "reset")
 
 
 @native_test
 @with_native_doc("writer")
 def test_exception_restores_recording_and_author_uno(ctx, doc):
-    _body(doc, ctx, "Crash clause here.")
+    reset_body(doc, ctx, "Crash clause here.")
     try:
         with EditReviewSession(doc, ctx, enabled=True):
             assert doc.getPropertyValue("RecordChanges") is True
@@ -278,7 +245,7 @@ def test_exception_restores_recording_and_author_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
-    _body(doc, ctx, "Anchor failure clause here.")
+    reset_body(doc, ctx, "Anchor failure clause here.")
     doc.setPropertyValue("RecordChanges", False)
 
     with EditReviewSession(doc, ctx, enabled=True) as session:
@@ -313,7 +280,7 @@ def test_anchor_failure_leaves_unregistered_does_not_hang_uno(ctx, doc):
 @with_native_doc("writer")
 def test_bookmark_reverted_with_edit_undo_uno(ctx, doc):
     """Anchor bookmark is in the same undo context as the edit, so Undo removes both."""
-    _body(doc, ctx, "This clause is important.")
+    reset_body(doc, ctx, "This clause is important.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "This clause is important.", "This clause is essential."))
     assert len(_wa_bookmarks(doc)) == 1, "anchor bookmark should exist before review"
@@ -321,7 +288,7 @@ def test_bookmark_reverted_with_edit_undo_uno(ctx, doc):
     assert um.isUndoPossible()
     um.undo()
     assert _wa_bookmarks(doc) == [], "undo must revert the anchor bookmark along with the edit"
-    assert len(_redlines(doc)) == 0, "undo must revert the redline"
+    assert len(list_redlines(doc)) == 0, "undo must revert the redline"
 
 
 @native_test
@@ -330,13 +297,10 @@ def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
     from plugin.writer.edit_review import EditReviewSession, record_html_atomically
     from plugin.writer.html_import import replace_single_range_with_content
 
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-
     for accept, expected_outcome in ((True, "accepted"), (False, "rejected")):
         while doc.getTextTables().getCount() > 0:
             doc.getTextTables().getByIndex(0).dispose()
-        _body(doc, ctx, "Intro", "Para one", "Para two", "Outro")
+        reset_body(doc, ctx, "Intro", "Para one", "Para two", "Outro")
         session = EditReviewSession(doc, ctx, enabled=True)
         with session:
             r1 = _find(doc, "Para one")
@@ -353,8 +317,8 @@ def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
                 lambda: replace_single_range_with_content(doc, r2, "<table><tr><td>Cell</td></tr></table>", ctx),
             )
             assert len(session.changes) == 2, session.changes
-            cmd = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            helper.executeDispatch(frame, cmd, "", 0, ())
+            resolve_all = accept_all_changes if accept else reject_all_changes
+            resolve_all(doc, ctx)
             payload = session.wait_for_review(0)
         assert payload["complete"] is True, payload
         assert [c["outcome"] for c in payload["changes"]] == [expected_outcome, expected_outcome], payload
@@ -367,8 +331,6 @@ def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, 
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 
     text = doc.getText()
-    frame = doc.getCurrentController().getFrame()
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     for accept, expected_outcome in ((False, "rejected"), (True, "accepted")):
         text.setString("base")
         with EditReviewSession(doc, ctx, enabled=True) as session:
@@ -376,8 +338,8 @@ def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, 
             cur.gotoEnd(False)
             session.record_mutation(lambda: insert_writer_math_formula(doc, cur, "x^2", display_block=False))
             assert len(session.changes) == 1
-            cmd = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
-            helper.executeDispatch(frame, cmd, "", 0, ())
+            resolve_all = accept_all_changes if accept else reject_all_changes
+            resolve_all(doc, ctx)
             payload = session.wait_for_review(0)
         assert payload["complete"] is True, payload
         assert payload["changes"][0]["outcome"] == expected_outcome, payload
