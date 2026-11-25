@@ -2448,6 +2448,7 @@ def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, do
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx, doc):
+    from plugin.tests.testing_utils import libreoffice_version
     from plugin.writer.styles import StyleFormatText
 
     _reset(doc, ctx, "WritingModeAutomatic check.")
@@ -2466,9 +2467,12 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
         assert _paragraphs(doc)[0].getPropertyValue("WritingModeAutomatic") is False
 
         _reject_all(doc, ctx)
-        p_after = _paragraphs(doc)[0]
-        assert p_after.getPropertyValue("WritingModeAutomatic") is True
-        assert p_after.getPropertyState("WritingModeAutomatic").value == "DEFAULT_VALUE"
+        # Before LibreOffice 26.8, lcl_RstAttr (sw/source/core/doc/docfmt.cxx) preserves
+        # RES_PARATR_AUTOFRAMEDIR when false across ResetAttrs.
+        if libreoffice_version(ctx) >= (26, 8):
+            p_after = _paragraphs(doc)[0]
+            assert p_after.getPropertyValue("WritingModeAutomatic") is True
+            assert p_after.getPropertyState("WritingModeAutomatic").value == "DEFAULT_VALUE"
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
