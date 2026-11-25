@@ -281,8 +281,10 @@ class WorkbookState:
 
     @classmethod
     def reset_for_tests(cls) -> None:
-        """Reset all workbook states. For tests only."""
+        """Clear every workbook state, including its armed debounce timers, then forget it. For tests only."""
         with _LOCK:
+            for st in cls.all_states():
+                st.clear()
             _STATES.clear()
             _STATE_BY_DOC_ID.clear()
 
