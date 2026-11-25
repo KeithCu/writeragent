@@ -1091,7 +1091,8 @@ def test_run_trusted_vision_looks_up_a_missing_image_once(params, lookup_target,
     mock_run_vision.assert_not_called()
 
 
-def test_run_and_insert_keeps_unnamed_shape_across_selection_change():
+@pytest.mark.parametrize("img_name", ["", "Img1"])
+def test_run_and_insert_keeps_shape_across_selection_change(img_name):
     import json
 
     ctx = MagicMock()
@@ -1112,8 +1113,10 @@ def test_run_and_insert_keeps_unnamed_shape_across_selection_change():
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.vision.vision_runner.is_writer", return_value=False),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
-        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("", shape_a)]),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(img_name, shape_a)]),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=AmbiguousGraphicNameError("dup")),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
         patch("plugin.framework.i18n.get_lo_locale", return_value="en-US"),
@@ -1130,7 +1133,7 @@ def test_run_and_insert_keeps_unnamed_shape_across_selection_change():
     assert json.loads(json.dumps(result))["status"] == "ok"
 
 
-def test_run_and_insert_named_image_passes_none_graphic_and_looks_up_by_name():
+def test_run_and_insert_writer_named_image_passes_none_graphic_and_looks_up_by_name():
     ctx = MagicMock()
     doc = MagicMock()
     shape_named = MagicMock()
@@ -1149,6 +1152,7 @@ def test_run_and_insert_named_image_passes_none_graphic_and_looks_up_by_name():
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.vision.vision_runner.is_writer", return_value=True),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", shape_sel)]),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=shape_named) as mock_by_name,
@@ -1165,5 +1169,24 @@ def test_run_and_insert_named_image_passes_none_graphic_and_looks_up_by_name():
     mock_by_name.assert_called_once_with(doc, "Img1")
     assert exported_objs == [shape_named]
     assert inserted_graphics == [None]
+
+
+@pytest.mark.parametrize("img_name", ["", "Img1"])
+def test_run_trusted_vision_kept_shape_closed_doc_raises_disposed(img_name):
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.side_effect = DisposedException("closed")
+    kept_shape = MagicMock()
+
+    with (
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=None),
+        patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
+    ):
+        with pytest.raises(DocumentDisposedError):
+            run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": img_name}, graphic=kept_shape)
+
+    mock_run_vision.assert_not_called()
 
 
