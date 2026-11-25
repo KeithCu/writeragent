@@ -310,35 +310,37 @@ def test_insert_frame_while_recording_accept_and_reject_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_image_insert_uses_pinned_selection_uno(ctx, doc):
+    from unittest.mock import patch
     from plugin.doc.text_helpers import selection_cursor_snapshot
     from plugin.framework.tool import SelectionPin
 
     text = doc.getText()
-    text.setString("First paragraph\nSecond paragraph")
-    first_end = text.createTextCursor()
-    first_end.gotoStart(False)
-    first_end.gotoEndOfParagraph(False)
     controller = doc.getCurrentController()
-    controller.select(first_end)
-
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc=doc)
 
-    # Move the live caret to the end of the second paragraph; image_insert must
-    # still land at the pinned selection in the first paragraph.
-    vc = controller.getViewCursor()
-    vc.gotoEnd(False)
+    for linked in (False, True):
+        text.setString("First paragraph\nSecond paragraph")
+        first_end = text.createTextCursor()
+        first_end.gotoStart(False)
+        first_end.gotoEndOfParagraph(False)
+        controller.select(first_end)
+        tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc=doc)
 
-    res = ImageInsert().execute(
-        tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
-    )
-    assert res["status"] == "ok", res
-    graphic = doc.getGraphicObjects().getByName(res["image_name"])
-    anchor = graphic.getAnchor()
-    para = text.createTextCursorByRange(anchor.getStart())
-    para.gotoStartOfParagraph(False)
-    para.gotoEndOfParagraph(True)
-    assert "First paragraph" in para.getString()
+        # Move the live caret to the end of the second paragraph; image_insert must
+        # still land at the pinned selection in the first paragraph.
+        controller.getViewCursor().gotoEnd(False)
+
+        with patch("plugin.writer.images.image_tools._should_link_image_path", return_value=linked):
+            res = ImageInsert().execute(
+                tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            )
+        assert res["status"] == "ok", res
+        graphic = doc.getGraphicObjects().getByName(res["image_name"])
+        anchor = graphic.getAnchor()
+        para = text.createTextCursorByRange(anchor.getStart())
+        para.gotoStartOfParagraph(False)
+        para.gotoEndOfParagraph(True)
+        assert "First paragraph" in para.getString()
 
 
 @native_test
@@ -407,6 +409,7 @@ def test_image_generate_edits_selected_graphic_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_image_insert_with_graphic_selected_uno(ctx, doc):
+    from unittest.mock import patch
     from plugin.writer.images.image_tools import insert_image_at_locator
 
     insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
@@ -414,9 +417,10 @@ def test_image_insert_with_graphic_selected_uno(ctx, doc):
     doc.getCurrentController().select(graphic)
 
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = ImageInsert().execute(
-        tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
-    )
+    with patch("plugin.writer.images.image_tools._should_link_image_path", return_value=False):
+        res = ImageInsert().execute(
+            tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+        )
     assert res["status"] == "ok", res
     assert doc.getGraphicObjects().getCount() == 2
 

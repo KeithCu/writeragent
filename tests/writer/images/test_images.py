@@ -910,7 +910,7 @@ def test_image_insert_url_unscoped_after_download():
 
     def _run(fn, *args, **kwargs):
         calls.append(kwargs)
-        if "bound_scope" in kwargs and kwargs.get("bound_scope") is not None:
+        if kwargs.get("bound_scope") is not None:
             raise SendCancelled("cancelled")
         return fn(*args)
 
@@ -2443,6 +2443,7 @@ def test_image_generate_passes_pinned_selection_cursor_to_insert():
     ctx = TestingFactory.create_context(doc_type="writer")
     pinned_rng = MagicMock()
     pinned_cursor = MagicMock()
+    pinned_cursor.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
     ctx.selection_pin = SelectionPin(pinned_rng, doc=ctx.doc)
 
@@ -2462,6 +2463,7 @@ def test_image_insert_passes_pinned_selection_cursor_to_locator():
     ctx = TestingFactory.create_context(doc_type="writer")
     pinned_rng = MagicMock()
     pinned_cursor = MagicMock()
+    pinned_cursor.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
     ctx.selection_pin = SelectionPin(pinned_rng, doc=ctx.doc)
 

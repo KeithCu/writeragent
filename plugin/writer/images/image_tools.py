@@ -436,6 +436,11 @@ def _insert_embedded_at_writer_cursor(
     text_container: Any = None,
     ctx: Any | None = None,
 ) -> Any:
+    doc_text = (
+        text_container
+        if text_container is not None
+        else (text_cursor.getText() if text_cursor is not None else model.getText())
+    )
     file_url = _file_url_for_path(img_path)
     image = _create_embedded_graphic(model, "writer", file_url, ctx=ctx)
     # Headers/footers need AS_CHARACTER so the image contributes to line height
@@ -449,14 +454,8 @@ def _insert_embedded_at_writer_cursor(
     )
 
     if text_cursor is not None:
-        try:
-            doc_text = text_container if text_container is not None else text_cursor.getText()
-            insert_recorded_content(model, doc_text, text_cursor, image)
-            return image
-        except Exception as e:
-            reraise_if_disposed(e)
-            # Pinned cell/frame may have been deleted while generation ran; fall back to live view.
-            log.debug("_insert_embedded_at_writer_cursor text_cursor fallback: %s", e)
+        insert_recorded_content(model, doc_text, text_cursor, image)
+        return image
 
     view_cursor = model.CurrentController.ViewCursor
 
