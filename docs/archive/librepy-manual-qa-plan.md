@@ -117,8 +117,6 @@ A5: East      B5: 400      C5: 5
 | B9 | Date parse (opt-in) | Dates in `A1:B4` as ISO strings + `=PY("df=data.to_pandas(date_cols=True); str(df.dtypes.iloc[0])"; A1:B4)` | datetime-like dtype, not object crash |
 | B10 | Dependents | `=PY("float(np.mean(data))"; B2:B5)` then change B2 | Mean updates on recalc |
 
-**Do not** combine a data range **and** `ROW()-1` as a third argument (IDL is `(code, data)`; that is a known limitation, not this pass).
-
 ---
 
 ## Packet B Phase 2 — Ranges, pandas, spill (deepen)
@@ -563,7 +561,6 @@ Agents 4–7 can share one running LO if they use **separate workbooks** and do 
 ## After this pass (not now)
 
 - Lexer/quoting, `#SPILL!` geometry, jagged ranges, NaN vs blank tables ([../calc/py-data-shapes.md](../calc/py-data-shapes.md)).
-- Matrix `ROW()-1` fast path UNO tests (`test_prompt_function_matrix_uno.py`).
 - Excel `.xlsx` round-trip (`PythonExcelSamples/`) — WriterAgent converter, not LibrePy.
 - Jail-safe Online (`compute_service/`, [../scripting/numpy-jailsafe.md](../scripting/numpy-jailsafe.md)).
 - Turn passing live cases into UNO `@native_test` only where mocks already lie.
