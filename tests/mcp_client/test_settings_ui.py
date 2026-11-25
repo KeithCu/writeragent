@@ -195,6 +195,10 @@ def test_unreadable_ref_keeps_ref_and_blocks_rename(
     monkeypatch: pytest.MonkeyPatch,
     fake_keystore: Any,
 ) -> None:
+    from plugin.chatbot import settings_fields
+
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *_a, **_kw: fn())
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
     fake_keystore.locked = True
     initial = {"claw": {"url": "http://claw/mcp", "token": "keystore:deadbeef"}}
     editor, dlg = _attach_editor(monkeypatch, initial)
@@ -231,6 +235,11 @@ def test_clearing_missing_token_removes_ref_and_allows_rename(
     fake_keystore.store.clear()
     keystore_mod = settings_ui.keystore
     keystore_mod.reset_for_tests(fake_keystore)
+
+    from plugin.chatbot import settings_fields
+
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *_a, **_kw: fn())
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
 
     editor, dlg = _attach_editor(monkeypatch, fw_config.get_config("mcp_client.servers"))
     assert dlg.controls["mcp_client__token"].getText() == ref
@@ -367,3 +376,57 @@ def test_commit_strips_url_and_token(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         }
     ]
+
+
+def test_async_token_read_fills_field_without_focus_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_keystore: Any,
+) -> None:
+    from plugin.chatbot import settings_fields
+    from plugin.framework import config as fw_config, keystore
+
+    fw_config.save({"mcp_client.servers": {"home": {"url": "http://127.0.0.1:8000/mcp", "token": "tok-async"}}})
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    workers: list[Any] = []
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *_a, **_kw: workers.append(fn))
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+
+    editor, dlg = _attach_editor(monkeypatch, fw_config.get_config("mcp_client.servers"))
+    assert fake_keystore.get_calls == 0
+    assert keystore.is_ref(dlg.controls["mcp_client__token"].getText())
+    assert len(workers) == 1
+
+    workers[0]()
+    assert dlg.controls["mcp_client__token"].getText() == "tok-async"
+
+    probe_jobs: list[Any] = []
+    monkeypatch.setattr(settings_ui, "run_in_background", lambda fn, *_a, **_kw: probe_jobs.append(fn))
+    editor.probe_if_changed()
+    assert probe_jobs == []
+
+
+def test_async_token_read_clears_rename_locked_status(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_keystore: Any,
+) -> None:
+    from plugin.chatbot import settings_fields
+    from plugin.framework import config as fw_config, keystore
+
+    fw_config.save({"mcp_client.servers": {"home": {"url": "http://127.0.0.1:8000/mcp", "token": "tok-async"}}})
+    keystore.reset_for_tests(fake_keystore)
+
+    workers: list[Any] = []
+    monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *_a, **_kw: workers.append(fn))
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+    monkeypatch.setattr(settings_ui.config, "save", lambda _patch: None)
+
+    editor, dlg = _attach_editor(monkeypatch, fw_config.get_config("mcp_client.servers"))
+    dlg.controls["mcp_client__name"].setText("home2")
+    editor.save()
+    assert "Unlock the keyring" in dlg.controls["mcp_client__status"].getText()
+
+    workers[0]()
+    assert dlg.controls["mcp_client__token"].getText() == "tok-async"
+    assert dlg.controls["mcp_client__status"].getText() == ""
