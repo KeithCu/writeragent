@@ -2387,3 +2387,8 @@ def test_split_nested_links_handles_inner_links_and_leaves_malformed_or_bookmark
 
     non_anchor = '<p><a-b>before <a href="https://i">in</a> after</a-b></p>'
     assert _split_nested_links(non_anchor) == non_anchor
+
+    quoted_id_text = '<p><a href="o" title="see id=5">a <a href="i">b</a> c</a></p>'
+    assert _split_nested_links(quoted_id_text) == (
+        '<p><a href="o" title="see id=5">a </a><a href="i">b</a><a href="o" title="see id=5"> c</a></p>'
+    )

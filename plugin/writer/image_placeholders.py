@@ -77,6 +77,11 @@ _LINKED_MARKERS_RE = re.compile(
     + _FRAME_TAIL,
     re.IGNORECASE,
 )
+# Same rule for region images after frame wrappers are unwrapped: an <a> holding only images is the pictures' own link.
+_LINKED_REGION_IMGS_RE = re.compile(
+    r'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="wa[0-9a-f]{8}img\d+"[^>]*>)+\s*</a>',
+    re.IGNORECASE,
+)
 _1PX_PNG_DATA_URI = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -104,12 +109,6 @@ class _RegionImage(NamedTuple):
     no_data: bool
     in_region: bool
     linked: bool = False
-
-
-_LINKED_REGION_IMGS_RE = re.compile(
-    r'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="wa[0-9a-f]{8}img\d+"[^>]*>)+\s*</a>',
-    re.IGNORECASE,
-)
 
 
 def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:

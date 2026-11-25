@@ -142,7 +142,14 @@ def _parked_cursor(cursor: Any) -> Any:
 
 
 _LINK_TAG_RE = re.compile(r"<(/?)a(?=[\s/>])([^>]*)>", re.IGNORECASE)
-_LINK_ANCHOR_ATTR_RE = re.compile(r'\s+(?:id|name)\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)', re.IGNORECASE)
+_LINK_ATTR_RE = re.compile(r'\s+([\w:-]+)(\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+))?')
+
+
+def _strip_link_anchor_attrs(open_tag: str) -> str:
+    return _LINK_ATTR_RE.sub(
+        lambda attr: "" if attr.group(1).lower() in ("id", "name") else attr.group(0),
+        open_tag,
+    )
 
 
 def _split_nested_links(html: str) -> str:
@@ -164,9 +171,9 @@ def _split_nested_links(html: str) -> str:
         tag, inner = stack.pop()
         cuts.extend(inner)
         if stack and re.search(r"\shref\s*=", stack[-1][0].group(2), re.IGNORECASE):
-            # NewAnchor/InsertAttrs (htmlgrin.cxx:1330, htmlctxt.cxx:781) inserts a bookmark for
-            # id/name, so strip them on the reopened tag to avoid duplicate bookmarks.
-            reopen = _LINK_ANCHOR_ATTR_RE.sub("", stack[-1][0].group(0))
+            # NewAnchor -> HasStyleOptions / InsertAttrs (htmlgrin.cxx, htmlctxt.cxx) calls
+            # InsertBookmark for id/name, so strip them on the reopened tag to avoid duplicate bookmarks.
+            reopen = _strip_link_anchor_attrs(stack[-1][0].group(0))
             stack[-1][1].extend([(tag.start(), "</a>"), (m.end(), reopen)])
     if not cuts:
         return html

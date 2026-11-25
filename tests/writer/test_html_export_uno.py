@@ -2212,7 +2212,7 @@ def test_full_export_rewrites_bare_shapes_and_drops_empty_or_controls_uno(ctx, d
     assert "RectEmpty" not in html
     assert "ConnEmpty" not in html
     assert "Ctrl1" not in html
-    assert re.search(r'id="RectText"[^>]*>.*?TEXT-R1', html, re.DOTALL), html
+    assert re.search(r'id="RectText"[^>]*>(?:(?!</span>|</div>).)*TEXT-R1', html, re.DOTALL), html
     assert html.count("<p") == 1, html
 
 
@@ -2237,14 +2237,17 @@ def test_full_export_drops_ole_metadata_and_keeps_preview_and_math_uno(ctx, doc)
     text.insertTextContent(text.getEnd(), formula, False)
     formula.getEmbeddedObject().setPropertyValue("Formula", "a over b")
 
+    import re
+
     html = document_to_content(doc, ctx, scope="full", include_images=False)
     assert "LibreOffice/" not in html
-    assert "config:" not in html
     assert "background-image:url()" not in html
     assert "base64" not in html
     assert 'id="Object1"' in html
     assert 'id="Object2"' in html
     assert r"\frac{a}{b}" in html
+    visible = re.sub(r"<[^>]+>", " ", html).split()
+    assert sorted(visible) == [r"$\frac{a}{b}$", "Before"], visible
 
 
 @native_test

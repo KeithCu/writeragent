@@ -1161,4 +1161,3 @@ def test_export_full_simplifies_drawings_before_expanding_tracked_deletions():
 
     assert len(written) == 1
     assert DELETED_MARK in written[0]
-
