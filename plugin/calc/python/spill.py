@@ -385,7 +385,7 @@ def cleanup_orphans(
                 if s_name != sheet_name:
                     continue
                 try:
-                    if _origin_matches_record(sheet, frow, fcol, record):
+                    if _origin_matches_record(sheet, frow, fcol, record, doc=doc):
                         if record.rows * record.cols > 1:
                             # cleanup_orphans runs outside interpretation, so shrink even when a
                             # user formula is inside; otherwise advancing used_ends would lose the
@@ -452,14 +452,15 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Load the registry from UserDefinedProperties once per workbook state; later calls do nothing."""
     if state.loaded:
         return
-    state.loaded = True
     try:
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
+            if state.key:
+                state.loaded = True
             return
-        data = json.loads(raw)
         if not state.key:
             return
+        data = json.loads(raw)
         for key, value in data.items():
             try:
                 parts = key.split(":")
@@ -490,6 +491,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
                 continue
+        state.loaded = True
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -497,7 +499,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
 def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        if not state.key:
+        if not state.key or not state.loaded:
             return
         doc_spills: dict[str, Any] = {}
         for (sheet_name, frow, fcol), record in state.spills.items():
@@ -623,7 +625,7 @@ def _live_origin_sheet(
 
     try:
         origin_cell = sheet.getCellByPosition(formula_col, formula_row)
-        if not is_matching_py_formula(origin_cell.getFormula(), code):
+        if not is_matching_py_formula(origin_cell.getFormula(), code, sheet=sheet, doc=doc):
             return None
     except Exception:
         log.debug("_live_origin_sheet: origin formula check failed", exc_info=True)
@@ -680,7 +682,7 @@ def _clear_blocked_spill(
     rec = state.spills.get(key)
     # A shifted-in =PY formula must not clear shifted user data under another formula's old record
     # before cleanup_orphans runs.
-    if rec is None or not _origin_matches_record(sheet, row, col, rec):
+    if rec is None or not _origin_matches_record(sheet, row, col, rec, doc=doc):
         return
     delta = _used_end_delta(state, sheet, sheet_name)
     _clear_owned_and_shrink(state, doc, sheet, sheet_name, row, col, rec, delta, code=rec.code)
@@ -763,14 +765,15 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
+                load_spill_registry_for_doc(doc, state)
                 # The modify pass may still be waiting: remap any moved record and clear or drop
                 # any record whose formula is no longer at this origin before this write decides
                 # what it owns.
                 previous_record = state.spills.get(reg_key)
                 foreign = previous_record is not None and not _origin_matches_record(
-                    sheet, formula_row, formula_col, previous_record
+                    sheet, formula_row, formula_col, previous_record, doc=doc
                 )
-                if foreign or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
+                if foreign or _moved_record(state, sheet, sheet_name, formula_row, formula_col, doc=doc) is not None:
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
@@ -959,12 +962,24 @@ def _spill_is_blocked(
     return False
 
 
-def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord) -> bool:
+def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord, *, doc: Any | None = None) -> bool:
     formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
-    return is_matching_py_formula(formula, record.code) if record.code else is_py_formula_text(formula)
+    return (
+        is_matching_py_formula(formula, record.code, sheet=sheet, doc=doc)
+        if record.code
+        else is_py_formula_text(formula)
+    )
 
 
-def _moved_record(state: WorkbookState, sheet: Any, sheet_name: str, row: int, col: int) -> SpillRecord | None:
+def _moved_record(
+    state: WorkbookState,
+    sheet: Any,
+    sheet_name: str,
+    row: int,
+    col: int,
+    *,
+    doc: Any | None = None,
+) -> SpillRecord | None:
     """Return this cell's record when rows or columns before it were inserted or deleted and
     cleanup_orphans has not remapped it yet; None when the cell already has its own record.
 
@@ -973,14 +988,14 @@ def _moved_record(state: WorkbookState, sheet: Any, sheet_name: str, row: int, c
     _classify_orphan_record uses). Reads only, because it also runs during interpretation.
     """
     record = state.spills.get((sheet_name, row, col))
-    if record is not None and _origin_matches_record(sheet, row, col, record):
+    if record is not None and _origin_matches_record(sheet, row, col, record, doc=doc):
         return None
     delta = _used_end_delta(state, sheet, sheet_name)
     if delta is None or delta == (0, 0):
         return None
     moved = state.spills.get((sheet_name, row - delta[0], col - delta[1]))
     # cleanup_orphans never remaps a record without code.
-    if moved is None or not moved.code or not _origin_matches_record(sheet, row, col, moved):
+    if moved is None or not moved.code or not _origin_matches_record(sheet, row, col, moved, doc=doc):
         return None
     return moved
 
@@ -1000,7 +1015,7 @@ def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
                 _arm_sheet(ctx, doc, state, sheet, sheet_name)
         else:
             sheet = armed[sheet_name]
-        if sheet is not None and uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record), False):
+        if sheet is not None and uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record, doc=doc), False):
             record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
 
 
@@ -1038,7 +1053,7 @@ def prepare_auto_spill(
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
-    previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
+    previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col, doc=doc) or state.spills.get(reg_key)
     if (
         (num_rows == 0 or num_cols == 0)
         and (previous_record is None or previous_record.rows * previous_record.cols <= 1)

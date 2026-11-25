@@ -1012,3 +1012,34 @@ def test_scalar_result_protected_sheet_keeps_record_uno(ctx, doc):
         if sheet.isProtected():
             sheet.unprotect("")
         WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_code_in_cell_ref_auto_spills_uno(ctx, doc):
+    from plugin.calc.python.function import build_cell_context, finalize_python_return
+
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "[[1, 2], [3, 4]]"
+    sheet.getCellByPosition(3, 0).setString(code)  # D1
+    sheet.getCellByPosition(0, 0).setFormula("=PY(D1)")  # A1
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        cell_ctx = build_cell_context(ctx, doc, code, on_main=True)
+        assert finalize_python_return(cell_ctx, [[1, 2], [3, 4]]) == 1.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+
+        assert sheet.getCellByPosition(1, 0).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet.getCellByPosition(1, 1).getValue() == 4.0
+        rec = st.spills[(sheet_name, 0, 0)]
+        assert (rec.rows, rec.cols) == (2, 2)
+
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (sheet_name, 0, 0) in st.spills
+    finally:
+        WorkbookState.forget_key(key)

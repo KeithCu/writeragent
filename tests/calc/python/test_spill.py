@@ -2074,3 +2074,104 @@ def test_owned_rect_10000_row_linear_match(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert _spill._owned_rect(object(), 0, 0, rec, (-1, 0)) == (n - 1, 1)
     assert comparisons <= 5 * n
+
+
+def test_perform_deferred_spill_code_in_cell_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin, locate_formula_cell_in_doc
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    doc = CalcDocStub(
+        sheets=[CalcSheetStub("Sheet1"), CalcSheetStub("Sheet2")],
+        url="file:///code_in_cell.ods",
+        props={"RuntimeUID": "uid-code-in-cell"},
+    )
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    sheet2 = doc.getSheets().getByName("Sheet2")
+    code_same = "[[1, 2], [3, 4]]"
+    code_cross = "[[10], [20]]"
+
+    sheet1.getCellByPosition(3, 0).setString(code_same)  # D1
+    sheet1.getCellByPosition(0, 0).setFormula("=PY(D1)")  # A1
+    sheet2.getCellByPosition(0, 0).setString(code_cross)  # Sheet2.A1
+    sheet1.getCellByPosition(0, 4).setFormula("=PY(Sheet2.A1)")  # A5
+
+    monkeypatch.setattr(main, "is_current", lambda: True)
+    reset_calc_workbook_states()
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    try:
+        loc_same = locate_formula_cell_in_doc(doc, code_same)
+        assert loc_same is not None
+        prep_same = _spill.prepare_auto_spill(
+            _ctx_with_doc(doc), doc, state, FormulaOrigin.from_located(loc_same), code_same, [[1, 2], [3, 4]]
+        )
+        assert isinstance(prep_same, _spill.PreparedSpill)
+        perform_deferred_spill("Sheet1", 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet1, code=code_same, key=state.key)
+        assert sheet1.getCellByPosition(1, 0).getValue() == 2.0
+        assert sheet1.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet1.getCellByPosition(1, 1).getValue() == 4.0
+
+        perform_deferred_spill("Sheet1", 4, 0, [[10], [20]], doc=doc, sheet=sheet1, code=code_cross, key=state.key)
+        assert sheet1.getCellByPosition(0, 5).getValue() == 20.0
+
+        # cleanup_orphans must recognize both code-in-cell origins and keep their records.
+        _spill.cleanup_orphans(state, sheet1, doc=doc, sheet_name="Sheet1")
+        assert ("Sheet1", 0, 0) in state.spills
+        assert ("Sheet1", 4, 0) in state.spills
+    finally:
+        WorkbookState.forget_key(state.key)
+
+
+def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    stored = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
+    fail_read = True
+    saved_calls: list[str] = []
+
+    def mock_get_prop(_model: Any, name: str, default: Any = None) -> Any:
+        if name != "WriterAgentSpillRegistry":
+            return default
+        if fail_read:
+            raise RuntimeError("transient read error")
+        return stored
+
+    def mock_set_prop(_model: Any, name: str, value: Any) -> bool:
+        if name == "WriterAgentSpillRegistry":
+            saved_calls.append(str(value))
+        return True
+
+    monkeypatch.setattr(_spill, "get_document_property", mock_get_prop)
+    monkeypatch.setattr(_spill, "set_document_property", mock_set_prop)
+
+    doc = CalcDocStub(url="file:///fail_load.ods", props={"RuntimeUID": "uid-fail-load"})
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    try:
+        _spill.load_spill_registry_for_doc(doc, st)
+        assert not st.loaded
+        assert st.spills == {}
+
+        _spill.save_spill_registry_for_doc(doc, st)
+        assert saved_calls == []
+
+        fail_read = False
+        _spill.load_spill_registry_for_doc(doc, st)
+        assert st.loaded
+        assert ("Sheet1", 0, 0) in st.spills
+
+        _spill.save_spill_registry_for_doc(doc, st)
+        assert len(saved_calls) == 1
+        assert json.loads(saved_calls[0]) == {"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}}
+
+        # Missing property is a clean state and marks loaded=True.
+        reset_calc_workbook_states()
+        stored_empty_doc = CalcDocStub(url="file:///clean_load.ods", props={"RuntimeUID": "uid-clean-load"})
+        monkeypatch.setattr(_spill, "get_document_property", lambda _m, _n, default=None: default)
+        st_clean = WorkbookState.for_doc(stored_empty_doc)
+        assert st_clean is not None
+        _spill.load_spill_registry_for_doc(stored_empty_doc, st_clean)
+        assert st_clean.loaded
+    finally:
+        WorkbookState.forget_key(st.key)
