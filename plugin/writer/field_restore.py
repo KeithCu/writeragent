@@ -368,7 +368,9 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
     """
     prefix = f"[[WA-FIELD:{nonce}:"
     hits = find_tokens(text_obj, prefix, _FIELD_TOKEN_RE)
-    for cursor, m in reversed(hits):
+    # Inserting a field at the end of an earlier token's cursor extends that cursor,
+    # so restoring last-first would delete an adjacent field.
+    for cursor, m in hits:
         title = m.group(2).lower()
         props = _parse_field_token_props(m.group(3))
         _insert_restored_field(model, cursor, title, props)

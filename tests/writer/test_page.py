@@ -1402,6 +1402,22 @@ def test_replace_header_footer_undo_leak_says_text_was_written():
     assert [c.written for c in seen] == ["Appendix"]
 
 
+def test_replace_header_footer_refused_write_is_not_reported_as_written():
+    doc, text_obj = _replace_doc([_text_portion("Annex")], hay="Annex")
+    failing_cursor = MagicMock()
+    failing_cursor.getString.return_value = "Annex"
+    failing_cursor.setString.side_effect = RuntimeError("write boom")
+    text_obj.createTextCursorByRange.side_effect = lambda _rng: failing_cursor
+    um = doc.getUndoManager.return_value
+    um.isLocked.return_value = False
+    um.getAllUndoActionTitles.side_effect = [(), ()]
+    res = _replace(doc)
+    assert res["status"] == "error"
+    assert "write boom" in res["message"]
+    assert "could not be rolled back" not in res["message"]
+    assert res.get("code") != "ROLLBACK_FAILED"
+
+
 def test_mm_to_hmm_rounds():
     from plugin.writer.page import _mm_to_hmm
     assert _mm_to_hmm(2.3) == 230
@@ -2131,6 +2147,7 @@ def test_replace_header_footer_codes():
     res2 = _replace(doc2)
     assert res2["status"] == "error"
     assert res2["code"] == "ROLLBACK_FAILED"
+    assert "was written" not in res2["message"]
 
     # setString fails and undo raises -> ROLLBACK_FAILED
     doc3, text_obj3 = _replace_doc([_text_portion("Annex")], hay="Annex")
@@ -2316,3 +2333,18 @@ def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
     assert scan["images"] == []
     assert scan["has_struck"] is True
     assert _region_holds_content(doc, text_obj) is True
+
+
+def test_portion_cursor_text_counts_inline_frame_and_skips_collapsed_frame():
+    from plugin.writer.page import _OPAQUE_CURSOR_STEP, _portion_cursor_text
+
+    inline_frame = MagicMock()
+    inline_frame.getPropertyValue.return_value = "Frame"
+    inline_frame.getText.return_value.compareRegionEnds.return_value = 1
+
+    anchored_frame = MagicMock()
+    anchored_frame.getPropertyValue.return_value = "Frame"
+    anchored_frame.getText.return_value.compareRegionEnds.return_value = 0
+
+    assert _portion_cursor_text(inline_frame) == _OPAQUE_CURSOR_STEP
+    assert _portion_cursor_text(anchored_frame) == ""

@@ -599,14 +599,6 @@ class DeletionState:
         except Exception as exc:
             log.debug("visible portion RedlineType unreadable (%s)", type(exc).__name__)
 
-    def strikes_text(self, para: Any, opened: bool) -> bool:
-        """``strikes_paragraph`` without its check for anchored frames and images."""
-        if self.para_live:
-            return False
-        return self.para_opens or (
-            opened and (self.in_delete or self.lead_live or self.para_frame or bool(para.getString().strip()))
-        )
-
     def strikes_paragraph(self, para: Any, opened: bool) -> bool:
         """True when a pending deletion leaves nothing visible of *para*, the paragraph just walked.
 
@@ -614,7 +606,12 @@ class DeletionState:
         struck one only holds the end marker and is not struck; one merged into live text is
         (``lead_live``: Backspace on a blank line).
         """
-        if not self.strikes_text(para, opened):
+        if self.para_live:
+            return False
+        if not (
+            self.para_opens
+            or (opened and (self.in_delete or self.lead_live or self.para_frame or bool(para.getString().strip())))
+        ):
             return False
         if opened and self.in_delete:
             # Middle of a multi-paragraph deletion: any anchored content is inside the deletion too.
@@ -689,6 +686,7 @@ def visible_portions(
     limit: int | None = None,
     truncated_out: list[int] | None = None,
     state: DeletionState | None = None,
+    deletions: TrackedDeletions | None = None,
 ) -> Iterator[tuple[Any, str]]:
     """Yield ``(portion, text)`` for visible text, skipping tracked deletions.
 
@@ -704,7 +702,8 @@ def visible_portions(
     (if given) receives the seen count so the caller can warn.
 
     Pass a shared *state* across consecutive paragraphs of one ``XText`` so
-    deletions spanning multiple paragraphs stay hidden.
+    deletions spanning multiple paragraphs stay hidden. With *deletions*, a
+    Frame inside a deletion whose object Accept All keeps is yielded too.
     """
     if state is None:
         state = DeletionState()
@@ -735,7 +734,11 @@ def visible_portions(
             continue
         if state.in_delete:
             if portion_type == "Frame":
-                state.para_frame = True
+                if deletions is not None and deletions.keeps_frame(portion):
+                    state.para_live = True
+                    yield portion, ""
+                else:
+                    state.para_frame = True
             continue
         try:
             chunk = portion.getString()
@@ -865,6 +868,11 @@ class TrackedDeletions:
     def strikes(self, text_range: Any) -> bool:
         """True when pending deletions, one or several together, leave nothing visible of *text_range*."""
         return self.overlaps(text_range) and not self.visible_text(text_range)
+
+    def keeps_frame(self, portion: Any) -> bool:
+        """True when *portion* is a Frame whose anchored object Accept All keeps."""
+        contents = uno_read(lambda: portion.createContentEnumeration("com.sun.star.text.TextContent"), None)
+        return any(not self.removes_anchored(shape) for shape in iter_elements(contents))
 
     def removes_anchored(self, shape: Any) -> bool:
         """True when accepting one pending deletion also removes *shape*, judged by its anchor."""

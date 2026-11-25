@@ -656,25 +656,60 @@ def test_commit_or_rollback_session_discard_error_is_swallowed():
     mgr.undo.assert_called_once()
 
 
-def test_nothing_landed_follows_undo_or_unchanged_session():
+def test_nothing_landed_follows_the_undo_stack():
     from plugin.doc.compound_undo import commit_or_rollback
 
-    doc, mgr = _mock_undo_doc(titles_seq=[(), ("Title",)])
+    # Undo ran -> nothing_landed is True.
+    doc, _mgr = _mock_undo_doc(titles_seq=[(), ("Title",)])
     outcome = commit_or_rollback(doc, "Title", lambda: (_ for _ in ()).throw(ValueError("boom")))
     assert outcome.rolled_back is True
     assert outcome.nothing_landed is True
 
+    # Titles unchanged after failure -> nothing_landed is True and undo is not called.
+    doc2, mgr2 = _mock_undo_doc(titles_seq=[("Prev",), ("Prev",)])
+    outcome2 = commit_or_rollback(doc2, "Title", lambda: (_ for _ in ()).throw(ValueError("refused")))
+    assert outcome2.rolled_back is False
+    assert outcome2.nothing_landed is True
+    mgr2.undo.assert_not_called()
+
+    # Another entry sits on top with session unchanged -> nothing_landed is False.
     session = MagicMock()
     session.changes = [1]
-    mgr.reset_mock()
-    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
-    outcome2 = commit_or_rollback(doc, "Title", lambda: session.changes.append(2), session=session)
-    assert outcome2.rolled_back is False
-    assert outcome2.nothing_landed is False
-
-    session.changes = [1]
-    mgr.reset_mock()
-    mgr.getAllUndoActionTitles.side_effect = [("Title",), ("Title",)]
-    outcome3 = commit_or_rollback(doc, "Title", lambda: None, session=session)
+    doc3, _mgr3 = _mock_undo_doc(titles_seq=[(), ("Other", "Title")])
+    outcome3 = commit_or_rollback(
+        doc3, "Title", lambda: (_ for _ in ()).throw(ValueError("partial")), session=session
+    )
     assert outcome3.rolled_back is False
-    assert outcome3.nothing_landed is True
+    assert outcome3.nothing_landed is False
+
+    # Unreadable titles before the edit -> nothing_landed is False.
+    doc4, mgr4 = _mock_undo_doc()
+    mgr4.getAllUndoActionTitles.side_effect = RuntimeError("unreadable")
+    outcome4 = commit_or_rollback(doc4, "Title", lambda: (_ for _ in ()).throw(ValueError("boom")))
+    assert outcome4.rolled_back is False
+    assert outcome4.nothing_landed is False
+
+    # Success -> nothing_landed is always False, even when titles are unchanged.
+    doc5, _mgr5 = _mock_undo_doc(titles_seq=[("Prev",), ("Prev",)])
+    outcome5 = commit_or_rollback(doc5, "Title", lambda: None)
+    assert outcome5.rolled_back is False
+    assert outcome5.nothing_landed is False
+
+    # Full undo stack: EnterListAction dropped the oldest entry, leaving before[:-1].
+    doc6, mgr6 = _mock_undo_doc(titles_seq=[("Title", "b", "c"), ("Title", "b")])
+    outcome6 = commit_or_rollback(doc6, "Title", lambda: (_ for _ in ()).throw(ValueError("refused")))
+    assert outcome6.rolled_back is False
+    assert outcome6.nothing_landed is True
+    mgr6.undo.assert_not_called()
+
+
+def test_undo_step_or_rollback_full_stack_empty_group():
+    from plugin.doc.compound_undo import UndoStepOrRollback
+
+    doc, mgr = _mock_undo_doc(titles_seq=[("Title", "b", "c"), ("Title", "b")])
+    with pytest.raises(ValueError, match="refused"):
+        with UndoStepOrRollback(doc, "Title") as step:
+            raise ValueError("refused")
+    assert step.left_no_entry is True
+    assert step.rolled_back is False
+    mgr.undo.assert_not_called()

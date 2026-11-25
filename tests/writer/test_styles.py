@@ -2953,3 +2953,25 @@ def test_paragraph_revert_states_skips_void_values_and_names_unrestorable():
 
     assert incomplete2 is False
     assert states2 == []
+
+
+def test_flag_stacked_format_redlines_skips_walk_without_paragraph_format():
+    from plugin.writer import styles as fmt
+
+    rl = MagicMock()
+    rl.getPropertyValue.side_effect = lambda name: "Format" if name == "RedlineType" else None
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = rl
+    redlines = MagicMock()
+    redlines.getCount.return_value = 1
+    redlines.createEnumeration.return_value = enum
+    doc = MagicMock()
+    doc.getRedlines.return_value = redlines
+
+    cursor = MagicMock()
+    res: dict[str, object] = {"status": "ok"}
+    fmt._flag_stacked_format_redlines(res, doc, [cursor])
+
+    cursor.getText.assert_not_called()
+    assert res == {"status": "ok"}

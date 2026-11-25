@@ -569,6 +569,7 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
             return MagicMock()
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -638,6 +639,7 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
             return cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -687,6 +689,7 @@ def test_trailing_paragraph_disposal_is_not_success():
             return _Enum([_Para(), _Para()])
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -1500,6 +1503,30 @@ def test_insert_content_at_position_recorded_empty_beginning():
     mock_drop.assert_called_once()
     assert mock_drop.call_args.kwargs.get("apply_styles") is True
     assert mock_drop.call_args.kwargs.get("merge_forward_after_table") is False
+
+
+def test_insert_content_at_position_unrecorded_empty_beginning():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+
+    body_cursor = MagicMock()
+    body_cursor.isStartOfParagraph.return_value = True
+    body_cursor.isEndOfParagraph.return_value = True
+    body_text = MagicMock()
+    body_cursor.getText.return_value = body_text
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getPropertyValue.return_value = False
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import._import_and_drop_leftover") as mock_drop:
+        insert_content_at_position(model, MagicMock(), "<p>x</p>", "beginning")
+
+    body_text.insertControlCharacter.assert_not_called()
+    mock_drop.assert_called_once()
+    assert mock_drop.call_args.kwargs.get("apply_styles") is True
+    assert mock_drop.call_args.kwargs.get("merge_forward_after_table") is True
 
 
 def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
