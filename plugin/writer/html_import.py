@@ -24,7 +24,7 @@ import uuid
 from typing import Any, Iterator
 
 
-from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     CLEARABLE_PARA_PROPERTIES,
@@ -746,8 +746,8 @@ def _ensure_empty_absorb_for_styled_insert(
       continues it. While recording a break is always opened, because absorbing an empty last
       paragraph would leave it in the import's style after Reject.
     - **Empty absorb paragraph** (blank doc / already-empty trailing, when not recording): merge
-      is harmless — no prep. An empty paragraph while recording is handled by the caller for
-      ``caret`` and ``beginning``.
+      is harmless — no prep. ``caret`` and ``beginning`` in an empty paragraph are handled by
+      the caller in both modes.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
     selections go through ``_replace_whole_paragraphs``, other non-collapsed
@@ -1008,10 +1008,8 @@ def _insert_at_caret(
 ) -> html_import_styles.WriteReport:
     """Insert *content* at a collapsed *cursor* without splitting its paragraph.
 
-    - Empty paragraph (when not recording): importing at the start of an empty paragraph
-      neither merges nor splits, and it is the only caret case where
-      ``_lo_style_for_replaced_range`` allows ``data-lo-style``, so ``apply_styles``
-      matters only there.
+    - Empty paragraph (when not recording): only non-block content reaches this branch,
+      where importing at the start of an empty paragraph neither merges nor splits.
     - Inline content (no block markup and no real newline): insert inline via
       ``insert_inline_at_cursor`` so the host paragraph is not split by ``<p>`` wrapping.
     - Block content at paragraph start: ``_insert_mixed_or_plain_html`` already places new
@@ -1048,23 +1046,30 @@ def insert_content_at_position(
 ) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
 
+    The whole insert runs as one undo step and is rolled back on failure, unless an outer
+    undo group is open, which then owns the rollback.
     When ``position == 'selection'`` and the insert point is a collapsed caret, inline
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
     caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
     or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
-    the empty one so Reject restores its style and direct formatting. When the selection
-    is non-collapsed and *content* is inline (no block markup, no real newline), it replaces
-    the selection in place, keeping the host paragraph and its style with Track Changes on or
-    off. Pass *selection* to act on an explicit text range (such as a pinned Send-time
-    selection) instead of reading the live view.
+    the empty one so Reject restores its style and direct formatting; when not recording,
+    block content at an empty paragraph replaces that paragraph instead of leaving an
+    empty trailing line. When the selection is non-collapsed and *content* is inline
+    (no block markup, no real newline), it replaces the selection in place, keeping the
+    host paragraph and its style with Track Changes on or off. Pass *selection* to act
+    on an explicit text range (such as a pinned Send-time selection) instead of reading
+    the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
     partial match.
     """
-    with image_placeholders.keep_placeholder_images(model, content) as swapped:
+    with (
+        UndoStepOrRollback(model, _("WriterAgent: Insert result")),
+        image_placeholders.keep_placeholder_images(model, content) as swapped,
+    ):
         content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
@@ -1150,18 +1155,22 @@ def insert_content_at_position(
             report = _import_and_drop_leftover(model, ctx, cursor, content)
         elif (
             (caret or position == "beginning")
-            and recording
             and cursor.isStartOfParagraph()
             and cursor.isEndOfParagraph()
+            and (recording or content_is_block(content))
         ):
-            # The import would reuse the empty paragraph's node, and Reject's join keeps that
+            # Recording: the import would reuse the empty paragraph's node, and Reject's join keeps that
             # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
             # into a fresh paragraph after it. After a trailing table the leftover stays: merged
             # into a non-empty follower, Reject would join the empty paragraph into that follower
             # and lose it.
-            cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            if recording:
+                cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # Not recording: the content takes the empty line; the leftover would otherwise
+            # stay behind in the follow style of the paragraph
+            # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
             report = _import_and_drop_leftover(
-                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=False
+                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=not recording
             )
         elif caret:
             report = _insert_at_caret(model, ctx, cursor, content, styled)

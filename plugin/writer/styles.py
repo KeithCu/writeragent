@@ -464,13 +464,20 @@ def _format_reject_drops_paragraph_restore(para: Any) -> bool:
     return has_paragraph_format and not leading.isdisjoint(closing)
 
 
-def _flag_stacked_format_redlines(res: dict[str, Any], cursors: list[Any]) -> None:
+def _flag_stacked_format_redlines(res: dict[str, Any], doc: Any, cursors: list[Any]) -> None:
     """Flag when a whole-paragraph Format redline will be rejected after ParagraphFormat.
 
     Revert data is not readable through UNO, so a paragraph that had no direct formatting
-    is flagged too.
+    is flagged too. Nothing is walked without a ``ParagraphFormat`` redline in the document.
     """
     try:
+        redlines = doc.getRedlines()
+        # The loop variable must keep each redline alive: dropping it before the next read crashes headless soffice.
+        if not any(
+            rl.getPropertyValue("RedlineType") == "ParagraphFormat"
+            for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount()))
+        ):
+            return
         for cursor in cursors:
             for para in _capture_paragraphs(_CountingReader(), _expand_to_full_paragraphs(cursor).createEnumeration(), []):
                 if _format_reject_drops_paragraph_restore(para):
@@ -1982,7 +1989,7 @@ class ApplyStyle(FrameworkToolBase):
 
         res = self._success(style_name, family, target, reports, char_tracked=char_tracked)
         if res.get("tracked"):
-            _flag_stacked_format_redlines(res, cursors)
+            _flag_stacked_format_redlines(res, ctx.doc, cursors)
         if search_mode is not None:
             res.update(search_mode.result_fields())
         return res
@@ -2215,7 +2222,7 @@ class StyleFormatText(ToolWriterStyleBase):
 
         if tracked:
             res = annotate_review_status(res)
-            _flag_stacked_format_redlines(res, cursors)
+            _flag_stacked_format_redlines(res, ctx.doc, cursors)
         if untracked or not tracked or unrestorable:
             flag_style_unreviewed(res, ctx.doc)
         if search_mode is not None:
