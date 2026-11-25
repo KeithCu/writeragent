@@ -10,6 +10,8 @@ import os
 import tempfile
 from typing import Any, Callable, cast
 
+import uno
+
 from plugin.doc.text_helpers import clone_text_range, jump_view_cursor_to_page
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.thread_guard import unwrap_uno
@@ -47,9 +49,6 @@ def export_current_page_png(
     Uses ``DocumentToGraphicRenderer::getCurrentPageWriter``, which falls back to page 1 when
     there is no view cursor. *page* only names the page in error text.
     """
-    # UNO imports only here: nothing above needs them, so validation/error paths stay
-    # exception-free even where the uno module is unavailable (e.g. mocked test envs).
-    import uno
     from com.sun.star.beans import PropertyValue
 
     def export(tmp_path: str) -> None:
@@ -59,9 +58,9 @@ def export_current_page_png(
             return
         w, h = pixel_size
         # FilterData must travel as a typed Any through uno.invoke; a plain tuple is dropped and the
-        # page renders at 96 DPI (same as image_mark.py:217-221). GraphicExportFilter ignores the
+        # page renders at 96 DPI (same as image_mark.bake). GraphicExportFilter ignores the
         # target unless both PixelWidth and PixelHeight are non-zero (GraphicExportFilter.cxx filterRenderDocument).
-        filter_data = getattr(uno, "Any")(
+        filter_data = cast("Any", uno).Any(
             "[]com.sun.star.beans.PropertyValue",
             (PropertyValue(Name="PixelWidth", Value=w), PropertyValue(Name="PixelHeight", Value=h)),
         )

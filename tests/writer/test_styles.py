@@ -1304,6 +1304,37 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
         assert len(mock_ctx.doc._load_styles_calls) == 0
 
 
+@pytest.mark.parametrize("overwrite", [True, False])
+@patch("os.path.isfile", return_value=True)
+def test_import_styles_rejects_all_categories_false(mock_isfile, mock_ctx, overwrite):
+    res = StyleImport().execute(
+        mock_ctx,
+        path=os.path.abspath("/path/to/doc.ott"),
+        overwrite=overwrite,
+        load_paragraph_styles=False,
+        load_page_styles=False,
+        load_frame_styles=False,
+        load_numbering_styles=False,
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "at least one style type" in res["message"]
+    assert len(mock_ctx.doc._load_styles_calls) == 0
+
+
+@pytest.mark.parametrize("ext", [".txt", ".doc", ".fodt", ".DOCX"])
+@patch("os.path.isfile", return_value=True)
+def test_import_styles_rejects_unsupported_extension(mock_isfile, mock_ctx, ext):
+    res = StyleImport().execute(
+        mock_ctx,
+        path=os.path.abspath(f"/path/to/template{ext}"),
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert ".odt and .ott" in res["message"]
+    assert len(mock_ctx.doc._load_styles_calls) == 0
+
+
 def test_apply_style_unknown_family_is_validation_error():
     ok, err = ApplyStyle().validate(style="Heading 1", family="PageStyles")
     assert ok is False
