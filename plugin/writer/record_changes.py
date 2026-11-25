@@ -73,7 +73,8 @@ def record_changes(doc: Any, on: bool) -> Generator[bool, None, None]:
 
 
 def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> bool:
-    """Insert *content* into *host* at *cursor*; True when tracking is on, so Writer recorded the insertion."""
+    """Insert *content* into *host* at *cursor*; True when tracking is on, so Writer recorded the insertion
+    (callers run it inside the review session, which turns tracking on in Record/Wait)."""
     # An embedded object gets no redline of its own, and an Input field gets one that covers
     # only its first character, so Reject would delete the wrong text. Text inside an Insert
     # redline belongs to it, so deleting our own insertion markers removes them outright.

@@ -178,8 +178,8 @@ def flag_tracked(result: dict[str, Any]) -> None:
 def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_pending: bool = False) -> None:
     """Flag a Writer mutation that was not recorded as a tracked change.
 
-    *replaced_pending* means the text it replaced was struck as a tracked deletion, which is
-    pending review whatever the mode is by now.
+    *replaced_pending* means the text it replaced was struck as a tracked deletion, which keeps
+    ``pending_review``, ``tracked: False``, and the warning even if the review mode is off by now.
     """
     if result.get("status") != "ok" or not is_writer(doc):
         return
@@ -209,6 +209,9 @@ def annotate_review_status(result: dict[str, Any]) -> dict[str, Any]:
     """*result* with ``pending_review`` and, in Record/Wait, the mode and the do-not-resolve note.
 
     Call only for a successful edit that left a tracked change and did not block for review.
+    Repeated on every result because the prompt guidance is static while the user can switch modes
+    mid-session; ``pending_review`` is set before checking the mode because the mode may already be
+    off by the time the result is annotated.
     """
     result = dict(result)
     result["pending_review"] = True

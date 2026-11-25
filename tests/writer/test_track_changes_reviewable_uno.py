@@ -2606,6 +2606,14 @@ def test_style_format_text_caret_records_nothing_uno(ctx, doc):
         assert "pending_review" not in res_caret
         assert _redlines(doc) == []
 
+        res_reset_caret = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), reset=["CharWeight"], target="end"
+        )
+        assert res_reset_caret["status"] == "ok", res_reset_caret
+        assert res_reset_caret["tracked"] is False
+        assert "pending_review" not in res_reset_caret
+        assert _redlines(doc) == []
+
         res_search = StyleFormatText().execute(
             _tool_ctx(doc, ctx),
             properties={"CharWeight": 150},

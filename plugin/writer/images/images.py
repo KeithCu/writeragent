@@ -70,8 +70,8 @@ from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_tracked, flag_untracked
-from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.specialized.textframes import text_content_anchor
 from plugin.writer.target_resolver import request_selection_range
 from .image_tools import (

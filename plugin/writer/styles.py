@@ -2253,13 +2253,13 @@ class StyleFormatText(ToolWriterStyleBase):
             if name in _RECORDABLE_PARA_PROPERTIES:
                 return not para_complete
             if name in reset_names:
-                return name not in reset_values
-            return not _is_text_property(name)
+                return not char_tracked or name not in reset_values
+            return not char_tracked or not _is_text_property(name)
 
         untracked = [n for n in (*updates, *reset_done) if is_untracked(n)]
         if recording and untracked:
             warnings.append(
-                "Not fully recorded as a tracked change (headings, list items and empty paragraphs "
+                "Not fully recorded as a tracked change (carets, headings, list items and empty paragraphs "
                 "are not recorded, nor are page breaks, page styles, writing direction and list levels): %s."
                 % ", ".join(untracked)
             )
