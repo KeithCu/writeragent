@@ -348,6 +348,8 @@ def test_undo_step_or_rollback_empty_group_keeps_older_same_title():
             raise RuntimeError("boom")
 
     assert step.rolled_back is False
+    assert step.left_no_entry is True
+    assert step.rollback_error is None
     assert fake.undone == 0
     assert fake.titles == ["WriterAgent: test"]
 

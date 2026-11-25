@@ -2842,6 +2842,7 @@ def test_apply_to_cursors_not_rolled_back_does_not_claim_nothing_changed():
 
     assert reports == []
     assert err is not None
+    assert err["code"] == "TOOL_EXECUTION_ERROR"
     assert "Nothing was changed" not in err["message"]
     assert "may still be in the document" in err["message"]
 

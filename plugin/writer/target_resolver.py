@@ -149,7 +149,8 @@ def insert_at_target(
     tool error: the resolver's message for a bad target or a search miss;
     UNDO_UNAVAILABLE "Cannot insert {what} as one undo step (no usable undo context);
     the document was not changed."; or `code` with "Failed to insert {what}; the change
-    was rolled back (cause)." when insert raises. undo_title defaults to
+    was rolled back (cause)." when insert raises (or, when the change was not undone, a
+    message saying part of it may still be in the document). undo_title defaults to
     next_agent_edit_undo_title(). The step runs inside an agent review session, so what
     LibreOffice records of the match deletion and the insert is one tagged change in
     Record/Wait.
