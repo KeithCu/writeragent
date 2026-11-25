@@ -667,18 +667,6 @@ def test_remove_graphic_same_name_distinct_object_deletes_nothing():
     assert page.removed == []
 
 
-def test_remove_graphic_multiple_same_name_distinct_objects_deletes_nothing():
-    target = _NamedShape("Pic")
-    s1 = _NamedShape("Pic")
-    s2 = _NamedShape("Pic")
-    page = _RemovablePage([s1, s2])
-    doc = _DocWithPages([page])
-
-    res = visual_helpers.remove_graphic_from_draw_pages(doc, target)
-    assert res is False
-    assert page.removed == []
-
-
 def test_get_active_draw_page_reraises_disposed() -> None:
 
     from plugin.framework.errors import DocumentDisposedError

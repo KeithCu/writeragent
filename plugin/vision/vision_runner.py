@@ -385,7 +385,7 @@ def run_and_insert_vision_for_selection(
                 elif outcome == "image_kept":
                     batch.kept_images.append(image_name)
             result["image_name"] = image_name
-            result["image_index"] = idx
+            result["discovered_index"] = idx
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}
             else:

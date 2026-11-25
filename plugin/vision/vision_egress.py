@@ -438,23 +438,15 @@ def insert_vision_item(
     params: dict[str, Any] | None,
     graphics: Sequence[tuple[str, Any | None]],
 ) -> VisionInsertOutcome:
-    """Insert one OCR result item using its ``(name, graphic)`` pair in *graphics*.
+    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, and its kept shape in *graphics*.
 
-    Matches by ``image_index`` when present so duplicate or empty names keep
-    distinct shape identities, falling back to the first matching name in
-    *graphics* when ``image_index`` is absent.
+    Uses ``discovered_index`` because names may be empty or repeat, and failed
+    images are skipped, so position in ``individual_results`` is not position
+    in *graphics*.
     """
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
         insert_params["image_name"] = img_name
-    graphic: Any | None = None
-    idx = result.get("image_index")
-    if isinstance(idx, int) and not isinstance(idx, bool) and 0 <= idx < len(graphics):
-        graphic = graphics[idx][1]
-    elif isinstance(img_name, str):
-        for name, item_graphic in graphics:
-            if name == img_name:
-                graphic = item_graphic
-                break
+    graphic = graphics[result["discovered_index"]][1]
     return insert_vision_result(ctx, doc, result, params=insert_params, graphic=graphic)

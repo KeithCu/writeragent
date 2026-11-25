@@ -737,9 +737,10 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         for page in pages_list:
             for j in range(page.getCount()):
                 shape = page.getByIndex(j)
-                # == on PyUNO wrappers is UNO identity (pyuno.cxx PyUNO_cmp), so a shape
-                # read fresh from the page matches the graphic resolved earlier; the dev
-                # thread-guard proxy's __eq__ unwraps its right operand so proxied pairs match too.
+                # Match only by UNO identity (== on PyUNO wrappers, pyuno.cxx PyUNO_cmp;
+                # the dev thread-guard proxy unwraps its right operand). Names are not
+                # unique, so a same-name shape may be an unrelated picture; a shape on
+                # no page removes nothing.
                 if shape == graphic:
                     page.remove(graphic)
                     return True
