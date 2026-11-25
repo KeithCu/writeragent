@@ -327,6 +327,7 @@ def _delete_inserted_image(ctx: Any, doc: Any, image_name: str | None, graphic: 
     target = graphic
     if target is None:
         if not image_name:
+            # Without a kept shape or name, the only target would be the live selection (custom-script route).
             raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
         target = get_graphic_object_by_name(doc, image_name)
         if target is None:

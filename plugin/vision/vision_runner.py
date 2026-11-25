@@ -51,8 +51,10 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
 def discover_vision_images(doc: Any) -> list[tuple[str, Any | None]]:
     """Return ``(name, graphic_or_none)`` pairs for the current selection.
 
-    Writer images are looked up by name; in other documents a name may be
-    empty or repeat on another sheet, so the shape is kept.
+    Writer images are looked up by name because Writer insert resolves and
+    presence-checks by name (``insert_vision_result_into_writer``); in other
+    documents a name may be empty or repeat on another sheet, so the shape is
+    kept.
     """
     pairs = visual_helpers.graphic_objects_in_selection(doc)
     if not pairs:

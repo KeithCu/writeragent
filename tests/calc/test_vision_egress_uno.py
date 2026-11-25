@@ -141,7 +141,9 @@ def test_calc_duplicate_name_across_sheets_inserts_and_deletes_selected_with_one
 
     doc.getUndoManager().undo()
     assert sheet1.getDrawPage().getCount() == 1
+    assert export_graphic_object_to_bytes(ctx, sheet1.getDrawPage().getByIndex(0)) == expected_bytes_1
     assert sheet1.getCellByPosition(0, 1).getString() == ""
+    assert sheet1.getCellByPosition(0, 2).getString() == ""
 
 
 @native_test
@@ -181,3 +183,5 @@ def test_calc_unnamed_image_deletes_discovered_shape_after_selection_change_uno(
     assert sheet.getDrawPage().getCount() == 1
     assert sheet.getDrawPage().getByIndex(0) == shape_b
     assert sheet.getCellByPosition(0, 1).getString() == "extract_structure"
+    assert sheet.getCellByPosition(0, 2).getString() == "hello"
+    assert sheet.getCellByPosition(5, 21).getString() == ""

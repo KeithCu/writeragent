@@ -16,7 +16,12 @@ from unittest.mock import patch
 from plugin.doc.visual_helpers import graphic_objects_in_selection
 from plugin.framework.errors import DocumentDisposedError
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import (
+    _windows_should_skip_draw_family_close,
+    close_draw_family_doc,
+    settle_after_draw_family_close,
+    with_native_doc,
+)
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 from plugin.writer.images.image_tools import insert_image_at_locator
 
@@ -137,25 +142,38 @@ def test_draw_vision_unnamed_keeps_discovered_shape_across_selection_change_uno(
 @with_native_doc("draw", reuse=False)
 def test_draw_vision_named_kept_shape_closed_doc_raises_disposed_uno(ctx, doc):
     """Closing a Draw document after discovering a named kept shape raises DocumentDisposedError on export."""
+    if _windows_should_skip_draw_family_close():
+        return
     path = _write_temp_png(10, 20, 30)
+    closed = False
     try:
         shape = insert_image_at_locator(ctx, doc, path, page_index=0, x_mm=10, y_mm=10, width_mm=20, height_mm=20)
         assert shape is not None
         shape.setName("Pic1")
         _select_shape(doc, shape)
+        del shape
 
-        try:
-            run_and_insert_vision_for_selection(
-                ctx,
-                doc,
-                helper="extract_text",
-                insert_into_document=False,
-                on_discovered=lambda _discovered: doc.close(True),
-            )
-            raise AssertionError("Expected DocumentDisposedError")
-        except DocumentDisposedError:
-            pass
+        def close_on_discovered(_discovered: Any) -> None:
+            nonlocal closed
+            closed = True
+            close_draw_family_doc(doc)
+
+        with patch("plugin.vision.vision_runner.run_vision") as mock_run_vision:
+            try:
+                run_and_insert_vision_for_selection(
+                    ctx,
+                    doc,
+                    helper="extract_text",
+                    insert_into_document=False,
+                    on_discovered=close_on_discovered,
+                )
+                raise AssertionError("Expected DocumentDisposedError")
+            except DocumentDisposedError:
+                pass
+        mock_run_vision.assert_not_called()
     finally:
+        if closed:
+            settle_after_draw_family_close()
         try:
             os.remove(path)
         except OSError:
