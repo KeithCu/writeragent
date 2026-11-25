@@ -758,6 +758,21 @@ def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> st
     return "".join(chunk for _unused, chunk in visible_portions(para, state=state))
 
 
+def _sorts_after(run: list[tuple[Any, Any, Any]], bounds: tuple[Any, Any, Any]) -> bool:
+    """True when *bounds* starts and ends no earlier than the last deletion of *run*.
+
+    False when they cannot be compared through the run's text.
+    """
+    text = run[0][0]
+    last = run[-1]
+    return uno_read(
+        lambda: text.compareRegionStarts(last[1], bounds[1]) >= 0
+        and text.compareRegionStarts(last[2], bounds[2]) >= 0,
+        False,
+        object_type="TextRange",
+    )
+
+
 class TrackedDeletions:
     """The pending Delete redlines of a Writer document, read once.
 
@@ -765,10 +780,17 @@ class TrackedDeletions:
     document is edited, stored, or exported, because an export hides deletions while
     it runs and collapses these ranges (``SwXMLExport::exportDoc`` in ``xmlexp.cxx``,
     ``SwRangeRedline::MoveToSection`` in ``docredln.cxx``).
+
+    ``_runs`` holds the deletions in document order (redline table order,
+    ``SwXRedlineEnumeration::nextElement``, ``unoredlines.cxx``), split wherever two
+    neighbours overlap out of order or cannot be compared. Each run is binary searched,
+    because a search asks about thousands of hits. Positions are passed as
+    ``SwXTextRange``, which LibreOffice compares without the per-call membership check
+    (``SwXText::compareRegionStarts``, ``unotext.cxx``).
     """
 
     def __init__(self, doc: Any) -> None:
-        self._bounds: list[tuple[Any, Any, Any]] = []
+        self._runs: list[list[tuple[Any, Any, Any]]] = []
         redlines = uno_read(lambda: doc.getRedlines(), None)
         if redlines is None or uno_read(lambda: redlines.hasElements() is True, False) is not True:
             return
@@ -777,15 +799,37 @@ class TrackedDeletions:
             if uno_read(lambda: str(rl.getPropertyValue("RedlineType")), None) != "Delete":
                 continue
             bounds = uno_read(lambda: redline_bounds(rl), None)
-            if bounds is not None and bounds[0] is not None:
-                self._bounds.append(bounds)
+            if bounds is None or bounds[0] is None:
+                continue
+            if self._runs and _sorts_after(self._runs[-1], bounds):
+                self._runs[-1].append(bounds)
+            else:
+                self._runs.append([bounds])
 
     def __bool__(self) -> bool:
-        return bool(self._bounds)
+        return bool(self._runs)
+
+    def _first_ending_after(self, point: Any) -> Iterator[tuple[Any, Any]]:
+        """Yield ``(text, start)`` of the first deletion in each run that ends after *point*."""
+        for run in self._runs:
+            text = run[0][0]
+            lo, hi = 0, len(run)
+            try:
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if text.compareRegionStarts(point, run[mid][2]) == 1:
+                        hi = mid
+                    else:
+                        lo = mid + 1
+            except Exception as exc:
+                reraise_if_disposed(exc, object_type="TextRange")
+                continue  # *point* is in a text this run cannot be compared with
+            if lo < len(run):
+                yield text, run[lo][1]
 
     def state_at(self, text_range: Any) -> DeletionState:
         """Return ``DeletionState`` at the start of *text_range* (XText, cursor, paragraph, or table)."""
-        if not self._bounds:
+        if not self._runs:
             return DeletionState()
         if is_text_table(text_range):
             point = uno_read(lambda: text_range.getAnchor(), None, object_type="TextTable")
@@ -802,15 +846,13 @@ class TrackedDeletions:
                 point = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
         if point is None:
             return DeletionState()
-        for text, start, end in self._bounds:
+        # XText.getStart() is a cursor (SwXText::getStart, unotext.cxx); its own start is an SwXTextRange.
+        position = uno_read(lambda: point.getStart(), None, object_type="TextRange")
+        if position is None:
+            return DeletionState()
+        for text, start in self._first_ending_after(position):
             # Half-open [start, end): the end marker sits at end and has already been passed.
-            inside = uno_read(
-                lambda: text.compareRegionStarts(start, point) >= 0
-                and text.compareRegionStarts(point, end) == 1,
-                False,
-                object_type="TextRange",
-            )
-            if inside:
+            if uno_read(lambda: text.compareRegionStarts(start, position) >= 0, False, object_type="TextRange"):
                 return DeletionState(in_delete=True)
         return DeletionState()
 
@@ -855,14 +897,19 @@ class TrackedDeletions:
 
     def overlaps(self, text_range: Any) -> bool:
         """True when a pending Delete redline strikes part of *text_range*."""
+        if not self._runs:
+            return False
+        edges = uno_read(
+            lambda: (text_range.getStart().getStart(), text_range.getEnd().getStart()),
+            None,
+            object_type="TextRange",
+        )
+        if edges is None:
+            return False
+        first, last = edges
         return any(
-            uno_read(
-                lambda: text.compareRegionStarts(start, text_range.getEnd()) == 1
-                and text.compareRegionStarts(text_range, end) == 1,
-                False,
-                object_type="TextRange",
-            )
-            for text, start, end in self._bounds
+            uno_read(lambda: text.compareRegionStarts(start, last) == 1, False, object_type="TextRange")
+            for text, start in self._first_ending_after(first)
         )
 
     def strikes(self, text_range: Any) -> bool:
@@ -876,7 +923,7 @@ class TrackedDeletions:
 
     def removes_anchored(self, shape: Any) -> bool:
         """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
-        if not self._bounds:
+        if not self._runs:
             return False
         anchor = shape.getAnchor()
         if anchor is None:
@@ -884,7 +931,8 @@ class TrackedDeletions:
         kind = shape.getPropertyValue("AnchorType").value
         return any(
             uno_read(lambda: _deletion_removes_anchor(b, kind, anchor), False, object_type="TextRange")
-            for b in self._bounds
+            for run in self._runs
+            for b in run
         )
 
 

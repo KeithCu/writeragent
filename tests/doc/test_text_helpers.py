@@ -1464,6 +1464,125 @@ def test_tracked_deletions_state_at_and_overlaps():
     assert td.overlaps(MagicMock()) is False
 
 
+def _make_fake_text_and_spans():
+    from tests.testing_utils import FakeUnoEnum
+
+    class _Text:
+        def __init__(self):
+            self.compares = 0
+
+        def compareRegionStarts(self, a, b):
+            self.compares += 1
+            a_start = a.getStart()
+            b_start = b.getStart()
+            if getattr(a_start, "text", None) is not self or getattr(b_start, "text", None) is not self:
+                raise RuntimeError("not comparable")
+            return 1 if a_start.idx < b_start.idx else (0 if a_start.idx == b_start.idx else -1)
+
+    class _Pos:
+        def __init__(self, text, idx):
+            self.text = text
+            self.idx = idx
+
+        def getStart(self):
+            return self
+
+        def getEnd(self):
+            return self
+
+        def getText(self):
+            return self.text
+
+        def createEnumeration(self):
+            return FakeUnoEnum([])
+
+    class _Span:
+        def __init__(self, text, start, end):
+            self.text = text
+            self.start = _Pos(text, start)
+            self.end = _Pos(text, end)
+
+        def getText(self):
+            return self.text
+
+        def getStart(self):
+            return self.start
+
+        def getEnd(self):
+            return self.end
+
+        def createEnumeration(self):
+            return FakeUnoEnum([])
+
+    class _RL:
+        def __init__(self, span):
+            self._span = span
+
+        def getPropertyValue(self, name):
+            if name == "RedlineType":
+                return "Delete"
+            if name == "RedlineStart":
+                return self._span.start
+            if name == "RedlineEnd":
+                return self._span.end
+            raise KeyError(name)
+
+    return _Text, _Pos, _Span, _RL, FakeUnoEnum
+
+
+def test_tracked_deletions_match_a_linear_scan():
+    from plugin.doc.text_helpers import TrackedDeletions
+
+    _Text, _Pos, _Span, _RL, FakeUnoEnum = _make_fake_text_and_spans()
+    t1, t2 = _Text(), _Text()
+    deletions = [
+        (t1, 2, 4),
+        (t1, 4, 6),
+        (t2, 0, 3),
+        (t1, 9, 20),
+        (t1, 11, 13),
+        (t1, 12, 12),
+        (t1, 25, 27),
+        (t1, 15, 16),
+        (t2, 8, 9),
+    ]
+    rl_doc = MagicMock()
+    rl_doc.getRedlines.return_value.hasElements.return_value = True
+    rl_doc.getRedlines.return_value.createEnumeration.return_value = FakeUnoEnum(
+        [_RL(_Span(t, s, e)) for t, s, e in deletions]
+    )
+    td = TrackedDeletions(rl_doc)
+
+    for text in (t1, t2):
+        for a in range(30):
+            assert td.state_at(_Pos(text, a)).in_delete is any(
+                dt is text and s <= a < e for dt, s, e in deletions
+            )
+            for b in range(a, 30):
+                assert td.overlaps(_Span(text, a, b)) is any(
+                    dt is text and s < b and a < e for dt, s, e in deletions
+                )
+
+
+def test_tracked_deletions_overlaps_does_not_scan_every_deletion():
+    """Binary search keeps overlaps() O(log N) so 3,788-hit searches do not take 20 s."""
+    from plugin.doc.text_helpers import TrackedDeletions
+
+    _Text, _Pos, _Span, _RL, FakeUnoEnum = _make_fake_text_and_spans()
+    t1 = _Text()
+    rl_doc = MagicMock()
+    rl_doc.getRedlines.return_value.hasElements.return_value = True
+    rl_doc.getRedlines.return_value.createEnumeration.return_value = FakeUnoEnum(
+        [_RL(_Span(t1, 10 * i, 10 * i + 3)) for i in range(1000)]
+    )
+    td = TrackedDeletions(rl_doc)
+    t1.compares = 0
+
+    assert td.overlaps(_Span(t1, 5005, 5008)) is False
+    assert td.overlaps(_Span(t1, 5001, 5002)) is True
+    assert t1.compares < 40
+
+
 def test_bounds_cover():
     from plugin.doc.text_helpers import bounds_cover
     from plugin.framework.errors import DocumentDisposedError

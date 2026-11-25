@@ -873,3 +873,51 @@ def test_visible_range_text_table_edge_and_field_selections_uno(ctx, doc):
     tail_cur.goRight(len("xx in") + 1, False)
     tail_cur.gotoEnd(True)
     assert visible_range_text(doc, tail_cur) == "ner yy"
+
+
+def _insert_and_strike_last_gone(doc, xtext):
+    doc.setPropertyValue("RecordChanges", False)
+    cur = xtext.createTextCursor()
+    cur.gotoEnd(False)
+    xtext.insertString(cur, "gone live gone", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.gotoEnd(False)
+        cur.goLeft(len("gone"), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_hides_deletions_in_every_text_uno(ctx, doc):
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    std_page = page_styles.getByName("Standard")
+    std_page.setPropertyValue("HeaderIsOn", True)
+    _insert_and_strike_last_gone(doc, std_page.getPropertyValue("HeaderText"))
+
+    body = doc.getText()
+    footnote = doc.createInstance("com.sun.star.text.Footnote")
+    body.insertTextContent(body.getEnd(), footnote, False)
+    _insert_and_strike_last_gone(doc, footnote)
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 2)
+    body.insertTextContent(body.getEnd(), outer, False)
+    _insert_and_strike_last_gone(doc, outer.getCellByName("A1"))
+
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    b1 = outer.getCellByName("B1")
+    b1.insertTextContent(b1.getEnd(), nested, False)
+    _insert_and_strike_last_gone(doc, nested.getCellByName("A1"))
+
+    _insert_and_strike_last_gone(doc, body)
+
+    res = TestingFactory.execute_tool(doc, ctx, "search", {"pattern": "gone"}, doc_type="writer")
+    assert res["status"] == "ok"
+    assert res["count"] == 5
+    assert len(res["matches"]) == 5
+    for match in res["matches"]:
+        assert match["context"].count("gone") == 1
