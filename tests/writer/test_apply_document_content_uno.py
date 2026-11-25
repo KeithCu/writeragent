@@ -2066,6 +2066,7 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
     for record in (False, True):
         with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
             _setup_crossing(case_doc, "Word here there")
+            orig_author = case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor")
             tctx = native_writer_tool_context(case_doc, ctx)
             case_doc.setPropertyValue("RecordChanges", record)
             try:
@@ -2075,16 +2076,42 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
             assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", (record, res)
             assert visible_range_text(case_doc, case_doc.getText()) == "Word there"
             assert case_doc.getRedlines().getCount() == 1
+            assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") == orig_author
             assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineComment") == "keep-me"
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        # Place 20 clean matches before one crossing match so occurrence=20 sits outside replaceable.
+        _setup_crossing(case_doc, ("Word there " * 20) + "Word here there")
+        # Move the deletion to the 21st occurrence ("Word here there").
+        case_doc.getText().setString(("Word there " * 20) + "Word here there")
+        t = case_doc.getText()
+        c = t.createTextCursor()
+        c.gotoStart(False)
+        c.goRight(len("Word there " * 20) + len("Word "), False)
+        c.goRight(len("here "), True)
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            c.setString("")
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        tctx = native_writer_tool_context(case_doc, ctx)
+        dry_past = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=20
+        )
+        assert dry_past["status"] == "ok", dry_past
+        assert dry_past["selected_match"].get("edit_refused") == "MATCH_CROSSES_DELETION", dry_past["selected_match"]
 
     with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
         _setup_crossing(case_doc, "Word here there and Word there")
         tctx = native_writer_tool_context(case_doc, ctx)
 
-        dry = tool.execute_safe(tctx, target="search", old_content="Word there", content="Clean", dry_run=True)
+        dry = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=0
+        )
         assert dry["status"] == "ok", dry
         assert dry["replaceable"][0].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["replaceable"]
         assert "edit_refused" not in dry["replaceable"][1], dry["replaceable"]
+        assert dry["selected_match"].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["selected_match"]
 
         res_all = tool.execute_safe(tctx, target="search", old_content="Word there", content="Clean", all_matches=True)
         assert res_all["status"] == "ok", res_all

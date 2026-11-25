@@ -1376,6 +1376,7 @@ class IndexesCreate(ToolWriterIndexBase):
                     code="INDEX_IN_TRACKED_CHANGE",
                 )
             strike = kwargs.get("target", "selection") == "search"
+            # index_create passes replace_match=False and strikes the match itself.
             if strike:
                 crossing_err = crossing_match_error(doc, cursor)
                 if crossing_err is not None:

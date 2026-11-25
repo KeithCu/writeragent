@@ -589,6 +589,37 @@ def _crossing_hits(doc: Any, sd: Any, deletions: TrackedDeletions, after: Any) -
     return deque(hits)
 
 
+def _iter_descriptor_hits_with_text(
+    doc: Any,
+    sd: Any,
+    deletions: TrackedDeletions,
+    after: Any = None,
+    *,
+    literal: bool = True,
+) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(hit, visible_or_none)`` for non-struck LO hits and literal crossing hits.
+
+    ``visible_or_none`` is None when no deletion overlaps *hit* (caller uses ``hit.getString()``),
+    avoiding a second ``overlaps``/``visible_text`` pass. *literal* is False for caller ICU regexes.
+    """
+    crossing = _crossing_hits(doc, sd, deletions, after) if literal and deletions else deque()
+    body = doc.getText() if crossing else None
+    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
+    while found is not None:
+        while crossing and _starts_before(body, crossing[0], found):
+            h = crossing.popleft()
+            yield h, deletions.visible_text(h)
+        if not deletions.overlaps(found):
+            yield found, None
+        else:
+            shown = deletions.visible_text(found)
+            if shown:
+                yield found, shown
+        found = find_next_after_match(doc, found, sd)
+    for h in crossing:
+        yield h, deletions.visible_text(h)
+
+
 def _iter_descriptor_hits(
     doc: Any,
     sd: Any,
@@ -597,20 +628,9 @@ def _iter_descriptor_hits(
     *,
     literal: bool = True,
 ) -> Iterator[Any]:
-    """LibreOffice hits not wholly struck, plus literal matches that run across a deletion.
-
-    *literal* is False for a caller's own regex: it is ICU syntax, which Python re cannot run.
-    """
-    crossing = _crossing_hits(doc, sd, deletions, after) if literal and deletions else deque()
-    body = doc.getText() if crossing else None
-    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
-    while found is not None:
-        while crossing and _starts_before(body, crossing[0], found):
-            yield crossing.popleft()
-        if not deletions.strikes(found):
-            yield found
-        found = find_next_after_match(doc, found, sd)
-    yield from crossing
+    """LibreOffice hits not wholly struck, plus literal matches that run across a deletion."""
+    for hit, _shown in _iter_descriptor_hits_with_text(doc, sd, deletions, after=after, literal=literal):
+        yield hit
 
 
 def _collect_capped(
@@ -1774,8 +1794,8 @@ class SearchInDocument(ToolBase):
         deletions = TrackedDeletions(doc)
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
-            hits = _iter_descriptor_hits(doc, sd, deletions, literal=not use_regex)
-            found = next(hits, None)
+            hits = _iter_descriptor_hits_with_text(doc, sd, deletions, literal=not use_regex)
+            found, pre_shown = next(hits, (None, None))
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("search: createSearchDescriptor / findFirst failed")
@@ -1795,7 +1815,7 @@ class SearchInDocument(ToolBase):
         while found is not None and total_count < MAX_SEARCH_HITS:
             try:
                 hit_text = found.getString()
-                shown = deletions.visible_text(found) if deletions.overlaps(found) else hit_text
+                shown = hit_text if pre_shown is None else pre_shown
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search: hit read failed")
@@ -1813,7 +1833,7 @@ class SearchInDocument(ToolBase):
                     enclosing_paragraph_text(found, deletions),
                 )
             try:
-                found = next(hits, None)
+                found, pre_shown = next(hits, (None, None))
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search: findNext failed")

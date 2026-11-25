@@ -1636,6 +1636,8 @@ def target_cursors(
     tool: FrameworkToolBase,
     ctx: ToolContext,
     kwargs: dict[str, Any],
+    *,
+    check_crossing: bool = True,
 ) -> tuple[list[Any], dict[str, Any] | None, search_mod.MatchMode | None]:
     """Resolve target kwargs into (cursors, error_payload, search_mode)."""
     target = kwargs.get("target", "selection")
@@ -1688,7 +1690,7 @@ def target_cursors(
             err.update(mode.result_fields())
             return [], err, mode
         ranges = [ranges[occ]]
-    if is_recording_changes(ctx.doc) or review_recording_enabled():
+    if check_crossing and (is_recording_changes(ctx.doc) or review_recording_enabled()):
         # A recorded character format over a pending Delete becomes a Format redline, and the struck text is live again.
         deletions = TrackedDeletions(ctx.doc)
         ranges = [r for r in ranges if not search_mod.match_crosses_deletion(deletions, r)]
@@ -1968,7 +1970,9 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
-        cursors, err, search_mode = target_cursors(self, ctx, kwargs)
+        cursors, err, search_mode = target_cursors(
+            self, ctx, kwargs, check_crossing=(family == "CharacterStyles")
+        )
         if err is not None:
             return err
 

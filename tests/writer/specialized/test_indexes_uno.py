@@ -1405,5 +1405,8 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
+    assert doc.getRedlines().getCount() == 1
     res_refresh = IndexesRefreshTocEntry().execute(tctx, old_content="Heading \t1", content="New Title")
     assert res_refresh["status"] == "error" and res_refresh["code"] == "MATCH_CROSSES_DELETION", res_refresh
+    assert doc.getRedlines().getCount() == 1
+    assert visible_range_text(doc, entry_para) == "Heading \t1"

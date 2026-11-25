@@ -581,6 +581,12 @@ def test_search_match_text_hides_struck_text_uno(ctx, doc):
     assert res["count"] == 1
     assert res["matches"][0]["text"] == "here"
 
+    # Case-insensitive "D here" hits both the crossing "d here" in "Word here" and the native "D here" (shown as "here").
+    default_res = tool.execute(mock_ctx, pattern="D here")
+    assert default_res["status"] == "ok", default_res
+    assert default_res["count"] == 2, default_res
+    assert [m["text"] for m in default_res["matches"]] == ["d here", "here"]
+
     crossing = tool.execute(mock_ctx, pattern="Word here")
     assert crossing["status"] == "ok", crossing
     assert crossing["count"] == 1
@@ -703,29 +709,34 @@ def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
     assert rows == [{"start": 6, "end": 8, "text": "yy"}]
 
 
-def _strike_substring(doc, xtext, needle: str, *, author: str | None = None) -> None:
+def _strike_substring(doc, xtext, needle: str, *, ctx=None, author: str | None = None) -> None:
+    from plugin.writer import review_authors
+
     cur = xtext.createTextCursor()
     cur.gotoStart(False)
     full = xtext.getString()
     idx = full.index(needle)
     cur.goRight(idx, False)
     cur.goRight(len(needle), True)
+    prior = None
+    if author is not None:
+        assert ctx is not None
+        prior = review_authors.begin(ctx)
+        assert review_authors.set_office_author(ctx, author) is True
     doc.setPropertyValue("RecordChanges", True)
     try:
         cur.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)
-    if author is not None:
-        redlines = doc.getRedlines()
-        for i in range(redlines.getCount()):
-            rl = redlines.getByIndex(i)
-            if rl.RedlineComment == "":
-                rl.setPropertyValue("RedlineAuthor", author)
+        if author is not None:
+            review_authors.end(ctx, prior)
 
 
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
+    import uno
+
     text = doc.getText()
     text.setString("Word here\r😀 Word OLD1 here")
 
@@ -745,7 +756,6 @@ def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
     header_text = std_page.getPropertyValue("HeaderText")
     header_text.setString("Word OLD3 here")
 
-    import uno
     frame = doc.createInstance("com.sun.star.text.TextFrame")
     frame.setSize(uno.createUnoStruct("com.sun.star.awt.Size"))
     text.insertTextContent(text.getStart(), frame, False)
@@ -771,11 +781,12 @@ def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
     text = doc.getText()
-    text.setString("Alpha ONE TWO Beta\rFirst GONE\rSecond MID Tail")
-    _strike_substring(doc, text, "ONE ", author="Alice")
-    _strike_substring(doc, text, "TWO ", author="Bob")
-    _strike_substring(doc, text, "GONE\nSecond ")
-    _strike_substring(doc, text, "MID ")
+    text.setString("Alpha ONE TWO Beta")
+    _strike_substring(doc, text, "ONE ", ctx=ctx, author="Alice")
+    _strike_substring(doc, text, "TWO ", ctx=ctx, author="Bob")
+    redlines = doc.getRedlines()
+    assert redlines.getCount() == 2
+    assert len({redlines.getByIndex(i).RedlineAuthor for i in range(2)}) == 2
 
     tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
@@ -784,12 +795,10 @@ def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
     assert r1["matches"][0]["text"] == "Alpha Beta"
 
     # Paragraph starting inside a deletion from the previous paragraph also finds its own crossing hit.
-    r2 = tool.execute(mock_ctx, pattern="Tail")
-    assert r2["status"] == "ok" and r2["count"] == 1, r2
-    # Also test a crossing hit inside the opened paragraph itself.
-    text.setString("First GONE\rLead MID Tail")
-    _strike_substring(doc, text, "GONE\n")
+    text.setString("First GONE\rgone Lead MID Tail")
+    _strike_substring(doc, text, "GONE\ngone ")
     _strike_substring(doc, text, "MID ")
+    assert doc.getRedlines().getCount() == 2
     r3 = tool.execute(mock_ctx, pattern="Lead Tail")
     assert r3["status"] == "ok" and r3["count"] == 1, r3
     assert r3["matches"][0]["text"] == "Lead Tail"
@@ -798,7 +807,8 @@ def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc):
-    from plugin.writer.search import find_anchor_span
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.writer.search import find_all_ranges, find_anchor_span
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -816,11 +826,26 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     hit = tool.execute(mock_ctx, pattern="the fee")
     assert hit["status"] == "ok" and hit["count"] == 1, hit
 
+    # Footnote anchor is also non-Text (U+007F), so a needle cannot cross it.
+    text.setString("")
+    cur = text.createTextCursor()
+    fn = doc.createInstance("com.sun.star.text.Footnote")
+    fn.setLabel("1")
+    text.insertTextContent(cur, fn, False)
+    fn.getText().setString("note")
+    text.insertString(cur, " OLD the fee", False)
+    _strike_substring(doc, text, "OLD ")
+    assert tool.execute(mock_ctx, pattern="1 the fee")["count"] == 0
+    assert tool.execute(mock_ctx, pattern="the fee")["count"] == 1
+
     # Two-paragraph needle with a deletion in both paragraphs, plus find_anchor_span crossing end anchor.
-    text.setString("Start ONE here\rEnd TWO here")
+    text.setString("Start ONE here\rEnd TWO here and End here")
     _strike_substring(doc, text, "ONE ")
     _strike_substring(doc, text, "TWO ")
+    chain_hits = find_all_ranges(doc, "Start here\nEnd here")
+    assert len(chain_hits) == 1
+    assert visible_range_text(doc, chain_hits[0]) == "Start here\nEnd here"
+
     found, miss_kind, _mode = find_anchor_span(doc, "Start here", "End here")
     assert miss_kind is None and found is not None
-    from plugin.doc.text_helpers import visible_range_text
     assert visible_range_text(doc, found) == "Start here\nEnd here"

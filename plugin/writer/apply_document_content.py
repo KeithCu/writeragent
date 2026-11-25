@@ -1007,10 +1007,12 @@ class ApplyDocumentContent(ToolBase):
             selected = ranges[occurrence]
             selected_location, selected_text = _match_snippet(selected)
             result["selected_occurrence"] = occurrence
-            selected_match = {
+            selected_match: dict[str, Any] = {
                 "location": selected_location,
                 "text": selected_text,
             }
+            if deletions and search_mod.match_crosses_deletion(deletions, selected):
+                selected_match["edit_refused"] = "MATCH_CROSSES_DELETION"
             if rewrites_outline:
                 selected_match.update(self._outline_match_fields(selected, _plain, override))
             result["selected_match"] = selected_match
@@ -1458,7 +1460,7 @@ class ApplyDocumentContent(ToolBase):
         params: EditParams,
         ranges: list[Any],
         *,
-        max_limit_hit: bool,
+        max_limit_hit: bool,  # computed before skipping crossing matches so the cap note reflects all found hits
     ) -> dict[str, Any]:
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
