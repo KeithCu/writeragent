@@ -1,0 +1,130 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""UNO tests for the synthetic redlined contract fixture and opt-in read benchmark."""
+
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+
+import uno
+from com.sun.star.beans import PropertyValue
+
+from plugin.doc.text_helpers import redline_bounds
+from plugin.framework.uno_context import enum_has_more
+from plugin.testing_runner import native_test
+from plugin.tests.testing_utils import TestingFactory
+from tests.writer import redlined_contract_bench as bench
+from tests.writer.redlined_contract_fixture import (
+    AUTHOR,
+    DELETED,
+    INSERTED,
+    TABLE_COLS,
+    TABLE_ROWS,
+    build_redlined_contract,
+)
+
+
+def _write(folder: str, name: str, xml: str) -> str:
+    path = os.path.join(folder, name)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(xml)
+    return uno.systemPathToFileUrl(path)
+
+
+@native_test
+def test_redlined_contract_fixture_loads_uno(ctx):
+    contract = build_redlined_contract(articles=4, sections=2, clauses=8, tables=2, multi_every=40)
+    with tempfile.TemporaryDirectory() as folder:
+        url = _write(folder, "contract.fodt", contract.xml)
+        desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        hidden = PropertyValue()
+        hidden.Name, hidden.Value = "Hidden", True
+        doc = desktop.loadComponentFromURL(url, "_blank", 0, (hidden,))
+        assert doc is not None
+        try:
+            redlines = doc.getRedlines()
+            deletes = inserts = multi_hits = table_redlines = 0
+            for idx in range(redlines.getCount()):
+                rl = redlines.getByIndex(idx)
+                assert rl.getPropertyValue("RedlineAuthor") == AUTHOR
+                kind = rl.getPropertyValue("RedlineType")
+                if kind == "Delete":
+                    deletes += 1
+                elif kind == "Insert":
+                    inserts += 1
+                if rl.getPropertyValue("RedlineStart").getPropertyValue("TextTable") is not None:
+                    table_redlines += 1
+                text, start, end = redline_bounds(rl)
+                cursor = text.createTextCursorByRange(start)
+                cursor.gotoRange(end, True)
+                span = cursor.getString()
+                if "whole struck clause" in span:
+                    multi_hits += 1
+                    assert span.count("\n") == 2
+
+            assert deletes == contract.deletions == 20
+            assert inserts == contract.insertions == 18
+            assert multi_hits == contract.multi_paragraph_deletions == 2
+            assert table_redlines == 2 * 5 * len(contract.table_names)
+
+            tables = doc.getTextTables()
+            assert tuple(tables.getElementNames()) == contract.table_names
+            first_table = tables.getByName(contract.table_names[0])
+            assert len(first_table.getCellNames()) == TABLE_ROWS * TABLE_COLS - 3 - 1
+            assert doc.getDocumentIndexes().getCount() == 1
+
+            clause3 = None
+            paras = doc.getText().createEnumeration()
+            while enum_has_more(paras):
+                para = paras.nextElement()
+                if para.supportsService("com.sun.star.text.Paragraph") and "Clause 3:" in para.getString():
+                    clause3 = para
+                    break
+            assert clause3 is not None
+            assert int(clause3.getPropertyValue("ParaAdjust")) == 2
+            assert clause3.getPropertyValue("ListLabelString") == "(c)"
+
+            result = TestingFactory.execute_tool(doc, ctx, "get_content", doc_type="writer")
+            assert result.get("status") == "ok"
+            assert not result.get("warning")
+            content = result["content"]
+            assert DELETED.strip() not in content
+            assert "whole struck clause" not in content
+            assert INSERTED.strip() in content
+        finally:
+            doc.close(True)
+
+
+@native_test(timeout=900)
+def test_redlined_contract_read_timings_uno(ctx):
+    if os.environ.get("WRITERAGENT_BENCH") != "1":
+        raise unittest.SkipTest("set WRITERAGENT_BENCH=1")
+
+    all_ops = [op[0] for op in bench.OPS]
+    specs = [
+        ("redlined", build_redlined_contract(), all_ops, 3),
+        ("no changes", build_redlined_contract(redline_every=0), all_ops, 3),
+        ("redlined, one list style", build_redlined_contract(shared_list=True), ["get_content full"], 1),
+    ]
+    with tempfile.TemporaryDirectory() as folder:
+        cases = []
+        for idx, (name, contract, ops, repeats) in enumerate(specs):
+            url = _write(folder, f"case_{idx}.fodt", contract.xml)
+            cases.append({"name": name, "url": url, "ops": ops, "repeats": repeats})
+        results = bench.run_in_soffice(ctx, cases)
+
+    assert results[0]["pages"] >= 250
+    print("\n| Document | Pages | Changes | Read | First (s) | Median (s) | Hits | Warning |")
+    print("|---|---|---|---|---|---|---|---|")
+    for res in results:
+        for row in res["timings"]:
+            hits = "" if row["count"] is None else str(row["count"])
+            warn = row["warning"] or ""
+            print(
+                f"| {res['name']} | {res['pages']} | {res['redlines']} | {row['op']} "
+                f"| {row['first']:.3f} | {row['median']:.3f} | {hits} | {warn} |"
+            )
