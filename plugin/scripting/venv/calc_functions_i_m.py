@@ -132,9 +132,10 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     # Catches #N/A values and ValueError/TypeError/OverflowError from an #N/A operand
-    # (e.g. np.int64 of a NaN or token, text + number, INT_MIN on x86 or date).
+    # (e.g. np.int64 of a NaN or token, text + number, or a date built from INT_MIN).
     # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not
-    # hidden; IndexError is not caught because translated INDEX and lookups use helpers.
+    # hidden; IndexError is not caught because translated INDEX and lookups use helpers that
+    # return error values.
     try:
         val = f()
         return alt if isna(val) else val

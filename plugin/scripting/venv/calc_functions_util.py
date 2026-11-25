@@ -92,7 +92,8 @@ def require_samples(n: int, k: int, const: bool) -> None:
 
 
 _SERIAL_OFFSET: int = 693594
-_OMITTED: Any = object()
+# Sentinel for an omitted optional argument: a present None is a blank cell, so it cannot mean "omitted".
+OMITTED: Any = object()
 
 _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
     1: (5, 6),

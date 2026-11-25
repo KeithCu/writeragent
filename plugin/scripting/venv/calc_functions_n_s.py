@@ -22,8 +22,8 @@ import numpy as np
 from .calc_functions_util import (
     ILLEGAL_ARGUMENT_NAN,
     NA_NAN,
+    OMITTED,
     VALUE_NAN,
-    _OMITTED,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -553,7 +553,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
 
 @propagate_errors
 @calc_function
-def prob(data: Any, probs: Any, x_start: Any, x_end: Any = _OMITTED) -> float:
+def prob(data: Any, probs: Any, x_start: Any, x_end: Any = OMITTED) -> float:
     # ScProbability (interpr3.cxx) compares both dimensions and returns #N/A on
     # empty or mismatched ranges.
     d = np.asarray(data, dtype=float)
@@ -566,7 +566,7 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any = _OMITTED) -> float:
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)
-    end = start if x_end is _OMITTED else (0.0 if x_end is None else float(x_end))
+    end = start if x_end is OMITTED else (0.0 if x_end is None else float(x_end))
     mask = (d >= start) & (d <= end)
     return float(np.sum(p[mask]))
 
@@ -631,7 +631,7 @@ def _translate_calc_replacement(rep: str) -> str:
 
 
 @propagate_errors
-def regex(text: Any, expr: Any, replacement: Any = _OMITTED, flags: Any = "") -> str | float:
+def regex(text: Any, expr: Any, replacement: Any = OMITTED, flags: Any = "") -> str | float:
     # Calc replacements are $1, $&, and $$. re.sub wants \g<n>, \g<0>, and a literal $.
     # ScRegex (interpr1.cxx): the 4th argument is an occurrence or a flag
     # string. Search returns the whole match. m.group(1) is None when an
@@ -660,7 +660,7 @@ def regex(text: Any, expr: Any, replacement: Any = _OMITTED, flags: Any = "") ->
         # Occurrence 0 is the original text, even when the pattern is invalid.
         if occurrence == 0:
             return text_str
-        if replacement is _OMITTED:
+        if replacement is OMITTED:
             # "g" with no replacement does not comma-join every match.
             match = next(
                 islice(re.finditer(expr_str, text_str, flags=re_flags), occurrence - 1, None),

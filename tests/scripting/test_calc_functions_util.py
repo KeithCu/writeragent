@@ -729,8 +729,6 @@ def test_criteria_approx_and_booleans():
 
 
 def test_propagate_errors():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
-
     @propagate_errors
     def _echo(*args: object, **kwargs: object) -> tuple[tuple[object, ...], dict[str, object]]:
         return args, kwargs

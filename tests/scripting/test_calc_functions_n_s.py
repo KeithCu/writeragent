@@ -687,7 +687,7 @@ def test_numbervalue_empty_text_is_value_error():
 
 def test_blank_one_cell_args_in_prob_regex_and_numbervalue():
     blank = CalcRange([[None]])
-    assert calc.prob([1, 2, 3], [0.2, 0.5, 0.3], 2, blank) == 0.0
+    assert calc.prob([-1, 0, 1], [0.2, 0.5, 0.3], -1, blank) == pytest.approx(0.7)
     assert calc.regex("abc", "b", blank) == "ac"
     assert calc.regex("None here", blank) == ""
     assert calc.numbervalue("1e3", ".", blank) == 1000.0

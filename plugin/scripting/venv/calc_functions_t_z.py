@@ -22,9 +22,9 @@ from .calc_functions_util import (
     ILLEGAL_ARGUMENT_NAN,
     ILLEGAL_PARAMETER_NAN,
     NA_NAN,
+    OMITTED,
     RegressionError,
     VALUE_NAN,
-    _OMITTED,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -951,7 +951,7 @@ def vlookup(lookup_val: Any, table: Any, col_index: Any, is_sorted: Any = True) 
     return NA_NAN if row is None else arr[row, col]
 
 
-def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = _OMITTED, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
+def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = OMITTED, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
         return "Err:504"
     # dtype=object. A mixed return such as ["x", 5] became strings,
@@ -967,7 +967,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     if best_idx is None:
         # ScXLookup pushes #N/A (or the lookup error) when the 4th argument is omitted.
         # An explicit None is still returned.
-        if if_not_found is _OMITTED:
+        if if_not_found is OMITTED:
             return "#N/A" if err is None else err
         return if_not_found
     if ret.ndim == 2:
@@ -1113,7 +1113,7 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
 
 
 @propagate_errors
-def ztest(data: Any, x: Any, sigma: Any = _OMITTED) -> float:
+def ztest(data: Any, x: Any, sigma: Any = OMITTED) -> float:
     # ScZTest counts numeric cells, including TRUE as 1, and skips text and blanks.
     # A plain NaN propagates via propagate_nan=True; coded errors and tokens propagate
     # via @propagate_errors. Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
@@ -1123,7 +1123,7 @@ def ztest(data: Any, x: Any, sigma: Any = _OMITTED) -> float:
     val = float(x)
     n = len(d)
     m = np.mean(d)
-    if sigma is _OMITTED:
+    if sigma is OMITTED:
         s = np.std(d, ddof=1)
     elif sigma is None:
         s = 0.0
