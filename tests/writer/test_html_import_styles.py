@@ -1080,3 +1080,42 @@ def test_extract_block_lo_styles_keeps_trailing_empty_block_and_reports_dropped_
     assert styles == ["Standard", "Heading1", "Quotations"]
     assert paras == [None, None, None]
     assert skipped == ["margin-left:1cm"]
+
+
+@pytest.mark.parametrize("hr_tag", ["<hr>", "<hr/>"])
+def test_extract_block_lo_styles_allocates_slot_for_hr(hr_tag: str):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = f'<p data-lo-style="Heading1">A</p>{hr_tag}<p data-lo-style="Quotations">B</p>'
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles == ["Heading1", None, "Quotations"]
+
+
+def test_extract_block_lo_styles_nested_list_does_not_share_outer_li_slot():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<ul><li data-lo-style="List1">Outer'
+        '<ul><li data-lo-style="List2">Inner</li></ul>'
+        '</li></ul>'
+        '<p data-lo-style="Quotations">After</p>'
+    )
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles == ["List1", "List2", "Quotations"]
+
+    exported_nested = (
+        '<ul><li><ul><li><p data-lo-style="Heading2">InnerOnly</p></li></ul></li></ul>'
+        '<p data-lo-style="Quotations">After</p>'
+    )
+    _clean2, styles2, _paras2, _skipped2 = extract_block_lo_styles(exported_nested)
+    assert styles2 == ["Heading2", "Quotations"]
+
+
+def test_block_summarizer_marks_filled_on_text_and_hr():
+    from plugin.writer.html_import_styles import _BlockSummarizer
+
+    parser = _BlockSummarizer()
+    parser.feed("<h1>Title</h1><hr><p>Body</p><script>ignored</script><p></p>")
+    parser.close()
+    assert parser.filled == [True, True, True, False]
+    assert len(parser.slots) == 4

@@ -238,6 +238,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
 
     # Paragraph-level blocks cannot contain blocks: a new one closes the open one (<p>a<p>b).
     _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
+    _VOID_BLOCK_TAGS: ClassVar[frozenset[str]] = frozenset({"hr"})
     _table_depth: int
 
     def __init__(self) -> None:
@@ -279,9 +280,18 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         # paragraph, so every later style lands one paragraph late ("2. DO
         # DIREITO" loses its heading, a list item becomes a quote). A
         # block's first child block is that same paragraph -- it shares
-        # the slot, and its own style/para wins when it has one.
+        # the slot, and its own style/para wins when it has one, unless
+        # the parent already has content, is a void block like <hr>, or
+        # both parent and child are <li> (nested list items are separate
+        # Writer paragraphs).
         parent = self._open[-1] if self._open else None
-        if parent is not None and parent.shared is False:
+        if (
+            parent is not None
+            and parent.shared is False
+            and not (parent.tag == "li" and tag == "li")
+            and tag not in self._VOID_BLOCK_TAGS
+            and not (parent.slot_index is not None and self.filled[parent.slot_index])
+        ):
             parent.shared = True
             slot_idx = len(self.styles) - 1
             if style is not None:
@@ -318,6 +328,19 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         super().handle_charref(name)
         self._mark_filled()
 
+    def _close_para_level(self) -> None:
+        while self._open and self._open[-1].tag in self._PARA_LEVEL:
+            popped = self._open.pop()
+            self._on_block_popped(popped)
+
+    def _emit_void_block(self, t: str, attrs: list[tuple[str, str | None]], raw: str) -> None:
+        self._close_para_level()
+        slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
+        # StarWriter always creates a Horizontal Line paragraph for <hr>.
+        self.filled[slot_idx] = True
+        self._on_block_popped(_OpenBlock(t, False, slot_idx))
+        self._out.append(_strip_data_lo_attrs(raw))
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
@@ -329,6 +352,9 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
             if para is not None:
                 self.skipped_para.append(para)
             self._out.append(_strip_data_lo_attrs(raw))
+            return
+        if self._table_depth == 0 and t in self._VOID_BLOCK_TAGS:
+            self._emit_void_block(t, attrs, raw)
             return
         if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
             # Inline tags, and blocks inside a table: attributes are stripped (cell styles are out
@@ -342,9 +368,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
             self._open.append(_OpenBlock(t, None))  # transparent div
             self._out.append(_strip_data_lo_attrs(raw))
             return
-        while self._open and self._open[-1].tag in self._PARA_LEVEL:
-            popped = self._open.pop()
-            self._on_block_popped(popped)
+        self._close_para_level()
         slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
         self._open.append(_OpenBlock(t, False, slot_idx))
         self._out.append(_strip_data_lo_attrs(raw))
@@ -354,7 +378,10 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         t = tag.lower()
         if t in _CONTENT_TAGS:
             self._mark_filled()
-        if self._table_depth == 0 and self._is_block(t, attrs):
+        if self._table_depth == 0 and t in self._VOID_BLOCK_TAGS:
+            self._emit_void_block(t, attrs, raw)
+        elif self._table_depth == 0 and self._is_block(t, attrs):
+            self._close_para_level()
             slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
             self._on_block_popped(_OpenBlock(t, False, slot_idx))
             self._out.append(_strip_data_lo_attrs(raw))
@@ -496,7 +523,10 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
         super().handle_endtag(tag)
 
     def handle_data(self, data: str) -> None:
+        if self._ignored_depth > 0:
+            return
         self._append_text(data)
+        super().handle_data(data)
 
 
 # HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but

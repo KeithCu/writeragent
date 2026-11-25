@@ -888,3 +888,51 @@ def test_full_document_write_with_empty_block_keeps_following_styles_uno(ctx, do
         ("Quotations", "Q"),
         ("Standard", "Z"),
     ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_plain_round_trip_with_hr_and_nested_list_keeps_styles_uno(ctx, doc):
+    """Plain import and round-trip of HTML with <hr> and a nested list keeps every paragraph's style."""
+    html = (
+        '<p data-lo-style="Heading1">Title</p>'
+        '<hr>'
+        '<p data-lo-style="Textbody">Intro</p>'
+        '<ul>'
+        '<li data-lo-style="Textbody">Outer'
+        '<ul><li data-lo-style="Quotations">Inner</li></ul>'
+        '</li>'
+        '</ul>'
+        '<p data-lo-style="Heading2">After</p>'
+    )
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        content=html,
+        target="full_document",
+    )
+    assert res["status"] == "ok", res
+    expected = [
+        ("Heading 1", "Title"),
+        ("Horizontal Line", ""),
+        ("Text body", "Intro"),
+        ("Text body", "Outer"),
+        ("Quotations", "Inner"),
+        ("Heading 2", "After"),
+    ]
+    assert _para_pairs(doc) == expected
+
+    exported = fmt.document_to_content(doc, ctx, scope="full")
+    res2 = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        content=exported,
+        target="full_document",
+    )
+    assert res2["status"] == "ok", res2
+    assert _para_style_names(doc) == [
+        "Heading 1",
+        "Horizontal Line",
+        "Text body",
+        "Text body",
+        "Text body",
+        "Heading 2",
+    ], (_para_pairs(doc), exported)
