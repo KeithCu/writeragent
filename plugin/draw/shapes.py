@@ -707,6 +707,23 @@ _OUTSIDE_PAGE_WARNING = "Shape is outside the page bounds."
 _UNTRACKED_SHAPE_INSERT_WARNING = N_(
     "This shape was inserted directly and is not tracked (Ctrl+Z undoes it). Tell the user."
 )
+_SHAPE_DELETE_UNTRACKED_WARNING = N_(
+    "This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."
+)
+_GROUP_MEMBER_DELETE_WARNING = N_(
+    "LibreOffice records no undo step for deleting a shape inside a group, so this deletion cannot be undone and Ctrl+Z reverts the edit before it. Tell the user."
+)
+_GROUP_MEMBER_DELETE_UNTRACKED = N_("It is also not a tracked change.")
+
+
+def _x_follows_text(addr: int | str | None, shape: Any) -> bool:
+    """True for a page-level shape anchored as a character: Writer places its x with the text.
+
+    SwXShape::AdjustPositionProperties (sw/source/core/unocore/unodraw.cxx) skips x for these.
+    A child of such a group reads the same AnchorType but moves inside the group, so only
+    page-level (int) addresses count.
+    """
+    return isinstance(addr, int) and shape_is_as_character(shape)
 
 
 def _outside_page(page: Any, shape: Any) -> bool:
@@ -960,20 +977,16 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         is_line = _is_line_shape_type(shape.getShapeType())
 
         cur_pos = shape.getPosition() if (has_pos or has_size) else None
-        # SwXShape::AdjustPositionProperties (sw/source/core/unocore/unodraw.cxx) skips x for
-        # AS_CHARACTER page shapes; a group child moves inside its group, so only page-level shapes are refused.
-        if (
-            "x" in kwargs
-            and isinstance(shape_idx, int)
-            and cur_pos is not None
-            and kwargs["x"] != cur_pos.X
-            and shape_is_as_character(shape)
-        ):
+        new_x = "x" in kwargs and cur_pos is not None and kwargs["x"] != cur_pos.X
+        # A negative width shifts a box's x left (normalize_negative_span); a line only changes direction.
+        negative_width = not is_line and kwargs.get("width", 0) < 0
+        if (new_x or negative_width) and _x_follows_text(shape_idx, shape):
             return tool._tool_error(
                 "Shape %s is anchored as a character, so its x follows the text and cannot be set. "
-                "Omit x; y is the offset of its top from the text baseline." % shape_idx,
+                "%s; y is the offset of its top from the text baseline."
+                % (shape_idx, "Omit x" if new_x else "Pass a positive width"),
                 code="INVALID_PARAM",
-                parameter="x",
+                parameter="x" if new_x else "width",
             )
         cur_size = shape.getSize() if has_size else None
         target_x = kwargs.get("x", cur_pos.X) if cur_pos is not None else 0
@@ -1232,7 +1245,7 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
         shape.setPosition(Point(x, y))
 
 
-def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
+def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, moves_x: bool, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
     """Shared align/distribute tail. Do not catch: disposal and a bad index must reach execute_safe."""
     from plugin.draw.bridge import DrawBridge
 
@@ -1251,6 +1264,15 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
     dup_err = _reject_duplicate_shapes(tool, resolved_indices)
     if dup_err is not None:
         return dup_err
+    # An inline shape's X reads 0, not its place on the page, so it would also give the other shapes a wrong edge: refuse before moving any.
+    inline = [addr for addr, shape in zip(resolved_indices, shapes) if _x_follows_text(addr, shape)] if moves_x else []
+    if inline:
+        return tool._tool_error(
+            "Shapes anchored as a character follow the text in x and cannot be aligned or distributed "
+            "horizontally: %s. Leave them out." % ", ".join(map(str, inline)),
+            code="INVALID_PARAM",
+            parameter="indices",
+        )
     new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)
     for shape, box in zip(shapes, new_boxes):
         _apply_box(shape, box)
@@ -1283,7 +1305,7 @@ class AlignShapes(_AnyDocumentShapeTool):
         assert isinstance(indices, list)
         # Schema requires alignment and rejects values outside the enum, including "".
         alignment = kwargs["alignment"]
-        return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
+        return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", moves_x=alignment in layout.HORIZONTAL_ALIGNMENTS, layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
 
 
 class DistributeShapes(_AnyDocumentShapeTool):
@@ -1305,7 +1327,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
         assert isinstance(indices, list)
         # Schema requires axis and rejects values outside the enum, including "".
         axis = kwargs["axis"]
-        return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
+        return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", moves_x=axis == "horizontal", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
 
 
 class CreateDiagram(_AnyDocumentShapeTool):
@@ -1537,9 +1559,11 @@ class DeleteShape(_AnyDocumentShapeTool):
                 "pending_review": True,
             }
         result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
-        flag_untracked(
-            result,
-            ctx.doc,
-            _("This shape was deleted directly and is not tracked (Ctrl+Z undoes it). Tell the user."),
-        )
+        if isinstance(addr, str):
+            # SvxShapeGroup::remove (svx/source/unodraw/unoshap2.cxx) adds no undo step in any app,
+            # unlike removal from the page, so the next Ctrl+Z reverts the edit before this one.
+            result["warning"] = _(_GROUP_MEMBER_DELETE_WARNING)
+            flag_untracked(result, ctx.doc, _(_GROUP_MEMBER_DELETE_UNTRACKED))
+        else:
+            flag_untracked(result, ctx.doc, _(_SHAPE_DELETE_UNTRACKED_WARNING))
         return result
