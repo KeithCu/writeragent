@@ -26,7 +26,7 @@ from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import controller_selection
 from plugin.draw.draw_undo import register_draw_text_edit_undo
 from plugin.draw.tables import _is_table_shape
-from plugin.draw.tree import _is_group, _iter_children
+from plugin.draw.tree import _iter_children, is_group
 from plugin.framework.config import get_config
 from plugin.framework.errors import format_error_message, is_disposal
 from plugin.framework.i18n import _
@@ -99,7 +99,7 @@ def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool
     if _is_table_shape(shape):
         saw_table[0] = True
         return
-    if _is_group(shape):
+    if is_group(shape):
         for _child_idx, child in _iter_children(shape):
             _walk_shape_for_targets(child, targets, saw_table)
         return

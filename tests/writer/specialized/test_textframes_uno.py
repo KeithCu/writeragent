@@ -347,12 +347,11 @@ def test_docx_text_box_set_properties_refused_uno(ctx, doc):
         orig_hori_orient = frame.getPropertyValue("HoriOrient")
         orig_hori_pos = frame.getPropertyValue("HoriOrientPosition")
 
+        # Bind every shape proxy once before inspecting it; a late release of a dropped proxy detaches the refetched one (docs/framework/uno-test-lifecycle.md).
         dp = reloaded.getDrawPage()
-        shape = next(
-            dp.getByIndex(i)
-            for i in range(dp.getCount())
-            if dp.getByIndex(i).getName() == "Text Box 2"
-        )
+        shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
+        shape = next(s for s in shapes if s.getName() == "Text Box 2")
+        del shapes
         orig_size = shape.getSize()
 
         res1 = FrameSetProperties().execute(tctx, name="Frame1", hori_orient=1)

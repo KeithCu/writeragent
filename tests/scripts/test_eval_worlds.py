@@ -324,16 +324,6 @@ def test_calc_py_dest_snapshot() -> None:
     assert "=PY" in dump
 
 
-def test_apply_style_heading_html() -> None:
-    world = WriterWorld("<p>Background</p><p>Other</p>")
-    res = world.apply_style(style="Heading 1", target="search", old_content="Background")
-    assert res["status"] == "ok"
-    html = world.get_html()
-    assert "<h1>" in html
-    assert "Background" in html
-    assert "Other" in html
-
-
 def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"

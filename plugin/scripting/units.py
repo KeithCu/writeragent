@@ -103,9 +103,16 @@ def insert_units_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) 
             details={"units_result": result},
         )
 
-    from plugin.writer.html_import import insert_content_at_position  # host only: not in the compute bundle
+    from plugin.writer.html_import import (  # host only: not in the compute bundle
+        insert_content_at_position,
+        run_writer_mutation_with_optional_review,
+    )
 
-    insert_content_at_position(doc, ctx, text, "selection")
+    run_writer_mutation_with_optional_review(
+        doc,
+        ctx,
+        lambda: insert_content_at_position(doc, ctx, text, "selection"),
+    )
 
 
 def insert_units_result_into_doc(

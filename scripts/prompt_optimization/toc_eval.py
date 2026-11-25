@@ -51,13 +51,15 @@ def links_in_answer(text: str) -> list[str]:
 
 
 def finish_answer_from_trace(trace: list[dict[str, Any]] | None) -> str:
-    """Extract answer from the last workflow_finished call in trace."""
+    """Return the tool result's answer from the last workflow_finished entry in trace.
+
+    The dispatcher repairs argument JSON that a strict parse rejects, so arguments are not read here.
+    """
     if not trace:
         return ""
     for entry in reversed(trace):
         if entry.get("name") == "workflow_finished":
-            args = as_dict(entry.get("arguments"))
-            return str(args.get("answer") or "")
+            return entry["answer"]
     return ""
 
 

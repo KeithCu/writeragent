@@ -164,6 +164,15 @@ def test_array_true_py_list(ctx, doc):
                 assert res.get("status") == "ok", f"PY array write failed: {res}"
                 assert res.get("rows") == 3, f"expected 3 rows: {res}"
                 assert [sheet.getCellByPosition(0, r).getValue() for r in range(3)] == [10, 20, 30]
+
+                res_row_ref = _execute_calc_tool(
+                    doc,
+                    ctx,
+                    "write_range",
+                    {"range": ["H20"], "values": '=PY("result = [1, 2]"; 1:3)', "array": True},
+                )
+                assert res_row_ref.get("status") == "ok", res_row_ref
+                assert [sheet.getCellByPosition(7, r).getValue() for r in (19, 20)] == [1, 2]
             else:
                 assert res.get("status") == "error", f"expected refusal before 26.8: {res}"
                 assert res.get("code") == "INVALID_PARAM"
@@ -266,4 +275,94 @@ def test_array_error_hints_and_commit_code_uno(ctx, doc):
     assert res_circ.get("status") == "error", res_circ
     msg_circ = res_circ.get("message") or res_circ.get("error") or ""
     assert "522" in msg_circ and "code 0" not in msg_circ, res_circ
+    assert "circular" in msg_circ.lower(), res_circ
     assert sheet.getCellByPosition(0, 0).getValue() == 1
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_measure_avoids_referenced_rows_uno(ctx, doc):
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    for row, val in enumerate((1, 2, 3)):
+        sheet.getCellByPosition(0, row).setValue(val)
+
+    res_sum = _execute_calc_tool(doc, ctx, "write_range", {"range": ["H20"], "values": "=SUM(1:3)", "array": True})
+    assert res_sum.get("status") == "ok", res_sum
+    assert sheet.getCellByPosition(7, 19).getValue() == 6
+
+    try:
+        with repo_venv_in_profile():
+            res_py = _execute_calc_tool(
+                doc,
+                ctx,
+                "write_range",
+                {"range": ["H25"], "values": '=TRANSPOSE(PY("result = 7"; 1:3))', "array": True},
+            )
+            assert res_py.get("status") == "ok", res_py
+            assert sheet.getCellByPosition(7, 24).getValue() == 7
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+    doc.getSheets().insertNewByName("Fresh", 1)
+    fresh = doc.getSheets().getByName("Fresh")
+    res_rect = _execute_calc_tool(doc, ctx, "write_range", {"range": ["Fresh.A1"], "values": "=SUM(F1:Z1000)", "array": True})
+    assert res_rect.get("status") == "ok", res_rect
+    assert fresh.getCellByPosition(0, 0).getValue() == 0
+
+
+@native_test
+@with_native_doc("calc")
+def test_measure_keeps_last_column_cells_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(16383, 0).setString("top1")
+    sheet.getCellByPosition(16383, 1).setString("top2")
+    sheet.getCellByPosition(16383, 50).setString("end")
+
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1"], "values": "=SEQUENCE(2)"})
+    assert res.get("status") == "ok", res
+    assert [sheet.getCellByPosition(16383, r).getString() for r in (0, 1, 50)] == ["top1", "top2", "end"]
+
+
+@native_test(timeout=60)
+@with_native_doc("calc")
+def test_nested_py_setup_failure_refused_uno(ctx, doc):
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    try:
+        with venv_in_profile("/nonexistent/venv"):
+            for target_range, formula in (
+                ("A1", '=TRANSPOSE(PY("result = 1"))'),
+                ("B1", '=IF(ROW(1:2)=1;"h1";PY("result = 1"))'),
+            ):
+                res = _execute_calc_tool(doc, ctx, "write_range", {"range": [target_range], "values": formula, "array": True})
+                assert res.get("status") == "error", res
+                msg = res.get("message") or res.get("error") or ""
+                assert "Python venv not found" in msg, res
+            assert [sheet.getCellByPosition(0, r).getString() for r in range(2)] == ["", ""]
+            assert [sheet.getCellByPosition(1, r).getString() for r in range(2)] == ["", ""]
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_nested_py_own_data_refused_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(0, 0).setValue(42)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1"], "values": '=IFERROR(PY("result = 1"; A1:A3);7)', "array": True},
+    )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "PY_CIRCULAR", res
+    assert sheet.getCellByPosition(0, 0).getValue() == 42

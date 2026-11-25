@@ -1908,6 +1908,57 @@ def test_dry_run_rejects_non_string_content_list_items() -> None:
     assert res["message"] == "content list items must be strings."
 
 
+@pytest.mark.parametrize("left", [True, False])
+def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session = MagicMock()
+    session.left_tracked_changes.return_value = left
+    with (
+        patch("plugin.writer.apply_document_content.main.is_current", return_value=True),
+        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="record"),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+        patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session),
+        patch.object(
+            ApplyDocumentContent,
+            "_dispatch_edit",
+            return_value={"status": "ok", "message": "Replaced 1 occurrence."},
+        ),
+    ):
+        res = ApplyDocumentContent().execute(ctx, target="search", old_content="A", content="B")
+
+    assert res["status"] == "ok"
+    assert ("pending_review" in res) is left
+
+
+def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session = MagicMock()
+    session.changes = []
+    session.left_tracked_changes.return_value = True
+    with (
+        patch("plugin.writer.apply_document_content.main.is_current", return_value=False),
+        patch("plugin.writer.apply_document_content._run_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="wait"),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="wait"),
+        patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session),
+        patch.object(
+            ApplyDocumentContent,
+            "_dispatch_edit",
+            return_value={"status": "ok", "message": "Replaced 1 occurrence."},
+        ),
+    ):
+        res = ApplyDocumentContent().execute(ctx, target="search", old_content="A", content="")
+
+    assert res["status"] == "ok"
+    assert res["pending_review"] is True
+    assert res["review_mode"] == "wait"
+    session.wait_for_review.assert_not_called()
+
+
 def test_replacement_plain_preserves_tex_escapes() -> None:
     from plugin.writer.apply_document_content import ApplyDocumentContent
 

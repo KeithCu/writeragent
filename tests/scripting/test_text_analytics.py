@@ -737,9 +737,10 @@ def test_format_non_dict_is_no_result():
 
 
 def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
-    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
-
     class FakeDoc:
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextDocument"
+
         def getCurrentController(self):
             class Controller:
                 def getSelection(self):
@@ -764,27 +765,15 @@ def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
 
 
 def test_selection_scope_topics_uses_selection_string(monkeypatch):
-    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     monkeypatch.setattr(
-        "plugin.scripting.text_analytics.visible_range_text",
-        lambda _doc, rng: "A" * 30,
+        "plugin.scripting.text_analytics.get_selection_text",
+        lambda _doc: "A" * 30,
     )
     monkeypatch.setattr("plugin.scripting.text_analytics.get_doc_language", lambda doc: "de")
 
     class FakeDoc:
-        def getCurrentController(self):
-            class Controller:
-                def getSelection(self):
-                    class Sel:
-                        def getCount(self):
-                            return 1
-
-                        def getByIndex(self, idx):
-                            return "fake_range"
-
-                    return Sel()
-
-            return Controller()
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextDocument"
 
     def forbidden_sections(doc):
         raise AssertionError("_get_writer_sections should not be called for selection scope")
@@ -826,9 +815,10 @@ def test_whole_scope_topics_still_uses_sections(monkeypatch):
 
 
 def test_selection_extraction_failure_returns_empty(monkeypatch):
-    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
-
     class FakeDoc:
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextDocument"
+
         def getCurrentController(self):
             class Controller:
                 def getSelection(self):
@@ -932,6 +922,9 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
     assert get_text_calls == 1
 
     class DisposedSelectionDoc:
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextDocument"
+
         def getCurrentController(self):
             class Controller:
                 def getSelection(self):
@@ -940,9 +933,12 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
             return Controller()
 
     with pytest.raises(DocumentDisposedError):
-        ta._get_writer_selection_text(DisposedSelectionDoc())
+        ta.resolve_text_analytics_document_inputs(DisposedSelectionDoc(), "readability", scope="selection")
 
     class RuntimeSelectionDoc:
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextDocument"
+
         def getCurrentController(self):
             class Controller:
                 def getSelection(self):
@@ -950,7 +946,8 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
 
             return Controller()
 
-    assert ta._get_writer_selection_text(RuntimeSelectionDoc()) == ""
+    text, _ = ta.resolve_text_analytics_document_inputs(RuntimeSelectionDoc(), "readability", scope="selection")
+    assert text == ""
 
     class DummyDoc:
         pass

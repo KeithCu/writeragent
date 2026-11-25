@@ -29,9 +29,10 @@ from plugin.calc.manipulator import (
     _sort_keys_width_error,
     _sort_unchanged_message,
     _values_length_mismatch_message,
+    _write_values_grid_cell_error,
     parse_then_by,
 )
-from plugin.writer.search import case_ladder, parse_non_negative_int
+from plugin.writer.search import case_ladder, parse_non_negative_int, prepare_old_content
 from plugin.draw.tree import (
     build_shape_tree,
     custom_shape_geometry,
@@ -49,6 +50,7 @@ from plugin.framework.json_utils import parse_html_fragment_list
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 _TAGGED_BLOCK_RE = re.compile(r"<(p|h[1-6])(\s[^>]*)?>(.*?)</\1>", re.IGNORECASE | re.DOTALL)
+_LINE_RE = re.compile(r"[^\n]+")
 _HEADING_STYLE_RE = re.compile(r"^heading\s*([1-6])$", re.IGNORECASE)
 
 
@@ -58,21 +60,24 @@ def heading_level_from_style(style_name: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _restyle_tagged_block(
-    tag: str,
-    attrs: str,
-    inner: str,
-    *,
-    heading_level: int | None,
-    quotations: bool,
-    style_name: str,
-) -> str:
-    unused = tag
-    del unused
+def _style_blocks(html: str) -> list[tuple[int, int, str, str]]:
+    """Return (start, end, attrs, inner) per paragraph: each <p>/<hN>, and each bare line between them."""
+    blocks: list[tuple[int, int, str, str]] = []
+    pos = 0
+    for m in _TAGGED_BLOCK_RE.finditer(html):
+        blocks += [(g.start(), g.end(), "", g.group().strip()) for g in _LINE_RE.finditer(html, pos, m.start())]
+        blocks.append((m.start(), m.end(), m.group(2) or "", m.group(3)))
+        pos = m.end()
+    blocks += [(g.start(), g.end(), "", g.group().strip()) for g in _LINE_RE.finditer(html, pos)]
+    return blocks
+
+
+def _restyle_block(attrs: str, inner: str, style_name: str) -> str:
+    """Rewrite a paragraph block's tag or style attribute to match ``style_name``."""
+    heading_level = heading_level_from_style(style_name)
     if heading_level is not None:
         return f"<h{heading_level}>{inner}</h{heading_level}>"
-    token = "Quotations" if quotations else style_name
-    attrs = attrs or ""
+    token = "Quotations" if style_name.casefold() == "quotations" else style_name
     if re.search(r"data-lo-style\s*=", attrs, re.I):
         attrs = re.sub(r'data-lo-style\s*=\s*["\'][^"\']*["\']', f'data-lo-style="{token}"', attrs, flags=re.I)
     elif re.search(r"class\s*=", attrs, re.I):
@@ -82,64 +87,29 @@ def _restyle_tagged_block(
     return f"<p{attrs}>{inner}</p>"
 
 
-def restyle_html_needle(
-    html: str,
-    needle: str,
-    *,
-    heading_level: int | None,
-    quotations: bool,
-    style_name: str,
-    all_matches: bool,
-    occurrence: int,
-) -> str:
-    """Apply a paragraph/heading style to search hits (string-harness HTML)."""
-    raw = html or ""
-    needle = needle or ""
-    if not needle:
-        return raw
+def _find_spans(text: str, needle: str, case_sensitive: bool | None) -> list[tuple[int, int]]:
+    """Return non-overlapping literal spans; omitted case_sensitive tries exact then ignore-case."""
+    escaped = re.escape(needle)
+    for cs in case_ladder(case_sensitive):
+        flags = 0 if cs else re.IGNORECASE
+        # re.finditer resumes after each match, matching live findNext(found.getEnd(), ...).
+        spans = [(m.start(), m.end()) for m in re.finditer(escaped, text, flags)]
+        if spans:
+            return spans
+    return []
 
-    tagged = list(_TAGGED_BLOCK_RE.finditer(raw))
-    hits = [m for m in tagged if needle in (m.group(3) or "")]
-    if hits:
-        chosen: list[re.Match[str]]
-        if all_matches:
-            chosen = hits
-        elif 0 <= occurrence < len(hits):
-            chosen = [hits[occurrence]]
-        else:
-            chosen = [hits[0]]
-        result = raw
-        for m in reversed(chosen):
-            repl = _restyle_tagged_block(
-                m.group(1),
-                m.group(2) or "",
-                m.group(3),
-                heading_level=heading_level,
-                quotations=quotations,
-                style_name=style_name,
-            )
-            result = result[: m.start()] + repl + result[m.end() :]
-        return result
 
-    lines = raw.split("\n")
-    count = 0
-    out: list[str] = []
-    replaced = False
-    for line in lines:
-        is_hit = needle in line or line.strip() == needle.strip()
-        if is_hit:
-            use = all_matches or (not replaced and count == occurrence)
-            count += 1
-            if use:
-                inner = line.strip() or needle
-                if heading_level is not None:
-                    line = f"<h{heading_level}>{inner}</h{heading_level}>"
-                else:
-                    token = "Quotations" if quotations else style_name
-                    line = f'<p data-lo-style="{token}">{inner}</p>'
-                replaced = not all_matches
-        out.append(line)
-    return "\n".join(out)
+def _old_content_not_found(many: bool, **extra: Any) -> dict[str, Any]:
+    msg = (
+        "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
+        if many
+        else "old_content not found in document. Try a shorter, unique substring."
+    )
+    return make_tool_error(msg, code="OLD_CONTENT_NOT_FOUND", top_level={"replaced_count": 0, **extra})
+
+
+def _occurrence_message(index: int, count: int) -> str:
+    return f"occurrence {index} out of range (found {count} match(es), use 0..{count - 1})."
 
 
 def a1_to_col_row(addr: str) -> tuple[int, int]:
@@ -356,17 +326,6 @@ class WriterWorld:
         """Hook for a later multi-turn refresh. Same as get_html today."""
         return self._html
 
-    def _find_spans(self, needle: str, case_sensitive: bool | None) -> list[tuple[int, int]]:
-        """Return non-overlapping literal spans; omitted case_sensitive tries exact then ignore-case."""
-        escaped = re.escape(needle)
-        for cs in case_ladder(case_sensitive):
-            flags = 0 if cs else re.IGNORECASE
-            # re.finditer resumes after each match, matching live findNext(found.getEnd(), ...).
-            spans = [(m.start(), m.end()) for m in re.finditer(escaped, self._html, flags)]
-            if spans:
-                return spans
-        return []
-
     def get_content(self, **kwargs: Any) -> dict[str, Any]:
         scope = kwargs.get("scope")
         max_chars = kwargs.get("max_chars")
@@ -444,6 +403,8 @@ class WriterWorld:
                 return make_tool_error(occ_err, code="INVALID_PARAM")
 
         content = normalize_apply_content(kwargs.get("content", ""))
+        if target in ("beginning", "end", "selection") and not content.strip():
+            return make_tool_error("content is empty; nothing was inserted.", code="INVALID_PARAM")
 
         if target == "full_document":
             self._html = content
@@ -474,18 +435,9 @@ class WriterWorld:
         old = str(old_content).strip()
         if not old:
             return make_tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
-        spans = self._find_spans(old, kwargs.get("case_sensitive"))
+        spans = _find_spans(self._html, old, kwargs.get("case_sensitive"))
         if not spans:
-            msg = (
-                "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
-                if all_matches
-                else "old_content not found in document. Try a shorter, unique substring."
-            )
-            return make_tool_error(
-                msg,
-                code="OLD_CONTENT_NOT_FOUND",
-                top_level={"replaced_count": 0},
-            )
+            return _old_content_not_found(all_matches)
         if all_matches:
             html = self._html
             for start, end in reversed(spans):
@@ -500,7 +452,7 @@ class WriterWorld:
         chosen = occ_idx if occ_idx is not None else 0
         if chosen >= len(spans):
             return make_tool_error(
-                f"occurrence {chosen} out of range (found {len(spans)} match(es), use 0..{len(spans) - 1}).",
+                _occurrence_message(chosen, len(spans)),
                 code="OCCURRENCE_OUT_OF_RANGE",
                 count=len(spans),
             )
@@ -526,7 +478,7 @@ class WriterWorld:
             return make_tool_error("pattern is required.", code="INVALID_PARAM")
         if kwargs["regex"]:
             return unsupported_in_eval("search regex=true")
-        spans = self._find_spans(pattern, kwargs["case_sensitive"])[:limit]
+        spans = _find_spans(self._html, pattern, kwargs["case_sensitive"])[:limit]
         ranges = [
             {"start": start, "end": end, "text": self._html[start:end]}
             for start, end in spans
@@ -560,7 +512,7 @@ class WriterWorld:
                 top_level={"matched": False, "comment_added": False},
             )
         occurrence = occ_val or 0
-        spans = self._find_spans(search, kwargs.get("case_sensitive"))
+        spans = _find_spans(self._html, search, kwargs.get("case_sensitive"))
         if not spans:
             return make_tool_error(
                 "search not found in document. Try a shorter, unique substring.",
@@ -569,7 +521,7 @@ class WriterWorld:
             )
         if occurrence >= len(spans):
             return make_tool_error(
-                f"occurrence {occurrence} out of range (found {len(spans)} match(es), use 0..{len(spans) - 1}).",
+                _occurrence_message(occurrence, len(spans)),
                 code="OCCURRENCE_OUT_OF_RANGE",
                 top_level={"matched": False, "comment_added": False},
             )
@@ -590,22 +542,20 @@ class WriterWorld:
         style_name = (kwargs.get("style") or "").strip()
         if not style_name:
             return make_tool_error("style is required.", code="INVALID_PARAM")
-        family = kwargs.get("family")
+        family = kwargs["family"]
         if family == "CharacterStyles":
-            return {
-                "status": "ok",
-                "message": "Character style noted (string harness is paragraph-level).",
-            }
-        old_content = kwargs.get("old_content")
-        target = kwargs.get("target") or ("search" if old_content is not None else "selection")
-        all_matches = bool(kwargs.get("all_matches"))
-        occurrence = kwargs.get("occurrence") or 0
-
-        heading_level = heading_level_from_style(style_name)
-        quotations = style_name.casefold() == "quotations"
+            return unsupported_in_eval("apply_style family=CharacterStyles")
+        target = kwargs.get("target", "selection")
+        if kwargs["clear_direct"] == "all":
+            if target == "full_document":
+                return make_tool_error(
+                    "clear_direct='all' is not allowed with target='full_document'.",
+                    code="INVALID_PARAM",
+                )
+            return unsupported_in_eval("apply_style clear_direct=all")
 
         if target == "full_document":
-            if quotations:
+            if style_name.casefold() == "quotations":
                 html = re.sub(
                     r'data-lo-style\s*=\s*["\']Default["\']',
                     'data-lo-style="Quotations"',
@@ -617,25 +567,47 @@ class WriterWorld:
             return unsupported_in_eval("apply_style target=full_document")
         if target != "search":
             return unsupported_in_eval(f"apply_style target={target}")
-        needle = str(old_content).strip() if old_content is not None else ""
+        needle = prepare_old_content(kwargs.get("old_content"))
         if not needle:
             return make_tool_error(
                 "target='search' requires old_content.",
                 code="INVALID_PARAM",
                 top_level={"applied": False, "matched": False},
             )
-        self.set_html(
-            restyle_html_needle(
-                self._html,
-                needle,
-                heading_level=heading_level,
-                quotations=quotations,
-                style_name=style_name,
-                all_matches=all_matches,
-                occurrence=occurrence,
+        if "\n" in needle:
+            return unsupported_in_eval("apply_style old_content across paragraphs")
+
+        html = self._html
+        blocks = _style_blocks(html)
+        # Search visible text so an attribute value is not a match and does not shift occurrence.
+        # One line per paragraph, so a match's line number is its paragraph's index.
+        text = "\n".join(prepare_old_content(html[start:end]).replace("\n", " ") for start, end, _attrs, _inner in blocks)
+        hits = [text.count("\n", 0, start) for start, _end in _find_spans(text, needle, kwargs.get("case_sensitive"))]
+        occurrence = kwargs.get("occurrence")
+        if not hits:
+            return _old_content_not_found(
+                kwargs["all_matches"] or occurrence is not None, target="search", applied=False, matched=False
             )
-        )
-        return {"status": "ok", "message": f"Applied {style_name}."}
+        if occurrence is not None:
+            if not 0 <= occurrence < len(hits):
+                return make_tool_error(_occurrence_message(occurrence, len(hits)), code="OCCURRENCE_OUT_OF_RANGE")
+            hits = [hits[occurrence]]
+        elif not kwargs["all_matches"]:
+            hits = hits[:1]
+        for idx in sorted(set(hits), reverse=True):
+            start, end, attrs, inner = blocks[idx]
+            html = html[:start] + _restyle_block(attrs, inner, style_name) + html[end:]
+        self.set_html(html)
+        return {
+            "status": "ok",
+            "style_name": style_name,
+            "family": family,
+            "target": "search",
+            "applied": True,
+            "matched": True,
+            "applied_count": len(hits),
+            "message": f"Applied style '{style_name}' ({family}) to {len(hits)} match(es).",
+        }
 
 
 # Same resolution as _execute_upsert_shape in plugin/draw/shapes.py: these names are UNO
@@ -1108,6 +1080,7 @@ class CalcWorld:
             scalar = True
 
         rows_2d = bool(values) and isinstance(values[0], (list, tuple))
+        bad_row: int | None = None
         if rows_2d:
             r_cnt, c_cnt = len(values), len(values[0])
             bad_row = _first_ragged_row(values)
@@ -1116,23 +1089,26 @@ class CalcWorld:
                     _grid_mismatch_message(rng, values, num_rows, num_cols, (c0, r0), bad_row),
                     code="CALC_ERROR",
                 )
-            if total == 1:
-                if bad_row is not None:
-                    return make_tool_error(
-                        _grid_mismatch_message(rng, values, 1, 1, (c0, r0), bad_row),
-                        code="CALC_ERROR",
-                    )
-                c1 = c0 + c_cnt - 1
-                r1 = r0 + r_cnt - 1
-            flat = [v for row in values for v in row]
-        else:
-            if len(values) != total and not scalar:
+        elif len(values) != total and not scalar:
+            return make_tool_error(
+                _values_length_mismatch_message(rng, len(values), total, num_rows, num_cols),
+                code="CALC_ERROR",
+            )
+        if not scalar:
+            cell_err = _write_values_grid_cell_error(values)
+            if cell_err:
+                return make_tool_error(cell_err, code="CALC_ERROR")
+        if not rows_2d:
+            return (values, (c0, r0, c1, r1))
+        if total == 1:
+            if bad_row is not None:
                 return make_tool_error(
-                    _values_length_mismatch_message(rng, len(values), total, num_rows, num_cols),
+                    _grid_mismatch_message(rng, values, 1, 1, (c0, r0), bad_row),
                     code="CALC_ERROR",
                 )
-            flat = values
-        return (flat, (c0, r0, c1, r1))
+            c1 = c0 + c_cnt - 1
+            r1 = r0 + r_cnt - 1
+        return ([v for row in values for v in row], (c0, r0, c1, r1))
 
     def write_range(self, **kwargs: Any) -> dict[str, Any]:
         ranges = kwargs["range"]

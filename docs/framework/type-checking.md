@@ -65,7 +65,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Optional and `None` narrowing
 
 - **`reportOptionalMemberAccess`**: Pyright is aggressive about **calling methods on values that may be `None`**. **`DrawBridge.get_active_page()`** can return **`None`**; Draw shape tools in **`plugin/draw/shapes.py`** already **`if page is None:`** before **`page.getCount()`** / other use. Copy that guard (or raise) on new call sites — do not treat this as an open cleanup.
-- **`reportPossiblyUnboundVariable`**: Assignments only on some branches (e.g. **`compiled`** only inside **`if use_regex:`**, or **`restore_snapshot`** only inside **`try`**) can be flagged when a later branch uses the name. **Fix**: initialize before the branch (**`compiled = None`**) or declare **`restore_snapshot: dict[str, Any] | None = None`** before **`try`**, then assign (**`search.py`**, **`testing_runner.py`**).
+- **`reportPossiblyUnboundVariable`**: Assignments only on some branches (e.g. **`compiled`** only inside **`if use_regex:`**) can be flagged when a later branch uses the name. **Fix**: initialize before the branch (**`compiled = None`**) (**`search.py`**).
 
 ### Overrides, bases, and variance
 

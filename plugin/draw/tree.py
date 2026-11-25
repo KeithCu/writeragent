@@ -325,11 +325,6 @@ def is_group(shape: Any) -> bool:
     return "GroupShape" in str(shape_type)
 
 
-def _is_group(shape: Any) -> bool:
-    """Alias for internal tree walks; prefer :func:`is_group`."""
-    return is_group(shape)
-
-
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
     """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
     Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex
@@ -338,7 +333,7 @@ def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tupl
         addr = shape_path(base, i)
         yield addr, shape, xshapes
 
-        if _is_group(shape):
+        if is_group(shape):
             yield from iter_shape_addresses(shape, base=addr)
 
 
@@ -414,7 +409,7 @@ def find_shape_on_page(
         curr: Any = page
         parent: Any = None
         for d, seg_idx in enumerate(seg_ints):
-            if d > 0 and not _is_group(curr):
+            if d > 0 and not is_group(curr):
                 return None, None, None, "Invalid shape index: %s" % index
 
             try:

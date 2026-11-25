@@ -105,7 +105,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
 def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None, graphic: Any | None = None) -> tuple[str, int, int]:
     """Return (sheet_name, start_col, start_row) one row below the graphic's anchor cell, on the graphic's sheet."""
     # A kept shape or name resolves to that image's own cell anchor; only an empty name with no shape uses the selection.
-    obj = find_image(doc, str(image_name or "").strip(), graphic, no_selection=_("Select an embedded image, then Run again."))
+    obj = find_image(doc, str(image_name or "").strip(), graphic)
 
     try:
         anchor = obj.getPropertyValue("Anchor")

@@ -1056,12 +1056,13 @@ def test_find_image_precedence_and_errors():
         assert exc_missing.value.code == "IMAGE_NOT_FOUND"
 
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None):
-        with pytest.raises(ToolExecutionError) as exc_default:
+        with pytest.raises(ToolExecutionError) as exc_writer:
             visual_helpers.find_image(doc, "")
-        assert exc_default.value.code == "NO_IMAGE_SELECTED"
-        assert "range containing images" in str(exc_default.value)
+        assert exc_writer.value.code == "NO_IMAGE_SELECTED"
+        assert "range containing images" in str(exc_writer.value)
 
-        with pytest.raises(ToolExecutionError) as exc_custom:
-            visual_helpers.find_image(doc, "", no_selection="Custom pick message.")
-        assert exc_custom.value.code == "NO_IMAGE_SELECTED"
-        assert str(exc_custom.value) == "Custom pick message."
+        with patch("plugin.doc.visual_helpers.is_writer", return_value=False):
+            with pytest.raises(ToolExecutionError) as exc_non_writer:
+                visual_helpers.find_image(doc, "")
+        assert exc_non_writer.value.code == "NO_IMAGE_SELECTED"
+        assert "range" not in str(exc_non_writer.value)

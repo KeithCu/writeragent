@@ -19,12 +19,15 @@ import numpy as np
 
 from .calc_functions_i_m import mode
 from .calc_functions_util import (
+    DIV0_NAN,
     ILLEGAL_ARGUMENT_NAN,
     approx_floor,
+    argument_error,
     as_nonzero,
     collect_a_values,
     coupon_schedule,
     criteria_reduce,
+    criterion_error,
     extract_numeric_array,
     finite_or_nan,
     first_error,
@@ -34,6 +37,7 @@ from .calc_functions_util import (
     multi_criteria_mask,
     npf_result,
     propagate_errors,
+    py_str,
     round_half_up,
     scipy_stats,
     yearfrac,
@@ -150,12 +154,14 @@ def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: A
     return _accrued(issue, settlement, rate, par, basis)
 
 
+@propagate_errors
 def acot(x: Any) -> float:
     xv = float(x)
     return float(math.pi / 2 - math.atan(xv))
 
 
 # |x|<=1 stays NaN (#NUM!). Type errors are left to the worker exception path, which returns #VALUE!.
+@propagate_errors
 def acoth(x: Any) -> float:
     xv = float(x)
     if abs(xv) <= 1:
@@ -163,6 +169,7 @@ def acoth(x: Any) -> float:
     return float(0.5 * math.log((xv + 1) / (xv - 1)))
 
 
+@propagate_errors
 def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
     # abs_num is 1..4 (#VALUE! otherwise). A sheet name quotes ' as ''.
     try:
@@ -419,6 +426,7 @@ _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
 }
 
 
+@propagate_errors
 def arabic(text: Any) -> float:
     # ScArabic (interpr2.cxx) walks the numeral with nValidRest starting at
     # 3999. A digit followed by exactly twice itself (VX, LC, DM) is illegal,
@@ -426,7 +434,7 @@ def arabic(text: Any) -> float:
     # became 5 and MMMM became 4000. Simplified forms that ROMAN modes emit
     # stay valid (IIII is 4, IC is 99, XMIX is 999). The help page says
     # ARABIC("") is 0. "-" is not a roman digit, so "-IV" is NaN.
-    roman = str(text).upper().strip()
+    roman = py_str(text).upper().strip()
     value = 0
     valid_rest = 3999
     index = 0
@@ -479,10 +487,9 @@ def areas(r: Any) -> float:
 _ASC_TRANS = str.maketrans({0x3000: " ", **{cp: chr(cp - 0xFEE0) for cp in range(0xFF01, 0xFF5F)}})
 
 
+@propagate_errors
 def asc(text: Any) -> str:
-    if text is None:
-        return ""
-    return str(text).translate(_ASC_TRANS)
+    return py_str(text).translate(_ASC_TRANS)
 
 
 @propagate_errors
@@ -506,7 +513,7 @@ def averagea(*args: Any) -> float:
 
 
 def _mean(vals: list[float]) -> float:
-    return float(np.mean(vals)) if vals else float("nan")
+    return float(np.mean(vals)) if vals else DIV0_NAN
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float | str:
@@ -534,6 +541,7 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     return "#VALUE!" if res is None else res
 
 
+@propagate_errors
 def base(number: Any, radix: Any, min_length: Any = 0) -> str:
     try:
         n = approx_floor(float(number))
@@ -569,18 +577,22 @@ def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
         return float("nan")
 
 
+@propagate_errors
 def besseli(x: Any, n: Any) -> float:
     return _bessel_call("iv", x, n, positive_x=False)
 
 
+@propagate_errors
 def besselj(x: Any, n: Any) -> float:
     return _bessel_call("jv", x, n, positive_x=False)
 
 
+@propagate_errors
 def besselk(x: Any, n: Any) -> float:
     return _bessel_call("kn", x, n, positive_x=True)
 
 
+@propagate_errors
 def bessely(x: Any, n: Any) -> float:
     return _bessel_call("yn", x, n, positive_x=True)
 
@@ -600,6 +612,7 @@ def _beta_params(args: tuple[Any, ...]) -> tuple[Any, Any] | None:
                    float(args[4]) if len(args) > 4 else 1.0)
 
 
+@propagate_errors
 def betadist(*args: Any) -> float:
     # Legacy BETADIST(x, alpha, beta, [A], [B]) is always cumulative.
     # args[3] is the lower bound A (default 0), not a cumulative flag.
@@ -614,6 +627,7 @@ def betadist(*args: Any) -> float:
     return float(stats.beta.cdf(x_norm, alpha, beta))
 
 
+@propagate_errors
 def betainv(*args: Any) -> float:
     # p in [0, 1], alpha > 0, beta > 0, A < B. scipy's ppf does not enforce that.
     got = _beta_params(args)
@@ -626,6 +640,7 @@ def betainv(*args: Any) -> float:
     return float(stats.beta.ppf(p, alpha, beta) * (B - A) + A)
 
 
+@propagate_errors
 def binomdist(*args: Any) -> float:
     # 0 <= k <= n, n >= 0, 0 <= p <= 1. scipy returns 0 for k > n; Calc wants #NUM!.
     if len(args) < 4:
@@ -680,26 +695,32 @@ def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
         return float("nan")
 
 
+@propagate_errors
 def bitand(n1: Any, n2: Any) -> float:
     return _int_bitwise(operator.and_, n1, n2)
 
 
+@propagate_errors
 def bitlshift(number: Any, shift: Any) -> float:
     return _int_shift(number, shift, left=True)
 
 
+@propagate_errors
 def bitor(n1: Any, n2: Any) -> float:
     return _int_bitwise(operator.or_, n1, n2)
 
 
+@propagate_errors
 def bitrshift(number: Any, shift: Any) -> float:
     return _int_shift(number, shift, left=False)
 
 
+@propagate_errors
 def bitxor(n1: Any, n2: Any) -> float:
     return _int_bitwise(operator.xor, n1, n2)
 
 
+@propagate_errors
 def char(n: Any) -> str:
     # Non-numeric input and inf are #VALUE!, not "". chr() also accepts code
     # points above 255; Excel/Calc CHAR returns #VALUE! for those.
@@ -712,6 +733,7 @@ def char(n: Any) -> str:
     return chr(code)
 
 
+@propagate_errors
 def chidist(x: Any, df: Any) -> float:
     # ScChiDist (interpr3.cxx), Excel path: x < 0 is #NUM!. ODFF returns 1
     # for x <= 0; scipy's sf(-1, df) is 1.0, and this helper follows the
@@ -728,6 +750,7 @@ def chidist(x: Any, df: Any) -> float:
     return float(stats.chi2.sf(xv, dof))
 
 
+@propagate_errors
 def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
     # p == 1 stays 0. df uses approx_floor (float() accepts text such as "3.5").
@@ -742,30 +765,31 @@ def chiinv(p: Any, df: Any) -> float:
 
 
 def choose(index: Any, *args: Any) -> Any:
+    # Undecorated because an unpicked option's error must not propagate.
     # Out-of-range stays NaN (#NUM! in the cell) so a negative index does not wrap.
     # non-numeric indexes are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    err = argument_error(index)
+    if err is not None:
+        return err
     idx = int(float(index))
     if 1 <= idx <= len(args):
         return args[idx - 1]
     return float("nan")
 
 
+@propagate_errors
 def clean(text: Any) -> str | float:
-    if text is None:
-        return ""
-    if isinstance(text, float) and math.isnan(text):
-        return float("nan")
-    s = str(text)
+    s = py_str(text)
     # Excel CLEAN removes C0 controls (ord < 32) and DEL (U+007F). The
     # ord < 32 filter left chr(127) in the result.
     return "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
 
 
+@propagate_errors
 def code(s: Any) -> float:
     # ScCode pushes 0 for an empty string. Excel CODE("") is #VALUE!.
-    # This helper follows Calc. str(None) is "None", so a missing object
-    # stays the code point of "N"; do not treat None as blank here.
-    ss = str(s)
+    # This helper follows Calc.
+    ss = py_str(s)
     if not ss:
         return 0.0
     return float(ord(ss[0]))
@@ -790,12 +814,14 @@ def _binom_float(n: int, k: int) -> float:
     return float(math.comb(n, k))
 
 
+@propagate_errors
 def combin(n: Any, k: Any) -> float:
     # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
     # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
     return _binom_float(approx_floor(float(n)), approx_floor(float(k)))
 
 
+@propagate_errors
 def combina(n: Any, k: Any) -> float:
     # ScCombinA (interpr3.cxx) rejects k < 0 and k > n (Err:502), and evaluates
     # BinomCoeff(n + k - 1, k). Non-numeric arguments propagate to the worker
@@ -809,6 +835,7 @@ def combina(n: Any, k: Any) -> float:
     return _binom_float(ni + ki - 1, ki)
 
 
+@propagate_errors
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
     # The Calc name shadows the builtin. The body uses builtins.complex.
     # Suffix is i or j (either case). Anything else is #VALUE!.
@@ -823,6 +850,7 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
         return "#VALUE!"
 
 
+@propagate_errors
 def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     # alpha strictly inside (0, 1), stddev > 0, size >= 1. Otherwise #NUM!.
     stats = scipy_stats()
@@ -834,6 +862,7 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
 
 
+@propagate_errors
 def cot(x: Any) -> float:
     xv = float(x)
     if not math.isfinite(xv):
@@ -841,6 +870,7 @@ def cot(x: Any) -> float:
     return float(1.0 / math.tan(xv))
 
 
+@propagate_errors
 def coth(x: Any) -> float:
     xv = float(x)
     if not math.isfinite(xv):
@@ -848,7 +878,10 @@ def coth(x: Any) -> float:
     return float(1.0 / math.tanh(xv))
 
 
-def countif(r: Any, crit: Any) -> float:
+def countif(r: Any, crit: Any) -> float | str:
+    err = criterion_error([crit])
+    if err is not None:
+        return err
     return float(sum(1 for v in np.asarray(r, dtype=object).ravel() if match_criteria(v, crit)))
 
 
@@ -859,6 +892,9 @@ def countifs(*args: Any) -> float | str:
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
+    err = criterion_error(c for _r, c in pairs)
+    if err is not None:
+        return err
     mask = multi_criteria_mask(pairs)
     if mask is None:
         return "#VALUE!"
@@ -905,6 +941,7 @@ def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> f
     return _coupon(settlement, maturity, frequency, basis, 0)
 
 
+@propagate_errors
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
@@ -923,6 +960,7 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     return float(stats.binom.ppf(a, n, p))
 
 
+@propagate_errors
 def csc(x: Any) -> float:
     xv = float(x)
     if not math.isfinite(xv):
@@ -930,6 +968,7 @@ def csc(x: Any) -> float:
     return float(1.0 / math.sin(xv))
 
 
+@propagate_errors
 def csch(x: Any) -> float:
     # 1/sinh(x) goes to 0 as |x| grows, so an OverflowError from sinh is that limit (0),
     # not #NUM!. ZeroDivisionError (#DIV/0!) and type errors (#VALUE!) are left to the worker.

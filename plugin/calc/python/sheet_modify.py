@@ -126,7 +126,8 @@ def migrate_sheet_rename(
     """Migrate in-memory and persistent state when a sheet is renamed.
 
     Rekeys state.spills, state.used_ends, state.listeners, state.debounce,
-    geometric records, and updates dispatcher.sheet_name.
+    geometric records, and updates dispatcher.sheet_name; loads the spill
+    registry first so the save below never writes an unloaded (empty) map over it.
     """
     if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
         return
@@ -140,8 +141,10 @@ def migrate_sheet_rename(
     # Rekey state.spills for this doc
     try:
         # Lazy: spill imports this module at its top.
-        from plugin.calc.python.spill import save_spill_registry_for_doc
+        from plugin.calc.python.spill import load_spill_registry_for_doc, save_spill_registry_for_doc
 
+        if doc is not None:
+            load_spill_registry_for_doc(doc, state)
         for (sname, r, c) in list(state.spills):
             if sname == old_sheet_name:
                 rec = state.spills.pop((sname, r, c))

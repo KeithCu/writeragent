@@ -4,7 +4,7 @@ Standalone HTTP service for Collabora Online / Collabora Office `=PY()` formulas
 coolwsd POSTs to `/v1/execute`; this process runs sandboxed Python and returns
 JSON results. **It does not read `writeragent.json`.**
 
-**Both ingress formats are supported now** (dispatch on `Content-Type`). coolwsd sends `multipart/form-data` (parts `meta`, `code`, `data`, and `init_script` when the document has `PythonInitScript`), with `?session_id=` on the URL for a shared session. Peel of a single JSON object is kept for compatibility and is **transitional**. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
+**Both ingress formats are supported now** (dispatch on `Content-Type`). Merged Collabora posts the single JSON object; `multipart/form-data` is the preferred wire, and peel is transitional and goes away when Collabora sends multipart. See [What Collabora sends](#what-collabora-sends) and [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 
 ## Quick start
 
@@ -17,9 +17,9 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 ```
 
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"{version}"}` (no auth required)
-- `POST /v1/execute[?session_id={id}]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
+- `POST /v1/execute[?session_id={id}]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional `data`). Same execute fields; same egress. Peel is the transitional wire; multipart is the preferred wire.
   (`init_script` runs **once** per worker. Later cells are seeded from that namespace. Shared uses one key, `{session_id}:init`, so a changed script replaces the snapshot. Isolated keys on a hash of the script, so a changed script is a new key; old isolated snapshots stay until a per-worker LRU of 32 or the `max_tasks` recycle drops them. A shared request without a non-empty `init_script` drops a previous `{session_id}:init` and the shared namespace it seeded, so removing `PythonInitScript` recalculates against a clean namespace.)
-- `POST /v1/session/reset?session_id={id}` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. coolwsd calls it for Reset Python Session and when the document closes.
+- `POST /v1/session/reset?session_id={id}` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Merged Collabora does not call it yet, see [What Collabora sends](#what-collabora-sends).
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
 ---
@@ -172,7 +172,7 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 | `Content-Type` | Body | Host does | Role |
 |----------------|------|-----------|------|
-| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | Compatibility (older kits). The walker/peel exists so we do not deserialize the nested grid. |
+| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | What merged Collabora sends; transitional. The walker/peel exists so we do not deserialize the nested grid. |
 | `multipart/form-data` (or other `multipart/*`) | Parts: `meta` (`application/json`: `id?`, `mode?`, `timeout_ms?`), `code` (raw UTF-8), optional `init_script` (raw UTF-8), optional `data` (raw JSON bytes) | Boundary-scan. `json.loads` **meta only** (64 KiB cap). Byte-cap and UTF-8-decode `code` and `init_script`. **Forward `data` bytes untouched** | **Preferred kit↔compute shape.** Control JSON, source, and the grid are separate MIME parts. |
 
 `session_id` stays on the URL (`?session_id=...`) for L7 affinity and selects shared vs isolated — not in the request body (`meta` or the peel object). Reserved namespaces (ending with `:init` or starting with `isolated:`) are rejected with `400 Bad Request`. `mode` in the body is legacy noise and is not validated.
@@ -181,15 +181,28 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 **Multipart subset** (kit↔compute, not a general MIME stack): named parts only (`meta`, `code`, `init_script`, `data`), any order. Delimiters are `--` + the `Content-Type` boundary, at the start of the body or after a linebreak; the introducing linebreak is not part of the body (CRLF or LF). Preamble and epilogue are ignored. `Content-Transfer-Encoding` may be omitted, `7bit`, `8bit`, or `binary`. `base64` and `quoted-printable` are rejected so the host never decodes a payload. `meta` must not contain `code`, `data`, `data_json`, or `init_script`. The encoder picks a boundary that does not occur in any part body.
 
-**Migration:** coolwsd now sends multipart; peel stays for older kits until it is retired. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No date — delete peel once older kits are gone.
+**Migration:** Both work until Collabora's multipart change merges ([What Collabora sends](#what-collabora-sends)). Then delete the single-JSON peel (the walker). Peel is **transitional**, not the forever design.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
+
+#### What Collabora sends
+
+Status on 2026-11-24. Merged: Gerrit 8122 (AddIn) and 8123 (coolwsd). Everything in the third column is an open change. Other sections describe what this service accepts; only this table says what Collabora does.
+
+| | Merged Collabora | Open Gerrit change |
+|---|---|---|
+| Request body | `application/json`: `id`, `code`, `mode: "isolated"`, optional `data` | 19188: `multipart/form-data`, `meta` (`id`, `timeout_ms`), `code`, optional `data`; no `mode` |
+| Session | none, every cell is isolated | 21275: `?session_id=` when `security.python_compute.session` selects a shared session |
+| Session reset | not called | 21275: on Reset Python Session and document close |
+| Init script | not sent | 21287: `init_script` part while the document has a non-empty `PythonInitScript`, in every session mode |
+| 1×N and N×1 ranges | flat list; as the only argument, each cell arrives as its own 1×1 input ([several arguments](../docs/calc/py-data-shapes.md)) | 21281: always a list of rows, `[[1,2,3]]` is (1,3) and `[[1],[2],[3]]` is (3,1) |
+| Image-only result | the text `Image generated (plot insert not supported yet)` | 21132: plots drawn in the formula cell, whose value is empty |
 
 ### 3. Session Reset Endpoint (`POST /v1/session/reset?session_id={id}`)
 
 Drops the shared sandbox and init companion for one workbook kernel. Reuses `FormulaPool.reset_session` → worker `action: reset_session` → LibrePy `reset_sandbox_session` (no second reset path).
 
-Caller is coolwsd: Reset Python Session and document close (DocumentBroker destroy).
+Intended caller is coolwsd: Reset Python Session and document close ([not merged yet](#what-collabora-sends)).
 
 - **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id={id}`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all), or uses reserved prefixes/suffixes (`:init`, `isolated:`).
 - **Request body** (optional; empty body is fine):
@@ -204,7 +217,7 @@ Caller is coolwsd: Reset Python Session and document close (DocumentBroker destr
 - **Errors:** `400` missing/empty query `session_id`, `session_id` in the JSON body, or reserved `session_id`; `401` auth (case-insensitive Bearer); worker reset failure → `{ "id?", "status": "error", "error": "..." }` with HTTP `500`; worker lease or session-gate timeout → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
 - The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
 - Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
-- **Budget:** waits up to `max_timeout_sec` for the in-flight cell (session gate) and for the worker (lease); a miss is `503 WORKER_POOL_BUSY` and the session map stays. coolwsd's own client clock is `security.python_compute.timeout_secs`, so by default it stops listening at 60 s while the service still completes the reset when the cell ends.
+- **Budget:** waits up to `max_timeout_sec` for the in-flight cell (session gate) and for the worker (lease); a miss is `503 WORKER_POOL_BUSY` and the session map stays. The coolwsd reset caller in Gerrit 21275 uses `security.python_compute.timeout_secs`, so by default it stops listening at 60 s while the service still completes the reset when the cell ends.
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
@@ -331,7 +344,7 @@ A `lok_allow` entry is a regex matched against the whole host, so escape dots (`
 
 coolwsd caps the request and response payload at 16 MiB (`max_payload_bytes`). The compute service default body cap is 32 MiB (`PYTHON_COMPUTE_MAX_BODY_BYTES`) and the worker frame cap is 33 MiB (`COMPUTE_MAX_PAYLOAD_BYTES`). coolwsd checks the compute URL host against `net.lok_allow` and the allowed WOPI hosts whenever that section exists, as it does in the shipped `coolwsd.xml`; list the service host there (above).
 
-coolwsd sends `multipart/form-data` (`meta` with only `id`, `code`, optional `data`, and `init_script` when the document has a non-empty `PythonInitScript`) and puts `?session_id=` on the URL for a shared session; it sends no `mode`. Plots are returned as `images[]` with `format: "svg"` and base64 data; an image-only result is `null`, and a mixed list keeps its values with `null` in place of each image. Collabora draws the plots in the formula cell; the cell value is empty when `result` is `null`. A plot SVG over 1 MiB is sent as PNG. Which figures are sent: see `docs/scripting/numpy-domains.md` ('Which figures become pictures'). The compute image does not insert picture shapes into the document.
+For what Collabora sends on `/v1/execute`, see [What Collabora sends](#what-collabora-sends). Plots are returned as `images[]` with `format: "svg"` and base64 data; an image-only result is `null`, and a mixed list keeps its values with `null` in place of each image. For how Collabora displays an image-only result, see the image row in [What Collabora sends](#what-collabora-sends). A plot SVG over 1 MiB is sent as PNG. Which figures are sent: see `docs/scripting/numpy-domains.md` ('Which figures become pictures'). The compute image does not insert picture shapes into the document.
 
 ---
 
@@ -384,7 +397,7 @@ PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 PYTHON_COMPUTE_PORT=9001 PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 ```
 
-Stateful execution **must** use a per-document `session_id` query parameter (`?session_id={id}`) (not a user id); without it, cells are one-shot isolated. coolwsd should `POST /v1/session/reset?session_id={id}` on DocumentBroker destroy / last view leave (coolwsd does this on Reset Python Session and document close). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
+Stateful execution **must** use a per-document `session_id` query parameter (`?session_id={id}`) (not a user id); without it, cells are one-shot isolated. coolwsd should `POST /v1/session/reset?session_id={id}` on Reset Python Session and document close; merged Collabora does neither and sends no `session_id` ([status](#what-collabora-sends)). Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 
 #### Docker Compose with coolwsd
 
@@ -495,13 +508,13 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 LibrePy desktop `=PY()` is a **different product** (Pickle5 + `split_grid`, no HTTP hop). Do not regress that path when changing compute. Desktop detail: [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md).
 
-Kit HTTP is MIME-dispatched — [peel vs multipart](#http-ingress-peel-vs-multipart). Both are live. coolwsd speaks multipart; peel of one JSON object is compatibility and goes away later. Multipart is the preferred wire (control JSON, raw source parts, raw grid; boundary scan, no email parser). Egress does not care which ingress you used.
+Kit HTTP is MIME-dispatched — [peel vs multipart](#http-ingress-peel-vs-multipart). Both are live. Which one Collabora uses: [What Collabora sends](#what-collabora-sends). Peel goes away once Collabora sends multipart. Multipart is the preferred wire (control JSON, raw source parts, raw grid; boundary scan, no email parser). Egress does not care which ingress you used.
 
 The host is a proxy: auth, sticky routing, timeouts, worker lease. One deserialize of `data` happens on the **worker**. Small control fields may be deserialized on the host. The expensive rule is **no host re-serialize** of large ingress or egress.
 
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
-- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker once older kits no longer send peel.
+- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker once Collabora no longer sends peel.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode?`, `timeout_ms?`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length). Shared vs isolated is derived from the URL `session_id` query, not client `mode`. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
 - Envelope: `{id, code, session_id (sticky calls only), init_script, timeout_sec, expect_namespace?, data_json: bytes}`. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `dumps_response` (`json.dumps(..., allow_nan=False)`, lone surrogates become U+FFFD) → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.

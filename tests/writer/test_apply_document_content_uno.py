@@ -1430,6 +1430,113 @@ def test_full_document_allows_hidden_footer_section_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer", reuse=False)
+def test_full_document_allows_sections_in_header_footer_containers_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    style.setPropertyValue("HeaderIsOn", True)
+    style.setPropertyValue("FooterIsOn", True)
+    htext = style.getPropertyValue("HeaderText")
+    ftext = style.getPropertyValue("FooterText")
+
+    def _add_section(target_text, name: str, content: str, *, protected: bool = True, visible: bool = True) -> None:
+        target_text.setString(content)
+        cur = target_text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName(name)
+        sec.setPropertyValue("IsProtected", protected)
+        sec.setPropertyValue("IsVisible", visible)
+        target_text.insertTextContent(cur, sec, True)
+
+    # Header table cell with protected section.
+    htbl1 = doc.createInstance("com.sun.star.text.TextTable")
+    htbl1.initialize(1, 1)
+    htext.insertTextContent(htext.getEnd(), htbl1, False)
+    hcell1 = htbl1.getCellByName("A1")
+    _add_section(hcell1, "HCellProtSec", "HeaderCellProt")
+
+    # Second header table cell with hidden section.
+    htbl2 = doc.createInstance("com.sun.star.text.TextTable")
+    htbl2.initialize(1, 1)
+    htext.insertTextContent(htext.getEnd(), htbl2, False)
+    _add_section(htbl2.getCellByName("A1"), "HCellHidSec", "HeaderCellHid", protected=False, visible=False)
+
+    # Header text frame with protected section.
+    hframe = doc.createInstance("com.sun.star.text.TextFrame")
+    htext.insertTextContent(htext.getEnd(), hframe, False)
+    _add_section(hframe.getText(), "HFrameProtSec", "HeaderFrameProt")
+
+    # Footer table cell hosting a nested 1x1 table whose cell holds a protected section.
+    ftbl = doc.createInstance("com.sun.star.text.TextTable")
+    ftbl.initialize(1, 1)
+    ftext.insertTextContent(ftext.getEnd(), ftbl, False)
+    fcell = ftbl.getCellByName("A1")
+    fnest = doc.createInstance("com.sun.star.text.TextTable")
+    fnest.initialize(1, 1)
+    fcell.insertTextContent(fcell.getEnd(), fnest, False)
+    fncell = fnest.getCellByName("A1")
+    _add_section(fncell, "FNestProtSec", "FooterNestProt")
+
+    try:
+        for rec in (False, True):
+            doc.getText().setString("BodyOld")
+            doc.setPropertyValue("RecordChanges", rec)
+            res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+            assert res.get("status") == "ok", res
+            assert _body_para_strings(doc)[0] == "BodyNew"
+            sections = doc.getTextSections()
+            for name in ("HCellProtSec", "HCellHidSec", "HFrameProtSec", "FNestProtSec"):
+                assert sections.hasByName(name), name
+            assert hcell1.getString() == "HeaderCellProt"
+            assert fncell.getString() == "FooterNestProt"
+            assert hframe.getText().getString() == "HeaderFrameProt"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_full_document_refuses_protected_section_in_body_frame_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    def _setup_frame(*, at_page: bool):
+        _clear_body(doc)
+        text.setString("BodyOld")
+        frame = doc.createInstance("com.sun.star.text.TextFrame")
+        if at_page:
+            frame.setPropertyValue("AnchorType", AT_PAGE)
+            frame.setPropertyValue("AnchorPageNo", 1)
+        text.insertTextContent(text.getEnd(), frame, False)
+        ftext = frame.getText()
+        ftext.setString("FrameProt")
+        fcur = ftext.createTextCursor()
+        fcur.gotoStart(False)
+        fcur.gotoEnd(True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("BodyFrameProtSec")
+        sec.setPropertyValue("IsProtected", True)
+        ftext.insertTextContent(fcur, sec, True)
+        return frame
+
+    for at_page in (False, True):
+        frame = _setup_frame(at_page=at_page)
+        assert (frame.getPropertyValue("ParentText") is None) == at_page
+        assert doc.getTextFrames().getCount() == 1
+        res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PROTECTED_SECTION", res
+        assert "BodyFrameProtSec" in res.get("message", "")
+        assert frame.getText().getString() == "FrameProt"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
 def test_full_document_recorded_leading_section_page_style_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
 
@@ -1777,3 +1884,58 @@ def test_full_document_write_of_dataless_ole_refused_uno(ctx, doc):
     assert res.get("status") == "error", res
     assert "embedded object" in res.get("message", ""), res
     assert doc.getEmbeddedObjects().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+
+        # (a) Replacement equal to match leaves zero redlines and no pending_review flag.
+        _clear_body(doc)
+        text.setString("hello MATCH world")
+        res_noop = tool.execute(tctx, target="search", old_content="MATCH", content="MATCH")
+        assert res_noop["status"] == "ok", res_noop
+        assert "pending_review" not in res_noop
+        assert doc.getRedlines().getCount() == 0
+        assert text.getString() == "hello MATCH world"
+
+        # (b) Real replacement leaves a redline and pending_review=True.
+        res_edit = tool.execute(tctx, target="search", old_content="MATCH", content="OTHER")
+        assert res_edit["status"] == "ok", res_edit
+        assert res_edit["pending_review"] is True
+        assert doc.getRedlines().getCount() > 0
+
+        # (c) Delete stacked on a user-recorded insertion stays untagged but still reports pending_review.
+        _clear_body(doc)
+        text.setString("hello world")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur = text.createTextCursor()
+            cur.gotoStart(False)
+            cur.goRight(5, False)
+            text.insertString(cur, " USERINS", False)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        res_stack = tool.execute(tctx, target="search", old_content=" USERINS", content="")
+        assert res_stack["status"] == "ok", res_stack
+        assert res_stack["pending_review"] is True
+        redlines = doc.getRedlines()
+        deletes = [
+            redlines.getByIndex(i)
+            for i in range(redlines.getCount())
+            if redlines.getByIndex(i).RedlineType == "Delete"
+        ]
+        assert deletes
+        assert all(not str(rl.RedlineComment or "").startswith("wa-review:") for rl in deletes)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

@@ -18,6 +18,8 @@ import pytest
 import numpy as np
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 
 def _serial(year: int, month: int, day: int) -> int:
@@ -138,7 +140,7 @@ def test_duration_huge_yield_is_nan():
 def test_growth_rejects_non_positive_known_y():
     assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "Err:502"
     assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "Err:502"
-    assert calc.growth([1.0, 2.0, float("inf")], [1.0, 2.0, 3.0], 4) == "#NUM!"
+    assert all(math.isnan(v) for v in calc.growth([1.0, 2.0, float("inf")], [1.0, 2.0, 3.0], 4))
     fitted = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4)
     assert math.isclose(fitted[0], 8.0, rel_tol=1e-9)
     through_origin = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, False)
@@ -666,10 +668,10 @@ def test_dget_zero_row_database():
     assert calc.dget([[]], "x", [["x"], [1]]) == "#VALUE!"
 
 
-def test_dsum_error_text_criteria_not_blank():
+def test_dsum_error_criterion_matches_every_row():
     db = [["K", "V"], ["Err:502", 1], ["#DIV/0!", 2], [None, 4], [3, 8], ["x", 16]]
-    assert calc.dsum(db, "V", [["K"], ["Err:502"]]) == 1.0
-    assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 2.0
+    assert calc.dsum(db, "V", [["K"], ["Err:502"]]) == 31.0
+    assert calc.dsum(db, "V", [["K"], ["#DIV/0!"]]) == 31.0
 
 
 def test_d_h_approx_floor_counts_and_df():
@@ -749,5 +751,22 @@ def test_d_matched_error_is_result():
     res = calc.dsum(db_nan, "V", [["K"], ["a"]])
     assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
     assert calc.dsum(db_nan, "V", [["K"], ["b"]]) == 0.0
+
+
+def test_hlookup_semantics():
+    table = CalcRange([[1, 2, 3], [10, 20, 30]])
+    assert calc.hlookup(2.5, table, 2) == 20
+    assert calc.hlookup(CalcRange([[2]]), table, CalcRange([[2]]), False) == 20
+    assert calc.hlookup(2, table, 2, False) == 20
+    assert calc.hlookup("#DIV/0!", table, 3, False) == "Err:502"
+    assert calc.hlookup(2, table, "#DIV/0!", False) == "#DIV/0!"
+    assert calc.hlookup(2, table, "x", False) == "#VALUE!"
+    assert calc.hlookup(2, table, 2, "x") == "#VALUE!"
+    assert calc.hlookup(2, table, 0, False) == "Err:502"
+    assert calc.hlookup("#DIV/0!", table, 2, False) == "#DIV/0!"
+    assert nan_error_code(calc.hlookup(None, table, 2, False)) == 0x7FFF
+    assert nan_error_code(calc.hlookup(NA_NAN, table, 2)) == 0x7FFF
+    text_table = [["Alpha", "Banana"], [1, 2]]
+    assert calc.hlookup("b*", text_table, 2, False) == 2
 
 

@@ -16,6 +16,7 @@ from plugin.draw.shapes import (
     AlignShapes,
     ConnectShapes,
     DeleteShape,
+    DistributeShapes,
     GetDrawSummary,
     GroupShapes,
     UpsertShape,
@@ -1131,12 +1132,14 @@ def test_delete_shape_group_child_and_page_shape():
         # Delete of "1.0" calls group.remove(child) and not page.remove
         res_child = DeleteShape().execute(ctx, index="1.0")
         assert res_child["status"] == "ok"
+        assert "warning" in res_child
         outer_group.remove.assert_called_once_with(child)
         page.remove.assert_not_called()
 
         # Delete of 0 calls page.remove(rect)
         res_page = DeleteShape().execute(ctx, index=0)
         assert res_page["status"] == "ok"
+        assert "warning" not in res_page
         page.remove.assert_called_once_with(rect)
 
 
@@ -1592,6 +1595,7 @@ def test_shape_upsert_edit_refuses_x_on_as_character_page_shape():
     shape.Name = "InlineBox"
     shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
     shape.getPosition.return_value = SimpleNamespace(X=100, Y=200)
+    shape.getSize.return_value = SimpleNamespace(Width=500, Height=600)
     page = MagicMock()
     page.getCount.return_value = 1
     page.getByIndex.return_value = shape
@@ -1604,8 +1608,79 @@ def test_shape_upsert_edit_refuses_x_on_as_character_page_shape():
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = UpsertShape().execute(ctx, action="edit", index=0, x=3000, text="nope")
 
-    assert out["status"] == "error"
-    assert out["code"] == "INVALID_PARAM"
-    assert out["details"]["parameter"] == "x"
-    shape.setPosition.assert_not_called()
-    shape.setString.assert_not_called()
+        assert out["status"] == "error"
+        assert out["code"] == "INVALID_PARAM"
+        assert out["details"]["parameter"] == "x"
+        shape.setPosition.assert_not_called()
+        shape.setSize.assert_not_called()
+        shape.setString.assert_not_called()
+
+        out_neg_w = UpsertShape().execute(ctx, action="edit", index=0, width=-400, text="nope")
+        assert out_neg_w["status"] == "error"
+        assert out_neg_w["code"] == "INVALID_PARAM"
+        assert out_neg_w["details"]["parameter"] == "width"
+        shape.setPosition.assert_not_called()
+        shape.setSize.assert_not_called()
+        shape.setString.assert_not_called()
+
+        out_both = UpsertShape().execute(ctx, action="edit", index=0, x=3000, width=-400)
+        assert out_both["status"] == "error"
+        assert out_both["code"] == "INVALID_PARAM"
+        assert out_both["details"]["parameter"] == "x"
+        shape.setPosition.assert_not_called()
+        shape.setSize.assert_not_called()
+
+
+def test_shape_align_and_distribute_refuse_inline_page_shapes():
+    from types import SimpleNamespace
+
+    shapes = []
+    for i, (x, y) in enumerate([(0, 100), (3000, 700), (6000, 900)]):
+        s = MagicMock()
+        s.Name = f"S{i}"
+        s.getPosition.return_value = SimpleNamespace(X=x, Y=y)
+        s.getSize.return_value = SimpleNamespace(Width=1000, Height=1000)
+        shapes.append(s)
+
+    page = MagicMock()
+    page.getCount.return_value = len(shapes)
+    page.getByIndex.side_effect = lambda i: shapes[i]
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.shapes.shape_is_as_character", side_effect=lambda s: s is shapes[1]),
+        patch("plugin.draw.shapes._outside_page", return_value=False),
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+
+        for alignment in ("left", "center_horizontal", "right"):
+            res = AlignShapes().execute(ctx, indices=[0, 1, 2], alignment=alignment)
+            assert res["status"] == "error"
+            assert res["code"] == "INVALID_PARAM"
+            assert res["details"]["parameter"] == "indices"
+            for s in shapes:
+                s.setPosition.assert_not_called()
+
+        res_dist_h = DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="horizontal")
+        assert res_dist_h["status"] == "error"
+        assert res_dist_h["code"] == "INVALID_PARAM"
+        assert res_dist_h["details"]["parameter"] == "indices"
+        for s in shapes:
+            s.setPosition.assert_not_called()
+
+        res_top = AlignShapes().execute(ctx, indices=[0, 1, 2], alignment="top")
+        assert res_top["status"] == "ok"
+        shapes[0].setPosition.assert_not_called()
+        assert shapes[1].setPosition.call_args.args[0].Y == 100
+        assert shapes[2].setPosition.call_args.args[0].Y == 100
+
+        for s in shapes:
+            s.setPosition.reset_mock()
+
+        res_dist_v = DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="vertical")
+        assert res_dist_v["status"] == "ok"
+        shapes[0].setPosition.assert_not_called()
+        assert shapes[1].setPosition.call_args.args[0].Y == 500
+        shapes[2].setPosition.assert_not_called()

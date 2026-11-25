@@ -426,7 +426,7 @@ def test_edit_undoes_earlier_setters_when_a_later_setter_fails(fail_setter, extr
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
     fake = ctx.doc.getUndoManager.return_value
-    getattr(nr, fail_setter).side_effect = RuntimeException(f"{fail_setter} rejected")
+    getattr(nr, fail_setter).side_effect = RuntimeException(f"{fail_setter} rejected", None)
     res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"

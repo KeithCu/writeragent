@@ -1344,3 +1344,41 @@ def test_moved_appendix_is_not_retargeted_uno(ctx, doc) -> None:
         w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Appendix A|outline"
         for w in warnings
     ), warnings
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_number_only_title_out_of_place_is_not_retargeted_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Appendix A</h1>',
+            '<h1 data-lo-style="Heading 1">Scope</h1>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    header_text = _set_header_outline_links(doc, ["Appendix A", "Scope"])
+
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Alcance</h1>',
+            '<h1 data-lo-style="Heading 1">Appendix B</h1>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_text_portion_urls(header_text) == [
+        ("to-Appendix A", "#Appendix A|outline"),
+        ("to-Scope", "#Scope|outline"),
+    ]
+    warnings = res.get("warnings") or []
+    for title in ("Appendix A", "Scope"):
+        assert any(
+            w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == f"#{title}|outline"
+            for w in warnings
+        ), warnings

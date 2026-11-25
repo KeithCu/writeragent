@@ -700,6 +700,9 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
 
 
 MATH_IMPORT_FAILED = "MATH_IMPORT_FAILED"
+# Set as ``error`` on math_objects entries whose placeholder was not found after import,
+# so nothing stands for them in the document.
+MATH_POSITION_LOST = "formula position lost in the HTML import"
 LINK_TARGET_NOT_FOUND = "LINK_TARGET_NOT_FOUND"
 
 StyleSkipCode = Literal["STYLE_IGNORED_PARTIAL_MATCH"]
@@ -762,10 +765,10 @@ def attach_write_report(
     at least one formula conversion. Empty attempts or error results are returned unchanged
     because a failed or rolled-back edit left none of these objects in the document. ``ok``
     means a Math object was inserted into the document, not accepted in review; the review
-    outcome is reported separately under ``review``. If any formula conversion failed, a
-    ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while preserving the overall
-    ``ok`` status, so review workflows and surrounding edit metadata (counts, edited context)
-    remain intact.
+    outcome is reported separately under ``review``. If any formula was not converted or
+    not placed, a ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while
+    preserving the overall ``ok`` status, so review workflows and surrounding edit metadata
+    (counts, edited context) remain intact.
     """
     if result.get("status") != "ok":
         return result
@@ -827,19 +830,27 @@ def attach_write_report(
         result["math_objects"] = list(report.math)
         failed = [m for m in report.math if not m.get("ok")]
         if failed:
-            listing = "; ".join(
-                f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
-                for m in failed
-            )
-            diags.append({
-                "code": MATH_IMPORT_FAILED,
-                "message": (
-                    f"The content was written, but {len(failed)} of {len(report.math)} "
-                    f"formula(s) could not be converted to a Math object and stand in the "
+            total = len(report.math)
+            lost = [m for m in failed if m.get("error") == MATH_POSITION_LOST]
+            marked = [m for m in failed if m.get("error") != MATH_POSITION_LOST]
+            parts: list[str] = []
+            if marked:
+                listing = "; ".join(
+                    f"{m.get('snippet', '')}: {m.get('error') or 'conversion failed'}"
+                    for m in marked
+                )
+                parts.append(
+                    f"{len(marked)} of {total} formula(s) could not be converted to a Math object and stand in the "
                     f"document as literal '[Math import failed] <formula>' text: {listing}. "
-                    f"Correct the formula and replace that literal text with target='search'."
-                ),
-            })
+                    "Correct the formula and replace that literal text with target='search'."
+                )
+            if lost:
+                listing = "; ".join(m.get("snippet", "") for m in lost)
+                parts.append(
+                    f"{len(lost)} of {total} formula(s) were not inserted because their position was lost in the "
+                    f"HTML import: {listing}. Insert each one again where it belongs."
+                )
+            diags.append({"code": MATH_IMPORT_FAILED, "message": "The content was written, but " + " ".join(parts)})
 
     if report.links_retargeted:
         result["links_retargeted"] = report.links_retargeted
