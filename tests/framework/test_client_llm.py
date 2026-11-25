@@ -3625,7 +3625,8 @@ def test_observe_provider_http_error_redacts_path_secret(client, caplog):
     assert "<redacted>" in caplog.text
 
 
-def test_stream_chat_response_redacts_request_path_in_debug_log(caplog):
+@pytest.mark.parametrize("endpoint_prefix", ["/s", "/webhook"])
+def test_stream_chat_response_redacts_request_path_in_debug_log(caplog, endpoint_prefix):
     import logging
 
     secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
@@ -3634,7 +3635,7 @@ def test_stream_chat_response_redacts_request_path_in_debug_log(caplog):
             "provider": "openai",
             "model": "gpt-4o",
             "api_key": "test-key",
-            "endpoint": f"https://proxy.example/s/{secret_uuid}",
+            "endpoint": f"https://proxy.example{endpoint_prefix}/{secret_uuid}",
         },
         MagicMock(),
     )

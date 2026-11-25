@@ -629,10 +629,10 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
         # OS writes, file writes, config:changed emits, and tunnel restarts.
         if text == keystore.get_secret(name):
             return str(current)
-    if text and keystore.can_store() and keystore.set_secret(name, text):
-        register_known_secret(text)
-        return keystore.new_ref()
+    # Register so RedactingFormatter masks this value wherever an upstream error echoes it.
     register_known_secret(text)
+    if text and keystore.can_store() and keystore.set_secret(name, text):
+        return keystore.new_ref()
     return text
 
 
@@ -641,6 +641,7 @@ def _resolve_secret(name: str, raw: Any, cancel: SendCancellation | None = None)
         val = keystore.get_secret(name, cancel=cancel) or ""
     else:
         val = str(raw or "")
+    # Register so RedactingFormatter masks this value wherever an upstream error echoes it.
     register_known_secret(val)
     return val
 

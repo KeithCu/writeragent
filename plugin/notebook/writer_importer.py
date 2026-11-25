@@ -1326,7 +1326,7 @@ def _fetch_remote_image(url: str, *, timeout: float) -> bytes | None:
             return None
         return b"".join(chunks)
     except Exception as exc:
-        # Type name only: urllib quotes the URL, with its query and userinfo, in InvalidURL and ValueError text.
+        # Type name only: urllib quotes the URL, with its query and userinfo, in InvalidURL and ValueError text; the formatter masks the URL.
         log.debug("notebook markdown image URL not reachable: %s (%s)", url, type(exc).__name__)
         return None
 

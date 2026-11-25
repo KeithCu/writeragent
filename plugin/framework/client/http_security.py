@@ -16,48 +16,20 @@ import urllib.parse
 from typing import Any
 
 from plugin.framework.errors import NetworkError
-from plugin.framework.log_redaction import is_secret_key
+from plugin.framework.log_redaction import (
+    bracket_ipv6_host as _bracket_ipv6_host,
+    is_credential_name,
+    is_credential_query_name as _is_credential_query_name,
+    opaque_segments as _opaque_segments,
+    public_path as _public_path,
+    redact_secrets,
+    request_path_secrets as _request_path_secrets,
+    without_userinfo as _without_userinfo,
+)
 
 
 # urllib followed these. 304/300 are not automatic hops.
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-
-
-# UUIDs, hex keys, base64 and nanoid links are longer than this.
-_OPAQUE_SEGMENT_MIN_CHARS = 16
-# A model id follows these segments and errors must show it.
-_MODEL_ID_PARENTS = frozenset({"models", "deployments"})
-
-
-def is_credential_name(name: str) -> bool:
-    """True when an HTTP header called *name* carries a credential.
-
-    Also the base of ``_is_credential_query_name``. Broader than ``is_secret_key``, which also
-    judges tool arguments, where names such as ``sort_key`` are data. ``max_tokens`` and
-    ``output_modalities`` are not credentials.
-    """
-    return is_secret_key(name) or name.lower().endswith(("key", "token"))
-
-
-def _is_credential_query_name(name: str) -> bool:
-    """True when a URL query parameter called *name* carries a credential.
-
-    Azure Functions passes its key as ``code`` and signed URLs use ``sig``, ``signature`` or
-    ``X-Amz-Signature``. Headers with those names are ordinary data.
-    """
-    low = name.lower()
-    return is_credential_name(name) or low in ("code", "sig") or low.endswith("signature")
-
-
-def redact_secrets(text: str, secrets: list[str] | None) -> str:
-    """Replace credential strings with ``<redacted>``. Longer values first."""
-    if not text or not secrets:
-        return text
-    # A one-character key would punch holes through ordinary error text ("k", "1").
-    ordered = sorted({secret for secret in secrets if secret and len(secret) >= 4}, key=len, reverse=True)
-    for secret in ordered:
-        text = text.replace(secret, "<redacted>")
-    return text
 
 
 def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
@@ -96,29 +68,6 @@ def secrets_from_target(url_or_path: str) -> list[str]:
     return secrets
 
 
-def _opaque_segments(segments: list[str]) -> list[str]:
-    secrets: list[str] = []
-    for segment in segments:
-        decoded = urllib.parse.unquote(segment)
-        # All-lowercase segments without digits are words ("model-context-protocol").
-        if len(decoded) >= _OPAQUE_SEGMENT_MIN_CHARS and any(ch.isdigit() or ch.isupper() for ch in decoded):
-            secrets.extend((segment, decoded))
-    return secrets
-
-
-def _request_path_secrets(path: str) -> list[str]:
-    segments = path.split("/")
-    for idx, segment in enumerate(segments):
-        if segment in _MODEL_ID_PARENTS:
-            segments = segments[:idx]
-            break
-    return _opaque_segments(segments)
-
-
-def _public_path(path: str) -> str:
-    return redact_secrets(path, _request_path_secrets(path))
-
-
 def secrets_from_url_path(url: str) -> list[str]:
     """Path segments of *url* that look like an opaque credential, as written and percent-decoded.
 
@@ -126,31 +75,11 @@ def secrets_from_url_path(url: str) -> list[str]:
     stops at model ids.
     """
     return _opaque_segments(_parse_url(url).path.split("/"))
+
+
 def collect_secrets(*groups: list[str] | None) -> list[str]:
     """Merge secret lists, dropping empties."""
     return [s for g in groups if g for s in g if s]
-
-
-def _bracket_ipv6_host(host: str) -> str:
-    """Put brackets back around an IPv6 literal so the origin can be parsed again.
-
-    ``ParseResult.hostname`` strips the brackets RFC 3986 requires. Rebuilding
-    ``http://[::1]:11434`` as ``http://::1:11434`` makes the next parse read
-    ``:1:11434`` as the port, and ``_explicit_port`` raises ``INVALID_URL``.
-    A colon in the host is an IPv6 literal; wrap it once.
-    """
-    if ":" not in host or host.startswith("["):
-        return host
-    return f"[{host}]"
-
-
-def _without_userinfo(rest: str, tail: str) -> str:
-    """What follows the last "@" of *rest*, or "" when the cut-off query or fragment *tail* has an "@".
-
-    For text that does not parse as an absolute URL: a raw "/" may be part of the password (keep only
-    what follows the last "@"), and a raw "?" or "#" in the password hides the "@" in *tail*.
-    """
-    return "" if "@" in tail else rest.rpartition("@")[2]
 
 
 def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:

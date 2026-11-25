@@ -9,7 +9,6 @@ import pytest
 
 from plugin.framework.log_redaction import (
     RedactingFormatter,
-    clear_known_secrets,
     is_secret_key,
     redact_secret_pairs_in_text,
     redact_urls_in_text,
@@ -194,46 +193,99 @@ def test_redacting_formatter_masks_urls_on_arbitrary_loggers() -> None:
     assert "hunter2" not in out3
     assert "http://h.example:1a34/s/<redacted>/v1:" in out3
 
-    out4 = _format_with_arbitrary_logger(
-        "test.arbitrary.relpath",
-        "Request Path: %s",
-        "/v1beta/models/gemini:generateContent?key=AIzaSecretValue&alt=sse",
-    )
-    assert "AIzaSecretValue" not in out4
-    assert "/v1beta/models/gemini:generateContent?key=<redacted>&alt=sse" in out4
+
+@pytest.mark.parametrize(
+    ("raw_line", "hidden", "kept"),
+    [
+        ("POST https://user:pa'ss@h.example/v1", "pa'ss", "https://h.example/v1"),
+        ("POST https://user:p)ss@h.example/v1", "p)ss", "https://h.example/v1"),
+        ('POST https://user:pa"ss@h.example/v1', 'pa"ss', "https://h.example/v1"),
+        ("GET https://h/x/abc)123e4567-e89b-12d3-a456-426614174000/z", "123e4567-e89b-12d3-a456-426614174000", "https://h/x/<redacted>/z"),
+        ("/api/foo/chat?sig=ab'cd&x=1", "ab'cd", "/api/foo/chat?sig=<redacted>&x=1"),
+        ("GET HTTPS://user:hunter2@h.example/v1", "hunter2", "https://h.example/v1"),
+        ("WS ws://u:hunter2@h/x", "hunter2", "ws://h/x"),
+        ("PROXY socks5://u:hunter2@h:1", "hunter2", "socks5://h:1"),
+        ("EP user:hunter2@h.example/v1", "hunter2", "h.example/v1"),
+        (r'{"msg": "see https://h/a?b=1\n\nHello there"}', "b=1", r'see https://h/a\n\nHello there'),
+    ],
+)
+def test_redacting_formatter_url_and_userinfo_spellings(raw_line: str, hidden: str, kept: str) -> None:
+    out = _format_with_arbitrary_logger("test.arbitrary.spellings", "%s", raw_line)
+    assert hidden not in out
+    assert kept in out
 
 
 def test_redacting_formatter_masks_known_secrets_across_arbitrary_loggers() -> None:
-    clear_known_secrets()
+    register_known_secret("sk-known-secret-987654")
+    register_known_secret("ollama")  # Short placeholder key (<8 chars); must not mask hosts/models/paths.
+
+    out1 = _format_with_arbitrary_logger(
+        "test.arbitrary.one",
+        "Auth failed with key sk-known-secret-987654 on http://ollama:11434 model=latest prefixsk-known-secret-987654",
+    )
+    assert "Auth failed with key <redacted> on http://ollama:11434 model=latest prefixsk-known-secret-987654" in out1
+
     try:
-        register_known_secret("sk-known-secret-987654")
-        register_known_secret("ab")  # Too short; must not redact ordinary substrings.
-
-        out1 = _format_with_arbitrary_logger(
-            "test.arbitrary.one",
-            "Auth failed with key sk-known-secret-987654 about ab",
-        )
-        assert "sk-known-secret-987654" not in out1
-        assert "<redacted> about ab" in out1
-
-        try:
-            raise RuntimeError("Upstream rejected sk-known-secret-987654")
-        except RuntimeError:
-            out2 = _format_with_arbitrary_logger("test.arbitrary.two", "Call failed", exc_info=True)
-        assert "sk-known-secret-987654" not in out2
-        assert "Upstream rejected <redacted>" in out2
-    finally:
-        clear_known_secrets()
+        raise RuntimeError("Upstream rejected sk-known-secret-987654")
+    except RuntimeError:
+        out2 = _format_with_arbitrary_logger("test.arbitrary.two", "Call failed", exc_info=True)
+    assert "sk-known-secret-987654" not in out2
+    assert "Upstream rejected <redacted>" in out2
 
 
 def test_resolve_auth_registers_known_secret() -> None:
     from plugin.framework.client.auth import resolve_auth_for_config
 
-    clear_known_secrets()
+    resolve_auth_for_config({"endpoint": "https://api.openai.com/v1", "api_key": "sk-auth-registered-5555"})
+    out = _format_with_arbitrary_logger("test.arbitrary.auth", "Echoed sk-auth-registered-5555")
+    assert "sk-auth-registered-5555" not in out
+    assert "Echoed <redacted>" in out
+
+
+def test_config_registers_known_secrets(tmp_path: Any, monkeypatch: Any) -> None:
+    from plugin.framework import config as fw_config
+
+    monkeypatch.setattr(fw_config, "user_config_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(fw_config.keystore, "can_store", lambda: False)
+    fw_config.save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-config-secret-7788"}})
+    assert fw_config.get_api_key_for_endpoint("https://api.openai.com") == "sk-config-secret-7788"
+
+    out = _format_with_arbitrary_logger("test.arbitrary.cfg", "Upstream echoed sk-config-secret-7788")
+    assert "sk-config-secret-7788" not in out
+    assert "Upstream echoed <redacted>" in out
+
+
+def test_shared_debug_file_handler_redacts_urls_and_known_secrets(tmp_path: Any) -> None:
+    from plugin.framework import logging as fw_logging
+
+    log_path = tmp_path / "writeragent_debug.log"
+    shared = fw_logging._shared()
+    old_path = shared["debug_log_path"]
+    old_handler = fw_logging._debug_slot()["handler"]
+    shared["debug_log_path"] = str(log_path)
+    fw_logging._debug_slot()["handler"] = None
     try:
-        resolve_auth_for_config({"endpoint": "https://api.openai.com/v1", "api_key": "sk-auth-registered-5555"})
-        out = _format_with_arbitrary_logger("test.arbitrary.auth", "Echoed sk-auth-registered-5555")
-        assert "sk-auth-registered-5555" not in out
-        assert "Echoed <redacted>" in out
+        handler = fw_logging._shared_debug_file_handler()
+        register_known_secret("sk-file-handler-secret-42")
+        record = logging.LogRecord(
+            "writeragent.test",
+            logging.WARNING,
+            __file__,
+            1,
+            "Request to %s failed: %s",
+            ("https://u:pw123456@api.example.com/v1?key=abc", "bad sk-file-handler-secret-42"),
+            None,
+        )
+        handler.emit(record)
+        handler.close()
+        written = log_path.read_text(encoding="utf-8")
+        assert "pw123456" not in written
+        assert "key=abc" not in written
+        assert "sk-file-handler-secret-42" not in written
+        assert "https://api.example.com/v1" in written
+        assert "bad <redacted>" in written
     finally:
-        clear_known_secrets()
+        if fw_logging._debug_slot()["handler"] is not None:
+            fw_logging._debug_slot()["handler"].close()
+        fw_logging._debug_slot()["handler"] = old_handler
+        shared["debug_log_path"] = old_path

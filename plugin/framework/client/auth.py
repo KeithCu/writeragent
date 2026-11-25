@@ -136,6 +136,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     is_owu = api_config.get("is_openwebui", False)
     endpoint = normalize_endpoint_url(endpoint_raw, is_openwebui=is_owu)
     api_key = str(api_config.get("api_key") or "").strip()
+    # Register here too (dialog overrides can bypass config.py) so RedactingFormatter masks echoed keys.
     register_known_secret(api_key)
 
     if not endpoint:
