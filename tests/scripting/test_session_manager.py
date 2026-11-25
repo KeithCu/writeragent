@@ -1049,6 +1049,7 @@ def _components_enum(*models: Any) -> MagicMock:
 
 
 def test_focused_calc_document_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.thread_guard import unwrap_uno
 
     user_doc = MagicMock()
@@ -1059,7 +1060,7 @@ def test_focused_calc_document_ignores_scratch_workbook(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
     monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
-    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+    monkeypatch.setattr(scratch_writer, "is_scratch_document", lambda m: m is scratch_doc)
 
     assert unwrap_uno(session_manager.focused_calc_document(MagicMock())) is user_doc
 
@@ -1068,6 +1069,8 @@ def test_focused_calc_document_ignores_scratch_workbook(monkeypatch: pytest.Monk
 
 
 def test_reset_headless_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.scratch_writer as scratch_writer
+
     user_doc = MagicMock()
     scratch_doc = MagicMock()
     desktop = MagicMock()
@@ -1078,7 +1081,7 @@ def test_reset_headless_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
     monkeypatch.setattr(session_manager, "is_writer", lambda _m: False)
     monkeypatch.setattr(session_manager, "is_draw", lambda _m: False)
-    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+    monkeypatch.setattr(scratch_writer, "is_scratch_document", lambda m: m is scratch_doc)
 
     reset_calls: list[Any] = []
     msgbox_calls: list[str] = []
@@ -1091,6 +1094,7 @@ def test_reset_headless_ignores_scratch_workbook(monkeypatch: pytest.MonkeyPatch
 
 
 def test_document_for_script_session_ignores_scratch_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.thread_guard import unwrap_uno
 
     user_doc = MagicMock()
@@ -1102,7 +1106,7 @@ def test_document_for_script_session_ignores_scratch_copy(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
     monkeypatch.setattr(session_manager, "is_calc", lambda m: m in (user_doc, scratch_doc))
-    monkeypatch.setattr(session_manager, "is_scratch_document", lambda m: m is scratch_doc)
+    monkeypatch.setattr(scratch_writer, "is_scratch_document", lambda m: m is scratch_doc)
 
     found = session_manager.document_for_script_session(MagicMock(), "calc:file:///doc.ods")
     assert unwrap_uno(found) is user_doc
@@ -1122,7 +1126,6 @@ def test_enumerated_matching_models_skips_model_whose_predicate_raises(monkeypat
         return model is valid
 
     monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
-    monkeypatch.setattr(session_manager, "is_scratch_document", lambda _m: False)
 
     results = session_manager._enumerated_matching_models(MagicMock(), _pred)
     assert [unwrap_uno(m) for m in results] == [valid]

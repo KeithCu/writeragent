@@ -369,3 +369,60 @@ def test_new_doc_listener_on_document_event():
         evt2.Source.getCurrentController.return_value = controller
         listener.on_document_event(evt2)
         mock_reg.assert_called_once_with(controller)
+
+
+def test_install_defers_view_registration_past_scratch_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.scratch_writer as scratch_writer
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", set())
+    monkeypatch.setattr(scratch_writer, "_scratch_loads", 0)
+    monkeypatch.setattr(scratch_writer, "_after_loads", [])
+
+    mod._registered_controllers.clear()
+    mod._doc_listener = None
+    ctx = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+    with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=None):
+        mod.install_calc_cell_context_menu(ctx)
+    listener = mod._doc_listener
+    assert listener is not None
+
+    scratch_model = MagicMock()
+    scratch_model.getRuntimeUID.return_value = "scratch-calc-1"
+    scratch_model.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    scratch_ctrl = MagicMock()
+    scratch_ctrl.getModel.return_value = scratch_model
+    interception = MagicMock()
+    scratch_ctrl.queryInterface.return_value = interception
+
+    desktop = MagicMock()
+
+    def _load(*_args: Any) -> Any:
+        evt = MagicMock()
+        evt.EventName = "OnViewCreated"
+        evt.ViewController = scratch_ctrl
+        evt.Source = scratch_model
+        listener.on_document_event(evt)
+        return scratch_model
+
+    desktop.loadComponentFromURL.side_effect = _load
+    interceptor = MagicMock()
+    with patch.object(mod, "_get_interceptor", return_value=interceptor):
+        scratch_writer.load_scratch_document(desktop, "file:///tmp/budget.xlsx")
+        interception.registerContextMenuInterceptor.assert_not_called()
+
+        # Positive control: an ordinary Calc view outside a scratch load is registered once.
+        user_model = MagicMock()
+        user_model.getRuntimeUID.return_value = "user-calc-1"
+        user_model.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+        user_ctrl = MagicMock()
+        user_ctrl.getModel.return_value = user_model
+        user_interception = MagicMock()
+        user_ctrl.queryInterface.return_value = user_interception
+        user_evt = MagicMock()
+        user_evt.EventName = "OnViewCreated"
+        user_evt.ViewController = user_ctrl
+        user_evt.Source = user_model
+        listener.on_document_event(user_evt)
+        user_interception.registerContextMenuInterceptor.assert_called_once_with(interceptor)

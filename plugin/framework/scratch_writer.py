@@ -27,7 +27,7 @@ log = logging.getLogger("writeragent.scratch_writer")
 
 # _scratch_lock guards the three names below it.
 # Scratch documents (including user files opened hidden and read-only for research)
-# are excluded from DocumentService.open_documents and get_open_documents: counting one
+# are excluded from iter_open_models (reason there), DocumentService.open_documents and get_open_documents: counting one
 # broadens tools/list, fires a false tools/list_changed, and breaks single-open-document
 # fallback (NO_ACTIVE_DOCUMENT). Keyed by RuntimeUID rather than Hidden because user-hidden
 # documents must still count, and LibreOffice never reuses a uid in a process so stale

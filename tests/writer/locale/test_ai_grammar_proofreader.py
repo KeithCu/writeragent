@@ -866,6 +866,32 @@ def test_ensure_persistence_bound_skips_a_model_bound_to_another_id() -> None:
         gp.grammar_registry.clear_all()
 
 
+def test_ensure_persistence_bound_ignores_scratch_writer_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Registered scratch Writers must not make a background grammar bind ambiguous."""
+    import plugin.framework.scratch_writer as scratch_writer
+    from plugin.writer.locale import grammar_persistence as gp
+
+    scratch = _writer_model()
+    scratch.getRuntimeUID.return_value = "scratch-grammar-1"
+    writer = _writer_model()
+    writer.getRuntimeUID.return_value = "user-grammar-1"
+    ctx, desktop = _proofread_ctx_and_desktop([scratch, writer], proofreading=[scratch, writer])
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-grammar-1"})
+    gp.grammar_registry.clear_all()
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2", on_ui_thread=False)
+        bound = gp.get_persistence("2")
+        assert bound is not None
+        assert bound.model is writer
+    finally:
+        gp.grammar_registry.clear_all()
+
+
 def test_ui_thread_call_binds_current_writer_not_the_one_being_walked() -> None:
     """UI-thread calls bind the current Writer even while another Writer is proofreading."""
     from plugin.writer.locale import grammar_persistence as gp

@@ -578,12 +578,18 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
     ``nextElement`` ends the walk.
 
     Handles frame controller unwrapping and guards against truthy mock loops.
+    Registered scratch documents (see ``plugin.framework.scratch_writer``) are
+    skipped: the user did not open them, so they must not be a lookup target,
+    count as an open file, or make a single match ambiguous.
     An element that fails to resolve is skipped; an enumeration failure ends
     the walk. With *strict* a real disposal is re-raised; without it the walk
     also skips models whose ``getCurrentController`` raises.
     """
     if desktop is None:
         return
+    # Breaks uno_context <-> scratch_writer import cycle.
+    from plugin.framework.scratch_writer import is_scratch_document
+
     try:
         comps = desktop.getComponents()
         if comps is None:
@@ -603,6 +609,8 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
                     controller = elem.getController()
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
+                if model is not None and is_scratch_document(model):
+                    continue
                 if model is not None and not strict:
                     getattr(model, "getCurrentController", lambda: None)()
             except Exception as e:
@@ -618,7 +626,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
 
 @main_thread_only
 def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
-    """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
+    """Resolve an open document by URL or RuntimeUID (registered scratch documents excluded). Must be called on the UNO main thread.
 
     ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
     ``document_list_open``); the RuntimeUID also matches unsaved/untitled

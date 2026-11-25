@@ -20,7 +20,6 @@ from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
-from plugin.framework.scratch_writer import is_scratch_document
 from plugin.framework.thread_guard import guard_uno, unwrap_uno
 from plugin.framework.uno_context import get_desktop, iter_open_models, product_display_name
 from plugin.notebook.cell_registry import has_notebook_registry, load_registry, save_registry
@@ -98,7 +97,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
     matches: list[Any] = []
     for model in iter_open_models(desktop, strict=False, label=label):
         try:
-            if predicate(model) and not is_scratch_document(model):
+            if predicate(model):
                 matches.append(guard_uno(model))
         except Exception:
             log.debug("session_manager: predicate failed; skipping model", exc_info=True)
