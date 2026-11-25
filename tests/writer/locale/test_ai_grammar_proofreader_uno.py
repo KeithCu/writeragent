@@ -253,3 +253,95 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
         assert u16_slice == "they is"
     finally:
         teardown_grammar_proof_tests(saved_enabled)
+
+
+@native_test(timeout=90)
+def test_writers_open_before_the_checker_is_enabled_load_their_own_ignore_rules(ctx: Any) -> None:
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import uno
+    from plugin.doc.udprops import get_document_property, set_document_property
+    from plugin.framework.scratch_writer import load_scratch_document
+    from plugin.framework.uno_context import get_desktop
+    from plugin.writer.locale.ai_grammar_proofreader import IMPLEMENTATION_NAME, SERVICE_NAME
+    from plugin.writer.locale.grammar_proofread_locale import (
+        GRAMMAR_CACHE_VERSION,
+        GRAMMAR_DOC_CACHE_UDPROP,
+    )
+
+    desktop = get_desktop(ctx)
+    assert desktop is not None
+    lsm = ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.LinguServiceManager", ctx)
+    iterator = ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
+    en_loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
+    saved_services = tuple(lsm.getConfiguredServices(SERVICE_NAME, en_loc))
+    saved_enabled = setup_grammar_proof_tests(ctx)
+    hidden_pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
+
+    docs_to_close: list[Any] = []
+    writers: list[Any] = []
+    scratch: Any = None
+    try:
+        lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            for idx in range(3):
+                doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_pv,))
+                doc.getText().setString("The party of the first part agree.\n" * 20)
+                payload = {
+                    "version": GRAMMAR_CACHE_VERSION,
+                    "model": "off",
+                    "locales": {},
+                    "ignored_rules": [f"rule-{idx}"],
+                }
+                set_document_property(doc, GRAMMAR_DOC_CACHE_UDPROP, json.dumps(payload))
+                url = uno.systemPathToFileUrl(str(tmp_path / f"contract-{idx}.odt"))
+                doc.storeToURL(url, ())
+                doc.close(True)
+
+                vis_doc = desktop.loadComponentFromURL(url, "_blank", 0, ())
+                docs_to_close.append(vis_doc)
+                writers.append(vis_doc)
+
+            calc_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())
+            docs_to_close.append(calc_doc)
+            scratch = load_scratch_document(desktop, "private:factory/swriter")
+
+            lsm.setConfiguredServices(SERVICE_NAME, en_loc, (IMPLEMENTATION_NAME,))
+            for writer in writers:
+                fp = writer.getFlatParagraphIterator(4, False).getFirstPara()
+                assert fp is not None
+                para_text = fp.getText()
+                iterator.checkSentenceAtPosition(writer, fp, para_text, en_loc, 0, len(para_text), 0)
+
+            for idx, writer in enumerate(writers):
+                set_document_property(writer, GRAMMAR_DOC_CACHE_UDPROP, "{}")
+                copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
+                writer.storeToURL(copy_url, ())
+
+            lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
+            for idx in range(3):
+                copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
+                reopened = desktop.loadComponentFromURL(copy_url, "_blank", 0, (hidden_pv,))
+                docs_to_close.append(reopened)
+                raw = get_document_property(reopened, GRAMMAR_DOC_CACHE_UDPROP)
+                assert raw is not None
+                assert json.loads(raw)["ignored_rules"] == [f"rule-{idx}"]
+    finally:
+        for doc in docs_to_close:
+            try:
+                doc.close(True)
+            except Exception:
+                pass
+        if scratch is not None:
+            try:
+                scratch.close(True)
+            except Exception:
+                pass
+        try:
+            lsm.setConfiguredServices(SERVICE_NAME, en_loc, saved_services)
+        except Exception:
+            pass
+        teardown_grammar_proof_tests(saved_enabled)

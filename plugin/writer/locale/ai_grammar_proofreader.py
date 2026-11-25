@@ -37,8 +37,10 @@ from typing import Any, Iterable, Sequence, cast
 
 import unohelper
 
+from com.sun.star.beans import XPropertySet
 from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales, XLinguServiceEventBroadcaster
+from com.sun.star.text import XFlatParagraph
 
 from plugin.writer.locale import grammar_settings
 
@@ -141,58 +143,74 @@ def _current_component(desktop: Any) -> Any | None:
     return desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
 
 
-def _resolve_proofread_writer_model(ctx: Any, *, on_ui_thread: bool) -> Any | None:
+# Starts with a private-use character, so no document paragraph equals it.
+_DOC_ID_PROBE_TEXT = "\ue000WriterAgent document id probe."
+
+
+class _DocIdProbeParagraph(unohelper.Base, XFlatParagraph, XPropertySet):  # pyright: ignore[reportGeneralTypeIssues]
+    """Paragraph handed to checkSentenceAtPosition to learn a document's id.
+
+    LibreOffice reads only the language, the modified flag, and the properties it
+    forwards (``gciterator.cxx`` ``checkSentenceAtPosition``, ``lcl_makeProperties``).
+    """
+
+    _locale: Any
+
+    def __init__(self, locale: Any) -> None:
+        super().__init__()
+        self._locale = locale
+
+    def getLanguageOfText(self, nPos: int, nLen: int) -> Any:
+        del nPos, nLen
+        return self._locale
+
+    def isModified(self) -> bool:
+        return False
+
+    def getPropertyValue(self, PropertyName: str) -> Any:
+        del PropertyName
+        return None
+
+
+def _resolve_proofread_writer_model(ctx: Any, doc_id: str, locale: Any) -> Any | None:
     """Writer model this proofreading call is for, or None.
 
-    ``aDocumentIdentifier`` is LibreOffice's own counter (``gciterator.cxx``
-    ``GetOrCreateDocId``) and names no model. A call that starts on the UI
-    thread is the context menu or the spelling dialog
-    (``checkSentenceAtPosition``), which acts on the current component. Any
-    other call comes from LibreOffice's grammar thread, which may be walking a
-    background document: ``isProofreading`` is true for the document being
-    checked and for documents still queued (``gciterator.cxx``
-    ``isProofreading``). Each document has one id, so a model already bound to
-    another id is not this one. More than one remaining *distinct* model is not
-    a guess.
+    ``aDocumentIdentifier`` is LibreOffice's counter (``gciterator.cxx``
+    ``GetOrCreateDocId``) and no API maps it to a model.
+    ``checkSentenceAtPosition`` calls the checker with the id of the document it
+    is given, and ``doProofreading`` echoes that id for the probe text.
+    ``locale`` is the locale of the call being bound, so LibreOffice picks this
+    same checker.
     """
     if not main.is_current():
         return None
-    from plugin.framework.uno_context import get_desktop, iter_open_models, uno_same
-    from plugin.writer.locale.grammar_persistence import persistence_for_model
+    from plugin.framework.uno_context import get_desktop, iter_open_models
 
-    try:
-        desktop = get_desktop(ctx)
-    except Exception:
-        log.debug("[grammar] persistence bind: desktop unavailable", exc_info=True)
-        return None
+    desktop = get_desktop(ctx)
     if desktop is None:
         return None
-    if on_ui_thread:
-        current = _current_component(desktop)
-        candidates = [current] if _is_text_document(current) else []
-    else:
-        iterator = guard_uno(
-            ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
-        )
-        candidates = [model for model in iter_open_models(desktop) if iterator.isProofreading(model)]
-    # The desktop lists one entry per window, so Window > New Window yields the same model twice.
-    distinct: list[Any] = []
-    for model in candidates:
-        if persistence_for_model(model) is None and not any(uno_same(model, seen) for seen in distinct):
-            distinct.append(model)
-    return distinct[0] if len(distinct) == 1 else None
+    iterator = guard_uno(
+        ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
+    )
+    probe = _DocIdProbeParagraph(locale)
+    for model in iter_open_models(desktop):
+        if not _is_text_document(model):
+            continue
+        result = iterator.checkSentenceAtPosition(model, probe, _DOC_ID_PROBE_TEXT, locale, 0, -1, -1)
+        if result.aDocumentIdentifier == doc_id:
+            return model
+    return None
 
 
-def _ensure_persistence_bound(ctx: Any, doc_id: str, *, on_ui_thread: bool) -> Any | None:
+def _ensure_persistence_bound(ctx: Any, doc_id: str, locale: Any) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
     The map holds no model until one is bound here, so the first
-    ``doProofreading`` resolves the Writer on the main thread (the current
-    Writer on a UI-thread call, or the unique unbound model reported by
-    ``XProofreadingIterator.isProofreading`` on a grammar-thread call) and
-    passes it into ``get_persistence(doc_id, model=...)``. A second call sees
-    a bound model and does not replace it or reload udprops over live edits.
-    No model -> return None without raising. Returns the resolved model or None.
+    ``doProofreading`` resolves the Writer on the main thread (the open Writer
+    whose LibreOffice id is *doc_id*) and passes it into
+    ``get_persistence(doc_id, model=...)``. A second call sees a bound model and
+    does not replace it or reload udprops over live edits. No model -> return
+    None without raising. Returns the resolved model or None.
     """
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
@@ -200,7 +218,7 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str, *, on_ui_thread: bool) -> A
     if model is not None:
         return model
     try:
-        model = _resolve_proofread_writer_model(ctx, on_ui_thread=on_ui_thread)
+        model = _resolve_proofread_writer_model(ctx, doc_id, locale)
         if model is None:
             return None
         get_persistence(doc_id, model=model)
@@ -494,14 +512,16 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         # when opening Tools → Options → Language Settings (Writing aids).
         self._locales = uno_locales_for_tags(GRAMMAR_REGISTRY_LOCALE_TAGS)
 
-    def _ensure_document_bound_on_main(self, doc_id: str, on_ui_thread: bool) -> None:
+    def _ensure_document_bound_on_main(self, doc_id: str, locale: Any) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
         # get_runtime_uid is main-thread-only, so this runs via main.call.
+        # The bind re-enters doProofreading for the probe text while _bind_lock is held,
+        # so that probe path must return before taking _bind_lock.
         with self._bind_lock:
             if doc_id in self._bound_docs:
                 return
-            model = _ensure_persistence_bound(self.ctx, doc_id, on_ui_thread=on_ui_thread)
+            model = _ensure_persistence_bound(self.ctx, doc_id, locale)
             if model is None:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
                 return
@@ -517,7 +537,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             if uid:
                 self._doc_id_for_ignore[uid] = doc_id
 
-    def _ensure_document_bound(self, doc_id: str) -> None:
+    def _ensure_document_bound(self, doc_id: str, locale: Any) -> None:
         if not doc_id:
             return
 
@@ -531,9 +551,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            # Read here: inside the hop it is always True. The grammar thread is
-            # tagged by background_if_dummy_thread, so it is False there.
-            main.run(self._ensure_document_bound_on_main, doc_id, main.is_current(), timeout=BIND_RETRY_SEC)
+            main.run(self._ensure_document_bound_on_main, doc_id, locale, timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -678,6 +696,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return False
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
+        if aText == _DOC_ID_PROBE_TEXT:
+            # _resolve_proofread_writer_model asks which id this document has; it holds _bind_lock.
+            return _create_empty_result(self, aDocumentIdentifier, aText, aLocale, 0, len(aText), u16_map=Utf16OffsetMap(aText))
         with background_if_dummy_thread("proofreading"):
             if uno_mod is None:
                 log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
@@ -693,7 +714,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             # leave the Linguistic worker with an unhandled exception.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, u16_map=u16_map)
             try:
-                self._ensure_document_bound(aDocumentIdentifier)
+                self._ensure_document_bound(aDocumentIdentifier, aLocale)
 
                 profile = self._resolved_profile()
                 loc_key = self._check_enabled_and_locale(
