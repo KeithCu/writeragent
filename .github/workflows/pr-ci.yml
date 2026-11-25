@@ -109,11 +109,23 @@ jobs:
       - name: Install opengrep (Ubuntu)
         if: runner.os == 'Linux'
         timeout-minutes: 5
+        env:
+          # Change both together: the sha256 is of this release's opengrep_linux_x86 asset.
+          OPENGREP_VERSION: "v2.0.0"
+          OPENGREP_SHA256: "37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0"
         run: |
-          # Fatal here (unlike macOS/Windows), so ride out transient resets from raw.githubusercontent.com.
-          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
-            https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # Fatal: typecheck runs opengrep-lint. Upstream install.sh looks up "latest" and
+          # downloads without retries, so fetch the pinned static binary directly with curl's
+          # retry. The speed limit turns a stalled transfer into a retry.
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
+            --connect-timeout 20 --speed-limit 100000 --speed-time 20 \
+            -o "$HOME/.local/bin/opengrep" \
+            "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_linux_x86"
+          echo "${OPENGREP_SHA256}  $HOME/.local/bin/opengrep" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/opengrep"
+          "$HOME/.local/bin/opengrep" --version
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install LibreOffice and system tools (macOS)
         if: runner.os == 'macOS'
