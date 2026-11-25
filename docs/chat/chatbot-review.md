@@ -75,7 +75,7 @@ The sidebar records the frame document's URL as a skill-cache id (`plugin/chatbo
 
 Librarian, brainstorming, and writing already stop: `SmolAgentExecutor` calls `interrupt()` and raises `USER_STOPPED` before the tool body.
 
-Smaller, same area: `_parse_finished` in `plugin/ppt_master/venv/runner.py` keeps a handoff only until the first apostrophe (`re.search(r"'result': '([^']*)'", ...)`). A finished message containing `'` is cut off. `_selected_chat_model`'s docstring still says send handlers pass the model id via `ToolContext.doc`. On the live path `ctx.doc` is the UNO document.
+Smaller, same area: `_selected_chat_model`'s docstring still says send handlers pass the model id via `ToolContext.doc`. On the live path `ctx.doc` is the UNO document.
 
 ### 7. Impress agent-backend manual (Shipped)
 
