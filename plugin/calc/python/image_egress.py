@@ -437,34 +437,17 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
         return []
 
 
-def _detach_copy(doc: Any, shape: Any) -> bool:
-    """Rename an XLSX-only duplicate plot so it becomes an ordinary picture; return True if kept."""
-    tag = _read_plot_tag(shape)
-    if tag is None or not tag.from_name:
-        return False
-    name = f"{shape.getPropertyValue('Name')} 1"
-    # SdrObject::SetName (svx/source/svdraw/svdobj.cxx) records undo; tool removals stay recorded.
-    with undo_lock(doc, hide=False):
-        shape.setPropertyValue("Name", name)
-    return True
-
-
-def _drop_extra_plot_slots(doc: Any, draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
+def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
 
-    A second shape for a slot that is tagged only by its name is a copy made in another
-    spreadsheet program that keeps duplicate names, so it is renamed like Calc's own paste
-    and kept; any other duplicate is never refreshed (``_resolve_slot`` uses the first one),
-    so it is removed.
+    Duplicate shapes for one slot are removed because ``_resolve_slot`` uses the first one.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
-        if slot_idx in taken:
-            if not best_effort(partial(_detach_copy, doc, s), "_drop_extra_plot_slots: detach copy", True):
-                best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
-        elif slot_idx >= image_count:
+        if slot_idx >= image_count or slot_idx in taken:
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
-        taken.add(slot_idx)
+        else:
+            taken.add(slot_idx)
 
 
 def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: Any) -> None:
@@ -477,7 +460,7 @@ def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: A
     if _holds_py_formula(sheet, (addr.Column, addr.Row)):
         return
     with undo_lock(doc, hide=False):
-        _drop_extra_plot_slots(doc, draw_page, _anchored_plot_slots(sheet, cell), 0)
+        _drop_extra_plot_slots(draw_page, _anchored_plot_slots(sheet, cell), 0)
     _remove_image_note(doc, sheet, cell)
 
 
@@ -985,7 +968,7 @@ def _insert_image_result_on_sheet_impl(
                 # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
                 # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
                 if image_count is not None and image_index == 0 and target_cell is not None:
-                    _drop_extra_plot_slots(doc, draw_page, slots, image_count)
+                    _drop_extra_plot_slots(draw_page, slots, image_count)
         if um is not None and shape is None:
             best_effort(
                 partial(attach_to_newest_undo, um, partial(_drop_egress_of_undone_formula, doc, sheet, target_cell, draw_page)),
