@@ -1904,6 +1904,8 @@ class FakeUnoEnum:
 
 
 class FakeUnoPortion:
+    """Minimal UNO TextPortion fake; ``Redline`` markers may span multiple paragraphs."""
+
     def __init__(
         self,
         ptype: str,
@@ -1922,10 +1924,11 @@ class FakeUnoPortion:
     def getPropertyValue(self, name: str) -> Any:
         if name == "TextPortionType":
             return self._ptype
-        if name == "RedlineType":
-            return self._redline_type
-        if name == "IsStart":
-            return self._is_start
+        if self._ptype == "Redline":
+            if name == "RedlineType":
+                return self._redline_type
+            if name == "IsStart":
+                return self._is_start
         if name == self._ptype and self._inner is not None:
             inner = self._inner
 
@@ -1944,6 +1947,8 @@ class FakeUnoPortion:
 
 
 class FakeUnoPara:
+    """Minimal UNO Paragraph fake; intermediate struck paragraphs omit Redline portions."""
+
     def __init__(self, portions: list[Any], **props: Any) -> None:
         self._portions = list(portions)
         self._props = props
