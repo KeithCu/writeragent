@@ -1925,6 +1925,22 @@ def test_duplicate_shape_for_taken_slot_is_swept():
     assert first.getPropertyValue("GraphicURL") == "file:///tmp/dup.svg"
 
 
+def test_xlsx_name_tagged_duplicate_slot_is_swept():
+    """A duplicate plot tagged only by Name (XLSX reload) is swept on recalc, leaving the first."""
+    cell = CalcCellStub(col=3, row=6)
+    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:3,6@3,6"
+    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
+    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=3, row=36))
+    page = _DrawPage([first, copy])
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    with _sheet_insert_ctx(_SheetStub(page), cell, temp_path="/tmp/dup-xlsx.svg"):
+        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_count=1)
+
+    assert page.shapes == [first]
+
+
 def test_plot_moved_with_formula_is_reused_and_retagged():
     """A plot whose anchor shifted by the same delta as its formula is reused and retagged."""
     payload = _make_png_payload(100, 50)
@@ -2049,54 +2065,6 @@ def test_drop_egress_of_undone_formula_keeps_array_py_and_removes_empty():
     _drop_egress_of_undone_formula(doc, empty_sheet, cell, page)
     assert plot not in page.shapes
     annotations.removeByIndex.assert_called_once_with(0)
-
-
-def test_xlsx_duplicate_plot_is_kept_as_user_picture():
-    """A duplicate plot tagged only by Name (XLSX reload) is renamed and kept, not removed."""
-    from plugin.calc.python.image_egress import _drop_egress_of_undone_formula, _drop_extra_plot_slots, _plot_slot_index
-
-    cell = CalcCellStub(col=1, row=2)
-    cell.getAnnotation = lambda: SimpleNamespace(getString=lambda: "")
-    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:1,2@1,2"
-    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
-    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=1, row=32))
-    page = _DrawPage([first, copy])
-    doc = MagicMock()
-    um = MagicMock()
-    um.isLocked.return_value = False
-    doc.getUndoManager.return_value = um
-
-    _drop_extra_plot_slots(doc, page, [(first, 0), (copy, 0)], 1)
-    um.lock.assert_called_once_with()
-    um.unlock.assert_called_once_with()
-    assert page.shapes == [first, copy]
-    assert copy.getPropertyValue("Name") == f"{tag_name} 1"
-    assert _plot_slot_index(copy.getPropertyValue("Name")) is None
-
-    sheet = _SheetStub(page, formulas={(1, 2): ""})
-    _drop_egress_of_undone_formula(doc, sheet, cell, page)
-    assert page.shapes == [copy]
-
-
-def test_xlsx_duplicate_plot_kept_when_rename_raises():
-    """A name-only XLSX duplicate stays on the page even if renaming it raises."""
-    from plugin.calc.python.image_egress import _drop_extra_plot_slots
-
-    cell = CalcCellStub(col=1, row=2)
-    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:1,2@1,2"
-    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
-    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=1, row=32))
-
-    def _boom(*_args: Any) -> None:
-        raise RuntimeError("rename failed")
-
-    copy.setPropertyValue = _boom  # type: ignore[method-assign]
-    page = _DrawPage([first, copy])
-    doc = MagicMock()
-    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
-
-    _drop_extra_plot_slots(doc, page, [(first, 0), (copy, 0)], 1)
-    assert page.shapes == [first, copy]
 
 
 def test_rtl_name_tag_ignores_column_shift():
