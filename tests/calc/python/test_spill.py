@@ -1921,6 +1921,10 @@ def test_respill_after_code_edit_takes_over_unchanged_rect(monkeypatch: pytest.M
         (10, 1, "", (-4, 0), (2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 99.0, 0.0), (8, 1)),
         # Deleting a row that also held the sheet's rightmost cell shrinks only rows for a 1-col spill.
         (3, 1, "", (-1, -2), (3.0, 99.0), (2, 1)),
+        # Origin row or column mismatch on a single-axis delete falls back to (1, 1).
+        (1, 3, "", (-1, 0), (999.0, 3.0), (1, 1)),
+        (3, 1, "", (0, -1), (999.0, 3.0), (1, 1)),
+        (2, 2, "", (-1, 0), (999.0, 3.0, 4.0), (1, 1)),
         # Typed-over values at delta (0, 0) are deliberately still owned (#3940).
         (2, 1, "", (0, 0), (99.0,), (2, 1)),
     ],
@@ -1937,14 +1941,22 @@ def test_owned_rect_rules(
 
     sheet = CalcSheetStub("Sheet1")
     sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
-    for r in range(1, rows):
-        sheet.getCellByPosition(0, r).setValue(float(r + 1))
+    val = 2.0
+    for r in range(rows):
+        for c in range(cols):
+            if (r, c) != (0, 0):
+                sheet.getCellByPosition(c, r).setValue(val)
+                val += 1.0
     rec = _seen_record(sheet, 0, 0, "x", rows, cols) if rows * cols > 1 else _spill.SpillRecord(code="x", rows=1, cols=1)
     if neighbour_formula:
         sheet.getCellByPosition(0, 1).setFormula(neighbour_formula)
     elif values_override is not None:
-        for idx, val in enumerate(values_override, start=1):
-            sheet.getCellByPosition(0, idx).setValue(val)
+        idx = 0
+        for r in range(rows):
+            for c in range(cols):
+                if (r, c) != (0, 0) and idx < len(values_override):
+                    sheet.getCellByPosition(c, r).setValue(values_override[idx])
+                    idx += 1
 
     assert _spill._owned_rect(sheet, 0, 0, rec, delta) == expected
 
@@ -2037,32 +2049,28 @@ def test_owned_rect_does_not_read_values_when_user_formula_inside(monkeypatch: p
     assert _spill._owned_rect(sheet, 0, 0, rec, (-1, 0)) == (0, 0)
 
 
-def test_owned_rect_10000_row_linear_match() -> None:
+def test_owned_rect_10000_row_linear_match(monkeypatch: pytest.MonkeyPatch) -> None:
     n = 10000
+    comparisons = 0
+
+    class _CountingFloat(float):
+        def __eq__(self, other: object) -> bool:
+            nonlocal comparisons
+            comparisons += 1
+            return super().__eq__(other)
+
+        def __ne__(self, other: object) -> bool:
+            nonlocal comparisons
+            comparisons += 1
+            return super().__ne__(other)
+
     old_col = tuple((float(r),) for r in range(1, n))
     cur_rows = list(range(1, n - 5)) + list(range(n - 4, n)) + [99999]
-    cur_col = tuple((float(v),) for v in cur_rows)
+    cur_col = tuple((_CountingFloat(v),) for v in cur_rows)
     rec = _spill.SpillRecord(code="x", rows=n, cols=1, values=(old_col,))
 
-    class _FastRange:
-        def __init__(self, data: tuple[Any, ...]) -> None:
-            self._data = data
+    monkeypatch.setattr(_spill, "_user_formula_in_rect", lambda *_a: None)
+    monkeypatch.setattr(_spill, "_rect_values", lambda *_a: (cur_col,))
 
-        def getDataArray(self) -> tuple[Any, ...]:
-            return self._data
-
-    class _FastSheet:
-        def getCellRangeByPosition(self, *_args: Any) -> _FastRange:
-            return _FastRange(cur_col)
-
-        def queryContentCells(self, *_args: Any) -> Any:
-            return self
-
-        def getRangeAddresses(self) -> tuple[Any, ...]:
-            return ()
-
-    class _FastSheetWithQuery(_FastSheet):
-        def getCellRangeByPosition(self, *_args: Any) -> Any:
-            return _FastRange(cur_col) if len(_args) == 4 and _args[1] == 1 else self
-
-    assert _spill._owned_rect(_FastSheetWithQuery(), 0, 0, rec, (-1, 0)) == (n - 1, 1)
+    assert _spill._owned_rect(object(), 0, 0, rec, (-1, 0)) == (n - 1, 1)
+    assert comparisons <= 5 * n

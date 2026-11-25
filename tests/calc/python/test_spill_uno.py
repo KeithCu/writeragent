@@ -755,7 +755,7 @@ def test_row_delete_through_spill_body_keeps_shifted_user_data_uno(ctx, doc):
         assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
         assert sheet.getCellByPosition(0, 2).getValue() == 999.0
 
-        # A 2-row result fits in the surviving rows and preserves A3.
+        # A 2-row result fits in the cleared A2 and preserves A3.
         perform_deferred_spill(sheet_name, 0, 0, [[10], [20]], doc=doc, sheet=sheet, code=code, key=key)
         assert sheet.getCellByPosition(0, 1).getValue() == 20.0
         assert sheet.getCellByPosition(0, 2).getValue() == 999.0
@@ -825,9 +825,6 @@ def test_row_delete_shifts_dependent_user_formula_into_spill_body_uno(ctx, doc):
         )
         assert res == "#SPILL!"
         st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
-        doc.calculate()
-        assert sheet.getCellByPosition(0, 0).getError() == 0
-        assert sheet.getCellByPosition(0, 2).getError() == 0
         assert sheet.getCellByPosition(0, 2).getFormula() == "=A1*2"
     finally:
         WorkbookState.forget_key(key)

@@ -184,6 +184,44 @@ def _snapshot_grid(values: tuple[Any, ...], rows: int, cols: int) -> list[list[A
     return grid
 
 
+def _surviving_axis(
+    old_grid: list[list[Any]],
+    cur_grid: list[list[Any]],
+    del_count: int,
+    use_cols: int,
+) -> tuple[int, bool]:
+    """Return ``(surviving_rows, full_shift_matched)`` along axis 0 for ``use_cols`` columns.
+
+    Returns ``(0, False)`` when row 0 itself mismatches so single-axis callers fall back to
+    ``(1, 1)`` instead of claiming mismatched cells in the origin row or column.
+    """
+    rows = len(old_grid)
+
+    def _cell_ok(r_cur: int, c_cur: int, r_old: int, c_old: int) -> bool:
+        new_val = cur_grid[r_cur][c_cur]
+        return new_val == "" or new_val == old_grid[r_old][c_old]
+
+    if use_cols > 1 and any(not _cell_ok(0, c, 0, c) for c in range(1, use_cols)):
+        return (0, False)
+
+    # A matching prefix is safe to own because its cells equal the snapshot.
+    prefix = 1
+    for r in range(1, rows):
+        if all(_cell_ok(r, c, r, c) for c in range(use_cols)):
+            prefix = r + 1
+        else:
+            break
+
+    surv = rows - del_count
+    # Only a removal at the prefix end needs testing: any earlier valid removal implies this one.
+    if surv >= 1 and prefix <= surv:
+        if all(_cell_ok(r, c, r + del_count, c) for r in range(prefix, surv) for c in range(use_cols)):
+            return (surv, True)
+    if surv >= 1 and prefix >= surv:
+        return (prefix, True)
+    return (prefix, False)
+
+
 def _surviving_shape(
     sheet: Any,
     row: int,
@@ -205,68 +243,38 @@ def _surviving_shape(
     cur_grid = _snapshot_grid(current, record.rows, record.cols)
     rows, cols = record.rows, record.cols
 
-    def _cell_ok(r_cur: int, c_cur: int, r_old: int, c_old: int) -> bool:
-        new_val = cur_grid[r_cur][c_cur]
-        return new_val == "" or new_val == old_grid[r_old][c_old]
-
-    def _surviving_rows(del_rows: int, use_cols: int) -> tuple[int, bool]:
-        if use_cols > 1 and any(not _cell_ok(0, c, 0, c) for c in range(1, use_cols)):
-            return (1, False)
-        prefix = 1
-        for r in range(1, rows):
-            if all(_cell_ok(r, c, r, c) for c in range(use_cols)):
-                prefix = r + 1
-            else:
-                break
-        surv = rows - del_rows
-        if surv >= 1 and prefix <= surv:
-            if all(_cell_ok(r, c, r + del_rows, c) for r in range(prefix, surv) for c in range(use_cols)):
-                return (surv, True)
-        if surv >= 1 and prefix >= surv:
-            return (prefix, True)
-        return (prefix, False)
-
-    def _surviving_cols(del_cols: int, use_rows: int) -> tuple[int, bool]:
-        if use_rows > 1 and any(not _cell_ok(r, 0, r, 0) for r in range(1, use_rows)):
-            return (1, False)
-        prefix = 1
-        for c in range(1, cols):
-            if all(_cell_ok(r, c, r, c) for r in range(use_rows) if (r, c) != (0, 0)):
-                prefix = c + 1
-            else:
-                break
-        surv = cols - del_cols
-        if surv >= 1 and prefix <= surv:
-            if all(
-                _cell_ok(r, c, r, c + del_cols)
-                for c in range(prefix, surv)
-                for r in range(use_rows)
-                if (r, c) != (0, 0)
-            ):
-                return (surv, True)
-        if surv >= 1 and prefix >= surv:
-            return (prefix, True)
-        return (prefix, False)
-
-    if all(_cell_ok(r, c, r, c) for r in range(rows) for c in range(cols) if (r, c) != (0, 0)):
+    if all(
+        cur_grid[r][c] == "" or cur_grid[r][c] == old_grid[r][c]
+        for r in range(rows)
+        for c in range(cols)
+        if (r, c) != (0, 0)
+    ):
         return (rows, cols)
 
     del_rows = max(0, -delta[0])
     del_cols = max(0, -delta[1])
     if del_rows > 0 and del_cols == 0:
-        return (_surviving_rows(del_rows, cols)[0], cols)
+        sr, _ = _surviving_axis(old_grid, cur_grid, del_rows, cols)
+        return (1, 1) if sr == 0 else (sr, cols)
+
+    old_t = [list(r) for r in zip(*old_grid, strict=True)]
+    cur_t = [list(r) for r in zip(*cur_grid, strict=True)]
     if del_cols > 0 and del_rows == 0:
-        return (rows, _surviving_cols(del_cols, rows)[0])
+        sc, _ = _surviving_axis(old_t, cur_t, del_cols, rows)
+        return (1, 1) if sc == 0 else (rows, sc)
 
     # Both axes shrank (for example deleting a row that also held the rightmost cell):
     # try each axis alone before shrinking both.
-    sr, row_matched = _surviving_rows(del_rows, cols)
+    sr, row_matched = _surviving_axis(old_grid, cur_grid, del_rows, cols)
     if row_matched:
         return (sr, cols)
-    sc, col_matched = _surviving_cols(del_cols, rows)
+    sc, col_matched = _surviving_axis(old_t, cur_t, del_cols, rows)
     if col_matched:
         return (rows, sc)
-    return (sr, _surviving_cols(del_cols, sr)[0])
+    if sr == 0:
+        sr = 1
+    sc_both, _ = _surviving_axis(old_t, cur_t, del_cols, sr)
+    return (sr, max(1, sc_both))
 
 
 def _owned_rect(
