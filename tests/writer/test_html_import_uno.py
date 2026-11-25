@@ -3408,7 +3408,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
             ts.Alignment = TAB_ALIGN_LEFT
             ts.DecimalChar = "."
             ts.FillChar = " "
-            pc.setPropertyValue("ParaTabStops", uno.Any("[]com.sun.star.style.TabStop", (ts,)))
+            uno.invoke(pc, "setPropertyValue", ("ParaTabStops", uno.Any("[]com.sun.star.style.TabStop", (ts,))))
             pc.setPropertyValue("CharFontName", "Times New Roman")
             pc.setPropertyValue("CharHeight", 11.0)
 
