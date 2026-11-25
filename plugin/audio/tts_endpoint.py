@@ -244,9 +244,9 @@ def _post_audio_speech(
         code = exc.details.get("status") or 0
         if exc.code == "STOPPED":
             # Stop is code="STOPPED"; the transport logs it at debug, and a warning here reads as a failed POST.
-            log.debug("TTS POST %s aborted by Stop", log_target(url))
+            log.debug("TTS POST %s aborted by Stop", url)
         else:
-            log.warning("TTS POST %s failed (%s): %s", log_target(url), code, exc)
+            log.warning("TTS POST %s failed (%s): %s", url, code, exc)
         return None, "", code, str(exc)
 
 
@@ -313,6 +313,7 @@ def download_endpoint_speech(
     try:
         origin_and_path(endpoint_url)
     except NetworkError as exc:
+        # raw endpoint: see log_target
         log.warning("TTS endpoint %s: %s", log_target(endpoint_url), exc)
         notify_tts_status(_speech_failure_message(0, str(exc)), on_status)
         return None
@@ -350,7 +351,7 @@ def download_endpoint_speech(
             payload["voice"] = eff_voice
         log.info(
             "Requesting TTS from %s (model=%s, voice=%s, format=%s, speed=%s, text_len=%d)",
-            log_target(url), payload["model"], payload.get("voice", ""), response_format,
+            url, payload["model"], payload.get("voice", ""), response_format,
             payload.get("speed", "local"), len(text),
         )
         audio_bytes, content_type, code, err_body = _post_audio_speech(
@@ -374,7 +375,7 @@ def download_endpoint_speech(
         return None
 
     if not audio_bytes:
-        log.warning("TTS endpoint %s returned empty audio body", log_target(url))
+        log.warning("TTS endpoint %s returned empty audio body", url)
         notify_tts_status(_("Speech endpoint returned no audio."), on_status)
         return None
 
@@ -387,7 +388,7 @@ def download_endpoint_speech(
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info(
         "TTS audio received from %s (model=%s, format=%s, bytes=%d, elapsed_ms=%d)",
-        log_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
+        url, model, actual_format, len(audio_bytes), elapsed_ms,
     )
     if is_cancelled(cancel):
         log.info("TTS playback cancelled after download")

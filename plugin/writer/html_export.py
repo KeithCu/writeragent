@@ -948,8 +948,14 @@ _PAGE_NUMBER_SUBTYPE_NAMES: dict[int, str] = {
     2: "NEXT",
 }
 
-_PAGE_NUMBER_SPAN_RE = re.compile(
-    r'<span\b(?=[^>]*\btitle=["\']page-number["\'])[^>]*>',
+# Span titles whose fields carry a NumberingType, mapped to the field service.
+PAGE_FIELD_SERVICES: dict[str, str] = {
+    "page-number": "com.sun.star.text.textfield.PageNumber",
+    "page-count": "com.sun.star.text.textfield.PageCount",
+}
+
+_PAGE_FIELD_SPAN_RE = re.compile(
+    r'<span\b(?=[^>]*\btitle=["\'](%s)["\'])[^>]*>' % "|".join(PAGE_FIELD_SERVICES),
     re.IGNORECASE,
 )
 
@@ -977,45 +983,49 @@ def _page_number_subtype_to_name(subtype: Any) -> str:
     return _enum_token(subtype, _PAGE_NUMBER_SUBTYPE_NAMES, ("PREV", "CURRENT", "NEXT"), "CURRENT", "PageNumber SubType")
 
 
-def _page_number_numbering_type_to_name(num_type: Any) -> str:
+def _numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
-    return _enum_token(num_type, PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
+    return _enum_token(num_type, PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "field NumberingType")
 
 
-def extract_page_number_fields(model: Any, text_obj: Any) -> list[dict[str, Any]]:
-    """Walk *text_obj* in document order and collect PageNumber field properties."""
+def _page_field_props(field: Any) -> dict[str, Any] | None:
+    """Return the span title and properties of a PageNumber or PageCount field, else None."""
+    for title, service in PAGE_FIELD_SERVICES.items():
+        if field.supportsService(service):
+            names = ("SubType", "Offset", "NumberingType") if title == "page-number" else ("NumberingType",)
+            return {"title": title, **{name: field.getPropertyValue(name) for name in names}}
+    return None
+
+
+def extract_page_fields(model: Any, text_obj: Any) -> list[dict[str, Any]]:
+    """Walk *text_obj* in document order and collect PageNumber and PageCount field properties."""
     fields: list[dict[str, Any]] = []
     for para, state in iter_xtext_paragraphs(text_obj, TrackedDeletions(model).state_at(text_obj)):
-        # Must skip the same fields as _copy_xtext_by_portions, or the count check skips attribute injection.
+        # Must skip the same fields as _copy_xtext_by_portions, or the title check skips attribute injection.
         for portion, _unused in visible_portions(para, abort_on_portion_error=True, state=state):
             if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "TextField":
                 try:
-                    field = portion.getPropertyValue("TextField")
-                    if field.supportsService("com.sun.star.text.textfield.PageNumber"):
-                        # A PageNumber field always has these three. A failed
-                        # read skips the field instead of inventing CURRENT/0/ARABIC.
-                        subtype = field.getPropertyValue("SubType")
-                        offset = field.getPropertyValue("Offset")
-                        numbering = field.getPropertyValue("NumberingType")
-                        fields.append({
-                            "SubType": subtype,
-                            "Offset": offset,
-                            "NumberingType": numbering,
-                        })
+                    # A failed read skips the field instead of inventing CURRENT/0/ARABIC.
+                    props = _page_field_props(portion.getPropertyValue("TextField"))
                 except Exception as e:
-                    log.debug("extract_page_number_fields TextField processing failed: %s", e)
+                    log.debug("extract_page_fields TextField processing failed: %s", e)
+                    continue
+                if props is not None:
+                    fields.append(props)
     return fields
 
 
-def _inject_page_number_attributes(content: str, fields: list[dict[str, Any]]) -> str:
-    """Add data-subtype/offset/numbering-type to each page-number span; defaults are omitted."""
+def _inject_page_field_attributes(content: str, fields: list[dict[str, Any]]) -> str:
+    """Add data-subtype/offset/numbering-type to page-number and page-count spans; defaults are omitted."""
     if not content or not fields:
         return content
-    spans = list(_PAGE_NUMBER_SPAN_RE.finditer(content))
-    if len(spans) != len(fields):
+    spans = list(_PAGE_FIELD_SPAN_RE.finditer(content))
+    span_titles = [m.group(1).lower() for m in spans]
+    field_titles = [f["title"] for f in fields]
+    if span_titles != field_titles:
         log.warning(
-            "xtext_to_content: PageNumber fields count mismatch. Extracted %d, found %d spans. Skipping attribute injection.",
-            len(fields), len(spans),
+            "xtext_to_content: page fields mismatch. Extracted %s, found spans %s. Skipping attribute injection.",
+            field_titles, span_titles,
         )
         return content
     out: list[str] = []
@@ -1026,13 +1036,13 @@ def _inject_page_number_attributes(content: str, fields: list[dict[str, Any]]) -
         # com.sun.star.text.PageNumberType.CURRENT = 1
         # Offset = 0
         # ARABIC = 4
-        st_name = _page_number_subtype_to_name(props.get("SubType"))
-        if st_name != "CURRENT":
-            attrs += f' data-subtype="{st_name}"'
-        offset_val = props.get("Offset", 0)
-        if offset_val != 0:
-            attrs += f' data-offset="{offset_val}"'
-        nt_name = _page_number_numbering_type_to_name(props.get("NumberingType"))
+        if props["title"] == "page-number":
+            st_name = _page_number_subtype_to_name(props["SubType"])
+            if st_name != "CURRENT":
+                attrs += f' data-subtype="{st_name}"'
+            if props["Offset"] != 0:
+                attrs += f' data-offset="{props["Offset"]}"'
+        nt_name = _numbering_type_to_name(props["NumberingType"])
         if nt_name != "ARABIC":
             attrs += f' data-numbering-type="{nt_name}"'
         out.append(content[last_end:match.start()])
@@ -1059,7 +1069,7 @@ def xtext_to_content(
     if text_obj is None:
         return ""
 
-    extracted_fields = extract_page_number_fields(model, text_obj)
+    extracted_fields = extract_page_fields(model, text_obj)
 
     temp_doc = new_blank_writer(ctx)
     if not temp_doc:
@@ -1080,7 +1090,7 @@ def xtext_to_content(
         )
         content = substitute_math_placeholders(content, math_records, ctx)
 
-        content = _inject_page_number_attributes(content, extracted_fields)
+        content = _inject_page_field_attributes(content, extracted_fields)
 
         return content
     finally:

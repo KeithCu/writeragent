@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable, cast
 
-from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
-from plugin.contrib.smolagents.agents import ToolOutput
+from plugin.contrib.smolagents.agents import ToolCallingAgent, ToolOutput
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
@@ -121,13 +120,20 @@ class WriteProjectFile(Tool):
 class ReplyToUserTool(Tool):
     name: str = "reply_to_user"
     description: str = "Continue the PPT-Master session with an HTML message to the user."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"message": {"type": "string", "description": "HTML reply."}}
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = {
+        "answer": {"type": "string", "description": "HTML reply.", "nullable": True},
+        "message": {"type": "string", "description": "HTML reply.", "nullable": True},
+    }
     output_type: str = "string"
     is_final_answer_tool: bool = True
     skip_forward_signature_validation: bool = True
 
-    def forward(self, message: str) -> str:
-        return message
+    def forward(self, message: str | None = None, answer: str | None = None) -> str:
+        # smolagents' plain-text fallback and sidebar modes send `answer`; keep `message` for existing callers.
+        text = answer if (answer and answer.strip()) else message
+        if not text or not text.strip():
+            raise ValueError("reply_to_user requires a non-empty 'answer' or 'message'.")
+        return text
 
 
 class PptMasterFinishedTool(Tool):
@@ -228,12 +234,12 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
-    # Pass system_prompt_examples. PartialTurnToolCallingAgent otherwise fills in the
+    # Pass system_prompt_examples. ToolCallingAgent otherwise fills in the
     # web-research demo (web_search / final_answer). This agent finishes with
     # ppt_master_finished.
     # stdout is dup'd onto stderr here and the host quotes the stderr tail in errors,
     # so the agent console stays off.
-    agent = PartialTurnToolCallingAgent(
+    agent = ToolCallingAgent(
         tools=tools,
         model=smol_model,
         max_steps=max_steps,

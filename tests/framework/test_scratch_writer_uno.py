@@ -12,7 +12,9 @@ import tempfile
 import zipfile
 
 import uno
+from com.sun.star.frame.DispatchResultState import SUCCESS
 from com.sun.star.style.BreakType import PAGE_BEFORE
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
 
 from plugin.app import get_services, get_tools
 from plugin.doc.document_research import close_document_research_document, open_document_for_read
@@ -30,15 +32,18 @@ from plugin.writer.get_document_content import GetDocumentContent
 
 
 def _toggle_manage_changes(ctx, doc) -> None:
+    # Tests using this helper must open doc with hidden=False: LibreOffice refuses the
+    # dispatch on a hidden document, so the dialog would never open.
     frame = doc.getCurrentController().getFrame()
     helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
-    helper.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+    for _idx in range(2):
+        result = helper.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+        assert result.State == SUCCESS, result
     assert isinstance(doc.getText().getString(), str)
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
+@with_native_doc("writer", hidden=False, reuse=False)
 def test_manage_changes_opens_after_scratch_writer_closes_uno(ctx, doc):
     scratch = new_blank_writer(ctx)
     assert scratch is not None
@@ -47,7 +52,7 @@ def test_manage_changes_opens_after_scratch_writer_closes_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
+@with_native_doc("writer", hidden=False, reuse=False)
 def test_manage_changes_opens_after_range_read_uno(ctx, doc):
     doc.getText().setString("Hello range read")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -58,7 +63,7 @@ def test_manage_changes_opens_after_range_read_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
+@with_native_doc("writer", hidden=False, reuse=False)
 def test_manage_changes_opens_after_vision_preview_uno(ctx, doc):
     preview = render_preview_page(ctx, "<h1>T</h1><p>x</p>", "s")
     assert preview.width_px > 0
@@ -66,7 +71,7 @@ def test_manage_changes_opens_after_vision_preview_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
+@with_native_doc("writer", hidden=False, reuse=False)
 def test_manage_changes_opens_after_sibling_read_uno(ctx, doc):
     skip_windows_hidden_open_after_bitmap("scratch_writer Hidden sibling txt")
     fd, path = tempfile.mkstemp(prefix="wa_sibling_", suffix=".txt")
@@ -104,7 +109,7 @@ def _rewrite_meta_page_count(src_odt: str, dst_odt: str, count: int) -> None:
 
 
 @native_test
-@with_native_doc("writer", reuse=False)
+@with_native_doc("writer", hidden=False, reuse=False)
 def test_get_tree_on_hidden_writer_sibling_uno(ctx, doc):
     skip_windows_hidden_open_after_bitmap("scratch_writer Hidden sibling odt")
     text = doc.getText()
@@ -150,4 +155,32 @@ def test_get_tree_on_hidden_writer_sibling_uno(ctx, doc):
             for p in (raw_path, stale_path):
                 if os.path.exists(p):
                     os.remove(p)
+    _toggle_manage_changes(ctx, doc)
+
+
+@native_test
+@with_native_doc("writer", hidden=False, reuse=False)
+def test_manage_changes_opens_after_full_read_of_multi_paragraph_deletion_uno(ctx, doc):
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    text.insertString(cursor, "First para", False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Second para", False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Third para", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cursor = text.createTextCursor()
+        del_cursor.gotoStart(False)
+        del_cursor.goRight(6, False)
+        del_cursor.goRight(20, True)
+        del_cursor.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert res.get("status") == "ok", res
+    assert 'data-lo-deleted="true"' in str(res.get("content", "")), res
     _toggle_manage_changes(ctx, doc)

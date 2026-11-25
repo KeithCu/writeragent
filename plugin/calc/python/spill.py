@@ -171,6 +171,129 @@ def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool
     )
 
 
+def _snapshot_grid(values: tuple[Any, ...], rows: int, cols: int) -> list[list[Any]]:
+    """Expand a ``_rect_values`` tuple into a ``rows x cols`` grid (origin ``[0][0]`` unused)."""
+    grid: list[list[Any]] = [[None] * cols for _ in range(rows)]
+    idx = 0
+    if cols > 1:
+        grid[0][1:] = list(values[idx][0])
+        idx += 1
+    if rows > 1:
+        for r_idx, row_vals in enumerate(values[idx], start=1):
+            grid[r_idx][:] = list(row_vals)
+    return grid
+
+
+def _surviving_axis(
+    old_grid: list[list[Any]],
+    cur_grid: list[list[Any]],
+    del_count: int,
+    use_cols: int,
+) -> tuple[int, bool]:
+    """Return ``(surviving_rows, full_shift_matched)`` along axis 0 for ``use_cols`` columns.
+
+    Returns ``(0, False)`` when row 0 itself mismatches so single-axis callers fall back to
+    ``(1, 1)`` instead of claiming mismatched cells in the origin row or column.
+    """
+    rows = len(old_grid)
+
+    def _cell_ok(r_cur: int, c_cur: int, r_old: int, c_old: int) -> bool:
+        new_val = cur_grid[r_cur][c_cur]
+        return new_val == "" or new_val == old_grid[r_old][c_old]
+
+    if use_cols > 1 and any(not _cell_ok(0, c, 0, c) for c in range(1, use_cols)):
+        return (0, False)
+
+    # A matching prefix is safe to own because its cells equal the snapshot.
+    prefix = 1
+    for r in range(1, rows):
+        if all(_cell_ok(r, c, r, c) for c in range(use_cols)):
+            prefix = r + 1
+        else:
+            break
+
+    surv = rows - del_count
+    # Only a removal at the prefix end needs testing: any earlier valid removal implies this one.
+    if surv >= 1 and prefix <= surv:
+        if all(_cell_ok(r, c, r + del_count, c) for r in range(prefix, surv) for c in range(use_cols)):
+            return (surv, True)
+    if surv >= 1 and prefix >= surv:
+        return (prefix, True)
+    return (prefix, False)
+
+
+def _surviving_shape(
+    sheet: Any,
+    row: int,
+    col: int,
+    record: SpillRecord,
+    delta: tuple[int, int] | None,
+) -> tuple[int, int]:
+    """Return the ``(rows, cols)`` of ``record`` that still belong to it after ``delta``.
+
+    Only a negative used-area delta triggers shrinking: a row or column delete pulls user cells
+    into the old rectangle, whereas typed-over values at delta (0, 0) are deliberately still ours.
+    """
+    if delta is None or (delta[0] >= 0 and delta[1] >= 0) or record.values is None:
+        return (record.rows, record.cols)
+    current = _rect_values(sheet, row, col, record.rows, record.cols)
+    if current is None:
+        return (1, 1)
+    old_grid = _snapshot_grid(record.values, record.rows, record.cols)
+    cur_grid = _snapshot_grid(current, record.rows, record.cols)
+    rows, cols = record.rows, record.cols
+
+    if all(
+        cur_grid[r][c] == "" or cur_grid[r][c] == old_grid[r][c]
+        for r in range(rows)
+        for c in range(cols)
+        if (r, c) != (0, 0)
+    ):
+        return (rows, cols)
+
+    del_rows = max(0, -delta[0])
+    del_cols = max(0, -delta[1])
+    if del_rows > 0 and del_cols == 0:
+        sr, _ = _surviving_axis(old_grid, cur_grid, del_rows, cols)
+        return (1, 1) if sr == 0 else (sr, cols)
+
+    old_t = [list(r) for r in zip(*old_grid, strict=True)]
+    cur_t = [list(r) for r in zip(*cur_grid, strict=True)]
+    if del_cols > 0 and del_rows == 0:
+        sc, _ = _surviving_axis(old_t, cur_t, del_cols, rows)
+        return (1, 1) if sc == 0 else (rows, sc)
+
+    # Both axes shrank (for example deleting a row that also held the rightmost cell):
+    # try each axis alone before shrinking both.
+    sr, row_matched = _surviving_axis(old_grid, cur_grid, del_rows, cols)
+    if row_matched:
+        return (sr, cols)
+    sc, col_matched = _surviving_axis(old_t, cur_t, del_cols, rows)
+    if col_matched:
+        return (rows, sc)
+    if sr == 0:
+        sr = 1
+    sc_both, _ = _surviving_axis(old_t, cur_t, del_cols, sr)
+    return (sr, max(1, sc_both))
+
+
+def _owned_rect(
+    sheet: Any,
+    row: int,
+    col: int,
+    record: SpillRecord | None,
+    delta: tuple[int, int] | None,
+) -> tuple[int, int]:
+    """Return the ``(rows, cols)`` rectangle ``record`` owns at ``(row, col)``, or ``(0, 0)`` if none."""
+    if record is None or record.rows * record.cols <= 1:
+        return (0, 0)
+    # Check user formulas before reading values: _surviving_shape calls getDataArray(), which would
+    # interpret a dirty dependent formula during =PY() recalculation.
+    if _user_formula_in_rect(sheet, row, col, record.rows, record.cols) is not None:
+        return (0, 0)
+    return _surviving_shape(sheet, row, col, record, delta)
+
+
 def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
     """Clear spilled cells in the rectangle, leaving the origin formula cell untouched.
 
@@ -257,12 +380,21 @@ def cleanup_orphans(
             delta = _used_end_delta(state, sheet, sheet_name)
             to_remove: list[tuple[tuple[str, int, int], bool]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int]]] = []
+            to_shrink: list[tuple[tuple[str, int, int], tuple[int, int]]] = []
             for (s_name, frow, fcol), record in list(state.spills.items()):
                 if s_name != sheet_name:
                     continue
                 try:
                     if _origin_matches_record(sheet, frow, fcol, record):
-                        record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
+                        if record.rows * record.cols > 1:
+                            # cleanup_orphans runs outside interpretation, so shrink even when a
+                            # user formula is inside; otherwise advancing used_ends would lose the
+                            # negative delta before the user clears that formula.
+                            surv = _surviving_shape(sheet, frow, fcol, record, delta)
+                            if surv != (record.rows, record.cols):
+                                to_shrink.append(((sheet_name, frow, fcol), surv))
+                            else:
+                                record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
                         continue
 
                     cell = sheet.getCellByPosition(fcol, frow)
@@ -285,13 +417,23 @@ def cleanup_orphans(
                 except Exception:
                     log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
-            if to_remove or to_remap:
+            if to_remove or to_remap or to_shrink:
                 with undo_lock(doc):
                     for key, clear in to_remove:
                         removed_rec = state.spills.pop(key, None)
-                        if removed_rec is not None and clear:
-                            if _user_formula_in_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols) is None:
-                                _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
+                        if clear:
+                            owned_r, owned_c = _owned_rect(sheet, key[1], key[2], removed_rec, delta)
+                            if owned_r * owned_c > 1:
+                                _clear_rect(sheet, key[1], key[2], owned_r, owned_c)
+                    for shrink_key, (new_r, new_c) in to_shrink:
+                        shrink_rec = state.spills.get(shrink_key)
+                        if shrink_rec is not None:
+                            state.spills[shrink_key] = SpillRecord(
+                                code=shrink_rec.code,
+                                rows=new_r,
+                                cols=new_c,
+                                values=_rect_values(sheet, shrink_key[1], shrink_key[2], new_r, new_c),
+                            )
                     moved = [
                         (new_k, state.spills.pop(old_k))
                         for old_k, new_k in to_remap
@@ -507,16 +649,16 @@ def _clear_blocked_spill(
     """
     key = (sheet_name, row, col)
     rec = state.spills.get(key)
-    if rec is None or rec.rows * rec.cols <= 1:
-        return
     # A shifted-in =PY formula must not clear shifted user data under another formula's old record
     # before cleanup_orphans runs.
-    if not _origin_matches_record(sheet, row, col, rec):
+    if rec is None or not _origin_matches_record(sheet, row, col, rec):
         return
-    if _user_formula_in_rect(sheet, row, col, rec.rows, rec.cols) is not None:
+    delta = _used_end_delta(state, sheet, sheet_name)
+    owned_r, owned_c = _owned_rect(sheet, row, col, rec, delta)
+    if owned_r * owned_c <= 1:
         return
     before = _used_end(sheet)
-    if _clear_rect(sheet, row, col, rec.rows, rec.cols):
+    if _clear_rect(sheet, row, col, owned_r, owned_c):
         state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
         save_spill_registry_for_doc(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
@@ -597,8 +739,9 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
-                # The modify pass may still be waiting: remap any moved record and clear or drop any
-                # record whose formula is no longer at this origin before this write decides what it owns.
+                # The modify pass may still be waiting: remap any moved record and clear or drop
+                # any record whose formula is no longer at this origin before this write decides
+                # what it owns.
                 previous_record = state.spills.get(reg_key)
                 foreign = previous_record is not None and not _origin_matches_record(
                     sheet, formula_row, formula_col, previous_record
@@ -607,14 +750,17 @@ def perform_deferred_spill(
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
+                delta = _used_end_delta(state, sheet, sheet_name)
                 num_rows = len(grid)
                 num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
-                owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
-                if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+                if _spill_is_blocked(
+                    doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, previous_record, delta
+                ):
                     _clear_blocked_spill(state, doc, sheet, sheet_name, formula_row, formula_col)
                     return
-                if previous_record is not None:
-                    _clear_rect(sheet, formula_row, formula_col, previous_record.rows, previous_record.cols)
+                owned_r, owned_c = _owned_rect(sheet, formula_row, formula_col, previous_record, delta)
+                if owned_r * owned_c > 1:
+                    _clear_rect(sheet, formula_row, formula_col, owned_r, owned_c)
 
                 if num_rows == 0 or num_cols == 0:
                     state.spills[reg_key] = SpillRecord(code=code, rows=1, cols=1)
@@ -726,12 +872,12 @@ def _spill_is_blocked(
     col: int,
     num_rows: int,
     num_cols: int,
-    owned: tuple[int, int],
+    previous_record: SpillRecord | None,
+    delta: tuple[int, int] | None,
 ) -> bool:
-    """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``owned``, or holds a user formula."""
-    owned_rows, owned_cols = owned
-    if owned_rows * owned_cols > 1:
-        blocker = _user_formula_in_rect(sheet, row, col, owned_rows, owned_cols)
+    """Return True and record diagnostics if any target cell is out of bounds, occupied outside the owned part of ``previous_record``, or holds a user formula."""
+    if previous_record is not None and previous_record.rows * previous_record.cols > 1:
+        blocker = _user_formula_in_rect(sheet, row, col, previous_record.rows, previous_record.cols)
         if blocker is not None:
             _record_spill_blocked(
                 doc=doc,
@@ -745,6 +891,7 @@ def _spill_is_blocked(
                 in_previous_rect=True,
             )
             return True
+    owned_rows, owned_cols = _owned_rect(sheet, row, col, previous_record, delta)
 
     if num_rows * num_cols <= 1:
         return False
@@ -858,11 +1005,13 @@ def prepare_auto_spill(
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
     previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
-    owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
+    delta = _used_end_delta(state, sheet, sheet_name)
 
-    log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
+    log.debug("Spill: previous record for cell %r: %r", reg_key, previous_record)
 
-    if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+    if _spill_is_blocked(
+        doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, previous_record, delta
+    ):
         # Cells cannot be written during interpretation; scheduling on the shared token
         # replaces any pending write for this origin (even when no record exists yet) and
         # lets a later fitting recalculation replace or cancel the release.

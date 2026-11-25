@@ -1288,6 +1288,19 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
     """Formatting an agent insertion keeps its Insert redline and wa-review token so Reject All restores original text."""
     from plugin.writer.styles import ApplyStyle, StyleFormatText
 
+    def _assert_agent_insert_redline() -> None:
+        redlines = doc.getRedlines()
+        # Hold every SwXRedline wrapper until reads finish: ~SwXRedline removes its
+        # SvtListener without SolarMutex (unoredline.cxx, listener.cxx), so dropping
+        # one over URP while fetching the next can race.
+        reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
+        assert any(
+            r.getPropertyValue("RedlineType") == "Insert"
+            and r.getPropertyValue("RedlineAuthor") == "WriterAgent"
+            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
+            for r in reds
+        )
+
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
     try:
@@ -1311,17 +1324,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
         )
         assert fmt_res["status"] == "ok", fmt_res
 
-        redlines = doc.getRedlines()
-        inserts = [
-            redlines.getByIndex(i)
-            for i in range(redlines.getCount())
-            if redlines.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
-        ]
-        assert any(
-            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
-            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
-            for r in inserts
-        )
+        _assert_agent_insert_redline()
 
         _reject_all(doc, ctx)
         assert doc.getText().getString() == "First words here."
@@ -1349,17 +1352,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
-        redlines2 = doc.getRedlines()
-        inserts2 = [
-            redlines2.getByIndex(i)
-            for i in range(redlines2.getCount())
-            if redlines2.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
-        ]
-        assert any(
-            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
-            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
-            for r in inserts2
-        )
+        _assert_agent_insert_redline()
 
         _reject_all(doc, ctx)
         assert doc.getText().getString() == "First words here."
@@ -2560,3 +2553,37 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_string_skipping_redline_inside_content_control_uno(ctx, doc):
+    from plugin.writer.edit_review import _string_skipping_redline
+
+    _reset(doc, ctx, "xx CTRL yy")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cur, ctrl, True)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        edit_cur = text.createTextCursor()
+        edit_cur.gotoStart(False)
+        edit_cur.goRight(4, False)  # past "xx " + control start mark
+        edit_cur.goRight(4, True)
+        edit_cur.setString("NEW")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    rng = text.createTextCursor()
+    rng.gotoStart(False)
+    rng.gotoEnd(True)
+    accepted = _string_skipping_redline(rng, "Delete")
+    rejected = _string_skipping_redline(rng, "Insert")
+    assert accepted != rejected
+    assert "NEW" in accepted
+    assert "CTRL" in rejected

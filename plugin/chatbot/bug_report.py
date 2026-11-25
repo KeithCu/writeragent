@@ -32,7 +32,7 @@ import sys
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from plugin.framework.client.http_security import collect_secrets, log_target, redact_secrets, secrets_from_target
+from plugin.framework.client.http_security import collect_secrets, redact_secrets, secrets_from_target
 from plugin.framework.errors import best_effort
 
 log = logging.getLogger(__name__)
@@ -245,7 +245,6 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
     """Open *url* in the system browser (SystemShellExecute, then webbrowser)."""
     if not url:
         return False
-    shown = log_target(url)
 
     if ctx:
         def _open_shell() -> bool:
@@ -256,7 +255,7 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
             shell.execute(url, "", SystemShellExecuteFlags.URIS_ONLY)
             return True
 
-        if best_effort(_open_shell, f"bug_report: SystemShellExecute failed for {shown}"):
+        if best_effort(_open_shell, f"bug_report: SystemShellExecute failed for {url}"):
             return True
 
     def _open_browser() -> bool:
@@ -264,10 +263,10 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
 
         return bool(webbrowser.open(url))
 
-    if best_effort(_open_browser, f"bug_report: webbrowser.open failed for {shown}"):
+    if best_effort(_open_browser, f"bug_report: webbrowser.open failed for {url}"):
         return True
 
-    log.warning("bug_report: could not open URL in browser: %s", shown)
+    log.warning("bug_report: could not open URL in browser: %s", url)
     return False
 
 

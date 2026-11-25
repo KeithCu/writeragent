@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
+from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.monitoring import LogLevel
@@ -434,7 +434,7 @@ def create_smol_model(
     )
 
 
-class WriterAgentToolCallingAgent(PartialTurnToolCallingAgent):
+class WriterAgentToolCallingAgent(ToolCallingAgent):
     """ToolCallingAgent that skips smolagents' pre-validation for ``SmolToolAdapter`` tools.
 
     Smolagents validates argument types and unknown keys before the tool runs,

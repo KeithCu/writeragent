@@ -471,7 +471,8 @@ class LlmClient:
         )
 
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % public_target(path))
+        # bare path: see log_target
+        log.debug("URL: %s", log_target(path))
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         log_chat_request_body_diag(self, path, body, headers, tools)
@@ -562,8 +563,8 @@ class LlmClient:
 
         # log.debug...
         log.debug("=== Image Request ===")
-        # Path/query must not include API keys.
-        log.debug("URL: %s" % public_target(path))
+        # bare path: see log_target
+        log.debug("URL: %s", log_target(path))
 
         # Persistent transport supports cancellation and 429/503 retries.
         try:
@@ -675,7 +676,8 @@ class LlmClient:
         # get_url_path_and_query keeps both.
         req_path = get_url_path_and_query(url)
         log.debug("=== STT Request ===")
-        log.debug("URL: %s" % public_target(req_path))
+        # bare path: see log_target
+        log.debug("URL: %s", log_target(req_path))
         log.debug("STT Model: %s" % model_name)
         res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
@@ -712,6 +714,7 @@ class LlmClient:
     ) -> Any:
         """Common low-level streaming engine."""
         log.info("=== Starting streaming loop (persistent) ===")
+        # bare path: see log_target
         log.debug("Request Path: %s", log_target(path))
 
         # Do not clear cancellation here — that races with stop() on another thread

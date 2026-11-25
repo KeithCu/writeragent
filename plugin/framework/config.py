@@ -70,6 +70,7 @@ _T = TypeVar("_T", int, float)
 _S = TypeVar("_S")
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, UnoObjectError, uno_call
+from plugin.framework.log_redaction import register_known_secret
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -628,6 +629,8 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
         # OS writes, file writes, config:changed emits, and tunnel restarts.
         if text == keystore.get_secret(name):
             return str(current)
+    # Register so RedactingFormatter masks this value wherever an upstream error echoes it.
+    register_known_secret(text)
     if text and keystore.can_store() and keystore.set_secret(name, text):
         return keystore.new_ref()
     return text
@@ -635,8 +638,12 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
 
 def _resolve_secret(name: str, raw: Any, cancel: SendCancellation | None = None) -> str:
     if keystore.is_ref(raw):
-        return keystore.get_secret(name, cancel=cancel) or ""
-    return str(raw or "")
+        val = keystore.get_secret(name, cancel=cancel) or ""
+    else:
+        val = str(raw or "")
+    # Register so RedactingFormatter masks this value wherever an upstream error echoes it.
+    register_known_secret(val)
+    return val
 
 
 def _entry_secret_name(key: str, entry_name: str, field: str) -> str:
@@ -764,10 +771,21 @@ def api_key_needs_keystore_read(endpoint: Any) -> bool:
     return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
 
 
+def cached_api_key_for_endpoint(endpoint: Any) -> str:
+    """Return the API key for *endpoint* from plain text or cache without reading the OS."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    raw = _api_key_slot_raw(normalized)
+    if keystore.is_ref(raw):
+        return keystore.cached_secret(_api_key_secret_name(normalized)) or ""
+    return str(raw or "")
+
+
 def _secret_field_text(name: str, raw: Any) -> str:
     # Return the raw ref when the secret cannot be read: a blank field would be
     # saved as a clear, so pressing OK for an unrelated setting would drop the saved secret.
-    return _resolve_secret(name, raw) or str(raw or "")
+    if keystore.is_ref(raw):
+        return keystore.cached_secret(name) or str(raw)
+    return str(raw or "")
 
 
 def api_key_field_text(endpoint: Any) -> str:

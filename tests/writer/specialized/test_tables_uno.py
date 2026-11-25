@@ -17,19 +17,18 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     TableSplitCell,
 )
+from tests.writer.doc_builders import (
+    accept_all_changes,
+    insert_named_table,
+    reject_all_changes,
+)
 
 
 @native_test
 @with_native_doc("writer")
 def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
     """A nested table reports its direct parent table/cell; a top-level table does not."""
-    text = doc.getText()
-
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("FixtureOuter")
-    outer.getCellByName("A1").setString("OUTER_ALPHA")
+    outer = insert_named_table(doc, "FixtureOuter", 2, 2, {"A1": "OUTER_ALPHA"})
 
     nested = doc.createInstance("com.sun.star.text.TextTable")
     nested.initialize(2, 2)
@@ -39,11 +38,7 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
     nested.getCellByName("A1").setString("NESTED_ALPHA")
     nested.getCellByName("B2").setString("NESTED_OMEGA")
 
-    standalone = doc.createInstance("com.sun.star.text.TextTable")
-    standalone.initialize(1, 2)
-    text.insertTextContent(text.getEnd(), standalone, False)
-    standalone.setName("FixtureStandalone")
-    standalone.getCellByName("A1").setString("STANDALONE_ALPHA")
+    insert_named_table(doc, "FixtureStandalone", 1, 2, {"A1": "STANDALONE_ALPHA"})
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
@@ -104,12 +99,7 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_insert_parent_cell_nests_and_table_delete_removes_uno(ctx, doc):
     """table_insert(parent, cell) nests; table_delete removes nested and top-level tables."""
-    text = doc.getText()
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("InsertOuter")
-    outer.getCellByName("A1").setString("KEEP_HOST")
+    insert_named_table(doc, "InsertOuter", 2, 2, {"A1": "KEEP_HOST"})
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     nested = TableInsert().execute(
@@ -159,11 +149,7 @@ def test_table_insert_parent_cell_nests_and_table_delete_removes_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_set_cell_host_keeps_nested_table_uno(ctx, doc):
     """table_set_cell on a host cell rewrites the caption and leaves the nested table."""
-    text = doc.getText()
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("HostOuter")
+    outer = insert_named_table(doc, "HostOuter", 2, 2)
     host = outer.getCellByName("B2")
     host.setString("OLD_CAPTION")
     nested = doc.createInstance("com.sun.star.text.TextTable")
@@ -196,11 +182,7 @@ def test_table_in_frame_not_in_cell_xtext_is_not_hosted_uno(ctx, doc):
     table inside it. In-cell frames that *do* appear as as-character portions
     are covered by the unit walk.
     """
-    text = doc.getText()
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("FrameOuter")
+    outer = insert_named_table(doc, "FrameOuter", 2, 2)
     host = outer.getCellByName("B2")
     frame = doc.createInstance("com.sun.star.text.TextFrame")
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
@@ -237,12 +219,7 @@ def _merge_a1_d1(table):
 @with_native_doc("writer")
 def test_table_get_cells_merged_banner_reports_d2_uno(ctx, doc):
     """5×4 + merge A1:D1: getColumns() is 1, but D2 is a real cell (discussion #821)."""
-    text = doc.getText()
-    table = doc.createInstance("com.sun.star.text.TextTable")
-    table.initialize(5, 4)
-    text.insertTextContent(text.getEnd(), table, False)
-    table.setName("MergedBanner")
-    table.getCellByName("A1").setString("Title")
+    table = insert_named_table(doc, "MergedBanner", 5, 4, {"A1": "Title"})
     _merge_a1_d1(table)
     table.getCellByName("D2").setString("Telèfon responsable")
 
@@ -278,11 +255,7 @@ def test_table_get_cells_merged_banner_reports_d2_uno(ctx, doc):
 @with_native_doc("writer")
 def test_delete_row_refuses_nested_table_in_merged_d2_uno(ctx, doc):
     """Nest in D2 after A1:D1 merge; delete that row must name the child."""
-    text = doc.getText()
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(5, 4)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("MergedHost")
+    outer = insert_named_table(doc, "MergedHost", 5, 4)
     _merge_a1_d1(outer)
     host = outer.getCellByName("D2")
     nested = doc.createInstance("com.sun.star.text.TextTable")
@@ -304,11 +277,7 @@ def test_delete_row_refuses_nested_table_in_merged_d2_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_merge_cells_joins_text_renumbers_and_undoes_uno(ctx, doc):
     """Merge B2:A1 (lower case, reversed) joins text, renumbers C1 -> B1, and undoes in one step."""
-    text = doc.getText()
-    table = doc.createInstance("com.sun.star.text.TextTable")
-    table.initialize(3, 3)
-    text.insertTextContent(text.getEnd(), table, False)
-    table.setName("MergeGrid")
+    table = insert_named_table(doc, "MergeGrid", 3, 3)
     for cell_name in table.getCellNames():
         table.getCellByName(cell_name).setString("v" + cell_name)
 
@@ -335,11 +304,7 @@ def test_table_merge_cells_joins_text_renumbers_and_undoes_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_merge_cells_keeps_nested_table_uno(ctx, doc):
     """Merging across a host cell preserves the nested table; splitting keeps it in the first cell."""
-    text = doc.getText()
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("Outer")
+    outer = insert_named_table(doc, "Outer", 2, 2)
     host = outer.getCellByName("B2")
     host.setString("host")
     inner = doc.createInstance("com.sun.star.text.TextTable")
@@ -366,11 +331,7 @@ def test_table_merge_cells_keeps_nested_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_table_split_cell_rows_and_unmerge_uno(ctx, doc):
     """Split into rows stacks empty cells; splitting a merged cell restores the split names."""
-    text = doc.getText()
-    t1 = doc.createInstance("com.sun.star.text.TextTable")
-    t1.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), t1, False)
-    t1.setName("SplitRows")
+    t1 = insert_named_table(doc, "SplitRows", 2, 2)
     for cell_name in t1.getCellNames():
         t1.getCellByName(cell_name).setString("v" + cell_name)
 
@@ -384,10 +345,7 @@ def test_table_split_cell_rows_and_unmerge_uno(ctx, doc):
     assert cells["cells"]["A2"] == ""
     assert cells["cells"]["A4"] == "vA2"
 
-    t2 = doc.createInstance("com.sun.star.text.TextTable")
-    t2.initialize(3, 2)
-    text.insertTextContent(text.getEnd(), t2, False)
-    t2.setName("Unmerge")
+    insert_named_table(doc, "Unmerge", 3, 2)
     merged = TableMergeCells().execute(tool_ctx, name="Unmerge", cell_range="A2:A3")
     assert merged.get("status") == "ok", merged
     assert merged["merged_cell"] == "A2"
@@ -396,18 +354,6 @@ def test_table_split_cell_rows_and_unmerge_uno(ctx, doc):
     assert len(unmerged["cell_names"]) == 6
     cells2 = TableGetCells().execute(tool_ctx, name="Unmerge")
     assert cells2["cells"]["A3"] == ""
-
-
-def _accept_all_tables(doc, ctx):
-    from plugin.framework.uno_context import execute_dispatch
-
-    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-
-
-def _reject_all_tables(doc, ctx):
-    from plugin.framework.uno_context import execute_dispatch
-
-    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
 
 
 @native_test
@@ -443,7 +389,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
             assert res["tracked"] is True and res["pending_review"] is True
             assert doc.getRedlines().getCount() > 0
 
-            _reject_all_tables(doc, ctx)
+            reject_all_changes(doc, ctx)
             assert doc.getRedlines().getCount() == 0
             assert tbl.getRows().getCount() == 2 and tbl.getColumns().getCount() == 2
             for k, v in cells_init.items():
@@ -453,7 +399,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
                 tool_ctx, action="delete", axis=axis, name=f"Band{case_idx}", index=idx
             )
             assert res2["status"] == "ok", res2
-            _accept_all_tables(doc, ctx)
+            accept_all_changes(doc, ctx)
             assert doc.getRedlines().getCount() == 0
             if axis == "row":
                 assert tbl.getRows().getCount() == 1
@@ -464,10 +410,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
 
     # Colspan column delete
     doc.getText().setString("")
-    colspan_tbl = doc.createInstance("com.sun.star.text.TextTable")
-    colspan_tbl.initialize(2, 3)
-    text.insertTextContent(text.getEnd(), colspan_tbl, False)
-    colspan_tbl.setName("ColspanTbl")
+    colspan_tbl = insert_named_table(doc, "ColspanTbl", 2, 3)
     for n in colspan_tbl.getCellNames():
         colspan_tbl.getCellByName(n).setString(n)
     TableMergeCells().execute(tool_ctx, name="ColspanTbl", cell_range="A1:B1")
@@ -488,10 +431,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
 
     doc.getText().setString("")
-    two_para_tbl = doc.createInstance("com.sun.star.text.TextTable")
-    two_para_tbl.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), two_para_tbl, False)
-    two_para_tbl.setName("TwoParaTbl")
+    two_para_tbl = insert_named_table(doc, "TwoParaTbl", 2, 2)
     a1_cell = two_para_tbl.getCellByName("A1")
     a1_cur = a1_cell.createTextCursor()
     a1_cell.insertString(a1_cur, "first para", False)
@@ -514,7 +454,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
             tool_ctx, action="delete", axis="row", name="TwoParaTbl", index=0
         )
         assert re_del["status"] == "ok" and re_del["tracked"] is True
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert two_para_tbl.getRows().getCount() == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -524,12 +464,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
     save({"doc.agent_edit_review_mode": "record"})
     try:
         doc.getText().setString("")
-        rec_tbl = doc.createInstance("com.sun.star.text.TextTable")
-        rec_tbl.initialize(2, 2)
-        text.insertTextContent(text.getEnd(), rec_tbl, False)
-        rec_tbl.setName("RecTbl")
-        rec_tbl.getCellByName("A1").setString("keep")
-        rec_tbl.getCellByName("A2").setString("drop")
+        rec_tbl = insert_named_table(doc, "RecTbl", 2, 2, {"A1": "keep", "A2": "drop"})
         assert doc.getPropertyValue("RecordChanges") is False
         res_rec = ManageTableStructure().execute(
             tool_ctx, action="delete", axis="row", name="RecTbl", index=1
@@ -537,7 +472,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
         assert res_rec["status"] == "ok", res_rec
         assert res_rec["tracked"] is True
         assert doc.getPropertyValue("RecordChanges") is False
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert rec_tbl.getRows().getCount() == 1
     finally:
         save({"doc.agent_edit_review_mode": prev})
@@ -551,11 +486,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
     text = doc.getText()
 
     # 1. Row whose text is a pending insertion -> error, text and redlines unchanged
-    tbl = doc.createInstance("com.sun.star.text.TextTable")
-    tbl.initialize(2, 2)
-    text.insertTextContent(text.getEnd(), tbl, False)
-    tbl.setName("PendingText")
-    tbl.getCellByName("A1").setString("stay")
+    tbl = insert_named_table(doc, "PendingText", 2, 2, {"A1": "stay"})
     doc.setPropertyValue("RecordChanges", True)
     try:
         tbl.getCellByName("A2").setString("user_ins")
@@ -566,7 +497,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
         assert err["status"] == "error" and err["code"] == "TABLE_DELETE_NOT_TRACKABLE"
         assert tbl.getCellByName("A2").getString() == "user_ins"
         assert doc.getRedlines().getCount() == before_rl
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -574,12 +505,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
     doc.getText().setString("")
     doc.setPropertyValue("RecordChanges", True)
     try:
-        ptbl = doc.createInstance("com.sun.star.text.TextTable")
-        ptbl.initialize(2, 2)
-        text.insertTextContent(text.getEnd(), ptbl, False)
-        ptbl.setName("PendingTbl")
-        ptbl.getCellByName("A1").setString("p1")
-        ptbl.getCellByName("A2").setString("p2")
+        ptbl = insert_named_table(doc, "PendingTbl", 2, 2, {"A1": "p1", "A2": "p2"})
         before_rl = doc.getRedlines().getCount()
         err_band = ManageTableStructure().execute_safe(
             tool_ctx, action="delete", axis="row", name="PendingTbl", index=0
@@ -591,14 +517,14 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
             for i in range(doc.getRedlines().getCount())
         )
         err_tbl = TableDelete().execute_safe(tool_ctx, name="PendingTbl")
-        assert err_tbl["status"] == "error"
+        assert err_tbl["status"] == "error" and err_tbl["code"] == "TABLE_DELETE_NOT_TRACKABLE"
         assert ptbl.getCellByName("A1").getString() == "p1"
         assert ptbl.getCellByName("A2").getString() == "p2"
         assert all(
             doc.getRedlines().getByIndex(i).getPropertyValue("RedlineType") == "Insert"
             for i in range(doc.getRedlines().getCount())
         )
-        _reject_all_tables(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getRedlines().getCount() == 0
         assert ptbl.getCellByName("A1").getString() == ""
         assert ptbl.getCellByName("A2").getString() == ""
@@ -617,11 +543,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
     hidden_tbl.setName("HiddenTbl")
     hidden_tbl.getCellByName("A1").setString("hidden")
 
-    vis_tbl = doc.createInstance("com.sun.star.text.TextTable")
-    vis_tbl.initialize(1, 1)
-    text.insertTextContent(text.getEnd(), vis_tbl, False)
-    vis_tbl.setName("VisibleTbl")
-    vis_tbl.getCellByName("A1").setString("keep me")
+    vis_tbl = insert_named_table(doc, "VisibleTbl", 1, 1, {"A1": "keep me"})
 
     doc.setPropertyValue("RecordChanges", True)
     try:
@@ -634,10 +556,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
 
     # 4. Outer table whose A1 starts with a nested table -> outer table goes on Accept
     doc.getText().setString("")
-    outer = doc.createInstance("com.sun.star.text.TextTable")
-    outer.initialize(1, 2)
-    text.insertTextContent(text.getEnd(), outer, False)
-    outer.setName("OuterA1")
+    outer = insert_named_table(doc, "OuterA1", 1, 2)
     a1 = outer.getCellByName("A1")
     inner = doc.createInstance("com.sun.star.text.TextTable")
     inner.initialize(1, 1)
@@ -648,14 +567,14 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
     try:
         del_outer = TableDelete().execute(tool_ctx, name="OuterA1")
         assert del_outer["status"] == "ok" and del_outer["pending_review"] is True
-        _reject_all_tables(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getTextTables().hasByName("OuterA1")
         assert doc.getTextTables().hasByName("InnerA1")
         assert outer.getCellByName("B1").getString() == "outer_b1"
 
         del_outer2 = TableDelete().execute(tool_ctx, name="OuterA1")
         assert del_outer2["status"] == "ok" and del_outer2["pending_review"] is True
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert not doc.getTextTables().hasByName("OuterA1")
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -679,7 +598,7 @@ def test_record_mode_table_row_col_delete_tagged_as_one_change_uno(ctx, doc):
             for i in range(doc.getRedlines().getCount())
         }
         assert len(tokens_row) == 1 and all(is_agent_token(t) for t in tokens_row)
-        _reject_all_tables(doc, ctx)
+        reject_all_changes(doc, ctx)
 
         res_col = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t_name, index=1)
         assert res_col["status"] == "ok" and res_col["pending_review"] is True
@@ -688,7 +607,7 @@ def test_record_mode_table_row_col_delete_tagged_as_one_change_uno(ctx, doc):
             for i in range(doc.getRedlines().getCount())
         }
         assert len(tokens_col) == 1 and all(is_agent_token(t) for t in tokens_col)
-        _reject_all_tables(doc, ctx)
+        reject_all_changes(doc, ctx)
 
         res_tbl = TableDelete().execute_safe(tool_ctx, name=t_name)
         assert res_tbl["status"] == "ok" and res_tbl["pending_review"] is True
@@ -697,7 +616,7 @@ def test_record_mode_table_row_col_delete_tagged_as_one_change_uno(ctx, doc):
             for i in range(doc.getRedlines().getCount())
         }
         assert len(tokens_tbl) == 1 and all(is_agent_token(t) for t in tokens_tbl)
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert not doc.getTextTables().hasByName(t_name)
     finally:
         save({"doc.agent_edit_review_mode": prev})
@@ -760,15 +679,13 @@ def test_colspan_column_delete_preserves_nested_table_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
-    from plugin.writer.range_copy import writer_cell_position
     from plugin.writer.specialized.tables import _column_band_cells
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     t_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")
     table = doc.getTextTables().getByName(t_name)
-    positions = {n: pos for n in table.getCellNames() if (pos := writer_cell_position(n)) is not None}
-    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, positions, 0)}
+    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, 0)}
     assert predicted_texts == {"a1\nb1", "a2", "b2"}
 
     before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
@@ -860,7 +777,7 @@ def test_tall_first_cell_row_delete_refused_and_covered_row_deletes_own_cells_un
         ok = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=tall_name, index=1)
         assert ok["status"] == "ok"
         assert doc.getRedlines().getCount() == 2
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert doc.getTextTables().getByName(tall_name).getRows().getCount() == 2
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -914,11 +831,7 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     from plugin.tests.testing_utils import strike_across_paragraphs
     from plugin.writer.table_nesting import cell_plain_siblings
 
-    text = doc.getText()
-    tbl = doc.createInstance("com.sun.star.text.TextTable")
-    tbl.initialize(1, 2)
-    text.insertTextContent(text.getEnd(), tbl, False)
-    tbl.setName("T1")
+    tbl = insert_named_table(doc, "T1", 1, 2)
 
     cell_a1 = tbl.getCellByName("A1")
     strike_across_paragraphs(doc, cell_a1)
@@ -1071,7 +984,7 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
         assert res_inner["tracked"] is True
         doc.setPropertyValue("RecordChanges", False)
 
-        _reject_all_tables(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert TableGetCells().execute(tool_ctx, name="InnerSpan")["cells"] == before_cells
 
         doc.setPropertyValue("RecordChanges", True)
@@ -1080,7 +993,7 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
         )
         assert res_inner2["status"] == "ok", res_inner2
         doc.setPropertyValue("RecordChanges", False)
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert TableGetCells().execute(tool_ctx, name="InnerSpan")["cells"] == {
             "A1": "a2",
             "B1": "",
@@ -1120,7 +1033,7 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
         )
         doc.setPropertyValue("RecordChanges", False)
         assert ok_after_split["status"] == "ok", ok_after_split
-        _accept_all_tables(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert TableGetCells().execute(tool_ctx, name="EdgeASpan")["cells"] == {
             "A1": "",
             "B1": "b2",
@@ -1169,7 +1082,7 @@ def test_table_insert_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = TableInsert().execute(tctx, rows=1, columns=1)
@@ -1245,3 +1158,374 @@ def test_protected_cell_band_delete_refused_and_covered_band_not_deleted_uno(ctx
     assert "comment" in ann_res["message"]
     portions = list(iter_elements(a1.createEnumeration().nextElement().createEnumeration()))
     assert any(p.getPropertyValue("TextPortionType") == "Annotation" for p in portions)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_column_refusal_splits_work_when_followed_uno(ctx, doc):
+    import re
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    # 1. Equal header merge A1:B1 on 2x3, delete col 0
+    t1 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a", "b", "c"], ["a2", "b2", "c2"]])["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t1, cell_range="A1:B1")["status"] == "ok"
+    ref1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
+    assert ref1["status"] == "error" and ref1["code"] == "COLUMN_HAS_SPANNING_CELL"
+    steps1 = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref1["message"])]
+    assert steps1, ref1["message"]
+    for cell_name, parts in steps1:
+        assert TableSplitCell().execute_safe(tool_ctx, name=t1, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+    ok1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
+    assert ok1["status"] == "ok", ok1
+    assert TableGetCells().execute(tool_ctx, name=t1)["cells"] == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}
+
+    # 2. 4x4 banner A1:D1, delete idx 0 and idx 2
+    for idx, expected in (
+        (
+            0,
+            {
+                "A1": "", "B1": "", "C1": "",
+                "A2": "b2", "B2": "c2", "C2": "d2",
+                "A3": "b3", "B3": "c3", "C3": "d3",
+                "A4": "b4", "B4": "c4", "C4": "d4",
+            },
+        ),
+        (
+            2,
+            {
+                "A1": "h1\nh2\nh3\nh4", "B1": "", "C1": "",
+                "A2": "a2", "B2": "b2", "C2": "d2",
+                "A3": "a3", "B3": "b3", "C3": "d3",
+                "A4": "a4", "B4": "b4", "C4": "d4",
+            },
+        ),
+    ):
+        tb = TableInsert().execute(
+            tool_ctx,
+            rows=4,
+            columns=4,
+            data=[
+                ["h1", "h2", "h3", "h4"],
+                ["a2", "b2", "c2", "d2"],
+                ["a3", "b3", "c3", "d3"],
+                ["a4", "b4", "c4", "d4"],
+            ],
+        )["table_name"]
+        assert TableMergeCells().execute_safe(tool_ctx, name=tb, cell_range="A1:D1")["status"] == "ok"
+        ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
+        assert ref["status"] == "error" and ref["code"] == "COLUMN_HAS_SPANNING_CELL", ref
+        steps = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref["message"])]
+        assert steps, ref["message"]
+        for cell_name, parts in steps:
+            assert TableSplitCell().execute_safe(tool_ctx, name=tb, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+        ok = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
+        assert ok["status"] == "ok", ok
+        assert TableGetCells().execute(tool_ctx, name=tb)["cells"] == expected
+
+    # 3. 3x3 with A1:B2 merged (both directions), delete col 0
+    t3 = TableInsert().execute(
+        tool_ctx,
+        rows=3,
+        columns=3,
+        data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]],
+    )["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B2")["status"] == "ok"
+    ref3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ref3["status"] == "error" and ref3["code"] == "COLUMN_HAS_SPANNING_CELL", ref3
+    steps3 = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref3["message"])]
+    assert steps3, ref3["message"]
+    for cell_name, parts in steps3:
+        assert TableSplitCell().execute_safe(tool_ctx, name=t3, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+    ok3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ok3["status"] == "ok", ok3
+    cells3 = TableGetCells().execute(tool_ctx, name=t3)["cells"]
+    assert cells3 == {
+        "A1": "", "B1": "c1",
+        "B2": "c2",
+        "A3": "b3", "B3": "c3",
+    }, cells3
+
+
+def _set_table_separators(table, positions):
+    seps = []
+    for pos in positions:
+        sep = uno.createUnoStruct("com.sun.star.text.TableColumnSeparator")
+        sep.Position = pos
+        sep.IsVisible = True
+        seps.append(sep)
+    uno.invoke(
+        table,
+        "setPropertyValue",
+        ("TableColumnSeparators", uno.Any("[]com.sun.star.text.TableColumnSeparator", tuple(seps))),
+    )
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_column_refusal_unequal_widths_says_do_not_split_uno(ctx, doc):
+    import os
+    import tempfile
+    from plugin.framework.uno_context import create_property_value
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]]
+    )["table_name"]
+    table = doc.getTextTables().getByName(t_name)
+    _set_table_separators(table, (1500, 6000))
+    got_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+    assert abs(got_seps[0] - 1500) <= 1 and abs(got_seps[1] - 6000) <= 1, got_seps
+
+    assert TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")["status"] == "ok"
+    before_cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+    before_row1_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+
+    ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t_name, index=0)
+    assert ref["status"] == "error" and ref["code"] == "COLUMN_HAS_SPANNING_CELL", ref
+    assert "parts=" not in ref["message"], ref["message"]
+    assert "table_set_cell" in ref["message"], ref["message"]
+    assert TableGetCells().execute(tool_ctx, name=t_name)["cells"] == before_cells
+    after_row1_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+    assert after_row1_seps == before_row1_seps
+
+    # DOCX round trip: widths 1000/4000/9000 with A1:D1 and B2:C2 merged
+    doc.getText().setString("")
+    docx_tbl_name = TableInsert().execute(
+        tool_ctx,
+        rows=3,
+        columns=4,
+        data=[["h1", "h2", "h3", "h4"], ["a2", "b2", "c2", "d2"], ["a3", "b3", "c3", "d3"]],
+    )["table_name"]
+    docx_tbl = doc.getTextTables().getByName(docx_tbl_name)
+    _set_table_separators(docx_tbl, (1000, 4000, 9000))
+    assert TableMergeCells().execute_safe(tool_ctx, name=docx_tbl_name, cell_range="A1:D1")["status"] == "ok"
+    assert TableMergeCells().execute_safe(tool_ctx, name=docx_tbl_name, cell_range="B2:C2")["status"] == "ok"
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    fd, docx_path = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    reloaded = None
+    try:
+        docx_url = uno.systemPathToFileUrl(docx_path)
+        doc.storeToURL(docx_url, (create_property_value("FilterName", "MS Word 2007 XML"),))
+        reloaded = desktop.loadComponentFromURL(
+            docx_url, "_blank", 0, (create_property_value("Hidden", True),)
+        )
+        r_ctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
+        r_names = list(reloaded.getTextTables().getElementNames())
+        assert len(r_names) == 1, r_names
+        r_name = r_names[0]
+        assert reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString() == "h1\nh2\nh3\nh4"
+        r_ref = ManageTableStructure().execute_safe(r_ctx, action="delete", axis="column", name=r_name, index=0)
+        assert r_ref["status"] == "error" and r_ref["code"] == "COLUMN_HAS_SPANNING_CELL", r_ref
+        assert "parts=" not in r_ref["message"], r_ref["message"]
+        assert "table_set_cell" in r_ref["message"], r_ref["message"]
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        if os.path.exists(docx_path):
+            os.remove(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_nested_refusal_followed_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    outer = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a1", "b1"], ["a2", "b2"]])["table_name"]
+    inner = TableInsert().execute(tool_ctx, rows=1, columns=1, parent=outer, cell="B2", data=[["in"]])["table_name"]
+
+    # Untracked: delete nested table, then row delete succeeds
+    ref1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer, index=1)
+    assert ref1["status"] == "error" and "table_delete" in ref1["message"], ref1
+    assert TableDelete().execute_safe(tool_ctx, name=inner)["status"] == "ok"
+    ok1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer, index=1)
+    assert ok1["status"] == "ok", ok1
+
+    # Recording: tracked delete of nested table keeps refusal until user accepts
+    outer2 = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a1", "b1"], ["a2", "b2"]])["table_name"]
+    inner2 = TableInsert().execute(tool_ctx, rows=1, columns=1, parent=outer2, cell="B2", data=[["in"]])["table_name"]
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ref2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ref2["status"] == "error" and "table_delete" in ref2["message"], ref2
+        del_inner = TableDelete().execute_safe(tool_ctx, name=inner2)
+        assert del_inner["status"] == "ok" and del_inner["pending_review"] is True, del_inner
+        ref2_after = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ref2_after["status"] == "error" and inner2 in ref2_after["message"], ref2_after
+        accept_all_changes(doc, ctx)
+        ok2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ok2["status"] == "ok" and ok2["pending_review"] is True, ok2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tall_cell_refusal_followed_while_recording_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx, rows=3, columns=2, data=[["tall", "b1"], ["", "b2"], ["a3", "b3"]]
+    )["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:A2")["status"] == "ok"
+    assert TableSetCell().execute_safe(tool_ctx, name=t_name, cell="A1", text="keep")["status"] == "ok"
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=0)
+        assert ref["status"] == "error" and ref["code"] == "ROW_HAS_SPANNING_CELL", ref
+        assert "table_split_cell" in ref["message"] and "table_set_cell" in ref["message"]
+
+        split = TableSplitCell().execute_safe(tool_ctx, name=t_name, cell="A1", direction="rows", parts=2)
+        assert split["status"] == "ok", split
+        assert TableSetCell().execute_safe(tool_ctx, name=t_name, cell="A2", text="keep")["status"] == "ok"
+        del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=0)
+        assert del_res["status"] == "ok" and del_res["pending_review"] is True, del_res
+        accept_all_changes(doc, ctx)
+        cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert cells == {"A1": "keep", "B1": "b2", "A2": "a3", "B2": "b3"}, cells
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tracked_row_deletes_keep_indexes_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx,
+        rows=4,
+        columns=2,
+        data=[["r1", "b1"], ["r2", "b2"], ["r3", "b3"], ["r4", "b4"]],
+    )["table_name"]
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=1)
+        assert d1["status"] == "ok" and d1["rows"] == 4 and d1["tracked"] is True and d1["pending_review"] is True, d1
+        assert "later indexes do not shift" in d1["message"], d1
+
+        d2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=2)
+        assert d2["status"] == "ok" and d2["rows"] == 4 and d2["tracked"] is True and d2["pending_review"] is True, d2
+        assert "later indexes do not shift" in d2["message"], d2
+
+        cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert cells == {"A1": "r1", "B1": "b1", "A2": "", "B2": "", "A3": "", "B3": "", "A4": "r4", "B4": "b4"}, cells
+
+        accept_all_changes(doc, ctx)
+        after_accept = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert after_accept == {"A1": "r1", "B1": "b1", "A2": "r4", "B2": "b4"}, after_accept
+
+        # Row insert while recording shifts indexes at once
+        ins = ManageTableStructure().execute_safe(tool_ctx, action="insert", axis="row", name=t_name, index=1)
+        assert ins["status"] == "ok" and ins["rows"] == 3, ins
+        after_ins = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert after_ins["A3"] == "r4", after_ins
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_protected_section_refusal_while_recording_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.insertString(text.getEnd(), "Before section\n", False)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtSec")
+    text.insertTextContent(text.getEnd(), sec, False)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    tbl.setName("SecTbl")
+    sec_anchor = sec.getAnchor()
+    sec_anchor.getText().insertTextContent(sec_anchor.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("s1")
+    tbl.getCellByName("A2").setString("s2")
+    sec.setPropertyValue("IsProtected", True)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        err_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)
+        assert err_row["status"] == "error" and err_row["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_row
+        assert "protected section" in err_row["message"] and "did not record" in err_row["message"], err_row
+        assert tbl.getRows().getCount() == 2
+        assert tbl.getCellByName("A2").getString() == "s2"
+
+        err_tbl = TableDelete().execute_safe(tool_ctx, name="SecTbl")
+        assert err_tbl["status"] == "error" and err_tbl["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_tbl
+        assert "protected section" in err_tbl["message"] and "did not record" in err_tbl["message"], err_tbl
+        assert doc.getTextTables().hasByName("SecTbl")
+        assert tbl.getCellByName("A1").getString() == "s1"
+        assert tbl.getCellByName("A2").getString() == "s2"
+
+        sec.setPropertyValue("IsProtected", False)
+        ok_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)
+        assert ok_row["status"] == "ok" and ok_row["pending_review"] is True, ok_row
+    finally:
+        sec.setPropertyValue("IsProtected", False)
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_delete_protected_cell_refused_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("ProtOuter")
+    outer.getCellByName("A1").setString("o1")
+    outer.getCellByName("B1").setString("o2")
+    outer.getCellByName("A2").setString("o3")
+    outer.getCellByName("B2").setString("o4")
+
+    undo_mgr = doc.getUndoManager()
+    try:
+        for recording in (False, True):
+            doc.setPropertyValue("RecordChanges", recording)
+            outer.getCellByName("B2").setPropertyValue("IsProtected", True)
+            cells_before = {c: outer.getCellByName(c).getString() for c in ("A1", "B1", "A2", "B2")}
+            undo_before = list(undo_mgr.getAllUndoActionTitles())
+            redlines_before = doc.getRedlines().getCount()
+
+            res = TableDelete().execute_safe(tool_ctx, name="ProtOuter")
+            assert res["status"] == "error" and res["code"] == "CELLS_PROTECTED", res
+            assert "B2" in res["message"]
+            assert doc.getTextTables().hasByName("ProtOuter")
+            assert {
+                c: outer.getCellByName(c).getString() for c in ("A1", "B1", "A2", "B2")
+            } == cells_before
+            assert doc.getRedlines().getCount() == redlines_before
+            assert list(undo_mgr.getAllUndoActionTitles()) == undo_before
+
+            outer.getCellByName("B2").setPropertyValue("IsProtected", False)
+            inner = doc.createInstance("com.sun.star.text.TextTable")
+            inner.initialize(1, 1)
+            host = outer.getCellByName("B2")
+            host.insertTextContent(host.getEnd(), inner, False)
+            inner.setName("ProtInner")
+            inner.getCellByName("A1").setString("in1")
+            host.setPropertyValue("IsProtected", True)
+            redlines_before_in = doc.getRedlines().getCount()
+
+            res_in = TableDelete().execute_safe(tool_ctx, name="ProtInner")
+            assert res_in["status"] == "error" and res_in["code"] == "CELLS_PROTECTED", res_in
+            assert "ProtOuter" in res_in["message"]
+            assert doc.getTextTables().hasByName("ProtInner")
+            assert doc.getRedlines().getCount() == redlines_before_in
+
+            if not recording:
+                host.setPropertyValue("IsProtected", False)
+                TableDelete().execute_safe(tool_ctx, name="ProtInner")
+                assert not doc.getTextTables().hasByName("ProtInner")
+
+        # Protected child cell does not block deleting the outer table.
+        host.setPropertyValue("IsProtected", False)
+        inner.getCellByName("A1").setPropertyValue("IsProtected", True)
+        res_outer = TableDelete().execute_safe(tool_ctx, name="ProtOuter")
+        assert res_outer["status"] == "ok" and res_outer["pending_review"] is True, res_outer
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

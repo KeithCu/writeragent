@@ -9,6 +9,7 @@ import uno  # noqa: F401
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
+from tests.writer.doc_builders import reject_all_changes
 
 
 def _tool_ctx(doc, ctx):
@@ -402,12 +403,6 @@ def test_apply_document_content_anchor_range_case_sensitive_uno(ctx, doc):
     assert "Intermediate Text" not in body
 
 
-def _reject_all_changes(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
-
-
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_anchor_range_review_record_uno(ctx, doc):
@@ -440,7 +435,7 @@ def test_apply_document_content_anchor_range_review_record_uno(ctx, doc):
         body = doc.getText().getString()
         assert "Replacement Under Review" in body
 
-        _reject_all_changes(doc, ctx)
+        reject_all_changes(doc, ctx)
         body_restored = doc.getText().getString()
         assert "Review Start Landmark" in body_restored
         assert "Original Middle Content" in body_restored

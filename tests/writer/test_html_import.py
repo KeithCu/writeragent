@@ -2458,6 +2458,60 @@ def test_raise_if_protected_sections_lists_names():
     assert "UnprotSec" not in msg
 
 
+def test_insert_html_fragment_at_cursor_errors():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    cursor.insertDocumentFromURL.side_effect = RuntimeError("cannot insert file inside content controls")
+    with pytest.raises(ToolExecutionError) as exc_info:
+        html_import.insert_html_fragment_at_cursor(cursor, "<b>x</b>")
+    assert exc_info.value.code == "MARKUP_IN_CONTROL"
+
+    cursor.insertDocumentFromURL.side_effect = RuntimeError("broken html")
+    with pytest.raises(ToolExecutionError) as exc_info:
+        html_import.insert_html_fragment_at_cursor(cursor, "<b>x</b>")
+    assert exc_info.value.code == "HTML_IMPORT_FAILED"
+
+    class _DisposedError(Exception):
+        pass
+
+    _DisposedError.__name__ = "DisposedException"
+    cursor.insertDocumentFromURL.side_effect = _DisposedError("gone")
+    with pytest.raises(DocumentDisposedError):
+        html_import.insert_html_fragment_at_cursor(cursor, "<b>x</b>")
+
+
+def test_replace_single_range_in_cell_preserves_markup_in_control():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    text_obj = MagicMock()
+    start_cursor = MagicMock()
+    start_cursor.getPropertyValue.return_value = MagicMock()  # TextTable is not None -> in_table_cell
+    text_obj.createTextCursorByRange.return_value = start_cursor
+
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    text_range.getString.return_value = "old"
+
+    with (
+        patch("plugin.writer.html_import.image_placeholders.keep_placeholder_images") as keep_imgs,
+        patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"),
+        patch("plugin.writer.html_import._range_covers_whole_paragraphs", return_value=False),
+        patch("plugin.writer.html_import._lo_style_for_replaced_range", return_value=(False, None)),
+        patch(
+            "plugin.writer.html_import._insert_mixed_or_plain_html",
+            side_effect=ToolExecutionError("cannot insert inside control", code="MARKUP_IN_CONTROL"),
+        ),
+    ):
+        keep_imgs.return_value.__enter__.return_value = "<p>block</p>"
+        with pytest.raises(ToolExecutionError) as exc_info:
+            html_import.replace_single_range_with_content(model, text_range, "<p>block</p>", MagicMock())
+    assert exc_info.value.code == "MARKUP_IN_CONTROL"
+
+
 def test_split_nested_links_handles_inner_links_and_leaves_malformed_or_bookmarks():
     from plugin.writer.html_import import _split_nested_links
 

@@ -16,7 +16,7 @@ This page is the technical reference for WriterAgent's **host↔venv compute bri
 4. [Subprocess IPC performance (Linux)](#subprocess-ipc-performance-linux)
 5. [Subprocess module map and config](#subprocess-module-map-and-config)
 6. [Serialization](#serialization-optimization-opportunities)
-7. [Matrix formula result session (IPC reduction)](#matrix-formula-result-session-ipc-reduction)
+7. [Matrix formula native return](#matrix-formula-result-session-ipc-reduction)
 8. [Multi-range wire format](#multi-range-wire-format)
 
 ---
@@ -798,7 +798,7 @@ UNO read → Py list per cell → host_pack (array.tobytes) → pickle.dumps (pr
 | Bottleneck | Future lever |
 |------------|--------------|
 | Per-cell Py objects at read | Priority 3 (Cython pack / UNO→bytes) — [Building host natives](#building-host-native-extensions-cython) |
-| Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
+| Same range every recalc | Priority 2 (auto-spill / array block), Priority 6 (cache) |
 | Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
 | DataFrame `.to_dict` | Priority 5 |
 

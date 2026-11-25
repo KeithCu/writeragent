@@ -1342,6 +1342,11 @@ def test_document_content_len_and_words_snapshot_header():
     words_tool = _extract_document_words(messages_tool)
     assert "WriterAgent" in words_tool
 
+    # Tracked-deletion markers must not leak into extracted document words
+    marked_snap = snapshot_text("Alpha\n[tracked deletion]\n[tracked deletion, 2 paragraphs]\nOmega")
+    marked_words = _extract_document_words([{"role": "user", "content": marked_snap}])
+    assert marked_words == ["Alpha", "Omega"]
+
 
 def test_current_query_strips_folded_document_snapshot():
     from scripts.mock_llm_server import current_query_text, summarize_chat_payload

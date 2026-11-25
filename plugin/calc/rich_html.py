@@ -64,7 +64,11 @@ def _take_hidden_writer(uno_ctx: Any) -> Any:
             return doc
         log.debug("insert_cell_html_rich: dropping an unusable hidden Writer")
     desktop = get_desktop(uno_ctx)
-    doc = load_scratch_document(desktop, "private:factory/swriter") if desktop is not None else None
+    doc = (
+        load_scratch_document(desktop, "private:factory/swriter", normal_view=True)
+        if desktop is not None
+        else None
+    )
     if doc is None:
         raise ToolExecutionError("Could not create temporary Writer document")
     if not clear_writer_body(doc):

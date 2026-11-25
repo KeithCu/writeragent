@@ -1395,6 +1395,7 @@ def _speak_endpoint(
     on_status: Callable[[str], None] | None = None,
 ) -> None:
     """Download audio from an OpenAI-compatible speech endpoint and play it."""
+    # raw endpoint: see log_target
     log.info("Speaking via endpoint TTS (%s, model=%s, voice=%s)", log_target(endpoint_url), model, voice)
     chunks = _endpoint_chunks(text)
     if not chunks:

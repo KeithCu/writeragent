@@ -37,7 +37,7 @@ def commit_or_rollback_mutation(
 
     ``code`` is the error code used when mutate fails or the wrapper itself fails.
     ``extra_error`` keys (for example ``deleted=0``) sit at the top level of that error,
-    except when ``outcome.group_closed`` is False (counts are not known to be true then).
+    except when ``outcome.nothing_landed`` is False (counts are not known to be true then).
     ``session`` is a review session whose records are dropped on rollback.
     Undo-manager problems use UNDO_UNAVAILABLE, and any ``UndoOutcome.error``
     (including UNDO_CONTEXT_LEAK and ROLLBACK_FAILED) is returned unchanged.
@@ -59,6 +59,11 @@ def commit_or_rollback_mutation(
         if not outcome.group_closed:
             return tool._tool_error(
                 f"The change failed and its undo step could not be closed, so part of it may still be in the document ({outcome.mutate_error}).",
+                code=code,
+            )
+        if not outcome.nothing_landed:
+            return tool._tool_error(
+                f"The change failed and could not be rolled back, so part of it may still be in the document ({outcome.mutate_error}).",
                 code=code,
             )
         cause = outcome.mutate_error

@@ -69,6 +69,7 @@ DESELECTED_K = (
     "test_aggregate_stubs_and_bools",
     "test_materialize_calc_range_shape_assertion",
     # --strip drops log.debug/log.info and grammar_obs calls these checks look for.
+    "test_image_download_logs_hide_signed_query",
     "test_resize_logging_behavior",
     "test_peer_not_chat_mode_logs_probe_failure",
     "test_header_case_insensitivity_and_none",
@@ -108,12 +109,10 @@ def _make_uno_env(
             # Leave USERPROFILE alone: soffice and its Python inherit this env.
             env["APPDATA"] = str(home)
     env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
-    if profile is not None:
-        env["WRITERAGENT_UNO_SEED_PROFILE"] = str(profile)
-        if sys.platform == "win32":
-            # Tip: the runner loads extension types (XPythonFunction) from this profile, and
-            # Windows ignores %APPDATA% here. An unknown type in a reply kills the URP bridge.
-            env["UserInstallation"] = profile.as_uri()
+    if profile is not None and sys.platform == "win32":
+        # Tip: the runner loads extension types (XPythonFunction) from this profile, and
+        # Windows ignores %APPDATA% here. An unknown type in a reply kills the URP bridge.
+        env["UserInstallation"] = profile.as_uri()
     return env
 
 

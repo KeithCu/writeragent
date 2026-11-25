@@ -559,7 +559,7 @@ class ToolCallingMixin:
                 from plugin.doc.text_helpers import selection_cursor_snapshot
                 from plugin.framework.tool import SelectionPin
 
-                pin = SelectionPin(selection_cursor_snapshot(model))
+                pin = SelectionPin(selection_cursor_snapshot(model), doc=model)
             started.selection_pin = pin
             turn_session.refresh_document_context(
                 model, self._panel.ctx, selection=pin.range if pin is not None else None

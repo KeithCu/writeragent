@@ -242,17 +242,39 @@ def test_async_process_terminate_does_not_join_on_caller():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
     ap.start()
     caller = threading.current_thread()
+    join_entered = threading.Event()
+    release_join = threading.Event()
+    reap_done = threading.Event()
+    join_threads: list[threading.Thread] = []
 
-    def slow_join(self, timeout=None):
-        assert threading.current_thread() is not caller
-        time.sleep(0.05)
+    def blocking_join(self, timeout=None):
+        join_threads.append(threading.current_thread())
+        join_entered.set()
+        release_join.wait(timeout=10.0)
+
+    orig_reap = ap._reap
+
+    # Keep the BackgroundHandle.join patch active until the reaper finishes.
+    def wrapped_reap(*args, **kwargs):
+        try:
+            return orig_reap(*args, **kwargs)
+        finally:
+            reap_done.set()
 
     try:
-        with patch.object(BackgroundHandle, "join", slow_join):
-            started = time.monotonic()
+        with (
+            patch.object(BackgroundHandle, "join", blocking_join),
+            patch.object(ap, "_reap", wrapped_reap),
+        ):
             ap.terminate()
-            assert time.monotonic() - started < 0.4
+            assert join_entered.wait(timeout=10.0)
+            assert join_threads and all(t is not caller for t in join_threads)
+            release_join.set()
+            assert reap_done.wait(timeout=10.0)
+        if ap._wait_thread is not None:
+            ap._wait_thread.join(timeout=10.0)
     finally:
+        release_join.set()
         if ap.process is not None and ap.process.poll() is None:
             ap.process.kill()
             ap.process.wait(timeout=3)
@@ -1156,12 +1178,15 @@ def test_run_in_background_keeps_submit_time_send_cancellation():
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX SIGTERM handler test")
 def test_async_process_terminate_delivers_sigterm_output():
     ready = threading.Event()
+    after_term = threading.Event()
     lines: list[str] = []
 
     def on_stdout(line: str) -> None:
         lines.append(line)
         if line == "ready":
             ready.set()
+        elif line == "after-term":
+            after_term.set()
 
     script = (
         "import sys, signal, time\n"
@@ -1178,10 +1203,11 @@ def test_async_process_terminate_delivers_sigterm_output():
     ap = AsyncProcess([sys.executable, "-c", script], stdout_cb=on_stdout)
     ap.start()
     try:
-        assert ready.wait(timeout=5)
-        ap.terminate()
+        assert ready.wait(timeout=10)
+        ap.terminate(timeout=10)
+        assert after_term.wait(timeout=10)
         if ap._wait_thread is not None:
-            ap._wait_thread.join(timeout=5)
+            ap._wait_thread.join(timeout=10)
         assert "after-term" in lines
     finally:
         if ap.process is not None and ap.process.poll() is None:

@@ -19,12 +19,14 @@ cursor move across a table lands after it.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 if TYPE_CHECKING:
+    import re
     from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 
 import uno
@@ -638,19 +640,38 @@ class DeletionState:
 
 
 _NESTING_PORTIONS = ("ContentControl", "InContentMetadata")
+_METADATA_FIELD_SERVICE = "com.sun.star.text.textfield.MetadataField"
 
 
-def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
-    """Yield ``(portion, type)`` flattening ``ContentControl`` and ``InContentMetadata``.
+def _nested_portions(portion: Any, kind: str | None) -> Any | None:
+    """Child portion enumeration when *portion* is a container, else None.
 
-    ``lcl_ExportHints`` (``sw/source/core/unocore/unoportenum.cxx``) puts those
-    container portions' inner runs and redline markers into a child enumeration
+    A MetadataField is a ``TextField`` portion with an empty string; its text is only in the
+    field's own enumeration (``lcl_CreateMetaPortion`` in unoportenum.cxx, ``SwXMeta::createEnumeration``).
+    """
+    if kind in _NESTING_PORTIONS:
+        return portion.getPropertyValue(kind).createEnumeration()
+    if kind == "TextField":
+        field = uno_read(lambda: portion.getPropertyValue("TextField"), None, object_type="TextPortion")
+        if field is not None and uno_read(
+            lambda: field.supportsService(_METADATA_FIELD_SERVICE) is True, False, object_type="TextPortion"
+        ):
+            return field.createEnumeration()
+    return None
+
+
+def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(portion, type)`` flattening ``ContentControl``, ``InContentMetadata``, and ``MetadataField``.
+
+    ``lcl_ExportHints`` and ``lcl_CreateMetaPortion`` (``sw/source/core/unocore/unoportenum.cxx``)
+    put those container portions' inner runs and redline markers into a child enumeration
     instead of emitting them at top level, leaving the outer portion's
     ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
-    (``unocontentcontrol.cxx``) refreshes that list for each control, including
-    nested controls, so one recursive call flattens arbitrary nesting. Yields
-    ``(None, None)`` when ``nextElement()`` fails (after ``reraise_if_disposed``),
-    and ``(portion, None)`` when a portion's type or child enumeration is unreadable.
+    (``unocontentcontrol.cxx``) and ``SwXMeta::CreateXMeta`` (``unorefmk.cxx``) refresh that
+    list for each enumeration, including nested controls, so one recursive call flattens
+    arbitrary nesting. Yields ``(None, None)`` when ``nextElement()`` fails (after
+    ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
+    enumeration is unreadable.
     """
     while enum_has_more(portion_enum):
         try:
@@ -660,32 +681,16 @@ def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
             yield None, None
             continue
         kind = _portion_type(portion)
-        if kind in _NESTING_PORTIONS:
-            try:
-                inner = portion.getPropertyValue(kind).createEnumeration()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                yield portion, None
-                continue
-            yield from _flat_portions(inner)
-        else:
+        try:
+            inner = _nested_portions(portion, kind)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            yield portion, None
+            continue
+        if inner is None:
             yield portion, kind
-
-
-def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str]]:
-    """Yield ``(portion, type)`` from *portion_enum*, flattening nested controls and stopping at the first unreadable portion."""
-    for portion, kind in _flat_portions(portion_enum):
-        if kind is None:
-            break
-        yield portion, kind
-
-
-def section_own_shown(section: Any) -> bool:
-    """True when *section* itself is shown (ignoring ancestor section visibility)."""
-    visible = bool(section.getPropertyValue("IsVisible"))
-    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
-    # condition (section.cxx constructor), so only the OR reflects this section's own state.
-    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+        else:
+            yield from iter_portions(inner)
 
 
 def visible_portions(
@@ -723,7 +728,7 @@ def visible_portions(
         state.in_delete = False
         return
     seen = 0
-    for portion, portion_type in _flat_portions(portion_enum):
+    for portion, portion_type in iter_portions(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
             # The end marker was not read, and an open state would hide the rest of the document.
@@ -767,6 +772,29 @@ def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> st
     return "".join(chunk for _unused, chunk in visible_portions(para, state=state))
 
 
+def _sorts_after(run: list[tuple[Any, Any, Any]], bounds: tuple[Any, Any, Any]) -> bool:
+    """True when *bounds* starts and ends no earlier than the last deletion of *run*.
+
+    False when they cannot be compared through the run's text.
+    """
+    text = run[0][0]
+    last = run[-1]
+    return uno_read(
+        lambda: text.compareRegionStarts(last[1], bounds[1]) >= 0
+        and text.compareRegionStarts(last[2], bounds[2]) >= 0,
+        False,
+        object_type="TextRange",
+    )
+
+
+class SplitParagraph(NamedTuple):
+    text: Any        # the XText that owns the paragraph
+    para: Any
+    opened: bool     # starts inside a tracked deletion
+    visible: str     # visible text; U+007F for each character of a field, footnote number or other non-Text portion
+    cuts: list[int]  # visible offsets where a pending deletion is hidden
+
+
 class TrackedDeletions:
     """The pending Delete redlines of a Writer document, read once.
 
@@ -774,10 +802,17 @@ class TrackedDeletions:
     document is edited, stored, or exported, because an export hides deletions while
     it runs and collapses these ranges (``SwXMLExport::exportDoc`` in ``xmlexp.cxx``,
     ``SwRangeRedline::MoveToSection`` in ``docredln.cxx``).
+
+    ``_runs`` holds the deletions in document order (redline table order,
+    ``SwXRedlineEnumeration::nextElement``, ``unoredlines.cxx``), split wherever two
+    neighbours overlap out of order or cannot be compared. Each run is binary searched,
+    because a search asks about thousands of hits. Positions are passed as
+    ``SwXTextRange``, which LibreOffice compares without the per-call membership check
+    (``SwXText::compareRegionStarts``, ``unotext.cxx``).
     """
 
     def __init__(self, doc: Any) -> None:
-        self._bounds: list[tuple[Any, Any, Any]] = []
+        self._runs: list[list[tuple[Any, Any, Any]]] = []
         redlines = uno_read(lambda: doc.getRedlines(), None)
         if redlines is None or uno_read(lambda: redlines.hasElements() is True, False) is not True:
             return
@@ -786,15 +821,44 @@ class TrackedDeletions:
             if uno_read(lambda: str(rl.getPropertyValue("RedlineType")), None) != "Delete":
                 continue
             bounds = uno_read(lambda: redline_bounds(rl), None)
-            if bounds is not None and bounds[0] is not None:
-                self._bounds.append(bounds)
+            if bounds is None or bounds[0] is None:
+                continue
+            if self._runs and _sorts_after(self._runs[-1], bounds):
+                self._runs[-1].append(bounds)
+            else:
+                self._runs.append([bounds])
 
     def __bool__(self) -> bool:
-        return bool(self._bounds)
+        return bool(self._runs)
+
+    def _first_ending_after(self, point: Any) -> Iterator[tuple[Any, Any]]:
+        """Yield ``(text, start)`` of the first deletion in each run that ends after *point*.
+
+        Starts and ends are both non-decreasing within a run, so if any deletion of the
+        run contains *point* or overlaps a range starting there, this one does.
+        """
+        for run in self._runs:
+            text = run[0][0]
+            lo, hi = 0, len(run)
+            try:
+                # Hand-written search: bisect's key= needs Python 3.10, newer than some bundled runtimes.
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if text.compareRegionStarts(point, run[mid][2]) == 1:
+                        hi = mid
+                    else:
+                        lo = mid + 1
+            except Exception as exc:
+                reraise_if_disposed(exc, object_type="TextRange")
+                # *point* is in a text this run cannot be compared with, or a bound no longer
+                # exists because the document was edited (see the class docstring).
+                continue
+            if lo < len(run):
+                yield text, run[lo][1]
 
     def state_at(self, text_range: Any) -> DeletionState:
         """Return ``DeletionState`` at the start of *text_range* (XText, cursor, paragraph, or table)."""
-        if not self._bounds:
+        if not self._runs:
             return DeletionState()
         if is_text_table(text_range):
             point = uno_read(lambda: text_range.getAnchor(), None, object_type="TextTable")
@@ -811,15 +875,13 @@ class TrackedDeletions:
                 point = uno_read(lambda: text_range.getStart(), None, object_type="TextRange")
         if point is None:
             return DeletionState()
-        for text, start, end in self._bounds:
+        # XText.getStart() is a cursor (SwXText::getStart, unotext.cxx); its own start is an SwXTextRange.
+        position = uno_read(lambda: point.getStart(), None, object_type="TextRange")
+        if position is None:
+            return DeletionState()
+        for text, start in self._first_ending_after(position):
             # Half-open [start, end): the end marker sits at end and has already been passed.
-            inside = uno_read(
-                lambda: text.compareRegionStarts(start, point) >= 0
-                and text.compareRegionStarts(point, end) == 1,
-                False,
-                object_type="TextRange",
-            )
-            if inside:
+            if uno_read(lambda: text.compareRegionStarts(start, position) >= 0, False, object_type="TextRange"):
                 return DeletionState(in_delete=True)
         return DeletionState()
 
@@ -864,23 +926,69 @@ class TrackedDeletions:
 
     def overlaps(self, text_range: Any) -> bool:
         """True when a pending Delete redline strikes part of *text_range*."""
+        if not self._runs:
+            return False
+        edges = uno_read(
+            lambda: (text_range.getStart().getStart(), text_range.getEnd().getStart()),
+            None,
+            object_type="TextRange",
+        )
+        if edges is None:
+            return False
+        first, last = edges
         return any(
-            uno_read(
-                lambda: text.compareRegionStarts(start, text_range.getEnd()) == 1
-                and text.compareRegionStarts(text_range, end) == 1,
-                False,
-                object_type="TextRange",
-            )
-            for text, start, end in self._bounds
+            uno_read(lambda: text.compareRegionStarts(start, last) == 1, False, object_type="TextRange")
+            for text, start in self._first_ending_after(first)
         )
 
-    def strikes(self, text_range: Any) -> bool:
-        """True when pending deletions, one or several together, leave nothing visible of *text_range*.
+    @functools.cached_property
+    def _split_paragraphs(self) -> list[SplitParagraph]:
+        """Each paragraph that holds a whole pending deletion, in redline order.
 
-        Judged by portion-readable text: a hit of struck text plus only a live ``MetadataField``
-        reads ``""`` and is treated as struck.
+        LibreOffice keeps redlines sorted by position, so tracking the previous
+        deletion's end identifies whether a paragraph starts inside an open deletion.
         """
-        return self.overlaps(text_range) and not self.visible_text(text_range)
+        found: list[SplitParagraph] = []
+        last: Any = None
+        prev_end: Any = None
+        for bounds_run in self._runs:
+            for text, start, end in bounds_run:
+                before, prev_end = prev_end, end
+                whole = uno_read(lambda: paragraph_cursor(text, start), None, object_type="TextRange")
+                if whole is None or not starts_at_or_after(text, whole.getEnd(), end):
+                    continue  # runs into a later paragraph: its visible text lies on one side only
+                if last is not None and uno_read(lambda: text.compareRegionStarts(last, whole) == 0, False):
+                    continue
+                last = whole
+                para = next(iter_elements(whole.createEnumeration()), None)
+                if para is None:
+                    continue
+                opened = before is not None and uno_read(lambda: text.compareRegionStarts(whole, before) == 1, False)
+                state = DeletionState(opened)
+                parts: list[str] = []
+                cuts: list[int] = []
+                run = 0
+                for portion, chunk in visible_portions(para, state=state):
+                    if state.saw_delete:
+                        cuts.append(run)
+                        state.saw_delete = False
+                    chunk = normalize_linebreaks(chunk)
+                    # LibreOffice search sees a field as U+007F (lcl_CleanStr, findtxt.cxx), so a needle must not match inside one.
+                    parts.append(chunk if _portion_type(portion) == "Text" else "\x7f" * len(chunk))
+                    run += len(chunk)
+                found.append(SplitParagraph(text, para, opened, "".join(parts), cuts))
+        return found
+
+    def crossing_matches(self, pattern: re.Pattern[str]) -> Iterator[Any]:
+        """Ranges where *pattern* matches visible text on both sides of a pending deletion in one paragraph."""
+        for text, para, opened, visible, cuts in self._split_paragraphs:
+            for m in pattern.finditer(visible):
+                if any(m.start() < cut < m.end() for cut in cuts):
+                    start, _rel = visible_point_in_paragraph(para, m.start(), opened=opened, at_end=False)
+                    end, _rel = visible_point_in_paragraph(para, m.end(), opened=opened, at_end=True)
+                    cursor = text.createTextCursorByRange(start)
+                    cursor.gotoRange(end, True)
+                    yield cursor
 
     def keeps_frame(self, portion: Any) -> bool:
         """True when *portion* is a Frame whose anchored object Accept All keeps."""
@@ -889,7 +997,7 @@ class TrackedDeletions:
 
     def removes_anchored(self, shape: Any) -> bool:
         """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
-        if not self._bounds:
+        if not self._runs:
             return False
         anchor = shape.getAnchor()
         if anchor is None:
@@ -897,8 +1005,17 @@ class TrackedDeletions:
         kind = shape.getPropertyValue("AnchorType").value
         return any(
             uno_read(lambda: _deletion_removes_anchor(b, kind, anchor), False, object_type="TextRange")
-            for b in self._bounds
+            for run in self._runs
+            for b in run
         )
+
+
+def paragraph_cursor(text: Any, position: Any) -> Any:
+    """Cursor over the whole paragraph that holds the start of *position*."""
+    cursor = text.createTextCursorByRange(position.getStart())
+    cursor.gotoStartOfParagraph(False)
+    cursor.gotoEndOfParagraph(True)
+    return cursor
 
 
 def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: Any) -> bool:
@@ -915,9 +1032,7 @@ def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: An
         return after_start >= 0 and before_end == 1
     if kind == "AT_CHARACTER" and after_start == 1 and before_end == 1:
         return True
-    para = text.createTextCursorByRange(point)
-    para.gotoStartOfParagraph(False)
-    para.gotoEndOfParagraph(True)
+    para = paragraph_cursor(text, point)
     if not bounds_cover(bounds, para):
         return False
     # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
@@ -1084,19 +1199,12 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     """Visible text of *para*, or None when a tracked deletion strikes all of it.
 
-    Portions cannot read text inside a ``MetadataField`` (a ``TextField`` portion
-    whose ``getString()`` is empty), so the raw ``para.getString()`` read is used
-    when no deletion touches the paragraph. Blank visible text alone does not mean
-    struck; it is struck when it starts inside a deletion, or has raw text and a
-    Delete marker.
+    Blank visible text alone does not mean struck; it is struck when it starts inside a
+    deletion, or has raw text and a Delete marker. An unenumerable paragraph reads ``""``.
     """
     state = DeletionState(starts_deleted)
-    text = get_string_without_tracked_deletions(para, state)
-    if not (starts_deleted or state.saw_delete):
-        # No marker seen, so raw text is the visible text, except for a deletion
-        # wholly inside a metadata field.
-        return normalize_linebreaks(para.getString())
-    if not text.strip() and (starts_deleted or para.getString().strip()):
+    text = normalize_linebreaks(get_string_without_tracked_deletions(para, state))
+    if not text.strip() and (starts_deleted or (state.saw_delete and para.getString().strip())):
         return None
     return text
 

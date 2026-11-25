@@ -299,9 +299,30 @@ def test_bookmark_create_spans_pinned_selection_uno(ctx, doc):
     controller.select(found)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = BookmarkCreate().execute(tctx, name="PinnedBM")
     assert res["status"] == "ok", res
     assert doc.getBookmarks().getByName("PinnedBM").getAnchor().getString() == "beta"
+
+
+@native_test
+def test_heading_read_keeps_undo_off_when_it_was_off_uno(ctx):
+    doc = ctx.getServiceManager().createInstanceWithContext("com.sun.star.text.TextDocument", ctx)
+    try:
+        doc.initNew()
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        text.insertString(cursor, "Viewless Heading", False)
+        cursor.setPropertyValue("ParaStyleName", "Heading 1")
+
+        um = doc.getUndoManager()
+        assert um.isLocked() is True
+
+        bookmark_map = BookmarkService().ensure_heading_bookmarks(doc, [0])
+        assert 0 in bookmark_map
+        assert doc.getBookmarks().hasByName(bookmark_map[0])
+        assert um.isLocked() is True
+    finally:
+        doc.close(True)

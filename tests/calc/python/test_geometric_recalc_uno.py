@@ -22,7 +22,6 @@ from plugin.framework.config import save
 from plugin.testing_runner import current_office, native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
 from tests.harness.uno_profile_config import (
-    patch_profile_config,
     profile_config_path,
     profile_config_values,
     settle_soffice_config,
@@ -145,46 +144,28 @@ def _enable_geometric_flag():
     soffice flag-off → no in-process record/strip → Isolated Shared names.
     """
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import save
 
     previous = geo.geometric_flag_enabled
     geo.geometric_flag_enabled = lambda: True
     save({_GEO_FLAG_KEY: True})
-
-    def _on(data: dict) -> None:
-        data[_GEO_FLAG_KEY] = True
-
-    patch_profile_config(_on)
     return previous
 
 
 def _restore_geometric_flag(previous) -> None:
     """Drop persisted flag (default off) and restore the client monkeypatch."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = previous
     save({_GEO_FLAG_KEY: False})
-
-    def _off(data: dict) -> None:
-        data.pop(_GEO_FLAG_KEY, None)
-
-    patch_profile_config(_off)
     geo.reset_geometric_runtime_for_tests()
 
 
 def _disable_geometric_flag_client_and_file() -> None:
     """Flag-off mid-test: client patch + file so soffice modify stays off."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = lambda: False
     save({_GEO_FLAG_KEY: False})
-
-    def _off(data: dict) -> None:
-        data.pop(_GEO_FLAG_KEY, None)
-
-    patch_profile_config(_off)
 
 
 def _runtime_uid(doc) -> str:

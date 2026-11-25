@@ -457,8 +457,8 @@ def test_set_selection_search_updates_pin():
     from plugin.framework.tool import SelectionPin
     from plugin.writer.search import MatchMode
 
-    ctx, _doc, controller = _selection_ctx()
-    ctx.selection_pin = SelectionPin(MagicMock())
+    ctx, doc, controller = _selection_ctx()
+    ctx.selection_pin = SelectionPin(MagicMock(), doc)
     found = MagicMock()
     found.getString.return_value = "clause 3.2"
     cloned = MagicMock()
@@ -476,8 +476,8 @@ def test_set_selection_char_range_updates_pin():
     from plugin.doc.text_helpers import VisibleBodyRange
     from plugin.framework.tool import SelectionPin
 
-    ctx, _doc, controller = _selection_ctx()
-    ctx.selection_pin = SelectionPin(MagicMock())
+    ctx, doc, controller = _selection_ctx()
+    ctx.selection_pin = SelectionPin(MagicMock(), doc)
     target_range = MagicMock()
     cloned = MagicMock()
     target_range.getText.return_value.createTextCursorByRange.return_value = cloned

@@ -1266,7 +1266,7 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = PageInsertBreak().execute(tctx)
@@ -1278,6 +1278,82 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
         el = enum.nextElement()
         paras.append((el.getString(), el.getPropertyValue("BreakType")))
     assert paras == [("Alpha beta gamma", PAGE_BEFORE), ("Second para", NONE)], paras
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_replace_header_footer_with_controls_fields_and_frame_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.page import PageReplaceHeaderFooterText
+
+    tool = PageReplaceHeaderFooterText()
+    tool_ctx = _tool_ctx(doc, ctx)
+    style, s_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    # 1. ContentControl, MetadataField, and Input field before "yy" all replace "yy" -> "ZZ".
+    for kind in ("ContentControl", "MetadataField", "Input"):
+        header.setString("")
+        cur = header.createTextCursor()
+        if kind == "Input":
+            header.insertString(cur, "xx ", False)
+            fld = doc.createInstance("com.sun.star.text.TextField.Input")
+            fld.setPropertyValue("Content", "CTRL")
+            header.insertTextContent(cur, fld, False)
+            header.insertString(cur, " yy", False)
+        else:
+            header.setString("xx CTRL yy")
+            cur.gotoStart(False)
+            cur.goRight(3, False)
+            cur.goRight(4, True)
+            svc = (
+                "com.sun.star.text.ContentControl"
+                if kind == "ContentControl"
+                else "com.sun.star.text.textfield.MetadataField"
+            )
+            header.insertTextContent(cur, doc.createInstance(svc), True)
+
+        res = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="yy", content="ZZ", all_matches=False)
+        assert res["status"] == "ok", (kind, res)
+        assert header.getString() == "xx CTRL ZZ", (kind, header.getString())
+
+    # 2. AS_CHARACTER frame before "yy".
+    header.setString("")
+    cur = header.createTextCursor()
+    header.insertString(cur, "xx ", False)
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setPropertyValue("AnchorType", AS_CHARACTER)
+    frame.Width = 500
+    frame.Height = 500
+    header.insertTextContent(cur, frame, False)
+    header.insertString(cur, " yy", False)
+    res_frame = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="yy", content="ZZ", all_matches=False)
+    assert res_frame["status"] == "ok", res_frame
+    assert header.getString() == "xx  ZZ"
+
+    # 3. Replacing text inside a ContentControl keeps the ContentControl portion intact;
+    # a match crossing a control edge ("x CT") is refused with unchanged text.
+    header.setString("xx CTRL yy")
+    cur = header.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    header.insertTextContent(cur, doc.createInstance("com.sun.star.text.ContentControl"), True)
+    res_edge = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="x CT", content="NO", all_matches=False)
+    assert res_edge["status"] == "error", res_edge
+    assert header.getString() == "xx CTRL yy"
+
+    res_inner = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="CTRL", content="DONE", all_matches=False)
+    assert res_inner["status"] == "ok", res_inner
+    assert header.getString() == "xx DONE yy"
+    para = header.createEnumeration().nextElement()
+    kinds = []
+    penum = para.createEnumeration()
+    while enum_has_more(penum):
+        kinds.append(penum.nextElement().getPropertyValue("TextPortionType"))
+    assert "ContentControl" in kinds, kinds
 
 
 @native_test

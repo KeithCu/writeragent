@@ -691,11 +691,15 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_content_control_and_in_content_metadata_visible_reads_uno(ctx, doc):
-    from plugin.doc.text_helpers import get_document_length, read_visible_body, visible_body_range
+    from plugin.doc.text_helpers import build_heading_tree, get_document_length, read_visible_body, visible_body_range
     from plugin.framework.html_stripper import html_to_search_text
     from plugin.writer.html_export import document_to_content
 
-    for service in ("com.sun.star.text.ContentControl", "com.sun.star.text.InContentMetadata"):
+    for service in (
+        "com.sun.star.text.ContentControl",
+        "com.sun.star.text.InContentMetadata",
+        "com.sun.star.text.textfield.MetadataField",
+    ):
         text = doc.getText()
         text.setString("xx CTRL yy")
         cur = text.createTextCursor()
@@ -712,28 +716,32 @@ def test_content_control_and_in_content_metadata_visible_reads_uno(ctx, doc):
         assert rng is not None
         assert rng.cursor.getString() == "CTRL"
 
-    # Tracked deletion inside ContentControl: range HTML text matches full HTML text.
-    text = doc.getText()
-    text.setString("xx CTRL yy")
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.goRight(3, False)
-    cur.goRight(4, True)
-    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
-    text.insertTextContent(cur, ctrl, True)
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        del_rng = visible_body_range(doc, 4, 6)
-        assert del_rng is not None
-        del_rng.cursor.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
+    # Tracked deletion inside ContentControl and MetadataField: range HTML text matches full HTML text.
+    for service in ("com.sun.star.text.ContentControl", "com.sun.star.text.textfield.MetadataField"):
+        text = doc.getText()
+        text.setString("xx CTRL yy")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        cur.goRight(3, False)
+        cur.goRight(4, True)
+        ctrl = doc.createInstance(service)
+        text.insertTextContent(cur, ctrl, True)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            del_rng = visible_body_range(doc, 4, 6)
+            assert del_rng is not None
+            del_rng.cursor.setString("")
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
 
-    assert read_visible_body(doc)[0] == "xx CL yy"
-    full_txt = html_to_search_text(document_to_content(doc, ctx, scope="full")).strip()
-    range_txt = html_to_search_text(document_to_content(doc, ctx, scope="range", range_start=0, range_end=8)).strip()
-    assert full_txt == "xx CL yy"
-    assert range_txt == full_txt
+        assert read_visible_body(doc)[0] == "xx CL yy"
+        full_txt = html_to_search_text(document_to_content(doc, ctx, scope="full")).strip()
+        range_txt = html_to_search_text(document_to_content(doc, ctx, scope="range", range_start=0, range_end=8)).strip()
+        assert full_txt == "xx CL yy"
+        assert range_txt == full_txt
+        tree = build_heading_tree(doc)
+        assert [c["text"] for c in tree["children"]] == ["xx CL yy"]
 
 
 @native_test
@@ -865,3 +873,51 @@ def test_visible_range_text_table_edge_and_field_selections_uno(ctx, doc):
     tail_cur.goRight(len("xx in") + 1, False)
     tail_cur.gotoEnd(True)
     assert visible_range_text(doc, tail_cur) == "ner yy"
+
+
+def _insert_and_strike_last_gone(doc, xtext):
+    doc.setPropertyValue("RecordChanges", False)
+    cur = xtext.createTextCursor()
+    cur.gotoEnd(False)
+    xtext.insertString(cur, "gone live gone", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.gotoEnd(False)
+        cur.goLeft(len("gone"), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_hides_deletions_in_every_text_uno(ctx, doc):
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    std_page = page_styles.getByName("Standard")
+    std_page.setPropertyValue("HeaderIsOn", True)
+    _insert_and_strike_last_gone(doc, std_page.getPropertyValue("HeaderText"))
+
+    body = doc.getText()
+    footnote = doc.createInstance("com.sun.star.text.Footnote")
+    body.insertTextContent(body.getEnd(), footnote, False)
+    _insert_and_strike_last_gone(doc, footnote)
+
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 2)
+    body.insertTextContent(body.getEnd(), outer, False)
+    _insert_and_strike_last_gone(doc, outer.getCellByName("A1"))
+
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    b1 = outer.getCellByName("B1")
+    b1.insertTextContent(b1.getEnd(), nested, False)
+    _insert_and_strike_last_gone(doc, nested.getCellByName("A1"))
+
+    _insert_and_strike_last_gone(doc, body)
+
+    res = TestingFactory.execute_tool(doc, ctx, "search", {"pattern": "gone"}, doc_type="writer")
+    assert res["status"] == "ok"
+    assert res["count"] == 5
+    assert len(res["matches"]) == 5
+    for match in res["matches"]:
+        assert match["context"].count("gone") == 1

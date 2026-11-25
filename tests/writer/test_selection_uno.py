@@ -31,7 +31,7 @@ def test_set_selection_updates_pin_for_later_apply_content_uno(ctx, doc):
     controller.select(found)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
 
     res_sel = SetSelection().execute(tctx, search_text="Outro")
     assert res_sel.get("status") == "ok", res_sel
@@ -161,3 +161,32 @@ def test_set_selection_search_reports_visible_text_uno(ctx, doc):
     assert res_chain["status"] == "ok", res_chain
     assert res_chain["selected_text"] == chain_needle
     assert res_chain["length"] == len(chain_needle)
+
+
+@native_test
+@with_native_doc("writer")
+def test_set_selection_crossing_deletion_and_occurrence_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("Word OLD here and Word here")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Word "), False)
+        cur.goRight(len("OLD "), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res0 = SetSelection().execute(tctx, search_text="Word here")
+    assert res0["status"] == "ok", res0
+    assert res0["selected_text"] == "Word here"
+
+    res1 = SetSelection().execute(tctx, search_text="Word here", occurrence=1)
+    assert res1["status"] == "ok", res1
+    assert res1["selected_text"] == "Word here"
+    vc = doc.getCurrentController().getViewCursor()
+    lead = text.createTextCursorByRange(vc.getStart())
+    lead.gotoStartOfParagraph(True)
+    assert lead.getString() == "Word OLD here and "

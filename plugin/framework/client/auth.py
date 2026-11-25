@@ -24,6 +24,7 @@ from typing import Any
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.http_security import log_target
+from plugin.framework.log_redaction import register_known_secret
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
@@ -135,6 +136,8 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     is_owu = api_config.get("is_openwebui", False)
     endpoint = normalize_endpoint_url(endpoint_raw, is_openwebui=is_owu)
     api_key = str(api_config.get("api_key") or "").strip()
+    # Register here too (dialog overrides can bypass config.py) so RedactingFormatter masks echoed keys.
+    register_known_secret(api_key)
 
     if not endpoint:
         raise AuthError("No endpoint configured.", provider="", code="missing_endpoint")

@@ -1211,7 +1211,12 @@ def test_stop_during_handshake_reports_the_stop(
         with warm.lease(Deadline(10.0), cancel=scope) as leased:
             assert isinstance(leased, dict)
             assert leased["code"] == expected_code
-        assert recorded_tags == (["interrupted"] if when == "before_ready" else ["ready"])
+        if when == "before_ready" and action == "cancel":
+            # SendCancellation sets its flag before running the kill hook, so the
+            # reader's cancel poll can raise TimeoutExpired before kill() signals.
+            assert len(recorded_tags) == 1 and recorded_tags[0] in {"interrupted", "timeout"}
+        else:
+            assert recorded_tags == (["interrupted"] if when == "before_ready" else ["ready"])
         assert stop_done == [True]
         assert warm.child is None
         assert warm._generation == 0
@@ -1226,9 +1231,8 @@ def test_stop_during_handshake_reports_the_stop(
 def test_cancel_without_kill_hook_during_hung_handshake_reports_the_cancel(
     tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The venv worker leases with a scope that has no kill hook, so a Stop leaves
-    # the hung child running and the handshake ends as "timeout".
-    monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 0.4)
+    # The venv worker leases with a scope that has no kill hook, so the flag alone
+    # must end the read and the "timeout" branch is what kills the hung child.
     warm = WarmChild(
         _spec(tmp_path, _stdio_worker(tmp_path, preamble="import time\ntime.sleep(60)")),
         supervisor=supervisor,
@@ -1251,6 +1255,51 @@ def test_cancel_without_kill_hook_during_hung_handshake_reports_the_cancel(
             assert isinstance(leased, dict)
             assert leased["code"] == "CANCELLED"
         assert recorded_tags == ["timeout"]
+        assert warm.child is None
+        assert warm._generation == 0
+        assert len(recorded_children) == 1
+        popen = recorded_children[0].managed.popen
+        assert popen is not None
+        assert popen.poll() is not None
+    finally:
+        warm.retire()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="select slices are POSIX only")
+def test_cancel_during_hung_handshake_aborts_mid_wait(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import plugin.framework.ipc as ipc_mod
+
+    warm = WarmChild(
+        _spec(tmp_path, _stdio_worker(tmp_path, preamble="import time\ntime.sleep(60)")),
+        supervisor=supervisor,
+    )
+    scope = SendCancellation()
+    calls = 0
+
+    def _mock_select(r: Any, w: Any, x: Any, timeout: float | None = None) -> tuple[list[Any], list[Any], list[Any]]:
+        nonlocal calls
+        del r, w, x, timeout
+        calls += 1
+        if calls == 1:
+            scope.cancel()
+        return ([], [], [])
+
+    orig_read_ready = warm_child_mod.read_ready_frame_during_io
+    recorded_children: list[Child] = []
+
+    def _record_child(child: Child, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+        recorded_children.append(child)
+        return orig_read_ready(child, *args, **kwargs)
+
+    monkeypatch.setattr(ipc_mod.select, "select", _mock_select)
+    monkeypatch.setattr(warm_child_mod, "read_ready_frame_during_io", _record_child)
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert calls <= 2
         assert warm.child is None
         assert warm._generation == 0
         assert len(recorded_children) == 1

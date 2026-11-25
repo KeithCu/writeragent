@@ -26,10 +26,14 @@ from plugin.doc.visual_helpers import (
     selected_graphic_object,
 )
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
+from tests.writer.doc_builders import (
+    accept_all_changes,
+    list_redline_types,
+    reject_all_changes,
+)
 
 
 @native_test
@@ -108,19 +112,6 @@ def test_writer_active_draw_page_is_document_draw_page_uno(ctx: Any, doc: Any) -
     assert get_active_draw_page(doc) == doc.getDrawPage()
 
 
-def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
-    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
-
-
-def _redline_types(doc: Any) -> list[str]:
-    types: list[str] = []
-    enum = doc.getRedlines().createEnumeration()
-    while enum_has_more(enum):
-        types.append(str(enum.nextElement().getPropertyValue("RedlineType")))
-    return types
-
-
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_delete_graphic_tracked_anchor_types_reject_and_accept_uno(ctx: Any, doc: Any) -> None:
@@ -138,15 +129,15 @@ def test_delete_graphic_tracked_anchor_types_reject_and_accept_uno(ctx: Any, doc
         doc.setPropertyValue("RecordChanges", True)
         try:
             assert delete_graphic(ctx, doc, graphic) is True
-            assert _redline_types(doc) == ["Delete"]
+            assert list_redline_types(doc) == ["Delete"]
             assert doc.getGraphicObjects().hasByName(name) is True
 
-            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            reject_all_changes(doc, ctx)
             assert doc.getGraphicObjects().hasByName(name) is True
 
             target = doc.getGraphicObjects().getByName(name)
             assert delete_graphic(ctx, doc, target) is True
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            accept_all_changes(doc, ctx)
             assert doc.getGraphicObjects().hasByName(name) is False
         finally:
             doc.setPropertyValue("RecordChanges", False)
@@ -167,15 +158,15 @@ def test_delete_graphic_adjacent_as_char_pictures_both_succeed_uno(ctx: Any, doc
     try:
         assert delete_graphic(ctx, doc, g1) is True
         assert delete_graphic(ctx, doc, g2) is True
-        assert _redline_types(doc) == ["Delete"]
+        assert list_redline_types(doc) == ["Delete"]
 
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        reject_all_changes(doc, ctx)
         assert doc.getGraphicObjects().hasByName("Adj1") is True
         assert doc.getGraphicObjects().hasByName("Adj2") is True
 
         assert delete_graphic(ctx, doc, doc.getGraphicObjects().getByName("Adj1")) is True
         assert delete_graphic(ctx, doc, doc.getGraphicObjects().getByName("Adj2")) is True
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
         assert doc.getGraphicObjects().hasByName("Adj1") is False
         assert doc.getGraphicObjects().hasByName("Adj2") is False
     finally:
@@ -233,7 +224,7 @@ def test_delete_graphic_untrackable_raises_and_keeps_image_uno(ctx: Any, doc: An
         except ToolExecutionError as exc:
             assert exc.code == "IMAGE_DELETE_NOT_TRACKABLE"
         assert any(name == "DrawPic" for name, _obj in list_graphic_objects(doc))
-        assert _redline_types(doc) == []
+        assert list_redline_types(doc) == []
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -271,7 +262,7 @@ def test_delete_graphic_hidden_section_refuses_and_keeps_text_uno(ctx: Any, doc:
             raise AssertionError("Expected ToolExecutionError for hidden-section picture")
         except ToolExecutionError as exc:
             assert exc.code == "IMAGE_DELETE_NOT_TRACKABLE"
-        assert _redline_types(doc) == []
+        assert list_redline_types(doc) == []
         assert "Keep this body text" in text.getString()
         assert doc.getGraphicObjects().hasByName("HiddenPic") is True
     finally:

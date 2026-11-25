@@ -23,6 +23,7 @@ from plugin.writer.inline_review import (
     scan_redline_view,
 )
 from plugin.writer.review_scan import agent_change_presence
+from tests.writer.doc_builders import accept_all_changes, reset_body
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
 
@@ -31,28 +32,6 @@ def _find(doc, needle):
     sd = doc.createSearchDescriptor()
     sd.setSearchString(needle)
     return doc.findFirst(sd)
-
-
-def _body(doc, ctx, *paragraphs):
-    """Reset the document body to the given paragraphs (no tracking)."""
-    text = doc.getText()
-    doc.setPropertyValue("RecordChanges", False)
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    for i, para in enumerate(paragraphs):
-        if i:
-            text.insertControlCharacter(cur, _PARA_BREAK, False)
-        text.insertString(cur, para, False)
-    if len(doc.getRedlines()):
-        _accept_all(doc, ctx)
-
-
-def _accept_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
 
 
 def _tracked_replace(doc, old, new):
@@ -97,7 +76,7 @@ def _redline_count(doc):
 def test_has_agent_changes_gates_on_agent_tokens_uno(ctx, doc):
     # Separate paragraphs: stacking an agent replace on the same range as a user
     # insert can reuse RedlineIdentifiers, so tagging never sees a "new" redline.
-    _body(doc, ctx, "User paragraph.", "Agent paragraph.")
+    reset_body(doc, ctx, "User paragraph.", "Agent paragraph.")
     assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "clean doc has no agent changes"
     _tracked_replace(doc, "User paragraph.", "User edited.")  # user-style redline, no token
     assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "the user's own redline must not count as an agent change"
@@ -108,7 +87,7 @@ def test_has_agent_changes_gates_on_agent_tokens_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_accept_keeps_new_and_clears_pair_uno(ctx, doc):
-    _body(doc, ctx, "This clause is important.")
+    reset_body(doc, ctx, "This clause is important.")
     _agent_edit(doc, ctx, ("This clause is important.", "This clause is essential."))
     _caret_in(doc, "essential")
     ok, msg = resolve_change_at_cursor(doc, ctx, True)
@@ -120,7 +99,7 @@ def test_resolve_accept_keeps_new_and_clears_pair_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_reject_restores_old_and_clears_pair_uno(ctx, doc):
-    _body(doc, ctx, "This clause is important.")
+    reset_body(doc, ctx, "This clause is important.")
     _agent_edit(doc, ctx, ("This clause is important.", "This clause is essential."))
     _caret_in(doc, "essential")
     ok, msg = resolve_change_at_cursor(doc, ctx, False)
@@ -133,7 +112,7 @@ def test_resolve_reject_restores_old_and_clears_pair_uno(ctx, doc):
 @with_native_doc("writer")
 def test_resolve_does_nothing_when_cursor_off_change_uno(ctx, doc):
     # change in paragraph A, cursor parked in a DIFFERENT paragraph B -> no-op, friendly message
-    _body(doc, ctx, "First paragraph here.", "Second paragraph here.")
+    reset_body(doc, ctx, "First paragraph here.", "Second paragraph here.")
     _agent_edit(doc, ctx, ("First paragraph here.", "First paragraph edited."))
     _caret_in(doc, "Second paragraph")
     before = _redline_count(doc)
@@ -145,7 +124,7 @@ def test_resolve_does_nothing_when_cursor_off_change_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_reports_when_no_changes_uno(ctx, doc):
-    _body(doc, ctx, "Nothing tracked here.")
+    reset_body(doc, ctx, "Nothing tracked here.")
     ok, msg = resolve_change_at_cursor(doc, ctx, True)
     assert ok is False and "No agent changes" in msg, msg
 
@@ -154,7 +133,7 @@ def test_resolve_reports_when_no_changes_uno(ctx, doc):
 @with_native_doc("writer")
 def test_resolve_ignores_user_own_redline_uno(ctx, doc):
     """The user's own tracked change (no session token) is not the agent UI's business."""
-    _body(doc, ctx, "User paragraph here.")
+    reset_body(doc, ctx, "User paragraph here.")
     _tracked_replace(doc, "User paragraph here.", "User edited paragraph.")  # untokened
     _caret_in(doc, "User edited")
     before = _redline_count(doc)
@@ -188,7 +167,7 @@ def _tracked_replace_fn(doc, old, new):
 @native_test
 @with_native_doc("writer")
 def test_agent_changes_lists_per_change_previews_uno(ctx, doc):
-    _body(doc, ctx, "Alpha clause one.", "Beta clause two.")
+    reset_body(doc, ctx, "Alpha clause one.", "Beta clause two.")
     _agent_edit(doc, ctx, ("Alpha clause one.", "Alpha EDITED one."), ("Beta clause two.", "Beta EDITED two."))
     changes = agent_changes(doc)
     assert len(changes) == 2, changes
@@ -199,7 +178,7 @@ def test_agent_changes_lists_per_change_previews_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_agent_changes_ignores_user_redlines_uno(ctx, doc):
-    _body(doc, ctx, "User paragraph.", "Agent paragraph.")
+    reset_body(doc, ctx, "User paragraph.", "Agent paragraph.")
     doc.setPropertyValue("RecordChanges", True)
     _tracked_replace_fn(doc, "User paragraph.", "User edited.")()
     doc.setPropertyValue("RecordChanges", False)
@@ -212,7 +191,7 @@ def test_agent_changes_ignores_user_redlines_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_agent_change_by_token_resolves_only_that_pair_uno(ctx, doc):
-    _body(doc, ctx, "First clause here.", "Second clause here.")
+    reset_body(doc, ctx, "First clause here.", "Second clause here.")
     _agent_edit(doc, ctx, ("First clause here.", "First EDITED."), ("Second clause here.", "Second EDITED."))
     changes = agent_changes(doc)
     res, _ = resolve_agent_change(doc, ctx, changes[0]["token"], True)
@@ -226,7 +205,7 @@ def test_resolve_agent_change_by_token_resolves_only_that_pair_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_resolve_all_agent_changes_spares_user_redlines_uno(ctx, doc):
-    _body(doc, ctx, "User paragraph.", "Agent one.", "Agent two.")
+    reset_body(doc, ctx, "User paragraph.", "Agent one.", "Agent two.")
     doc.setPropertyValue("RecordChanges", True)
     _tracked_replace_fn(doc, "User paragraph.", "User edited.")()
     doc.setPropertyValue("RecordChanges", False)
@@ -244,7 +223,7 @@ def test_resolve_all_counts_siblings_cleared_together_uno(ctx, doc):
     dispatch clears several siblings in the same clean paragraph at once (a user redline elsewhere
     forces the per-change path). The old +1-per-pass undercounted -> false 'Resolved 1 of 2'.
     (ported from feat 4c7afb98; more relevant now that an edit is split into several.)"""
-    _body(doc, ctx, "The quick brown fox.", "Lonely user paragraph.")
+    reset_body(doc, ctx, "The quick brown fox.", "Lonely user paragraph.")
     _agent_edit(doc, ctx, ("quick", "fast"), ("fox", "dog"))                     # two agent changes, SAME para 1
     _tracked_replace(doc, "Lonely user paragraph.", "Lonely user EDITED.")  # user redline in para 2 -> mixed path
     n = _resolve_all_agent_changes(doc, ctx, True).resolved
@@ -259,7 +238,7 @@ def test_resolve_all_global_path_when_only_agent_redlines_uno(ctx, doc):
     AcceptAll fast path (_all_redlines_are_agent True) -- every change resolves and counts, leaving
     zero redlines. The mixed-redline per-change loop is covered by the *spares_user_redlines* tests;
     this pins the OTHER branch and that its (now reliability-checked) count is honest."""
-    _body(doc, ctx, "The quick brown fox.", "Another clean clause here.")
+    reset_body(doc, ctx, "The quick brown fox.", "Another clean clause here.")
     _agent_edit(doc, ctx, ("quick", "fast"), ("Another clean clause here.", "Another EDITED clause here."))
     n_changes = len(agent_changes(doc))
     assert n_changes >= 2, "precondition: multiple agent changes, got %d" % n_changes
@@ -280,7 +259,7 @@ def test_snapshot_reliable_with_table_cell_redline_uno(ctx, doc):
     resolve never spuriously refuses on documents containing tables."""
     from plugin.writer.inline_review import scan_redline_view
 
-    _body(doc, ctx, "Body clause one here.")
+    reset_body(doc, ctx, "Body clause one here.")
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoEnd(False)
@@ -305,13 +284,13 @@ def test_snapshot_reliable_with_table_cell_redline_uno(ctx, doc):
     assert _redline_count(doc) == len(doc.getRedlines()), "enumeration length must equal getCount()"
     view = scan_redline_view(doc)
     assert view.reliable is True, "a table-cell redline must NOT make the snapshot 'unreliable'"
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
 
 
 @native_test
 @with_native_doc("writer")
 def test_cursor_in_agent_change_detects_token_uno(ctx, doc):
-    _body(doc, ctx, "Plain paragraph.", "Target clause here.")
+    reset_body(doc, ctx, "Plain paragraph.", "Target clause here.")
     session = _agent_edit(doc, ctx, ("Target clause here.", "Target EDITED here."))
     _caret_in(doc, "Target EDITED")
     got = cursor_in_agent_change(doc)
@@ -329,7 +308,7 @@ def test_resolve_spares_user_redline_in_same_paragraph_uno(ctx, doc):
     the selected marks, so -- unlike the old paragraph-wide dispatch -- we no longer refuse here.
     The OVERLAPPING case is refused -- covered by
     test_resolve_refuses_when_user_redline_overlaps_change_uno."""
-    _body(doc, ctx, "The quick brown fox jumps.")
+    reset_body(doc, ctx, "The quick brown fox jumps.")
     _tracked_replace(doc, "quick", "fast")     # the user's own (untokened) redline ...
     _agent_edit(doc, ctx, ("fox", "dog"))           # ... and an agent change in the SAME paragraph
     before = _redline_count(doc)
@@ -349,7 +328,7 @@ def test_resolve_refuses_when_user_redline_overlaps_change_uno(ctx, doc):
     agent change's exact span, the precise resolve must REFUSE -- an exact-bounds dispatch would
     resolve the user's redline too. Resolve by token to force the _foreign_redline_in_span guard.
     Nothing may be touched. (This is the branch the spares-user test does NOT cover.)"""
-    _body(doc, ctx, "The quick brown fox.")
+    reset_body(doc, ctx, "The quick brown fox.")
     _agent_edit(doc, ctx, ("fox", "dog"))               # agent change fox -> dog (tokened)
     _tracked_replace(doc, "dog", "cat")            # user edits the agent's inserted word -> overlapping redline
     changes = agent_changes(doc)
@@ -367,7 +346,7 @@ def test_resolve_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
     """Core: with several agent changes in ONE paragraph, accepting one resolves ONLY it and
     leaves the others pending. Modern LibreOffice resolves the exact selection -- the old code
     refused this dense case and forced 'accept all'."""
-    _body(doc, ctx, "Alpha beta gamma delta.")
+    reset_body(doc, ctx, "Alpha beta gamma delta.")
     _agent_edit(doc, ctx, ("Alpha", "One"), ("gamma", "Three"))
     assert len(agent_changes(doc)) == 2, agent_changes(doc)
     _caret_in(doc, "One")
@@ -382,7 +361,7 @@ def test_resolve_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
 def test_resolve_reject_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
     """Rejecting one of several same-paragraph agent changes restores only that word and leaves
     the others pending."""
-    _body(doc, ctx, "Alpha beta gamma delta.")
+    reset_body(doc, ctx, "Alpha beta gamma delta.")
     _agent_edit(doc, ctx, ("Alpha", "One"), ("gamma", "Three"))
     _caret_in(doc, "Three")
     ok, msg = resolve_change_at_cursor(doc, ctx, False)
@@ -397,7 +376,7 @@ def test_resolve_reject_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
 def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno(ctx, doc):
     """resolve-all spares a user redline even when it shares a paragraph with an agent change:
     non-overlapping agent changes resolve via exact retry while the user's redline remains."""
-    _body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
+    reset_body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
     _tracked_replace(doc, "quick", "fast")                         # user redline in paragraph 1
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
     resolved = _resolve_all_agent_changes(doc, ctx, True).resolved
@@ -412,7 +391,7 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ct
     """resolve_all_with_feedback surfaces a user-facing note when overlapping changes are skipped,
     and returns an empty message when all changes can be resolved."""
     # Non-overlapping in same paragraph resolves cleanly -> empty message.
-    _body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
+    reset_body(doc, ctx, "The quick brown fox jumps.", "Lonely agent clause here.")
     _tracked_replace(doc, "quick", "fast")
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
     n, msg = resolve_all_with_feedback(doc, ctx, True)
@@ -420,7 +399,7 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ct
     assert msg == "", "non-overlapping fixture resolves with an empty message: %r" % msg
 
     # Overlapping user redline: overlapping agent change stays, clean resolves, user redline remains.
-    _body(doc, ctx, "The quick brown fox.", "Lonely agent clause here.")
+    reset_body(doc, ctx, "The quick brown fox.", "Lonely agent clause here.")
     _agent_edit(doc, ctx, ("fox", "dog"), ("Lonely agent clause here.", "Lonely agent clause EDITED."))
     _tracked_replace(doc, "dog", "cat")
     n_overlap, msg_overlap = resolve_all_with_feedback(doc, ctx, True)
@@ -429,7 +408,7 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ct
     assert _find(doc, "cat") is not None, "user redline remains"
 
     # All-clean run -> no message.
-    _body(doc, ctx, "Clean one.", "Clean two.")
+    reset_body(doc, ctx, "Clean one.", "Clean two.")
     _agent_edit(doc, ctx, ("Clean one.", "Clean one EDITED."), ("Clean two.", "Clean two EDITED."))
     n2, msg2 = resolve_all_with_feedback(doc, ctx, True)
     assert n2 == 2 and msg2 == "", "all-clean resolve-all returns no message, got n=%d msg=%r" % (n2, msg2)
@@ -440,7 +419,7 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ct
 def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ctx, doc):
     """Stacked agent pair plus a non-overlapping user redline in the same paragraph:
     both agent tokens resolve and the user redline remains."""
-    _body(doc, ctx, "The quick brown fox jumps.")
+    reset_body(doc, ctx, "The quick brown fox jumps.")
     _tracked_replace(doc, "quick", "fast")
     _agent_edit(doc, ctx, ("fox", "dog"))
     _agent_edit(doc, ctx, ("dog", "wolf"))
@@ -455,7 +434,7 @@ def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ct
 def test_resolve_all_whitespace_adjacent_user_redline_skipped_uno(ctx, doc):
     """A user redline separated from an agent change by only whitespace blocks resolve-all
     for that change while clean paragraphs still resolve."""
-    _body(doc, ctx, "Alpha one.", "Bravo two.", "Charlie three.")
+    reset_body(doc, ctx, "Alpha one.", "Bravo two.", "Charlie three.")
     _agent_edit(
         doc,
         ctx,
@@ -480,7 +459,7 @@ def test_resolve_all_whitespace_adjacent_user_redline_skipped_uno(ctx, doc):
 def _three_changes(doc, ctx):
     # Leading plain paragraph so the document start is unambiguously BEFORE every change
     # (otherwise the cursor at offset 0 coincides with the first change's start).
-    _body(doc, ctx, "Intro paragraph, no change.",
+    reset_body(doc, ctx, "Intro paragraph, no change.",
           "First clause here.", "Second clause here.", "Third clause here.")
     _agent_edit(doc, ctx, ("First clause here.", "Alpha one."),
                 ("Second clause here.", "Beta two."),
@@ -540,7 +519,7 @@ def test_fast_travel_next_from_caret_at_change_start_does_not_skip_uno(ctx, doc)
 @native_test
 @with_native_doc("writer")
 def test_fast_travel_none_when_no_changes_uno(ctx, doc):
-    _body(doc, ctx, "Nothing tracked here.")
+    reset_body(doc, ctx, "Nothing tracked here.")
     assert agent_change_presence(doc)[0] == 0
     assert goto_adjacent_agent_change(doc, True) is None, "no changes -> nowhere to travel"
 
@@ -548,7 +527,7 @@ def test_fast_travel_none_when_no_changes_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_fast_travel_visits_across_text_objects_uno(ctx, doc):
-    _body(doc, ctx, "Intro paragraph, no change.", "Body one.", "Body two.")
+    reset_body(doc, ctx, "Intro paragraph, no change.", "Body one.", "Body two.")
     cursor = doc.getText().createTextCursor()
     r = _find(doc, "Body one.")
     assert r is not None
@@ -585,7 +564,7 @@ def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ct
     from plugin.writer.html_import import replace_single_range_with_content
     from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
 
-    _body(doc, ctx, "Intro", "Replace me", "Outro")
+    reset_body(doc, ctx, "Intro", "Replace me", "Outro")
     session = EditReviewSession(doc, ctx, enabled=True)
     with session:
         rng = _find(doc, "Replace me")

@@ -2183,6 +2183,7 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     """A failed listen prints the address and returns 1, without a traceback."""
     from compute_service.server import main, run_server
 
+    monkeypatch.setattr("compute_service.server.setup_logging", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("compute_service.server.check_dependencies", lambda pool: None)
     monkeypatch.setattr("compute_service.formula_pool.get_formula_pool", lambda settings: MagicMock())
     # Real shutdown(permanent=True) sets _closed even when no pool exists and

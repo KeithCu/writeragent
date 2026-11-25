@@ -1730,6 +1730,9 @@ class FakeUndoManager:
     def isLocked(self) -> bool:
         return self.locked
 
+    def isUndoPossible(self) -> bool:
+        return not self._ctx_stack and bool(self.titles)
+
     def getAllUndoActionTitles(self) -> tuple[str, ...]:
         return tuple(self.titles)
 
@@ -1929,6 +1932,9 @@ class FakeUnoPortion:
             class _Container:
                 def createEnumeration(self) -> FakeUnoEnum:
                     return FakeUnoEnum(inner)
+
+                def supportsService(self, svc: str) -> bool:
+                    return svc == "com.sun.star.text.textfield.MetadataField"
 
             return _Container()
         raise KeyError(name)

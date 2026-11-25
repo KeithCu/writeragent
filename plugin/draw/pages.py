@@ -28,6 +28,7 @@ from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
 from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import uno_same
 from plugin.writer.search import (
     DEFAULT_SEARCH_RESULTS,
@@ -96,7 +97,7 @@ class AddSlide(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based index where to insert the new slide (page=1 makes it the user's slide 2; defaults to appending at the end if omitted)"},
+            "page": page_index_param("The new slide is inserted at this index; it is appended at the end if omitted."),
             "activate": {"type": "boolean", "default": _DEFAULT_ACTIVATE, "description": "Whether to switch the view to the new slide"},
             "layout": {"type": "string", "default": _DEFAULT_IMPRESS_LAYOUT, "description": ("Impress layout name ('text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
         },
@@ -476,8 +477,8 @@ class MoveSlide(_SlideMutationTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "from_page": {"type": "integer", "description": "0-based source slide index (the user's slide 2 is from_page=1)"},
-            "to_page": {"type": "integer", "description": "0-based index the slide ends at (to_page=1 makes it the user's slide 2)"},
+            "from_page": page_index_param("The slide to move.", name="from_page"),
+            "to_page": page_index_param("The index the slide ends at.", name="to_page"),
         },
         "required": ["from_page", "to_page"],
     }

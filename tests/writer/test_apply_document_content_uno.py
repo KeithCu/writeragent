@@ -162,7 +162,7 @@ def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc
     _reset_three_paras(doc)
     controller = _select_match(doc, "Beta two.")
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     vc = controller.getViewCursor()
     vc.gotoStart(False)
 
@@ -1939,3 +1939,195 @@ def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_markup_in_control_and_input_field_refused_uno(ctx, doc):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    # ContentControl: <b>NEW</b> via search and selection raises MARKUP_IN_CONTROL; plain text works.
+    _clear_body(doc)
+    text.setString("xx CTRL yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    text.insertTextContent(cur, doc.createInstance("com.sun.star.text.ContentControl"), True)
+
+    res_search = tool.execute_safe(tctx, target="search", old_content="CTRL", content="<b>NEW</b>")
+    assert res_search["status"] == "error" and res_search["code"] == "MARKUP_IN_CONTROL", res_search
+    assert text.getString() == "xx CTRL yy"
+
+    sel_cur = text.createTextCursor()
+    sel_cur.gotoStart(False)
+    sel_cur.goRight(4, False)  # past "xx " + control start mark
+    sel_cur.goRight(4, True)
+    doc.getCurrentController().select(sel_cur)
+    res_sel = tool.execute_safe(tctx, target="selection", content="<b>NEW</b>")
+    assert res_sel["status"] == "error" and res_sel["code"] == "MARKUP_IN_CONTROL", res_sel
+    assert text.getString() == "xx CTRL yy"
+
+    res_plain = tool.execute_safe(tctx, target="search", old_content="CTRL", content="PLAIN")
+    assert res_plain["status"] == "ok", res_plain
+    assert text.getString() == "xx PLAIN yy"
+
+    # Input field: <b>NEW</b> via search and selection raises MARKUP_IN_CONTROL; text unchanged.
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    text.insertString(cur, "xx ", False)
+    fld = doc.createInstance("com.sun.star.text.TextField.Input")
+    fld.setPropertyValue("Content", "CTRL")
+    text.insertTextContent(cur, fld, False)
+    text.insertString(cur, " yy", False)
+
+    res_inp_search = tool.execute_safe(tctx, target="search", old_content="CTRL", content="<b>NEW</b>")
+    assert res_inp_search["status"] == "error" and res_inp_search["code"] == "MARKUP_IN_CONTROL", res_inp_search
+    assert text.getString() == "xx CTRL yy"
+
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "TR"
+    inner_hit = doc.findFirst(sd)
+    assert inner_hit is not None
+    doc.getCurrentController().select(inner_hit)
+    res_inp_sel = tool.execute_safe(tctx, target="selection", content="<b>NEW</b>")
+    assert res_inp_sel["status"] == "error" and res_inp_sel["code"] == "MARKUP_IN_CONTROL", res_inp_sel
+    assert text.getString() == "xx CTRL yy"
+
+
+@native_test
+def test_full_document_refuses_shown_conditional_section_uno(ctx):
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tool = ApplyDocumentContent()
+
+    for leading in (True, False):
+        for record in (False, True):
+            with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+                tctx = native_writer_tool_context(case_doc, ctx)
+                text = case_doc.getText()
+                if leading:
+                    text.setString("CondBody\rAfter")
+                    cur = text.createTextCursor()
+                    cur.gotoStart(False)
+                    cur.goRight(len("CondBody"), True)
+                else:
+                    text.setString("Before\rCondBody\rAfter")
+                    cur = text.createTextCursor()
+                    cur.gotoStart(False)
+                    cur.goRight(len("Before\r"), False)
+                    cur.goRight(len("CondBody"), True)
+                sec = case_doc.createInstance("com.sun.star.text.TextSection")
+                sec.setName("ShownCondSec")
+                sec.setPropertyValue("IsVisible", False)
+                sec.setPropertyValue("Condition", "1 == 2")
+                text.insertTextContent(cur, sec, True)
+
+                before_text = text.getString()
+                case_doc.setPropertyValue("RecordChanges", record)
+                try:
+                    res = tool.execute_safe(tctx, target="full_document", content="<p>Replaced</p>")
+                finally:
+                    case_doc.setPropertyValue("RecordChanges", False)
+                assert res["status"] == "error" and res["code"] == "HIDDEN_SECTION", (leading, record, res)
+                assert text.getString() == before_text
+                kept = case_doc.getTextSections().getByName("ShownCondSec")
+                assert kept.getPropertyValue("IsVisible") is False
+                assert kept.getPropertyValue("Condition") == "1 == 2"
+
+
+@native_test
+def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx):
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tool = ApplyDocumentContent()
+
+    def _setup_crossing(case_doc, content_str: str):
+        text = case_doc.getText()
+        text.setString(content_str)
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Word "), False)
+        cur.goRight(len("here "), True)
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            cur.setString("")
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        case_doc.getRedlines().getByIndex(0).setPropertyValue("RedlineComment", "keep-me")
+
+    for record in (False, True):
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+            _setup_crossing(case_doc, "Word here there")
+            orig_author = case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor")
+            tctx = native_writer_tool_context(case_doc, ctx)
+            case_doc.setPropertyValue("RecordChanges", record)
+            try:
+                res = tool.execute_safe(tctx, target="search", old_content="Word there", content="Word here")
+            finally:
+                case_doc.setPropertyValue("RecordChanges", False)
+            assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", (record, res)
+            assert visible_range_text(case_doc, case_doc.getText()) == "Word there"
+            assert case_doc.getRedlines().getCount() == 1
+            assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") == orig_author
+            assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineComment") == "keep-me"
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        # Place 20 clean matches before one crossing match so occurrence=20 sits outside replaceable.
+        t = case_doc.getText()
+        t.setString(("Word there " * 20) + "Word here there")
+        c = t.createTextCursor()
+        c.gotoStart(False)
+        c.goRight(len("Word there " * 20) + len("Word "), False)
+        c.goRight(len("here "), True)
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            c.setString("")
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        tctx = native_writer_tool_context(case_doc, ctx)
+        dry_past = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=20
+        )
+        assert dry_past["status"] == "ok", dry_past
+        assert dry_past["selected_match"].get("edit_refused") == "MATCH_CROSSES_DELETION", dry_past["selected_match"]
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        _setup_crossing(case_doc, "Word here there and Word there")
+        tctx = native_writer_tool_context(case_doc, ctx)
+
+        dry = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=0
+        )
+        assert dry["status"] == "ok", dry
+        assert dry["replaceable"][0].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["replaceable"]
+        assert "edit_refused" not in dry["replaceable"][1], dry["replaceable"]
+        assert dry["selected_match"].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["selected_match"]
+
+        res_all = tool.execute_safe(tctx, target="search", old_content="Word there", content="Clean", all_matches=True)
+        assert res_all["status"] == "ok", res_all
+        assert res_all["replaced_count"] == 1, res_all
+        assert "1 more match(es) run across a pending tracked deletion" in res_all["message"], res_all
+        assert visible_range_text(case_doc, case_doc.getText()) == "Word there and Clean"
+
+        res_after = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="!", position="after"
+        )
+        assert res_after["status"] == "ok", res_after
+        assert visible_range_text(case_doc, case_doc.getText()) == "Word there! and Clean"
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        _setup_crossing(case_doc, "Word here there and Word there")
+        tctx = native_writer_tool_context(case_doc, ctx)
+        res_occ = tool.execute_safe(
+            tctx, target="search", old_content="Word there", content="Second", occurrence=1
+        )
+        assert res_occ["status"] == "ok", res_occ
+        assert visible_range_text(case_doc, case_doc.getText()) == "Word there and Second"

@@ -444,6 +444,9 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
     python_domain_sentinel = "python_domain_sentinel"
     send_cancel_sentinel = object()
     uno_services_sentinel = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
+    from plugin.framework.tool import SelectionPin
+
+    pin_sentinel = SelectionPin(MagicMock(), doc=doc)
 
     parent = ToolContext(
         doc,
@@ -458,6 +461,7 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
         python_tool_domain=python_domain_sentinel,
         send_cancellation=send_cancel_sentinel,
         uno_services_supported=uno_services_sentinel,
+        selection_pin=pin_sentinel,
     )
 
     opened = MagicMock()
@@ -478,6 +482,7 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
     assert inner_ctx.set_active_domain_callback is None
     assert inner_ctx.active_domain is None
     assert inner_ctx.python_tool_domain is None
+    assert inner_ctx.selection_pin is None
     assert inner_ctx.uno_services_supported is uno_services_sentinel
     assert inner_ctx.send_cancellation is send_cancel_sentinel
 

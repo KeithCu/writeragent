@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.framework.tool import ToolBase
+from plugin.framework.tool_schema import page_index_param
 
 DRAW_AND_IMPRESS = [DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
 _IMPRESS_ONLY = [IMPRESS_DOCUMENT_SERVICE]
@@ -28,16 +29,10 @@ _IMPRESS_ONLY = [IMPRESS_DOCUMENT_SERVICE]
 # Every Draw/Impress tool whose optional `page` parameter goes through
 # DrawBridge.resolve_page shares this schema. When omitted, it falls back
 # to the chat's active page, then the view (DrawBridge.active_or_ctx_index).
-DRAW_PAGE_PROPERTY: dict[str, Any] = {
-    "type": "integer",
-    "description": "0-based page (slide) index (the user's page 2 is page=1); the active page if omitted.",
-}
+DRAW_PAGE_PROPERTY: dict[str, Any] = page_index_param("The active page if omitted.")
 
 # For Draw/Impress tools whose `page` parameter is required.
-DRAW_REQUIRED_PAGE_PROPERTY: dict[str, Any] = {
-    "type": "integer",
-    "description": "0-based page (slide) index: the user's page 2 is page=1.",
-}
+DRAW_REQUIRED_PAGE_PROPERTY: dict[str, Any] = page_index_param()
 
 
 class ToolDrawSpecialBase(ToolBase):

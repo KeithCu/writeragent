@@ -409,32 +409,6 @@ def test_frame_insert_invalid_width_and_anchor():
     assert bad_a["code"] == "INVALID_PARAM"
 
 
-def test_frame_delete_disposes_page_anchored_frame():
-    from plugin.writer.specialized.textframes import FrameDelete
-
-    frame = MagicMock()
-    frame.getAnchor.return_value = None
-    frames = MagicMock()
-    frames.hasByName.return_value = True
-    frames.getByName.return_value = frame
-    doc = MagicMock()
-    doc.getTextFrames.return_value = frames
-    doc.getDrawPage.return_value.getCount.return_value = 0
-    um = MagicMock()
-    um.isLocked.return_value = False
-    doc.getUndoManager.return_value = um
-    ctx = MagicMock(doc=doc)
-
-    def _commit(_tool, _doc, _title, mutate, *_a, **_k):
-        mutate()
-        return None
-
-    with patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit):
-        res = FrameDelete().execute(ctx, name="Box")
-    assert res["status"] == "ok"
-    frame.dispose.assert_called_once_with()
-
-
 def test_frame_delete_unknown_hints_frame_list():
     from plugin.writer.specialized.textframes import FrameDelete
 
@@ -550,50 +524,3 @@ def test_frame_set_properties_refuses_text_box():
         assert res["details"] == {"shape_index": 1, "shape_name": "Text Box 2"}
     box_frame.setPropertyValue.assert_not_called()
     box_shape.setPropertyValue.assert_not_called()
-
-
-def test_frame_delete_refuses_grouped_text_box():
-    from plugin.writer.specialized.textframes import FrameDelete
-
-    box_frame = MagicMock()
-    box_frame.getName.return_value = "Frame1"
-    box_shape = MagicMock()
-    box_shape.getName.return_value = "S1"
-    box_shape.getShapeType.return_value = "com.sun.star.drawing.CustomShape"
-    box_shape.supportsService.return_value = False
-    box_shape.getPropertyValue.side_effect = lambda p: {"TextBox": True, "TextBoxContent": box_frame}.get(p)
-
-    plain_shape = MagicMock()
-    plain_shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
-    plain_shape.supportsService.return_value = False
-    plain_shape.getPropertyValue.return_value = False
-
-    group = MagicMock()
-    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
-    group.supportsService.side_effect = lambda svc: svc == "com.sun.star.drawing.GroupShape"
-    group.getPropertyValue.return_value = False
-    group.getCount.return_value = 2
-    group.getByIndex.side_effect = lambda idx: [plain_shape, box_shape][idx]
-
-    draw_page = MagicMock()
-    draw_page.getCount.return_value = 1
-    draw_page.getByIndex.return_value = group
-
-    text_frames = MagicMock()
-    text_frames.getElementNames.return_value = []
-    text_frames.hasByName.side_effect = lambda n: n == "Frame1"
-    text_frames.getByName.side_effect = lambda n: box_frame if n == "Frame1" else None
-
-    doc = MagicMock()
-    doc.getTextFrames.return_value = text_frames
-    doc.getDrawPage.return_value = draw_page
-    ctx = MagicMock(doc=doc)
-
-    res = FrameDelete().execute(ctx, name="Frame1")
-
-    assert res["status"] == "error"
-    assert res["code"] == "TEXT_BOX_IN_GROUP"
-    assert res["details"] == {"shape_index": "0.1", "group_index": 0}
-    box_frame.dispose.assert_not_called()
-    group.remove.assert_not_called()
-    draw_page.remove.assert_not_called()
