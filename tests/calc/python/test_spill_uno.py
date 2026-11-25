@@ -136,6 +136,25 @@ def test_blocked_respill_protected_sheet_keeps_record_uno(ctx, doc):
         assert sheet.getCellByPosition(0, 2).getValue() == 3.0
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert data[f"{sheet_name}:0,0"]["rows"] == 3
+
+        # After unprotecting and freeing A4, the formula can reclaim its cells.
+        sheet.unprotect("")
+        sheet.getCellByPosition(0, 3).setString("")
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            [[1], [2], [3], [4]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=key,
+        )
+        assert sheet.getCellByPosition(0, 1).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 2).getValue() == 3.0
+        assert sheet.getCellByPosition(0, 3).getValue() == 4.0
+        data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
+        assert data[f"{sheet_name}:0,0"]["rows"] == 4
     finally:
         sheet.unprotect("")
         WorkbookState.forget_key(key)

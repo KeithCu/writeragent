@@ -51,8 +51,8 @@ log = logging.getLogger(__name__)
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
 # Clears values, formulas, and direct hard cell formatting/number formats without removing
 # annotations, styles, or draw objects.
-SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 SPILL_CONTENT_FLAGS = 1 | 2 | 4 | 16
+SPILL_CLEAR_FLAGS = SPILL_CONTENT_FLAGS | 32
 
 # A spilled error cell reads back as =#ERR504!, =#NUM! and so on, a void cell as #N/A, and any error
 # as =NA() after .xls. Any bare error literal counts as ours: it holds no user data, and XLSX turns
@@ -133,23 +133,25 @@ def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
     """Clear spilled cells in the rectangle, leaving the origin formula cell untouched.
 
     Returns True only when every targeted sub-range is empty afterwards (a protected
-    sheet ignores ``clearContents`` without raising, ``cellsuno.cxx:1682-1693``).
+    sheet ignores ``clearContents`` without raising, ``ScCellRangesBase::clearContents``).
     """
-    try:
-        targets = []
-        if cols > 1:
-            targets.append(sheet.getCellRangeByPosition(col + 1, row, col + cols - 1, row))
-        if rows > 1:
-            targets.append(sheet.getCellRangeByPosition(col, row + 1, col + cols - 1, row + rows - 1))
-        for target in targets:
+    sub_coords: list[tuple[int, int, int, int]] = []
+    if cols > 1:
+        sub_coords.append((col + 1, row, col + cols - 1, row))
+    if rows > 1:
+        sub_coords.append((col, row + 1, col + cols - 1, row + rows - 1))
+    cleared = True
+    for c1, r1, c2, r2 in sub_coords:
+        try:
+            target = sheet.getCellRangeByPosition(c1, r1, c2, r2)
             target.clearContents(SPILL_CLEAR_FLAGS)
             if target.queryContentCells(SPILL_CONTENT_FLAGS).getRangeAddresses():
-                return False
-        return True
-    except Exception:
-        # The record can name cells past the edge of a file saved with a smaller sheet.
-        log.debug("_clear_rect: failed to clear spilled range", exc_info=True)
-        return False
+                cleared = False
+        except Exception:
+            # The record can name cells past the edge of a file saved with a smaller sheet.
+            log.debug("_clear_rect: failed to clear spilled range", exc_info=True)
+            cleared = False
+    return cleared
 
 
 def _classify_orphan_record(
@@ -465,11 +467,9 @@ def _clear_blocked_spill(
     if _user_formula_in_rect(sheet, row, col, rec.rows, rec.cols) is not None:
         return
     before = _used_end(sheet)
-    # Give up ownership only when the neighbor cells are actually empty afterwards.
-    if not _clear_rect(sheet, row, col, rec.rows, rec.cols):
-        return
-    state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
-    save_spill_registry_for_doc(doc, state)
+    if _clear_rect(sheet, row, col, rec.rows, rec.cols):
+        state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
+        save_spill_registry_for_doc(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
 
 
