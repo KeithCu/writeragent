@@ -2423,3 +2423,49 @@ def test_raise_if_protected_sections_lists_names():
     assert "HeaderCellSec" not in msg
     assert "HeaderFrameSec" not in msg
     assert "UnprotSec" not in msg
+
+
+def test_split_nested_links_handles_inner_links_and_leaves_malformed_or_bookmarks():
+    from plugin.writer.html_import import _split_nested_links
+
+    one = '<p><a href="https://outer">before <a href="https://inner"><img src="x"/></a> after</a></p>'
+    assert _split_nested_links(one) == (
+        '<p><a href="https://outer">before </a><a href="https://inner"><img src="x"/></a><a href="https://outer"> after</a></p>'
+    )
+
+    two = '<p><a href="https://o">a <a href="https://i1">1</a> b <a href="https://i2">2</a> c</a></p>'
+    assert _split_nested_links(two) == (
+        '<p><a href="https://o">a </a><a href="https://i1">1</a><a href="https://o"> b </a>'
+        '<a href="https://i2">2</a><a href="https://o"> c</a></p>'
+    )
+
+    unclosed = '<p><a href="https://o">before <a href="https://i">in</a> after</p>'
+    assert _split_nested_links(unclosed) == unclosed
+
+    bookmark = '<p><a name="bm">before <a href="https://i">in</a> after</a></p>'
+    assert _split_nested_links(bookmark) == bookmark
+
+    self_closed = '<p><a name="bm"/><a href="https://o">ok</a></p>'
+    assert _split_nested_links(self_closed) == self_closed
+
+    self_closed_inside = '<p><a href="https://o">a <a name="bm"/> b</a></p>'
+    assert _split_nested_links(self_closed_inside) == self_closed_inside
+
+    with_id = '<p><a href="https://o" id="x" name="n">before <a href="https://i">in</a> after</a></p>'
+    assert _split_nested_links(with_id) == (
+        '<p><a href="https://o" id="x" name="n">before </a><a href="https://i">in</a>'
+        '<a href="https://o"> after</a></p>'
+    )
+
+    unquoted_slash = '<p><a href=https://o/>before <a href="https://i">in</a> after</a></p>'
+    assert _split_nested_links(unquoted_slash) == (
+        '<p><a href=https://o/>before </a><a href="https://i">in</a><a href=https://o/> after</a></p>'
+    )
+
+    non_anchor = '<p><a-b>before <a href="https://i">in</a> after</a-b></p>'
+    assert _split_nested_links(non_anchor) == non_anchor
+
+    quoted_id_text = '<p><a href="o" title="see id=5">a <a href="i">b</a> c</a></p>'
+    assert _split_nested_links(quoted_id_text) == (
+        '<p><a href="o" title="see id=5">a </a><a href="i">b</a><a href="o" title="see id=5"> c</a></p>'
+    )

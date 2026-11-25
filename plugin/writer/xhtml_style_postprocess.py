@@ -707,3 +707,62 @@ _HIDDEN_SECTION_DISPLAY_RE = re.compile(
 def show_hidden_sections(fodt: str) -> str:
     """Strip ``text:display="none|condition"`` from ``<text:section>`` open tags in flat ODF."""
     return _HIDDEN_SECTION_DISPLAY_RE.sub(r"\1\2", fodt)
+
+
+# filter/source/xslt/odf2xhtml/export/xhtml/body.xsl has no template for these elements, so their
+# svg:title and text come out without a wrapper. draw:custom-shape and draw:g are dropped whole
+# (common/body.xsl), and draw:frame gets a wrapper (createDrawFrame).
+_BARE_SHAPES = frozenset("draw:" + n for n in (
+    "rect", "line", "polyline", "polygon", "regular-polygon", "path", "circle", "ellipse",
+    "connector", "caption", "measure", "control"))
+_EMPTY_DRAW_LINK_RE = re.compile(r"<draw:a\b[^<>]*>\s*</draw:a>")
+_MATH_OBJECT_RE = re.compile(r"\s*<math\b")
+
+
+def _exportable_drawing(name: str, attrs: str, body: str) -> str:
+    # shapeexport.cxx writes title, events and glue points before the text.
+    text_at = body.find("<text:")
+    if name == "draw:object" or text_at < 0 or not re.sub(r"<[^<>]*>", "", body[text_at:]).strip():
+        return ""
+    return "<draw:frame%s><draw:text-box>%s</draw:text-box></draw:frame>" % (attrs, body[text_at:])
+
+
+def simplify_drawings(fodt: str) -> str:
+    """Rewrite bare shapes with text as text-box frames and drop empty shapes and non-math OLE objects.
+
+    Non-math ``draw:object`` elements are dropped whole (keeping any sibling ``draw:image``
+    preview) because the reloaded copy holds a real OLE object and LibreOffice writes its
+    metadata again on export, so trimming only metadata cannot work. Nesting depth is
+    counted because an embedded Writer document can hold its own ``draw:object``.
+    """
+    # crosshair: off
+    out: list[str] = []
+    pos = 0
+    name = ""
+    attrs = ""
+    start = 0
+    end = 0
+    depth = 0
+    for m in _ODF_TAG_RE.finditer(fodt):
+        close, tag, tag_attrs, empty = m.groups()
+        if depth:
+            if tag == name and not empty:
+                depth += -1 if close else 1
+            if depth:
+                continue
+            out.extend((fodt[pos:start], _exportable_drawing(name, attrs, fodt[end:m.start()])))
+            pos = m.end()
+        elif close:
+            continue
+        elif tag in _BARE_SHAPES or (
+            tag == "draw:object" and not empty and not _MATH_OBJECT_RE.match(fodt, m.end())
+        ):
+            name, attrs, start, end = tag, tag_attrs, m.start(), m.end()
+            if empty:
+                out.append(fodt[pos:start])
+                pos = end
+            else:
+                depth = 1
+    if not out:
+        return fodt
+    return _EMPTY_DRAW_LINK_RE.sub("", "".join(out) + fodt[pos:])

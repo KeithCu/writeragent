@@ -186,8 +186,8 @@ def test_document_to_content_fails_loudly_when_both_exports_fail():
     from plugin.writer import html_export
 
     model = _content_doc()
-    model.storeToURL.side_effect = OSError("No space left on device")
-    with patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")), \
+    with patch.object(html_export, "_read_filter_text", side_effect=PermissionError("Permission denied")), \
+         patch.object(html_export, "_export_starwriter_html", side_effect=OSError("No space left on device")), \
          pytest.raises(ToolExecutionError) as err:
         html_export.document_to_content(model, None)
     message = str(err.value)
@@ -337,11 +337,12 @@ def test_full_export_disposal_does_not_fall_back():
 
     model = _content_doc()
     with (
-        patch.object(html_export, "_export_xhtml", side_effect=_DisposedException("disposed")),
+        patch.object(html_export, "_read_filter_text", side_effect=_DisposedException("disposed")),
+        patch.object(html_export, "_export_starwriter_html") as starwriter,
         pytest.raises(DocumentDisposedError),
     ):
         html_export.document_to_content(model, None)
-    model.storeToURL.assert_not_called()
+    starwriter.assert_not_called()
 
 
 def test_starwriter_disposal_is_not_wrapped():
@@ -883,7 +884,7 @@ def test_put_outline_urls_rewrites_only_a_anchors_and_escapes_html():
         '<a href="#a_two">two</a></p>'
     )
     urls = ["#A & B|outline", "https://x/", "#C%7Coutline"]
-    out = _put_outline_urls(content, urls)
+    out = _put_outline_urls(content, urls, {})
     assert out == (
         '<p><a href="#ftn0" id="body_ftn0">1</a> '
         '<a href="#A &amp; B|outline">one</a> '
@@ -896,15 +897,62 @@ def test_put_outline_urls_leaves_content_unchanged_on_count_mismatch():
     from plugin.writer.html_export import _put_outline_urls
 
     content = '<p><a href="#a_one">one</a> <a href="#a_two">two</a></p>'
-    assert _put_outline_urls(content, ["#OnlyOne|outline"]) == content
+    assert _put_outline_urls(content, ["#OnlyOne|outline"], {}) == content
 
 
 def test_put_outline_urls_skips_empty_split_anchors():
     from plugin.writer.html_export import _put_outline_urls
 
     content = '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#a_Live">Live</a></p>'
-    out = _put_outline_urls(content, ["#Heading|outline"])
+    out = _put_outline_urls(content, ["#Heading|outline"], {})
     assert out == '<p><a href="#a_" class="text-Internet_20_link"/></p><p><a href="#Heading|outline">Live</a></p>'
+
+
+def test_put_outline_urls_restores_picture_by_name_even_on_text_mismatch():
+    from plugin.writer.html_export import _put_outline_urls
+
+    pic_only = '<p><a href="#a_base64"><span id="Pic1"><img src=""/></span></a> <a href="#a_one">one</a></p>'
+    assert _put_outline_urls(pic_only, ["#One|outline"], {"Pic1": "#PicTarget|outline"}) == (
+        '<p><a href="#PicTarget|outline"><span id="Pic1"><img src=""/></span></a> <a href="#One|outline">one</a></p>'
+    )
+    mismatch = '<p><a href="#a_base64"><span id="Pic1"><img src=""/></span></a> <a href="#a_one">one</a> <a href="#a_two">two</a></p>'
+    assert _put_outline_urls(mismatch, ["#One|outline"], {"Pic1": "#PicTarget|outline"}) == (
+        '<p><a href="#PicTarget|outline"><span id="Pic1"><img src=""/></span></a> <a href="#a_one">one</a> <a href="#a_two">two</a></p>'
+    )
+
+
+def test_restore_anchor_hrefs_pairs_unlinked_picture_at_start_of_text_link_as_text():
+    from plugin.writer.html_export import _ANCHOR_HREF_RE, _restore_anchor_hrefs
+
+    content = '<p><a href="https://wrong"><span id="Pic1"><img src=""/></span> link</a></p>'
+    assert _restore_anchor_hrefs(content, ["https://text/l"], _ANCHOR_HREF_RE, {}) == (
+        '<p><a href="https://text/l"><span id="Pic1"><img src=""/></span> link</a></p>'
+    )
+
+
+def test_hyperlink_urls_handles_frame_portion_splitting_a_link():
+    from plugin.writer.html_export import _hyperlink_urls
+
+    def _portion(chunk, url, ptype="Text"):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: {"HyperLinkURL": url, "TextPortionType": ptype}[name]
+        return (p, chunk)
+
+    # Frame with a different URL splits the surrounding link into two runs.
+    split_urls = _hyperlink_urls([
+        _portion("before ", "https://text/l"),
+        _portion("", "https://pic/l", "Frame"),
+        _portion("after", "https://text/l"),
+    ])
+    assert split_urls == ["https://text/l", "https://text/l"]
+
+    # Frame carrying the same URL as the surrounding link keeps one run.
+    same_urls = _hyperlink_urls([
+        _portion("before ", "https://text/l"),
+        _portion("", "https://text/l", "Frame"),
+        _portion("after", "https://text/l"),
+    ])
+    assert same_urls == ["https://text/l"]
 
 
 def test_full_export_reads_flat_odf_once_when_no_break_is_split():
@@ -1064,12 +1112,6 @@ def test_full_export_with_hidden_section_and_no_redlines_exports_scratch_copy():
 
     source_fodt = '<office:document><text:section text:name="H" text:display="none"/></office:document>'
     source_doc = MagicMock()
-    sec = MagicMock()
-    sec.getPropertyValue.return_value = False
-    sections = MagicMock()
-    sections.getCount.return_value = 1
-    sections.getByIndex.return_value = sec
-    source_doc.getTextSections.return_value = sections
 
     copy_doc = MagicMock()
     written = []
@@ -1090,3 +1132,32 @@ def test_full_export_with_hidden_section_and_no_redlines_exports_scratch_copy():
     assert written == ['<office:document><text:section text:name="H"/></office:document>']
     assert sem.call_args.args[0] is copy_doc
 
+
+def test_export_full_simplifies_drawings_before_expanding_tracked_deletions():
+    from plugin.writer import html_export as hx
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK
+
+    struck_shape_fodt = (
+        '<office:body><office:text>'
+        '<text:tracked-changes><text:changed-region text:id="ct1"><text:deletion><text:p/></text:deletion></text:changed-region></text:tracked-changes>'
+        '<text:p><text:change text:change-id="ct1"/><draw:rect draw:name="R2"><text:p> </text:p></draw:rect></text:p>'
+        '</office:text></office:body>'
+    )
+    source_doc = MagicMock()
+    source_doc.getTextTables.return_value.getElementNames.return_value = []
+    written = []
+
+    def fake_write(content, ext=""):
+        written.append(content)
+        return MagicMock(__enter__=lambda s: ("/tmp/x.fodt", "file:///tmp/x.fodt"), __exit__=lambda *a: None)
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export._read_filter_text", return_value=struck_shape_fodt), \
+         patch("plugin.writer.html_export.with_temp_buffer", side_effect=fake_write), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=MagicMock()), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._export_semantic", return_value=("<p>ok</p>", False)):
+        hx._export_full(source_doc, MagicMock())
+
+    assert len(written) == 1
+    assert DELETED_MARK in written[0]

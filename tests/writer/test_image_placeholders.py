@@ -22,6 +22,7 @@ def _graphics_doc(*names):
     model = MagicMock()
     graphics = model.getGraphicObjects.return_value
     graphics.hasByName.side_effect = lambda name: name in names
+    model.getEmbeddedObjects.return_value.hasByName.return_value = False
     return model
 
 
@@ -467,3 +468,118 @@ def test_capture_placeholder_images_keeps_horizontal_space_before_closing_a():
     )
     assert [k.linked for k in kept_crlf] == [True]
     assert swapped_crlf.endswith("</a>caption")
+
+
+def _prop_obj(props: dict[str, str]):
+    obj = MagicMock()
+    obj.getPropertyValue.side_effect = lambda name: props.get(name, "")
+    return obj
+
+
+def test_restore_image_placeholders_updates_surviving_picture_links():
+    from plugin.writer.image_placeholders import _KeptImage, _restore_image_placeholders
+
+    def _run(orig_props: dict[str, str], found_props: dict[str, str], *, linked: bool):
+        orig = _prop_obj(orig_props)
+        found = _prop_obj(found_props)
+        model = MagicMock()
+        model.findFirst.return_value = found
+        kept = _KeptImage("wa1img0", "Pic1", orig, MagicMock(), MagicMock(), MagicMock(), dict(orig_props), linked=linked)
+        with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=False):
+            _restore_image_placeholders(model, [kept])
+        return dict(c.args for c in orig.setPropertyValue.call_args_list)
+
+    # Linked survivor: updates URL and keeps target.
+    assert _run(
+        {"HyperLinkURL": "https://old", "HyperLinkName": "", "HyperLinkTarget": "_blank"},
+        {"HyperLinkURL": "https://new", "HyperLinkName": "", "HyperLinkTarget": ""},
+        linked=True,
+    ) == {"HyperLinkURL": "https://new"}
+
+    # Removed <a>: clears URL, name, and target.
+    assert _run(
+        {"HyperLinkURL": "https://old", "HyperLinkName": "nm", "HyperLinkTarget": "_blank"},
+        {"HyperLinkURL": "", "HyperLinkName": "", "HyperLinkTarget": ""},
+        linked=False,
+    ) == {"HyperLinkURL": "", "HyperLinkName": "", "HyperLinkTarget": ""}
+
+    # Unlinked picture inside a text link: untouched.
+    assert _run(
+        {"HyperLinkURL": "", "HyperLinkName": "", "HyperLinkTarget": ""},
+        {"HyperLinkURL": "https://text", "HyperLinkName": "", "HyperLinkTarget": ""},
+        linked=False,
+    ) == {}
+
+
+def test_restore_region_images_keeps_target_on_survivor_and_reinsert():
+    from plugin.writer.image_placeholders import _KeptImage, _RegionImage, restore_region_images
+
+    orig_props = {"HyperLinkURL": "https://old", "HyperLinkName": "", "HyperLinkTarget": "_blank"}
+    orig = _prop_obj(orig_props)
+    imported = _prop_obj({"HyperLinkURL": "https://new", "HyperLinkName": "", "HyperLinkTarget": "", "Title": "T"})
+    model = MagicMock()
+    graphics = model.getGraphicObjects.return_value
+    graphics.hasByName.return_value = True
+    graphics.getByName.return_value = imported
+
+    kept = _KeptImage("wa1img0", "Pic1", orig, MagicMock(), MagicMock(), MagicMock(), dict(orig_props))
+    region_img = _RegionImage("wa1img0", "Pic1", kept, True, True)
+
+    with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=False):
+        restore_region_images(model, [region_img])
+    assert dict(c.args for c in orig.setPropertyValue.call_args_list) == {"HyperLinkURL": "https://new"}
+
+    with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=True), \
+         patch("plugin.writer.image_placeholders._insert_copy") as ins:
+        restore_region_images(model, [region_img])
+    assert ins.call_args.kwargs["props"]["HyperLinkURL"] == "https://new"
+    assert ins.call_args.kwargs["props"]["HyperLinkTarget"] == "_blank"
+
+
+def test_capture_placeholder_images_refuses_embedded_object_with_helpful_message():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.image_placeholders import capture_placeholder_images
+
+    model = _graphics_doc()
+    model.getEmbeddedObjects.return_value.hasByName.side_effect = lambda name: name == "Object1"
+    with pytest.raises(ToolExecutionError, match="embedded object") as exc_info:
+        capture_placeholder_images(model, '<span id="Object1"><img src=""/></span>')
+    assert "'Object1'" in str(exc_info.value)
+    assert "target='search'" in str(exc_info.value)
+
+    with pytest.raises(ToolExecutionError) as mixed_exc:
+        capture_placeholder_images(
+            model, '<span id="Object1"><img src=""/></span><span id="MissingPic"><img src=""/></span>'
+        )
+    msg = str(mixed_exc.value)
+    assert "'Object1'" in msg and "'MissingPic'" in msg
+    assert "target='search'" in msg and "include_images=true" in msg
+
+
+def test_region_unlinked_picture_inside_text_link_keeps_link_untouched():
+    from plugin.writer.image_placeholders import capture_region_images, restore_region_images
+
+    orig_props = {"HyperLinkURL": "", "HyperLinkName": "", "HyperLinkTarget": ""}
+    orig = _prop_obj(orig_props)
+    orig.getPropertyValue.side_effect = lambda name: {
+        "Graphic": MagicMock(),
+        "AnchorType": MagicMock(value="AT_CHARACTER"),
+        **orig_props,
+    }[name]
+    model = _graphics_doc("Pic1")
+    graphics = model.getGraphicObjects.return_value
+    graphics.getByName.return_value = orig
+    text_obj = MagicMock()
+
+    with patch("plugin.writer.image_placeholders.uno_same", return_value=True):
+        swapped, images = capture_region_images(
+            model, text_obj, '<p><a href="https://text/l">before <span id="Pic1"><img src=""/></span> after</a></p>'
+        )
+    assert images[0].linked is False
+
+    imported = _prop_obj({"HyperLinkURL": "https://text/l", "HyperLinkName": "", "HyperLinkTarget": ""})
+    graphics.hasByName.side_effect = lambda name: name == images[0].marker
+    graphics.getByName.side_effect = lambda name: imported if name == images[0].marker else orig
+    with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=False):
+        restore_region_images(model, images)
+    orig.setPropertyValue.assert_not_called()

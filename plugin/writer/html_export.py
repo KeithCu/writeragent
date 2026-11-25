@@ -19,7 +19,7 @@ import logging
 import re
 import time
 import zlib
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 from typing import Any, Callable, Iterator, NamedTuple
 
 from plugin.doc.temp_files import with_temp_buffer
@@ -54,6 +54,7 @@ from plugin.writer.math.math_mml_export import (
 from . import html_ruby
 from . import range_copy
 from . import xhtml_style_postprocess as xhtml_post
+from .image_placeholders import FRAME_HEAD
 
 log = logging.getLogger("writeragent.writer")
 
@@ -102,7 +103,13 @@ _DATA_URI_IMAGE_RE = re.compile(
 # The XHTML filter rewrites a fragment such as ``#2.3.4.Title.|outline`` into
 # an HTML-safe id. The raw HyperLinkURL is put back on each exported anchor,
 # in the order the source portions were copied.
-_ANCHOR_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")([^"]*)(")', re.IGNORECASE)
+# An <a> right before a picture's frame is the picture's own link only when that
+# picture has a HyperLinkURL; otherwise it is a text link that starts with a picture.
+_FRAME_IMG_AHEAD = (
+    r'(?=[^>]*>(?:%s<(?:div|span)\b[^>]*\bid="(?P<picture>[^"]+)"[^>]*>'
+    r"\s*(?:<p\b[^>]*>\s*)?<img\b)?)"
+) % FRAME_HEAD
+_ANCHOR_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")([^"]*)(")' + _FRAME_IMG_AHEAD, re.IGNORECASE)
 
 
 def strip_embedded_image_data(html: str) -> str:
@@ -236,11 +243,20 @@ def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
     portions with the same URL and one anchor; writing every portion would put
     the extra URL on the next anchor. A portion with no URL separates runs, so
     two copies of the same URL with plain text between them stay two anchors.
+    A picture in the scratch copy ends the link run and the filter writes two
+    anchors: an empty ``Frame`` portion resets *previous* when its URL differs
+    from the surrounding link. The source document reports the text link's URL on
+    the ``Frame``, whereas the scratch copy reports ``''``, and that difference
+    tells one anchor from two.
     """
     urls = []
     previous = None
     for portion, chunk in portions:
         if not chunk:
+            if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Frame":
+                url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
+                if url != previous:
+                    previous = None
             continue
         url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
         if not url:
@@ -253,21 +269,43 @@ def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
     return urls
 
 
+def _picture_urls(doc: Any) -> dict[str, str]:
+    """Map graphic object names to non-empty ``HyperLinkURL`` values for name-based lookup.
+
+    ``create-href`` (``common/body.xsl``) builds ``#a_`` from all descendant text including
+    base64 image data, so picture links cannot be paired by count.
+    """
+    graphics = doc.getGraphicObjects()
+    urls: dict[str, str] = {}
+    for name in graphics.getElementNames():
+        url = str(graphics.getByName(name).getPropertyValue("HyperLinkURL") or "")
+        if url:
+            urls[name] = url
+    return urls
+
+
+def _picture_url(match: re.Match[str], picture_urls: dict[str, str]) -> str | None:
+    """Return the picture's own ``HyperLinkURL`` when *match* immediately precedes a linked picture wrapper."""
+    name = match["picture"]
+    return picture_urls.get(html_unescape(name)) if name else None
+
+
 def _restore_anchor_hrefs(
-    content: str, urls: list[str], anchor_re: re.Pattern[str]
+    content: str,
+    urls: list[str],
+    anchor_re: re.Pattern[str],
+    picture_urls: dict[str, str],
 ) -> str:
     """Write *urls* back onto exported anchors matching *anchor_re*. The filter does not keep ``|outline``."""
-    if not content or not urls:
+    if not content:
         return content
-    index = 0
+    remaining = iter(urls)
 
     def _replace(match: re.Match[str]) -> str:
-        nonlocal index
-        if index >= len(urls):
+        url = _picture_url(match, picture_urls) or next(remaining, None)
+        if url is None:
             return match.group(0)
-        url = html_escape(urls[index], quote=True)
-        index += 1
-        return match.group(1) + url + match.group(3)
+        return match.group(1) + html_escape(url, quote=True) + match.group(3)
 
     return anchor_re.sub(_replace, content)
 
@@ -279,27 +317,29 @@ def _restore_anchor_hrefs(
 # only outline URLs, and only when the counts agree. A tracked deletion that splits
 # across a hyperlink leaves empty <a href="#a_"/> anchors in the split paragraphs;
 # requiring at least one char after #a_ skips them so the count guard still matches.
-_EXPORTED_OUTLINE_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")(#a_[^"]+)(")', re.IGNORECASE)
+_EXPORTED_OUTLINE_HREF_RE = re.compile(
+    r'(<a\b[^>]*?\bhref=")(#a_[^"]+)(")' + _FRAME_IMG_AHEAD, re.IGNORECASE
+)
 
 
 def _is_outline_url(url: str) -> bool:
     return "|outline" in url or "%7Coutline" in url
 
 
-def _put_outline_urls(content: str, urls: list[str]) -> str:
-    """Pure: write the outline URLs among *urls* onto exported #a_ anchors, in order; unchanged on count mismatch."""
+def _put_outline_urls(content: str, urls: list[str], picture_urls: dict[str, str]) -> str:
+    """Pure: write the outline URLs among *urls* onto exported #a_ anchors, in order; text unchanged on count mismatch."""
     outline_urls = [u for u in urls if _is_outline_url(u)]
-    if not outline_urls:
-        return content
-    anchor_count = len(_EXPORTED_OUTLINE_HREF_RE.findall(content))
+    anchor_count = sum(
+        1 for m in _EXPORTED_OUTLINE_HREF_RE.finditer(content) if _picture_url(m, picture_urls) is None
+    )
     if anchor_count != len(outline_urls):
         log.debug(
-            "_put_outline_urls: count mismatch (%d #a_ hrefs vs %d outline URLs); leaving HTML unchanged",
+            "_put_outline_urls: count mismatch (%d #a_ hrefs vs %d outline URLs); leaving text links unchanged",
             anchor_count,
             len(outline_urls),
         )
-        return content
-    return _restore_anchor_hrefs(content, outline_urls, _EXPORTED_OUTLINE_HREF_RE)
+        outline_urls = []
+    return _restore_anchor_hrefs(content, outline_urls, _EXPORTED_OUTLINE_HREF_RE, picture_urls)
 
 
 def _body_hyperlink_urls(model: Any) -> list[str]:
@@ -315,7 +355,7 @@ def _restore_outline_hrefs(model: Any, content: str) -> str:
 
     Walks only body and table paragraphs; outline links in frames, footnotes, or
     headers make the counts differ, and the guard in ``_put_outline_urls`` then
-    leaves the HTML unchanged. Note that ``iter_xtext_paragraphs`` walks tables
+    leaves text links unchanged. Note that ``iter_xtext_paragraphs`` walks tables
     via ``getCellNames()`` (``lcl_InspectLines`` in
     ``sw/source/core/unocore/unotbl.cxx:567``), which visits sub-cells of an
     old-style split cell before later columns in the same visual row, so
@@ -328,11 +368,12 @@ def _restore_outline_hrefs(model: Any, content: str) -> str:
         return content
     try:
         urls = _body_hyperlink_urls(model)
+        picture_urls = _picture_urls(model)
     except Exception as exc:
         reraise_if_disposed(exc)
         log.debug("_restore_outline_hrefs: portion walk failed", exc_info=True)
         return content
-    return _put_outline_urls(content, urls)
+    return _put_outline_urls(content, urls, picture_urls)
 
 
 def _starts_before(text: Any, left: Any, right: Any) -> bool:
@@ -705,7 +746,9 @@ def _range_to_content_via_temp_doc(
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             content = _export_starwriter_html(temp_doc).replace(xhtml_post.DELETED_MARK, "")
-        content = _restore_anchor_hrefs(content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE)
+        content = _restore_anchor_hrefs(
+            content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE, _picture_urls(temp_doc)
+        )
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
         content = html_ruby.inject_ruby_into_html(content, copied_ruby)
@@ -727,26 +770,19 @@ def _range_to_content_via_temp_doc(
 
 
 
-def _has_section_display(model: Any) -> bool:
-    """True when any text section has IsVisible=False (LO writes ``text:display``)."""
-    sections = model.getTextSections()
-    return any(not sections.getByIndex(i).getPropertyValue("IsVisible") for i in range(sections.getCount()))
-
-
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, expanding tracked deletions and hidden sections first.
+    """Export the full document via XHTML, simplifying drawings and expanding deletions/hidden sections first.
 
-    ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
     multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks and
-    ``text:section[@text:display='none']``; when tracked deletions cross a
-    paragraph break or empty a paragraph, or any section has ``IsVisible``
-    false, rewrite the flat-ODF sidecar and export a hidden copy instead.
-    Tables Accept All removes are left out of the copy.
+    ``text:section[@text:display='none']``, emits bare shape titles/text
+    without wrappers, and leaks non-math OLE metadata. When tracked deletions
+    cross a paragraph break or empty a paragraph, any section has ``IsVisible``
+    false, or bare shapes/non-math OLE objects are present, rewrite the flat-ODF
+    sidecar and export a hidden copy instead. Tables Accept All removes are left
+    out of the copy.
     """
     deletions = bool(TrackedDeletions(model))
-    if not deletions and not _has_section_display(model):
-        return _export_semantic(model, read_ruby=True)
     struck: list[str] = []
     if deletions:
         # Judged on the model: the copy's struck cells hold marker text, so there they read as live.
@@ -756,8 +792,11 @@ def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
             if range_copy.table_is_struck(model, tables.getByName(name), DeletionState())
         ]
     fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-    expanded = xhtml_post.expand_tracked_deletions(fodt) if deletions else None
-    readable = xhtml_post.show_hidden_sections(expanded or fodt)
+    # simplify_drawings must run before expand_tracked_deletions: any draw: tag marks a
+    # paragraph live, so a struck paragraph holding only an empty shape would lose its style token.
+    readable = xhtml_post.show_hidden_sections(xhtml_post.simplify_drawings(fodt))
+    if deletions:
+        readable = xhtml_post.expand_tracked_deletions(readable) or readable
     if readable == fodt and not struck:
         return _export_semantic(model, read_ruby=True, fodt=fodt)
     with with_temp_buffer(readable, ext=FODT_EXTENSION) as (_path, url):
