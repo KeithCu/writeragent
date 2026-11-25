@@ -702,6 +702,29 @@ def test_nothing_landed_follows_the_undo_stack():
     assert outcome6.nothing_landed is True
     mgr6.undo.assert_not_called()
 
+    # Nested group: titles never change, and isUndoPossible is False while an outer group is open.
+    doc7, mgr7 = _mock_undo_doc(titles_seq=[("Outer",), ("Outer",)])
+    mgr7.isUndoPossible.return_value = False
+    outcome7 = commit_or_rollback(doc7, "Title", lambda: (_ for _ in ()).throw(ValueError("partial")))
+    assert outcome7.rolled_back is False
+    assert outcome7.nothing_landed is False
+    mgr7.undo.assert_not_called()
+
+    # Empty and outermost: same unchanged titles with isUndoPossible True.
+    doc8, mgr8 = _mock_undo_doc(titles_seq=[("Outer",), ("Outer",)])
+    mgr8.isUndoPossible.return_value = True
+    outcome8 = commit_or_rollback(doc8, "Title", lambda: (_ for _ in ()).throw(ValueError("refused")))
+    assert outcome8.rolled_back is False
+    assert outcome8.nothing_landed is True
+    mgr8.undo.assert_not_called()
+
+    # Cleared stack: non-empty before followed by empty after says nothing about what landed.
+    doc9, mgr9 = _mock_undo_doc(titles_seq=[("Prev",), ()])
+    outcome9 = commit_or_rollback(doc9, "Title", lambda: (_ for _ in ()).throw(ValueError("partial")))
+    assert outcome9.rolled_back is False
+    assert outcome9.nothing_landed is False
+    mgr9.undo.assert_not_called()
+
 
 def test_undo_step_or_rollback_full_stack_empty_group():
     from plugin.doc.compound_undo import UndoStepOrRollback

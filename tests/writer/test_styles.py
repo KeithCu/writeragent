@@ -2830,6 +2830,22 @@ def test_apply_to_cursors_open_group_does_not_claim_nothing_changed():
     assert "undo step could not be closed" in err["message"]
 
 
+def test_apply_to_cursors_not_rolled_back_does_not_claim_nothing_changed():
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.writer.styles import apply_to_cursors
+
+    ctx = _style_ctx()
+    tool = ApplyStyle()
+    not_rolled_back = UndoOutcome(mutate_error=ValueError("x"))
+    with patch("plugin.writer.styles.commit_or_rollback", return_value=not_rolled_back):
+        reports, err = apply_to_cursors(tool, ctx, [MagicMock()], lambda _c: None, "style 'Heading 1'")
+
+    assert reports == []
+    assert err is not None
+    assert "Nothing was changed" not in err["message"]
+    assert "may still be in the document" in err["message"]
+
+
 def test_coerce_uno_field_builds_enum_and_char_from_strings():
     class _FakeEnum:
         def __init__(self, type_name: str, value: str) -> None:

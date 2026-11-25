@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import tempfile
+from unittest.mock import patch
 
 import uno
 
@@ -1112,4 +1113,46 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
     for p in paras_after:
         if p is not colored[0]:
             assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_nested_failure_does_not_claim_nothing_changed_uno(ctx, doc):
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    text = doc.getText()
+    text.setString("Some clause")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    with patch("plugin.writer.styles.set_paragraph_background", side_effect=RuntimeError("second step")):
+        res_alone = StyleFormatText().execute(
+            tool_ctx,
+            properties={"CharWeight": 150.0, "ParaBackColor": "#FFE4C4"},
+            target="full_document",
+        )
+        assert res_alone["status"] == "error", res_alone
+        assert "Nothing was changed" in res_alone["message"]
+        cursor = text.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        assert float(cursor.getPropertyValue("CharWeight")) == 100.0
+
+        outer = WriterCompoundUndo(doc, "Outer")
+        assert outer.entered
+        try:
+            res_nested = StyleFormatText().execute(
+                tool_ctx,
+                properties={"CharWeight": 150.0, "ParaBackColor": "#FFE4C4"},
+                target="full_document",
+            )
+        finally:
+            outer.close()
+
+    assert res_nested["status"] == "error", res_nested
+    assert "Nothing was changed" not in res_nested["message"]
+    assert "may still be in the document" in res_nested["message"]
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    assert float(cursor.getPropertyValue("CharWeight")) == 150.0
 
