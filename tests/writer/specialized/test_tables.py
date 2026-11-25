@@ -81,7 +81,7 @@ class FakeBand:
 
 
 class FakeTable:
-    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None, cell_names=None, seps_by_row=None, row_spans=None):
+    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None, cell_names=None, seps_by_row=None, row_spans=None, protected=None):
         self._cols = FakeBand(cols)
         self._cells = cells or {}
         self._name = name
@@ -90,6 +90,7 @@ class FakeTable:
         self._explicit_names = cell_names
         self._seps_by_row = seps_by_row or {}
         self._row_spans = row_spans or {}
+        self._protected = set(protected or ())
         self._rows = FakeBand(rows, seps_fn=self._row_separators)
 
     def _row_separators(self, row_idx):
@@ -138,7 +139,11 @@ class FakeTable:
         return SimpleNamespace(
             getString=lambda: self._cells.get(name, ""),
             setString=lambda v: self._cells.__setitem__(name, v),
-            getPropertyValue=lambda prop: self._row_spans.get(name, 1) if prop == "RowSpan" else None,
+            getPropertyValue=lambda prop: (
+                self._row_spans.get(name, 1)
+                if prop == "RowSpan"
+                else (name in self._protected if prop == "IsProtected" else None)
+            ),
         )
 
     def getCellByPosition(self, col, row):
@@ -1158,6 +1163,8 @@ class _TrackingCell:
     def getPropertyValue(self, prop):
         if prop == "RowSpan":
             return self._table._row_spans.get(self._name, 1)
+        if prop == "IsProtected":
+            return self._name in self._table._protected
         return None
 
     def getEnd(self):
@@ -1640,23 +1647,53 @@ def test_untracked_row_delete_allows_empty_tall_cell(tall_cell):
 
 
 @pytest.mark.parametrize(
-    "para",
+    ("para", "expected_keyword"),
     [
-        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Frame")]), id="frame_portion"),
-        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="TextField")]), id="field_portion"),
-        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Annotation")]), id="annotation_portion"),
-        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Bookmark")]), id="bookmark_portion"),
-        pytest.param(FakeParagraph("", anchored=[object()]), id="anchored_content"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Frame")]), "frame", id="frame_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="TextField")]), "field", id="field_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Annotation")]), "comment", id="annotation_portion"),
+        pytest.param(FakeParagraph("", portions=[FakePortion(TextPortionType="Bookmark")]), "bookmark", id="bookmark_portion"),
+        pytest.param(FakeParagraph("", anchored=[object()]), "frame", id="anchored_content"),
     ],
 )
-def test_row_delete_refuses_tall_cell_with_hosted_content(para):
+def test_row_delete_refuses_tall_cell_with_hosted_content(para, expected_keyword):
     table = FakeParentTable(3, 3, name="T", nested_by_cell={"B1": [para]})
     table._row_spans = {"B1": 2}
     ctx = _ctx({"T": table})
     res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
     assert res["status"] == "error"
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert expected_keyword in res["message"]
     assert table._rows.removes == []
+
+
+@pytest.mark.parametrize("axis", ["row", "column"])
+@pytest.mark.parametrize("tracked", [False, True])
+def test_delete_refuses_protected_cell(axis, tracked):
+    if tracked:
+        table = _TrackingTable(3, 3, name="T", protected={"B2"})
+        doc = _TrackingDoc({"T": table})
+        ctx = SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc))
+    else:
+        table = FakeTable(3, 3, name="T", protected={"B2"})
+        doc = None
+        ctx = _ctx({"T": table})
+    res = ManageTableStructure().execute_safe(ctx, action="delete", axis=axis, name="T", index=1)
+    assert res["status"] == "error"
+    assert res["code"] == "CELLS_PROTECTED"
+    assert "B2" in res["message"]
+    band = table._rows if axis == "row" else table._cols
+    assert band.removes == []
+    if doc is not None:
+        assert doc.dispatched == []
+
+
+def test_untracked_delete_band_not_deleted():
+    table = FakeTable(3, 3, name="T")
+    table._rows.removeByIndex = lambda idx, count: None
+    res = ManageTableStructure().execute_safe(_ctx({"T": table}), action="delete", axis="row", name="T", index=1)
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_BAND_NOT_DELETED"
 
 
 @pytest.mark.parametrize("tall_cell", ["A1", "C1"])
@@ -1708,15 +1745,29 @@ def test_untracked_row_delete_covered_row_still_removes():
     ("seps_per_row", "cell_names", "idx", "expected"),
     [
         # Header merge A1:B1 in 3-col table, deleting col 0 -> A1 spans 2 cols
-        ([[6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, ("A1", 2)),
+        ([[6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, ("A1", 2, 2)),
         # Lower merge A3:B3 in 3-col table, deleting col 0 -> A3 spans 2 cols
-        ([[3333, 6666], [3333, 6666], [6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3"], 0, ("A3", 2)),
+        ([[3333, 6666], [3333, 6666], [6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3"], 0, ("A3", 2, 2)),
         # Full-width row A3:C3 in 3-col table, deleting col 1 -> A3 spans 3 cols
-        ([[3333, 6666], [3333, 6666], []], ["A1", "B1", "C1", "A2", "B2", "C2", "A3"], 1, ("A3", 3)),
+        ([[3333, 6666], [3333, 6666], []], ["A1", "B1", "C1", "A2", "B2", "C2", "A3"], 1, ("A3", 3, 3)),
         # Rectangular 3x3 table -> None
         ([[3333, 6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, None),
         # A1:B1 merged in 2-col table, deleting idx 1 (beyond row 0's 1-cell count) -> None
         ([[], [5000]], ["A1", "A2", "B2"], 1, None),
+        # Staggered B1:C1 and C2:D2 in 5-col table, deleting col 1 -> B1 spans 2, 3 cols deleted
+        (
+            [[2000, 6000, 8000], [2000, 4000, 8000], [2000, 4000, 6000, 8000]],
+            ["A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2", "A3", "B3", "C3", "D3", "E3"],
+            1,
+            ("B1", 2, 3),
+        ),
+        # A1:B1 and B2:C2 in 4-col table, deleting col 1 -> B2 is the spanning cell (2 cols)
+        (
+            [[5000, 7500], [2500, 7500], [2500, 5000, 7500]],
+            ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3", "D3"],
+            1,
+            ("B2", 2, 2),
+        ),
     ],
 )
 def test_column_wide_cell(seps_per_row, cell_names, idx, expected):

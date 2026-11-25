@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import time
 import unittest
+from typing import Any
 
+from plugin.framework.config import save
 from plugin.testing_runner import current_office, native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
 from tests.harness.uno_profile_config import (
     patch_profile_config,
     profile_config_path,
+    profile_config_values,
     settle_soffice_config,
 )
 
@@ -244,26 +247,6 @@ def _cold_kernel() -> None:
     shutdown_venv_workers_for_tests()
 
 
-def _set_session_mode(mode: str) -> None:
-    """Write session mode to the throwaway profile that soffice reads.
-
-    After an office recycle, client ``save`` still writes to the first
-    profile's cached path.
-    """
-    from plugin.framework.config import save
-
-    save({"scripting.python_session_mode": mode})
-
-    def _mode(data: dict) -> None:
-        if mode == "isolated":
-            data.pop("scripting.python_session_mode", None)
-            data.pop("python_session_mode", None)
-        else:
-            data["scripting.python_session_mode"] = mode
-
-    patch_profile_config(_mode)
-
-
 def _leftover_shared_diag(a1, a3) -> str:
     """Config + cell snapshot when leftover Shared does not become 41."""
     from plugin.framework.config import get_config
@@ -285,11 +268,12 @@ def _leftover_shared_diag(a1, a3) -> str:
     ]
     path = str(profile_config_path())
     try:
-        with open(path, encoding="utf-8") as handle:
-            text = handle.read()
-    except OSError as exc:
-        text = "<unreadable %s>" % exc
-    lines.append("leftover diag file=%s body=%s" % (path, text.replace("\n", " ")))
+        settings: Any = profile_config_values(
+            "scripting.python_session_mode", "scripting.python_venv_path"
+        )
+    except (AssertionError, OSError) as exc:
+        settings = "<unreadable %s>" % exc
+    lines.append("leftover diag file=%s settings=%r" % (path, settings))
     debug_log = path.replace("writeragent.json", "writeragent_debug.log")
     if debug_log != path:
         try:
@@ -494,7 +478,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     try:
         # Shared is seeded before soffice starts. Do not sleep 2.1s here —
         # leftover must fail or pass on the first calculateAll, not a cache wait.
-        _set_session_mode("shared")
+        save({"scripting.python_session_mode": "shared"})
         _close_extra_calc_docs(ctx, doc)
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -534,7 +518,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         if a3.getValue() != 41.0:
             raise AssertionError(_leftover_shared_diag(a1, a3))
     finally:
-        _set_session_mode("isolated")
+        save({"scripting.python_session_mode": "isolated"})
         _restore_geometric_flag(previous)
 
 
@@ -823,7 +807,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     _cold_kernel()
     previous = _enable_geometric_flag()
     try:
-        _set_session_mode("isolated")
+        save({"scripting.python_session_mode": "isolated"})
         settle_soffice_config()
         # Isolated + no init: do not set an init script.
         maybe_geometric_on_document_open(ctx, doc)
@@ -894,7 +878,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
             % (a2.getValue(), a2.getError(), a2.getString(), a2.getFormula())
         )
     finally:
-        _set_session_mode("isolated")
+        save({"scripting.python_session_mode": "isolated"})
         _restore_geometric_flag(previous)
 
 

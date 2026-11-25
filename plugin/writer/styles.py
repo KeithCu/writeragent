@@ -29,6 +29,7 @@ import os
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple, TypedDict, cast
 
 import uno
+from com.sun.star.uno import RuntimeException
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -40,10 +41,12 @@ from plugin.doc.text_helpers import (
     iter_elements_limited,
     record_walk_cap,
     reset_properties_to_default,
+    set_paragraph_background,
     writable_char_names,
 )
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
+    ToolExecutionError,
     is_disposal,
     name_miss_details,
     reraise_if_disposed,
@@ -319,6 +322,21 @@ def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str])
                 if cell_enum is not _READ_FAILED:
                     yield from _capture_paragraphs(read, cell_enum, notes)
     record_walk_cap(para_enum, seen, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
+
+
+def _touched_paragraphs(cursor: Any) -> Iterator[Any]:
+    """Yield every paragraph a paragraph-level write on *cursor* changes, tables included."""
+    read = _CountingReader()
+    notes: list[str] = []
+    span = _expand_to_full_paragraphs(cursor)
+    yield from _capture_paragraphs(read, span.createEnumeration(), notes)
+    # A range enumeration omits an empty last paragraph after a table
+    # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx);
+    # otherwise this repeats the last paragraph.
+    end = span.getText().createTextCursorByRange(span.getEnd())
+    yield from _capture_paragraphs(read, end.createEnumeration(), notes)
+    if read.failures or notes:
+        raise ToolExecutionError("Not every paragraph in the range could be read.")
 
 
 def _capture_direct_char_overrides(
@@ -877,10 +895,6 @@ def _has_paragraph_adjust(name: str) -> bool:
     numbers its releases differently. An unknown member makes pyuno's checkEnum
     (pyuno/source/module/pyuno_module.cxx) raise RuntimeException.
     """
-    # local: see _coerce_uno_field (tests swap sys.modules["uno"])
-    import uno
-    from com.sun.star.uno import RuntimeException
-
     try:
         uno.Enum("com.sun.star.style.ParagraphAdjust", name)
     except RuntimeException:
@@ -1048,7 +1062,7 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
-    current: Any = getattr(struct, field, None)
+    current: Any = getattr(struct, field)
     try:
         if isinstance(current, uno.Enum):
             return uno.Enum(cast("Any", current).typeName, value.strip().upper())
@@ -2076,8 +2090,15 @@ class StyleFormatText(ToolWriterStyleBase):
                 if para_author is not None
                 else ([], False)
             )
-            pre_updates = {**reset_values, **updates} if char_tracked else updates
+            pre_updates = {
+                k: v
+                for k, v in ({**reset_values, **updates} if char_tracked else updates).items()
+                if k != "ParaBackColor"
+            }
             set_cursor_properties(cursor, pre_updates)
+            if "ParaBackColor" in updates:
+                for para in _touched_paragraphs(cursor):
+                    set_paragraph_background(para, updates["ParaBackColor"])
             cleared = reset_properties_to_default(cursor, reset_names)
             # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
             # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
@@ -2123,7 +2144,11 @@ class StyleFormatText(ToolWriterStyleBase):
         after: dict[str, Any] = {}
         for name in all_names:
             try:
-                raw_after = cursors[0].getPropertyValue(name)
+                if name == "ParaBackColor":
+                    # The cursor reads its own RES_BACKGROUND, not the paragraph fill.
+                    raw_after = next(_touched_paragraphs(cursors[0])).getPropertyValue(name)
+                else:
+                    raw_after = cursors[0].getPropertyValue(name)
                 after[name] = _schema_prop_value(name, raw_after) if raw_after is not None else None
             except Exception as exc:
                 reraise_if_disposed(exc)
@@ -2549,12 +2574,22 @@ class StyleImport(ToolWriterStyleBase):
             return self._tool_error("path must be an absolute filesystem path.", code="INVALID_PARAM")
         if not os.path.isfile(file_path):
             return self._tool_error("path does not exist: %s" % file_path, code="INVALID_PARAM")
+        # SwDocShell::LoadStylesFromFile (sw/source/uibase/app/docsh2.cxx:1632-1693) silently skips
+        # non-Writer ODF storage packages and returns ERRCODE_NONE without throwing.
+        if os.path.splitext(file_path)[1].lower() not in (".odt", ".ott"):
+            return self._tool_error("style_import only supports .odt and .ott files.", code="INVALID_PARAM")
 
         overwrite = kwargs.get("overwrite", True)
         load_text = kwargs.get("load_paragraph_styles", True)
         load_page = kwargs.get("load_page_styles", False)
         load_frame = kwargs.get("load_frame_styles", False)
         load_num = kwargs.get("load_numbering_styles", False)
+
+        # Without any Load* flag and OverwriteStyles=True, SwgReaderOption::IsFormatsOnly
+        # (sw/inc/shellio.hxx:114) is false so LO imports content.xml into the document;
+        # with OverwriteStyles=False the call is a silent no-op.
+        if not any((load_text, load_page, load_frame, load_num)):
+            return self._tool_error("Choose at least one style type to load.", code="INVALID_PARAM")
 
         url = uno.systemPathToFileUrl(file_path)
 
@@ -2566,8 +2601,9 @@ class StyleImport(ToolWriterStyleBase):
             create_property_value("LoadNumberingStyles", load_num),
         )
 
-        # The document object implements XStyleLoader
-        ctx.doc.loadStylesFromURL(url, opts)
+        # XStyleLoader is implemented by the style families, not the document
+        # (sw/source/core/unocore/unostyle.cxx:SwXStyleFamilies::loadStylesFromURL).
+        ctx.doc.getStyleFamilies().loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
         flag_style_unreviewed(result, ctx.doc)

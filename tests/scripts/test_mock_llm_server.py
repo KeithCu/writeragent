@@ -497,6 +497,48 @@ def test_comment_with_empty_document_calls_apply_document_content():
     assert len(out.tool_args["content"]) > 0
 
 
+def test_comment_ignores_selection_markers():
+    empty_with_caret = (
+        "You are WriterAgent.\n\n"
+        "[DOCUMENT CONTENT]\n"
+        "[DOCUMENT START]\n"
+        "[SELECTION_START][SELECTION_END]\n"
+        "[END DOCUMENT]"
+    )
+    out = decide_completion(
+        {
+            "messages": [
+                {"role": "system", "content": empty_with_caret},
+                {"role": "user", "content": "insert a comment"},
+            ],
+            "tools": _tools("comment_add", "apply_content"),
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert out.tool_name == "apply_content"
+
+    non_empty_with_caret = (
+        "You are WriterAgent.\n\n"
+        "[DOCUMENT CONTENT]\n"
+        "[DOCUMENT START]\n"
+        "[SELECTION_START][SELECTION_END]Welcome to the sample document\n"
+        "[END DOCUMENT]"
+    )
+    out2 = decide_completion(
+        {
+            "messages": [
+                {"role": "system", "content": non_empty_with_caret},
+                {"role": "user", "content": "insert a comment"},
+            ],
+            "tools": _tools("comment_add", "apply_content"),
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert out2.tool_name == "comment_add"
+    assert out2.tool_args is not None
+    assert out2.tool_args["search"] == "Welcome"
+
+
 def test_comment_after_apply_content_step():
     out = decide_completion(
         {

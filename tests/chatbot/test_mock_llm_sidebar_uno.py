@@ -27,6 +27,7 @@ from tests.chatbot.mock_llm_harness import (
     start_mock_sidebar_session,
     stop_mock_sidebar_session,
 )
+from tests.harness.uno_profile_config import settle_soffice_config
 
 _session = None
 WELCOME_BODY = "Welcome to WriterAgent."
@@ -635,8 +636,7 @@ def _rebind_mock(**flags: Any) -> None:
     _session.thread = thread
     _session.base_url = base_url
     save({"endpoint": base_url})
-    if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        time.sleep(2.1)
+    settle_soffice_config()
 
 
 @native_test
@@ -1724,7 +1724,7 @@ def test_e22_nested_max_steps(ctx):
     _session.config.nested_never_finish = True
     try:
         save({"chatbot.max_tool_rounds": 3})
-        time.sleep(2.1)
+        settle_soffice_config()
         _send_and_wait("endless nested outline", timeout=120.0)
         body = _transcript().lower()
         assert any(
@@ -1743,7 +1743,7 @@ def test_e22_nested_max_steps(ctx):
     finally:
         _session.config.nested_never_finish = False
         save({"chatbot.max_tool_rounds": saved_rounds})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2021,7 +2021,7 @@ def test_g5_stt_fallback_whisper(ctx):
     try:
         set_native_audio_support(model, endpoint, False)
         save({"audio.stt_model": MOCK_STT_MODEL_ID})
-        time.sleep(2.1)
+        settle_soffice_config()
         _g_record_and_stop(sl, _WAV_1S)
         snaps = _captures()
         stt = any(row.get("stt") or "transcription" in str(row.get("path") or "") for row in snaps)
@@ -2034,7 +2034,7 @@ def test_g5_stt_fallback_whisper(ctx):
     finally:
         set_native_audio_support(model, endpoint, True)
         save({"audio.stt_model": saved_stt})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2254,7 +2254,7 @@ def test_g18_hitl_blocks_record(ctx):
 
     sl = _g_prep()
     save({"chatbot.prompt_for_web_research": True})
-    time.sleep(2.1)
+    settle_soffice_config()
     try:
         if sl is not None:
             set_query_text("look up cats", listener=sl)
@@ -2275,7 +2275,7 @@ def test_g18_hitl_blocks_record(ctx):
         wait_idle(listener=sl, timeout=30.0)
     finally:
         save({"chatbot.prompt_for_web_research": False})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2319,7 +2319,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
         _session.config.transcript = ""
         # If the audio_support_map poll misses, native POST 400s and STT still returns "".
         _session.config.fail_native_audio = True
-        time.sleep(2.1)
+        settle_soffice_config()
         _g_record_and_stop(sl, _WAV_1S, timeout=90.0)
         after = _captures()
         successful_native = [
@@ -2341,7 +2341,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
         save({"audio.stt_model": saved_stt})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2364,7 +2364,7 @@ def test_g28_stt_error_json(ctx):
     try:
         set_native_audio_support(model, endpoint, False)
         save({"audio.stt_model": MOCK_STT_MODEL_ID})
-        time.sleep(2.1)
+        settle_soffice_config()
         before = _transcript()
         _g_record_and_stop(sl, _WAV_1S)
         body = _transcript()
@@ -2381,7 +2381,7 @@ def test_g28_stt_error_json(ctx):
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
         save({"audio.stt_model": saved_stt})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2402,7 +2402,7 @@ def test_g29_native_400_then_stt_same_drain(ctx):
     try:
         set_native_audio_support(model, endpoint, True)
         save({"audio.stt_model": MOCK_STT_MODEL_ID})
-        time.sleep(2.1)
+        settle_soffice_config()
         _g_record_and_stop(sl, _WAV_1S, timeout=90.0)
         body = _transcript()
         assert "Falling back to STT" in body or "does not support audio" in body.lower(), (
@@ -2423,7 +2423,7 @@ def test_g29_native_400_then_stt_same_drain(ctx):
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
         save({"audio.stt_model": saved_stt})
-        time.sleep(2.1)
+        settle_soffice_config()
     _hello_ok()
 
 
@@ -2553,8 +2553,7 @@ def _ensure_compaction_enabled(enabled: bool) -> None:
     if bool(get_config("chat_compaction_enabled")) == bool(enabled):
         return
     save({"chat_compaction_enabled": enabled})
-    if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        time.sleep(2.1)
+    settle_soffice_config()
 
 
 def _prepare_k_sidebar(ctx: Any) -> None:
@@ -4159,7 +4158,7 @@ def _s_install(mode: str, *, native_audio: bool = False) -> None:
     save({"audio.stt_model": MOCK_STT_MODEL_ID})
     # Silence: STT hears nothing. Otherwise the mock transcribes the take.
     _session.config.transcript = "" if mode == "silence" else "Fake STT transcript."
-    time.sleep(2.1)
+    settle_soffice_config()
     install_fake_stt(mode)
 
 def _s_clear() -> None:
@@ -4174,7 +4173,7 @@ def _s_clear() -> None:
         if _session is not None:
             _session.config.transcript = _S_SAVED["transcript"]
         _S_SAVED.clear()
-        time.sleep(2.1)
+        settle_soffice_config()
 
 def _s_state() -> dict[str, Any]:
     from plugin.chatbot.sidebar_test_hooks import read_fake_stt_state

@@ -692,3 +692,22 @@ def test_xhtml_to_semantic_html_para_div_keeps_text_and_self_closing_box_drops_t
     out2 = xhtml_to_semantic_html(self_closing)
     assert "TITLE" not in out2
     assert "kept" in out2
+
+
+def test_show_hidden_sections_strips_display_none_and_condition():
+    from plugin.writer.xhtml_style_postprocess import show_hidden_sections
+
+    fodt = (
+        '<office:body><office:text>'
+        '<text:section text:name="S1" text:display="none"><text:p>a</text:p></text:section>'
+        '<text:section text:display="condition" text:name="S2"><text:p>b</text:p></text:section>'
+        '<text:p text:display="none">keep</text:p>'
+        '</office:text></office:body>'
+    )
+    out = show_hidden_sections(fodt)
+    assert '<text:section text:name="S1"><text:p>a</text:p></text:section>' in out
+    assert '<text:section text:name="S2"><text:p>b</text:p></text:section>' in out
+    assert '<text:p text:display="none">keep</text:p>' in out
+
+    plain = '<office:body><text:section text:name="V"><text:p>v</text:p></text:section></office:body>'
+    assert show_hidden_sections(plain) == plain

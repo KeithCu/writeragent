@@ -27,6 +27,9 @@ from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
 
+# (RedlineType, (text, start, end)) of one tracked change.
+RedlineSpan = tuple[str, tuple[Any, Any, Any]]
+
 
 def is_recording_changes(model: Any) -> bool:
     """True if *model* is currently recording Track Changes (redlines).
@@ -95,18 +98,25 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
             head.setString("")
 
 
-def redline_kinds_covering(doc: Any, text_range: Any) -> set[str]:
-    """``RedlineType`` of every tracked change that covers all of *text_range*."""
-    kinds: set[str] = set()
+def redline_spans(doc: Any) -> list[RedlineSpan]:
+    """``(RedlineType, bounds)`` of every tracked change in *doc*; unreadable ones are left out.
+
+    Stale once the document is edited: build a new list after a write.
+    """
+    spans: list[RedlineSpan] = []
     redlines = doc.getRedlines()
     for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
         try:
-            if bounds_cover(redline_bounds(rl), text_range):
-                kinds.add(str(rl.getPropertyValue("RedlineType")))
+            spans.append((str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)))
         except Exception as exc:
             reraise_if_disposed(exc)
             continue  # the redline's bounds or type could not be read
-    return kinds
+    return spans
+
+
+def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str]:
+    """``RedlineType`` of every tracked change in *spans* that covers all of *text_range*."""
+    return {kind for kind, bounds in spans if bounds_cover(bounds, text_range)}
 
 
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:
@@ -158,6 +168,33 @@ def tracked_change_before_point(doc: Any, point: Any) -> bool:
             if end_cmp == -1 or (kind == "Insert" and end_cmp == 0):
                 return True
             if prev_end is not None and text.compareRegionEnds(end, prev_end) <= 0:
+                return True
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue  # another text object, or not comparable
+    return False
+
+
+def tracked_change_spans_past(doc: Any, text_range: Any) -> bool:
+    """True when a pending Insert or Delete redline starts before *text_range* and ends after it.
+
+    ``SwDoc::InsertSwSection`` calls ``DocumentRedlineManager::SplitRedline`` over the new
+    section. A redline that starts before and ends after the span becomes two pieces, and
+    accepting or rejecting it then loses text outside the section; a redline that starts or
+    ends at or inside the span resolves to the same text. ``tracked_change_before_point``
+    checks a single collapsed insertion point and would refuse safe spans.
+    """
+    redlines = doc.getRedlines()
+    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+        kind = rl.getPropertyValue("RedlineType")
+        if kind not in ("Insert", "Delete"):
+            continue
+        try:
+            text, start, end = redline_bounds(rl)
+            if (
+                text.compareRegionStarts(start, text_range) == 1
+                and text.compareRegionEnds(text_range, end) == 1
+            ):
                 return True
         except Exception as exc:
             reraise_if_disposed(exc)

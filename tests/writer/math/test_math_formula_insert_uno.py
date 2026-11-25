@@ -529,3 +529,168 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
+
+@native_test
+@with_native_doc("writer")
+def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    apply_tool = ApplyDocumentContent()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    text = doc.getText()
+
+    def _reset(body: str) -> None:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString(body)
+
+    def _para_portions(para: Any) -> list[str]:
+        out: list[str] = []
+        pe = para.createEnumeration()
+        while enum_has_more(pe):
+            p = pe.nextElement()
+            ptype = p.getPropertyValue("TextPortionType")
+            if ptype == "Redline":
+                continue
+            out.append("Frame" if ptype == "Frame" else p.getString())
+        return out
+
+    def _paras() -> list[Any]:
+        out: list[Any] = []
+        pe = text.createEnumeration()
+        while enum_has_more(pe):
+            el = pe.nextElement()
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                out.append(el)
+        return out
+
+    for rec in (False, True):
+        try:
+            for pos in ("before", "after"):
+                # 1. Inline math
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content=r"\(x^2\)", position=pos,
+                )
+                assert res.get("status") == "ok", res
+                assert res.get("inserted") is True, res
+                assert len(res.get("math_objects") or []) == 1, res
+                paras = _paras()
+                assert len(paras) == 1
+                expected_inline = ["mid ", "Frame", "MATCH end"] if pos == "before" else ["mid MATCH", "Frame", " end"]
+                assert _para_portions(paras[0]) == expected_inline, (rec, pos, _para_portions(paras[0]))
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+
+                # 2. Block HTML with math
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_blk = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content=r"<p>A \(x\) B</p>", position=pos,
+                )
+                assert res_blk.get("status") == "ok", res_blk
+                assert len(res_blk.get("math_objects") or []) == 1, res_blk
+                paras = _paras()
+                assert len(paras) == 2
+                math_idx, orig_idx = (0, 1) if pos == "before" else (1, 0)
+                assert _para_portions(paras[math_idx]) == ["A ", "Frame", " B"]
+                assert paras[orig_idx].getString() == "mid MATCH end"
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+
+                # 3. Display math centered paragraph
+                doc.setPropertyValue("RecordChanges", False)
+                _reset("mid MATCH end")
+                base_embeds = _embed_count(doc)
+                doc.setPropertyValue("RecordChanges", rec)
+                res_disp = apply_tool.execute(
+                    tool_ctx,
+                    target="search", old_content="MATCH", content="$$y=1$$", position=pos,
+                )
+                assert res_disp.get("status") == "ok", res_disp
+                assert len(res_disp.get("math_objects") or []) == 1, res_disp
+                paras = _paras()
+                expected_disp = ["mid ", "", "MATCH end"] if pos == "before" else ["mid MATCH", "", " end"]
+                assert [p.getString() for p in paras] == expected_disp, (rec, pos, [p.getString() for p in paras])
+                assert _para_portions(paras[1]) == ["Frame"]
+                assert paras[1].getPropertyValue("ParaAdjust") == 3  # Center
+                assert _embed_count(doc) == base_embeds + 1
+                if rec:
+                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
+                else:
+                    doc.getUndoManager().undo()
+                assert text.getString() == "mid MATCH end"
+                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert _embed_count(doc) == base_embeds
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_math_tokens_across_soft_page_break_uno(ctx: Any, doc: Any) -> None:
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    std_page = page_styles.getByName("Standard")
+    page_props = ("Width", "Height", "LeftMargin", "RightMargin", "TopMargin", "BottomMargin")
+    saved_page = {k: std_page.getPropertyValue(k) for k in page_props}
+
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    para_props = ("CharHeight", "ParaWidows", "ParaOrphans")
+    saved_para: list[tuple[Any, dict[str, Any]]] = []
+    for style_name in ("Standard", "Text body"):
+        if para_styles.hasByName(style_name):
+            st = para_styles.getByName(style_name)
+            saved_para.append((st, {k: st.getPropertyValue(k) for k in para_props}))
+
+    try:
+        std_page.setPropertyValue("Width", 6000)
+        std_page.setPropertyValue("Height", 6000)
+        for margin in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
+            std_page.setPropertyValue(margin, 500)
+        for st, _saved in saved_para:
+            st.setPropertyValue("CharHeight", 30.0)
+            st.setPropertyValue("ParaWidows", 0)
+            st.setPropertyValue("ParaOrphans", 0)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+
+        content = " ".join(rf"word\(x_{{{i}}}\)" for i in range(12))
+        res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
+        assert res.get("status") == "ok", res
+        math_objs = res.get("math_objects") or []
+        assert len(math_objs) == 12, res
+        assert all(m.get("ok") for m in math_objs), math_objs
+        assert _embed_count(doc) == 12
+        assert "[[WA-MATH" not in doc.getText().getString()
+    finally:
+        for k, v in saved_page.items():
+            std_page.setPropertyValue(k, v)
+        for st, saved in saved_para:
+            for k, v in saved.items():
+                st.setPropertyValue(k, v)
+

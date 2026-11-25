@@ -585,7 +585,6 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
 
     monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr("plugin.writer.apply_document_content.collapsed_anchor", lambda found: None)
-    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda content: False)
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *args, **kwargs: True)
     from plugin.writer.html_import_styles import WriteReport
 
@@ -1296,17 +1295,6 @@ def test_error_or_rollback_omits_math_objects(monkeypatch):
     assert "math_objects" not in res
 
 
-def test_position_before_after_with_math_segments_returns_invalid_param(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
-    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: True)
-    res = ApplyDocumentContent().execute(
-        _ctx(), target="search", old_content="foo", content="<p>some math</p>", position="before"
-    )
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-    assert "math segments" in res["message"]
-
-
 def test_position_before_after_in_table_cell_returns_invalid_param(monkeypatch):
     cursor = MagicMock()
     cursor.getPropertyValue.return_value = MagicMock()  # TextTable is not None
@@ -1317,7 +1305,6 @@ def test_position_before_after_in_table_cell_returns_invalid_param(monkeypatch):
     found.getStart.return_value = MagicMock()
 
     monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([found], search_mod.MatchMode(True, False)))
-    monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: False)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content="bar", position="after"
     )

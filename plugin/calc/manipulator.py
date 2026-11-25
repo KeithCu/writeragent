@@ -15,10 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Cell manipulator — writing data and formatting LibreOffice Calc cells.
-
-UNO imports are deferred to method bodies.
-"""
+"""Cell manipulator — writing data and formatting LibreOffice Calc cells."""
 
 from __future__ import annotations
 
@@ -27,7 +24,7 @@ from contextlib import contextmanager
 from itertools import chain
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
+from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard, cast
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
@@ -45,6 +42,7 @@ else:
     except ImportError:
         pass
 
+import uno
 
 from plugin.calc.address_utils import (
     MAX_COL,
@@ -969,8 +967,6 @@ class CellManipulator:
 
     def _apply_borders(self, obj: Any, mode: str, color: int) -> None:
         """Apply or clear borders on a cell or range using ``TableBorder2``."""
-        import uno
-
         # Per-side TopBorder2/BottomBorder2/LeftBorder2/RightBorder2 on a range boxes every cell
         # (cellsuno.cxx comment above lcl_GetCellsPropertySet), whereas TableBorder2 separates the
         # outer frame from inner grid lines (ScHelperFunctions::FillBoxItems). Setting Is*LineValid=True
@@ -1081,7 +1077,6 @@ class CellManipulator:
 
     def number_format_key(self, format_str: str) -> int:
         """Resolve a preset name or en-US format code to a document NumberFormat key."""
-        import uno
         from com.sun.star.util import MalformedNumberFormatException
 
         doc = self.bridge.doc
@@ -1185,8 +1180,6 @@ class CellManipulator:
 
     def range_sort(self, plan: SortPlan, has_header: bool) -> str:
         """Execute a ``SortPlan`` produced by ``plan_sort`` and report whether any row moved."""
-        import uno
-
         range_str, cell_range, height, keys = plan
         first_data_row = 1 if has_header else 0
         key_cols = list(dict.fromkeys(col for col, _unused in keys))
@@ -1217,12 +1210,10 @@ class CellManipulator:
         # accepts more than three keys because ScSortDescriptor::FillSortParam
         # (datauno.cxx) resizes maKeyState (tdf#105301), and it clears keys left
         # from an earlier sort on the sheet's DB range.
-        # uno.Any is a pyuno helper; stubs/mypy do not export it as a module attribute.
-        uno_any = getattr(uno, "Any")
         sort_desc = list(cell_range.createSortDescriptor())
         for p in sort_desc:
             if p.Name == "SortFields":
-                p.Value = uno_any("[]com.sun.star.table.TableSortField", tuple(fields))
+                p.Value = cast("Any", uno).Any("[]com.sun.star.table.TableSortField", tuple(fields))
             elif p.Name == "ContainsHeader":
                 p.Value = has_header
 
@@ -1378,7 +1369,6 @@ class CellManipulator:
         """
         if not cells:
             return
-        import uno
 
         sheet_index = sheet.getRangeAddress().Sheet
         by_key: dict[int, list[Any]] = {}
