@@ -11,7 +11,7 @@ Every review prompt and every coding prompt includes this document. A prompt tha
 | Layer | Thread | Does | Does not |
 |---|---|---|---|
 | Compute service (Python, writeragent) | its own process, out of the kit | Runs user code in a sandboxed worker, dumps kit-safe JSON once (`status`, `result`, `error`, `stdout`, `images[]` with `format` and `data_b64`), forwards those bytes | Touch the document, run inside the kit jail |
-| coolwsd `DocumentBroker` | broker thread (`ASSERT_CORRECT_THREAD`) | Feature flag, `http::Session` POST, 8 in flight per document plus FIFO, request and response capped by `max_payload_bytes`, result sent as a document-level message | Decode images, retry a POST, hold a strong broker reference across threads |
+| coolwsd `DocumentBroker` | broker thread (`ASSERT_CORRECT_THREAD`) | Feature flag, `http::Session` POST, 8 in flight per document plus FIFO, shared and reset: one at a time per document, request and response capped by `max_payload_bytes`, result sent as a document-level message | Decode images, retry a POST, hold a strong broker reference across threads |
 | kit `PythonComputeEmitter` | kit poll thread | Sets `COOL_PYTHON_COMPUTE`, calls `pythoncompute_take_requests()` without Solar, hands results to `pythoncompute_complete()` which takes Solar itself; spreadsheet documents only | Mutate the document, decode base64, insert graphics |
 | AddIn `scaddins/pythoncompute` (`addin`, `anyjson`, `bridge`, `volatile`) | SolarMutex only | UNO `getPy` / `getPython`, `#BUSY!` volatile, param to volatile weak cache, JSON to `Any`, pass-through of image bytes | Link `svx` or `sc`, construct draw objects, keep a timer, hold a `std::mutex` |
 | `sc` core | main thread; `ocExternal` is never threaded | Everything that touches cells, the draw page, or undo. Queues work during interpret and flushes it after the outermost interpret | Mutate the draw page while `IsInInterpreter()`, during XML import, or while undo or redo is still restoring objects |
@@ -25,7 +25,7 @@ Error policy, fixed. Do not add `FormulaError` values or a new Online error prot
 | `#BUSY!` | string, display only | Request queued or in flight; never touches existing shapes. Code learns "pending" from the pending flag on the result, never from this text |
 | `#DISABLED` | string | Feature flag off |
 | `#VALUE!` | `FormulaError::NoValue` | Deterministic failure: `status=error`, bad JSON, missing `result`, malformed images-only payload. Sticky until params change. Clears dependent state (for example plots) |
-| `#N/A` | `FormulaError::NotAvailable` | No emitter, pending timeout, superseded. Not cached |
+| `#N/A` | `FormulaError::NotAvailable` | No emitter, superseded. Not cached |
 | transient `#VALUE!` | `TransientError` | Payload over cap, held bytes refused, 503-style replies. Retries after `kRetryAfterMs` (30 s). Keeps the last good state |
 
 ## 2. Invariants
@@ -33,7 +33,7 @@ Error policy, fixed. Do not add `FormulaError` values or a new Online error prot
 Never regress these. Each has a test or a reviewer note behind it.
 
 1. **Compute is out of the kit.** No NumPy, `split_grid`, or Pickle in C++. The kit never loads a user venv.
-2. **Off at run time by default, and a disabled build means gone.** `security.python_compute.enable` defaults to `false`. `--disable-python-compute` removes the library, the CppUnit, and the IDL (`gb_Helper_optional,PYTHON_COMPUTE`). Tests and call sites that name the feature are under `HAVE_FEATURE_PYTHON_COMPUTE`. Jenkins does not build the disabled configuration, so build it locally once before a change drops its `WIP:` subject.
+2. **Off at run time by default, and a disabled build means gone.** `security.python_compute.enable` defaults to `false`. `--disable-python-compute` removes the library, the CppUnit, and the IDL (`gb_Helper_optional,PYTHON_COMPUTE`). Tests and call sites that name the feature are under `HAVE_FEATURE_PYTHON_COMPUTE`.
 3. **One knob set, and every input has a bound.** The settings are `enable`, `url`, `api_key`, `timeout_secs`, `max_payload_bytes`, and `session`. No new settings and no retry loops. Every new string or array that comes from the service or from the document has a maximum, written as one named constant and decided in the plan (section 5, item 6); "unbounded" is never the default. A limit has one byte definition in both components (wsd trims before it counts, like `bridge.cxx`).
 4. **SolarMutex 1+ε.** Shared AddIn state is Solar-only. `take_requests` asserts Solar is not held; `complete` takes it. Snapshot, release, then `finish()`.
 5. **Callbacks only queue work.** The AddIn wakeup does `addCallback`. Interpreter hooks queue; the flush runs at the existing `ProcessPendingMatrixResizes` sites after the outermost interpret. Do not move or rename that drain. A new `Idle`, `Timer`, or posted event anywhere is a plan decision that names why the existing drain cannot serve; a fix round never adds one from a review sketch.
@@ -58,8 +58,8 @@ These are the review notes that came back on 8122 and 8123. Apply them before up
 - Use the helper that already exists: `o3tl::trim`, `tools::JsonWriter::finishAndGetAsStdString()`, `comphelper::containerToSequence`, `comphelper::Base64`, `GraphicFilter`, the `ScDrawLayer` anchor helpers, `ScDrawObjData::Type`. Before writing a helper, grep for one.
 - Smallest correct diff. No drive-by refactors, forwarders, re-exports, renames of shared names, or header tidying for its own sake. If a line is unnecessary, remove it.
 - Comments are present-tense invariants. No "used to", "Bugfix:", war stories, round numbers, or model names in code, comments, or test names. No sentence in a comment, README, or commit message describes an earlier patch set.
-- Feature guards go on call sites in the `.cxx` that includes `config_features.h`. Do not pull `config_features.h` into `document.hxx` or another widely included header. A small generic helper may stay unguarded only if it is correct for every object and build and is listed in the commit message.
-- Keep a whole feature together in one commit (or one intentional feature series); do not split out small shared-code helpers or refactors into separate commits unless a Collabora reviewer asks for it, though unguarded changes to shared code should be noted in the commit message.
+- Feature guards go on call sites in the `.cxx` that includes `config_features.h`. Do not pull `config_features.h` into `document.hxx` or another widely included header. A small generic helper may stay unguarded only if it is correct for every object and build.
+- Keep a whole feature together in one commit (or one intentional feature series); do not split out small shared-code helpers or refactors into separate commits unless a Collabora reviewer asks for it.
 - A bug that already exists in shared code and that the feature does not need fixed in order to work (an upstream undo slip, existing `net/` logging) goes into its own change and does not block the feature. Folding existing `net/` log redaction into the shared-session commit cost seven consecutive review rounds.
 - Each unguarded change to shared behavior gets one test that does not use `=PY()`, in a binary that is not feature-gated (`sc_ucalc_spilled_range` style).
 - Agents add no `Signed-off-by`, `Co-Authored-By`, or `Change-Id`. Only Keith or the supervisor commits. Cursor's git wrapper appends a `Co-authored-by: Cursor` trailer to `git commit` and `--amend`; use the `commit-tree` recipe in section 9 instead.
@@ -81,23 +81,22 @@ These are the review notes that came back on 8122 and 8123. Apply them before up
 | `make -C engine CppunitTest_sc_tiledrendering` | Live `ScTabViewShell` and `ScDrawView`, `.uno:` dispatch, `paintTile`, LOK invalidation callbacks | `engine/sc/qa/unit/tiledrendering/tiledrendering.cxx` |
 | `unithttplib` | `http::Request`, `Session`, multipart body, dump and log redaction | `test/HttpRequestTests.cpp` |
 | `scripts/run-wsdunit unit-python-compute` | kit to wsd to HTTP wire, caps, FIFO, disabled, close mid-flight, every async-start exit. Asserts cell text only; it cannot see shapes | `test/UnitPythonCompute.cpp` |
-| `--disable-python-compute` configure | The feature-off build. Compile at least the guarded files | |
 
 `saveAndReload` already exists in `sc/qa/unit` (`anchor.cxx`, `cond_format.cxx`, `scshapetest.cxx`, `subsequent_export_test*.cxx`). A view-level test already exists in tiledrendering. Do not say a persistence or view test needs new infrastructure.
 
-Run `make -sr <target>` from `engine/`, in the background, and wait on the make PID. Do not `pgrep` for the test name; it matches your own argv. Do not build in a checkout that reviewers are reading.
+Nothing is built or run locally. Jenkins builds and runs these targets on each uploaded patch set.
 
-### 4.1 The compile gate
+### 4.1 Jenkins is the build
 
-**No review reads code that has not been compiled, and no test counts until it has run.** Either the patch set is uploaded and Jenkins has finished on it, or the supervisor builds the touched test targets in a dedicated build worktree and runs the new tests once. One of the two happens every round. On the 21–22 November stack neither happened for 77 jobs, so reviewers found the missing include, the `->` typo, the test whose setup the code refuses, and a crash in `~ScFormulaCell` that would have failed the whole plot suite on its first run, each one or more rounds late.
+**No local builds.** Code is compiled and tests run only by Jenkins on an uploaded patch set. Reviews may read code before Jenkins has finished, but a test does not count as passing until Jenkins has run it. Because nothing compiles before upload, read new code as a compiler would: includes, declarations, types, `->` versus `.`, and whether each new test's setup is accepted by the code it calls. On the 21–22 November stack, reviewers found a missing include, a `->` typo, a test whose setup the code refuses, and a crash in `~ScFormulaCell`, each one or more rounds late.
 
-- A status file that says a check was "reasoned" or done "by inspection" is not `DONE`; it says `UNBUILT`, and the supervisor builds before queueing a review.
-- After a restack, compile the test targets of the restacked change. A patch that applies cleanly can still fail to compile against the new base.
+- A status file that says a check was "reasoned" or done "by inspection" is not `DONE`; it says `UNBUILT` until Jenkins has run it.
+- After a restack, check the restacked change against the new base's declarations by reading them; a patch that applies cleanly can still fail to compile against the new base.
 - When you change behavior, grep the existing tests for the old behavior before you finish; an unchanged test that asserts the opposite is a build break waiting for Jenkins.
 
 ### 4.2 A test counts only if it can fail
 
-A test counts only if it fails when the fix is reverted. Run that mutation check before reporting a fix as pinned; where it could not be run, the status names the branch the test reaches and why reverting the fix changes the result. Each of these let a real bug through:
+A test counts only if it fails when the fix is reverted. Since tests do not run locally, the status names the branch the test reaches and why reverting the fix changes the result; Jenkins then runs it. Each of these let a real bug through:
 
 - **Use an input that tells the two outcomes apart.** Non-ASCII and escaped text for an encoding claim, not `result=1`. An error other than `#DIV/0!` for "the error is kept", since division produces `#DIV/0!` by itself. A function whose result differs between the two paths, not `N`/`TYPE` where `IsErrFunc` makes both agree.
 - **Exact counts.** `==`, never `>= 1`. A loose count hid a double recalc.
@@ -122,7 +121,7 @@ The plan is the spec that implementation and review are measured against. It mus
 9. **Hard tests named for round 1.** At least: a persistence round trip, a view-level path, a structural operation, and undo of the most common edit. These are written with the first implementation, not debated later.
 10. **Pre-existing bugs.** Anything found in shared code during research, each as its own change (section 3).
 11. **Landing bar.** Section 7's default unless the plan says otherwise.
-12. **Acceptance.** Which targets the compile gate (section 4.1) builds and runs, and who runs them.
+12. **Acceptance.** Which Jenkins targets (section 4.1) cover the change's tests.
 
 The planner reads this document, the brief, the feature's design doc, and the code. The planner does not read history sections or prior review logs.
 
@@ -175,9 +174,9 @@ A guard that lands on one site and misses its twin was the largest code-defect c
 
 ## 6. Implementing and fixing
 
-- The compile gate in section 4.1 applies to every job. Jenkins (`gerrit_linux_gcc_main` and `gerrit_linux_clang_dbgutil_main`, which already build with Python compute enabled and run `scaddins_pythoncompute`, `unit-python-compute`, `sc_ucalc`, and `sc_tiledrendering`) is preferred over slow local builds, but only counts when the patch set is actually uploaded and the run has finished. Inspect new C++ against `engine/compilerplugins/clang` before upload.
-- **Test first for every reported bug.** Write the test the review asked for, run it, and only then change production code. If the test passes unchanged, report `NO-REPRO` with the trace and do not add code. On the plot-image branch, three of eleven approved fixes in one round were redundant, and test-first was the only step that caught them.
-- **Mutation check.** After the fix, revert it, confirm the test fails, restore. Report tests that did not fail under mutation.
+- Do not build or run tests locally (section 4.1). Jenkins (`gerrit_linux_gcc_main` and `gerrit_linux_clang_dbgutil_main`, which build with Python compute enabled and run `scaddins_pythoncompute`, `unit-python-compute`, `sc_ucalc`, and `sc_tiledrendering`) is the build. Inspect new C++ against `engine/compilerplugins/clang` before upload.
+- **Test first for every reported bug.** Write the test the review asked for and trace it through the current code before changing production code. If the trace shows the test would pass unchanged, report `NO-REPRO` with the trace and do not add code. On the plot-image branch, three of eleven approved fixes in one round were redundant, and test-first was the only step that caught them.
+- **Mutation check by trace.** For each new test, state in `STATUS.md` which line of the fix it depends on and why it fails without it.
 - A fix sketch from a review is a hint. Reproduce, then take the smallest correct change, which may differ from the sketch. Three sketches applied as written caused the next round's finding ("erase the entry" without a reply or drain; `readOnlyDisabled` on a non-UNO command; a cell-store lookup added to a destructor). A sketch that breaks an invariant in section 2 is not applied; say so in `STATUS.md`.
 - **Fix the class, not the instance.** When a finding names one site, enumerate the class (section 5.3) in the same round, fix it at the lowest common choke point, and list each site as handled or parked in `STATUS.md`. Row delete, formula-to-value, `SetValues`, and name recompilation are one class; they surfaced in four separate rounds because nobody did this. Credential redaction took seven rounds one call site at a time.
 - **Do not fix a mechanism that has an open question.** If a finding needs Keith's decision, the change stops until he decides. No fix or review round runs on that mechanism in the meantime; rounds spent refining row growth, the README wire paragraphs, and the `#BUSY!` string compare were all deleted by the decisions that followed.
@@ -219,20 +218,26 @@ Rules for the reviewer:
 | Round | Work | Exit |
 |---|---|---|
 | 0 | Plan with every item in section 5; Keith answers the questions | No open question on any mechanism |
-| 1 | Implement with the hard tests; compile gate; one full-diff review against the matrix by the strongest reviewer available; test-first fixes | Every `handle` cell has code and a test that has run |
-| 2 | Compile gate; delta review on the landing bar; test-first fixes | No blocker, no high |
-| 3 | Compile gate; one full trace of the whole change by the strongest reviewer; then one final amend with every batched message, README, and nit item | `Blocking findings: 0`; land |
+| 1 | Implement with the hard tests; one full-diff review against the matrix by the strongest reviewer available; test-first fixes | Every `handle` cell has code and a test |
+| 2 | Delta review on the landing bar; test-first fixes | No blocker, no high |
+| 3 | One full trace of the whole change by the strongest reviewer; then one final amend with every batched message, README, and nit item | `Blocking findings: 0`; land |
 
 - **The strongest reviewer goes first, not last.** A cheaper reviewer converging means only that it has run out of things it can see. In November each such convergence was followed by a stronger reviewer finding a high or a crash, on four changes.
 - **`Blocking findings: 0` ends the loop.** An approval does not queue another job. Nits never count as real bugs for the purpose of another round.
-- **A stack converges bottom-up.** Do not review or fix change N+1 until change N is frozen; every amend below forces a restack and a re-review above. Four message-and-docs amends of 19188 in one afternoon forced three restacks of 21132. A review of a SHA that has been superseded is discarded, not triaged.
+- **Prefer bottom-up.** Work on the lowest moving change first where you can; every amend below forces a restack and a re-review above. Jumping to a higher change is allowed when it is not blocked by the one below. Four message-and-docs amends of 19188 in one afternoon forced three restacks of 21132. A review of a SHA that has been superseded is discarded, not triaged.
 - **Message and documentation edits happen once**, in the final amend after the code has converged, unless a sentence has become false.
 - At the limit, land as experimental with the accepted limitations in the commit message, or split the commit. "Not ready" with no finish line is not an outcome. The plot-image branch ran eleven single rounds and four parallel rounds; the last two parallel rounds found no blocker and no high and still said "not ready" five times each, because no bar had been set.
 
 ## 9. Commits and Gerrit
 
 - Series shape: keep whole features together (do not split a single feature into tiny separable helper commits unless a reviewer asks). Stack dependent features cleanly on top of each other so each commit builds and passes on its own.
-- The commit message states what the patch does, the mechanism in one paragraph, every unguarded change to shared behavior, and the accepted limitations. Subject plus body is at most 1690 bytes (`wc -c`), so the message with trailers stays under 1800 and Windows Jenkins does not hit `environment is too large`. `Change-Id` and `Signed-off-by: Keith Curtis` only (no `Tests:` boilerplate line).
+- Commit message rules:
+  - The subject starts with an area prefix (`sc:`, `kit:`, `wsd:`, `CODA:`, `mocha:`). Keep `WIP:` in front while the change has open `TODO:` lines.
+  - The body is plain paragraphs: what the user saw or what was missing, then the cause or mechanism, then a "Now ..." paragraph with what the patch does. Aim for about 400 to 1,000 bytes of prose.
+  - Leave out reviewer notes (why another approach would not help, lists of other places that look similar), guard bookkeeping, function-by-function narration, minor edge cases, test names, and any mention of earlier patch sets or review rounds.
+  - Real limitations and `TODO:` lines are always kept in full, in a short `Limitations:` or `TODO:` block after the prose. They are how future work items are tracked, so never cut them to make the size target.
+  - Subject plus body is at most 1690 bytes (`wc -c`), so the message with trailers stays under 1800 and Windows Jenkins does not hit `environment is too large`. If the limitations push it over, shorten the prose, not the limitations.
+  - Trailers are `Change-Id` and exactly one `Signed-off-by: Keith Curtis`. No `Tests:` line and no AI or `Co-Authored-By` attribution.
 - The subject starts with `WIP: ` on every change that is not yet ready for Collabora's review. Work still owed on an unguarded change is a `TODO:` line.
 - Every sentence in the message is true of the diff. After trimming for the byte cap, read each remaining sentence against the diff again; trimming twice turned an accurate sentence into a false one.
 - One push approval covers one push. No Gerrit comments or reviewer adds without approval. Diff the patch-set file list against the previous one before pushing.
@@ -271,8 +276,8 @@ git push cogerrit HEAD:refs/for/main
 - Put a capability in a URL query, or redact it per call site.
 - Pull `config_features.h` into `document.hxx`. Guard a generic fix behind the feature flag.
 - Implement a review's fix sketch before reproducing the bug.
-- Send code to review that has not been compiled, or report a test that has not run.
-- Fix or review a mechanism while a question about it is waiting for Keith, or an upper change while the one below it is still moving.
+- Build or run tests locally, or report a test as passing before Jenkins has run it.
+- Fix or review a mechanism while a question about it is waiting for Keith,.
 - Queue another round after `Blocking findings: 0`.
 - Forbid a test in a fix prompt. If a test is expensive, the plan says so with a reason.
 - Grow the decided file by appending reviewer prose. Add one rule row with a one-line why.

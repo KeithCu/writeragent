@@ -641,7 +641,7 @@ def _copy_window_to_scratch(
             # Range reads with include_images=False emit placeholders named after the clone;
             # keeping the source name (when unused in temp_doc) prevents a later write-back
             # (image_placeholders) from restoring a different picture of that name.
-            range_copy.copy_table(model, table, temp_doc, temp_text, temp_cursor, math_records, mark_struck=True)
+            range_copy.copy_table(model, table, temp_doc, temp_text, temp_cursor, deletions, math_records, mark_struck=True)
             for para, table_state in iter_table_paragraphs(table):
                 copied_ruby.extend(
                     html_ruby.ruby_spans_in_window(para, 0, len(para.getString()), table_state)

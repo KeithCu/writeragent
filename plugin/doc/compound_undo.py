@@ -69,6 +69,7 @@ class WriterCompoundUndo:
     entered: bool
     leave_error: BaseException | None
     rollback_error: BaseException | None
+    left_no_entry: bool
     _titles_before: tuple[str, ...] | None
 
     def __init__(self, doc: Any, title: str, *, _warn: bool = True) -> None:
@@ -78,6 +79,7 @@ class WriterCompoundUndo:
         self.entered = False
         self.leave_error = None
         self.rollback_error = None
+        self.left_no_entry = False
         self._titles_before = None
         try:
             if not hasattr(doc, "getUndoManager"):
@@ -138,14 +140,28 @@ class WriterCompoundUndo:
         return True
 
     def rollback_if_top(self) -> bool:
-        """Roll back the undo context if it is the top action on the undo stack."""
+        """Roll back the undo context if it is the top action on the undo stack.
+
+        An empty group leaves no entry (``SfxUndoManager::ImplLeaveListAction``),
+        so unchanged titles set ``left_no_entry = True`` and return False. At a full
+        undo stack, ``EnterListAction`` drops the oldest entry on entry and
+        ``ImplLeaveListAction`` does not restore it, so an empty group leaves
+        ``before[:-1]``. Inside an outer group the titles never change, so
+        ``left_no_entry`` is meaningful only for the outermost group.
+        """
         if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
             return False
         try:
             # Direct read kept so read failures land in self.rollback_error for ROLLBACK_FAILED rather than returning None.
             raw = self._undo_manager.getAllUndoActionTitles()
             after = tuple(raw or ())
-            if after != self._titles_before and after and after[0] == self._title:
+            # EnterListAction drops the oldest entry when the undo stack is at its step limit
+            # (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx), and
+            # ImplLeaveListAction removes an empty group without restoring it, leaving before[:-1].
+            if after in (self._titles_before, self._titles_before[:-1]):
+                self.left_no_entry = True
+                return False
+            if after and after[0] == self._title:
                 self._undo_manager.undo()
                 return True
             return False
@@ -194,9 +210,9 @@ class UndoOutcome:
     """Result of :func:`commit_or_rollback`.
 
     ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
-    ``nothing_landed`` compares the session change count to the pre-mutate snapshot (or is
-    True when undo ran). Callers should read it only on failure paths (``error`` or
-    ``mutate_error`` set); on success it can be True even when no rollback was needed.
+    ``nothing_landed`` is True when undo ran or the closed group left no undo entry. It is
+    always False on success, when the group did not close, and when another entry sits on top.
+    Only meaningful for the outermost undo group.
     ``error`` is None when the edit succeeded (or when mutate raised and was rolled
     back; then ``mutate_error`` holds the exception). Otherwise it is one of three dicts:
 
@@ -300,9 +316,7 @@ def commit_or_rollback(
                 }
                 exc_cause = None
 
-    nothing_landed = rolled_back or (
-        left and session is not None and len(session.changes) == changes_snapshot
-    )
+    nothing_landed = rolled_back or group.left_no_entry
 
     if exc_cause is not None:
         reraise_if_disposed(exc_cause)

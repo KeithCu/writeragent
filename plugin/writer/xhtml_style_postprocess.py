@@ -484,6 +484,19 @@ _IMG_TITLE_TEXT_RE = re.compile(
 )
 
 
+# body.xsl (filter/source/xslt/odf2xhtml/export/xhtml) writes a newline after each field span, and
+# the export writes a space right after a field as nbsp. Left alone, an import reads them as two spaces.
+# The [^\s<&\xa0] lookahead keeps an nbsp before an entity or tag (e.g. "1 &amp; 2", "1 <b>of</b>"); it still does not grow.
+_FIELD_BREAK_RE = re.compile(
+    r'(<span title="[a-z-]+"(?:\s*/>|>[^<]*</span>))\n((?:\xa0|&nbsp;|&#160;)(?=[^\s<&\xa0]|<span title=))?'
+)
+
+
+def _drop_field_breaks(body: str) -> str:
+    # crosshair: off
+    return _FIELD_BREAK_RE.sub(lambda m: m.group(1) + (" " if m.group(2) else ""), body)
+
+
 def _drop_image_title_text(body: str) -> str:
     """Drop the duplicate title text LibreOffice's XHTML XSLT emits after <img>.
 
@@ -517,7 +530,7 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)
     m = _BODY_RE.search(full_xhtml or "")
-    body = _drop_image_title_text(m.group(1).strip() if m else (full_xhtml or ""))
+    body = _drop_field_breaks(_drop_image_title_text(m.group(1).strip() if m else (full_xhtml or "")))
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)
     tr.feed(body)
     tr.close()

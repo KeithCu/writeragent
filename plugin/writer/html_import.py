@@ -24,7 +24,7 @@ import uuid
 from typing import Any, Iterator
 
 
-from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
     CLEARABLE_PARA_PROPERTIES,
@@ -592,8 +592,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
     after it, which keeps its own style (``sw_GetJoinFlags`` in
     ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). In a review-mode full-document replace or a recorded whole-paragraph
-    replace (``_replace_whole_paragraphs``), the paragraph after it is the first
+    end node). In a review-mode full-document replace, a recorded whole-paragraph
+    replace (``_replace_whole_paragraphs``), or a recorded header/footer rewrite
+    (``replace_xtext_with_html``), the paragraph after it is the first
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
@@ -792,8 +793,8 @@ def _ensure_empty_absorb_for_styled_insert(
       continues it. While recording a break is always opened, because absorbing an empty last
       paragraph would leave it in the import's style after Reject.
     - **Empty absorb paragraph** (blank doc / already-empty trailing, when not recording): merge
-      is harmless — no prep. An empty paragraph while recording is handled by the caller for
-      ``caret`` and ``beginning``.
+      is harmless — no prep. ``caret`` and ``beginning`` in an empty paragraph are handled by
+      the caller in both modes.
 
     ``selection`` / ``search`` are not handled here: whole-paragraph block
     selections go through ``_replace_whole_paragraphs``, other non-collapsed
@@ -1054,10 +1055,8 @@ def _insert_at_caret(
 ) -> html_import_styles.WriteReport:
     """Insert *content* at a collapsed *cursor* without splitting its paragraph.
 
-    - Empty paragraph (when not recording): importing at the start of an empty paragraph
-      neither merges nor splits, and it is the only caret case where
-      ``_lo_style_for_replaced_range`` allows ``data-lo-style``, so ``apply_styles``
-      matters only there.
+    - Empty paragraph (when not recording): only non-block content reaches this branch,
+      where importing at the start of an empty paragraph neither merges nor splits.
     - Inline content (no block markup and no real newline): insert inline via
       ``insert_inline_at_cursor`` so the host paragraph is not split by ``<p>`` wrapping.
     - Block content at paragraph start: ``_insert_mixed_or_plain_html`` already places new
@@ -1094,23 +1093,30 @@ def insert_content_at_position(
 ) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
 
+    The whole insert runs as one undo step and is rolled back on failure, unless an outer
+    undo group is open, which then owns the rollback.
     When ``position == 'selection'`` and the insert point is a collapsed caret, inline
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
     caret was mid-paragraph. When recording, an insert at a caret in an empty paragraph
     or at ``'beginning'`` when the first paragraph is empty opens a fresh paragraph after
-    the empty one so Reject restores its style and direct formatting. When the selection
-    is non-collapsed and *content* is inline (no block markup, no real newline), it replaces
-    the selection in place, keeping the host paragraph and its style with Track Changes on or
-    off. Pass *selection* to act on an explicit text range (such as a pinned Send-time
-    selection) instead of reading the live view.
+    the empty one so Reject restores its style and direct formatting; when not recording,
+    block content at an empty paragraph replaces that paragraph instead of leaving an
+    empty trailing line. When the selection is non-collapsed and *content* is inline
+    (no block markup, no real newline), it replaces the selection in place, keeping the
+    host paragraph and its style with Track Changes on or off. Pass *selection* to act
+    on an explicit text range (such as a pinned Send-time selection) instead of reading
+    the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
     partial match.
     """
-    with image_placeholders.keep_placeholder_images(model, content) as swapped:
+    with (
+        UndoStepOrRollback(model, _("WriterAgent: Insert result")),
+        image_placeholders.keep_placeholder_images(model, content) as swapped,
+    ):
         content = html_import_styles.normalize_character_references(swapped)
 
         text = model.getText()
@@ -1196,18 +1202,22 @@ def insert_content_at_position(
             report = _import_and_drop_leftover(model, ctx, cursor, content)
         elif (
             (caret or position == "beginning")
-            and recording
             and cursor.isStartOfParagraph()
             and cursor.isEndOfParagraph()
+            and (recording or content_is_block(content))
         ):
-            # The import would reuse the empty paragraph's node, and Reject's join keeps that
+            # Recording: the import would reuse the empty paragraph's node, and Reject's join keeps that
             # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
             # into a fresh paragraph after it. After a trailing table the leftover stays: merged
             # into a non-empty follower, Reject would join the empty paragraph into that follower
             # and lose it.
-            cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            if recording:
+                cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # Not recording: the content takes the empty line; the leftover would otherwise
+            # stay behind in the follow style of the paragraph
+            # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
             report = _import_and_drop_leftover(
-                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=False
+                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=not recording
             )
         elif caret:
             report = _insert_at_caret(model, ctx, cursor, content, styled)
@@ -1487,6 +1497,84 @@ def replace_single_range_with_content(
 
 
 
+def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
+    """Clear *text_obj* and return ``(import_cursor, leftover_cursor)``.
+
+    When *text_obj* starts or ends with a table, a text cursor cannot span it, so
+    ``SwXText::setString`` (``sw/source/core/unocore/unotext.cxx``) is used. It
+    appends empty helper paragraphs at the very start and very end of the text
+    whenever it holds any table or section, so a leading helper exists even when
+    only the last element is a table. While recording, that leading helper is
+    merged forward (never ``dispose()``d, because a later Undo aborts LibreOffice)
+    and an empty fresh paragraph is opened for the import so direct properties and
+    heading styles from the old paragraph do not stamp the imported blocks.
+    """
+    elements = list(iter_elements(text_obj.createEnumeration()))
+    tables = [_uno_service_true(el, "com.sun.star.text.TextTable") for el in elements]
+    table_edge = bool(tables and (tables[0] or tables[-1]))
+    recording = record_changes.is_recording_changes(model)
+    if not recording:
+        # Explicit table removal keeps the remaining paragraph's style, whereas
+        # SwXText::setString alone resets it to Standard.
+        for el, is_table in zip(elements, tables):
+            if is_table:
+                text_obj.removeTextContent(el)
+    if not recording or table_edge:
+        text_obj.setString("")
+    else:
+        # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+        # starts and ends with a paragraph, so Reject All restores the structure without extras.
+        doomed = text_obj.createTextCursor()
+        doomed.gotoStart(False)
+        doomed.gotoEnd(True)
+        doomed.setString("")
+    # Create after clearing: createTextCursor() on a table-only region raises "no text available".
+    cursor = text_obj.createTextCursor()
+    cursor.gotoStart(False)
+    if not recording:
+        _leave_heading_style(model, cursor)
+        return cursor, None
+    if table_edge:
+        with record_changes.record_changes(model, False):
+            _merge_empty_paragraph_forward(cursor)
+        cursor.gotoStart(False)
+    text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    cursor.goLeft(1, False)
+    with record_changes.record_changes(model, False):
+        _drop_absorb_paragraph_props(cursor)
+        reset_direct_char_formatting(cursor)
+        _leave_heading_style(model, cursor)
+    return cursor, text_obj.createTextCursorByRange(cursor.getStart())
+
+
+def _merge_empty_paragraph_forward(cursor: Any) -> None:
+    """Merge an empty paragraph at *cursor* into the following paragraph.
+
+    Joining two empty paragraphs keeps the first one's style (``sw_GetJoinFlags``
+    in ``sw/source/core/doc/docedt.cxx``), so copy the next paragraph's style first.
+    """
+    para = cursor.getText().createTextCursorByRange(cursor)
+    para.gotoEndOfParagraph(True)
+    if para.getString():
+        return
+    if cursor.goRight(1, True) and cursor.getString() in _PARAGRAPH_BREAKS:
+        following = cursor.getText().createTextCursorByRange(cursor.getEnd())
+        para.setPropertyValue("ParaStyleName", following.getPropertyValue("ParaStyleName"))
+        cursor.setString("")
+
+
+def _leave_heading_style(model: Any, cursor: Any) -> None:
+    """Switch off any style whose follow style differs (such as headings or Title).
+
+    ``SwHTMLParser::CallParser`` / ``SetTextCollAttrs`` (``sw/source/filter/html/swhtml.cxx``)
+    stamps the insertion paragraph's effective attributes onto every imported block.
+    """
+    name = cursor.getPropertyValue("ParaStyleName")
+    style = model.getStyleFamilies().getByName("ParagraphStyles").getByName(name)
+    if style.getPropertyValue("FollowStyle") != name:
+        cursor.setPropertyValue("ParaStyleName", "Standard")
+
+
 def replace_xtext_with_html(
     text_obj: Any, html: str, *, model: Any
 ) -> html_import_styles.WriteReport:
@@ -1527,33 +1615,8 @@ def replace_xtext_with_html(
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
-        elements = list(iter_elements(text_obj.createEnumeration()))
-        if not record_changes.is_recording_changes(model):
-            # Explicit table removal keeps the remaining paragraph's style, whereas
-            # SwXText::setString alone resets it to Standard.
-            for el in elements:
-                if _uno_service_true(el, "com.sun.star.text.TextTable"):
-                    text_obj.removeTextContent(el)
-            text_obj.setString("")
-        elif elements and (
-            _uno_service_true(elements[0], "com.sun.star.text.TextTable")
-            or _uno_service_true(elements[-1], "com.sun.star.text.TextTable")
-        ):
-            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-            # around tables, needed when the region starts or ends with a table because a text
-            # cursor cannot span across it. While recording, that helper stays as a struck empty
-            # paragraph. Do not remove the helper with dispose(): a later Undo aborts LibreOffice.
-            text_obj.setString("")
-        else:
-            # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
-            # starts and ends with a paragraph, so Reject All restores the structure without extras.
-            cursor = text_obj.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            cursor.setString("")
+        cursor, leftover = _clear_region(model, text_obj)
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
-        cursor = text_obj.createTextCursor()
-        cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False,
         )
@@ -1572,6 +1635,11 @@ def replace_xtext_with_html(
                 model, text_obj, text_obj.getStart(), block_styles, paras=block_paras,
             ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
+        if leftover is not None:
+            # merge_forward_after_table=True is right even without a table: empty content
+            # merges the fresh paragraph into the struck text.
+            with record_changes.record_changes(model, False):
+                _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
 
         # Issue #1424: HTML import can leave a trailing empty paragraph.
         # If there is more than one paragraph and the last one is entirely empty, remove it.

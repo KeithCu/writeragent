@@ -1278,3 +1278,86 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
         el = enum.nextElement()
         paras.append((el.getString(), el.getPropertyValue("BreakType")))
     assert paras == [("Alpha beta gamma", PAGE_BEFORE), ("Second para", NONE)], paras
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_header_after_inline_logo_uno(ctx, doc):
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.writer.page import PageReplaceHeaderFooterText
+
+    style, style_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+    g.setPropertyValue("AnchorType", AS_CHARACTER)
+    g.setPropertyValue("GraphicURL", _file_url_for_path(_header_logo_path()))
+    header.insertTextContent(cur, g, False)
+    header.insertString(cur, " OldText", False)
+
+    res = PageReplaceHeaderFooterText().execute(
+        _tool_ctx(doc, ctx),
+        style=style_name,
+        region="header",
+        old_content="OldText",
+        content="NewText",
+        all_matches=False,
+    )
+    assert res["status"] == "ok", res
+    assert "NewText" in header.getString()
+    assert "OldText" not in header.getString()
+    assert doc.getDrawPage().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+
+    style, style_name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    cur = header.createTextCursor()
+    header.insertString(cur, "keep one", False)
+    header.insertControlCharacter(cur, 0, False)
+    header.insertString(cur, "two tail", False)
+    header.insertControlCharacter(cur, 0, False)
+    header.insertString(cur, "gone", False)
+    header.insertControlCharacter(cur, 0, False)
+    header.insertString(cur, "after", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = header.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.goRight(4, False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.goRight(4, True)
+        del_cur.setString("")
+
+        gone_para = [p for p in iter_elements(header.createEnumeration()) if p.getString() == "gone"][0]
+        mid_cur = header.createTextCursorByRange(gone_para)
+        mid_cur.gotoStartOfParagraph(False)
+        mid_cur.gotoEndOfParagraph(True)
+        mid_cur.setString("")
+
+        copy_page_style(doc, style_name, "ClonedStyle")
+
+        cloned_header = doc.getStyleFamilies().getByName("PageStyles").getByName("ClonedStyle").getPropertyValue("HeaderText")
+        cloned_paras = []
+        enum = cloned_header.createEnumeration()
+        while enum_has_more(enum):
+            cloned_paras.append(enum.nextElement().getString())
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        accept_paras = []
+        enum2 = header.createEnumeration()
+        while enum_has_more(enum2):
+            accept_paras.append(enum2.nextElement().getString())
+
+        assert accept_paras == ["keeptail", "", "after"], accept_paras
+        assert cloned_paras == accept_paras, (cloned_paras, accept_paras)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

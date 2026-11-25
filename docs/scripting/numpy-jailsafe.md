@@ -491,13 +491,21 @@ Remaining nits from the same reviews: the display name `PY` vs Excel semantics n
 
 ### Any↔JSON (dumb JSON note)
 
-**Landed in tree** as the Core ↔ service dialect (keep for contracts / F3 plots / shared kernel). **Do not merge** this into jsuno: typed `appendUnoAsJson` / `parseJsonToAny` (optional QuickJS) is a different contract. Keep Poco in coolwsd. `tools::JsonWriter` is already the shared encoder. See [Do not regress](#do-not-regress-meeks-2026-08).
+**Landed in tree** as the Core ↔ service dialect (keep for contracts / F3 plots / shared kernel). Reuse shared `comphelper/json.hxx` (`parseJsonToInferredAny`, `findJsonValueEnd`, `splitJsonArray`, `splitJsonObject`) and `tools::JsonWriter` in `anyjson.cxx` rather than maintaining a duplicate hand parser, while still keeping `anyjson` separate from QuickJS/jsuno and keeping Poco in coolwsd. See [Do not regress](#do-not-regress-meeks-2026-08).
 
+<<<<<<< Updated upstream
 - **Emit:** `tools::JsonWriter` in `anyjson.cxx` — merged `anyjson.cxx` flattens 1×N / N×1 ranges to a flat list, which the service reads as one input per cell when it is the only argument. Gerrit 21281 (open) keeps every range a list of rows, so `[[1,2,3]]` is (1,3) and `[[1],[2],[3]]` is (3,1).
 - **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). It combines UTF-16 surrogate pairs, rejects unpaired surrogates/trailing junk, and rejects ragged nested arrays. Online coolwsd stays on Poco/`JsonUtil`.
 - **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
 - **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`; one-element lists of every scalar type stay 1×1 matrices. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
 - **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). See [What Collabora sends](../../compute_service/README.md#what-collabora-sends) and [HTTP ingress](#http-ingress-peel-vs-multipart).
+=======
+- **Emit:** `tools::JsonWriter` in `anyjson.cxx` — Calc ranges as `Sequence<Sequence<…>>` first, then flatten 1×N / N×1 when useful.
+- **Parse:** shared `comphelper/json.hxx` helpers (depth-capped at `MAX_JSON_DEPTH = 64`; not `boost::property_tree`, not Boost.JSON, not Poco in Core). Online coolwsd stays on Poco/`JsonUtil`.
+- **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
+- **Grids:** nested lists → `sequence<sequence<Any>>`; one-element lists of every scalar type stay 1×1 matrices. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
+- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). Request emit today is one JSON object (peel path). Service also accepts multipart; kit will switch later — [HTTP ingress](#http-ingress-peel-vs-multipart).
+>>>>>>> Stashed changes
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
 ### G4 — Resource caps — **done**

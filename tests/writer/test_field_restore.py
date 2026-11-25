@@ -165,18 +165,18 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
                 f"Page [[WA-FIELD:{n}:page-number]] and at [[WA-FIELD:{n}:time]] ",
                 f"on [[WA-FIELD:{n}:date]] end",
             ],
-            ["date", "time", "page-number"],
+            ["page-number", "time", "date"],
             id="two_portions_three_tokens",
         ),
         pytest.param(
             lambda n: [f"Start [[WA-FIELD:{n}:page-number]] middle [[WA-FIELD:{n}:date]] end"],
-            ["date", "page-number"],
+            ["page-number", "date"],
             id="one_portion_two_tokens",
         ),
     ],
 )
-def test_restore_fields_by_cursor_single_walk_last_token_first(portions_fn, expected_titles):
-    """Tokens across one or multiple portions: one createEnumeration walk, no findFirst, inserted in reverse."""
+def test_restore_fields_by_cursor_single_walk_first_token_first(portions_fn, expected_titles):
+    """Tokens across one or multiple portions: one createEnumeration walk, no findFirst, inserted in document order."""
     nonce = "test1234"
     portion_strs = portions_fn(nonce)
     full_str = "".join(portion_strs)
@@ -216,7 +216,7 @@ def test_restore_fields_by_cursor_single_walk_last_token_first(portions_fn, expe
 
     token_matches = [
         f"[[WA-FIELD:{nonce}:{title}]]"
-        for title in reversed(expected_titles)
+        for title in expected_titles
     ]
     text_cursors = []
     for tok in token_matches:

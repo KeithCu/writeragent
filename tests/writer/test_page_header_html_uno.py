@@ -1573,6 +1573,396 @@ def test_header_table_omits_nested_struck_table_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
 
+def _header_shape(text_obj):
+    from plugin.framework.uno_context import enum_has_more
+
+    items = []
+    enum = text_obj.createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        items.append("T" if el.supportsService("com.sun.star.text.TextTable") else el.getString())
+    return items
+
+
+@native_test
+def test_header_recorded_leading_table_rewrites_do_not_grow_uno(ctx):
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+
+    def _seed(rdoc, case):
+        style, _ = _style(rdoc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        if case in ("tb", "t_empty"):
+            tbl = rdoc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            header.insertTextContent(header.getStart(), tbl, False)
+            if case == "tb":
+                cur = header.createTextCursor()
+                cur.gotoEnd(False)
+                header.insertString(cur, "b", False)
+        elif case == "one_two":
+            cur = header.createTextCursor()
+            header.insertString(cur, "one", False)
+            header.insertControlCharacter(cur, 0, False)
+            header.insertString(cur, "two", False)
+        return header
+
+    table_p = "<table><tr><td><p>x</p></td></tr></table><p>z</p>"
+    table_only = "<table><tr><td><p>x</p></td></tr></table>"
+
+    for case in ("tb", "t_empty", "one_two", "empty"):
+        for html in (table_p, table_only):
+            rdoc = TestingFactory.create_native_doc(ctx, "writer")
+            try:
+                header = _seed(rdoc, case)
+                orig = _header_shape(header)
+                rdoc.setPropertyValue("RecordChanges", True)
+                lengths = []
+                for _i in range(3):
+                    res = _set(rdoc, ctx, "header", html)
+                    assert res["status"] == "ok", res
+                    lengths.append(len(_header_shape(header)))
+                assert len(set(lengths)) == 1, (case, html, lengths)
+
+                # Reject All: [one, two] exact; original leading table has one leading blank; empty checks constant length only.
+                ctrl = rdoc.getCurrentController()
+                execute_dispatch(ctx, ctrl, ".uno:RejectAllTrackedChanges")
+                rejected = _header_shape(header)
+                if case == "one_two":
+                    assert rejected == ["one", "two"], (case, html, rejected)
+                elif case in ("tb", "t_empty"):
+                    assert rejected == ["", *orig], (case, html, rejected)
+            finally:
+                rdoc.close(True)
+
+        # Accept All & Undo/Redo stability on one recorded write.
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            header = _seed(rdoc, case)
+            orig = _header_shape(header)
+            rdoc.setPropertyValue("RecordChanges", True)
+            res = _set(rdoc, ctx, "header", table_p)
+            assert res["status"] == "ok", res
+            undo_mgr = rdoc.getUndoManager()
+            undo_mgr.undo()
+            assert _header_shape(header) == orig, case
+            undo_mgr.redo()
+            undo_mgr.undo()
+            assert _header_shape(header) == orig, case
+            undo_mgr.redo()
+            execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            accepted = _header_shape(header)
+            assert accepted == ["T", "z", ""], (case, accepted)
+        finally:
+            rdoc.close(True)
+
+
+@native_test
+def test_header_recorded_heading_does_not_leak_uno(ctx):
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.tests.testing_utils import TestingFactory
+
+    for recording in (True, False):
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            cur = header.createTextCursor()
+            cur.setPropertyValue("ParaStyleName", "Heading 1")
+            header.insertString(cur, "Title", False)
+            header.insertControlCharacter(cur, 0, False)
+            cur.setPropertyValue("ParaStyleName", "Header")
+            header.insertString(cur, "Body", False)
+
+            hdr_style = rdoc.getStyleFamilies().getByName("ParagraphStyles").getByName("Header")
+            h1_style = rdoc.getStyleFamilies().getByName("ParagraphStyles").getByName("Heading 1")
+            if recording:
+                rdoc.setPropertyValue("RecordChanges", True)
+
+            got1 = _get(rdoc, ctx, "header")
+            assert got1["status"] == "ok", got1
+            res = _set(rdoc, ctx, "header", got1["content"])
+            assert res["status"] == "ok", res
+
+            got2 = _get(rdoc, ctx, "header")
+            assert got2["status"] == "ok", got2
+            assert "data-lo-para" not in got2["content"], (recording, got2["content"])
+
+            paras = []
+            enum = header.createEnumeration()
+            while enum_has_more(enum):
+                el = enum.nextElement()
+                if el.getString():
+                    paras.append(el)
+            # Imported Heading 1 and Header paragraphs come first (ahead of any old struck paragraphs).
+            h1_para, body_para = paras[0], paras[1]
+            assert h1_para.getString() == "Title" and body_para.getString() == "Body", (
+                recording,
+                h1_para.getString(),
+                body_para.getString(),
+            )
+            assert body_para.getPropertyValue("CharHeight") == hdr_style.getPropertyValue("CharHeight"), recording
+            assert body_para.getPropertyValue("CharFontName") == hdr_style.getPropertyValue("CharFontName"), recording
+            assert h1_para.getPropertyValue("ParaTopMargin") == h1_style.getPropertyValue("ParaTopMargin"), recording
+            assert h1_para.getPropertyValue("ParaBottomMargin") == h1_style.getPropertyValue("ParaBottomMargin"), recording
+        finally:
+            rdoc.close(True)
+
+
+@native_test
+def test_header_field_round_trip_keeps_spacing_uno(ctx):
+    from plugin.tests.testing_utils import TestingFactory
+
+    for html, expected, field_count in (
+        ('<p>Page <span title="page-number"/> of ten</p>', "Page 1 of ten", 1),
+        ('<p><span title="page-number"/>/<span title="page-number"/></p>', "1/1", 2),
+        ('<p><span title="page-number"/><span title="page-number"/></p>', "11", 2),
+    ):
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            res = _set(rdoc, ctx, "header", html)
+            assert res["status"] == "ok", res
+            assert header.getString() == expected, (html, header.getString(), expected)
+            for round_idx in range(3):
+                got = _get(rdoc, ctx, "header")
+                assert got["status"] == "ok", got
+                if round_idx == 0:
+                    assert len(got["fields"]) == field_count, (html, got["fields"])
+                res = _set(rdoc, ctx, "header", got["content"])
+                assert res["status"] == "ok", res
+            assert header.getString() == expected, (html, header.getString(), expected)
+        finally:
+            rdoc.close(True)
+
+
+@native_test
+def test_header_read_joins_paragraphs_like_accept_uno(ctx):
+    import os
+    import re
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+
+    def _block_tags_and_texts(html):
+        return [
+            (tag.lower(), re.sub(r"<[^>]+>", "", inner).replace("\xa0", "").replace("&nbsp;", ""))
+            for tag, inner in re.findall(r"<(p|h[1-6])\b[^>]*>(.*?)</\1>", html, re.S)
+        ]
+
+    def _accept_tags_and_texts(rdoc, header):
+        execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        items = []
+        enum = header.createEnumeration()
+        while enum_has_more(enum):
+            el = enum.nextElement()
+            style_name = el.getPropertyValue("ParaStyleName")
+            tag = f"h{style_name.split()[-1]}" if style_name.startswith("Heading ") else "p"
+            items.append((tag, el.getString()))
+        return items
+
+    # 1. Partly struck join + text-only middle strike.
+    rdoc = TestingFactory.create_native_doc(ctx, "writer")
+    try:
+        style, _ = _style(rdoc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        cur = header.createTextCursor()
+        header.insertString(cur, "keep one", False)
+        header.insertControlCharacter(cur, 0, False)
+        header.insertString(cur, "two", False)
+        header.insertControlCharacter(cur, 0, False)
+        header.insertString(cur, "three tail", False)
+        header.insertControlCharacter(cur, 0, False)
+        header.insertString(cur, "gone", False)
+        header.insertControlCharacter(cur, 0, False)
+        header.insertString(cur, "after", False)
+
+        rdoc.setPropertyValue("RecordChanges", True)
+        # Strike " one\ntwo\nthree " across 3 paragraphs.
+        del_cur = header.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.goRight(4, False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.gotoNextParagraph(True)
+        del_cur.goRight(6, True)
+        del_cur.setString("")
+        # Strike "gone" text only on its paragraph.
+        gone_para = [p for p in iter_elements(header.createEnumeration()) if p.getString() == "gone"][0]
+        mid_cur = header.createTextCursorByRange(gone_para)
+        mid_cur.gotoStartOfParagraph(False)
+        mid_cur.gotoEndOfParagraph(True)
+        mid_cur.setString("")
+
+        got = _get(rdoc, ctx, "header")
+        assert got["status"] == "ok", got
+        read_items = _block_tags_and_texts(got["content"])
+        expected = _accept_tags_and_texts(rdoc, header)
+        assert expected == [("p", "keeptail"), ("p", ""), ("p", "after")], expected
+        assert read_items == expected, (read_items, expected)
+    finally:
+        rdoc.close(True)
+
+    # 2. Wholly struck Heading 1 lead joined to live Header paragraph takes Header style.
+    rdoc = TestingFactory.create_native_doc(ctx, "writer")
+    try:
+        style, _ = _style(rdoc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        cur = header.createTextCursor()
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        header.insertString(cur, "StruckH1", False)
+        header.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Header")
+        header.insertString(cur, "Body", False)
+
+        rdoc.setPropertyValue("RecordChanges", True)
+        del_cur = header.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.setString("")
+
+        got = _get(rdoc, ctx, "header")
+        assert got["status"] == "ok", got
+        read_items = _block_tags_and_texts(got["content"])
+        expected = _accept_tags_and_texts(rdoc, header)
+        assert expected == [("p", "Body")], expected
+        assert read_items == expected, (read_items, expected)
+    finally:
+        rdoc.close(True)
+
+    # 3. Dropped struck last paragraph hands its surviving logo to the paragraph before it.
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(_PNG_BYTES)
+        img_path = f.name
+    try:
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            cur = header.createTextCursor()
+            header.insertString(cur, "Live", False)
+            header.insertControlCharacter(cur, 0, False)
+            header.insertString(cur, "LastGone", False)
+            g = rdoc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            header.insertTextContent(cur, g, False)
+
+            rdoc.setPropertyValue("RecordChanges", True)
+            del_cur = header.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.gotoNextParagraph(False)
+            del_cur.gotoEndOfParagraph(True)
+            del_cur.setString("")
+
+            got = _get(rdoc, ctx, "header")
+            assert got["status"] == "ok", got
+            assert got["content"].count('data-lo-style="Header"') == 1, got["content"]
+            assert "Live" in got["content"] and "LastGone" not in got["content"], got["content"]
+            assert got["content"].count("<img") == 1, got["content"]
+        finally:
+            rdoc.close(True)
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+
+@native_test
+def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AT_CHARACTER, AT_PARAGRAPH
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(_PNG_BYTES)
+        img_path = f.name
+    img_url = uno.systemPathToFileUrl(img_path)
+    try:
+        # AT_CHARACTER logo at the end edge of a deletion is kept in read and survives Accept.
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            cur = header.createTextCursor()
+            header.insertString(cur, "ab", False)
+            header.insertControlCharacter(cur, 0, False)
+            header.insertString(cur, "cdef", False)
+            cur.gotoStart(False)
+            cur.gotoNextParagraph(False)
+            cur.goRight(2, False)
+            g = rdoc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("AnchorType", AT_CHARACTER)
+            g.setPropertyValue("GraphicURL", img_url)
+            header.insertTextContent(cur, g, False)
+
+            rdoc.setPropertyValue("RecordChanges", True)
+            del_cur = header.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.goRight(2, False)
+            del_cur.gotoNextParagraph(True)
+            del_cur.goRight(2, True)
+            del_cur.setString("")
+
+            got = _get(rdoc, ctx, "header")
+            assert got["status"] == "ok", got
+            assert got["content"].count("<img") == 1, got["content"]
+            execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert rdoc.getDrawPage().getCount() == 1
+        finally:
+            rdoc.close(True)
+
+        # Struck AT_PARAGRAPH logo inside a live cell has no <img> in header read.
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            tbl = rdoc.createInstance("com.sun.star.text.TextTable")
+            tbl.initialize(1, 1)
+            header.insertTextContent(header.getStart(), tbl, False)
+            cell = tbl.getCellByName("A1")
+            ccur = cell.createTextCursor()
+            cell.insertString(ccur, "keep", False)
+            cell.insertControlCharacter(ccur, 0, False)
+            cell.insertString(ccur, "drop", False)
+            g = rdoc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("GraphicURL", img_url)
+            cell.insertTextContent(ccur, g, False)
+
+            rdoc.setPropertyValue("RecordChanges", True)
+            del_cur = cell.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.gotoEndOfParagraph(False)
+            del_cur.gotoNextParagraph(True)
+            del_cur.gotoEndOfParagraph(True)
+            del_cur.setString("")
+
+            got = _get(rdoc, ctx, "header")
+            assert got["status"] == "ok", got
+            assert "<img" not in got["content"], got["content"]
+            execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert rdoc.getDrawPage().getCount() == 0
+        finally:
+            rdoc.close(True)
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+
 @native_test
 @with_native_doc("writer")
 def test_header_write_keeps_picture_link_target_uno(ctx, doc):

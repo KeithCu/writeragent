@@ -752,3 +752,21 @@ def test_simplify_drawings_rewrites_shapes_and_drops_empty_or_ole():
     )
     expanded = expand_tracked_deletions(simplify_drawings(struck))
     assert expanded is not None and DELETED_MARK in expanded
+
+
+def test_xhtml_to_semantic_html_drops_field_breaks_and_normalizes_following_nbsp():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    xhtml = (
+        '<html><body>'
+        '<p>Page <span title="page-number">1</span>\n\xa0of <span title="page-count">3</span>\n/'
+        '<span title="date">today</span>\n\xa0<span title="time">now</span>\n\xa0</p>'
+        '<p><span class="text-T1">plain</span>\nkept</p>'
+        '</body></html>'
+    )
+    out = xhtml_to_semantic_html(xhtml)
+    assert (
+        '<p>Page <span title="page-number">1</span> of <span title="page-count">3</span>/'
+        '<span title="date">today</span> <span title="time">now</span>\xa0</p>'
+    ) in out
+    assert '<span>plain</span>\nkept' in out
