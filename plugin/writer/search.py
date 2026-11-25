@@ -1734,8 +1734,7 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a hit read failure; count may be incomplete."
                 break
             if hit_text == "":
-                # Zero-width matches log a warning and stop the sweep so read
-                # failures are not treated as benign empty hits with a silent count.
+                # Zero-width matches do not advance findNext, so stop the walk and flag truncation.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
             if shown:  # empty means pending deletions strike the whole hit

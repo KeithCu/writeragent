@@ -45,8 +45,9 @@ def resolve_text_analytics_document_inputs(
     """Resolve Writer document text and RPC context for a text analytics helper.
 
     :param scope: Text resolution scope. ``"selection"`` extracts text from the
-        first selection range only (via ``get_selection_text``) for every
-        helper without section splitting. ``"whole"`` (or any other value) extracts
+        first selection range only (via ``get_selection_text``) for every helper
+        without section splitting; it returns ``""`` on failure and does not fall
+        back to full document text. ``"whole"`` (or any other value) extracts
         sections for ``topics`` and ``sentiment``, and flat document text for other helpers.
     """
     name = str(helper or "full").strip() or "full"

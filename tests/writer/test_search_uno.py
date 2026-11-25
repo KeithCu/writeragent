@@ -625,13 +625,14 @@ def test_search_skips_hit_struck_by_two_deletions_uno(ctx, doc):
     res = SearchInDocument().execute(mock_ctx, pattern="OLDOLD")
     assert res["status"] == "ok", res
     assert res["count"] == 1
-    assert len(find_all_ranges(doc, "OLDOLD")) == 1
+    live_ranges = find_all_ranges(doc, "OLDOLD")
+    assert len(live_ranges) == 1
 
     sel_res = SetSelection().execute(native_writer_tool_context(doc, ctx), search_text="OLDOLD", occurrence=0)
     assert sel_res["status"] == "ok", sel_res
     selected = doc.getCurrentController().getSelection().getByIndex(0)
     assert visible_range_text(doc, selected) == "OLDOLD"
-    assert doc.getText().compareRegionStarts(selected.getStart(), doc.getText().getStart()) < 0
+    assert doc.getText().compareRegionStarts(selected.getStart(), live_ranges[0].getStart()) == 0
 
 
 @native_test
@@ -643,7 +644,7 @@ def test_search_reports_metadata_field_hit_uno(ctx, doc):
     cur.gotoStart(False)
     cur.goRight(len("struck xx "), False)
     cur.goRight(len("inner"), True)
-    meta = doc.createInstance("com.sun.star.text.InContentMetadata")
+    meta = doc.createInstance("com.sun.star.text.textfield.MetadataField")
     text.insertTextContent(cur, meta, True)
 
     doc.setPropertyValue("RecordChanges", True)

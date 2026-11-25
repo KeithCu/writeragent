@@ -805,3 +805,70 @@ def test_visible_range_text_of_search_hit_in_cell_uno(ctx, doc):
     found = doc.findFirst(sd)
     assert found is not None
     assert visible_range_text(doc, found) == "needle"
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_table_edge_and_field_selections_uno(ctx, doc):
+    from types import SimpleNamespace
+    from plugin.doc.text_helpers import live_selection_range, visible_range_text
+    from plugin.framework.uno_context import execute_dispatch
+
+    text = doc.getText()
+    controller = doc.getCurrentController()
+
+    # Ctrl+A in a document starting with a table, plus a body range starting in a cell.
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("T0")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertString(cur, "tail", False)
+
+    cell = tbl.getCellByName("A1")
+    controller.select(cell.getStart())
+    for _ in range(3):
+        execute_dispatch(ctx, controller, ".uno:SelectAll")
+    sel = live_selection_range(controller)
+    assert sel is not None
+    assert visible_range_text(doc, sel) == "T0"
+
+    body_span = SimpleNamespace(
+        getText=lambda: text,
+        getStart=lambda: cell.getStart(),
+        getEnd=lambda: text.getEnd(),
+        getString=lambda: "T0\ntail",
+    )
+    assert visible_range_text(doc, body_span) == "T0\ntail"
+
+    # Selection inside an Input field.
+    text.setString("Dear ")
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    inp = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp.setPropertyValue("Content", "Customer")
+    text.insertTextContent(cur, inp, False)
+    text.insertString(cur, " name", False)
+
+    inp_cur = text.createTextCursor()
+    inp_cur.gotoStart(False)
+    inp_cur.goRight(len("Dear ") + 1, False)
+    inp_cur.goRight(len("Custom"), True)
+    got_inp = visible_range_text(doc, inp_cur)
+    assert got_inp == "Custom", (got_inp, inp_cur.getString())
+
+    # Selection starting inside a MetadataField.
+    text.setString("xx inner yy")
+    mcur = text.createTextCursor()
+    mcur.gotoStart(False)
+    mcur.goRight(len("xx "), False)
+    mcur.goRight(len("inner"), True)
+    meta = doc.createInstance("com.sun.star.text.textfield.MetadataField")
+    text.insertTextContent(mcur, meta, True)
+
+    tail_cur = text.createTextCursor()
+    tail_cur.gotoStart(False)
+    tail_cur.goRight(len("xx in") + 1, False)
+    tail_cur.gotoEnd(True)
+    assert visible_range_text(doc, tail_cur) == "ner yy"

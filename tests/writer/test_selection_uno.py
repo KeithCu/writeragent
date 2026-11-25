@@ -152,29 +152,9 @@ def test_set_selection_search_reports_visible_text_uno(ctx, doc):
     assert res["length"] == 9
 
     # Chained two-paragraph needle over struck text.
-    text.setString("")
-    cur = text.createTextCursor()
-    text.insertString(cur, "Keep GONE Line 1", False)
-    text.insertControlCharacter(cur, 0, False)
-    text.insertString(cur, "Line OLD 2 match More", False)
-    from plugin.framework.uno_context import enum_has_more
+    from tests.writer.test_search_uno import _build_chain_deletion_doc
 
-    enum = text.createEnumeration()
-    paras = []
-    while enum_has_more(enum):
-        paras.append(enum.nextElement())
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        c1 = text.createTextCursorByRange(paras[0].getStart())
-        c1.goRight(len("Keep "), False)
-        c1.goRight(len("GONE "), True)
-        c1.setString("")
-        c2 = text.createTextCursorByRange(paras[1].getStart())
-        c2.goRight(len("Line "), False)
-        c2.goRight(len("OLD "), True)
-        c2.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
+    _build_chain_deletion_doc(doc, text)
 
     chain_needle = "Line 1\nLine 2 match"
     res_chain = SetSelection().execute(tctx, search_text=chain_needle)

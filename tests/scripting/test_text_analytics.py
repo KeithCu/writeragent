@@ -775,20 +775,6 @@ def test_selection_scope_topics_uses_selection_string(monkeypatch):
         def supportsService(self, service):
             return service == "com.sun.star.text.TextDocument"
 
-        def getCurrentController(self):
-            class Controller:
-                def getSelection(self):
-                    class Sel:
-                        def getCount(self):
-                            return 1
-
-                        def getByIndex(self, idx):
-                            return "fake_range"
-
-                    return Sel()
-
-            return Controller()
-
     def forbidden_sections(doc):
         raise AssertionError("_get_writer_sections should not be called for selection scope")
 
