@@ -195,6 +195,9 @@ def read_ready_frame_during_io(
                 cancel=cancel,
             )
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            # Stop also raises TimeoutExpired (see read_frame_payload); keep this
+            # as "timeout" so _spawn_child kills the child and _ensure_live
+            # reports CANCELLED from _publish_refusal.
             return ("timeout", None)
     if spawned.was_signaled():
         return ("interrupted", None)
@@ -323,7 +326,8 @@ class ChildSlot:
 
         Every outcome except ``ready`` leaves the slot without this child. *start*
         must run ``Popen`` on the supervisor spawner thread (PDEATHSIG follows the
-        creating thread).
+        creating thread). *cancel* ends the ready-frame read early; compute slots
+        have none.
         """
         spawned: Child | None = None
         published = False
