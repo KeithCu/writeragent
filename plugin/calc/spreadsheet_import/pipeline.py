@@ -111,7 +111,15 @@ def run_sheet_conversion(
     if verify:
         doc.calculateAll()
         actual_values = fetch_actual_values(target_sheet, report.converted)
-        failed_verifications = [asdict(item) for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
+        mismatches = verify_converted_cells(model, output, report, actual_values=actual_values)
+        for item in mismatches:
+            cell_rec = model.cells.get(item.address)
+            if cell_rec is not None and cell_rec.formula:
+                col, row = parse_address(item.address)
+                target_sheet.getCellByPosition(col, row).setFormula(cell_rec.formula)
+        if mismatches:
+            doc.calculateAll()
+        failed_verifications = [asdict(item) for item in mismatches]
 
     return {
         "status": "partial" if failed_verifications else "ok",

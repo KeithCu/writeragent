@@ -688,6 +688,43 @@ def test_index_and_ifna_sandbox_interpreter_error():
     executor.send_variables({"calc": calc})
     with pytest.raises(InterpreterError):
         executor("calc.ifna(lambda: getattr(1, '__cl' + 'ass__'), 'alt')")
+    with pytest.raises(InterpreterError):
+        executor("calc.iferror(lambda: getattr(1, '__cl' + 'ass__'), 'alt')")
+
+
+def test_is_predicates_and_iferror_unwrap_calc_range():
+    assert calc.isblank(CalcRange([[None]])) is True
+    assert calc.isblank(CalcRange([[""]])) is True
+    assert calc.isblank(CalcRange([[0]])) is False
+    assert calc.iserror(CalcRange([[float("nan")]])) is True
+    assert calc.iserror(CalcRange([["#VALUE!"]])) is True
+    assert calc.iserror(CalcRange([[1]])) is False
+    assert calc.iserr(CalcRange([["#VALUE!"]])) is True
+    assert calc.iserr(CalcRange([["#N/A"]])) is False
+    assert calc.isna(CalcRange([["#N/A"]])) is True
+    assert calc.isna(CalcRange([[calc.na()]])) is True
+    assert calc.isna(CalcRange([[1]])) is False
+    assert calc.islogical(CalcRange([[True]])) is True
+    assert calc.islogical(CalcRange([[1]])) is False
+    assert calc.isnumber(CalcRange([[42]])) is True
+    assert calc.isnumber(CalcRange([[True]])) is False
+    assert calc.istext(CalcRange([["hello"]])) is True
+    assert calc.istext(CalcRange([["#VALUE!"]])) is False
+    assert calc.isnontext(CalcRange([[42]])) is True
+    assert calc.isnontext(CalcRange([["hello"]])) is False
+    assert calc.iseven(CalcRange([[4]])) is True
+    assert calc.isodd(CalcRange([[3]])) is True
+    assert calc.iferror(lambda: CalcRange([["#VALUE!"]]), 99) == 99
+    assert calc.iferror(lambda: CalcRange([[float("nan")]]), 99) == 99
+    assert calc.iferror(lambda: CalcRange([[7]]), 99) == 7
+    assert calc.ifna(lambda: CalcRange([["#N/A"]]), 99) == 99
+    assert calc.ifna(lambda: CalcRange([[7]]), 99) == 7
+    # Multi-cell CalcRange is not a scalar match and does not raise.
+    multi = CalcRange([[1, 2], [3, 4]])
+    assert calc.isblank(multi) is False
+    assert calc.isnumber(multi) is False
+    assert calc.istext(multi) is False
+    assert calc.isnontext(multi) is True
 
 
 def test_regression_and_lookup_error_codes():

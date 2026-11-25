@@ -94,3 +94,20 @@ def test_selection_range_address():
     non_cell = SimpleNamespace()
     with pytest.raises(ValueError, match="not a shape or object"):
         selection_range_address(non_cell)
+
+
+def test_run_sheet_conversion_restores_formula_on_verification_failure():
+    # A1=10.0, B1="=ABS(A1)" with cached value 999.0 so verification fails on B1.
+    sheet1 = CalcSheetStub("Sheet1", data=[[10.0, 999.0]])
+    sheet1.getCellByPosition(1, 0).setFormula("=ABS(A1)")
+    doc = CalcDocStub(sheets=[sheet1], active_sheet="Sheet1", selection="A1:B1")
+    doc.calculateAll = MagicMock()
+
+    res = run_sheet_conversion(doc, sheet1, scope="selection", output_mode="new_sheet", vectorize=False, verify=True)
+
+    assert res["status"] == "partial"
+    assert len(res["failed_verifications"]) == 1
+    assert res["failed_verifications"][0]["address"] == "B1"
+    target_sheet = doc.getSheets().getByName("PythonImport")
+    assert target_sheet.getCellByPosition(1, 0).getFormula() == "=ABS(A1)"
+    assert doc.calculateAll.call_count == 2

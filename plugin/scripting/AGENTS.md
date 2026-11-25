@@ -22,6 +22,7 @@ Topic docs: [docs/scripting/librepy-split.md](../../docs/scripting/librepy-split
 - Envelope-detector `@deal` + Hypothesis oracles on `payload_codec` (`is_split_grid`, `is_multi_data`, image / dataframe / calc_range) are **shipped**.
 - Scripting domain registries (Phases 1–6) are shipped — do not add a fourth ad-hoc registry.
 - `venv/calc_functions_*.py` alphabet splits are intentional; do not merge them.
+- Any future Calc helper parity change requires a failing importer cell or a user report.
 - Do **not** slim `trusted_action_registry.py` / `venv_diagnostics.py` for LibrePy while those modules still work.
 - Worker and editor pickle reads must pass `ipc.DEFAULT_MAX_PAYLOAD_BYTES`; do not call `read_frame_payload` unbounded. Same cap on the child harness, generated RPC (`writeragent_api` / `generate_tool_proxies`), ppt-master child IPC, and the compute-service stdio loop.
 - `DOMAIN_TOOLS` keys are raw specialized domains or `writer`/`calc`/`draw`/`core`; `wa.<ns>` is the tool-name domain from `API_DOMAINS`, or `writer`/`calc`/`draw` from the tool's registered app for app-level tools without an `API_DOMAINS` prefix (LLM tool names never carry `writer_`/`calc_`/`draw_`); there is no singularization map.

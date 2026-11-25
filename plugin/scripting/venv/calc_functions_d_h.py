@@ -51,6 +51,7 @@ from .coerce import header_label
 
 
 __all__ = [
+    "date",
     "datedif",
     "datevalue",
     "daverage",
@@ -155,6 +156,11 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
             month += 1
         dim = calendar.monthrange(year, month)[1]
     return dt.date(year, month, day)
+
+
+@propagate_errors
+def date(year: Any, month: Any, day: Any) -> float:
+    return float(dt.date(int(float(year)), int(float(month)), int(float(day))).toordinal() - 693594)
 
 
 @propagate_errors

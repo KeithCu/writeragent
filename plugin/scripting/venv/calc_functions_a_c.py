@@ -1002,8 +1002,22 @@ def _cum_payment(
     t = float(type_val)
     if t not in (0, 1) or r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return ILLEGAL_ARGUMENT_NAN
-    pers = np.arange(s, e + 1)
-    return npf_result(kind, r, pers, n, p, 0, int(t))
+    # O(1) closed form via remaining balance (fv) avoids allocating np.arange(s, e + 1) on huge nper.
+    pmt_val = npf_result("pmt", r, n, p, 0, int(t))
+    if not math.isfinite(pmt_val):
+        return float("nan")
+    if int(t) == 0:
+        cum_princ = npf_result("fv", r, s - 1, pmt_val, p, 0) - npf_result("fv", r, e, pmt_val, p, 0)
+    else:
+        p1 = p + pmt_val
+        s1 = max(1, s - 1)
+        e1 = e - 1
+        cp_rest = (npf_result("fv", r, s1 - 1, pmt_val, p1, 0) - npf_result("fv", r, e1, pmt_val, p1, 0)) if e1 >= s1 else 0.0
+        cum_princ = (pmt_val if s == 1 else 0.0) + cp_rest
+    if not math.isfinite(cum_princ):
+        return float("nan")
+    res = cum_princ if kind == "ppmt" else (e - s + 1) * pmt_val - cum_princ
+    return res if math.isfinite(res) else float("nan")
 
 
 @propagate_errors

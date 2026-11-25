@@ -309,6 +309,14 @@ def test_cumipmt_and_cumprinc():
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 61, 0))  # end > nper
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 12, 2))  # type not in (0, 1)
 
+    # Type 1 (beginning-of-period) and huge nper (must not OOM via unbounded np.arange)
+    ipmt_t1 = calc.cumipmt(0.05 / 12, 60, 10000, 1, 12, 1)
+    princ_t1 = calc.cumprinc(0.05 / 12, 60, 10000, 1, 12, 1)
+    assert math.isclose(ipmt_t1, -415.59718585758776, rel_tol=1e-9)
+    assert math.isclose(princ_t1, -1839.5543865387463, rel_tol=1e-9)
+    huge_princ = calc.cumprinc(1e-12, 1e12, 1000.0, 1, 1e12, 0)
+    assert math.isclose(huge_princ, -1000.0, rel_tol=1e-4)
+
 
 def test_besselk_bessely_reject_negative_order():
     import scipy.special
