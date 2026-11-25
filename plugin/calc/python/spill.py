@@ -64,14 +64,16 @@ _ERROR_LITERAL_RE = re.compile(r"=#[A-Z0-9/]+[!?]?|#N/A|=NA\(\)")
 class SpillRecord:
     """One =PY() spill: the code it was located by and the rectangle it wrote, measured from
     the formula cell. rows and cols count the formula cell, so 1 x 1 means nothing beside it.
-    seen is True once this session has matched or written the formula at its origin; loaded
-    records start with seen=False so stale pre-open entries never clear foreign data.
+    values is what the cells beside the formula held when this session last found the formula at
+    its origin, and it is never saved. None means it was not found there (a record stale when
+    the file opened) or nothing is remembered; such a record clears nothing when its formula is
+    gone.
     """
 
     code: str
     rows: int
     cols: int
-    seen: bool = True
+    values: tuple[Any, ...] | None = None
 
 
 def _used_end(sheet: Any) -> tuple[int, int]:
@@ -129,19 +131,52 @@ def _user_formula_in_rect(sheet: Any, row: int, col: int, rows: int, cols: int) 
     return None
 
 
+def _neighbour_coords(row: int, col: int, rows: int, cols: int) -> list[tuple[int, int, int, int]]:
+    """Return (c1, r1, c2, r2) sub-ranges covering the spilled rectangle without the origin cell."""
+    sub_coords: list[tuple[int, int, int, int]] = []
+    if cols > 1:
+        sub_coords.append((col + 1, row, col + cols - 1, row))
+    if rows > 1:
+        sub_coords.append((col, row + 1, col + cols - 1, row + rows - 1))
+    return sub_coords
+
+
+def _rect_values(sheet: Any, row: int, col: int, rows: int, cols: int) -> tuple[Any, ...] | None:
+    """Snapshot current cell values beside the origin. Call only outside =PY() interpretation."""
+    # The origin is excluded so reading it never triggers interpretation of the =PY() cell.
+    coords = _neighbour_coords(row, col, rows, cols)
+    return uno_read(
+        lambda: tuple(sheet.getCellRangeByPosition(*c).getDataArray() for c in coords),
+        None,
+    )
+
+
+def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool:
+    """True when every non-empty neighbour still holds the remembered value."""
+    if record.values is None:
+        return False
+    current = _rect_values(sheet, row, col, record.rows, record.cols)
+    if current is None or len(current) != len(record.values):
+        return False
+    # An emptied cell counts as unchanged so deleting the formula with part of its block still
+    # clears the rest; a paste or Delete Cells that replaced the origin changes neighbours in the
+    # same event (ScRangeToSequence::FillMixedArray returns "" for an empty cell).
+    for cur_sub, old_sub in zip(current, record.values, strict=True):
+        for cur_row, old_row in zip(cur_sub, old_sub, strict=True):
+            for new_val, old_val in zip(cur_row, old_row, strict=True):
+                if new_val != "" and new_val != old_val:
+                    return False
+    return True
+
+
 def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
     """Clear spilled cells in the rectangle, leaving the origin formula cell untouched.
 
     Returns True only when every targeted sub-range is empty afterwards (a protected
     sheet ignores ``clearContents`` without raising, ``ScCellRangesBase::clearContents``).
     """
-    sub_coords: list[tuple[int, int, int, int]] = []
-    if cols > 1:
-        sub_coords.append((col + 1, row, col + cols - 1, row))
-    if rows > 1:
-        sub_coords.append((col, row + 1, col + cols - 1, row + rows - 1))
     cleared = True
-    for c1, r1, c2, r2 in sub_coords:
+    for c1, r1, c2, r2 in _neighbour_coords(row, col, rows, cols):
         try:
             target = sheet.getCellRangeByPosition(c1, r1, c2, r2)
             target.clearContents(SPILL_CLEAR_FLAGS)
@@ -155,7 +190,7 @@ def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
 
 
 def _classify_orphan_record(
-    record: SpillRecord,
+    unchanged: bool,
     origin_empty: bool,
     formula_str: str,
     matches: list[tuple[Any, int, int]],
@@ -168,15 +203,18 @@ def _classify_orphan_record(
     Returns (action, new_coords) where action is one of:
     - "remap": exactly one match on the sheet and the used-area end shifted by the same delta
       (insert/delete of rows or columns before the block).
-    - "keep": origin still holds a =PY formula, old code is absent elsewhere, and the used-area
-      end grew without shrinking (delta[0] >= 0, delta[1] >= 0, delta != (0, 0)), which covers an
-      in-place code edit in the same debounce window as added cells; row/column deletes give a
-      negative component and drop so a shifted-in =PY formula never inherits the old rectangle.
-    - "drop_and_clear": zero matches on the sheet, formula was seen this session (not stale at
-      open), used-area end is unchanged (delta == (0, 0)), and the origin is now empty or a
-      different =PY formula (not overwritten with a constant or non-PY formula).
-    - "drop": everything else (cut/paste, sort, duplicate formula, stale at open, constant over
-      origin, or row deleted through the formula); drop the record and clear nothing.
+    - "keep": origin still holds a =PY formula, old code is absent elsewhere, the used-area
+      end grew without shrinking (delta[0] >= 0, delta[1] >= 0, delta != (0, 0)), and the
+      neighbour rectangle is unchanged, which covers an in-place code edit in the same
+      debounce window as added cells; row/column deletes give a negative component and drop
+      so a shifted-in =PY formula never inherits the old rectangle.
+    - "drop_and_clear": zero matches on the sheet, the neighbour rectangle is unchanged
+      (remembered this session and no non-empty neighbour changed), used-area end is unchanged
+      (delta == (0, 0)), and the origin is now empty or a different =PY formula (not overwritten
+      with a constant or non-PY formula).
+    - "drop": everything else (cut/paste, sort, duplicate formula, stale at open, table pasted
+      over the block, Delete Cells pulling other cells into the origin, constant over origin, or
+      row deleted through the formula); drop the record and clear nothing.
     """
     if len(matches) == 1:
         _cell, new_row, new_col = matches[0]
@@ -186,10 +224,10 @@ def _classify_orphan_record(
     if len(matches) > 1:
         return ("drop", None)
     origin_is_py = is_py_formula_text(formula_str)
-    if origin_is_py and delta is not None and delta[0] >= 0 and delta[1] >= 0 and delta != (0, 0):
-        return ("keep", None)
-    if record.seen and delta == (0, 0) and (origin_empty or origin_is_py):
-        return ("drop_and_clear", None)
+    grew = origin_is_py and delta is not None and delta[0] >= 0 and delta[1] >= 0 and delta != (0, 0)
+    emptied_or_edited = delta == (0, 0) and (origin_empty or origin_is_py)
+    if (grew or emptied_or_edited) and unchanged:
+        return ("keep" if grew else "drop_and_clear", None)
     return ("drop", None)
 
 
@@ -221,21 +259,22 @@ def cleanup_orphans(
                 if s_name != sheet_name:
                     continue
                 try:
+                    if _origin_matches_record(sheet, frow, fcol, record):
+                        record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
+                        continue
+
                     cell = sheet.getCellByPosition(fcol, frow)
                     formula = cell.getFormula()
                     formula_str = str(formula) if formula else ""
-                    formula_matches = (
-                        is_matching_py_formula(formula_str, record.code)
-                        if record.code
-                        else is_py_formula_text(formula_str)
-                    )
-                    if formula_matches:
-                        record.seen = True
-                        continue
-
                     matches = collect_matching_formula_origins(sheet, record.code, doc=doc) if record.code else []
                     action, new_coords = _classify_orphan_record(
-                        record, cell.getType() == EMPTY, formula_str, matches, frow, fcol, delta
+                        _rect_unchanged(sheet, frow, fcol, record),
+                        cell.getType() == EMPTY,
+                        formula_str,
+                        matches,
+                        frow,
+                        fcol,
+                        delta,
                     )
                     if action == "remap" and new_coords is not None:
                         to_remap.append(((sheet_name, frow, fcol), (sheet_name, new_coords[0], new_coords[1])))
@@ -298,12 +337,11 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                                 cols = int(value.get("cols") or 1)
                             reg_key = (sheet_name, frow, fcol)
                             if reg_key not in state.spills:
-                                # Keep any in-memory record written this session (it is newer and has seen=True).
+                                # Keep any in-memory record written this session (it is newer).
                                 state.spills[reg_key] = SpillRecord(
                                     code=code,
                                     rows=max(rows, 1),
                                     cols=max(cols, 1),
-                                    seen=False,
                                 )
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
@@ -525,7 +563,8 @@ def perform_deferred_spill(
 ) -> None:
     """Clear old spilled cells and write new values deferred after rechecking collisions.
 
-    A remap the modify pass has not done yet is applied first, so the recheck uses the right rectangle.
+    Any moved or non-matching record the modify pass has not handled yet is remapped, cleared, or
+    dropped first, so the recheck uses the right rectangle.
     After rechecking that targets are still free, this clears old cells, classifies the grid into ``SpillValue`` records,
     writes neighbour values/errors and updates the spill registry, then applies
     standard temporal number formats across coalesced blocks. If the recheck finds a
@@ -556,8 +595,13 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
-                # The modify pass may still be waiting; remap now so this write owns its old rectangle.
-                if _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
+                # The modify pass may still be waiting: remap any moved record and clear or drop any
+                # record whose formula is no longer at this origin before this write decides what it owns.
+                previous_record = state.spills.get(reg_key)
+                foreign = previous_record is not None and not _origin_matches_record(
+                    sheet, formula_row, formula_col, previous_record
+                )
+                if foreign or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
@@ -582,7 +626,12 @@ def perform_deferred_spill(
 
                 values = _classify_spill_grid(grid, num_cols, null_dt)
                 _write_spill_values(sheet, formula_row, formula_col, values)
-                state.spills[reg_key] = SpillRecord(code=code, rows=num_rows, cols=num_cols)
+                state.spills[reg_key] = SpillRecord(
+                    code=code,
+                    rows=num_rows,
+                    cols=num_cols,
+                    values=_rect_values(sheet, formula_row, formula_col, num_rows, num_cols),
+                )
                 save_spill_registry_for_doc(doc, state)
                 _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
                 _advance_used_end(state, sheet, sheet_name, before)
@@ -765,9 +814,8 @@ def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
                 _arm_sheet(ctx, doc, state, sheet, sheet_name)
         else:
             sheet = armed[sheet_name]
-        if sheet is not None and not record.seen:
-            if uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record), False):
-                record.seen = True
+        if sheet is not None and uno_read(lambda: _origin_matches_record(sheet, frow, fcol, record), False):
+            record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
 
 
 def prepare_auto_spill(
@@ -808,8 +856,6 @@ def prepare_auto_spill(
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
     previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
-    if previous_record is not None:
-        previous_record.seen = True
     owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
 
     log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
