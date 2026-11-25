@@ -832,7 +832,7 @@ def test_copy_table_copies_merged_d2_by_name():
         getText=lambda: dest_text,
         getTextTables=lambda: SimpleNamespace(hasByName=lambda _n: False),
     )
-    copy_table(src, dest_doc, dest_text, SimpleNamespace(), None)
+    copy_table(SimpleNamespace(), src, dest_doc, dest_text, SimpleNamespace(), None)
     assert dest_table.rows == 5 and dest_table.cols == 4
     assert dest_table.name == "Table1"
     assert written.get("D2") == "Telèfon responsable"

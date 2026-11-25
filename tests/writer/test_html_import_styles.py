@@ -972,3 +972,68 @@ def test_parse_data_lo_para_start_and_end_fallback_when_enum_missing():
     assert unsupported_start == []
     assert props_end == {"text-align": ("ParaAdjust", 1)}
     assert unsupported_end == []
+
+
+@pytest.mark.parametrize(
+    "empty_block",
+    [
+        '<p data-lo-style="Textbody"></p>',
+        '<p data-lo-style="Textbody">   \n\t </p>',
+        '<p data-lo-style="Textbody"/>',
+        '<p data-lo-style="Textbody"><span></span></p>',
+        '<ul><li data-lo-style="Textbody"></li></ul>',
+    ],
+)
+def test_extract_block_lo_styles_drops_empty_block_before_content(empty_block: str):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = f'<p data-lo-style="Standard">A</p>{empty_block}<h1 data-lo-style="Heading1">B</h1>'
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles[0] == "Standard"
+    assert styles[-1] == "Heading1"
+    assert "Textbody" not in styles
+
+
+def test_extract_block_lo_styles_keeps_alignment_after_empty_first_blockquote_para():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<blockquote data-lo-style="Textbody"><p></p><p>Inner</p></blockquote>'
+        '<h1 data-lo-style="Heading1">B</h1>'
+    )
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert len(styles) == 3
+    assert styles[0] == "Standard"
+    assert styles[-1] == "Heading1"
+
+
+@pytest.mark.parametrize(
+    "kept_block,expected_style",
+    [
+        ('<p data-lo-style="Textbody">&nbsp;</p>', "Textbody"),
+        ('<p data-lo-style="Textbody"><br/></p>', "Textbody"),
+        ('<p data-lo-style="Textbody"><img src="x.png"/></p>', "Textbody"),
+    ],
+)
+def test_extract_block_lo_styles_keeps_non_empty_blocks(kept_block: str, expected_style: str):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = f'<p data-lo-style="Standard">A</p>{kept_block}<h1 data-lo-style="Heading1">B</h1>'
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles == ["Standard", expected_style, "Heading1"]
+
+
+def test_extract_block_lo_styles_keeps_trailing_empty_block_and_reports_dropped_para():
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<p data-lo-style="Textbody" data-lo-para="margin-left:1cm"></p>'
+        '<p data-lo-style="Heading1">B</p>'
+        '<p data-lo-style="Quotations"></p>'
+    )
+    _clean, styles, paras, skipped = extract_block_lo_styles(html)
+    assert styles == ["Standard", "Heading1", "Quotations"]
+    assert paras == [None, None, None]
+    assert skipped == ["margin-left:1cm"]

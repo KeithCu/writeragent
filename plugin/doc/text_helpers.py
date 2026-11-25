@@ -573,8 +573,10 @@ class DeletionState:
     markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
     its cells carry no markers. ``saw_delete`` records that a Delete marker was read, for
     callers that must tell struck text from text they cannot read. ``visible_portions``
-    resets ``para_live`` and ``para_opens`` for each paragraph, and ``lead_live`` says
-    whether the paragraph where the open deletion starts has visible content before it.
+    resets ``para_live``, ``para_opens``, and ``para_frame`` for each paragraph, and ``lead_live``
+    says whether the paragraph where the open deletion starts has visible content before it.
+    ``para_frame`` says that the paragraph holds a struck inline frame or image, which
+    ``getString()`` does not show.
     """
 
     in_delete: bool = False
@@ -582,6 +584,7 @@ class DeletionState:
     para_live: bool = False
     para_opens: bool = False
     lead_live: bool = False
+    para_frame: bool = False
 
     def apply_marker(self, portion: Any) -> None:
         """Update the state from one ``Redline`` portion."""
@@ -601,7 +604,7 @@ class DeletionState:
         if self.para_live:
             return False
         return self.para_opens or (
-            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+            opened and (self.in_delete or self.lead_live or self.para_frame or bool(para.getString().strip()))
         )
 
     def strikes_paragraph(self, para: Any, opened: bool) -> bool:
@@ -702,7 +705,7 @@ def visible_portions(
     """
     if state is None:
         state = DeletionState()
-    state.para_live = state.para_opens = False
+    state.para_live = state.para_opens = state.para_frame = False
     try:
         portion_enum = para.createEnumeration()
     except Exception:
@@ -728,6 +731,8 @@ def visible_portions(
             state.apply_marker(portion)
             continue
         if state.in_delete:
+            if portion_type == "Frame":
+                state.para_frame = True
             continue
         try:
             chunk = portion.getString()

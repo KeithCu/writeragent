@@ -1982,3 +1982,37 @@ def test_reset_direct_char_formatting_uses_given_language():
 
     assert cursor_vals == given
     at_start.getPropertyValue.assert_not_called()
+
+
+def test_strikes_text_tracks_struck_inline_frame_only():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    def _frame():
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
+        p.getString.return_value = ""
+        return p
+
+    def _run(portions, *, opened: bool) -> bool:
+        p_enum = MagicMock()
+        p_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+        p_enum.nextElement.side_effect = portions
+        para = MagicMock()
+        para.createEnumeration.return_value = p_enum
+        para.getString.return_value = ""
+        state = DeletionState(in_delete=opened)
+        list(visible_portions(para, state=state))
+        return state.strikes_text(para, opened)
+
+    # [Frame, end marker] inside an open deletion: inline image is struck.
+    assert _run([_frame(), _marker(False)], opened=True) is True
+    # [end marker, Frame]: inline image is live.
+    assert _run([_marker(False), _frame()], opened=True) is False

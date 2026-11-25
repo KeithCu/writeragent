@@ -289,7 +289,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 | **Dual export cost** | Full reads run both XHTML and Flat ODF exports (and when pending tracked deletions cross a paragraph break or wholly strike a paragraph, or when a section has `IsVisible` false, rewrite Flat ODF and reload a hidden scratch document before XHTML export). Range and selection exports skip Flat ODF when slice XHTML has no `paragraph-P<n>` class | `scope=range`, `get_tree`, `search` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |
 | **Token collision** (two UNO names compact to same token, e.g. `Heading 1` + literal `Heading1`) | Read omits token; write falls back to `Standard` | Use tokens exactly as returned; avoid duplicate style names | Per-document disambiguation or spaced-token policy |
 | **Unresolvable autostyle** (no FODT map, ambiguous fingerprint) | No `data-lo-style`; write treats as default body | Accept as Standard on rewrite | UNO `ParaStyleName` index as authoritative fallback |
-| **XHTML export failure** | Falls back to legacy StarWriter HTML (inline CSS, no tokens) | — | Log/monitor; same as pre-v1 read |
+| **XHTML export failure** | Falls back to legacy StarWriter HTML (inline CSS, no tokens; fallback warning mentions struck text when deletions are pending) | — | Log/monitor; same as pre-v1 read |
 | **Symmetric XHTML write** | Not supported (probe C: 0 body paragraphs on test LO) | Always StarWriter import + UNO style apply | Unlikely to revisit |
 | **CJK ruby (furigana)** | **Read** rewrites glued/dropped ruby to `<ruby>…<rt>…</rt></ruby>`. **Write** strips `<rt>` then sets `RubyText` on the base ([ruby.md](ruby.md)). | Search still sees base only. | — |
 
