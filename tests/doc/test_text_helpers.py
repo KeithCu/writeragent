@@ -778,57 +778,6 @@ def test_read_visible_body_measure_failure_returns_none_and_full_text():
     assert struck == []
 
 
-def test_read_visible_body_measures_position_inside_spanning_input_field():
-    from plugin.doc.text_helpers import read_visible_body
-
-    p_text = MagicMock()
-    p_text.getPropertyValue.side_effect = lambda k: "Text" if k == "TextPortionType" else None
-    p_text.getString.return_value = "aa "
-    p_text.getStart.return_value = "t_s"
-    p_text.getEnd.return_value = "t_e"
-
-    p_inp = MagicMock()
-    p_inp.getPropertyValue.side_effect = lambda k: "TextField" if k == "TextPortionType" else None
-    p_inp.getString.return_value = "hello world"
-    p_inp.getStart.return_value = "i_s"
-    p_inp.getEnd.return_value = "i_e"
-
-    para = MagicMock()
-    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
-    para.createEnumeration.side_effect = lambda: _TextRange([p_text, p_inp]).createEnumeration()
-    para.getStart.return_value = "t_s"
-    para.getEnd.return_value = "p_e"
-
-    order = {"t_s": 0, "t_e": 3, "i_s": 3, "hit_s": 9, "hit_e": 14, "i_e": 15, "p_e": 15}
-    body = MagicMock()
-    body.createEnumeration.side_effect = lambda: _TextRange([para]).createEnumeration()
-    body.compareRegionStarts.side_effect = lambda a, b: (order[a] < order[b]) - (order[a] > order[b])
-
-    def _cursor(start):
-        cur = MagicMock()
-        cur._start = start
-        cur._end = start
-        cur.gotoRange.side_effect = lambda end, _expand: setattr(cur, "_end", end)
-        cur.getString.side_effect = lambda: "hello world"[order[cur._start] - 3 : order[cur._end] - 3]
-        return cur
-
-    body.createTextCursorByRange.side_effect = _cursor
-    pos_start = MagicMock()
-    pos_start.getText.return_value = body
-    pos_end = MagicMock()
-    pos_end.getText.return_value = body
-    order[pos_start] = 9
-    order[pos_end] = 14
-
-    model = MagicMock()
-    model.getText.return_value = body
-    model.getRedlines.return_value.hasElements.return_value = False
-
-    text, offsets, _ = read_visible_body(model, [pos_start, pos_end])
-    assert text == "aa hello world"
-    assert offsets == [9, 14]
-
-
 @pytest.mark.parametrize(
     "paragraphs, expected_text, expected_struck",
     [

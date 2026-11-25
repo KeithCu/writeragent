@@ -660,7 +660,7 @@ def _nested_portions(portion: Any, kind: str | None) -> Any | None:
     return None
 
 
-def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+def iter_portions(portion_enum: Any, *, include_metadata_fields: bool = False) -> Iterator[tuple[Any, str | None]]:
     """Yield ``(portion, type)`` flattening ``ContentControl``, ``InContentMetadata``, and ``MetadataField``.
 
     ``lcl_ExportHints`` and ``lcl_CreateMetaPortion`` (``sw/source/core/unocore/unoportenum.cxx``)
@@ -669,8 +669,9 @@ def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
     ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
     (``unocontentcontrol.cxx``) and ``SwXMeta::CreateXMeta`` (``unorefmk.cxx``) refresh that
     list for each enumeration, including nested controls, so one recursive call flattens
-    arbitrary nesting. Yields ``(None, None)`` when ``nextElement()`` fails (after
-    ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
+    arbitrary nesting. When *include_metadata_fields* is True, a ``MetadataField`` is also
+    yielded before its inner portions. Yields ``(None, None)`` when ``nextElement()`` fails
+    (after ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
     enumeration is unreadable.
     """
     if portion_enum is None:
@@ -692,7 +693,9 @@ def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
         if inner is None:
             yield portion, kind
         else:
-            yield from iter_portions(inner)
+            if include_metadata_fields and kind == "TextField":
+                yield portion, kind
+            yield from iter_portions(inner, include_metadata_fields=include_metadata_fields)
 
 
 def visible_portions(
@@ -1351,8 +1354,9 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
             total += len(norm)
             continue
         # *position* falls strictly inside this portion (Text run or Input field).
-        # Measure [position, p_end] rather than [p_start, position]: a cursor starting at
-        # an Input field's outer start expands to the whole field in SwPaM.
+        # Measure [position, p_end] rather than [p_start, position]: SwASC_AttrIter::OutAttr
+        # (sw/source/filter/ascii/ascatr.cxx:114-135) writes the field's full ExpandField
+        # text whenever getString()'s range starts at the attribute start.
         sub = body.createTextCursorByRange(position)
         sub.gotoRange(p_end, True)
         total += max(0, len(norm) - len(normalize_linebreaks(sub.getString())))

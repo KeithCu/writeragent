@@ -878,3 +878,28 @@ def test_find_tokens_joins_soft_page_break_and_stops_at_text_field():
     xtext.createTextCursorByRange.assert_called_once_with("START_P1")
     assert cur.goRight.call_args_list[0].args == (2, False)
     assert cur.goRight.call_args_list[1].args == (16, True)
+
+
+def test_find_tokens_finds_token_nested_in_content_control():
+    import re
+    from plugin.writer.field_restore import find_tokens
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    prefix = "[[WA-FIELD:n2:"
+    token_re = re.compile(r"\[\[WA-FIELD:n2:[^\]]+\]\]")
+    inner_text = FakeUnoPortion("Text", "[[WA-FIELD:n2:page-number]]")
+    setattr(inner_text, "getStart", lambda: "NESTED_START")
+    cc = FakeUnoPortion("ContentControl", "[[WA-FIELD:n2:page-number]]", inner=[inner_text])
+    para = FakeUnoPara([cc])
+
+    xtext = MagicMock()
+    xtext.getString.return_value = "[[WA-FIELD:n2:page-number]]"
+    xtext.createEnumeration.return_value = FakeUnoEnum([para])
+    cur = MagicMock()
+    cur.goRight.return_value = True
+    cur.getString.return_value = "[[WA-FIELD:n2:page-number]]"
+    xtext.createTextCursorByRange.return_value = cur
+
+    hits = find_tokens(xtext, prefix, token_re)
+    assert len(hits) == 1
+    xtext.createTextCursorByRange.assert_called_once_with("NESTED_START")

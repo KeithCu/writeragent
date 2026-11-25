@@ -1328,3 +1328,44 @@ def test_cross_paragraph_deletion_seeds_hyperlink_after_uno(ctx, doc):
             assert all(url == "" for _chunk, url in _portion_urls(doc))
         finally:
             doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_outline_hyperlink_in_and_after_content_control_uno(ctx, doc):
+    for rec in (False, True):
+        # 1. Linked text inside a ContentControl: "xx [ContentControl: Intro]".
+        text, cursor = _clear(doc)
+        text.insertString(cursor, "xx ", False)
+        cc_start = cursor.getEnd()
+        _append_linked(text, cursor, "Intro", "#Intro|outline")
+        cc_cur = text.createTextCursorByRange(cc_start)
+        cc_cur.gotoRange(cursor.getEnd(), True)
+        cc = doc.createInstance("com.sun.star.text.ContentControl")
+        text.insertTextContent(cc_cur, cc, True)
+
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            res = _apply(doc, ctx, old_content="Intro", content="Overview")
+            assert res.get("status") == "ok", (rec, res)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+        # 2. ContentControl before the linked text: "[ContentControl: xx] Intro".
+        text, cursor = _clear(doc)
+        cc_start = cursor.getStart()
+        text.insertString(cursor, "xx", False)
+        cc_cur = text.createTextCursorByRange(cc_start)
+        cc_cur.gotoRange(cursor.getEnd(), True)
+        cc2 = doc.createInstance("com.sun.star.text.ContentControl")
+        text.insertTextContent(cc_cur, cc2, True)
+        cursor.gotoEnd(False)
+        text.insertString(cursor, " ", False)
+        _append_linked(text, cursor, "Intro", "#Intro|outline")
+
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            res2 = _apply(doc, ctx, old_content="Intro", content="Overview")
+            assert res2.get("status") == "ok", (rec, res2)
+        finally:
+            doc.setPropertyValue("RecordChanges", False)

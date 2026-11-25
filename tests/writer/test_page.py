@@ -1778,7 +1778,7 @@ def test_scan_region_content_raises_on_unreadable_portion():
     text_obj = MagicMock()
     text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([portion])])
     doc = MagicMock()
-    with pytest.raises(RuntimeError, match="bridge hiccup"):
+    with pytest.raises(RuntimeError, match="Unreadable text portion"):
         _scan_region_content(doc, text_obj)
 
 
@@ -2357,7 +2357,6 @@ def test_scan_region_content_sees_nested_fields_and_redlines_in_content_control(
     )
 
     para = FakeUnoPara([cc_field, cc_struck])
-    para.supportsService = lambda svc: svc == "com.sun.star.text.Paragraph"  # type: ignore[attr-defined]
     text_obj = MagicMock()
     text_obj.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
     doc = MagicMock()

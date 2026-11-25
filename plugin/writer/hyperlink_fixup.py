@@ -322,7 +322,7 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     return str(cursor.getString() or "")
 
 
-def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False) -> Iterator[Any]:
+def _paragraph_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
@@ -332,7 +332,7 @@ def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False
             continue
         portion_enum = para.createEnumeration()
         for portion, kind in iter_portions(portion_enum):
-            if portion is None:
+            if portion is None:  # nextElement() failed; skip rather than aborting the walk
                 continue
             # Skip tracked-change redline markers; they do not hold text or link properties.
             if not include_redlines and kind == "Redline":
@@ -347,7 +347,7 @@ def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bo
     paragraph has no start marker in this one.
     """
     state = TrackedDeletions(doc).state_at(_paragraph_cursor(text, pos))
-    for portion in _iter_portions(text, pos, include_redlines=True):
+    for portion in _paragraph_portions(text, pos, include_redlines=True):
         if _prop(portion, "TextPortionType") == "Redline":
             state.apply_marker(portion)
         else:
@@ -374,7 +374,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     props: dict[str, Any] = {}
     fully_linked = True
     runs: set[tuple[str, str, str]] = set()
-    for portion in _iter_portions(text, text_range.getStart()):
+    for portion in _paragraph_portions(text, text_range.getStart()):
         url = _prop(portion, _URL)
         if portion.getString():
             runs.add((url, _prop(portion, _NAME), _prop(portion, _TARGET)))
@@ -444,27 +444,46 @@ def _set_prop(cursor: Any, name: str, value: str) -> None:
 
 
 def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str) -> Any | None:
-    """Cursor covering the replaced characters, measured from the paragraph start.
+    """Cursor covering the replaced characters, located via ``_paragraph_portions``.
 
     A cursor saved at the match start does not stay there: replace_preserving_format
     inserts and deletes text around it, pushing other cursors at the same position
-    forward. Painting from that drifted cursor writes the URL onto the following
-    bookmark. The paragraph start plus the saved prefix length is still the
-    replacement, including after that drift.
+    forward. Stepping through ``_paragraph_portions`` instead of raw ``go_right`` from
+    paragraph start skips dummy characters on preceding controls or metadata.
     """
-    # goRight counts code points, as len() does (breakiterator_unicode.cxx: nextCharacters).
     if not snapshot.single_paragraph:
         return None
+    target_start = len(snapshot.prefix)
+    target_end = target_start + len(new_plain)
     try:
-        cursor = text.createTextCursorByRange(anchor.getStart())
-        cursor.gotoStartOfParagraph(False)
-        if snapshot.prefix and not go_right(cursor, len(snapshot.prefix), False):
-            return None
-        if new_plain and not go_right(cursor, len(new_plain), True):
-            return None
+        offset = 0
+        start_cur: Any = None
+        for portion in _paragraph_portions(text, anchor.getStart()):
+            chunk = str(portion.getString() or "")
+            end_off = offset + len(chunk)
+            if start_cur is None:
+                if not new_plain and target_start <= end_off:
+                    cur = text.createTextCursorByRange(portion.getStart())
+                    if target_start > offset and not go_right(cur, target_start - offset, False):
+                        return None
+                    return cur
+                if offset <= target_start < end_off:
+                    start_cur = text.createTextCursorByRange(portion.getStart())
+                    if target_start > offset and not go_right(start_cur, target_start - offset, False):
+                        return None
+            if start_cur is not None and target_end <= end_off:
+                if target_end == end_off:
+                    end_cur = portion.getEnd()
+                else:
+                    end_cur = text.createTextCursorByRange(portion.getStart())
+                    if target_end > offset and not go_right(end_cur, target_end - offset, False):
+                        return None
+                start_cur.gotoRange(end_cur, True)
+                return start_cur
+            offset = end_off
     except Exception:
         return None
-    return cursor
+    return None
 
 
 def write_link_look(cursor: Any, props: dict[str, Any]) -> None:
@@ -543,7 +562,7 @@ def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str
     runs: list[tuple[int, int, dict[str, Any]]] = []
     offset = 0
     start = anchor.getStart()
-    for portion in _iter_portions(text, start):
+    for portion in _paragraph_portions(text, start):
         chunk = str(portion.getString() or "")
         if chunk:
             props = read_link_look(portion)
@@ -685,7 +704,7 @@ def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     # Collect runs before writing. setPropertyValue can split a portion, which
     # invalidates an enumeration that is still in progress.
     pending = []
-    for portion in _iter_portions(text, anchor.getStart()):
+    for portion in _paragraph_portions(text, anchor.getStart()):
         current = _prop(portion, _URL)
         plan = by_url.get(current)
         if plan is None:
@@ -1004,7 +1023,7 @@ def retarget_outline_links(
         prev_para = para_start
         runs: list[tuple[Any, str, str, bool]] = []
         blocked: dict[str, StaleReason] = {}  # per paragraph: one field link must not block the others
-        for portion in _iter_portions(text, para_start):
+        for portion in _paragraph_portions(text, para_start):
             url = _prop(portion, _URL)
             if not url or not portion.getString():
                 continue

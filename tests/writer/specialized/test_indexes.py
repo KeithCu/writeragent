@@ -1543,4 +1543,23 @@ def test_indexes_create_pending_review_only_for_recorded_search_strike(
         assert res["tracked"] is False
 
 
+def test_toc_row_link_and_look_see_portions_inside_content_control():
+    from plugin.writer.specialized.indexes import _char_props, _paragraph_hyperlink
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    inner = MagicMock()
+    inner.getPropertyValue.side_effect = lambda name: {
+        "TextPortionType": "Text",
+        "HyperLinkURL": "#1.Intro|outline",
+        "CharWeight": 150.0,
+    }.get(name)
+    inner.getString.return_value = "Intro"
+    inner.getPropertyState.return_value = MagicMock(value="DIRECT_VALUE")
+    cc = FakeUnoPortion("ContentControl", inner=[inner])
+    para = FakeUnoPara([cc])
+
+    assert _paragraph_hyperlink(para) == "#1.Intro|outline"
+    assert _char_props(para, with_link=True).get("CharWeight") == 150.0
+
+
 

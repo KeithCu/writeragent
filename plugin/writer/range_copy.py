@@ -430,7 +430,12 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     # in this tuple: without it a NEXT page-number field with Offset 1 is cloned
     # as Offset 0. Properties the service does not have fail the try/except below
     # and are skipped.
-    for prop in ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format", "Content", "Hint"):
+    props: tuple[str, ...] = ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format")
+    if svc == "com.sun.star.text.textfield.Input":
+        # Input fields store displayed text in Content and prompt in Hint; other services
+        # (such as TableFormula) use Content for formulas that must not be copied here.
+        props += ("Content", "Hint")
+    for prop in props:
         try:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
         except Exception as e:

@@ -216,3 +216,19 @@ def test_cell_walk_disposal_mid_enumeration_propagates() -> None:
     with pytest.raises(Exception) as exc_info:
         cell_hosted_table_names(cell)
     assert is_disposal(exc_info.value)
+
+
+def test_iter_text_frames_in_para_sees_frame_inside_content_control() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.table_nesting import _iter_text_frames_in_para
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    frame = _Frame([])
+    inner = MagicMock()
+    inner.getPropertyValue.side_effect = lambda k: (
+        "Frame" if k == "TextPortionType" else (frame if k == "TextFrame" else None)
+    )
+    cc = FakeUnoPortion("ContentControl", inner=[inner])
+    para = FakeUnoPara([cc])
+
+    assert list(_iter_text_frames_in_para(para)) == [frame]
