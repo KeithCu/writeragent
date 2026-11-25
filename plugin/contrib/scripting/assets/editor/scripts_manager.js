@@ -260,7 +260,7 @@
     } else if (pendingNew && select && scriptIndex[pendingNew.key] && scriptIndex[pendingNew.key].code === NEW_SCRIPT_TEMPLATE) {
       var created = pendingNew;
       pendingNew = null;
-      if (pendingUnsavedAction === null && shown === created.from && window.editor && window.editor.getValue() === created.text) {
+      if (pendingUnsavedAction === null && deferredAction === null && shown === created.from && window.editor && window.editor.getValue() === created.text) {
         select.value = created.key;
         switchToSelected();
       }
@@ -315,7 +315,7 @@
         runPendingAfterSave = true;
       } else {
         pendingUnsavedAction = null;
-        setStatus(t("no_script_selected_to_save", "No script selected to save."), "error");
+        setStatus(t("no_script_selected_to_save", "No script is selected to save. Use Save As or choose Don't save."), "error");
       }
     } else {
       pendingUnsavedAction = null;
@@ -396,8 +396,11 @@
     } else if (msg.type === "unsaved_choice") {
       onUnsavedChoice(msg);
     } else if (msg.type === "error") {
-      pendingUnsavedAction = null;
-      runPendingAfterSave = false;
+      // A save that times out answers with error, not scripts_list.
+      if (runPendingAfterSave) {
+        pendingUnsavedAction = null;
+        runPendingAfterSave = false;
+      }
     }
   }
 

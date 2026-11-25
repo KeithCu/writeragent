@@ -130,7 +130,7 @@ class ReplyToUserTool(Tool):
 
     def forward(self, message: str | None = None, answer: str | None = None) -> str:
         # smolagents' plain-text fallback and sidebar modes send `answer`; keep `message` for existing callers.
-        text = answer if answer else message
+        text = answer if (answer and answer.strip()) else message
         if not text or not text.strip():
             raise ValueError("reply_to_user requires a non-empty 'answer' or 'message'.")
         return text
