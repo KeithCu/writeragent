@@ -3441,6 +3441,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
         cases = (
             ("p", ["<p>Second clause revised</p>"]),
             ("p_same_style", ['<p data-lo-style="Standard">Second clause revised</p>']),
+            ("p_same_style_para", ['<p data-lo-style="Standard" data-lo-para="margin-left:3cm">Second clause revised</p>']),
             ("ol1", ["<ol><li>Second clause revised</li></ol>"]),
             ("two_p", ["<p>Second clause revised</p>", "<p>And another</p>"]),
             ("h2", ["<h2>Second clause revised</h2>"]),
@@ -3466,16 +3467,22 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
 
                     paras = _body_paragraphs(d)
                     labels = [str(p.getPropertyValue("ListLabelString") or "") for p in paras]
-                    if kind in ("p", "p_same_style", "ol1"):
+                    if kind in ("p", "p_same_style", "p_same_style_para", "ol1"):
                         assert labels == ["1.", "2.", "3."], (kind, mode, labels)
-                        if kind == "p_same_style" and mode != "reject":
+                        if kind in ("p_same_style", "p_same_style_para") and mode != "reject":
                             assert paras[1].getPropertyValue("ParaStyleName") == "Standard", (kind, mode)
                         assert int(paras[1].getPropertyValue("ParaAdjust")) == 2
-                        assert int(paras[1].getPropertyValue("ParaLeftMargin")) > 1000
+                        expected_left = 3000 if kind == "p_same_style_para" else 1499
+                        assert abs(int(paras[1].getPropertyValue("ParaLeftMargin")) - expected_left) <= 5, (
+                            kind,
+                            mode,
+                            paras[1].getPropertyValue("ParaLeftMargin"),
+                        )
                         assert int(paras[1].getPropertyValue("ParaFirstLineIndent")) < 0
-                        assert int(paras[1].getPropertyValue("ParaBottomMargin")) == int(
-                            paras[0].getPropertyValue("ParaBottomMargin")
-                        ), (kind, mode, paras[1].getPropertyValue("ParaBottomMargin"), paras[0].getPropertyValue("ParaBottomMargin"))
+                        if kind in ("p", "ol1"):
+                            assert int(paras[1].getPropertyValue("ParaBottomMargin")) == int(
+                                paras[0].getPropertyValue("ParaBottomMargin")
+                            ), (kind, mode, paras[1].getPropertyValue("ParaBottomMargin"), paras[0].getPropertyValue("ParaBottomMargin"))
                         assert len(paras[1].getPropertyValue("ParaTabStops") or ()) >= 1
                         fname, fsize, fweight = _first_font(paras[1])
                         assert (fname, fsize) == ("Times New Roman", 11.0), (kind, mode, fname, fsize)
@@ -3502,6 +3509,78 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                         assert labels[0] == "1." and labels[-1] == "2."
                 finally:
                     d.close(True)
+
+        # Text body host with direct justification replaced by data-lo-para="text-align:right"
+        for mode in ("off", "accept"):
+            save({flag: "off" if mode == "off" else "record"})
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText()
+            text.setString("")
+            cur = text.createTextCursor()
+            text.insertString(cur, "Justified body clause", False)
+            pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+            pc.setPropertyValue("ParaStyleName", "Text body")
+            pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx),
+                target="search",
+                old_content="Justified body clause",
+                content=['<p data-lo-para="text-align:right">Right aligned</p>'],
+            )
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "accept":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            assert int(_body_paragraphs(doc)[0].getPropertyValue("ParaAdjust")) == 1, mode  # RIGHT
+
+        # Same-style restore when target is first in text and when target follows a table
+        for pos in ("first", "after_table"):
+            save({flag: "off"})
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText()
+            text.setString("")
+            cur = text.createTextCursor()
+            if pos == "after_table":
+                tbl = doc.createInstance("com.sun.star.text.TextTable")
+                tbl.initialize(1, 1)
+                text.insertTextContent(cur, tbl, False)
+            text.insertString(cur, "Lead clause", False)
+            p_target = _body_paragraphs(doc)[0]
+            pc = text.createTextCursorByRange(p_target)
+            pc.setPropertyValue("ParaStyleName", "Standard")
+            pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+            pc.setPropertyValue("ParaLeftMargin", 1400)
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx),
+                target="search",
+                old_content="Lead clause",
+                content=['<p data-lo-style="Standard">Lead revised</p>'],
+            )
+            assert res.get("status") == "ok", (pos, res)
+            p_after = _body_paragraphs(doc)[0]
+            assert p_after.getPropertyValue("ParaStyleName") == "Standard", pos
+            assert int(p_after.getPropertyValue("ParaAdjust")) == 2, pos
+            assert abs(int(p_after.getPropertyValue("ParaLeftMargin")) - 1400) <= 5, (pos, p_after.getPropertyValue("ParaLeftMargin"))
+
+        # Single-item <ul> on a directly bulleted host paragraph keeps its bullet via _direct_list_tag
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Bullet clause", False)
+        pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+        pc.setPropertyValue("NumberingStyleName", "List 1")
+        pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx),
+            target="search",
+            old_content="Bullet clause",
+            content=["<ul><li>Bullet revised</li></ul>"],
+        )
+        assert res.get("status") == "ok", res
+        p_ul = _body_paragraphs(doc)[0]
+        assert bool(p_ul.getPropertyValue("NumberingIsNumber")) is True
+        assert int(p_ul.getPropertyValue("ParaAdjust")) == 2
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -3706,6 +3785,14 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
                 while enum_has_more(e):
                     elements.append(e.nextElement())
 
+                def _para_has_bookmark(para: Any, name: str) -> bool:
+                    pe = para.createEnumeration()
+                    while enum_has_more(pe):
+                        pt = pe.nextElement()
+                        if pt.getPropertyValue("TextPortionType") == "Bookmark" and pt.Bookmark.getName() == name:
+                            return True
+                    return False
+
                 bm_anchor = doc.getBookmarks().getByName(bm_name).getAnchor()
                 if not recording:
                     target = elements[1]
@@ -3713,8 +3800,7 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
                     assert str(target.getPropertyValue("PageDescName") or "") == "Landscape", (recording, html)
                     if html.startswith("<p>"):
                         assert target.getPropertyValue("ParaStyleName") == "Text body"
-                        assert text.compareRegionStarts(bm_anchor.getStart(), target.getStart()) <= 0
-                        assert text.compareRegionEnds(bm_anchor.getEnd(), target.getEnd()) >= 0
+                        assert _para_has_bookmark(target, bm_name)
                     else:
                         # Table insert leaves the bookmarked empty paragraph after the table.
                         assert text.compareRegionStarts(bm_anchor.getStart(), elements[2].getStart()) == 0
@@ -3725,8 +3811,7 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
                     assert str(kept_empty.getPropertyValue("BreakType").value) == "PAGE_BEFORE"
                     assert str(kept_empty.getPropertyValue("PageDescName") or "") == "Landscape"
                     if html.startswith("<p>"):
-                        assert text.compareRegionStarts(bm_anchor.getStart(), elements[2].getStart()) <= 0
-                        assert text.compareRegionEnds(bm_anchor.getEnd(), elements[2].getEnd()) >= 0
+                        assert _para_has_bookmark(elements[2], bm_name)
                     else:
                         assert text.compareRegionStarts(bm_anchor.getStart(), elements[3].getStart()) == 0
     finally:

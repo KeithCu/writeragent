@@ -999,6 +999,43 @@ def _direct_list_tag(cursor: Any) -> str | None:
     return "ol" if para.getPropertyValue("ListLabelString") else "ul"
 
 
+def _restore_host_para_props(
+    model: Any,
+    text_obj: Any,
+    anchor: Any,
+    cursor: Any,
+    host_style: str,
+    kept_para: dict[str, Any],
+    recording: bool,
+) -> None:
+    """Restore direct paragraph properties cleared by a same-style ``data-lo-style`` write."""
+    if not kept_para:
+        return
+    start = _insert_start_from_anchor(text_obj, anchor, cursor)
+    first_para = next(iter_elements(start.createEnumeration()), None)
+    if first_para is None or first_para.getPropertyValue("ParaStyleName") != host_style:
+        return
+    has_fill = (
+        first_para.getPropertyState("FillColor").value == "DIRECT_VALUE"
+        or first_para.getPropertyState("FillStyle").value == "DIRECT_VALUE"
+    )
+    uno_rt = cast("Any", uno)
+    with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
+        for name, value in kept_para.items():
+            if name == "ParaBackColor" and has_fill:
+                continue
+            if first_para.getPropertyState(name).value == "DIRECT_VALUE":
+                continue
+            if name == "ParaTabStops":
+                uno_rt.invoke(
+                    first_para,
+                    "setPropertyValue",
+                    (name, uno_rt.Any("[]com.sun.star.style.TabStop", value)),
+                )
+            else:
+                first_para.setPropertyValue(name, value)
+
+
 def _direct_para_props(cursor: Any) -> dict[str, Any]:
     """Direct paragraph properties on *cursor*'s paragraph that a style write would reset."""
     para = next(iter_elements(cursor.createEnumeration()), None)
@@ -1080,35 +1117,9 @@ def _replace_whole_paragraphs(
     elif not keep_layout:
         _drop_absorb_paragraph_props(cursor)
     kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
-    prev_anchor = text_obj.createTextCursorByRange(cursor.getStart())
-    has_prev = prev_anchor.goLeft(1, False)
+    anchor = _insert_start_anchor(text_obj, cursor)
     report = _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
-    if kept_para:
-        first_cur = text_obj.createTextCursorByRange(prev_anchor.getEnd())
-        if has_prev:
-            first_cur.goRight(1, False)
-        else:
-            first_cur.gotoStart(False)
-        first_para = next(iter_elements(first_cur.createEnumeration()), None)
-        if first_para is not None and first_para.getPropertyValue("ParaStyleName") == host_style:
-            _clean, _styles, block_paras, _skipped = html_import_styles.extract_block_lo_styles(content)
-            explicit_para = (
-                set(html_import_styles.parse_data_lo_para(block_paras[0])[0])
-                if block_paras and block_paras[0]
-                else set()
-            )
-            with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
-                for name, value in kept_para.items():
-                    if name not in explicit_para:
-                        if name == "ParaTabStops":
-                            uno_rt = cast("Any", uno)
-                            uno_rt.invoke(
-                                first_para,
-                                "setPropertyValue",
-                                (name, uno_rt.Any("[]com.sun.star.style.TabStop", value)),
-                            )
-                        else:
-                            first_para.setPropertyValue(name, value)
+    _restore_host_para_props(model, text_obj, anchor, cursor, host_style, kept_para, recording)
     return report
 
 
