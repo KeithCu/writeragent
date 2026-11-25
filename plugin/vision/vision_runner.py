@@ -324,7 +324,7 @@ def run_and_insert_vision_for_selection(
 
             return insert_vision_result(ctx, doc, res, params=per_insert, graphic=graphic)
 
-        for image_name, graphic in discovered:
+        for idx, (image_name, graphic) in enumerate(discovered):
             if is_cancelled(cancel):
                 if batch.results:
                     batch.stopped_early = True
@@ -385,6 +385,7 @@ def run_and_insert_vision_for_selection(
                 elif outcome == "image_kept":
                     batch.kept_images.append(image_name)
             result["image_name"] = image_name
+            result["discovered_index"] = idx
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}
             else:

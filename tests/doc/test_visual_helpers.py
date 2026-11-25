@@ -656,26 +656,14 @@ def test_remove_graphic_identity_ignores_same_name():
     assert page.removed == [s2]
 
 
-def test_remove_graphic_unique_name_fallback_deletes_that_shape():
+def test_remove_graphic_same_name_distinct_object_deletes_nothing():
     target = _NamedShape("Pic")
     on_page = _NamedShape("Pic")
     page = _RemovablePage([on_page])
     doc = _DocWithPages([page])
 
     res = visual_helpers.remove_graphic_from_draw_pages(doc, target)
-    assert res is True
-    assert page.removed == [on_page]
-
-
-def test_remove_graphic_ambiguous_name_deletes_nothing():
-    target = _NamedShape("Pic")
-    s1 = _NamedShape("Pic")
-    s2 = _NamedShape("Pic")
-    page = _RemovablePage([s1, s2])
-    doc = _DocWithPages([page])
-
-    with pytest.raises(ValueError, match="Several shapes named 'Pic'"):
-        visual_helpers.remove_graphic_from_draw_pages(doc, target)
+    assert res is False
     assert page.removed == []
 
 
