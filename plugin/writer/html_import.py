@@ -1244,6 +1244,231 @@ def _insert_at_caret(
     return report
 
 
+def _should_insert_into_empty_paragraph(
+    cursor: Any, content: str, *, recording: bool
+) -> bool:
+    """Return True when *cursor* sits in an empty paragraph that should open or absorb a line."""
+    return bool(
+        cursor.isStartOfParagraph()
+        and cursor.isEndOfParagraph()
+        and (recording or content_is_block(content))
+    )
+
+
+def _insert_into_empty_paragraph(
+    model: Any,
+    ctx: Any,
+    cursor: Any,
+    content: str,
+    *,
+    apply_styles: bool,
+    recording: bool,
+) -> html_import_styles.WriteReport:
+    """Import *content* into an empty paragraph, opening a fresh paragraph when recording."""
+    # Recording: the import would reuse the empty paragraph's node, and Reject's join keeps that
+    # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
+    # into a fresh paragraph after it. After a trailing table the leftover stays: merged
+    # into a non-empty follower, Reject would join the empty paragraph into that follower
+    # and lose it.
+    if recording:
+        cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    # Not recording: the content takes the empty line; the leftover would otherwise
+    # stay behind in the follow style of the paragraph
+    # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
+    return _import_and_drop_leftover(
+        model,
+        ctx,
+        cursor,
+        content,
+        apply_styles=apply_styles,
+        merge_forward_after_table=not recording,
+    )
+
+
+def _resolve_selection_range(model: Any, selection: Any | None) -> tuple[Any, Any, Any]:
+    """Return ``(rng, rng_text, cursor_at_start)`` for *selection* or the live view cursor."""
+    # Explicit selection (such as a pinned Send-time cursor) skips the live view read.
+    if selection is not None:
+        rng = selection
+    else:
+        controller = uno_read(lambda: model.getCurrentController(), None)
+        rng = live_insert_range(controller)[0]
+    # None: the view has no caret (Print Preview). SwXTextViewCursor::getText
+    # (sw/source/uibase/uno/unotxvw.cxx) raises when an object is selected.
+    rng_text = uno_read(lambda: rng.getText(), None) if rng is not None else None
+    if rng is None or rng_text is None:
+        raise ToolExecutionError(
+            "The selection is not text: a floating image, shape, frame or object, several objects, "
+            "or a block of cells is selected, or the view has no caret (Print Preview). Nothing was "
+            "changed. Select text with set_selection, use target='search' with old_content "
+            "(position='after' inserts next to it), or use table_set_cell for cells.",
+            code="SELECTION_NOT_TEXT",
+        )
+    cursor = rng_text.createTextCursorByRange(rng.getStart())
+    # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
+    # returns null when an endpoint sits outside the cell's text; a null cursor
+    # cannot be inserted at.
+    if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
+        raise ToolExecutionError(
+            "The selection starts in a table and ends outside it; nothing was "
+            "changed. Use target='full_document' if the whole document is "
+            "selected, otherwise target='search' with old_content.",
+            code="SELECTION_SPANS_TABLE",
+        )
+    return rng, rng_text, cursor
+
+
+def _prepare_block_range_replace(
+    rng: Any,
+    content: str,
+    *,
+    clear_target: Any,
+    author_deletion: bool = False,
+) -> tuple[bool, bool, html_import_styles.StyleSkipCode | None]:
+    """Compute style/whole-paragraph flags for *rng* and clear partial ranges.
+
+    *clear_target* and *author_deletion* preserve existing caller differences:
+    ``replace_single_range_with_content`` clears through its cursor and authors
+    the deletion, whereas ``insert_content_at_position`` clears through *rng*
+    without authoring.
+    """
+    apply_styles, note = _lo_style_for_replaced_range(content, rng)
+    whole_paragraphs = _range_covers_whole_paragraphs(rng)
+    if not whole_paragraphs:
+        if author_deletion:
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                clear_target.setString("")
+        else:
+            clear_target.setString("")
+    return apply_styles, whole_paragraphs, note
+
+
+def _import_block_range_replace(
+    model: Any,
+    ctx: Any,
+    rng: Any,
+    cursor: Any,
+    content: str,
+    *,
+    apply_styles: bool,
+    whole_paragraphs: bool,
+    note: html_import_styles.StyleSkipCode | None,
+) -> html_import_styles.WriteReport:
+    """Import block/mixed *content* into *rng* after ``_prepare_block_range_replace``."""
+    if whole_paragraphs:
+        report = _replace_whole_paragraphs(model, ctx, rng, content, apply_styles=apply_styles)
+    else:
+        report = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+    if note:
+        report.style_skips.append(note)
+    return report
+
+
+def _insert_at_end(
+    model: Any,
+    ctx: Any,
+    content: str,
+    *,
+    recording: bool,
+) -> html_import_styles.WriteReport:
+    """Insert *content* at the end of the document body."""
+    text = model.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert);
+    # _import_and_drop_leftover defaults to apply_styles=True.
+    cursor = _ensure_empty_absorb_for_styled_insert(
+        text, cursor, "end", recording=recording,
+    )
+    return _import_and_drop_leftover(model, ctx, cursor, content)
+
+
+def _insert_at_beginning(
+    model: Any,
+    ctx: Any,
+    content: str,
+    *,
+    recording: bool,
+) -> html_import_styles.WriteReport:
+    """Insert *content* at the beginning of the document body."""
+    text = model.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
+    cursor = _ensure_empty_absorb_for_styled_insert(
+        text, cursor, "beginning", recording=recording,
+    )
+    if _should_insert_into_empty_paragraph(cursor, content, recording=recording):
+        return _insert_into_empty_paragraph(
+            model, ctx, cursor, content, apply_styles=True, recording=recording
+        )
+    return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=True)
+
+
+def _insert_at_selection(
+    model: Any,
+    ctx: Any,
+    content: str,
+    selection: Any | None,
+    *,
+    recording: bool,
+) -> html_import_styles.WriteReport:
+    """Insert or replace *content* at the resolved text selection or caret."""
+    rng, rng_text, cursor = _resolve_selection_range(model, selection)
+    # A collapsed range is the user's caret.
+    caret = rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
+    raise_if_range_hosts_nested_table(rng)
+    if caret:
+        styled, note = _lo_style_for_replaced_range(content, rng)
+        rng.setString("")
+        if _should_insert_into_empty_paragraph(cursor, content, recording=recording):
+            report = _insert_into_empty_paragraph(
+                model, ctx, cursor, content, apply_styles=styled, recording=recording
+            )
+        else:
+            report = _insert_at_caret(model, ctx, cursor, content, styled)
+        if note:
+            report.style_skips.append(note)
+        return report
+
+    # Trim a lone trailing break; otherwise a recorded Shift+Down selection
+    # deletes the paragraph break and Accept joins the next paragraph.
+    rng = _without_trailing_break(rng)
+    # Inline content (plain text or inline tags, no newline)
+    # replaces the selection in place, like typing over it. Otherwise
+    # ensure_html_linebreaks wraps it in <p>, which splits the host
+    # paragraph on import (SwHTMLParser::CallParser in
+    # sw/source/filter/html/swhtml.cxx).
+    if not content_is_block(content):
+        styled, note = _lo_style_for_replaced_range(content, rng)
+        if recording and _within_one_paragraph(rng):
+            # Insert after the struck text so plain text inherits its character
+            # formatting. Multi-paragraph ranges keep inserting at the start so
+            # Accept keeps the first paragraph's style rather than the last's
+            # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
+            cursor = rng.getText().createTextCursorByRange(rng.getEnd())
+        rng.setString("")
+        report = _insert_inline(model, ctx, cursor, content)
+        if note:
+            report.style_skips.append(note)
+        return report
+
+    # Whole-paragraph block selections go through _replace_whole_paragraphs.
+    apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
+        rng, content, clear_target=rng
+    )
+    return _import_block_range_replace(
+        model,
+        ctx,
+        rng,
+        cursor,
+        content,
+        apply_styles=apply_styles,
+        whole_paragraphs=whole_paragraphs,
+        note=note,
+    )
+
+
 def insert_content_at_position(
     model: Any,
     ctx: Any,
@@ -1279,124 +1504,15 @@ def insert_content_at_position(
         UndoStepOrRollback(model, _("WriterAgent: Insert result")),
         image_placeholders.keep_placeholder_images(model, content) as swapped,
     ):
-        content = html_import_styles.normalize_character_references(swapped)
-
-        text = model.getText()
-        cursor = text.createTextCursor()
-        styled = position in ("beginning", "end")
-        note = None
+        prepared = html_import_styles.normalize_character_references(swapped)
         recording = record_changes.is_recording_changes(model)
-        caret = False
-        inline = False
-        whole_paragraphs: Any | None = None
-
-        if position == "beginning":
-            cursor.gotoStart(False)
-        elif position == "end":
-            cursor.gotoEnd(False)
-        elif position == "selection":
-            # Explicit selection (such as a pinned Send-time cursor) skips the live view read.
-            rng: Any
-            if selection is not None:
-                rng = selection
-            else:
-                controller = uno_read(lambda: model.getCurrentController(), None)
-                rng = live_insert_range(controller)[0]
-            # None: the view has no caret (Print Preview). SwXTextViewCursor::getText
-            # (sw/source/uibase/uno/unotxvw.cxx) raises when an object is selected.
-            rng_text = uno_read(lambda: rng.getText(), None) if rng is not None else None
-            if rng is None or rng_text is None:
-                raise ToolExecutionError(
-                    "The selection is not text: a floating image, shape, frame or object, several objects, "
-                    "or a block of cells is selected, or the view has no caret (Print Preview). Nothing was "
-                    "changed. Select text with set_selection, use target='search' with old_content "
-                    "(position='after' inserts next to it), or use table_set_cell for cells.",
-                    code="SELECTION_NOT_TEXT",
-                )
-            cursor = rng_text.createTextCursorByRange(rng.getStart())
-            # SwXCell::createXTextCursorByRangeImpl (sw/source/core/unocore/unotbl.cxx)
-            # returns null when an endpoint sits outside the cell's text; a null cursor
-            # cannot be inserted at.
-            if cursor is None or rng_text.createTextCursorByRange(rng.getEnd()) is None:
-                raise ToolExecutionError(
-                    "The selection starts in a table and ends outside it; nothing was "
-                    "changed. Use target='full_document' if the whole document is "
-                    "selected, otherwise target='search' with old_content.",
-                    code="SELECTION_SPANS_TABLE",
-                )
-            # A collapsed range is the user's caret.
-            caret = rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
-            raise_if_range_hosts_nested_table(rng)
-            # Inline content (plain text or inline tags, no newline)
-            # replaces the selection in place, like typing over it. Otherwise
-            # ensure_html_linebreaks wraps it in <p>, which splits the host
-            # paragraph on import (SwHTMLParser::CallParser in
-            # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
-            # selections go through _replace_whole_paragraphs.
-            inline = not caret and not content_is_block(content)
-            # Trim a lone trailing break; otherwise a recorded Shift+Down selection
-            # deletes the paragraph break and Accept joins the next paragraph.
-            if not caret:
-                rng = _without_trailing_break(rng)
-            styled, note = _lo_style_for_replaced_range(content, rng)
-            if not caret and not inline and _range_covers_whole_paragraphs(rng):
-                whole_paragraphs = rng
-            else:
-                if inline and recording and _within_one_paragraph(rng):
-                    # Insert after the struck text so plain text inherits its character
-                    # formatting. Multi-paragraph ranges keep inserting at the start so
-                    # Accept keeps the first paragraph's style rather than the last's
-                    # (sw_GetJoinFlags in sw/source/core/doc/docedt.cxx).
-                    cursor = rng.getText().createTextCursorByRange(rng.getEnd())
-                rng.setString("")
-        else:
-            raise ToolExecutionError("Unknown position: %s" % position)
-
-        # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-        # Whole-paragraph block selections go through _replace_whole_paragraphs, which handles both
-        # recording on and off.
-        # Non-collapsed inline selections go through _insert_inline in place, keeping the host paragraph
-        # and its style whether Track Changes is on or off.
-        if position in ("beginning", "end"):
-            cursor = _ensure_empty_absorb_for_styled_insert(
-                text, cursor, position, recording=recording,
-            )
         if position == "end":
-            report = _import_and_drop_leftover(model, ctx, cursor, content)
-        elif (
-            (caret or position == "beginning")
-            and cursor.isStartOfParagraph()
-            and cursor.isEndOfParagraph()
-            and (recording or content_is_block(content))
-        ):
-            # Recording: the import would reuse the empty paragraph's node, and Reject's join keeps that
-            # node with the imported style (sw_GetJoinFlags, docedt.cxx), so the content goes
-            # into a fresh paragraph after it. After a trailing table the leftover stays: merged
-            # into a non-empty follower, Reject would join the empty paragraph into that follower
-            # and lose it.
-            if recording:
-                cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-            # Not recording: the content takes the empty line; the leftover would otherwise
-            # stay behind in the follow style of the paragraph
-            # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
-            report = _import_and_drop_leftover(
-                model, ctx, cursor, content, apply_styles=styled, merge_forward_after_table=not recording
-            )
-        elif caret:
-            report = _insert_at_caret(model, ctx, cursor, content, styled)
-        elif inline:
-            report = _insert_inline(model, ctx, cursor, content)
-        elif whole_paragraphs is not None:
-            report = _replace_whole_paragraphs(
-                model, ctx, whole_paragraphs, content, apply_styles=styled
-            )
-        else:
-            report = _insert_mixed_or_plain_html(
-                model, ctx, cursor, content, apply_styles=styled
-            )
-        if note:
-            report.style_skips.append(note)
-        return report
+            return _insert_at_end(model, ctx, prepared, recording=recording)
+        if position == "beginning":
+            return _insert_at_beginning(model, ctx, prepared, recording=recording)
+        if position == "selection":
+            return _insert_at_selection(model, ctx, prepared, selection, recording=recording)
+        raise ToolExecutionError("Unknown position: %s" % position)
 
 
 
@@ -1576,24 +1692,16 @@ def replace_single_range_with_content(
         if inline_preserve:
             saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
-        apply_styles = False
-        whole_paragraphs = False
-        note = None
-        if not inline_preserve:
-            apply_styles, note = _lo_style_for_replaced_range(prepared, text_range)
-            whole_paragraphs = _range_covers_whole_paragraphs(text_range)
-
         cursor = text_obj.createTextCursorByRange(text_range)
 
         # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
         raise_if_range_hosts_nested_table(text_range)
-        # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
-        from .styles import apply_paragraph_style_preserving_direct_char
-        if not whole_paragraphs:
-            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-                cursor.setString("")
 
         if saved_style is not None:
+            # Imported at call time: styles.py is WriterAgent-only (not in scripts/librepy_bundle_paths.py) and imports this module back through edit_review.
+            from .styles import apply_paragraph_style_preserving_direct_char
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                cursor.setString("")
             anchor = text_obj.createTextCursorByRange(cursor.getStart())
             # Insert the inline fragment RAW (do not route through ensure_html_linebreaks:
             # it does not recognise <span> as HTML and would wrap it in <p>, creating an
@@ -1625,38 +1733,48 @@ def replace_single_range_with_content(
                 unapplied_para=html_import_styles.declared_para_names(skipped),
                 math=math_entries,
             )
+
+        # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
+        # and data-lo-para apply whether Track Changes is recording or not (the import sits in
+        # its own paragraphs). A partial range leaves neighbor text that would be restyled by
+        # the block style.
+        if inline_preserve:
+            apply_styles, whole_paragraphs, note = False, False, None
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                cursor.setString("")
         else:
-            # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
-            # and data-lo-para apply whether Track Changes is recording or not (the import sits in
-            # its own paragraphs). A partial range leaves neighbor text that would be restyled by
-            # the block style.
-            try:
-                if whole_paragraphs:
-                    report = _replace_whole_paragraphs(
-                        model, ctx, text_range, prepared, apply_styles=apply_styles
-                    )
-                else:
-                    report = _insert_mixed_or_plain_html(
-                        model, ctx, cursor, prepared, apply_styles=apply_styles
-                    )
-            except Exception as e:
-                reraise_if_disposed(e)
-                if isinstance(e, ToolExecutionError) and e.code == "MARKUP_IN_CONTROL":
-                    raise
-                # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
-                # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
-                # the opaque error; the atomic wrapper rolls back the partial edit either way.
-                if in_table_cell and content_has_block_markup(prepared):
-                    raise ToolExecutionError(
-                        "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
-                        "import mishandles nested cell text). Use plain text or inline tags only inside "
-                        "table cells, or place block/rich content outside the table.",
-                        code="TABLE_BLOCK_IN_CELL",
-                    ) from e
+            apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
+                text_range,
+                prepared,
+                clear_target=cursor,
+                author_deletion=True,
+            )
+        try:
+            return _import_block_range_replace(
+                model,
+                ctx,
+                text_range,
+                cursor,
+                prepared,
+                apply_styles=apply_styles,
+                whole_paragraphs=whole_paragraphs,
+                note=note,
+            )
+        except Exception as e:
+            reraise_if_disposed(e)
+            if isinstance(e, ToolExecutionError) and e.code == "MARKUP_IN_CONTROL":
                 raise
-            if note:
-                report.style_skips.append(note)
-            return report
+            # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
+            # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
+            # the opaque error; the atomic wrapper rolls back the partial edit either way.
+            if in_table_cell and content_has_block_markup(prepared):
+                raise ToolExecutionError(
+                    "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
+                    "import mishandles nested cell text). Use plain text or inline tags only inside "
+                    "table cells, or place block/rich content outside the table.",
+                    code="TABLE_BLOCK_IN_CELL",
+                ) from e
+            raise
 
 
 
