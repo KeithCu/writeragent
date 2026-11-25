@@ -164,6 +164,7 @@ Distance-to-frontier view: [docs/eval/pareto-distance-2026-11-22.svg](docs/eval/
 | Topic | Documentation Link |
 | :--- | :--- |
 | **Feature Index** | [docs/features.md](docs/features.md) |
+| **Release Notes** | [docs/release-notes.md](docs/release-notes.md) |
 | **NumPy & Python in Calc** | [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md) · [docs/calc/py-data-shapes.md](docs/calc/py-data-shapes.md) |
 | **LibrePy Core Architecture** | [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md) |
 | **Domain Helper Functions** | [docs/scripting/numpy-domains.md](docs/scripting/numpy-domains.md) · [docs/calc/analysis-tools.md](docs/calc/analysis-tools.md) |
