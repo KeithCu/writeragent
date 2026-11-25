@@ -369,17 +369,24 @@ def _ensure_writeragent_logger_propagates():
 
 
 @pytest.fixture(autouse=True)
-def _redact_caplog_output(request):
-    """Clear known secrets between tests and apply RedactingFormatter to caplog, matching writeragent_debug.log."""
-    from plugin.framework.log_redaction import RedactingFormatter, clear_known_secrets
+def _clear_known_secrets_between_tests():
+    """Clear registered known secrets before and after every test."""
+    from plugin.framework.log_redaction import clear_known_secrets
 
     clear_known_secrets()
+    try:
+        yield
+    finally:
+        clear_known_secrets()
+
+
+@pytest.fixture(autouse=True)
+def _redact_caplog_output(request):
+    """Apply RedactingFormatter to caplog, matching writeragent_debug.log."""
     if "caplog" not in request.fixturenames:
-        try:
-            yield
-        finally:
-            clear_known_secrets()
+        yield
         return
+    from plugin.framework.log_redaction import RedactingFormatter
 
     caplog = request.getfixturevalue("caplog")
     old_formatter = caplog.handler.formatter
@@ -388,7 +395,6 @@ def _redact_caplog_output(request):
         yield
     finally:
         caplog.handler.setFormatter(old_formatter)
-        clear_known_secrets()
 
 
 @pytest.fixture(autouse=True)

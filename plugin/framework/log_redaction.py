@@ -163,7 +163,6 @@ def redact_secrets(
     secrets: Iterable[str] | None,
     *,
     min_len: int = 4,
-    word_boundaries: bool = False,
 ) -> str:
     """Replace credential strings with ``<redacted>``. Longer values first."""
     if not text or not secrets:
@@ -171,9 +170,7 @@ def redact_secrets(
     # A short key would punch holes through ordinary text ("k", "1", "test").
     ordered = sorted({secret for secret in secrets if secret and len(secret) >= min_len}, key=len, reverse=True)
     for secret in ordered:
-        if word_boundaries:
-            text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(secret)}(?![A-Za-z0-9])", LOG_REDACT_SECRET_PLACEHOLDER, text)
-        elif secret in text:
+        if secret in text:
             text = text.replace(secret, LOG_REDACT_SECRET_PLACEHOLDER)
     return text
 
@@ -226,13 +223,12 @@ def without_userinfo(rest: str, tail: str) -> str:
     return "" if "@" in tail else rest.rpartition("@")[2]
 
 
-# Match any scheme://... up to whitespace or backslash (JSON-escaped \n).
-# Apostrophes and closing parens are valid in userinfo/paths/queries and are not
-# terminators here; over-masking a log line is acceptable, under-masking is not.
-# Raw spaces inside userinfo split tokens in unstructured prose and are not spanned.
-_SCHEME_USERINFO_RE = re.compile(r"([a-z][a-z0-9+.-]*://)([^\s\\/?#]+)@", re.IGNORECASE)
-_SCHEMELESS_USERINFO_RE = re.compile(r"(?<![A-Za-z0-9+.-])(?!mailto:)([^\s\\/?#\"':@]+:[^\s\\/?#]+)@(?=[^\s\\/?#])")
-_SCHEME_URL_RE = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\\<>]+", re.IGNORECASE)
+# Userinfo is stripped for any scheme up to whitespace, `\`, `/`, `?`, or `#` (raw spaces
+# or `\` inside a password are not spanned). Path/query masking runs only on http(s)/ws(s)
+# URLs up to whitespace, `"`, `\`, `<`, or `>`, leaving file:// and vnd.sun.star.* paths intact.
+# Apostrophes and closing parens stay allowed; over-masking a log line is acceptable, under-masking is not.
+_SCHEME_USERINFO_RE = re.compile(r"(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*://)([^\s\\/?#]+)@", re.IGNORECASE)
+_SCHEME_URL_RE = re.compile(r"(?<![a-z0-9+.-])(?:https?|wss?)://[^\s\"\\<>]+", re.IGNORECASE)
 _QUERY_CREDENTIAL_RE = re.compile(r"([?&])([a-zA-Z0-9_.-]+)=([^&\s\"\\<>#]+)")
 
 
@@ -268,14 +264,11 @@ def _mask_query_credential(match: re.Match[str]) -> str:
 
 
 def redact_url_credentials_in_text(text: str) -> str:
-    """Strip userinfo, query, fragment, and opaque path segments from URLs, plus credential query params."""
+    """Strip userinfo from any scheme URL, mask http(s)/ws(s) path/query, and mask credential query params."""
     if not text:
         return text
     if "://" in text:
         text = _SCHEME_USERINFO_RE.sub(r"\1", text)
-    if "@" in text:
-        text = _SCHEMELESS_USERINFO_RE.sub("", text)
-    if "://" in text:
         text = _SCHEME_URL_RE.sub(_mask_scheme_url, text)
     if "?" in text or "&" in text:
         text = _QUERY_CREDENTIAL_RE.sub(_mask_query_credential, text)
@@ -310,7 +303,7 @@ def redact_known_secrets_in_text(text: str) -> str:
         if not state["secrets"]:
             return text
         snapshot = list(state["secrets"])
-    return redact_secrets(text, snapshot, min_len=_MIN_KNOWN_SECRET_LEN, word_boundaries=True)
+    return redact_secrets(text, snapshot, min_len=_MIN_KNOWN_SECRET_LEN)
 
 
 class RedactingFormatter(logging.Formatter):

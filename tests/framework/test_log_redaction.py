@@ -205,7 +205,8 @@ def test_redacting_formatter_masks_urls_on_arbitrary_loggers() -> None:
         ("GET HTTPS://user:hunter2@h.example/v1", "hunter2", "https://h.example/v1"),
         ("WS ws://u:hunter2@h/x", "hunter2", "ws://h/x"),
         ("PROXY socks5://u:hunter2@h:1", "hunter2", "socks5://h:1"),
-        ("EP user:hunter2@h.example/v1", "hunter2", "h.example/v1"),
+        ('{"url":"https://h/a?x=1","n":1,"text":"lost words","k":2}', "x=1", '{"url":"https://h/a","n":1,"text":"lost words","k":2}'),
+        ("OPEN file:///home/k/Contract2026FinalVersion.odt", "<redacted>", "file:///home/k/Contract2026FinalVersion.odt"),
         (r'{"msg": "see https://h/a?b=1\n\nHello there"}', "b=1", r'see https://h/a\n\nHello there'),
     ],
 )
@@ -215,15 +216,26 @@ def test_redacting_formatter_url_and_userinfo_spellings(raw_line: str, hidden: s
     assert kept in out
 
 
+def test_redacting_formatter_long_hex_run_with_url() -> None:
+    blob = "ab" * 100_000
+    out = _format_with_arbitrary_logger("test.arbitrary.longrun", "%s https://u:pw@h.example/v1?k=1", blob)
+    assert "pw" not in out
+    assert "k=1" not in out
+    assert blob in out
+    assert "https://h.example/v1" in out
+
+
 def test_redacting_formatter_masks_known_secrets_across_arbitrary_loggers() -> None:
     register_known_secret("sk-known-secret-987654")
     register_known_secret("ollama")  # Short placeholder key (<8 chars); must not mask hosts/models/paths.
 
     out1 = _format_with_arbitrary_logger(
         "test.arbitrary.one",
-        "Auth failed with key sk-known-secret-987654 on http://ollama:11434 model=latest prefixsk-known-secret-987654",
+        r"Auth failed with key sk-known-secret-987654 on http://ollama:11434 model=latest {\nsk-known-secret-987654 x%3Dsk-known-secret-987654 prefixsk-known-secret-987654",
     )
-    assert "Auth failed with key <redacted> on http://ollama:11434 model=latest prefixsk-known-secret-987654" in out1
+    assert "sk-known-secret-987654" not in out1
+    assert "http://ollama:11434 model=latest" in out1
+    assert r"{\n<redacted> x%3D<redacted> prefix<redacted>" in out1
 
     try:
         raise RuntimeError("Upstream rejected sk-known-secret-987654")

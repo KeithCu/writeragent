@@ -47,6 +47,7 @@ from plugin.framework.default_models import (
     resolve_model_id,
 )
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
+from plugin.framework.client.http_security import log_target
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError, best_effort
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent, resolve_openrouter_catalog_id
@@ -480,9 +481,9 @@ def _model_fetch_auth_headers(base: str, api_key_override: str | None, url: str,
         return build_auth_headers(resolve_auth_for_config(mini))
     except AuthError as e:
         if api_key:
-            log.debug("%s skipping %s: %s", log_label, url, e)
+            log.debug("%s skipping %s: %s", log_label, log_target(url), e)
             return None
-        log.debug("%s unauthenticated for %s: %s", log_label, url, e)
+        log.debug("%s unauthenticated for %s: %s", log_label, log_target(url), e)
         return {}
 
 
@@ -542,13 +543,13 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             memo.context_tokens = _context_tokens_from_v1_entries(entries)
             memo.non_text_ids = _non_text_ids_from_v1_entries(entries)
             return list(models)
-        log.warning("fetch_available_models unexpected body structure for %s: %s", url, type(data).__name__)
+        log.warning("fetch_available_models unexpected body structure for %s: %s", log_target(url), type(data).__name__)
     except NetworkError as e:
-        log.warning("fetch_available_models NetworkError for %s: %s", url, e)
+        log.warning("fetch_available_models NetworkError for %s: %s", log_target(url), e)
     except (ValueError, TypeError, IOError) as e:
-        log.warning("fetch_available_models network/parse error for %s: %s", url, e)
+        log.warning("fetch_available_models network/parse error for %s: %s", log_target(url), e)
     except Exception:
-        log.exception("fetch_available_models unexpected error for %s", url)
+        log.exception("fetch_available_models unexpected error for %s", log_target(url))
     return None
 
 
@@ -575,7 +576,7 @@ def _fetch_openrouter_entries(
         data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
         return _v1_models_entries_from_body(data)
     except Exception as e:
-        log.warning("%s failed for %s: %s", log_label, url, e)
+        log.warning("%s failed for %s: %s", log_label, log_target(url), e)
     return None
 
 
@@ -1101,7 +1102,7 @@ def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_ke
         memo.together_voices[requested] = stored_copy
         return {k: list(v) for k, v in stored_copy.items()}
     except Exception as e:
-        log.warning("fetch together voices failed for %s: %s", url, e)
+        log.warning("fetch together voices failed for %s: %s", log_target(url), e)
     return None
 
 
@@ -1376,13 +1377,13 @@ def _fetch_vision_list(endpoint: str, provider: str | None, api_key_override: st
         if entries is not None:
             _get_catalog_memo(endpoint, api_key_override).vision_declarations = _vision_declarations_from_v1_entries(entries)
             return
-        log.warning("vision list unexpected body structure for %s: %s", url, type(data).__name__)
+        log.warning("vision list unexpected body structure for %s: %s", log_target(url), type(data).__name__)
     except NetworkError as e:
-        log.warning("vision list NetworkError for %s: %s", url, e)
+        log.warning("vision list NetworkError for %s: %s", log_target(url), e)
     except (ValueError, TypeError, IOError) as e:
-        log.warning("vision list network/parse error for %s: %s", url, e)
+        log.warning("vision list network/parse error for %s: %s", log_target(url), e)
     except Exception:
-        log.exception("vision list unexpected error for %s", url)
+        log.exception("vision list unexpected error for %s", log_target(url))
 
 
 def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, api_key_override: str | None) -> tuple[bool, bool | None]:
@@ -1521,7 +1522,8 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
 
     # 5. Static Default Models fallback (API fetch failed or provider has no vision API).
     caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    # raw endpoint: see log_target
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, log_target(endpoint_str), caps, bool(caps & ModelCapability.VISION))
     if caps & ModelCapability.VISION:
         return True
     # 6. Provider-wide facts before catalog text-only so shared rows (e.g. Gemini)

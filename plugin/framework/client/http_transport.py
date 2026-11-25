@@ -155,7 +155,7 @@ class LlmHttpTransport:
     def _absolute_url(self, path: str) -> str:
         scheme, host, port = self._endpoint_parts()
         default = 443 if scheme == "https" else 80
-        shown = http_security._bracket_ipv6_host(host)
+        shown = http_security.bracket_ipv6_host(host)
         origin = f"{scheme}://{shown}" if port == default else f"{scheme}://{shown}:{port}"
         if not path.startswith("/"):
             path = "/" + path

@@ -17,14 +17,14 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.log_redaction import (
-    bracket_ipv6_host as _bracket_ipv6_host,
+    bracket_ipv6_host,
     is_credential_name,
-    is_credential_query_name as _is_credential_query_name,
-    opaque_segments as _opaque_segments,
-    public_path as _public_path,
+    is_credential_query_name,
+    opaque_segments,
+    public_path,
     redact_secrets,
-    request_path_secrets as _request_path_secrets,
-    without_userinfo as _without_userinfo,
+    request_path_secrets,
+    without_userinfo,
 )
 
 
@@ -59,12 +59,12 @@ def secrets_from_target(url_or_path: str) -> list[str]:
     secrets: list[str] = []
     for pair in parsed.query.split("&"):
         raw_key, _sep, raw_value = pair.partition("=")
-        if raw_value and _is_credential_query_name(urllib.parse.unquote_plus(raw_key)):
+        if raw_value and is_credential_query_name(urllib.parse.unquote_plus(raw_key)):
             secrets.extend((raw_value, urllib.parse.unquote_plus(raw_value)))
     password = parsed.password
     if password:
         secrets.extend((password, urllib.parse.unquote(password)))
-    secrets.extend(_request_path_secrets(parsed.path))
+    secrets.extend(request_path_secrets(parsed.path))
     return secrets
 
 
@@ -74,7 +74,7 @@ def secrets_from_url_path(url: str) -> list[str]:
     Scans the whole path for MCP links (``/s/<secret>/mcp``); ``secrets_from_target``
     stops at model ids.
     """
-    return _opaque_segments(_parse_url(url).path.split("/"))
+    return opaque_segments(_parse_url(url).path.split("/"))
 
 
 def collect_secrets(*groups: list[str] | None) -> list[str]:
@@ -94,8 +94,8 @@ def _invalid_url_error(url: str, message: str = "Invalid URL") -> NetworkError:
     scheme, sep, rest = shown.partition("://")
     if not sep:
         scheme, rest = "", shown
-    rest = _without_userinfo(rest, tail)
-    rest = redact_secrets(rest, _request_path_secrets(rest.partition("/")[2]))
+    rest = without_userinfo(rest, tail)
+    rest = redact_secrets(rest, request_path_secrets(rest.partition("/")[2]))
     return NetworkError(message, code="INVALID_URL", details={"url": f"{scheme}{sep}{rest}"})
 
 
@@ -104,7 +104,7 @@ def _parse_url(url: str) -> urllib.parse.ParseResult:
 
     ``urlparse`` raises ``ValueError`` ("Invalid IPv6 URL", or an empty or
     illegal address inside ``[]``) for ``http://[::1``, ``http://[::1]extra``,
-    and ``http://[]/v1`` before ``_explicit_port`` or ``_bracket_ipv6_host``
+    and ``http://[]/v1`` before ``_explicit_port`` or ``bracket_ipv6_host``
     run. A bad bracket URL is ``INVALID_URL``, the same contract as a bad port.
     """
     try:
@@ -125,7 +125,7 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     try:
         return parsed.port
     except ValueError:
-        host = _bracket_ipv6_host(parsed.hostname or "")
+        host = bracket_ipv6_host(parsed.hostname or "")
         scheme = parsed.scheme or "http"
         raise _invalid_url_error(f"{scheme}://{host}{parsed.path or '/'}", "Invalid URL port") from None
 
@@ -198,20 +198,24 @@ def public_target(url_or_path: str) -> str:
     # One leading "/" is a request path, where "@" is data ("claude@20240620"). Other text without a
     # scheme is a host or a network-path reference, which can start with userinfo.
     if shown.startswith("/") and not shown.startswith("//"):
-        return _public_path(shown)
+        return public_path(shown)
     if "://" not in shown:
-        return _public_path(_without_userinfo(shown, "".join(cut)) or "/")
+        return public_path(without_userinfo(shown, "".join(cut)) or "/")
     parsed = _parse_url(raw)
-    host = _bracket_ipv6_host(parsed.hostname or "")
+    host = bracket_ipv6_host(parsed.hostname or "")
     port_num = _explicit_port(parsed)
     port = f":{port_num}" if port_num else ""
-    path = _public_path(parsed.path or "/")
+    path = public_path(parsed.path or "/")
     scheme = parsed.scheme or "http"
     return f"{scheme}://{host}{port}{path}"
 
 
 def log_target(url_or_path: str) -> str:
-    """``public_target`` for log lines and error text. A URL that cannot be parsed gives its sanitized spelling instead of raising."""
+    """``public_target`` for error text, bare request paths, and raw schemeless endpoints; never raises.
+
+    ``RedactingFormatter`` cannot identify bare paths or schemeless ``user:pw@host`` tokens in prose,
+    so those callers keep ``log_target``.
+    """
     try:
         return public_target(url_or_path)
     except NetworkError as exc:
@@ -223,7 +227,7 @@ def origin_and_path(url: str) -> tuple[str, str]:
     """Split an absolute URL into the transport origin and the request target."""
     parsed = _parse_url(url)
     scheme = (parsed.scheme or "https").lower()
-    host = _bracket_ipv6_host(parsed.hostname or "")
+    host = bracket_ipv6_host(parsed.hostname or "")
     port = _explicit_port(parsed)
     origin = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
     path = parsed.path or "/"

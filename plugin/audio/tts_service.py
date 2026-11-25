@@ -45,6 +45,7 @@ from plugin.audio.tts_voices import (
     parse_tts_speed,
 )
 from plugin.framework import config
+from plugin.framework.client.http_security import log_target
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
@@ -1394,7 +1395,8 @@ def _speak_endpoint(
     on_status: Callable[[str], None] | None = None,
 ) -> None:
     """Download audio from an OpenAI-compatible speech endpoint and play it."""
-    log.info("Speaking via endpoint TTS (%s, model=%s, voice=%s)", endpoint_url, model, voice)
+    # raw endpoint: see log_target
+    log.info("Speaking via endpoint TTS (%s, model=%s, voice=%s)", log_target(endpoint_url), model, voice)
     chunks = _endpoint_chunks(text)
     if not chunks:
         return

@@ -19,7 +19,7 @@ from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
-from plugin.framework.client.http_security import origin_and_path
+from plugin.framework.client.http_security import log_target, origin_and_path
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 
@@ -313,7 +313,8 @@ def download_endpoint_speech(
     try:
         origin_and_path(endpoint_url)
     except NetworkError as exc:
-        log.warning("TTS endpoint %s: %s", endpoint_url, exc)
+        # raw endpoint: see log_target
+        log.warning("TTS endpoint %s: %s", log_target(endpoint_url), exc)
         notify_tts_status(_speech_failure_message(0, str(exc)), on_status)
         return None
 
