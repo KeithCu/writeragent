@@ -587,7 +587,7 @@ def test_move_slide_reports_final_order(ctx, doc):
 
     pages = doc.getDrawPages()
     assert [pages.getByIndex(i).Name for i in range(pages.getCount())] == ["Body", "End", "Intro"]
-    # Bind every shape proxy once before inspecting it (docs/framework/uno-test-lifecycle.md).
+    # Bind every shape proxy once before inspecting it; a late release of a dropped proxy detaches the refetched one (docs/framework/uno-test-lifecycle.md).
     moved_page = pages.getByIndex(2)
     shapes = [moved_page.getByIndex(i) for i in range(moved_page.getCount())]
     texts = [s.getString() for s in shapes if hasattr(s, "getString")]

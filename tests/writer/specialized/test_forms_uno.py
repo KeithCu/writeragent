@@ -115,8 +115,8 @@ def test_generate_form_processing_logic(ctx, doc):
     res = tool._process_form_content(mock_ctx, content)
     assert res["status"] == "ok"
     
-    # Verify draw page count increased
-    # Bind every shape proxy once before inspecting it (docs/framework/uno-test-lifecycle.md).
+    # Verify form control names are on the draw page; bind every shape proxy once
+    # before inspecting it so a late release of a dropped proxy cannot detach a refetched one (docs/framework/uno-test-lifecycle.md).
     dp = doc.getDrawPage()
     shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
     names = [s.Control.Name for s in shapes if s.getShapeType() == "com.sun.star.drawing.ControlShape"]

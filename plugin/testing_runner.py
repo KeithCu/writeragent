@@ -1570,7 +1570,9 @@ def run_all_tests(ctx: Any) -> str:
                     indent=2,
                 )
 
-    # Initialize the tool registry (Writer/Calc/Draw modules) before loading any UNO test file, so every suite's get_tools() sees the full registry. Extension startup already calls mark_initialized; this is a no-op then.
+    # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
+    # UNO test file, so every suite's get_tools() sees the full registry.
+    # Extension startup already calls mark_initialized; this is a no-op then.
     try:
         _rebootstrap_ctx(ctx)
     except Exception as e:
