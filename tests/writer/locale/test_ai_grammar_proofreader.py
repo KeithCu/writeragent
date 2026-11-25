@@ -913,19 +913,45 @@ def test_ui_thread_call_does_not_bind_a_non_writer() -> None:
         gp.grammar_registry.clear_all()
 
 
+def test_ensure_persistence_bound_dedupes_two_windows_of_one_writer() -> None:
+    """Two windows on one Writer yield the model twice on the desktop; dedupe so it binds."""
+    from plugin.writer.locale import grammar_persistence as gp
+
+    writer = _writer_model()
+    ctx, desktop = _proofread_ctx_and_desktop([writer, writer], proofreading=[writer])
+    gp.grammar_registry.clear_all()
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "1", on_ui_thread=False)
+        bound = gp.get_persistence("1")
+        assert bound is not None
+        assert bound.model is writer
+    finally:
+        gp.grammar_registry.clear_all()
+
+
 @pytest.mark.parametrize("on_ui", [True, False])
 def test_ensure_document_bound_uses_calling_thread(on_ui: bool) -> None:
     """_ensure_document_bound evaluates main.is_current() on the calling thread before hopping."""
     pr = _make_proofreader()
     with (
-        patch("plugin.framework.queue_executor.main.is_current", return_value=on_ui),
-        patch(
-            "plugin.framework.queue_executor.main.run",
-            side_effect=lambda fn, *args, timeout=30.0, **kwargs: fn(*args, **kwargs),
-        ),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=on_ui) as mock_is_current,
         patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=None) as mock_bind,
     ):
-        pr._ensure_document_bound("doc-thread")
+        def run_inline(fn: Any, *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
+            del timeout
+            mock_is_current.return_value = True
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                mock_is_current.return_value = on_ui
+
+        with patch("plugin.framework.queue_executor.main.run", side_effect=run_inline):
+            pr._ensure_document_bound("doc-thread")
     mock_bind.assert_called_once_with(pr.ctx, "doc-thread", on_ui_thread=on_ui)
 
 

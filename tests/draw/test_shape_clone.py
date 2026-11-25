@@ -19,7 +19,7 @@ from plugin.draw.shape_clone import (
     copy_prop,
     reimport_graphic,
 )
-from tests.draw.shape_fakes import FakePage, FakeShape
+from tests.draw.shape_fakes import FailingPosShape, FakePage, FakeShape
 
 
 def test_clone_shape_sets_geometry_after_add():
@@ -420,17 +420,6 @@ def test_failed_group_child_removes_the_whole_group_clone():
 
         def getByIndex(self, index: int) -> Any:
             return self.children[index]
-
-    class FailingPosShape(FakeShape):
-        def setPropertyValue(self, name: str, value: Any) -> None:
-            if name == "Position":
-                raise RuntimeError("Failed to set Position")
-            super().setPropertyValue(name, value)
-
-        def __setattr__(self, name: str, value: Any) -> None:
-            if name == "Position":
-                raise RuntimeError("Failed to set Position")
-            super().__setattr__(name, value)
 
     src_child = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
     src_group = FakeGroup("com.sun.star.drawing.GroupShape")

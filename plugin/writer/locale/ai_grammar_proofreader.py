@@ -152,11 +152,12 @@ def _resolve_proofread_writer_model(ctx: Any, *, on_ui_thread: bool) -> Any | No
     background document: ``isProofreading`` is true for the document being
     checked and for documents still queued (``gciterator.cxx``
     ``isProofreading``). Each document has one id, so a model already bound to
-    another id is not this one. More than one remaining model is not a guess.
+    another id is not this one. More than one remaining *distinct* model is not
+    a guess.
     """
     if not main.is_current():
         return None
-    from plugin.framework.uno_context import get_desktop, iter_open_models
+    from plugin.framework.uno_context import get_desktop, iter_open_models, uno_same
     from plugin.writer.locale.grammar_persistence import persistence_for_model
 
     try:
@@ -174,15 +175,18 @@ def _resolve_proofread_writer_model(ctx: Any, *, on_ui_thread: bool) -> Any | No
             ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
         )
         candidates = [model for model in iter_open_models(desktop) if iterator.isProofreading(model)]
-    unbound = [model for model in candidates if persistence_for_model(model) is None]
-    return unbound[0] if len(unbound) == 1 else None
+    # The desktop lists one entry per window, so Window > New Window yields the same model twice.
+    distinct: list[Any] = []
+    for model in candidates:
+        if persistence_for_model(model) is None and not any(uno_same(model, seen) for seen in distinct):
+            distinct.append(model)
+    return distinct[0] if len(distinct) == 1 else None
 
 
 def _ensure_persistence_bound(ctx: Any, doc_id: str, *, on_ui_thread: bool) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
-    ``get_document_model_for_id`` only returns ``p.model`` when a
-    ``DocumentPersistence`` for the id is already in the map, so the first
+    The map holds no model until one is bound here, so the first
     ``doProofreading`` resolves the Writer on the main thread (the current
     Writer on a UI-thread call, or the unique unbound model reported by
     ``XProofreadingIterator.isProofreading`` on a grammar-thread call) and
@@ -527,7 +531,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            # The grammar thread is tagged by background_if_dummy_thread, so main.is_current() is False there.
+            # Read here: inside the hop it is always True. The grammar thread is
+            # tagged by background_if_dummy_thread, so it is False there.
             main.run(self._ensure_document_bound_on_main, doc_id, main.is_current(), timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:

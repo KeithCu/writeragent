@@ -56,20 +56,16 @@ def test_clone_shape_removes_partial_clone_on_failure(ctx: Any, doc: Any) -> Non
 
     shape_clone.copy_prop = fail_on_position
     try:
-        count_before_rect = page.getCount()
-        try:
-            clone_shape(doc, page, rect, uno_ctx=ctx)
-            raise AssertionError("expected RuntimeError for rect")
-        except RuntimeError:
-            pass
-        assert page.getCount() == count_before_rect
-
-        count_before_group = page.getCount()
-        try:
-            clone_shape(doc, page, group, uno_ctx=ctx)
-            raise AssertionError("expected RuntimeError for group")
-        except RuntimeError:
-            pass
-        assert page.getCount() == count_before_group
+        for label, target in (("rect", rect), ("group", group)):
+            count_before = page.getCount()
+            caught: RuntimeError | None = None
+            try:
+                clone_shape(doc, page, target, uno_ctx=ctx)
+            except RuntimeError as exc:
+                caught = exc
+            if caught is None:
+                raise AssertionError(f"expected RuntimeError for {label}")
+            assert "injected Position failure" in str(caught), f"unexpected error for {label}: {caught}"
+            assert page.getCount() == count_before
     finally:
         shape_clone.copy_prop = orig_copy_prop

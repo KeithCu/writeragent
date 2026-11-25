@@ -234,12 +234,13 @@ def _fill_clone(
     src_shape: Any,
     shape_type: str,
     *,
-    uno_ctx: Any = None,
-    image_path: str | None = None,
-    image_paths: list[str | None] | None = None,
-    shape_index: int = 0,
-    warnings: list[str] | None = None,
+    uno_ctx: Any,
+    image_path: str | None,
+    image_paths: list[str | None] | None,
+    shape_index: int,
+    warnings: list[str] | None,
 ) -> ClonedShape:
+    """Copy *src_shape* onto *clone*, which is already in its container."""
     shape_warnings: list[str] = []
     for prop in SHAPE_CLONE_PROPS:
         res = copy_prop(clone, src_shape, prop)
@@ -402,7 +403,7 @@ def clone_shape(
 ) -> ClonedShape:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
-    A clone that fails part way is removed from *dest_container* before the error propagates.
+    A clone that fails part way (other than by disposal) is removed from *dest_container* before the error propagates.
     """
     shape_type = getattr(src_shape, "ShapeType", "")
     if not (isinstance(shape_type, str) and shape_type):
@@ -439,6 +440,7 @@ def clone_shape(
             warnings=warnings,
         )
     except Exception as exc:
+        # Skip cleanup when disposed (container is gone); best_effort keeps the original clone error on top.
         if not is_disposal(exc):
             best_effort(lambda: dest_container.remove(clone), "remove partial clone")
         raise

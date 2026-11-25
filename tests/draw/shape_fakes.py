@@ -63,3 +63,15 @@ class FakePage:
 
     def remove(self, shape: Any) -> None:
         self.shapes.remove(shape)
+
+
+class FailingPosShape(FakeShape):
+    def setPropertyValue(self, name: str, value: Any) -> None:
+        if name == "Position":
+            raise RuntimeError("Failed to set Position")
+        super().setPropertyValue(name, value)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "Position":
+            raise RuntimeError("Failed to set Position")
+        super().__setattr__(name, value)
