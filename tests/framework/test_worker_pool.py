@@ -242,17 +242,36 @@ def test_async_process_terminate_does_not_join_on_caller():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
     ap.start()
     caller = threading.current_thread()
+    join_entered = threading.Event()
+    release_join = threading.Event()
+    reap_done = threading.Event()
+    join_threads: list[threading.Thread] = []
 
     def slow_join(self, timeout=None):
-        assert threading.current_thread() is not caller
-        time.sleep(0.05)
+        join_threads.append(threading.current_thread())
+        join_entered.set()
+        release_join.wait(timeout=3.0)
+
+    orig_reap = ap._reap
+
+    def wrapped_reap(*args, **kwargs):
+        try:
+            return orig_reap(*args, **kwargs)
+        finally:
+            reap_done.set()
 
     try:
-        with patch.object(BackgroundHandle, "join", slow_join):
-            started = time.monotonic()
+        with (
+            patch.object(BackgroundHandle, "join", slow_join),
+            patch.object(ap, "_reap", wrapped_reap),
+        ):
             ap.terminate()
-            assert time.monotonic() - started < 0.4
+            assert join_entered.wait(timeout=3.0)
+            assert join_threads and all(t is not caller for t in join_threads)
+            release_join.set()
+            assert reap_done.wait(timeout=3.0)
     finally:
+        release_join.set()
         if ap.process is not None and ap.process.poll() is None:
             ap.process.kill()
             ap.process.wait(timeout=3)

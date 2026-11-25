@@ -882,6 +882,7 @@ def _extract_document_words(messages: list[Any]) -> list[str]:
     cleaned = re.sub(r"\[SELECTION_(?:START|END)\]", "", cleaned)
     cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
     cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
+    cleaned = re.sub(r"\[tracked deletion(?:,\s*\d+\s+paragraphs)?\]", " ", cleaned)
     cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)
     return re.findall(r"\b[A-Za-z0-9_-]+\b", cleaned)
 
