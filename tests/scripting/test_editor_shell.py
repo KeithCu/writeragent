@@ -463,8 +463,11 @@ def test_editor_shell_saved_load_follows_ignores_stale_session_and_save_targets_
         {"type": "save_script_plain", "code": "anon"},
     ]
 
-    # 3. New "R" attached to document while My Scripts has "R", then Save before scripts_list:
-    #    targets ("[Doc] R", "document").
+    # 3. New "R" attached to document while My Scripts has "R": after scripts_list confirms it,
+    #    typing and Save targets ("[Doc] R", "document").
+    sections_doc_r = sections_a + [
+        {"id": "document", "title": "This Document", "scripts": {"[Doc] R": '# A simple script\nresult = "Hello from Python!"\n'}}
+    ]
     new_doc_out = _run_shell_scenario(
         f"""
         backend.focus = () => {{}};
@@ -474,6 +477,7 @@ def test_editor_shell_saved_load_follows_ignores_stale_session_and_save_targets_
         el("new-script-name-input").value = "R";
         el("new-script-attach-check").checked = true;
         el("btn-new-script-create").click();
+        await deliver({{type: "scripts_list", session_id: "s1", document_available: true, sections: {json.dumps(sections_doc_r)}, selected_script_name: "[Doc] R", status_ok_text: "Saved"}});
         type("doc_r");
         el("btn-save").click();
         """,
@@ -496,3 +500,107 @@ def test_editor_shell_saved_load_follows_ignores_stale_session_and_save_targets_
     )
     del_saves = [m for m in del_out["sent"] if isinstance(m, dict) and m.get("type") in ("save_script", "save_script_plain")]
     assert del_saves == [{"type": "save_script", "name": "A", "code": "a0", "origin": "user", "requested": False}]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_new_script_failure_keeps_script_and_text() -> None:
+    sections_a = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0"}}]
+    out = _run_shell_scenario(
+        f"""
+        win.pywebview.api.notify_dirty = (dirty) => sent.push({{type: "dirty", dirty}});
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("a_edit");
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A", status_error_text: "Failed to save"}});
+        sent.push({{type: "state", value: win.editor.getValue(), dirty: win.waEditorUi.isDirty()}});
+        el("btn-save").click();
+        """,
+        include_scripts_manager=True,
+    )
+    states = [m for m in out["sent"] if isinstance(m, dict) and m.get("type") == "state"]
+    assert states == [{"type": "state", "value": "a_edit", "dirty": True}]
+    saves = [(m["name"], m["code"]) for m in out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert saves == [("B", '# A simple script\nresult = "Hello from Python!"\n'), ("A", "a_edit")]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_new_script_shows_template_only_after_list() -> None:
+    template = '# A simple script\nresult = "Hello from Python!"\n'
+    sections_a = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0"}}]
+    sections_ab = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0", "B": template}}]
+
+    # 1. Success list switches to B with the template.
+    ok_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        sent.push({{type: "before", value: win.editor.getValue()}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_ab)}, selected_script_name: "B", status_ok_text: "Saved"}});
+        sent.push({{type: "after", value: win.editor.getValue(), selected: el("script-select").value}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in ok_out["sent"] if isinstance(m, dict) and m.get("type") == "before"] == [{"type": "before", "value": "a0"}]
+    assert [m for m in ok_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": template, "selected": "B"}]
+
+    # 2. Typing while New is in flight keeps the typed text and leaves A selected.
+    typed_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        type("a_typing");
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_ab)}, selected_script_name: "B", status_ok_text: "Saved"}});
+        sent.push({{type: "after", value: win.editor.getValue(), selected: el("script-select").value}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in typed_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": "a_typing", "selected": "A"}]
+
+    # 3. Unrelated list first is ignored; later B list switches.
+    unrelated_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        sent.push({{type: "mid", value: win.editor.getValue(), selected: el("script-select").value}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_ab)}, selected_script_name: "B", status_ok_text: "Saved"}});
+        sent.push({{type: "after", value: win.editor.getValue(), selected: el("script-select").value}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in unrelated_out["sent"] if isinstance(m, dict) and m.get("type") == "mid"] == [{"type": "mid", "value": "a0", "selected": "A"}]
+    assert [m for m in unrelated_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": template, "selected": "B"}]
+
+    # 4. Error frame (timeout) then Save targets A with its own text.
+    timeout_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("a_before_timeout");
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        await deliver({{type: "error", message: "timeout"}});
+        el("btn-save").click();
+        """,
+        include_scripts_manager=True,
+    )
+    timeout_saves = [(m["name"], m["code"]) for m in timeout_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert timeout_saves == [("B", template), ("A", "a_before_timeout")]

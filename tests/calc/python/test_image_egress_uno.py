@@ -773,3 +773,138 @@ def test_plot_slots_survive_xlsx_reload_uno(ctx, doc):
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))
         um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
+    """Side-by-side =PY() cells on an RTL sheet keep their own plots after XLSX reload and recalc."""
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    um = doc.getUndoManager()
+    b3 = sheet.getCellByPosition(1, 2)
+    c3 = sheet.getCellByPosition(2, 2)
+    code_b = "result = [b1, b2]"
+    code_c = "result = [c1, c2]"
+    payloads_b = [{"__wa_payload__": "image", "format": "png", "data": _png_bytes(20 + i, 10 + i)} for i in range(2)]
+    payloads_c = [{"__wa_payload__": "image", "format": "png", "data": _png_bytes(30 + i, 12 + i)} for i in range(2)]
+
+    desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    hidden_prop = PropertyValue()
+    hidden_prop.Name = "Hidden"
+    hidden_prop.Value = True
+    save_prop = PropertyValue()
+    save_prop.Name = "FilterName"
+    save_prop.Value = "Calc MS Excel 2007 XML"
+
+    def _insert_both(target_doc):
+        for idx, p in enumerate(payloads_b):
+            _insert_image_result_on_sheet_impl(p, code=code_b, doc=target_doc, image_index=idx, image_count=2)
+        for idx, p in enumerate(payloads_c):
+            _insert_image_result_on_sheet_impl(p, code=code_c, doc=target_doc, image_index=idx, image_count=2)
+
+    try:
+        sheet.setPropertyValue("TableLayout", 1)
+        b3.setFormula(f'=PY("{code_b}")')
+        c3.setFormula(f'=PY("{code_c}")')
+        _insert_both(doc)
+        assert draw_page.getCount() == 4
+
+        with tempfile.TemporaryDirectory(prefix="wa-plot-rtl-xlsx-") as tmpdir:
+            xlsx_path = uno.systemPathToFileUrl(os.path.join(tmpdir, "rtl.xlsx"))
+            doc.storeToURL(xlsx_path, (save_prop,))
+            reloaded = desktop.loadComponentFromURL(xlsx_path, "_blank", 0, (hidden_prop,))
+            try:
+                reloaded_page = reloaded.getSheets().getByIndex(0).getDrawPage()
+                assert reloaded_page.getCount() == 4
+                before_xs = sorted(reloaded_page.getByIndex(i).getPosition().X for i in range(4))
+                _insert_both(reloaded)
+                assert reloaded_page.getCount() == 4
+                after_xs = sorted(reloaded_page.getByIndex(i).getPosition().X for i in range(4))
+                assert after_xs == before_xs
+            finally:
+                reloaded.close(True)
+    finally:
+        sheet.setPropertyValue("TableLayout", 0)
+        b3.setFormula("")
+        c3.setFormula("")
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        um.clear()
+
+
+@native_test
+@with_native_doc("calc")
+def test_xlsx_duplicate_named_plot_survives_recalc_uno(ctx, doc):
+    """A duplicate named plot in XLSX drawing1.xml is renamed and kept on recalc."""
+    import copy
+    import os
+    import tempfile
+    import xml.etree.ElementTree as ET
+    import zipfile
+    import uno
+    from com.sun.star.beans import PropertyValue
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    um = doc.getUndoManager()
+    b3 = sheet.getCellByPosition(1, 2)
+    code = "result = fig"
+    payload = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(24, 16)}
+
+    desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    hidden_prop = PropertyValue()
+    hidden_prop.Name = "Hidden"
+    hidden_prop.Value = True
+    save_prop = PropertyValue()
+    save_prop.Name = "FilterName"
+    save_prop.Value = "Calc MS Excel 2007 XML"
+
+    try:
+        b3.setFormula(f'=PY("{code}")')
+        _insert_image_result_on_sheet_impl(payload, code=code, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+
+        with tempfile.TemporaryDirectory(prefix="wa-plot-dup-xlsx-") as tmpdir:
+            orig_xlsx = os.path.join(tmpdir, "orig.xlsx")
+            dup_xlsx = os.path.join(tmpdir, "dup.xlsx")
+            doc.storeToURL(uno.systemPathToFileUrl(orig_xlsx), (save_prop,))
+
+            xdr_ns = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+            with zipfile.ZipFile(orig_xlsx, "r") as zin, zipfile.ZipFile(dup_xlsx, "w") as zout:
+                for item in zin.infolist():
+                    data = zin.read(item.filename)
+                    if item.filename == "xl/drawings/drawing1.xml":
+                        root = ET.fromstring(data)
+                        anchors = root.findall(f"{{{xdr_ns}}}twoCellAnchor") or root.findall(f"{{{xdr_ns}}}oneCellAnchor")
+                        assert len(anchors) == 1
+                        cloned = copy.deepcopy(anchors[0])
+                        for row_el in cloned.findall(f".//{{{xdr_ns}}}row"):
+                            row_el.text = str(int(row_el.text or "0") + 30)
+                        for cnvpr in cloned.iter():
+                            if cnvpr.tag.endswith("}cNvPr") and "id" in cnvpr.attrib:
+                                cnvpr.attrib["id"] = str(int(cnvpr.attrib["id"]) + 100)
+                        root.append(cloned)
+                        data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                    zout.writestr(item, data)
+
+            reloaded = desktop.loadComponentFromURL(uno.systemPathToFileUrl(dup_xlsx), "_blank", 0, (hidden_prop,))
+            try:
+                reloaded_page = reloaded.getSheets().getByIndex(0).getDrawPage()
+                assert reloaded_page.getCount() == 2
+                _insert_image_result_on_sheet_impl(payload, code=code, doc=reloaded, image_index=0, image_count=1)
+                assert reloaded_page.getCount() == 2
+            finally:
+                reloaded.close(True)
+    finally:
+        b3.setFormula("")
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        um.clear()

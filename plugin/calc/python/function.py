@@ -54,7 +54,7 @@ from plugin.framework.thread_guard import background_if_dummy_thread, in_sync_ho
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import find_image_payloads, is_dataframe_payload, strip_image_payloads
-from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
+from plugin.scripting.session_manager import workbook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
@@ -73,7 +73,6 @@ class CellContext:
     scoped_dir: str | None
     origin: FormulaOrigin | None  # unique located =PY() cell; None off main, with no doc, or when 0 / 2+ cells match
     is_matrix: bool  # origin is part of a multi-cell array block; False whenever origin is None
-    workbook_key: str = ""  # calc_workbook_base_session_id(doc) on main, else ""
     diag_workbook_key: str = "unknown"  # diagnostics_workbook_key(doc) on main (reads, never mints), else "unknown"
     code: str = ""
 
@@ -107,7 +106,6 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
             scoped_dir = folder or None
         except Exception:
             log.debug("scoped_dir binding failed", exc_info=True)
-        workbook_key = calc_workbook_base_session_id(doc)
         diag_workbook_key = diagnostics_workbook_key(doc)
     else:
         state = WorkbookState.known(doc) if doc is not None else None
@@ -116,7 +114,6 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
         is_matrix = False
         init_kwargs = {}
         scoped_dir = None
-        workbook_key = ""
         diag_workbook_key = "unknown"
     return CellContext(
         ctx=ctx,
@@ -128,7 +125,6 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool) -> CellC
         scoped_dir=scoped_dir,
         origin=origin,
         is_matrix=is_matrix,
-        workbook_key=workbook_key,
         diag_workbook_key=diag_workbook_key,
         code=code,
     )

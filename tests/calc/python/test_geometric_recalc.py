@@ -14,6 +14,7 @@ from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.function import CellContext
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.address_utils import local_a1
 from plugin.calc.python.geometric_recalc import (
     GEOMETRIC_REGISTRY_PROP,
@@ -48,7 +49,7 @@ WB = "calc:file:///pipe.ods"
 
 
 def _wb_doc(url: str = "file:///pipe.ods") -> object:
-    """Caller document whose geometric workbook key is ``calc:`` + *url*."""
+    """Caller document stub."""
     from plugin.tests.testing_utils import CalcDocStub
 
     return CalcDocStub(url=url)
@@ -56,17 +57,21 @@ def _wb_doc(url: str = "file:///pipe.ods") -> object:
 
 def _eval_cell(doc: object, *, on_main: bool = True) -> CellContext:
     """The CellContext fields the strip reads, as build_cell_context sets them for a =PY() call from *doc*."""
+    state = (
+        WorkbookState.for_doc(doc)
+        if on_main and doc is not None
+        else (WorkbookState.known(doc) if doc is not None else None)
+    )
     return CellContext(
         ctx=None,
         on_main=on_main,
         doc=doc,
-        state=None,
+        state=state,
         session_id=None,
         init_kwargs={},
         scoped_dir=None,
         origin=None,
         is_matrix=False,
-        workbook_key=calc_workbook_base_session_id(doc) if on_main and doc is not None else "",
     )
 
 
@@ -754,16 +759,16 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
+        assert notify_geometric_cap_hit("ctx", "Sheet1", session_id="wb_test") is False
         mock_box.assert_not_called()
 
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
-        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test")
-        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test") is False
-        assert notify_geometric_cap_hit("ctx", "Sheet2", workbook_key="wb_test")
+        assert notify_geometric_cap_hit("ctx", "Sheet1", session_id="wb_test")
+        assert notify_geometric_cap_hit("ctx", "Sheet1", session_id="wb_test") is False
+        assert notify_geometric_cap_hit("ctx", "Sheet2", session_id="wb_test")
         assert mock_box.call_count == 2
 
 
@@ -773,7 +778,7 @@ def test_cap_hit_user_message_names_the_sheet(monkeypatch):
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     from plugin.calc.python.geometric_recalc import notify_geometric_cap_hit
 
-    assert notify_geometric_cap_hit("ctx", "Pivots", workbook_key="calc:wb") is True
+    assert notify_geometric_cap_hit("ctx", "Pivots", session_id="calc:wb") is True
     assert len(boxes) == 1
     assert "Pivots" in boxes[0][2]
     assert str(MAX_PYTHON_CELLS_FOUND) in boxes[0][2]
@@ -824,6 +829,7 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
 
 def _reset_geo(monkeypatch=None):
     reset_geometric_runtime_for_tests()
+    WorkbookState.reset_for_tests()
 
 
 def test_load_and_save_geometric_registry(monkeypatch):
@@ -849,9 +855,9 @@ def test_load_and_save_geometric_registry(monkeypatch):
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.set_document_property", mock_set_prop)
 
-    doc = CalcDocStub(url="file:///geo.ods")
-    key = load_geometric_registry_for_doc(doc)
-    assert key == "calc:file:///geo.ods"
+    doc = CalcDocStub(url="file:///geo.ods", props={"RuntimeUID": "uid-geo"})
+    key = "uid-geo"
+    load_geometric_registry_for_doc(doc, key)
     from plugin.calc.python.geometric_recalc import records_for_sheet
 
     recs = records_for_sheet(key, "Sheet1")
@@ -864,7 +870,7 @@ def test_load_and_save_geometric_registry(monkeypatch):
     save_geometric_registry_for_doc(doc, key)
     assert saved_payload is not None
     data = json.loads(saved_payload)
-    assert data["workbook_key"] == key
+    assert "workbook_key" not in data
     assert data["sheets"]["Sheet1"]["A2"] == "A1"
     assert data["sheets"]["Sheet1"]["A3"] == "A2"
 
@@ -1727,7 +1733,7 @@ def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
     wk = "calc:file:///save-noop.ods"
     replace_records_for_sheet(wk, "Sheet1", {"A2": GeometricRecord(predecessor="A1")})
 
-    expected_payload = json.dumps({"workbook_key": wk, "sheets": {"Sheet1": {"A2": "A1"}}})
+    expected_payload = json.dumps({"sheets": {"Sheet1": {"A2": "A1"}}})
     set_calls = []
 
     monkeypatch.setattr(
@@ -1741,6 +1747,25 @@ def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
 
     save_geometric_registry_for_doc(doc, wk)
     assert set_calls == []  # Skipped because payload matches!
+
+
+def test_two_documents_with_one_url_keep_separate_strip_state():
+    """Two open documents with the same URL use separate RuntimeUID geometric keys."""
+    from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc_user = CalcDocStub(url="file:///shared.ods", props={"RuntimeUID": "uid-user"})
+    doc_copy = CalcDocStub(url="file:///shared.ods", props={"RuntimeUID": "uid-copy"})
+    replace_geometric_strip_safe("uid-user", frozenset({EvalIndexKey("uid-user", "np.mean(data)", 2)}))
+
+    col = ((1.0,), (2.0,))
+    pred = ((0.0,),)
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc_user)) == [col]
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc_copy)) == [col, pred]
+
+    clear_in_memory_geometric_state(workbook_key="uid-copy")
+    assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], _eval_cell(doc_user)) == [col]
 
 
 def test_flag_on_reconciles_focused_calc_document(monkeypatch):

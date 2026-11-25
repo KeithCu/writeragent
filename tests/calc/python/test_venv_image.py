@@ -2049,3 +2049,53 @@ def test_drop_egress_of_undone_formula_keeps_array_py_and_removes_empty():
     _drop_egress_of_undone_formula(doc, empty_sheet, cell, page)
     assert plot not in page.shapes
     annotations.removeByIndex.assert_called_once_with(0)
+
+
+def test_xlsx_duplicate_plot_is_kept_as_user_picture():
+    """A duplicate plot tagged only by Name (XLSX reload) is renamed and kept, not removed."""
+    from plugin.calc.python.image_egress import _drop_egress_of_undone_formula, _drop_extra_plot_slots, _plot_slot_index
+
+    cell = CalcCellStub(col=1, row=2)
+    cell.getAnnotation = lambda: SimpleNamespace(getString=lambda: "")
+    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:1,2@1,2"
+    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
+    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=1, row=32))
+    page = _DrawPage([first, copy])
+    doc = MagicMock()
+    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
+
+    _drop_extra_plot_slots(doc, page, [(first, 0), (copy, 0)], 1)
+    assert page.shapes == [first, copy]
+    assert copy.getPropertyValue("Name") == f"{tag_name} 1"
+    assert _plot_slot_index(copy.getPropertyValue("Name")) is None
+
+    sheet = _SheetStub(page, formulas={(1, 2): ""})
+    _drop_egress_of_undone_formula(doc, sheet, cell, page)
+    assert page.shapes == [copy]
+
+
+def test_rtl_name_tag_ignores_column_shift():
+    """On an RTL sheet, a Name-only tag ignores column shift while still following row moves."""
+    from plugin.calc.python.image_egress import _shape_matches_target_cell
+
+    cell_b3 = CalcCellStub(col=1, row=2)
+    cell_c3 = CalcCellStub(col=2, row=2)
+    cell_c4 = CalcCellStub(col=2, row=3)
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:2,2@2,2", cell_b3)
+    page = _DrawPage([shape])
+
+    rtl_sheet = _SheetStub(page, formulas={(1, 2): '=PY("a")', (2, 2): '=PY("b")'})
+    rtl_sheet.TableLayout = 1
+    assert _shape_matches_target_cell(rtl_sheet, shape, cell_c3)
+    assert not _shape_matches_target_cell(rtl_sheet, shape, cell_b3)
+
+    ltr_sheet = _SheetStub(page, formulas={(1, 2): '=PY("a")', (2, 2): '=PY("b")'})
+    ltr_sheet.TableLayout = 0
+    assert _shape_matches_target_cell(ltr_sheet, shape, cell_b3)
+    assert not _shape_matches_target_cell(ltr_sheet, shape, cell_c3)
+
+    moved_row_shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:2,2@2,2", CalcCellStub(col=1, row=3))
+    rtl_row_sheet = _SheetStub(page, formulas={(1, 2): '=PY("a")', (2, 3): '=PY("b")'})
+    rtl_row_sheet.TableLayout = 1
+    assert _shape_matches_target_cell(rtl_row_sheet, moved_row_shape, cell_c4)
+    assert not _shape_matches_target_cell(rtl_row_sheet, moved_row_shape, cell_c3)
