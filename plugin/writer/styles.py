@@ -1708,9 +1708,12 @@ def apply_to_cursors(
 
         try:
             outcome = commit_or_rollback(ctx.doc, title, mutate)
+        # Writing here anyway would add no undo entry, so Ctrl+Z would revert the user's
+        # previous edit and leave the style in place (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx).
         except UndoUnavailable:
             return [], tool._tool_error(
-                "Cannot apply %s to every match in one undo step. Nothing was changed." % label,
+                "Cannot apply %s: LibreOffice is not recording undo for this document, so the change could not be undone. Nothing was changed. Do not repeat the call. Tell the user to save, close and reopen the document; if it still fails, Undo/Steps in LibreOffice's Expert Configuration must be at least 1."
+                % label,
                 code="UNDO_UNAVAILABLE",
             )
         if outcome.mutate_error is not None:

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.doc.compound_undo import UndoStepOrRollback, WriterCompoundUndo, _is_undo_locked, undo_titles
+from plugin.doc.compound_undo import UndoLock, UndoStepOrRollback, WriterCompoundUndo, _is_undo_locked, undo_titles
 from plugin.framework.errors import DocumentDisposedError
 from plugin.tests.testing_utils import FakeUndoManager
 
@@ -713,3 +713,35 @@ def test_undo_step_or_rollback_full_stack_empty_group():
     assert step.left_no_entry is True
     assert step.rolled_back is False
     mgr.undo.assert_not_called()
+
+
+def test_undo_lock_locks_and_unlocks_and_propagates_errors():
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc = MagicMock()
+    doc.getUndoManager.return_value = mgr
+
+    with UndoLock(doc):
+        mgr.lock.assert_called_once_with()
+        mgr.unlock.assert_not_called()
+    mgr.unlock.assert_called_once_with()
+
+    mgr.reset_mock()
+    mgr.isLocked.return_value = False
+    with pytest.raises(RuntimeError, match="boom"):
+        with UndoLock(doc):
+            raise RuntimeError("boom")
+    mgr.lock.assert_called_once_with()
+    mgr.unlock.assert_called_once_with()
+
+
+def test_undo_lock_skips_already_locked_manager():
+    mgr = MagicMock()
+    mgr.isLocked.return_value = True
+    doc = MagicMock()
+    doc.getUndoManager.return_value = mgr
+
+    with UndoLock(doc):
+        mgr.lock.assert_not_called()
+    mgr.lock.assert_not_called()
+    mgr.unlock.assert_not_called()

@@ -1113,3 +1113,224 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
         if p is not colored[0]:
             assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 
+
+def _para_portion_snapshot(para):
+    portions = []
+    p_enum = para.createEnumeration()
+    while enum_has_more(p_enum):
+        portion = p_enum.nextElement()
+        if str(portion.getPropertyValue("TextPortionType")) != "Text":
+            continue
+        portions.append((
+            portion.getString(),
+            float(portion.getPropertyValue("CharHeight")),
+            float(portion.getPropertyValue("CharWeight")),
+            str(portion.getPropertyValue("CharStyleName")),
+        ))
+    return portions
+
+
+def _redline_types(doc):
+    types = []
+    r_enum = doc.getRedlines().createEnumeration()
+    while enum_has_more(r_enum):
+        types.append(str(r_enum.nextElement().getPropertyValue("RedlineType")))
+    return types
+
+
+def _body_paras(doc):
+    paras = []
+    b_enum = doc.getText().createEnumeration()
+    while enum_has_more(b_enum):
+        el = b_enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+    return paras
+
+
+@native_test
+def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
+    from plugin.framework.config import get_config, save
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    prev_review = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    cases = [
+        ("apply_para", lambda tc: ApplyStyle().execute(tc, style="Heading 2", target="search", old_content="rest of clause")),
+        ("apply_char", lambda tc: ApplyStyle().execute(tc, style="Source Text", family="CharacterStyles", target="search", old_content="rest of clause")),
+        ("format_text", lambda tc: StyleFormatText().execute(tc, properties={"CharHeight": 20.0}, target="search", old_content="rest of clause")),
+    ]
+    try:
+        for recording in (False, True):
+            for kind, call_tool in cases:
+                doc = desktop.loadComponentFromURL(
+                    "private:factory/swriter", "_blank", 0, (create_property_value("Hidden", True),)
+                )
+                try:
+                    text = doc.getText()
+                    cur = text.createTextCursor()
+                    cur.setPropertyValue("ParaAdjust", 2)  # BLOCK (justified)
+                    cur.setPropertyValue("CharHeight", 9.0)
+                    cur.setPropertyValue("CharWeight", 150.0)
+                    text.insertString(cur, "First", False)
+                    cur.setPropertyValue("CharWeight", 100.0)
+                    text.insertString(cur, " rest of clause", False)
+                    text.insertControlCharacter(cur, 0, False)
+                    text.insertString(cur, " TYPED", False)
+
+                    doc.setPropertyValue("RecordChanges", recording)
+                    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+                    um = doc.getUndoManager()
+
+                    p0 = _body_paras(doc)[0]
+                    snap_portions = _para_portion_snapshot(p0)
+                    snap_style = str(p0.getPropertyValue("ParaStyleName"))
+                    snap_adjust = int(p0.getPropertyValue("ParaAdjust"))
+                    snap_redlines = _redline_types(doc)
+                    snap_titles = tuple(um.getAllUndoActionTitles() or ())
+                    snap_rec = bool(doc.getPropertyValue("RecordChanges"))
+
+                    um.lock()
+                    try:
+                        res_locked = call_tool(tool_ctx)
+                    finally:
+                        um.unlock()
+                    assert res_locked["status"] == "error", (recording, kind, res_locked)
+                    assert res_locked["code"] == "UNDO_UNAVAILABLE", (recording, kind, res_locked)
+
+                    p0 = _body_paras(doc)[0]
+                    assert _para_portion_snapshot(p0) == snap_portions
+                    assert str(p0.getPropertyValue("ParaStyleName")) == snap_style
+                    assert int(p0.getPropertyValue("ParaAdjust")) == snap_adjust
+                    assert _redline_types(doc) == snap_redlines
+                    assert tuple(um.getAllUndoActionTitles() or ()) == snap_titles
+                    assert bool(doc.getPropertyValue("RecordChanges")) == snap_rec
+
+                    res_ok = call_tool(tool_ctx)
+                    assert res_ok["status"] == "ok", (recording, kind, res_ok)
+                    assert len(um.getAllUndoActionTitles() or ()) == len(snap_titles) + 1
+
+                    p0 = _body_paras(doc)[0]
+                    if kind == "apply_para":
+                        assert str(p0.getPropertyValue("ParaStyleName")) == "Heading 2"
+                    elif kind == "apply_char":
+                        assert any(cs == "Source Text" for _, _, _, cs in _para_portion_snapshot(p0))
+                    else:
+                        assert any(h == 20.0 for _, h, _, _ in _para_portion_snapshot(p0))
+                    if recording:
+                        assert doc.getRedlines().getCount() == 1
+
+                    um.undo()
+                    p0 = _body_paras(doc)[0]
+                    assert _para_portion_snapshot(p0) == snap_portions, (
+                        recording,
+                        kind,
+                        _para_portion_snapshot(p0),
+                        snap_portions,
+                    )
+                    assert str(p0.getPropertyValue("ParaStyleName")) == snap_style
+                    assert int(p0.getPropertyValue("ParaAdjust")) == snap_adjust
+
+                    um.undo()
+                    assert "TYPED" not in doc.getText().getString()
+                finally:
+                    doc.close(True)
+    finally:
+        save({"doc.agent_edit_review_mode": prev_review})
+
+
+@native_test
+def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
+    from plugin.framework.config import get_config, save
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    prev_review = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "contract.docx")
+            docx_url = uno.systemPathToFileUrl(docx_path)
+
+            src = desktop.loadComponentFromURL(
+                "private:factory/swriter", "_blank", 0, (create_property_value("Hidden", True),)
+            )
+            try:
+                text = src.getText()
+                cur = text.createTextCursor()
+                for idx, body in enumerate(("Clause one.", "Clause two target.", "Clause three.")):
+                    if idx > 0:
+                        text.insertControlCharacter(cur, 0, False)
+                    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+                    cur.setPropertyValue("ParaAdjust", 2)
+                    text.insertString(cur, body, False)
+
+                src.setPropertyValue("RecordChanges", True)
+                sd = src.createSearchDescriptor()
+                sd.SearchString = "one"
+                r1 = src.findFirst(sd)
+                r1.collapseToEnd()
+                text.insertString(r1, " inserted", False)
+
+                sd.SearchString = "three"
+                r3 = src.findFirst(sd)
+                r3.setString("revised")
+                src.setPropertyValue("RecordChanges", False)
+
+                src.storeToURL(docx_url, (create_property_value("FilterName", "MS Word 2007 XML"),))
+            finally:
+                src.close(True)
+
+            for recording in (False, True):
+                doc = desktop.loadComponentFromURL(
+                    docx_url, "_blank", 0, (create_property_value("Hidden", True),)
+                )
+                try:
+                    um = doc.getUndoManager()
+                    assert um.isLocked() is False
+                    doc.setPropertyValue("RecordChanges", recording)
+
+                    paras_before = _body_paras(doc)
+                    snap = [
+                        (
+                            str(p.getPropertyValue("ListLabelString")),
+                            int(p.getPropertyValue("ParaAdjust")),
+                            str(p.getPropertyValue("ParaStyleName")),
+                            _para_portion_snapshot(p),
+                        )
+                        for p in paras_before
+                    ]
+                    redlines_before = _redline_types(doc)
+                    assert "Insert" in redlines_before and "Delete" in redlines_before
+                    titles_before = tuple(um.getAllUndoActionTitles() or ())
+
+                    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+                    res = ApplyStyle().execute(
+                        tool_ctx, style="Heading 1", target="search", old_content="Clause two target."
+                    )
+                    assert res["status"] == "ok", res
+                    assert len(um.getAllUndoActionTitles() or ()) == len(titles_before) + 1
+
+                    p1_after = _body_paras(doc)[1]
+                    assert str(p1_after.getPropertyValue("ParaStyleName")) == "Heading 1"
+                    assert _para_portion_snapshot(p1_after) != snap[1][3]
+                    assert int(p1_after.getPropertyValue("ParaAdjust")) != snap[1][1]
+                    if recording:
+                        assert "ParagraphFormat" in _redline_types(doc)
+
+                    um.undo()
+                    paras_undone = _body_paras(doc)
+                    for idx, p in enumerate(paras_undone):
+                        got = (
+                            str(p.getPropertyValue("ListLabelString")),
+                            int(p.getPropertyValue("ParaAdjust")),
+                            str(p.getPropertyValue("ParaStyleName")),
+                            _para_portion_snapshot(p),
+                        )
+                        assert got == snap[idx], (recording, idx, got, snap[idx])
+                    redlines_undone = _redline_types(doc)
+                    assert "Insert" in redlines_undone and "Delete" in redlines_undone
+                finally:
+                    doc.close(True)
+    finally:
+        save({"doc.agent_edit_review_mode": prev_review})
+
