@@ -75,25 +75,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install LibreOffice and system tools (Ubuntu)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          # ubuntu-26.04 ships Chrome's apt source. Chrome's Packages.gz
-          # Hash-Sum-mismatches periodically (PR CI 34384169659) and fails
-          # apt before LibreOffice. This job never installs from that repo.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
-                     /etc/apt/sources.list.d/google-chrome.sources \
-                     /etc/apt/sources.list.d/google.list
-          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "20";
-          Acquire::https::Timeout "20";
-          Acquire::ftp::Timeout "20";
-          EOF
-
       - name: Install LibreOffice (Ubuntu apt cache)
         if: runner.os == 'Linux'
         timeout-minutes: 10
@@ -154,24 +135,20 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Resolve pinned opengrep metadata
-        id: opengrep_meta
-        run: python scripts/install_opengrep.py --github-output
-
-      - name: Cache opengrep binary
-        id: opengrep_cache
-        uses: actions/cache@v6
-        with:
-          path: ${{ steps.opengrep_meta.outputs.cache-path }}
-          key: opengrep-${{ runner.os }}-${{ runner.arch }}-${{ steps.opengrep_meta.outputs.sha256 }}
-
-      - name: Install opengrep
-        if: steps.opengrep_cache.outputs.cache-hit != 'true'
+      # Fatal on all OSes: make test-full runs opengrep-lint on all three runners.
+      - name: Install and verify opengrep
         timeout-minutes: 5
-        run: python scripts/install_opengrep.py
-
-      - name: Verify opengrep
-        run: opengrep --version
+        run: |
+          python scripts/install_opengrep.py
+          # Use the resolved binary path so verify checks the same executable typecheck runs.
+          og_path="$(python scripts/opengrep_path.py)"
+          ver="$("$og_path" --version)"
+          echo "$ver"
+          expected="$(python -c 'from scripts.install_opengrep import OPENGREP_VERSION; print(OPENGREP_VERSION.lstrip("v"))')"
+          case "$ver" in
+            *"$expected"*) ;;
+            *) echo "::error::Expected opengrep $expected, got: $ver"; exit 1 ;;
+          esac
 
       - name: Install Python dependencies
         run: |
@@ -336,22 +313,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Install LibreOffice and system tools (Ubuntu)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
-                     /etc/apt/sources.list.d/google-chrome.sources \
-                     /etc/apt/sources.list.d/google.list
-          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "20";
-          Acquire::https::Timeout "20";
-          Acquire::ftp::Timeout "20";
-          EOF
 
       - name: Install LibreOffice (Ubuntu apt cache)
         if: runner.os == 'Linux'

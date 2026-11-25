@@ -1,16 +1,43 @@
-"""Tests for scripts/install_opengrep.py."""
+"""Tests for scripts/install_opengrep.py and resolver parity."""
 
 from __future__ import annotations
 
 import hashlib
+import http.server
 import io
+import threading
+import urllib.error
 import zipfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
-from scripts import install_opengrep
+from scripts import install_opengrep, opengrep_path
+
+
+@contextmanager
+def _local_server(
+    handler_fn: Callable[[http.server.BaseHTTPRequestHandler], None],
+) -> Iterator[str]:
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            handler_fn(self)
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 @pytest.mark.parametrize(
@@ -32,99 +59,179 @@ def test_resolve_asset_supported_platforms(
     assert len(sha256) == 64
 
 
-def test_install_opengrep_posix_verifies_checksum_and_sets_executable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_install_opengrep_posix_and_resolver_agree(tmp_path: Path) -> None:
     payload = b"#!/bin/sh\necho opengrep\n"
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setitem(install_opengrep._ASSETS, ("Linux", "x86_64"), ("opengrep_linux_x86", digest))
+    assets = {("Linux", "x86_64"): ("opengrep_linux_x86", digest)}
 
-    def fake_download(url: str, dest: Path) -> str:
-        assert url.endswith(f"/{install_opengrep.OPENGREP_VERSION}/opengrep_linux_x86")
-        dest.write_bytes(payload)
-        return hashlib.sha256(payload).hexdigest()
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        assert req.path == f"/{install_opengrep.OPENGREP_VERSION}/opengrep_linux_x86"
+        req.send_response(200)
+        req.send_header("Content-Length", str(len(payload)))
+        req.end_headers()
+        req.wfile.write(payload)
 
-    monkeypatch.setattr(install_opengrep, "_download_with_sha256", fake_download)
-    exe = install_opengrep.install_opengrep(system="Linux", machine="x86_64", home=tmp_path)
+    with _local_server(handle) as base_url:
+        exe = install_opengrep.install_opengrep(
+            system="Linux",
+            machine="x86_64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
     assert exe == tmp_path / ".local" / "bin" / "opengrep"
     assert exe.read_bytes() == payload
     assert exe.stat().st_mode & 0o111
 
+    # Resolver must find the installed binary even when ~/.local/bin is not on PATH.
+    resolved = opengrep_path.resolve_opengrep(
+        repo_root=tmp_path / "empty-repo",
+        env={"HOME": str(tmp_path), "PATH": ""},
+        platform_name="linux",
+    )
+    assert resolved == exe
 
-def test_install_opengrep_windows_extracts_zip_and_verifies_checksum(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_install_opengrep_windows_extracts_zip(tmp_path: Path) -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("opengrep.exe", b"MZ-fake")
         zf.writestr("helper.dll", b"DLL-fake")
     archive_bytes = buf.getvalue()
     digest = hashlib.sha256(archive_bytes).hexdigest()
-    monkeypatch.setitem(
-        install_opengrep._ASSETS, ("Windows", "x86_64"), ("opengrep_windows_x86.zip", digest)
-    )
+    assets = {("Windows", "x86_64"): ("opengrep_windows_x86.zip", digest)}
 
-    def fake_download(_url: str, dest: Path) -> str:
-        dest.write_bytes(archive_bytes)
-        return hashlib.sha256(archive_bytes).hexdigest()
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        req.send_response(200)
+        req.send_header("Content-Length", str(len(archive_bytes)))
+        req.end_headers()
+        req.wfile.write(archive_bytes)
 
-    monkeypatch.setattr(install_opengrep, "_download_with_sha256", fake_download)
-    exe = install_opengrep.install_opengrep(system="Windows", machine="AMD64", home=tmp_path)
+    with _local_server(handle) as base_url:
+        exe = install_opengrep.install_opengrep(
+            system="Windows",
+            machine="AMD64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
     assert exe == tmp_path / ".opengrep" / "cli" / "latest" / "opengrep.exe"
     assert exe.read_bytes() == b"MZ-fake"
     assert (exe.parent / "helper.dll").read_bytes() == b"DLL-fake"
 
 
-def test_install_opengrep_rejects_bad_checksum(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        install_opengrep,
-        "_download_with_sha256",
-        lambda _url, dest: dest.write_bytes(b"corrupt") and "0" * 64 or "0" * 64,
-    )
-    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-        install_opengrep.install_opengrep(system="Linux", machine="x86_64", home=tmp_path)
+def test_install_opengrep_rejects_bad_checksum_and_cleans_up(tmp_path: Path) -> None:
+    payload = b"corrupt"
+    assets = {("Linux", "x86_64"): ("opengrep_linux_x86", "0" * 64)}
+
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        req.send_response(200)
+        req.send_header("Content-Length", str(len(payload)))
+        req.end_headers()
+        req.wfile.write(payload)
+
+    with _local_server(handle) as base_url, pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        install_opengrep.install_opengrep(
+            system="Linux",
+            machine="x86_64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
+    bin_dir = tmp_path / ".local" / "bin"
+    assert list(bin_dir.iterdir()) == []
 
 
-def test_install_opengrep_retries_transient_error(
+def test_install_opengrep_retries_short_body(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    payload = b"ok"
+    payload = b"complete-binary-payload"
     digest = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setitem(install_opengrep._ASSETS, ("Linux", "x86_64"), ("opengrep_linux_x86", digest))
+    assets = {("Linux", "x86_64"): ("opengrep_linux_x86", digest)}
     monkeypatch.setattr(install_opengrep.time, "sleep", lambda _s: None)
 
-    calls = 0
+    attempts = 0
 
-    def flaky_download(_url: str, dest: Path) -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise TimeoutError("timed out")
-        dest.write_bytes(payload)
-        return digest
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        nonlocal attempts
+        attempts += 1
+        req.send_response(200)
+        req.send_header("Content-Length", str(len(payload)))
+        req.end_headers()
+        if attempts == 1:
+            req.wfile.write(payload[:5])
+            req.close_connection = True
+            return
+        req.wfile.write(payload)
 
-    monkeypatch.setattr(install_opengrep, "_download_with_sha256", flaky_download)
-    exe = install_opengrep.install_opengrep(system="Linux", machine="x86_64", home=tmp_path)
-    assert calls == 2
-    assert exe.is_file()
+    with _local_server(handle) as base_url:
+        exe = install_opengrep.install_opengrep(
+            system="Linux",
+            machine="x86_64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
+    assert attempts == 2
+    assert exe.read_bytes() == payload
 
 
-def test_github_output_writes_metadata_and_path(
+def test_install_opengrep_retries_slow_stream(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    out_file = tmp_path / "gh_output"
-    path_file = tmp_path / "gh_path"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(out_file))
-    monkeypatch.setenv("GITHUB_PATH", str(path_file))
-    with mock.patch("platform.system", return_value="Darwin"), mock.patch(
-        "platform.machine", return_value="arm64"
-    ):
-        assert install_opengrep.main(["--github-output"]) == 0
+    payload = b"0123456789"
+    digest = hashlib.sha256(payload).hexdigest()
+    assets = {("Linux", "x86_64"): ("opengrep_linux_x86", digest)}
+    monkeypatch.setattr(install_opengrep.time, "sleep", lambda _s: None)
 
-    output_text = out_file.read_text(encoding="utf-8")
-    assert f"version={install_opengrep.OPENGREP_VERSION}" in output_text
-    assert "asset=opengrep_osx_arm64" in output_text
-    assert "sha256=" in output_text
-    assert path_file.read_text(encoding="utf-8").strip().endswith(".local/bin")
+    # First attempt: clock jumps 25s on the first chunk read so 10 B / 25s < 1 MB/s.
+    times = iter([0.0, 25.0, 25.0, 25.0])
+    monkeypatch.setattr(install_opengrep.time, "monotonic", lambda: next(times))
+
+    attempts = 0
+
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        nonlocal attempts
+        attempts += 1
+        req.send_response(200)
+        req.send_header("Content-Length", str(len(payload)))
+        req.end_headers()
+        req.wfile.write(payload)
+
+    with _local_server(handle) as base_url:
+        exe = install_opengrep.install_opengrep(
+            system="Linux",
+            machine="x86_64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
+    assert attempts == 2
+    assert exe.read_bytes() == payload
+
+
+def test_install_opengrep_fails_fast_on_404(tmp_path: Path) -> None:
+    assets = {("Linux", "x86_64"): ("opengrep_linux_x86", "0" * 64)}
+    attempts = 0
+
+    def handle(req: http.server.BaseHTTPRequestHandler) -> None:
+        nonlocal attempts
+        attempts += 1
+        req.send_response(404)
+        req.end_headers()
+
+    with _local_server(handle) as base_url, pytest.raises(urllib.error.HTTPError):
+        install_opengrep.install_opengrep(
+            system="Linux",
+            machine="x86_64",
+            home=tmp_path,
+            base_url=base_url,
+            assets=assets,
+        )
+
+    assert attempts == 1

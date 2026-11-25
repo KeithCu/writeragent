@@ -28,6 +28,22 @@ runs:
         restore-keys: |
           ${{ steps.lo_cache_key.outputs.restore-prefix }}
 
+    - name: Configure apt (Ubuntu)
+      shell: bash
+      run: |
+        # ubuntu-26.04 ships Chrome's apt source. Chrome's Packages.gz
+        # Hash-Sum-mismatches periodically (PR CI 34384169659) and fails
+        # apt before LibreOffice. This job never installs from that repo.
+        sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                   /etc/apt/sources.list.d/google-chrome.sources \
+                   /etc/apt/sources.list.d/google.list
+        sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
+        Acquire::Retries "3";
+        Acquire::http::Timeout "20";
+        Acquire::https::Timeout "20";
+        Acquire::ftp::Timeout "20";
+        EOF
+
     - name: apt-get install LibreOffice
       shell: bash
       env:
@@ -93,9 +109,9 @@ runs:
         fi
         soffice --version
 
-    # Seed the shared cache only on master/scheduled runs so PRs do not each upload ~287 MB.
+    # Seed the shared cache only on master runs so PRs do not each upload ~287 MB.
     - name: Save LibreOffice .deb cache
-      if: steps.lo_cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/master' || github.event_name == 'schedule')
+      if: steps.lo_cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
       uses: actions/cache/save@v6
       with:
         path: ~/apt-lo-debs
