@@ -208,7 +208,7 @@ def _resolve_save_target(
                 "SHEET_NOT_SUPPORTED",
                 "sheet applies only to .csv exports of a Calc document; omit it for this format.",
             )
-    else:
+    elif save:
         err = _sheet_required(doc, res)
         if err is not None:
             return err
@@ -413,7 +413,7 @@ class DocumentSave(ToolBase):
         f"Impress {_format_list('impress', save=True)}; "
         f"Draw {_format_list('draw', save=True)}. "
         ".txt, .csv and .html keep only part of the content and later saves stay in that format; use document_export for a copy. "
-        "A workbook with several sheets cannot be saved as .csv: use document_export with sheet. "
+        "A workbook with several sheets cannot be saved as .csv: use document_export (pass sheet, or omit it for the active sheet). "
         "An existing file is overwritten. PDF and images are export-only: use document_export."
     )
     tier: str = "mcp"
@@ -502,7 +502,7 @@ class DocumentExport(ToolBase):
             },
             "sheet": {
                 "type": "string",
-                "description": "Calc .csv only: name of the sheet to export. Required when the workbook has more than one sheet.",
+                "description": "Calc .csv only: name of the sheet to export (active sheet if omitted).",
             },
         },
         "required": ["path"],
@@ -529,15 +529,21 @@ class DocumentExport(ToolBase):
                 code="PATH_IS_OPEN",
             )
 
+        exported_sheet_name: str | None = None
+        exported_sheet_index: int | None = None
         sheet_number: int | None = None
-        if sheet is not None:
+        if filter_name == _CSV_FILTER:
             # _export_sheet_csv copies the file itself, so LibreOffice does not check the target's lock.
             locked = _lock_refusal(path)
             if locked is not None:
                 return self._tool_error(locked.message, code=locked.code)
             # Keep outside the try block so UnoObjectError (with available and similar sheet names)
             # reaches execute_safe instead of becoming EXPORT_FAILED.
-            sheet_number = CalcBridge(doc).get_sheet(sheet).getRangeAddress().Sheet + 1
+            sheet_obj = CalcBridge(doc).sheet_or_active(sheet)
+            sheet_idx = int(sheet_obj.getRangeAddress().Sheet)
+            exported_sheet_index = sheet_idx
+            exported_sheet_name = sheet_obj.getName()
+            sheet_number = sheet_idx + 1
 
         prompts = _AbortPrompts()
         try:
@@ -556,4 +562,12 @@ class DocumentExport(ToolBase):
                 raise
             failure = _save_failure(prompts, exc, path, "EXPORT_FAILED")
             return self._tool_error(failure.message, code=failure.code)
-        return {"status": "ok", "path": path, "url": url, "document": document_entry(doc)}
+        result: dict[str, Any] = {"status": "ok", "path": path, "url": url, "document": document_entry(doc)}
+        if exported_sheet_name is not None:
+            result["sheet"] = exported_sheet_name
+            result["sheet_index"] = exported_sheet_index
+            which = "active sheet" if sheet is None else "sheet"
+            result["message"] = (
+                f"Exported {which} '{exported_sheet_name}' (index {exported_sheet_index}) to {path}."
+            )
+        return result

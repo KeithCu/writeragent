@@ -259,9 +259,24 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
         out2 = os.path.join(tmp_dir, "out2.csv")
         res2 = DocumentExport().execute(tool_ctx, path=out2, sheet="Q1 2026 é")
         assert res2["status"] == "ok", res2
+        assert res2["sheet"] == "Q1 2026 é"
+        assert res2["sheet_index"] == 1
         assert os.path.isfile(out2)
         with open(out2, encoding="utf-8") as f:
             assert f.read().replace("\r\n", "\n") == "second-é\n"
+
+        # Omitting sheet on a multi-sheet workbook exports the active sheet and names it.
+        doc.getCurrentController().setActiveSheet(s2)
+        out_active = os.path.join(tmp_dir, "active.csv")
+        res_active = DocumentExport().execute(tool_ctx, path=out_active)
+        assert res_active["status"] == "ok", res_active
+        assert res_active["sheet"] == "Q1 2026 é"
+        assert res_active["sheet_index"] == 1
+        assert "Q1 2026 é" in res_active["message"]
+        assert "1" in res_active["message"]
+        with open(out_active, encoding="utf-8") as f:
+            assert f.read().replace("\r\n", "\n") == "second-é\n"
+        doc.getCurrentController().setActiveSheet(s1)
 
         out3 = os.path.join(tmp_dir, "out3.csv")
         res3 = DocumentExport().execute(tool_ctx, path=out3, sheet="HiddenSheet")

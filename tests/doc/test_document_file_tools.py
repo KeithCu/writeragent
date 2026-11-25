@@ -345,22 +345,38 @@ def _make_calc_doc(sheet_names: tuple[str, ...], *, filter_name: str = "calc8"):
     return doc
 
 
-def test_multisheet_csv_refuses_save_and_export_without_sheet(tmp_path):
+def test_multisheet_csv_save_refuses_and_export_uses_active_sheet(tmp_path):
     doc = _make_calc_doc(("Summary", "_hidden", "Detail"))
+    active_sheet = MagicMock()
+    active_sheet.getName.return_value = "Detail"
+    active_sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=2)
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active_sheet
+
     csv_path = tmp_path / "out.csv"
-    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC):
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools._export_sheet_csv") as mock_export:
         res_save = DocumentSave().execute(_make_ctx(doc), path=str(csv_path))
         res_export = DocumentExport().execute(_make_ctx(doc), path=str(csv_path))
         res_empty_sheet = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="  ")
 
-    for res in (res_save, res_export, res_empty_sheet):
-        assert res["status"] == "error"
-        assert res["code"] == "SHEET_REQUIRED"
-        assert "3" in res["message"]
-        assert "Summary" in res["message"]
-        assert "Detail" in res["message"]
-        assert "_hidden" not in res["message"]
+    assert res_save["status"] == "error"
+    assert res_save["code"] == "SHEET_REQUIRED"
+    assert "3" in res_save["message"]
+    assert "Summary" in res_save["message"]
+    assert "Detail" in res_save["message"]
+    assert "_hidden" not in res_save["message"]
     doc.storeAsURL.assert_not_called()
+
+    assert mock_export.call_count == 2
+    for call in mock_export.call_args_list:
+        assert call.args == (doc, 3, str(csv_path))
+    for res in (res_export, res_empty_sheet):
+        assert res["status"] == "ok"
+        assert res["sheet"] == "Detail"
+        assert res["sheet_index"] == 2
+        assert "Detail" in res["message"]
+        assert "2" in res["message"]
     doc.storeToURL.assert_not_called()
 
 
