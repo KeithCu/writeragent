@@ -64,3 +64,19 @@ def test_ubuntu_ci_installs_libreoffice_dev_for_rdb_core() -> None:
     assert cache_pkgs.split() == install_pkgs.split()
     _linux_jobs_use_ubuntu_lo_composite(_WORKFLOW)
     _linux_jobs_use_ubuntu_lo_composite(_RELEASE_VERIFY)
+
+
+def test_ubuntu_lo_cache_uses_v6_and_only_seeds_on_master() -> None:
+    data = yaml.safe_load(_UBUNTU_LO_APT_ACTION.read_text(encoding="utf-8"))
+    steps = data["runs"]["steps"]
+    restore_step = next(s for s in steps if s.get("name") == "Restore LibreOffice .deb cache")
+    save_step = next(s for s in steps if s.get("name") == "Save LibreOffice .deb cache")
+    assert restore_step["uses"] == "actions/cache/restore@v6"
+    assert save_step["uses"] == "actions/cache/save@v6"
+    assert (
+        save_step["if"]
+        == "steps.lo_cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'"
+    )
+
+    for yml_path in (_REPO_ROOT / ".github").rglob("*.yml"):
+        assert "actions/cache@v4" not in yml_path.read_text(encoding="utf-8"), yml_path
