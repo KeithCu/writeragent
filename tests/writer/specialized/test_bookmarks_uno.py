@@ -286,7 +286,11 @@ def test_bookmark_create_spans_pinned_selection_uno(ctx, doc):
     from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.specialized.bookmarks import BookmarkCreate
 
-    doc.getText().setString("Alpha beta gamma\nSecond para")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
     sd = doc.createSearchDescriptor()
     sd.SearchString = "beta"
     found = doc.findFirst(sd)

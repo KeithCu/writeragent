@@ -726,7 +726,7 @@ def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
     tool = FormGenerate()
     # Interleaved Draw text (h=1000) and control (h=600)
     content = "Label 1 {FIELD:control='text' name='c1'}"
-    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock(), selection_pin=None), content)
+    res = tool._process_form_content(SimpleNamespace(doc=doc, ctx=MagicMock()), content)
     assert res["status"] == "ok"
 
     # Label text placed first: Y = 1200 (h=1000)

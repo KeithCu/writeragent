@@ -453,11 +453,17 @@ def test_form_create_uses_pinned_caret_uno(ctx, doc):
     assert set(shapes) >= {"f1", "f2"}
     a1 = shapes["f1"].getAnchor()
     a2 = shapes["f2"].getAnchor()
+    before_f1 = text.createTextCursorByRange(a1.getStart())
+    before_f1.gotoStart(True)
+    assert before_f1.getString() == "Alpha "
     assert text.compareRegionStarts(a1.getStart(), a2.getStart()) > 0
     between = text.createTextCursorByRange(a1.getEnd())
     between.gotoRange(a2.getStart(), True)
     assert between.getString() == " "
-    assert text.getString().replace("\r\n", "\n").replace("\r", "\n").endswith("beta gamma\nSecond para")
+    after_f2 = text.createTextCursorByRange(a2.getEnd())
+    after_f2.gotoEnd(True)
+    after_f2_text = after_f2.getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert after_f2_text == " beta gamma\nSecond para", repr(after_f2_text)
 
 
 @native_test
@@ -488,14 +494,19 @@ def test_form_generate_uses_pinned_caret_uno(ctx, doc):
     assert res["status"] == "ok", res
 
     dp = doc.getDrawPage()
-    names = [dp.getByIndex(i).Name for i in range(dp.getCount())]
-    assert "g1" in names and "g2" in names
-    body = text.getString().replace("\r\n", "\n").replace("\r", "\n")
-    assert "Alpha Title" in body
-    assert "Name: " in body
-    assert "Agree " in body
-    assert "tail" in body
-    assert body.endswith("beta gamma\nSecond para")
+    shapes = {dp.getByIndex(i).Name: dp.getByIndex(i) for i in range(dp.getCount())}
+    assert {"g1", "g2"} <= set(shapes)
+    g1_anchor = shapes["g1"].getAnchor()
+    g2_anchor = shapes["g2"].getAnchor()
+    before_g1 = text.createTextCursorByRange(g1_anchor.getStart())
+    before_g1.gotoStart(True)
+    assert before_g1.getString().replace("\r\n", "\n").replace("\r", "\n") == "Alpha Title\nName: "
+    between_g = text.createTextCursorByRange(g1_anchor.getEnd())
+    between_g.gotoRange(g2_anchor.getStart(), True)
+    assert between_g.getString() == "Agree "
+    after_g2 = text.createTextCursorByRange(g2_anchor.getEnd())
+    after_g2.gotoEnd(True)
+    assert after_g2.getString().replace("\r\n", "\n").replace("\r", "\n") == "tail\nbeta gamma\nSecond para"
 
 
 @native_test
@@ -553,9 +564,9 @@ def test_form_generate_recorded_over_selection_keeps_text_uno(ctx, doc):
         assert res["status"] == "ok", res
         assert "Name:" in text.getString()
 
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        frame = doc.getCurrentController().getFrame()
-        helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+        from plugin.framework.uno_context import execute_dispatch
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         accepted = text.getString()
         assert "beta" not in accepted
         assert "Name:" in accepted

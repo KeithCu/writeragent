@@ -521,6 +521,8 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             result["pending_review"] = True
         return result
 
+    except ToolExecutionError as exc:
+        return format_error_payload(exc)
     except Exception as e:
         if is_disposal(e):
             raise

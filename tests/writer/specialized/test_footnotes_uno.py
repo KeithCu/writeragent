@@ -143,7 +143,10 @@ def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
     from plugin.writer.specialized.footnotes import FootnotesInsert
 
     text = doc.getText()
-    text.setString("Alpha beta gamma\nSecond para")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
     sd = doc.createSearchDescriptor()
     sd.SearchString = "beta"
     found = doc.findFirst(sd)
