@@ -750,8 +750,9 @@ def test_row_delete_through_spill_body_keeps_shifted_user_data_uno(ctx, doc):
         perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
         assert sheet.getCellByPosition(0, 2).getValue() == 999.0
 
-        # Modify pass shrinks the record to surviving (2, 1) without clearing A3.
+        # Blocked release already cleared A2 and set the record to 1 x 1; modify pass keeps it 1 x 1 and preserves A3.
         flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
         assert sheet.getCellByPosition(0, 2).getValue() == 999.0
 
         # A 2-row result fits in the surviving rows and preserves A3.
@@ -824,7 +825,45 @@ def test_row_delete_shifts_dependent_user_formula_into_spill_body_uno(ctx, doc):
         )
         assert res == "#SPILL!"
         st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        doc.calculate()
+        assert sheet.getCellByPosition(0, 0).getError() == 0
+        assert sheet.getCellByPosition(0, 2).getError() == 0
         assert sheet.getCellByPosition(0, 2).getFormula() == "=A1*2"
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_row_delete_shifts_constant_and_formula_keeps_constant_after_formula_cleared_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3, 4]"
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3], [4]], doc=doc, sheet=sheet, code=code, key=key)
+        sheet.getCellByPosition(0, 4).setValue(999.0)
+        sheet.getCellByPosition(0, 5).setFormula("=SUM(D1:D9)")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        # Delete rows 2-3: A5 (999.0) shifts to A3 and A6 (=SUM(D1:D9)) shifts to A4.
+        sheet.getRows().removeByIndex(1, 2)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (2, 1)
+
+        # User clears the shifted-in formula at A4; A3 (999.0) is outside the shrunk record.
+        sheet.getCellByPosition(0, 3).setFormula("")
+        sheet.getCellByPosition(0, 3).setString("")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        perform_deferred_spill(sheet_name, 0, 0, [[10], [20], [30], [40]], doc=doc, sheet=sheet, code=code, key=key)
+        assert sheet.getCellByPosition(0, 2).getValue() == 999.0
     finally:
         WorkbookState.forget_key(key)
 

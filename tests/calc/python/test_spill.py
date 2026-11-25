@@ -1917,6 +1917,10 @@ def test_respill_after_code_edit_takes_over_unchanged_rect(monkeypatch: pytest.M
         (3, 1, "", (-1, 0), (3.0, 99.0), (2, 1)),
         (3, 1, "", (-1, 0), (88.0, 99.0), (1, 1)),
         (3, 1, "", (-1, 0), None, (3, 1)),
+        # Deletion running past the bottom still owns the matching prefix.
+        (10, 1, "", (-4, 0), (2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 99.0, 0.0), (8, 1)),
+        # Deleting a row that also held the sheet's rightmost cell shrinks only rows for a 1-col spill.
+        (3, 1, "", (-1, -2), (3.0, 99.0), (2, 1)),
         # Typed-over values at delta (0, 0) are deliberately still owned (#3940).
         (2, 1, "", (0, 0), (99.0,), (2, 1)),
     ],
@@ -2015,3 +2019,50 @@ def test_prepare_auto_spill_after_code_edit_before_modify_pass(monkeypatch: pyte
     assert st.spills[("Sheet1", 0, 0)].code == "new"
     assert sheet.getCellByPosition(0, 1).getValue() == 20.0
     assert sheet.getCellByPosition(0, 2).getType() == _spill.EMPTY
+
+
+def test_owned_rect_does_not_read_values_when_user_formula_inside(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    rec = _seen_record(sheet, 0, 0, "x", 2, 1)
+    sheet.getCellByPosition(0, 1).setFormula("=A1*2")
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("_rect_values must not be called when a user formula is inside")
+
+    monkeypatch.setattr(_spill, "_rect_values", _boom)
+    assert _spill._owned_rect(sheet, 0, 0, rec, (-1, 0)) == (0, 0)
+
+
+def test_owned_rect_10000_row_linear_match() -> None:
+    n = 10000
+    old_col = tuple((float(r),) for r in range(1, n))
+    cur_rows = list(range(1, n - 5)) + list(range(n - 4, n)) + [99999]
+    cur_col = tuple((float(v),) for v in cur_rows)
+    rec = _spill.SpillRecord(code="x", rows=n, cols=1, values=(old_col,))
+
+    class _FastRange:
+        def __init__(self, data: tuple[Any, ...]) -> None:
+            self._data = data
+
+        def getDataArray(self) -> tuple[Any, ...]:
+            return self._data
+
+    class _FastSheet:
+        def getCellRangeByPosition(self, *_args: Any) -> _FastRange:
+            return _FastRange(cur_col)
+
+        def queryContentCells(self, *_args: Any) -> Any:
+            return self
+
+        def getRangeAddresses(self) -> tuple[Any, ...]:
+            return ()
+
+    class _FastSheetWithQuery(_FastSheet):
+        def getCellRangeByPosition(self, *_args: Any) -> Any:
+            return _FastRange(cur_col) if len(_args) == 4 and _args[1] == 1 else self
+
+    assert _spill._owned_rect(_FastSheetWithQuery(), 0, 0, rec, (-1, 0)) == (n - 1, 1)

@@ -203,38 +203,70 @@ def _surviving_shape(
         return (1, 1)
     old_grid = _snapshot_grid(record.values, record.rows, record.cols)
     cur_grid = _snapshot_grid(current, record.rows, record.cols)
+    rows, cols = record.rows, record.cols
 
-    def _matches(rem_rows: list[int], rem_cols: list[int]) -> bool:
-        for r_idx, old_r in enumerate(rem_rows):
-            for c_idx, old_c in enumerate(rem_cols):
-                if (r_idx, c_idx) == (0, 0):
-                    continue
-                new_val = cur_grid[r_idx][c_idx]
-                if new_val != "" and new_val != old_grid[old_r][old_c]:
-                    return False
-        return True
+    def _cell_ok(r_cur: int, c_cur: int, r_old: int, c_old: int) -> bool:
+        new_val = cur_grid[r_cur][c_cur]
+        return new_val == "" or new_val == old_grid[r_old][c_old]
 
-    if _matches(list(range(record.rows)), list(range(record.cols))):
-        return (record.rows, record.cols)
+    def _surviving_rows(del_rows: int, use_cols: int) -> tuple[int, bool]:
+        if use_cols > 1 and any(not _cell_ok(0, c, 0, c) for c in range(1, use_cols)):
+            return (1, False)
+        prefix = 1
+        for r in range(1, rows):
+            if all(_cell_ok(r, c, r, c) for c in range(use_cols)):
+                prefix = r + 1
+            else:
+                break
+        surv = rows - del_rows
+        if surv >= 1 and prefix <= surv:
+            if all(_cell_ok(r, c, r + del_rows, c) for r in range(prefix, surv) for c in range(use_cols)):
+                return (surv, True)
+        if surv >= 1 and prefix >= surv:
+            return (prefix, True)
+        return (prefix, False)
+
+    def _surviving_cols(del_cols: int, use_rows: int) -> tuple[int, bool]:
+        if use_rows > 1 and any(not _cell_ok(r, 0, r, 0) for r in range(1, use_rows)):
+            return (1, False)
+        prefix = 1
+        for c in range(1, cols):
+            if all(_cell_ok(r, c, r, c) for r in range(use_rows) if (r, c) != (0, 0)):
+                prefix = c + 1
+            else:
+                break
+        surv = cols - del_cols
+        if surv >= 1 and prefix <= surv:
+            if all(
+                _cell_ok(r, c, r, c + del_cols)
+                for c in range(prefix, surv)
+                for r in range(use_rows)
+                if (r, c) != (0, 0)
+            ):
+                return (surv, True)
+        if surv >= 1 and prefix >= surv:
+            return (prefix, True)
+        return (prefix, False)
+
+    if all(_cell_ok(r, c, r, c) for r in range(rows) for c in range(cols) if (r, c) != (0, 0)):
+        return (rows, cols)
 
     del_rows = max(0, -delta[0])
     del_cols = max(0, -delta[1])
-    surv_rows = record.rows - del_rows
-    surv_cols = record.cols - del_cols
-    if surv_rows < 1 or surv_cols < 1 or (surv_rows == 1 and surv_cols == 1):
-        return (1, 1)
+    if del_rows > 0 and del_cols == 0:
+        return (_surviving_rows(del_rows, cols)[0], cols)
+    if del_cols > 0 and del_rows == 0:
+        return (rows, _surviving_cols(del_cols, rows)[0])
 
-    row_starts = range(1, surv_rows + 1) if del_rows > 0 else (0,)
-    col_starts = range(1, surv_cols + 1) if del_cols > 0 else (0,)
-    all_rows = list(range(record.rows))
-    all_cols = list(range(record.cols))
-    for kr in row_starts:
-        rem_r = all_rows[:kr] + all_rows[kr + del_rows :] if del_rows > 0 else all_rows
-        for kc in col_starts:
-            rem_c = all_cols[:kc] + all_cols[kc + del_cols :] if del_cols > 0 else all_cols
-            if _matches(rem_r, rem_c):
-                return (surv_rows, surv_cols)
-    return (1, 1)
+    # Both axes shrank (for example deleting a row that also held the rightmost cell):
+    # try each axis alone before shrinking both.
+    sr, row_matched = _surviving_rows(del_rows, cols)
+    if row_matched:
+        return (sr, cols)
+    sc, col_matched = _surviving_cols(del_cols, rows)
+    if col_matched:
+        return (rows, sc)
+    return (sr, _surviving_cols(del_cols, sr)[0])
 
 
 def _owned_rect(
@@ -346,11 +378,15 @@ def cleanup_orphans(
                     continue
                 try:
                     if _origin_matches_record(sheet, frow, fcol, record):
-                        owned = _owned_rect(sheet, frow, fcol, record, delta)
-                        if owned != (0, 0) and owned != (record.rows, record.cols):
-                            to_shrink.append(((sheet_name, frow, fcol), owned))
-                        elif owned != (0, 0):
-                            record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
+                        if record.rows * record.cols > 1:
+                            # cleanup_orphans runs outside interpretation, so shrink even when a
+                            # user formula is inside; otherwise advancing used_ends would lose the
+                            # negative delta before the user clears that formula.
+                            surv = _surviving_shape(sheet, frow, fcol, record, delta)
+                            if surv != (record.rows, record.cols):
+                                to_shrink.append(((sheet_name, frow, fcol), surv))
+                            else:
+                                record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
                         continue
 
                     cell = sheet.getCellByPosition(fcol, frow)
@@ -695,24 +731,14 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
-                # The modify pass may still be waiting: remap any moved record, shrink any record
-                # whose snapshot changed after a row/column delete, and clear or drop any foreign
-                # record before this write decides what it owns.
+                # The modify pass may still be waiting: remap any moved record and clear or drop
+                # any record whose formula is no longer at this origin before this write decides
+                # what it owns.
                 previous_record = state.spills.get(reg_key)
-                delta = _used_end_delta(state, sheet, sheet_name)
                 foreign = previous_record is not None and not _origin_matches_record(
                     sheet, formula_row, formula_col, previous_record
                 )
-                shrunk = (
-                    previous_record is not None
-                    and _owned_rect(sheet, formula_row, formula_col, previous_record, delta)
-                    not in ((0, 0), (previous_record.rows, previous_record.cols))
-                )
-                if (
-                    foreign
-                    or shrunk
-                    or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None
-                ):
+                if foreign or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
@@ -841,7 +867,7 @@ def _spill_is_blocked(
     previous_record: SpillRecord | None,
     delta: tuple[int, int] | None,
 ) -> bool:
-    """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``previous_record``, or holds a user formula."""
+    """Return True and record diagnostics if any target cell is out of bounds, occupied outside the owned part of ``previous_record``, or holds a user formula."""
     if previous_record is not None and previous_record.rows * previous_record.cols > 1:
         blocker = _user_formula_in_rect(sheet, row, col, previous_record.rows, previous_record.cols)
         if blocker is not None:
