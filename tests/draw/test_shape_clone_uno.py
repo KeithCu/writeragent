@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.draw import shape_clone
 from plugin.draw.shape_clone import clone_shape
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
@@ -31,3 +32,40 @@ def test_shape_graphic_fallback_and_clone(ctx: Any, doc: Any) -> None:
     page.add(graphic_shape)
     cloned_graphic = clone_shape(doc, page, graphic_shape, uno_ctx=None)
     assert cloned_graphic.reimported is False
+
+
+@native_test
+@with_native_doc("impress")
+def test_clone_shape_removes_partial_clone_on_failure(ctx: Any, doc: Any) -> None:
+    pages = doc.getDrawPages()
+    page = pages.getByIndex(0)
+
+    rect = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    page.add(rect)
+    group = doc.createInstance("com.sun.star.drawing.GroupShape")
+    page.add(group)
+    child = doc.createInstance("com.sun.star.drawing.RectangleShape")
+    group.add(child)
+
+    orig_copy_prop = shape_clone.copy_prop
+
+    def fail_on_position(dest: Any, src: Any, prop: str) -> str:
+        if prop == "Position":
+            raise RuntimeError("injected Position failure")
+        return orig_copy_prop(dest, src, prop)
+
+    shape_clone.copy_prop = fail_on_position
+    try:
+        for label, target in (("rect", rect), ("group", group)):
+            count_before = page.getCount()
+            caught: RuntimeError | None = None
+            try:
+                clone_shape(doc, page, target, uno_ctx=ctx)
+            except RuntimeError as exc:
+                caught = exc
+            if caught is None:
+                raise AssertionError(f"expected RuntimeError for {label}")
+            assert "injected Position failure" in str(caught), f"unexpected error for {label}: {caught}"
+            assert page.getCount() == count_before
+    finally:
+        shape_clone.copy_prop = orig_copy_prop

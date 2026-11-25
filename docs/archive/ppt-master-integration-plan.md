@@ -338,7 +338,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance (host UNO) |
 | Main PPTX → ODP export | Shipped | [`client.py`](../plugin/ppt_master/client.py) (`export_project_to_doc`) + [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) |
 | PPTX auto-build from SVG | Shipped | User venv runs upstream `svg_to_pptx.py` when `exports/*.pptx` missing |
-| Shape copy on import | Shipped | [`uno_pptx_import.copy_shapes_to_page`](../plugin/ppt_master/adapter/uno_pptx_import.py) — clone + text props; pictures reimported via GraphicProvider (hidden pool is not aliased). A copy that returns no shapes leaves the target slide's previous shapes in place. |
+| Shape copy on import | Shipped | [`uno_pptx_import.copy_shapes_to_page`](../plugin/ppt_master/adapter/uno_pptx_import.py) — clone + text props; pictures reimported via GraphicProvider (hidden pool is not aliased). A copy that returns no shapes leaves the target slide's previous shapes in place. A source shape that fails part way is removed from the slide. |
 | Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `uno_pptx_import._apply_target_page_size` after that slide's copy succeeds |
 | Multi-slide UNO tests | Shipped | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) — 3-slide fixture |
 | Import fidelity script | Shipped | PPTX vs ODP PDF diff per slide |
