@@ -17,6 +17,7 @@ Topic docs: [docs/writer/math-tex.md](../../docs/writer/math-tex.md),
 [docs/writer/bibliography-via-indexes.md](../../docs/writer/bibliography-via-indexes.md),
 [docs/writer/llm-styles.md](../../docs/writer/llm-styles.md),
 [docs/writer/reviewable-agent-edits.md](../../docs/writer/reviewable-agent-edits.md),
-[docs/writer/lo-dom-semantic-tree.md](../../docs/writer/lo-dom-semantic-tree.md).
+[docs/writer/lo-dom-semantic-tree.md](../../docs/writer/lo-dom-semantic-tree.md),
+[docs/writer/real-document-corpus.md](../../docs/writer/real-document-corpus.md).
 
 
