@@ -1909,42 +1909,40 @@ def test_respill_after_code_edit_takes_over_unchanged_rect(monkeypatch: pytest.M
 
 
 @pytest.mark.parametrize(
-    ("rows", "cols", "origin_formula", "neighbour_formula", "delta", "changed_val", "require_origin", "expected"),
+    ("rows", "cols", "neighbour_formula", "delta", "values_override", "expected"),
     [
-        (1, 1, '=PY("x")', "", (0, 0), None, True, False),
-        (2, 1, '=PY("other")', "", (0, 0), None, True, False),
-        (2, 1, '=PY("other")', "", (0, 0), None, False, True),
-        (2, 1, '=PY("x")', "=SUM(1)", (0, 0), None, True, False),
-        (2, 1, '=PY("x")', "=#ERR519!", (0, 0), None, True, True),
-        (2, 1, '=PY("x")', "", (-1, 0), 99.0, True, False),
-        (2, 1, '=PY("x")', "", (0, -1), 99.0, True, False),
-        (2, 1, '=PY("x")', "", (-1, 0), None, True, True),
-        (2, 1, '=PY("x")', "", (0, 0), 99.0, True, True),
+        (1, 1, "", (0, 0), None, (0, 0)),
+        (2, 1, "=SUM(1)", (0, 0), None, (0, 0)),
+        (2, 1, "=#ERR519!", (0, 0), None, (2, 1)),
+        (3, 1, "", (-1, 0), (3.0, 99.0), (2, 1)),
+        (3, 1, "", (-1, 0), (88.0, 99.0), (1, 1)),
+        (3, 1, "", (-1, 0), None, (3, 1)),
+        # Typed-over values at delta (0, 0) are deliberately still owned (#3940).
+        (2, 1, "", (0, 0), (99.0,), (2, 1)),
     ],
 )
-def test_owns_spill_rect_rules(
+def test_owned_rect_rules(
     rows: int,
     cols: int,
-    origin_formula: str,
     neighbour_formula: str,
     delta: tuple[int, int],
-    changed_val: float | None,
-    require_origin: bool,
-    expected: bool,
+    values_override: tuple[float, ...] | None,
+    expected: tuple[int, int],
 ) -> None:
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub("Sheet1")
-    sheet.getCellByPosition(0, 0).setFormula(origin_formula)
-    sheet.getCellByPosition(0, 1).setValue(2.0)
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
+    for r in range(1, rows):
+        sheet.getCellByPosition(0, r).setValue(float(r + 1))
     rec = _seen_record(sheet, 0, 0, "x", rows, cols) if rows * cols > 1 else _spill.SpillRecord(code="x", rows=1, cols=1)
     if neighbour_formula:
         sheet.getCellByPosition(0, 1).setFormula(neighbour_formula)
-        rec = _spill.SpillRecord(code="x", rows=rows, cols=cols, values=(((2.0,),),))
-    elif changed_val is not None:
-        sheet.getCellByPosition(0, 1).setValue(changed_val)
+    elif values_override is not None:
+        for idx, val in enumerate(values_override, start=1):
+            sheet.getCellByPosition(0, idx).setValue(val)
 
-    assert _spill._owns_spill_rect(sheet, 0, 0, rec, delta, require_origin_match=require_origin) is expected
+    assert _spill._owned_rect(sheet, 0, 0, rec, delta) == expected
 
 
 def test_cleanup_orphans_shrinks_record_on_negative_delta_with_changed_values(
@@ -1965,12 +1963,55 @@ def test_cleanup_orphans_shrinks_record_on_negative_delta_with_changed_values(
     SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)] = _seen_record(sheet, 0, 0, "x", 3, 1)
     st.used_ends["Sheet1"] = (3, 0)
 
-    # Simulate a row delete shifting user value 99 into A3 (used_end 3 -> 2).
+    # Simulate a row delete of row 2 shifting user value 99 into A3 (used_end 3 -> 2):
+    # A1:A2 survives as (2, 1), A3 (99) is outside the shrunk record.
     sheet.getCellByPosition(0, 1).setValue(3.0)
     sheet.getCellByPosition(0, 2).setValue(99.0)
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
     rec = SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)]
-    assert (rec.rows, rec.cols) == (1, 1)
+    assert (rec.rows, rec.cols) == (2, 1)
+    assert rec.values == (((3.0,),),)
     assert sheet.getCellByPosition(0, 1).getValue() == 3.0
     assert sheet.getCellByPosition(0, 2).getValue() == 99.0
+
+    # When no contiguous surviving run matches, fall back to (1, 1).
+    sheet.getCellByPosition(0, 1).setValue(88.0)
+    st.used_ends["Sheet1"] = (3, 0)
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+    rec2 = SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)]
+    assert (rec2.rows, rec2.cols) == (1, 1)
+
+
+def test_prepare_auto_spill_after_code_edit_before_modify_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda _d, _st: None)
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///code-edit-prep.ods")
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("old")')
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    sheet.getCellByPosition(0, 2).setValue(3.0)
+    st.spills[("Sheet1", 0, 0)] = _seen_record(sheet, 0, 0, "old", 3, 1)
+    st.used_ends["Sheet1"] = _spill._used_end(sheet)
+
+    origin_cell.setFormula('=PY("new")')
+    prepared = _spill.prepare_auto_spill(
+        _ctx_with_doc(doc), doc, st, FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0), "new", [[10], [20], [30]]
+    )
+    assert isinstance(prepared, _spill.PreparedSpill)
+
+    # Also cover the "keep" path (code edit + positive used-area growth) through perform_deferred_spill.
+    sheet.getCellByPosition(0, 5).setValue(1.0)
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+    assert ("Sheet1", 0, 0) in st.spills and st.spills[("Sheet1", 0, 0)].code == "old"
+    _spill.perform_deferred_spill("Sheet1", 0, 0, [[10], [20]], doc=doc, sheet=sheet, code="new", key=st.key)
+    assert st.spills[("Sheet1", 0, 0)].code == "new"
+    assert sheet.getCellByPosition(0, 1).getValue() == 20.0
+    assert sheet.getCellByPosition(0, 2).getType() == _spill.EMPTY

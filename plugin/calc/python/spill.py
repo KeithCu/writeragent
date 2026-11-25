@@ -171,43 +171,87 @@ def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool
     )
 
 
-def _shrunk_by_delete(
+def _snapshot_grid(values: tuple[Any, ...], rows: int, cols: int) -> list[list[Any]]:
+    """Expand a ``_rect_values`` tuple into a ``rows x cols`` grid (origin ``[0][0]`` unused)."""
+    grid: list[list[Any]] = [[None] * cols for _ in range(rows)]
+    idx = 0
+    if cols > 1:
+        grid[0][1:] = list(values[idx][0])
+        idx += 1
+    if rows > 1:
+        for r_idx, row_vals in enumerate(values[idx], start=1):
+            grid[r_idx][:] = list(row_vals)
+    return grid
+
+
+def _surviving_shape(
+    sheet: Any,
+    row: int,
+    col: int,
+    record: SpillRecord,
+    delta: tuple[int, int] | None,
+) -> tuple[int, int]:
+    """Return the ``(rows, cols)`` of ``record`` that still belong to it after ``delta``.
+
+    Only a negative used-area delta triggers shrinking: a row or column delete pulls user cells
+    into the old rectangle, whereas typed-over values at delta (0, 0) are deliberately still ours.
+    """
+    if delta is None or (delta[0] >= 0 and delta[1] >= 0) or record.values is None:
+        return (record.rows, record.cols)
+    current = _rect_values(sheet, row, col, record.rows, record.cols)
+    if current is None:
+        return (1, 1)
+    old_grid = _snapshot_grid(record.values, record.rows, record.cols)
+    cur_grid = _snapshot_grid(current, record.rows, record.cols)
+
+    def _matches(rem_rows: list[int], rem_cols: list[int]) -> bool:
+        for r_idx, old_r in enumerate(rem_rows):
+            for c_idx, old_c in enumerate(rem_cols):
+                if (r_idx, c_idx) == (0, 0):
+                    continue
+                new_val = cur_grid[r_idx][c_idx]
+                if new_val != "" and new_val != old_grid[old_r][old_c]:
+                    return False
+        return True
+
+    if _matches(list(range(record.rows)), list(range(record.cols))):
+        return (record.rows, record.cols)
+
+    del_rows = max(0, -delta[0])
+    del_cols = max(0, -delta[1])
+    surv_rows = record.rows - del_rows
+    surv_cols = record.cols - del_cols
+    if surv_rows < 1 or surv_cols < 1 or (surv_rows == 1 and surv_cols == 1):
+        return (1, 1)
+
+    row_starts = range(1, surv_rows + 1) if del_rows > 0 else (0,)
+    col_starts = range(1, surv_cols + 1) if del_cols > 0 else (0,)
+    all_rows = list(range(record.rows))
+    all_cols = list(range(record.cols))
+    for kr in row_starts:
+        rem_r = all_rows[:kr] + all_rows[kr + del_rows :] if del_rows > 0 else all_rows
+        for kc in col_starts:
+            rem_c = all_cols[:kc] + all_cols[kc + del_cols :] if del_cols > 0 else all_cols
+            if _matches(rem_r, rem_c):
+                return (surv_rows, surv_cols)
+    return (1, 1)
+
+
+def _owned_rect(
     sheet: Any,
     row: int,
     col: int,
     record: SpillRecord | None,
     delta: tuple[int, int] | None,
-) -> bool:
-    """True when a negative used-area delta (row/column delete) changed remembered values inside ``record``."""
-    return (
-        record is not None
-        and record.values is not None
-        and record.rows * record.cols > 1
-        and delta is not None
-        and (delta[0] < 0 or delta[1] < 0)
-        and not _rect_unchanged(sheet, row, col, record)
-    )
-
-
-def _owns_spill_rect(
-    sheet: Any,
-    row: int,
-    col: int,
-    record: SpillRecord | None,
-    delta: tuple[int, int] | None,
-    *,
-    require_origin_match: bool = True,
-) -> bool:
-    """Return True when ``record`` owns its neighbour rectangle at ``(row, col)`` and may clear or overwrite it."""
+) -> tuple[int, int]:
+    """Return the ``(rows, cols)`` rectangle ``record`` owns at ``(row, col)``, or ``(0, 0)`` if none."""
     if record is None or record.rows * record.cols <= 1:
-        return False
-    if require_origin_match and not _origin_matches_record(sheet, row, col, record):
-        return False
+        return (0, 0)
+    # Check user formulas before reading values: _surviving_shape calls getDataArray(), which would
+    # interpret a dirty dependent formula during =PY() recalculation.
     if _user_formula_in_rect(sheet, row, col, record.rows, record.cols) is not None:
-        return False
-    if _shrunk_by_delete(sheet, row, col, record, delta):
-        return False
-    return True
+        return (0, 0)
+    return _surviving_shape(sheet, row, col, record, delta)
 
 
 def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
@@ -296,15 +340,16 @@ def cleanup_orphans(
             delta = _used_end_delta(state, sheet, sheet_name)
             to_remove: list[tuple[tuple[str, int, int], bool]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int]]] = []
-            to_shrink: list[tuple[str, int, int]] = []
+            to_shrink: list[tuple[tuple[str, int, int], tuple[int, int]]] = []
             for (s_name, frow, fcol), record in list(state.spills.items()):
                 if s_name != sheet_name:
                     continue
                 try:
                     if _origin_matches_record(sheet, frow, fcol, record):
-                        if _shrunk_by_delete(sheet, frow, fcol, record, delta):
-                            to_shrink.append((sheet_name, frow, fcol))
-                        else:
+                        owned = _owned_rect(sheet, frow, fcol, record, delta)
+                        if owned != (0, 0) and owned != (record.rows, record.cols):
+                            to_shrink.append(((sheet_name, frow, fcol), owned))
+                        elif owned != (0, 0):
                             record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
                         continue
 
@@ -332,15 +377,19 @@ def cleanup_orphans(
                 with undo_lock(doc):
                     for key, clear in to_remove:
                         removed_rec = state.spills.pop(key, None)
-                        if clear and _owns_spill_rect(
-                            sheet, key[1], key[2], removed_rec, delta, require_origin_match=False
-                        ):
-                            assert removed_rec is not None
-                            _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
-                    for shrink_key in to_shrink:
+                        if clear:
+                            owned_r, owned_c = _owned_rect(sheet, key[1], key[2], removed_rec, delta)
+                            if owned_r * owned_c > 1:
+                                _clear_rect(sheet, key[1], key[2], owned_r, owned_c)
+                    for shrink_key, (new_r, new_c) in to_shrink:
                         shrink_rec = state.spills.get(shrink_key)
                         if shrink_rec is not None:
-                            state.spills[shrink_key] = SpillRecord(code=shrink_rec.code, rows=1, cols=1)
+                            state.spills[shrink_key] = SpillRecord(
+                                code=shrink_rec.code,
+                                rows=new_r,
+                                cols=new_c,
+                                values=_rect_values(sheet, shrink_key[1], shrink_key[2], new_r, new_c),
+                            )
                     moved = [
                         (new_k, state.spills.pop(old_k))
                         for old_k, new_k in to_remap
@@ -556,12 +605,16 @@ def _clear_blocked_spill(
     """
     key = (sheet_name, row, col)
     rec = state.spills.get(key)
-    delta = _used_end_delta(state, sheet, sheet_name)
-    if not _owns_spill_rect(sheet, row, col, rec, delta):
+    # A shifted-in =PY formula must not clear shifted user data under another formula's old record
+    # before cleanup_orphans runs.
+    if rec is None or not _origin_matches_record(sheet, row, col, rec):
         return
-    assert rec is not None
+    delta = _used_end_delta(state, sheet, sheet_name)
+    owned_r, owned_c = _owned_rect(sheet, row, col, rec, delta)
+    if owned_r * owned_c <= 1:
+        return
     before = _used_end(sheet)
-    if _clear_rect(sheet, row, col, rec.rows, rec.cols):
+    if _clear_rect(sheet, row, col, owned_r, owned_c):
         state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
         save_spill_registry_for_doc(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
@@ -650,9 +703,14 @@ def perform_deferred_spill(
                 foreign = previous_record is not None and not _origin_matches_record(
                     sheet, formula_row, formula_col, previous_record
                 )
+                shrunk = (
+                    previous_record is not None
+                    and _owned_rect(sheet, formula_row, formula_col, previous_record, delta)
+                    not in ((0, 0), (previous_record.rows, previous_record.cols))
+                )
                 if (
                     foreign
-                    or _shrunk_by_delete(sheet, formula_row, formula_col, previous_record, delta)
+                    or shrunk
                     or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None
                 ):
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
@@ -666,9 +724,9 @@ def perform_deferred_spill(
                 ):
                     _clear_blocked_spill(state, doc, sheet, sheet_name, formula_row, formula_col)
                     return
-                if _owns_spill_rect(sheet, formula_row, formula_col, previous_record, delta):
-                    assert previous_record is not None
-                    _clear_rect(sheet, formula_row, formula_col, previous_record.rows, previous_record.cols)
+                owned_r, owned_c = _owned_rect(sheet, formula_row, formula_col, previous_record, delta)
+                if owned_r * owned_c > 1:
+                    _clear_rect(sheet, formula_row, formula_col, owned_r, owned_c)
 
                 if num_rows == 0 or num_cols == 0:
                     state.spills[reg_key] = SpillRecord(code=code, rows=1, cols=1)
@@ -784,31 +842,22 @@ def _spill_is_blocked(
     delta: tuple[int, int] | None,
 ) -> bool:
     """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``previous_record``, or holds a user formula."""
-    if _owns_spill_rect(sheet, row, col, previous_record, delta):
-        assert previous_record is not None
-        owned_rows, owned_cols = previous_record.rows, previous_record.cols
-    else:
-        owned_rows, owned_cols = 0, 0
-        if (
-            previous_record is not None
-            and previous_record.rows * previous_record.cols > 1
-            and _origin_matches_record(sheet, row, col, previous_record)
-            and not _shrunk_by_delete(sheet, row, col, previous_record, delta)
-        ):
-            blocker = _user_formula_in_rect(sheet, row, col, previous_record.rows, previous_record.cols)
-            if blocker is not None:
-                _record_spill_blocked(
-                    doc=doc,
-                    code=code,
-                    sheet_name=sheet_name,
-                    row=row,
-                    col=col,
-                    num_rows=num_rows,
-                    num_cols=num_cols,
-                    blocker=blocker,
-                    in_previous_rect=True,
-                )
-                return True
+    if previous_record is not None and previous_record.rows * previous_record.cols > 1:
+        blocker = _user_formula_in_rect(sheet, row, col, previous_record.rows, previous_record.cols)
+        if blocker is not None:
+            _record_spill_blocked(
+                doc=doc,
+                code=code,
+                sheet_name=sheet_name,
+                row=row,
+                col=col,
+                num_rows=num_rows,
+                num_cols=num_cols,
+                blocker=blocker,
+                in_previous_rect=True,
+            )
+            return True
+    owned_rows, owned_cols = _owned_rect(sheet, row, col, previous_record, delta)
 
     if num_rows * num_cols <= 1:
         return False
