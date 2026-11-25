@@ -1627,13 +1627,15 @@ def test_shape_upsert_edit_refuses_x_on_as_character_page_shape():
         assert out_both["status"] == "error"
         assert out_both["code"] == "INVALID_PARAM"
         assert out_both["details"]["parameter"] == "x"
+        shape.setPosition.assert_not_called()
+        shape.setSize.assert_not_called()
 
 
 def test_shape_align_and_distribute_refuse_inline_page_shapes():
     from types import SimpleNamespace
 
     shapes = []
-    for i, (x, y) in enumerate([(0, 100), (3000, 500), (6000, 900)]):
+    for i, (x, y) in enumerate([(0, 100), (3000, 700), (6000, 900)]):
         s = MagicMock()
         s.Name = f"S{i}"
         s.getPosition.return_value = SimpleNamespace(X=x, Y=y)
@@ -1648,7 +1650,7 @@ def test_shape_align_and_distribute_refuse_inline_page_shapes():
 
     with (
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
-        patch("plugin.draw.shapes.shape_is_as_character", side_effect=lambda s: s is shapes[0]),
+        patch("plugin.draw.shapes.shape_is_as_character", side_effect=lambda s: s is shapes[1]),
         patch("plugin.draw.shapes._outside_page", return_value=False),
     ):
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
@@ -1670,6 +1672,15 @@ def test_shape_align_and_distribute_refuse_inline_page_shapes():
 
         res_top = AlignShapes().execute(ctx, indices=[0, 1, 2], alignment="top")
         assert res_top["status"] == "ok"
+        shapes[0].setPosition.assert_not_called()
+        assert shapes[1].setPosition.call_args.args[0].Y == 100
+        assert shapes[2].setPosition.call_args.args[0].Y == 100
+
+        for s in shapes:
+            s.setPosition.reset_mock()
 
         res_dist_v = DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="vertical")
         assert res_dist_v["status"] == "ok"
+        shapes[0].setPosition.assert_not_called()
+        assert shapes[1].setPosition.call_args.args[0].Y == 500
+        shapes[2].setPosition.assert_not_called()

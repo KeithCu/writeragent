@@ -1270,6 +1270,7 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
     dup_err = _reject_duplicate_shapes(tool, resolved_indices)
     if dup_err is not None:
         return dup_err
+    # An inline shape's X reads 0, not its place on the page, so it would also give the other shapes a wrong edge: refuse before moving any.
     inline = [addr for addr, shape in zip(resolved_indices, shapes) if _x_follows_text(addr, shape)] if moves_x else []
     if inline:
         return tool._tool_error(

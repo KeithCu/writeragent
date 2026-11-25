@@ -1619,13 +1619,16 @@ def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
         assert ok_child["status"] == "ok", ok_child
         assert child.getPosition().X != orig_x
 
+        x_before_neg_w = child.getPosition().X
         ok_child_neg_w = UpsertShape().execute(gtctx, action="edit", index="0.1", width=-1500)
         assert ok_child_neg_w["status"] == "ok", ok_child_neg_w
         assert abs(child.getSize().Width - 1500) <= 2
+        assert abs((x_before_neg_w - child.getPosition().X) - 1500) <= 5
 
+        child0 = reloaded.getDrawPage().getByIndex(0).getByIndex(0)
+        assert child0.getPosition().X != child.getPosition().X
         ok_align = AlignShapes().execute(gtctx, indices=["0.0", "0.1"], alignment="left")
         assert ok_align["status"] == "ok", ok_align
-        child0 = reloaded.getDrawPage().getByIndex(0).getByIndex(0)
         assert child0.getPosition().X == child.getPosition().X
     finally:
         try:
@@ -1799,11 +1802,13 @@ def test_writer_inline_shape_align_distribute_uno(ctx, doc):
         res = AlignShapes().execute(tctx, indices=indices, alignment=alignment, page=0)
         assert res["status"] == "error", res
         assert res["code"] == "INVALID_PARAM"
+        assert res["details"]["parameter"] == "indices"
         assert [(s.getPosition().X, s.getPosition().Y) for s in all_shapes] == orig_positions
 
     res_dist = DistributeShapes().execute(tctx, indices=indices, axis="horizontal", page=0)
     assert res_dist["status"] == "error", res_dist
     assert res_dist["code"] == "INVALID_PARAM"
+    assert res_dist["details"]["parameter"] == "indices"
     assert [(s.getPosition().X, s.getPosition().Y) for s in all_shapes] == orig_positions
 
     assert UpsertShape().execute(tctx, action="edit", index=0, y=-500)["status"] == "ok"
