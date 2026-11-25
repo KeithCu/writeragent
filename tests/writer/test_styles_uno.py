@@ -1115,6 +1115,59 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
             assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 
 
+@native_test
+@with_native_doc("writer")
+def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+
+    text = doc.getText()
+    text.setString("Word OLD here")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Word "), False)
+    cur.goRight(len("OLD "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        refused = ApplyStyle().execute(
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert refused["status"] == "error" and refused["code"] == "MATCH_CROSSES_DELETION", refused
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
+
+    # Paragraph styles turn recording off for the write and record only ParagraphFormat, leaving Delete intact.
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        para_ok = ApplyStyle().execute(
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="search", old_content="Word here"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert para_ok["status"] == "ok", para_ok
+    assert visible_range_text(doc, text) == "Word here"
+    assert any(
+        doc.getRedlines().getByIndex(i).RedlineType == "Delete"
+        for i in range(doc.getRedlines().getCount())
+    )
+
+    applied = ApplyStyle().execute(
+        tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+    )
+    assert applied["status"] == "ok", applied
+    assert visible_range_text(doc, text) == "Word here"
+    types = [doc.getRedlines().getByIndex(i).RedlineType for i in range(doc.getRedlines().getCount())]
+    assert types.count("Delete") == 1, types
+
+
 def _para_portion_snapshot(para):
     portions = []
     p_enum = para.createEnumeration()

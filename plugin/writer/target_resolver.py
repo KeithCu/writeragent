@@ -167,6 +167,10 @@ def insert_at_target(
     except ValueError as ve:
         return tool._tool_error(str(ve))
     delete_match = replace_match and target == "search"
+    if delete_match:
+        refused = search_mod.crossing_match_error(ctx.doc, cursor)
+        if refused is not None:
+            return refused
 
     def mutate() -> dict[str, Any] | None:
         if delete_match:
