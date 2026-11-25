@@ -1502,3 +1502,26 @@ def test_string_skipping_redline_inside_content_control():
     assert _string_skipping_redline(text_range, "Insert") == "xx OLD yy"
 
 
+def test_string_skipping_redline_across_paragraphs():
+    from plugin.writer.edit_review import _string_skipping_redline
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    p1 = FakeUnoPara([
+        FakeUnoPortion("Text", "Start "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "gone1"),
+    ])
+    p2 = FakeUnoPara([FakeUnoPortion("Text", "gone2")])
+    p3 = FakeUnoPara([
+        FakeUnoPortion("Text", "gone3 "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "End"),
+    ])
+    text_range = MagicMock()
+    text_range.createEnumeration.side_effect = lambda: FakeUnoEnum([p1, p2, p3])
+
+    # Keeping the '\n' break is the walker's current behaviour, not the accepted reading
+    # (accepting a deletion that spans paragraph marks joins the paragraphs to "Start End").
+    assert _string_skipping_redline(text_range, "Delete") == "Start \nEnd"
+    assert _string_skipping_redline(text_range, "Insert") == "Start gone1\ngone2\ngone3 End"
+

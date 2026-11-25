@@ -1688,6 +1688,51 @@ def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
     assert tree["children"][1]["para_index"] == 3
 
 
+def test_build_heading_tree_drops_heading_inside_multi_paragraph_deletion():
+    from plugin.doc.text_helpers import build_heading_tree
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    h_live = FakeUnoPara([FakeUnoPortion("Text", "Live 1")], OutlineLevel=1)
+    p_start = FakeUnoPara([
+        FakeUnoPortion("Text", "Keep "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+        FakeUnoPortion("Text", "struck start"),
+    ], OutlineLevel=0)
+    h_mid = FakeUnoPara([FakeUnoPortion("Text", "Struck Heading")], OutlineLevel=2)
+    p_end = FakeUnoPara([
+        FakeUnoPortion("Text", "struck end "),
+        FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        FakeUnoPortion("Text", "tail"),
+    ], OutlineLevel=0)
+    h_after = FakeUnoPara([FakeUnoPortion("Text", "Live 2")], OutlineLevel=1)
+
+    body = MagicMock()
+    body.createEnumeration.return_value = FakeUnoEnum([h_live, p_start, h_mid, p_end, h_after])
+    model = MagicMock()
+    model.getText.return_value = body
+    model.getRedlines.return_value.hasElements.return_value = True
+    model.getRedlines.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
+
+    tree = build_heading_tree(model)
+    assert [c["text"] for c in tree["children"]] == ["Live 1", "Live 2"]
+    assert tree["children"][0]["body_paragraphs"] == 3
+    assert tree["children"][0]["children"] == []
+    assert tree["children"][1]["para_index"] == 4
+
+
+def test_fake_uno_portion_redline_property_gates():
+    from tests.testing_utils import FakeUnoPortion
+
+    text_portion = FakeUnoPortion("Text", "hi")
+    assert text_portion.getPropertyValue("IsStart") is None
+    with pytest.raises(KeyError):
+        text_portion.getPropertyValue("RedlineType")
+
+    redline_portion = FakeUnoPortion("Redline", redline_type="Delete", is_start=True)
+    assert redline_portion.getPropertyValue("IsStart") is True
+    assert redline_portion.getPropertyValue("RedlineType") == "Delete"
+
+
 def test_build_heading_tree_keeps_unseen_live_headings():
     from plugin.doc.text_helpers import build_heading_tree
     from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
