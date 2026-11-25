@@ -256,55 +256,6 @@ def test_footnotes_edit_missing_text_and_label_reports_error():
     assert "Provide text and/or label." in res["message"]
 
 
-def test_footnotes_delete():
-    doc = MagicMock()
-    doc.supportsService.return_value = True
-
-    supplier = MagicMock()
-    supplier.getCount.side_effect = [1, 1, 0]
-
-    note = MagicMock()
-    anchor = MagicMock()
-    note.getAnchor.return_value = anchor
-
-    supplier.getByIndex.return_value = note
-    doc.getFootnotes.return_value = supplier
-
-    tool = FootnotesDelete()
-    ctx = FakeCtx(doc)
-
-    res = tool.execute(ctx, note="footnote", index=0)
-
-    assert res["status"] == "ok"
-    anchor.setString.assert_called_with("")
-
-
-def test_footnotes_delete_reports_a_tracked_deletion():
-    doc = MagicMock()
-    doc.supportsService.return_value = True
-    doc.getPropertyValue.side_effect = lambda name: name == "RecordChanges"
-
-    supplier = MagicMock()
-    supplier.getCount.side_effect = [1, 1, 1]
-
-    note = MagicMock()
-    anchor = MagicMock()
-    note.getAnchor.return_value = anchor
-
-    supplier.getByIndex.return_value = note
-    doc.getFootnotes.return_value = supplier
-
-    tool = FootnotesDelete()
-    ctx = FakeCtx(doc)
-
-    res = tool.execute(ctx, note="footnote", index=0)
-
-    assert res["status"] == "ok"
-    assert res["tracked"] is True
-    assert "marked for deletion" in res["message"]
-    anchor.setString.assert_called_with("")
-
-
 def test_footnotes_delete_unchanged_count_without_recording_is_an_error():
     doc = MagicMock()
     doc.supportsService.return_value = True

@@ -18,6 +18,7 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.html_export as fmt
+from tests.writer.doc_builders import accept_all_changes, reject_all_changes
 
 
 def _tool_ctx(doc, ctx):
@@ -309,11 +310,6 @@ def _para_by_text(doc, needle):
         if needle in p.getString():
             return p
     raise AssertionError("no paragraph containing %r" % needle)
-
-
-def _accept_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
 
 
 @native_test
@@ -664,7 +660,7 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
 
     pairs = _para_pairs(doc)
     assert pairs == [
@@ -689,8 +685,7 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+    reject_all_changes(doc, ctx)
     assert _para_pairs(doc) == [
         ("Standard", "Keep before"),
         ("Standard", "Replace me"),
@@ -846,12 +841,7 @@ def test_partial_match_suggested_call_replay_recorded_uno(ctx, doc):
         host = next(((s, t) for s, t in pairs if "Replacement" in t), None)
         assert host is not None and host[0] == "Heading 2", pairs
 
-        dispatch_helper = ctx.ServiceManager.createInstanceWithContext(
-            "com.sun.star.frame.DispatchHelper", ctx
-        )
-        dispatch_helper.executeDispatch(
-            doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
-        )
+        reject_all_changes(doc, ctx)
         assert _para_pairs(doc) == originals
         assert doc.getRedlines().getCount() == 0
     finally:

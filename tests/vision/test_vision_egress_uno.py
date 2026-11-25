@@ -14,20 +14,16 @@ from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.vision.vision_egress import insert_vision_result_into_writer
 from plugin.writer.images.image_tools import insert_image_at_locator
 from plugin.writer.inline_review import _resolve_all_agent_changes
+from tests.writer.doc_builders import accept_all_changes, reject_all_changes
 
 _FLAG = "doc.agent_edit_review_mode"
 _OCR_RESULT = {"status": "ok", "helper": "extract_structure", "html": "<p>OCR text</p>"}
 
 
-def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
-    helper = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
-
-
 def _reset_doc(doc: Any, ctx: Any) -> None:
     doc.setPropertyValue("RecordChanges", False)
     if len(doc.getRedlines()):
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoStart(False)
@@ -57,7 +53,7 @@ def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, 
             assert doc.getGraphicObjects().hasByName(name) is True
             assert len(doc.getRedlines()) >= 2
 
-            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            reject_all_changes(doc, ctx)
             assert "OCR text" not in doc.getText().getString()
             assert doc.getGraphicObjects().hasByName(name) is True
         finally:
@@ -73,7 +69,7 @@ def test_vision_egress_recording_doc_review_off_reject_and_accept_uno(ctx: Any, 
                 ctx, doc, dict(_OCR_RESULT), params={"image_name": name2, "delete_image_after_insert": True}
             )
             assert outcome2 == "image_deleted"
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            accept_all_changes(doc, ctx)
             assert "OCR text" in doc.getText().getString()
             assert doc.getGraphicObjects().hasByName(name2) is False
         finally:
@@ -117,4 +113,4 @@ def test_vision_egress_record_mode_resolve_all_agent_changes_uno(ctx: Any, doc: 
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            accept_all_changes(doc, ctx)
