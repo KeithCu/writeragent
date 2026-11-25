@@ -2521,7 +2521,7 @@ def _body_paragraphs(doc: Any) -> list[Any]:
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) -> None:
-    """Whole-paragraph search/selection replace drops old direct formatting and keeps language."""
+    """Whole-paragraph search/selection replace drops direct char formatting while keeping paragraph layout and language."""
     from com.sun.star.lang import Locale
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -2535,7 +2535,6 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
     std_style = para_styles.getByName("Standard")
     std_height = float(std_style.getPropertyValue("CharHeight"))
     std_left = int(std_style.getPropertyValue("ParaLeftMargin"))
-    std_adjust = int(std_style.getPropertyValue("ParaAdjust"))
     std_border_w = int(std_style.getPropertyValue("LeftBorder").OuterLineWidth)
 
     def _seed() -> tuple[int, int]:
@@ -2626,10 +2625,10 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                     assert props["color"] == -1
                     assert props["char_style"] in ("", "No Character Style")
                     assert props["lang"] == "pt"
-                    assert int(mid.getPropertyValue("ParaLeftMargin")) == std_left
-                    assert int(mid.getPropertyValue("ParaAdjust")) == std_adjust
-                    assert int(mid.getPropertyValue("LeftBorder").OuterLineWidth) == std_border_w
-                    assert str(mid.getPropertyValue("ListLabelString") or "") == ""
+                    assert int(mid.getPropertyValue("ParaLeftMargin")) == seed_left
+                    assert int(mid.getPropertyValue("ParaAdjust")) == 3
+                    assert int(mid.getPropertyValue("LeftBorder").OuterLineWidth) == seed_border_w
+                    assert str(mid.getPropertyValue("ListLabelString") or "") != ""
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -2694,8 +2693,8 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
         assert redo_props["height"] == float(std_style.getPropertyValue("CharHeight"))
         assert redo_props["color"] == -1
         assert redo_props["lang"] == "pt"
-        assert int(paras[0].getPropertyValue("ParaLeftMargin")) == int(std_style.getPropertyValue("ParaLeftMargin"))
-        assert str(paras[0].getPropertyValue("ListLabelString") or "") == ""
+        assert int(paras[0].getPropertyValue("ParaLeftMargin")) == seed_left
+        assert str(paras[0].getPropertyValue("ListLabelString") or "") != ""
 
         # 2. Only the first word formatted
         text.setString("")
@@ -3364,5 +3363,213 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
         _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
         assert _body_style_and_text(doc) == expected_seed
         assert len(doc.getRedlines()) == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: Any, doc: Any) -> None:
+    """Whole-paragraph replace preserves direct numbering, justification, indents, and tabs."""
+    from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
+    from com.sun.star.style.TabAlign import LEFT as TAB_ALIGN_LEFT
+    from com.sun.star.style.TabAlign import RIGHT as TAB_ALIGN_RIGHT
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+
+    def _seed_clause() -> None:
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "1.1 Old clause text.", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertString(cur, "Following paragraph.", False)
+
+        p0 = _body_paragraphs(doc)[0]
+        p0.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+        p0.setPropertyValue("ParaLeftMargin", 1270)
+        p0.setPropertyValue("ParaFirstLineIndent", -635)
+        p0.setPropertyValue("NumberingStyleName", "Numbering 123")
+        ts1 = uno.createUnoStruct("com.sun.star.style.TabStop")
+        ts1.Position = 1270
+        ts1.Alignment = TAB_ALIGN_LEFT
+        ts1.DecimalChar = "."
+        ts1.FillChar = " "
+        ts2 = uno.createUnoStruct("com.sun.star.style.TabStop")
+        ts2.Position = 8000
+        ts2.Alignment = TAB_ALIGN_RIGHT
+        ts2.DecimalChar = "."
+        ts2.FillChar = " "
+        p0.setPropertyValue("ParaTabStops", uno.Any("[]com.sun.star.style.TabStop", (ts1, ts2)))
+
+    def _assert_clause_layout(para: Any, expected_text: str) -> None:
+        assert para.getString() == expected_text
+        assert int(para.getPropertyValue("ParaAdjust")) == 2  # BLOCK (justified)
+        assert int(para.getPropertyValue("ParaLeftMargin")) == 1270
+        assert int(para.getPropertyValue("ParaFirstLineIndent")) == -635
+        assert str(para.getPropertyValue("NumberingStyleName") or "") == "Numbering 123"
+        assert len(para.getPropertyValue("ParaTabStops") or ()) >= 2
+
+    try:
+        for mode in ("off", "accept", "reject"):
+            save({flag: "off" if mode == "off" else "record"})
+            _seed_clause()
+            res = ApplyDocumentContent().execute(
+                tctx,
+                target="search",
+                old_content="1.1 Old clause text.",
+                content="<p>1.1 New clause text.</p>",
+            )
+            assert res.get("status") == "ok", (mode, res)
+            if mode == "accept":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            elif mode == "reject":
+                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            p0 = _body_paragraphs(doc)[0]
+            expected = "1.1 Old clause text." if mode == "reject" else "1.1 New clause text."
+            _assert_clause_layout(p0, expected)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: Any, doc: Any) -> None:
+    """replace_preserving_format keeps adjacent fields, full-span hyperlinks, and other-author redlines at edges."""
+    from plugin.writer.html_import import replace_preserving_format
+
+    def _set_lo_author(first: str, last: str) -> None:
+        cp = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
+        prop = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+        prop.Name = "nodepath"
+        prop.Value = "/org.openoffice.UserProfile/Data"
+        upd = cp.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (prop,))
+        upd.setPropertyValue("givenname", first)
+        upd.setPropertyValue("sn", last)
+        upd.commitChanges()
+
+    try:
+        # 1. Adjacent field + full-span hyperlink (Track Changes off and on)
+        for recording in (False, True):
+            doc.setPropertyValue("RecordChanges", False)
+            text = doc.getText()
+            text.setString("")
+            cur = text.createTextCursor()
+            field = doc.createInstance("com.sun.star.text.textfield.DateTime")
+            text.insertTextContent(cur, field, False)
+            text.insertString(cur, " ", False)
+            text.insertString(cur, "click here", False)
+            lcur = text.createTextCursorByRange(cur.getEnd())
+            lcur.goLeft(len("click here"), True)
+            lcur.setPropertyValue("HyperLinkURL", "https://example.com/target")
+            text.insertString(cur, " end", False)
+
+            rng = text.createTextCursor()
+            rng.gotoStart(False)
+            rng.goRight(2, False)
+            rng.goRight(len("click here"), True)
+            doc.setPropertyValue("RecordChanges", recording)
+            replace_preserving_format(doc, rng, "tap now", ctx=ctx, in_undo_context=False)
+            assert doc.getTextFields().createEnumeration().hasMoreElements()
+
+            if recording:
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            p_enum = _body_paragraphs(doc)[0].createEnumeration()
+            linked_runs = []
+            while p_enum.hasMoreElements():
+                pt = p_enum.nextElement()
+                if pt.getPropertyValue("HyperLinkURL") == "https://example.com/target":
+                    linked_runs.append(pt.getString())
+            assert "".join(linked_runs) == "tap now", (recording, linked_runs)
+
+        # 2. Another author's redlines at start and end edges of replaced span
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "alpha ", False)
+        _set_lo_author("Alice", "Smith")
+        doc.setPropertyValue("RecordChanges", True)
+        text.insertString(cur, "ADDED ", False)
+        doc.setPropertyValue("RecordChanges", False)
+        text.insertString(cur, "middle", False)
+        doc.setPropertyValue("RecordChanges", True)
+        text.insertString(cur, "TAIL", False)
+        doc.setPropertyValue("RecordChanges", False)
+        text.insertString(cur, " omega", False)
+
+        _set_lo_author("Bob", "Jones")
+        doc.setPropertyValue("RecordChanges", True)
+        rng = text.createTextCursor()
+        rng.gotoStart(False)
+        rng.goRight(len("alpha ADDED "), False)
+        rng.goRight(len("middle"), True)
+        replace_preserving_format(doc, rng, "center", ctx=ctx, in_undo_context=False)
+
+        rls = doc.getRedlines()
+        authors = [str(rls.getByIndex(i).getPropertyValue("RedlineAuthor")) for i in range(rls.getCount())]
+        assert authors.count("Alice Smith") == 2, authors
+        assert "Bob Jones" in authors, authors
+
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert text.getString() == "alpha middle omega"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(ctx: Any, doc: Any) -> None:
+    """Block insert (<p> or <table>) on an empty paragraph preserves page break, page style, and bookmark."""
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.writer.html_import import insert_content_at_position
+
+    try:
+        for recording in (False, True):
+            for idx, html in enumerate(("<p>Inserted block.</p>", "<table><tr><td>Cell</td></tr></table>")):
+                doc.setPropertyValue("RecordChanges", False)
+                text = doc.getText()
+                text.setString("")
+                cur = text.createTextCursor()
+                text.insertString(cur, "Before.", False)
+                text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+                cur.setPropertyValue("ParaStyleName", "Heading 1")
+                cur.setPropertyValue("BreakType", PAGE_BEFORE)
+                cur.setPropertyValue("PageDescName", "Landscape")
+                bm_name = f"bm_{recording}_{idx}"
+                bm = doc.createInstance("com.sun.star.text.Bookmark")
+                bm.setName(bm_name)
+                text.insertTextContent(cur, bm, False)
+                text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+                text.insertString(cur, "After.", False)
+
+                empty_para = _body_paragraphs(doc)[1]
+                sel_cur = text.createTextCursorByRange(empty_para.getStart())
+                doc.setPropertyValue("RecordChanges", recording)
+                insert_content_at_position(
+                    doc, ctx, html, position="selection", selection=sel_cur
+                )
+
+                assert doc.getBookmarks().hasByName(bm_name), (recording, html)
+                has_page_break = False
+                e = text.createEnumeration()
+                while e.hasMoreElements():
+                    el = e.nextElement()
+                    if (
+                        str(el.getPropertyValue("BreakType").value) == "PAGE_BEFORE"
+                        and str(el.getPropertyValue("PageDescName") or "") == "Landscape"
+                    ):
+                        has_page_break = True
+                        break
+                assert has_page_break, (recording, html)
     finally:
         doc.setPropertyValue("RecordChanges", False)

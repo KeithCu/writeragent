@@ -976,9 +976,10 @@ def _replace_whole_paragraphs(
     ``lcl_CopyStyle`` in ``sw/source/core/doc/DocumentRedlineManager.cxx`` when
     empty), while Reject keeps both styles because ``AppendRedline`` skips its
     tdf#119571 restyle when the deletion starts at offset 0. We then open a
-    fresh paragraph before the struck text and reset the copied direct paragraph
-    and character formatting on it. The leftover synthetic paragraph is
-    dropped untracked because that break is our own new insertion. Where no
+    fresh paragraph before the struck text and reset the copied direct character
+    formatting on it so direct paragraph formatting and numbering on the target
+    paragraph survive for plain ``<p>`` replacements. The leftover synthetic
+    paragraph is dropped untracked because that break is our own new insertion. Where no
     following break exists (document end, before a table, section edge), the
     old paragraph stays empty after Accept; the preceding break is not used
     because ``DocumentRedlineManager::AppendRedline``
@@ -1006,10 +1007,7 @@ def _replace_whole_paragraphs(
         # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
         # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
         with record_changes.record_changes(model, False):
-            _drop_absorb_paragraph_props(cursor)
             reset_direct_char_formatting(cursor)
-    else:
-        _drop_absorb_paragraph_props(cursor)
     return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
