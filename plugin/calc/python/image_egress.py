@@ -460,7 +460,7 @@ def _drop_extra_plot_slots(doc: Any, draw_page: Any, slots: list[tuple[Any, int]
     taken: set[int] = set()
     for s, slot_idx in slots:
         if slot_idx in taken:
-            if not best_effort(partial(_detach_copy, doc, s), "_drop_extra_plot_slots: detach copy", False):
+            if not best_effort(partial(_detach_copy, doc, s), "_drop_extra_plot_slots: detach copy", True):
                 best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
         elif slot_idx >= image_count:
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")

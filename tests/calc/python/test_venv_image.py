@@ -2078,6 +2078,27 @@ def test_xlsx_duplicate_plot_is_kept_as_user_picture():
     assert page.shapes == [copy]
 
 
+def test_xlsx_duplicate_plot_kept_when_rename_raises():
+    """A name-only XLSX duplicate stays on the page even if renaming it raises."""
+    from plugin.calc.python.image_egress import _drop_extra_plot_slots
+
+    cell = CalcCellStub(col=1, row=2)
+    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:1,2@1,2"
+    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
+    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=1, row=32))
+
+    def _boom(*_args: Any) -> None:
+        raise RuntimeError("rename failed")
+
+    copy.setPropertyValue = _boom  # type: ignore[method-assign]
+    page = _DrawPage([first, copy])
+    doc = MagicMock()
+    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
+
+    _drop_extra_plot_slots(doc, page, [(first, 0), (copy, 0)], 1)
+    assert page.shapes == [first, copy]
+
+
 def test_rtl_name_tag_ignores_column_shift():
     """On an RTL sheet, a Name-only tag ignores column shift while still following row moves."""
     from plugin.calc.python.image_egress import _shape_matches_target_cell
