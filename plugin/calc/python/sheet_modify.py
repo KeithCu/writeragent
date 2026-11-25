@@ -141,7 +141,7 @@ def migrate_sheet_rename(
     # Rekey state.spills for this doc
     try:
         # Lazy: spill imports this module at its top.
-        from plugin.calc.python.spill import load_spill_registry_for_doc, save_spill_registry_for_doc
+        from plugin.calc.python.spill import _persist_spill_registry, load_spill_registry_for_doc
 
         if doc is not None:
             load_spill_registry_for_doc(doc, state)
@@ -154,7 +154,7 @@ def migrate_sheet_rename(
                 gen = state.pending_spills.pop((sname, r, c))
                 state.pending_spills[(new_sheet_name, r, c)] = gen
         if doc is not None:
-            save_spill_registry_for_doc(doc, state)
+            _persist_spill_registry(doc, state)
         if old_sheet_name in state.used_ends:
             state.used_ends[new_sheet_name] = state.used_ends.pop(old_sheet_name)
     except Exception:

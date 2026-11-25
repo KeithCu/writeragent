@@ -220,6 +220,7 @@ def test_rename_keeps_spill_registry_when_memory_is_not_loaded(monkeypatch: pyte
     assert state is not None and state.loaded is False
 
     migrate_sheet_rename(doc, "Sheet1", "New")
+    state.flush_spill_registry()
 
     assert json.loads(stored["WriterAgentSpillRegistry"]) == {"New:0,0": {"code": "x", "rows": 3, "cols": 1}}
     assert ("New", 0, 0) in state.spills
@@ -248,6 +249,7 @@ def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.
     assert state is not None and state.loaded is False
 
     perform_deferred_spill("Sheet1", 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code="x", key=state.key)
+    state.flush_spill_registry()
     remembered = state.spills[("Sheet1", 0, 0)].values
     assert remembered is not None
     assert json.loads(str(stored["WriterAgentSpillRegistry"]))["Sheet1:0,0"]["rows"] == 2
