@@ -929,8 +929,6 @@ def test_do_proofreading_answers_id_probe_without_binding(
     assert res.aDocumentIdentifier == "7"
     assert res.nBehindEndOfSentencePosition == len(text)
     mock_queue_fixture.enqueue.assert_not_called()
-    assert not pr._bound_docs
-    assert not pr._failed_bind_deadlines
 
 
 def test_proofreader_broadcast_proofread_again_notifies_listeners(

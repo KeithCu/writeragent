@@ -259,7 +259,6 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
 def test_each_of_several_open_writers_binds_by_its_own_document_id(ctx: Any) -> None:
     import json
     import tempfile
-    import time
     from pathlib import Path
 
     import uno
@@ -284,16 +283,13 @@ def test_each_of_several_open_writers_binds_by_its_own_document_id(ctx: Any) -> 
         saved_enabled = get_config("doc.grammar_proofreader_enabled")
     except Exception:
         saved_enabled = "off"
-    save({"doc.grammar_proofreader_enabled": "off"})
-    if saved_enabled != "off":
-        # Allow config._load's 2 s cache in soffice to expire if an earlier test cached "llm".
-        time.sleep(2.1)
     hidden_pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
 
     docs_to_close: list[Any] = []
     writers: list[Any] = []
     scratch: Any = None
     try:
+        save({"doc.grammar_proofreader_enabled": "off"})
         lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -321,9 +317,10 @@ def test_each_of_several_open_writers_binds_by_its_own_document_id(ctx: Any) -> 
                 scratch = load_scratch_document(desktop, "private:factory/swriter")
 
                 lsm.setConfiguredServices(SERVICE_NAME, en_loc, (IMPLEMENTATION_NAME,))
-                # Headless UNO has no visible page layout (unoflatpara.cxx GetFirstVisPage),
-                # so the automatic walk does not start; checkSentenceAtPosition exercises
-                # real per-document id resolution across all open Writers directly.
+                # The automatic walk did not start in this harness (getFlatParagraphIterator(4, True)
+                # gives None, as it does with online spelling off), so the calls are direct. The
+                # several-queued-Writers case is pinned by
+                # test_ensure_persistence_bound_binds_each_of_several_unbound_writers.
                 for writer in writers:
                     fp = writer.getFlatParagraphIterator(4, False).getFirstPara()
                     assert fp is not None
