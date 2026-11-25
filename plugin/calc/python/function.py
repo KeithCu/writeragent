@@ -176,7 +176,11 @@ def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
 
 
 def _dispatch_auto_spill(cell: CellContext, grid_to_spill: list[list[Any]]) -> str | None:
-    """Queue a spill write or stale-spill clear, returning ``"#SPILL!"`` when an array spill is blocked."""
+    """Queue a spill write or stale-spill clear.
+
+    Returns ``"#SPILL!"`` when an array spill is blocked, ``"dispatched"`` when a main-thread
+    write or clear was queued, or ``None`` when skipped or queued off-main.
+    """
     try:
         if not grid_to_spill and (
             cell.state is None or (cell.state.loaded and not cell.state.has_spill_activity())

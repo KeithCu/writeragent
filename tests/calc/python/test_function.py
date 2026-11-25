@@ -1772,18 +1772,89 @@ def test_finalize_python_return_array_then_scalar_without_flush_does_not_write_s
     st.debounce.cancel_all()
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
-    # First evaluation returns an array and queues its deferred write; simulate the timer
-    # already having popped and posted the write to main before the second evaluation runs.
+    # 1. Plain array -> scalar -> flush (second schedule replaces first).
     assert finalize_python_return(_cell(ctx, "race_code", doc), [10, 20, 30]) == 10.0
-    posted_first = st.debounce._entries.pop("spill:Sheet1:1:1")[0]
-
     assert finalize_python_return(_cell(ctx, "race_code", doc), 42) == 42.0
-    posted_first()
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert ("Sheet1", 1, 1) not in st.spills
+
+    # 2. Already-posted first write runs after the second scalar evaluation.
+    scheduled: list[Any] = []
+    orig_schedule = st.debounce.schedule
+
+    def _capture_schedule(key: str, delay: float, fn: Any) -> None:
+        scheduled.append(fn)
+        orig_schedule(key, delay, fn)
+
+    monkeypatch.setattr(st.debounce, "schedule", _capture_schedule)
+    assert finalize_python_return(_cell(ctx, "race_code", doc), [10, 20, 30]) == 10.0
+    assert finalize_python_return(_cell(ctx, "race_code", doc), 42) == 42.0
+    scheduled[0]()
     st.debounce.flush_for_tests("spill:Sheet1:1:1")
 
     assert sheet.getCellByPosition(1, 2).getType() == EMPTY
     assert sheet.getCellByPosition(1, 3).getType() == EMPTY
     assert ("Sheet1", 1, 1) not in st.spills
+
+
+def test_finalize_python_return_off_main_array_then_scalar_without_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    doc = CalcDocStub(url="file:///offmain-array-then-scalar.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("off_race")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.debounce.cancel_all()
+
+    posted: list[Any] = []
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: posted.append(fn))
+
+    finalize_python_return(_cell(ctx, "off_race", doc), [10, 20, 30])
+    assert finalize_python_return(_cell(ctx, "off_race", doc), 42) == 42.0
+    assert len(posted) == 2
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    posted[0]()
+    posted[1]()
+    st.debounce.flush_for_tests("code:off_race")
+
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert ("Sheet1", 1, 1) not in st.spills
+
+
+def test_queued_spill_write_survives_sheet_rename(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.sheet_modify import migrate_sheet_rename
+
+    doc = CalcDocStub(url="file:///rename-queued-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("rename_code")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    assert finalize_python_return(_cell(ctx, "rename_code", doc), [10, 20, 30]) == 10.0
+    sheet.setName("Renamed")
+    migrate_sheet_rename(doc, "Sheet1", "Renamed")
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+
+    assert sheet.getCellByPosition(1, 2).getValue() == 20.0
+    assert sheet.getCellByPosition(1, 3).getValue() == 30.0
+    assert ("Renamed", 1, 1) in st.spills
+    assert not st.pending_spills
 
 
 def test_execute_python_addin_image_only_clears_stale_spill(monkeypatch: pytest.MonkeyPatch) -> None:

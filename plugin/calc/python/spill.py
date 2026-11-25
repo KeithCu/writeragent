@@ -642,7 +642,6 @@ def _clear_owned_and_shrink(
     delta: tuple[int, int] | None,
     *,
     code: str,
-    before: tuple[int, int] | None = None,
 ) -> bool:
     """Clear owned neighbor cells and shrink the spill record to 1 x 1 if clearing succeeded.
 
@@ -653,8 +652,7 @@ def _clear_owned_and_shrink(
     owned_r, owned_c = _owned_rect(sheet, row, col, record, delta)
     if owned_r * owned_c <= 1:
         return False
-    if before is None:
-        before = _used_end(sheet)
+    before = _used_end(sheet)
     cleared = _clear_rect(sheet, row, col, owned_r, owned_c)
     if cleared:
         state.spills[(sheet_name, row, col)] = SpillRecord(code=code, rows=1, cols=1)
@@ -728,7 +726,6 @@ def perform_deferred_spill(
     sheet: Any,
     code: str,
     key: str,
-    gen: int | None = None,
 ) -> None:
     """Clear old spilled cells and write new values deferred after rechecking collisions.
 
@@ -764,8 +761,6 @@ def perform_deferred_spill(
             sheet, sheet_name = live
 
             reg_key = (sheet_name, formula_row, formula_col)
-            if not state.is_spill_generation_current(reg_key, gen):
-                return
 
             with sheet_modify_scope():
                 # The modify pass may still be waiting: remap any moved record and clear or drop
@@ -795,7 +790,6 @@ def perform_deferred_spill(
                         previous_record,
                         delta,
                         code=code,
-                        before=before,
                     )
                     return
                 if _spill_is_blocked(
@@ -1090,10 +1084,13 @@ def prepare_auto_spill(
 def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: PreparedSpill, grid_to_spill: list[list[Any]]) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     reg_key = (prepared.sheet_name, prepared.formula_row, prepared.formula_col)
-    gen = state.bump_spill_generation(reg_key)
-    token = _spill_token(prepared.sheet_name, prepared.formula_row, prepared.formula_col)
+    gen = state.queue_pending_spill(reg_key)
+    token = _spill_token(*reg_key)
 
     def _write() -> None:
+        live_name = uno_read(lambda: str(prepared.sheet.getName() or ""), "") or prepared.sheet_name
+        if not state.finish_pending_spill((live_name, prepared.formula_row, prepared.formula_col), gen):
+            return
         perform_deferred_spill(
             prepared.sheet_name,
             prepared.formula_row,
@@ -1103,7 +1100,6 @@ def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: Prepare
             sheet=prepared.sheet,
             code=prepared.code,
             key=prepared.key,
-            gen=gen,
         )
 
     state.debounce.schedule(token, 0.1, _write)
@@ -1119,6 +1115,8 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
     """
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
     known_state = WorkbookState.known(doc)
+    # If no WorkbookState exists yet (off-main eval before UI open/arm), the pending mark is
+    # skipped; a scalar before _arm_on_ui runs has no state to dispatch on.
     if known_state is not None and grid_to_spill:
         known_state.mark_off_main_spill(code)
 
@@ -1143,7 +1141,7 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
         # synchronously so an earlier release cannot fire later and wipe the fresh spill.
         reg_key = (prepared.sheet_name, prepared.formula_row, prepared.formula_col)
         state.debounce.cancel(_spill_token(*reg_key))
-        gen = state.bump_spill_generation(reg_key)
+        state.supersede_pending_spill(reg_key)
         perform_deferred_spill(
             prepared.sheet_name,
             prepared.formula_row,
@@ -1153,7 +1151,6 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
             sheet=prepared.sheet,
             code=prepared.code,
             key=prepared.key,
-            gen=gen,
         )
 
     def _arm_on_ui() -> None:
