@@ -319,8 +319,8 @@ def prepare_old_content(raw: Any) -> str:
     return normalize_search_string_for_find(plain)
 
 
-# LibreOffice search also matches text a pending tracked change deleted, so matches inside
-# one deletion are filtered out and a phrase that runs across a deletion is not found.
+# LibreOffice search also matches text a pending tracked change deleted, so matches struck
+# by pending deletions are filtered out and a phrase that runs across a deletion is not found.
 _TRACKED_DELETION_HINT = (
     " This document has pending tracked deletions: matches inside deleted text are left out,"
     " and a phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
@@ -476,7 +476,7 @@ def find_text_ranges(
     for start, end in zip(offsets[::2], offsets[1::2], strict=True):
         if start is None or end is None:
             raise ToolExecutionError("Could not measure the offsets of a match.")
-        if start < end:  # a match struck by several deletions shows no text
+        if start < end:  # a match inside a metadata field has no visible characters to measure
             matches.append({"start": start, "end": end, "text": text[start:end]})
     return matches
 
@@ -541,7 +541,7 @@ def _iter_descriptor_hits(
 ) -> Iterator[Any]:
     found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
-        if not deletions.covers(found):
+        if not deletions.strikes(found):
             yield found
         found = find_next_after_match(doc, found, sd)
 
@@ -1688,7 +1688,14 @@ class SearchInDocument(ToolBase):
         if return_offsets:
             ranges = find_text_ranges(
                 ctx.doc, pattern, limit=max_results, case_sensitive=case_sensitive)
-            return {"status": "ok", "ranges": ranges, "matched_case_sensitive": case_sensitive}
+            offsets_result: dict[str, Any] = {
+                "status": "ok",
+                "ranges": ranges,
+                "matched_case_sensitive": case_sensitive,
+            }
+            if not ranges and document_has_tracked_deletions(ctx.doc):
+                offsets_result["note"] = _TRACKED_DELETION_HINT.strip()
+            return offsets_result
 
         if use_regex:
             rex_err = validate_icu_regex(ctx.ctx, pattern)
@@ -1720,21 +1727,22 @@ class SearchInDocument(ToolBase):
         while found is not None and total_count < MAX_SEARCH_HITS:
             try:
                 hit_text = found.getString()
+                shown = deletions.visible_text(found) if deletions.overlaps(found) else hit_text
             except Exception as exc:
                 reraise_if_disposed(exc)
-                log.exception("search: getString failed")
-                warning = "Text-model search ended early after a getString failure; count may be incomplete."
+                log.exception("search: hit read failed")
+                warning = "Text-model search ended early after a hit read failure; count may be incomplete."
                 break
             if hit_text == "":
-                # Zero-width matches log a warning and stop the sweep so getString
+                # Zero-width matches log a warning and stop the sweep so read
                 # failures are not treated as benign empty hits with a silent count.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
-            if not deletions.covers(found):
+            if shown:  # empty means pending deletions strike the whole hit
                 total_count += 1
                 if len(matches) < max_results:
                     add(
-                        hit_text,
+                        shown,
                         labeler.describe(found),
                         enclosing_paragraph_text(found, deletions),
                     )

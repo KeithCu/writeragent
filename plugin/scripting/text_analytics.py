@@ -17,6 +17,7 @@ from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import (
     TrackedDeletions,
     build_heading_tree,
+    get_selection_text,
     get_string_without_tracked_deletions,
     iter_elements,
     iter_heading_nodes,
@@ -44,13 +45,13 @@ def resolve_text_analytics_document_inputs(
     """Resolve Writer document text and RPC context for a text analytics helper.
 
     :param scope: Text resolution scope. ``"selection"`` extracts text from the
-        first selection range only (via ``_get_writer_selection_text``) for every
+        first selection range only (via ``get_selection_text``) for every
         helper without section splitting. ``"whole"`` (or any other value) extracts
         sections for ``topics`` and ``sentiment``, and flat document text for other helpers.
     """
     name = str(helper or "full").strip() or "full"
     if scope == "selection":
-        text: str | list[str] = _get_writer_selection_text(doc)
+        text: str | list[str] = get_selection_text(doc) or ""
     elif name in ("topics", "sentiment"):
         text = _get_writer_sections(doc)
     else:
@@ -60,28 +61,6 @@ def resolve_text_analytics_document_inputs(
     if lang:
         context["lang"] = lang
     return text, context
-
-
-def _get_writer_selection_text(doc: Any) -> str:
-    """Extract text from the first selection range only (no tracked deletions).
-
-    Selection scope reads only the first range and returns "" on failure; it does not fall back to full document text.
-    """
-    try:
-        if not is_writer(doc):
-            return ""
-        controller = doc.getCurrentController()
-        if not controller:
-            return ""
-        rng = selected_text_range(controller)
-        if rng is None:
-            return ""
-        return visible_range_text(doc, rng) or ""
-    except Exception as exc:
-        # Re-raise DocumentDisposedError so callers handle closed documents.
-        reraise_if_disposed(exc)
-        log.debug("text analytics: selection text failed", exc_info=True)
-        return ""
 
 
 def _get_writer_text(doc: Any) -> str:

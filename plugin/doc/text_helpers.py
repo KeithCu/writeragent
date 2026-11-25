@@ -786,9 +786,41 @@ class TrackedDeletions:
                 return DeletionState(in_delete=True)
         return DeletionState()
 
-    def covers(self, text_range: Any) -> bool:
-        """True when *text_range* lies wholly inside one pending Delete redline."""
-        return any(bounds_cover(b, text_range) for b in self._bounds)
+    def visible_text(self, text_range: Any) -> str:
+        """Visible text of *text_range*: a whole ``XText`` or any range inside one.
+
+        A range is read from its paragraph start and the lead dropped: an enumeration that starts
+        inside a paragraph skips UTF-16 units as code points (``lcl_CreatePortions``,
+        unoportenum.cxx), so astral text before the range would lose characters. The cursors come
+        from the range's own text because a search hit in a cell enumerates the whole table
+        (``SwXTextDocument::findFirst``, unotxdoc.cxx).
+        """
+        text = text_range.getText()
+        if uno_same(text, text_range):
+            return get_string_without_tracked_deletions(text, self.state_at(text))
+        wide = text.createTextCursorByRange(text_range.getStart())
+        wide.gotoStartOfParagraph(False)
+        lead = text.createTextCursorByRange(wide)
+        lead.gotoRange(text_range.getStart(), True)
+        wide.gotoRange(text_range.getEnd(), True)
+        skip = len(get_string_without_tracked_deletions(lead, self.state_at(lead)))
+        return get_string_without_tracked_deletions(wide, self.state_at(wide))[skip:]
+
+    def overlaps(self, text_range: Any) -> bool:
+        """True when a pending Delete redline strikes part of *text_range*."""
+        return any(
+            uno_read(
+                lambda: text.compareRegionStarts(start, text_range.getEnd()) == 1
+                and text.compareRegionStarts(text_range, end) == 1,
+                False,
+                object_type="TextRange",
+            )
+            for text, start, end in self._bounds
+        )
+
+    def strikes(self, text_range: Any) -> bool:
+        """True when pending deletions, one or several together, leave nothing visible of *text_range*."""
+        return self.overlaps(text_range) and not self.visible_text(text_range)
 
     def removes_anchored(self, shape: Any) -> bool:
         """True when accepting one pending deletion also removes *shape*, judged by its anchor."""
@@ -960,8 +992,8 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
 
 @main_thread_only
 def visible_range_text(doc: Any, text_range: Any) -> str:
-    """Return *text_range* visible text, seeded from *doc*'s pending tracked deletions."""
-    return get_string_without_tracked_deletions(text_range, TrackedDeletions(doc).state_at(text_range))
+    """Return visible text of *text_range* (any range or whole ``XText`` of *doc*)."""
+    return TrackedDeletions(doc).visible_text(text_range)
 
 
 @main_thread_only

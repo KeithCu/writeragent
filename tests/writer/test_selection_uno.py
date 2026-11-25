@@ -128,3 +128,56 @@ def test_set_selection_offset_in_leading_table_errors_and_preserves_selection_un
     assert err["status"] == "error"
     assert err["code"] == "INVALID_PARAM"
     assert controller.getSelection().getByIndex(0).getString() == "TargetOne"
+
+
+@native_test
+@with_native_doc("writer")
+def test_set_selection_search_reports_visible_text_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("Word OLD here")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Word "), False)
+        cur.goRight(len("OLD "), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = SetSelection().execute(tctx, search_text="Word OLD here")
+    assert res["status"] == "ok", res
+    assert res["selected_text"] == "Word here"
+    assert res["length"] == 9
+
+    # Chained two-paragraph needle over struck text.
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep GONE Line 1", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Line OLD 2 match More", False)
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        c1 = text.createTextCursorByRange(paras[0].getStart())
+        c1.goRight(len("Keep "), False)
+        c1.goRight(len("GONE "), True)
+        c1.setString("")
+        c2 = text.createTextCursorByRange(paras[1].getStart())
+        c2.goRight(len("Line "), False)
+        c2.goRight(len("OLD "), True)
+        c2.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    chain_needle = "Line 1\nLine 2 match"
+    res_chain = SetSelection().execute(tctx, search_text=chain_needle)
+    assert res_chain["status"] == "ok", res_chain
+    assert res_chain["selected_text"] == chain_needle
+    assert res_chain["length"] == len(chain_needle)

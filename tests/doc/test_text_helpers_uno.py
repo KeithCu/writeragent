@@ -734,3 +734,74 @@ def test_content_control_and_in_content_metadata_visible_reads_uno(ctx, doc):
     range_txt = html_to_search_text(document_to_content(doc, ctx, scope="range", range_start=0, range_end=8)).strip()
     assert full_txt == "xx CL yy"
     assert range_txt == full_txt
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_after_astral_uno(ctx, doc):
+    from plugin.doc.text_helpers import read_visible_body, visible_body_range, visible_range_text
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "😀😀b", False)
+    text.insertControlCharacter(cur, _PARAGRAPH_BREAK, False)
+    text.insertString(cur, "second", False)
+
+    first_para = _first_paragraph(doc)
+    b_cur = text.createTextCursorByRange(first_para.getStart())
+    b_cur.goRight(2, False)
+    b_cur.gotoRange(first_para.getEnd(), True)
+    assert visible_range_text(doc, b_cur) == "b"
+
+    tail_cur = text.createTextCursorByRange(first_para.getEnd())
+    tail_cur.gotoEnd(True)
+    assert visible_range_text(doc, tail_cur) == "\nsecond"
+
+    # Single paragraph with astral prefix.
+    text.setString("😀abcdef")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(2, False)
+    cur.gotoEnd(True)
+    assert visible_range_text(doc, cur) == "bcdef"
+
+    # Astral text, a field, and a tracked deletion in one paragraph.
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "😀a ", False)
+    field = doc.createInstance("com.sun.star.text.TextField.Author")
+    field.setPropertyValue("IsFixed", True)
+    field.setPropertyValue("Content", "Ann")
+    text.insertTextContent(cur, field, False)
+    text.insertString(cur, " GONE 😀z", False)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursorByRange(cur)
+        del_cur.goLeft(len(" 😀z"), False)
+        del_cur.goLeft(len("GONE "), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    body = read_visible_body(doc)[0]
+    for a, b in ((0, 3), (1, 6), (2, 7), (3, 9), (7, len(body))):
+        rng = visible_body_range(doc, a, b)
+        assert rng is not None
+        assert visible_range_text(doc, rng.cursor) == body[a:b]
+
+
+@native_test
+@with_native_doc("writer")
+def test_visible_range_text_of_search_hit_in_cell_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    doc.getText().insertTextContent(doc.getText().getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("😀😀xx needle yy")
+
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "needle"
+    found = doc.findFirst(sd)
+    assert found is not None
+    assert visible_range_text(doc, found) == "needle"

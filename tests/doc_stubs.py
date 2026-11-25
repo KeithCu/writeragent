@@ -183,6 +183,7 @@ class MockTextCursor:
 
     def getStart(self): return self
     def getEnd(self): return self
+    def getText(self): return self
     def getString(self): return ""
     def setString(self, val): pass
     def gotoStart(self, expand): pass

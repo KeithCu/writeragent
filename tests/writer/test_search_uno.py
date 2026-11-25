@@ -556,3 +556,106 @@ def test_search_miss_haystack_hides_struck_body_and_frame_text_uno(ctx, doc):
     assert "FrameLive" in hay
     assert "StruckBody" not in hay
     assert "StruckFrame" not in hay
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_match_text_hides_struck_text_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("Word OLD here")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(len("Word "), False)
+        cur.goRight(len("OLD "), True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool = SearchInDocument()
+    mock_ctx = MockContext(doc, ctx)
+
+    res = tool.execute(mock_ctx, pattern="D here")
+    assert res["status"] == "ok", res
+    assert res["count"] == 1
+    assert res["matches"][0]["text"] == "here"
+
+    miss = tool.execute(mock_ctx, pattern="Word here")
+    assert miss["status"] == "ok", miss
+    assert miss["count"] == 0
+    assert "note" in miss
+
+    miss_offsets = tool.execute(mock_ctx, pattern="Word here", return_offsets=True)
+    assert miss_offsets["status"] == "ok", miss_offsets
+    assert miss_offsets["ranges"] == []
+    assert "note" in miss_offsets
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_skips_hit_struck_by_two_deletions_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.search import find_all_ranges
+    from plugin.writer.selection import SetSelection
+
+    text = doc.getText()
+    text.setString("aa OLDOLD bb OLDOLD")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        c1 = text.createTextCursor()
+        c1.gotoStart(False)
+        c1.goRight(len("aa "), False)
+        c1.goRight(len("OLD"), True)
+        c1.setString("")
+        doc.getRedlines().getByIndex(0).setPropertyValue("RedlineComment", "first")
+
+        c2 = text.createTextCursor()
+        c2.gotoStart(False)
+        c2.goRight(len("aa OLD"), False)
+        c2.goRight(len("OLD"), True)
+        c2.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert doc.getRedlines().getCount() == 2
+
+    mock_ctx = MockContext(doc, ctx)
+    res = SearchInDocument().execute(mock_ctx, pattern="OLDOLD")
+    assert res["status"] == "ok", res
+    assert res["count"] == 1
+    assert len(find_all_ranges(doc, "OLDOLD")) == 1
+
+    sel_res = SetSelection().execute(native_writer_tool_context(doc, ctx), search_text="OLDOLD", occurrence=0)
+    assert sel_res["status"] == "ok", sel_res
+    selected = doc.getCurrentController().getSelection().getByIndex(0)
+    assert visible_range_text(doc, selected) == "OLDOLD"
+    assert doc.getText().compareRegionStarts(selected.getStart(), doc.getText().getStart()) < 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_reports_metadata_field_hit_uno(ctx, doc):
+    text = doc.getText()
+    text.setString("struck xx inner yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("struck xx "), False)
+    cur.goRight(len("inner"), True)
+    meta = doc.createInstance("com.sun.star.text.InContentMetadata")
+    text.insertTextContent(cur, meta, True)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_cur = text.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.goRight(len("struck "), True)
+        del_cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = SearchInDocument().execute(MockContext(doc, ctx), pattern="inner")
+    assert res["status"] == "ok", res
+    assert res["count"] == 1
+    assert res["matches"][0]["text"] == "inner"

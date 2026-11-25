@@ -27,6 +27,9 @@ class _MutableTextRange:
     def getString(self):
         return self.text
 
+    def getText(self):
+        return self
+
 
 class _MockUndoManager:
     def __init__(self):
