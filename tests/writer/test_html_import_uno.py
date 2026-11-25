@@ -2595,7 +2595,7 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                 if mode == "accept":
                     redlines = doc.getRedlines()
                     # Hold every SwXRedline wrapper until reads finish: ~SwXRedline removes its
-                    # SvtListener without SolarMutex (unoredlines.cxx, listener.cxx), so dropping
+                    # SvtListener without SolarMutex (unoredline.cxx, listener.cxx), so dropping
                     # one over URP while fetching the next can race.
                     reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
                     types = {r.getPropertyValue("RedlineType") for r in reds}

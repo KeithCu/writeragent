@@ -1203,17 +1203,25 @@ def _find_partial_uno_exception_calls(
 
     class _Visitor(ast.NodeVisitor):
         def __init__(self) -> None:
-            self.scopes: list[dict[str, object]] = [{}]
+            # Each entry is (bindings_dict, is_class_scope). Class scopes do not enclose methods.
+            self.scopes: list[tuple[dict[str, object], bool]] = [({}, False)]
             self.offenders: list[str] = []
 
         def _bind(self, name: str, val: object) -> None:
-            self.scopes[-1][name] = val
+            self.scopes[-1][0][name] = val
 
         def _resolve(self, name: str) -> object:
-            for scope in reversed(self.scopes):
+            for idx in range(len(self.scopes) - 1, -1, -1):
+                scope, is_class = self.scopes[idx]
+                if is_class and idx != len(self.scopes) - 1:
+                    continue
                 if name in scope:
                     return scope[name]
             return None
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Store):
+                self._bind(node.id, None)
 
         def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
             mod = node.module or ""
@@ -1246,21 +1254,34 @@ def _find_partial_uno_exception_calls(
         def visit_Assign(self, node: ast.Assign) -> None:
             self.visit(node.value)
             uno_arity = _sys_modules_uno_exc(node.value, arities)
-            for tgt in node.targets:
-                if isinstance(tgt, ast.Name):
-                    self._bind(tgt.id, uno_arity)
+            if uno_arity is not None:
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        self._bind(tgt.id, uno_arity)
+                        continue
+                    self.visit(tgt)
+            else:
+                for tgt in node.targets:
+                    self.visit(tgt)
 
-        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-            if node.value is not None:
-                self.visit(node.value)
-            if isinstance(node.target, ast.Name):
-                self._bind(node.target.id, None)
+        def visit_Try(self, node: ast.Try) -> None:
+            for stmt in (*node.body, *node.orelse):
+                self.visit(stmt)
+            # Keep UNO imports from the try body if an except handler only clears/fallbacks them.
+            before_handlers = dict(self.scopes[-1][0])
+            for handler in node.handlers:
+                self.visit(handler)
+            for name, val in before_handlers.items():
+                if val is not None and self.scopes[-1][0].get(name) is None:
+                    self.scopes[-1][0][name] = val
+            for stmt in node.finalbody:
+                self.visit(stmt)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
             for item in (*node.decorator_list, *node.bases, *node.keywords):
                 self.visit(item)
             self._bind(node.name, None)
-            self.scopes.append({})
+            self.scopes.append(({}, True))
             for stmt in node.body:
                 self.visit(stmt)
             self.scopes.pop()
@@ -1276,13 +1297,27 @@ def _find_partial_uno_exception_calls(
                 new_scope[node.args.vararg.arg] = None
             if node.args.kwarg:
                 new_scope[node.args.kwarg.arg] = None
-            self.scopes.append(new_scope)
+            self.scopes.append((new_scope, False))
             for stmt in node.body:
                 self.visit(stmt)
             self.scopes.pop()
 
         visit_FunctionDef = _visit_func
         visit_AsyncFunctionDef = _visit_func
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            for item in (*node.args.defaults, *(d for d in node.args.kw_defaults if d is not None)):
+                self.visit(item)
+            new_scope: dict[str, object] = {}
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                new_scope[arg.arg] = None
+            if node.args.vararg:
+                new_scope[node.args.vararg.arg] = None
+            if node.args.kwarg:
+                new_scope[node.args.kwarg.arg] = None
+            self.scopes.append((new_scope, False))
+            self.visit(node.body)
+            self.scopes.pop()
 
         def visit_Call(self, node: ast.Call) -> None:
             arity: int | None = None
@@ -1356,19 +1391,28 @@ def test_no_partial_uno_exception_calls():
         "    try:\n"
         "        from com.sun.star.uno import RuntimeException as RE\n"
         "    except ImportError:\n"
-        "        return\n"
+        "        RE = None\n"
         "    RE('msg')\n"
         "@deco(RuntimeException('msg'))\n"
         "def decorated(): pass\n"
         "class Suite:\n"
+        "    from com.sun.star.container import NoSuchElementException\n"
         "    def ok_shadow_class(self):\n"
         "        class RuntimeException(Exception): pass\n"
         "        RuntimeException('local')\n"
+        "        NoSuchElementException('class_body_not_in_method')\n"
         "    def ok_shadow_param(self, RuntimeException):\n"
         "        RuntimeException('param')\n"
         "def ok_rebind():\n"
         "    RuntimeException = ValueError\n"
         "    RuntimeException('rebound')\n"
+        "    a, IllegalArgumentException = 1, ValueError\n"
+        "    IllegalArgumentException('tuple')\n"
+        "    for RuntimeException in [ValueError]:\n"
+        "        RuntimeException('loop')\n"
+        "    with ctx() as RuntimeException:\n"
+        "        RuntimeException('with')\n"
+        "    fn = lambda RuntimeException: RuntimeException('lam')\n"
         "    from foo import RuntimeException as OtherRE\n"
         "    OtherRE('other')\n"
         "    if True:\n"
@@ -1379,7 +1423,7 @@ def test_no_partial_uno_exception_calls():
         "    IllegalArgumentException('msg', None, 0)\n"
     )
     hits = _find_partial_uno_exception_calls(sample, "<sample>", arities, mod_uno_excs)
-    assert len(hits) == 8, hits
+    assert [int(h.split(":")[1]) for h in hits] == [8, 9, 10, 11, 12, 13, 19, 20], hits
 
     offenders: list[str] = []
     for root_name in ("plugin", "tests"):

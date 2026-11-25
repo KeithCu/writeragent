@@ -1288,12 +1288,10 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
     """Formatting an agent insertion keeps its Insert redline and wa-review token so Reject All restores original text."""
     from plugin.writer.styles import ApplyStyle, StyleFormatText
 
-    prev = get_config(_FLAG)
-    save({_FLAG: "record"})
     def _assert_agent_insert_redline() -> None:
         redlines = doc.getRedlines()
         # Hold every SwXRedline wrapper until reads finish: ~SwXRedline removes its
-        # SvtListener without SolarMutex (unoredlines.cxx, listener.cxx), so dropping
+        # SvtListener without SolarMutex (unoredline.cxx, listener.cxx), so dropping
         # one over URP while fetching the next can race.
         reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
         assert any(
@@ -1303,6 +1301,8 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
             for r in reds
         )
 
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
     try:
         _reset(doc, ctx, "First words here.")
         tool_ctx = _tool_ctx(doc, ctx)

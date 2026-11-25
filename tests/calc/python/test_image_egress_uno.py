@@ -828,7 +828,6 @@ def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
                 before_shapes = [reloaded_page.getByIndex(i) for i in range(4)]
                 before_xs = [s.getPosition().X for s in before_shapes]
                 before_owners = [_read_plot_tag(s).owner for s in before_shapes]
-                del before_shapes
                 assert before_owners.count((1, 2)) == 2
                 assert before_owners.count((2, 2)) == 2
                 _insert_both(reloaded)
