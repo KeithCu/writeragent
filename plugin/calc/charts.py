@@ -55,9 +55,9 @@ from plugin.framework.errors import (
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
-from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
+from plugin.writer.edit_review import flag_tracked, flag_untracked, flag_untracked_delete
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
-from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
+from plugin.writer.record_changes import insert_recorded_content
 from plugin.writer.specialized_base import ToolWriterChartBase
 from plugin.writer.target_resolver import request_selection_range
 import uno
@@ -1188,8 +1188,7 @@ class WriterEmbeds:
                         text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
                     except Exception:
                         log.debug("insert PARAGRAPH_BREAK before chart failed", exc_info=True)
-                insert_recorded_content(doc, text, cursor, chart_obj)
-                return is_recording_changes(doc)
+                return insert_recorded_content(doc, text, cursor, chart_obj)
 
             # Only the insert is inside the review session, not the idle pump in
             # _await_writer_chart_document; otherwise user typing during the pump
@@ -1295,8 +1294,7 @@ class WriterEmbeds:
             warnings=warnings,
         )
         if tracked:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         else:
             flag_untracked(
                 result,

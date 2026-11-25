@@ -1146,9 +1146,10 @@ def _annotate_review_status_with_mode(mode, result):
         return annotate_review_status(result)
 
 
-def test_off_mode_leaves_result_unchanged():
+def test_off_mode_keeps_pending_without_note():
     out = _annotate_review_status_with_mode("off", {"status": "ok", "message": "Replaced 1 occurrence."})
-    assert "pending_review" not in out
+    assert out["pending_review"] is True
+    assert "review_mode" not in out
     assert out["message"] == "Replaced 1 occurrence."
 
 
@@ -1164,16 +1165,27 @@ def test_wait_mode_also_annotated():
     assert out["pending_review"] is True and out["review_mode"] == "wait"
 
 
-@pytest.mark.parametrize(
-    "value, value_2, value_3",
-    [
-        pytest.param("record", "error", "old_content not found", id="test_error_result_not_annotated"),
-        pytest.param("nonsense", "ok", "x", id="test_unknown_mode_not_annotated"),
-    ],
-)
-def test_error_result_not_annotated(value, value_2, value_3):
-    out = _annotate_review_status_with_mode(value, {"status": value_2, "message": value_3})
-    assert "pending_review" not in out
+def test_flag_untracked_replaced_pending_survives_mode_off():
+    from plugin.writer.edit_review import flag_untracked
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda name: False if name == "RecordChanges" else None
+    with (
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+        patch("plugin.writer.edit_review.is_writer", return_value=True),
+    ):
+        with_pending = {"status": "ok"}
+        flag_untracked(with_pending, doc, "replaced pending", replaced_pending=True)
+        assert with_pending == {
+            "status": "ok",
+            "pending_review": True,
+            "tracked": False,
+            "warning": "replaced pending",
+        }
+
+        without_pending = {"status": "ok"}
+        flag_untracked(without_pending, doc, "not recording", replaced_pending=False)
+        assert without_pending == {"status": "ok"}
 
 
 @pytest.mark.parametrize(

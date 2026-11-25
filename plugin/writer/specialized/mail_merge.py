@@ -26,7 +26,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from ..record_changes import insert_recorded_content, is_recording_changes
+from ..edit_review import flag_tracked
+from ..record_changes import insert_recorded_content
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import insert_at_target
 from plugin.doc.text_helpers import iter_elements
@@ -366,9 +367,7 @@ class InsertField(ToolWriterMailMergeBase):
 
         def insert(cursor: Any) -> None:
             nonlocal recorded
-            # The review session has already turned recording on in Record/Wait.
-            recorded = is_recording_changes(doc)
-            insert_recorded_content(doc, cursor.getText(), cursor, field)
+            recorded = insert_recorded_content(doc, cursor.getText(), cursor, field)
 
         err = insert_at_target(
             self,
@@ -391,8 +390,7 @@ class InsertField(ToolWriterMailMergeBase):
             },
         }
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         return result
 
 

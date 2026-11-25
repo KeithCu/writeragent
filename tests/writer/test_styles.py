@@ -2992,3 +2992,66 @@ def test_flag_stacked_format_redlines_skips_walk_without_paragraph_format():
 
     cursor.getText.assert_not_called()
     assert res == {"status": "ok"}
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"properties": {"CharWeight": 150}},
+        {"reset": ["CharWeight"]},
+    ],
+)
+def test_style_format_text_caret_is_not_tracked(kwargs):
+    cursor = _noncollapsed_cursor()
+    cursor.isCollapsed.return_value = True
+    cursor.getPropertyValue.return_value = 100
+    rec_state = [False]
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = (
+        lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
+    )
+    with (
+        patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        res = StyleFormatText().execute(ctx, target="beginning", **kwargs)
+    assert res["status"] == "ok"
+    assert res["tracked"] is False
+    assert "pending_review" not in res
+    assert res["style_unreviewed"] is True
+    if "reset" in kwargs:
+        cursor.setPropertyValues.assert_not_called()
+
+
+def test_style_format_text_mixed_caret_flags_untracked_char_property():
+    cursor = _noncollapsed_cursor()
+    cursor.isCollapsed.return_value = True
+    cursor.getPropertyValue.return_value = 100
+    para = MagicMock()
+    para.getPropertyValue.return_value = 0
+    para.getPropertyState.return_value = MagicMock(value="DEFAULT_VALUE")
+    rec_state = [False]
+    ctx = _style_ctx()
+    ctx.doc.getPropertyValue.side_effect = lambda name: rec_state[0] if name == "RecordChanges" else None
+    ctx.doc.setPropertyValue.side_effect = (
+        lambda name, val: rec_state.__setitem__(0, bool(val)) if name == "RecordChanges" else None
+    )
+    with (
+        patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.styles._expand_to_full_paragraphs", return_value=cursor),
+        patch(
+            "plugin.writer.styles._paragraph_revert_states",
+            return_value=([MagicMock(recorded=True, numbered=False)], False),
+        ),
+        patch("plugin.writer.styles._record_paragraph_formats", return_value=(1, False, [])),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        res = StyleFormatText().execute(
+            ctx, target="beginning", properties={"CharWeight": 150, "ParaAdjust": "center"}
+        )
+    assert res["status"] == "ok"
+    assert res["tracked"] is True
+    assert res["pending_review"] is True
+    assert res["style_unreviewed"] is True
+    assert "CharWeight" in res["warning"]

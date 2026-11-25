@@ -24,6 +24,7 @@ from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
+from plugin.writer.edit_review import flag_tracked
 from plugin.writer.html_import import non_text_portion_type, run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
@@ -1257,8 +1258,7 @@ class ManageTableStructure(ToolWriterTableBase):
             result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
             if tracked:
                 label = "Row" if axis_arg == "row" else "Column"
-                result["tracked"] = True
-                result["pending_review"] = True
+                flag_tracked(result)
                 result["message"] = (
                     "%s marked for deletion as a tracked change: it stays in the table, "
                     "so later indexes do not shift, until the user accepts. Do not accept or reject it yourself."
@@ -1558,21 +1558,19 @@ class TableDelete(ToolWriterTableBase):
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
 
             tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply))
-            if tracked:
-                return {
-                    "status": "ok",
-                    "message": ("Table marked for deletion as a tracked change: it stays in the document, "
-                                "struck through, until the user accepts the change. Do not accept or "
-                                "reject it yourself."),
-                    "table_name": name,
-                    "nesting": nesting,
-                    "pending_review": True,
-                }
-            return {
+            result = {
                 "status": "ok",
                 "message": "Table deleted",
                 "table_name": name,
                 "nesting": nesting,
             }
+            if tracked:
+                result["message"] = (
+                    "Table marked for deletion as a tracked change: it stays in the document, "
+                    "struck through, until the user accepts the change. Do not accept or "
+                    "reject it yourself."
+                )
+                flag_tracked(result)
+            return result
         except ValueError as ve:
             return self._tool_error(str(ve))

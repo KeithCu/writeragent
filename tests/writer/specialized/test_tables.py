@@ -1266,7 +1266,7 @@ def test_tracked_delete_keeps_the_table_for_review():
     table = _TrackingTable(2, 2, cells={"A1": "Item", "A2": "Custas"}, name="T", anchor_text=FakeBodyText())
     doc = _TrackingDoc({"T": table})
     res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
-    assert res["status"] == "ok" and res["pending_review"] is True
+    assert res["status"] == "ok" and res["tracked"] is True and res["pending_review"] is True
     assert doc.dispatched == [".uno:DeleteTable"]
     assert table._anchor_text.removed == [], "must not fall back to an untracked removeTextContent"
     assert doc.selected[-1] is doc.previous_selection, "the user's selection is restored"

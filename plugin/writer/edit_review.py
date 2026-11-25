@@ -165,11 +165,27 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
         result["style_unreviewed"] = True
 
 
-def flag_untracked(result: dict[str, Any], doc: Any, message: str) -> None:
-    """Flag a Writer mutation that was not recorded as a tracked change."""
+def flag_tracked(result: dict[str, Any]) -> None:
+    """Report that Writer recorded this mutation as a tracked change the user has not reviewed yet.
+
+    Callers decide from what was recorded (the insert primitive's return value, a verified
+    redline), never from the review mode, which can change between the edit and the result.
+    """
+    result["tracked"] = True
+    result["pending_review"] = True
+
+
+def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_pending: bool = False) -> None:
+    """Flag a Writer mutation that was not recorded as a tracked change.
+
+    *replaced_pending* means the text it replaced was struck as a tracked deletion, which keeps
+    ``pending_review``, ``tracked: False``, and the warning even if the review mode is off by now.
+    """
     if result.get("status") != "ok" or not is_writer(doc):
         return
-    if not (review_recording_enabled() or is_recording_changes(doc)):
+    if replaced_pending:
+        result["pending_review"] = True
+    elif not (review_recording_enabled() or is_recording_changes(doc)):
         return
     result["tracked"] = False
     existing = result.get("warning")
@@ -189,30 +205,23 @@ def flag_untracked_delete(result: dict[str, Any], doc: Any, what: str) -> None:
     )
 
 
-def annotate_review_status(result: Any) -> dict[str, Any]:
-    """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
-    per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
-    review-modes topic, or the sidebar prompt) is stale — that text is static while the user
-    can toggle the mode mid-session. Only annotates results that did not block for review:
-    with recording on but no blocking wait, the edit landed as a tracked change the agent must
-    not resolve and whose accept/reject outcome it will not be told. ``apply_content`` calls
-    this only when ``EditReviewSession.left_tracked_changes()`` is true, so a no-op edit is
-    not reported as pending."""
-    if not isinstance(result, dict) or result.get("status") != "ok":
-        return result
-    try:
-        mode = get_agent_edit_review_mode()
-    except Exception:
-        return result
-    if mode not in ("record", "wait"):
-        return result  # off -> edit is live; nothing to add
+def annotate_review_status(result: dict[str, Any]) -> dict[str, Any]:
+    """*result* with ``pending_review`` and, in Record/Wait, the mode and the do-not-resolve note.
+
+    Call only for a successful edit that left a tracked change and did not block for review.
+    Repeated on every result because the prompt guidance is static while the user can switch modes
+    mid-session; ``pending_review`` is set before checking the mode because the mode may already be
+    off by the time the result is annotated.
+    """
     result = dict(result)
-    result["review_mode"] = mode
     result["pending_review"] = True
-    result["message"] = (result.get("message") or "") + (
-        " Applied as a tracked change pending the user's review — do not accept or reject it"
-        " yourself, and you will not be notified whether it is later accepted or rejected."
-    )
+    mode = get_agent_edit_review_mode()
+    if mode != "off":
+        result["review_mode"] = mode
+        result["message"] = (result.get("message") or "") + (
+            " Applied as a tracked change pending the user's review — do not accept or reject it"
+            " yourself, and you will not be notified whether it is later accepted or rejected."
+        )
     return result
 
 

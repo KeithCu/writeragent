@@ -39,6 +39,7 @@ from plugin.framework.uno_context import create_property_value
 
 from plugin.writer.edit_review import (
     collapsed_anchor,
+    flag_tracked,
     flag_untracked,
     next_agent_edit_undo_title,
     range_has_tracked_insert_or_delete,
@@ -1410,7 +1411,6 @@ class IndexesCreate(ToolWriterIndexBase):
             "title": title,
         }
         if replaced_pending:
-            res["pending_review"] = True
             warning = _(
                 "The index itself is not a tracked change: rejecting changes does not remove it. "
                 "The text it replaced is a tracked deletion pending the user's review, so that text "
@@ -1418,7 +1418,7 @@ class IndexesCreate(ToolWriterIndexBase):
             )
         else:
             warning = _("The index itself is not a tracked change: rejecting changes does not remove it.")
-        flag_untracked(res, doc, warning)
+        flag_untracked(res, doc, warning, replaced_pending=replaced_pending)
         return res
 
 
@@ -1526,8 +1526,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         if err is not None:
             return err
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         return result
 
     def _insert_bibliography_cite(self, ctx: Any, kwargs: Any) -> dict[str, Any]:

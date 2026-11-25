@@ -2587,3 +2587,79 @@ def test_string_skipping_redline_inside_content_control_uno(ctx, doc):
     assert accepted != rejected
     assert "NEW" in accepted
     assert "CTRL" in rejected
+
+
+@native_test
+@with_native_doc("writer")
+def test_style_format_text_caret_records_nothing_uno(ctx, doc):
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "Caret format check.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res_caret = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"CharWeight": 150}, target="end"
+        )
+        assert res_caret["status"] == "ok", res_caret
+        assert res_caret["tracked"] is False
+        assert "pending_review" not in res_caret
+        assert _redlines(doc) == []
+
+        res_reset_caret = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), reset=["CharWeight"], target="end"
+        )
+        assert res_reset_caret["status"] == "ok", res_reset_caret
+        assert res_reset_caret["tracked"] is False
+        assert "pending_review" not in res_reset_caret
+        assert _redlines(doc) == []
+
+        res_search = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"CharWeight": 150},
+            target="search",
+            old_content="format",
+        )
+        assert res_search["status"] == "ok", res_search
+        assert res_search["pending_review"] is True
+        assert [r["type"] for r in _redlines(doc)] == ["Format"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
+    from plugin.writer.styles import ApplyStyle, StyleFormatText
+
+    _reset(doc, ctx, "User recording check.")
+    prev = get_config(_FLAG)
+    save({_FLAG: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_fmt = StyleFormatText().execute(
+            _tool_ctx(doc, ctx),
+            properties={"CharWeight": 150},
+            target="search",
+            old_content="recording",
+        )
+        assert res_fmt["status"] == "ok", res_fmt
+        assert res_fmt["pending_review"] is True
+        assert "review_mode" not in res_fmt
+        assert [r["type"] for r in _redlines(doc)] == ["Format"]
+
+        res_para = ApplyStyle().execute(
+            _tool_ctx(doc, ctx),
+            style="Heading 1",
+            family="ParagraphStyles",
+            target="search",
+            old_content="User",
+        )
+        assert res_para["status"] == "ok", res_para
+        assert res_para["pending_review"] is True
+        assert "review_mode" not in res_para
+        assert sorted(_redline_types(doc)) == ["Format", "ParagraphFormat"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})

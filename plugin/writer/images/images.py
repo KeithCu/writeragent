@@ -69,8 +69,9 @@ from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_untracked
+from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_tracked, flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.specialized.textframes import text_content_anchor
 from plugin.writer.target_resolver import request_selection_range
 from .image_tools import (
@@ -116,11 +117,15 @@ def _live_or_none_cursor(cursor: Any) -> Any:
     return uno_read(lambda: cursor_for_writer_view(cursor)[1], None)
 
 
-def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> Any:
-    """Wrap *apply* in a Writer review session when *doc* is a Writer document."""
-    if is_writer_doc(doc):
-        return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
-    return apply()
+def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> tuple[Any, bool]:
+    """Run *apply* (in a review session on Writer); its result, and whether Writer was recording it.
+
+    The recording state is read inside the session, which turns recording on in Record/Wait and
+    restores it on exit.
+    """
+    if not is_writer_doc(doc):
+        return apply(), False
+    return run_writer_mutation_with_optional_review(doc, uno_ctx, lambda: (apply(), is_recording_changes(doc)))
 
 
 def _orient_number(raw: Any) -> int | None:
@@ -457,7 +462,7 @@ class ImageGenerate(ToolWriterImageBase):
 
                 if not replaced:
                     size_units = (source.frame_w, source.frame_h)
-                    _record_for_review(
+                    _res, recorded = _record_for_review(
                         ctx.ctx,
                         ctx.doc,
                         lambda: insert_image(
@@ -475,11 +480,11 @@ class ImageGenerate(ToolWriterImageBase):
                         ),
                     )
                     res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
-                    return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
+                    return annotate_review_status(res) if recorded else res
                 res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                 _flag_untracked_replace(res, ctx.doc)
                 return res
-            _record_for_review(
+            _res, recorded = _record_for_review(
                 ctx.ctx,
                 ctx.doc,
                 lambda: insert_image(
@@ -496,7 +501,7 @@ class ImageGenerate(ToolWriterImageBase):
                 ),
             )
             res = {"status": "ok", "message": "Image generated and inserted from endpoint."}
-            return annotate_review_status(res) if is_writer_doc(ctx.doc) else res
+            return annotate_review_status(res) if recorded else res
 
         # main.call defaults bound_scope to the current send scope, so Stop would
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
@@ -1417,7 +1422,7 @@ class ImageInsert(ToolWriterImageBase):
                     )
                 # Insert failures propagate. execute_safe reports them, including disposal.
                 # A None graphic is a failed insert that did not raise.
-                placed = _record_for_review(
+                placed, recorded = _record_for_review(
                     ctx.ctx,
                     doc,
                     lambda: insert_image_into_header_footer(
@@ -1446,7 +1451,7 @@ class ImageInsert(ToolWriterImageBase):
                 }
                 if placed["layout_changed"]:
                     flag_style_unreviewed(result, doc)
-                return annotate_review_status(result)
+                return annotate_review_status(result) if recorded else result
 
             if (locator is not None or paragraph_index is not None) and not visual_helpers.is_writer_like(doc_type):
                 return self._tool_error(
@@ -1469,7 +1474,7 @@ class ImageInsert(ToolWriterImageBase):
                 text_cursor = _live_or_none_cursor(pinned_cursor) if pinned_cursor is not None else _pinned_writer_cursor(ctx)
 
             try:
-                graphic = _record_for_review(
+                graphic, recorded = _record_for_review(
                     ctx.ctx,
                     doc,
                     lambda: insert_image_at_locator(
@@ -1491,9 +1496,7 @@ class ImageInsert(ToolWriterImageBase):
 
             image_name = graphic.getName()
             result = {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
-            if is_writer_doc(doc):
-                return annotate_review_status(result)
-            return result
+            return annotate_review_status(result) if recorded else result
 
         return main.run(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
@@ -1532,27 +1535,21 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         try:
-            tracked = bool(
-                _record_for_review(
-                    ctx.ctx,
-                    ctx.doc,
-                    lambda: visual_helpers.delete_graphic(ctx.ctx, ctx.doc, graphic),
-                )
+            tracked, _recording = _record_for_review(
+                ctx.ctx,
+                ctx.doc,
+                lambda: visual_helpers.delete_graphic(ctx.ctx, ctx.doc, graphic),
             )
         except ToolExecutionError as exc:
             if exc.code == "IMAGE_NOT_FOUND":
                 return _image_not_found(self, image_name)
             return self._tool_error(str(exc), code=exc.code, image_name=image_name)
 
+        res: dict[str, Any] = {"status": "ok", "deleted": image_name}
         if tracked:
-            return {
-                "status": "ok",
-                "deleted": image_name,
-                "tracked": True,
-                "pending_review": True,
-                "message": visual_helpers.TRACKED_IMAGE_DELETE_MESSAGE,
-            }
-        return {"status": "ok", "deleted": image_name}
+            res["message"] = visual_helpers.TRACKED_IMAGE_DELETE_MESSAGE
+            flag_tracked(res)
+        return res
 
 
 # ------------------------------------------------------------------

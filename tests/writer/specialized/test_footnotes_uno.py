@@ -131,6 +131,7 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
 
     assert res["status"] == "ok"
     assert res.get("tracked") is True
+    assert res.get("pending_review") is True
     assert "marked for deletion" in res["message"]
     assert list_redline_types(doc) == ["Delete"]
     assert _supplier(doc, "footnote").getCount() == 1

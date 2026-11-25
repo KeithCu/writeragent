@@ -97,6 +97,18 @@ def test_insert_recorded_content_cleans_up_placeholders_when_insert_raises():
     head.setString.assert_called_once_with("")
 
 
+def test_insert_recorded_content_reports_recording():
+    unrecorded = _FakeDoc(recording=False)
+    host_off = MagicMock()
+    cursor_off = MagicMock()
+    assert insert_recorded_content(unrecorded, host_off, cursor_off, MagicMock()) is False
+    host_off.insertTextContent.assert_called_once()
+
+    recorded = _FakeDoc(recording=True)
+    host_on = MagicMock()
+    assert insert_recorded_content(recorded, host_on, MagicMock(), MagicMock()) is True
+
+
 class _FakeText:
     def __init__(self, *, raise_on_compare: bool = False):
         self._raise_on_compare = raise_on_compare

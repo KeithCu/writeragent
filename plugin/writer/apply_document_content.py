@@ -35,6 +35,7 @@ from plugin.writer.edit_review import (
     EditReviewSession,
     annotate_review_status,
     edit_review_wait_seconds,
+    flag_tracked,
     review_recording_enabled,
     get_agent_edit_review_mode,
     record_preserve_replace,
@@ -173,7 +174,7 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
         "table_deleted": names[0] if len(names) == 1 else names,
     }
     if tracked:
-        result["pending_review"] = True
+        flag_tracked(result)
     return result
 
 
@@ -1572,8 +1573,8 @@ class ApplyDocumentContent(ToolBase):
             if doomed:
                 deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
                 resp["table_deleted"] = deletion["table_deleted"]
-                if "pending_review" in deletion:
-                    resp["pending_review"] = deletion["pending_review"]
+                if tracked_delete:
+                    flag_tracked(resp)
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
         html_import_styles.attach_write_report(
             resp, report, total_matches=count,

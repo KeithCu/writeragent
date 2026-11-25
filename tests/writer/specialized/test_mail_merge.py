@@ -590,8 +590,7 @@ def test_insert_field_flags_tracked_only_when_recorded(recording: bool):
     cursor = MagicMock()
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.mail_merge.is_recording_changes", return_value=recording),
-        patch("plugin.writer.specialized.mail_merge.insert_recorded_content"),
+        patch("plugin.writer.specialized.mail_merge.insert_recorded_content", return_value=recording),
     ):
         res = InsertField().execute(
             ctx,
