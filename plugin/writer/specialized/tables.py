@@ -23,7 +23,7 @@ from plugin.doc.text_helpers import (
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
-from plugin.writer.html_import import paragraph_has_non_text_portion, run_writer_mutation_with_optional_review
+from plugin.writer.html_import import non_text_portion_type, run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
@@ -436,8 +436,17 @@ def _row_spanning_cells(table: Any, idx: int) -> list[tuple[str, int]]:
     return [(name, span) for name, span in spans if span > 1]
 
 
-def _cell_has_content(cell: Any) -> bool:
-    """True when *cell* holds text or any field, mark, comment, frame, picture or shape.
+_PORTION_LABELS = {
+    "Annotation": "a comment",
+    "Bookmark": "a bookmark",
+    "Frame": "a frame, image or shape",
+    "TextField": "a field",
+    "Footnote": "a footnote",
+}
+
+
+def _cell_content(cell: Any) -> str | None:
+    """Short label for what *cell* holds, or ``None`` when empty.
 
     Raw text counts, so a pending tracked deletion is content: removing it would lose the
     user's chance to reject it. AT_PARAGRAPH objects are not portions; only the paragraph's
@@ -445,12 +454,22 @@ def _cell_has_content(cell: Any) -> bool:
     sw/source/core/unocore/unoparagraph.cxx). Nested tables are the caller's earlier check.
     """
     if cell.getString().strip("\n"):
-        return True
-    return any(
-        paragraph_has_non_text_portion(para, ignore_markers=True)
-        or enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent"))
-        for para in iter_elements(cell.createEnumeration())
-    )
+        return "text, or a pending tracked deletion"
+    for para in iter_elements(cell.createEnumeration()):
+        kind = non_text_portion_type(para, ignore_markers=True)
+        if kind is not None:
+            return _PORTION_LABELS.get(kind, kind)
+        if enum_has_more(para.createContentEnumeration("com.sun.star.text.TextContent")):
+            return "a frame, image or shape"
+    return None
+
+
+def _protected_cells(table: Any, axis: str, idx: int) -> list[str]:
+    """Cells in row or column *idx* marked ``IsProtected``; ``SwDoc::DeleteRow`` / ``DeleteCol`` (ndtbl.cxx) skip silently."""
+    return [
+        name for name in _band_cell_names(table, axis, idx)
+        if table.getCellByName(name).getPropertyValue("IsProtected")
+    ]
 
 
 def _split_rows_hint(row_span: int) -> str:
@@ -607,7 +626,8 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
     err_msg = (
         "LibreOffice did not record deleting this %s as a tracked change, so it was left in place. "
-        "If the table or its text is a pending tracked insertion, the user must accept or reject that first."
+        "If the table or its text is a pending tracked insertion, the user must accept or reject that first; "
+        "if a protected merged cell reaches into it, the user must unprotect it (Table > Unprotect Cells)."
         % axis
     )
     controller = doc.getCurrentController()
@@ -941,6 +961,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it); "
+        "refuses to delete a row or column that holds a protected cell; "
         "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
         "refuses to delete a column that a wider (merged) cell covers together with other columns; "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
@@ -1001,21 +1022,26 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
+                protected = _protected_cells(table, axis_arg, idx)
+                if protected:
+                    return self._tool_error(
+                        "Cannot delete this %s: cell(s) %s are protected. "
+                        "Ask the user to unprotect them first (Table > Unprotect Cells)."
+                        % (axis_arg, ", ".join(protected)),
+                        code="CELLS_PROTECTED",
+                    )
                 if axis_arg == "row":
                     # PrepareDelBoxes (sw/source/core/table/swnewtable.cxx) hands the covered box below only
                     # the remaining span, so whatever the spanning cell holds goes with its start row.
-                    held = next(
-                        (s for s in _row_spanning_cells(table, idx) if _cell_has_content(table.getCellByName(s[0]))),
-                        None,
-                    )
-                    if held is not None:
-                        cell_name, row_span = held
-                        return self._tool_error(
-                            "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
-                            "so its content would be deleted too. %s, move the content to keep into a lower row, "
-                            "then delete the row." % (cell_name, row_span, _split_rows_hint(row_span)),
-                            code="ROW_HAS_SPANNING_CELL",
-                        )
+                    for cell_name, row_span in _row_spanning_cells(table, idx):
+                        found = _cell_content(table.getCellByName(cell_name))
+                        if found is not None:
+                            return self._tool_error(
+                                "Cannot delete this row: cell '%s' starts in it and spans %d rows, "
+                                "so its content (%s) would be deleted too. %s, move the content to keep into a lower row, "
+                                "then delete the row." % (cell_name, row_span, found, _split_rows_hint(row_span)),
+                                code="ROW_HAS_SPANNING_CELL",
+                            )
                 else:
                     wide = _column_wide_cell(table, idx)
                     if wide is not None:
@@ -1043,6 +1069,15 @@ class ManageTableStructure(ToolWriterTableBase):
                         _delete_band_tracked(ctx.doc, uno_ctx, table, name, axis_arg, idx)
                         return True
                     edit_table_band(band, action, idx, axis_arg)
+                    # removeByIndex ignores the outcome of SwDoc::DeleteRow/DeleteCol, and a
+                    # protected cell merged from above is not in the band's names but may still block.
+                    if band.getCount() == count:
+                        raise ToolExecutionError(
+                            "LibreOffice left this %s in place. A protected merged cell may reach into it "
+                            "(the user can clear that with Table > Unprotect Cells), or the table may be a DDE link."
+                            % axis_arg,
+                            code="TABLE_BAND_NOT_DELETED",
+                        )
                     return False
 
                 tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))

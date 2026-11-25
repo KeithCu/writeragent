@@ -958,3 +958,110 @@ def test_tab_stop_words_reach_the_document_uno(ctx, doc):
     assert stops_after[0].Alignment.value == "RIGHT"
     assert stops_after[0].FillChar.value == "."
 
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_uno(ctx, doc):
+    import os
+    import tempfile
+    import uno
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import create_property_value
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    para_styles.getByName("Standard").setPropertyValue("ParaBackColor", 0x00FF00)
+
+    text = doc.getText()
+    text.setString("Body para")
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer_cell = outer.getCellByName("A1")
+    outer_cell.setString("Outer cell")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    outer_cell.insertTextContent(outer_cell.getEnd(), inner, False)
+    inner.getCellByName("A1").setString("Inner cell")
+
+    def _all_paras(d):
+        body_items = list(iter_elements(d.getText().createEnumeration()))
+        res = [el for el in body_items if el.supportsService("com.sun.star.text.Paragraph")]
+        tbl = d.getTextTables().getByIndex(0)
+        oc = tbl.getCellByName("A1")
+        for el in iter_elements(oc.createEnumeration()):
+            if el.supportsService("com.sun.star.text.Paragraph"):
+                res.append(el)
+            elif el.supportsService("com.sun.star.text.TextTable"):
+                ic = el.getCellByName("A1")
+                res.extend(
+                    p for p in iter_elements(ic.createEnumeration())
+                    if p.supportsService("com.sun.star.text.Paragraph")
+                )
+        return res
+
+    body_items = list(iter_elements(doc.getText().createEnumeration()))
+    assert len(body_items) == 3
+    assert body_items[1].supportsService("com.sun.star.text.TextTable")
+    assert body_items[2].supportsService("com.sun.star.text.Paragraph")
+    assert body_items[2].getString() == ""
+
+    res_set = StyleFormatText().execute(
+        tool_ctx, properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+    )
+    assert res_set["status"] == "ok", res_set
+    assert res_set["after"]["ParaBackColor"] == 0xFFE4C4
+    for p in _all_paras(doc):
+        assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+
+    reloaded = None
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "bg_test.odt")
+            url = uno.systemPathToFileUrl(path)
+            doc.storeToURL(url, ())
+            desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            reloaded = desktop.loadComponentFromURL(
+                url, "_blank", 0, (create_property_value("Hidden", True),)
+            )
+            for p in _all_paras(reloaded):
+                assert int(p.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+
+    res_reset = StyleFormatText().execute(
+        tool_ctx, reset=["ParaBackColor"], target="full_document"
+    )
+    assert res_reset["status"] == "ok", res_reset
+    assert res_reset["after"]["ParaBackColor"] == 0x00FF00
+    for p in _all_paras(doc):
+        assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
+
+    res_trans = StyleFormatText().execute(
+        tool_ctx, properties={"ParaBackColor": "transparent"}, target="full_document"
+    )
+    assert res_trans["status"] == "ok", res_trans
+    assert res_trans["after"]["ParaBackColor"] == -1
+    for p in _all_paras(doc):
+        assert int(p.getPropertyValue("ParaBackColor")) == -1
+
+    doc.getUndoManager().undo()
+    for p in _all_paras(doc):
+        assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
+
+    res_search = StyleFormatText().execute(
+        tool_ctx,
+        properties={"ParaBackColor": "#123456"},
+        target="search",
+        old_content="Outer cell",
+    )
+    assert res_search["status"] == "ok", res_search
+    paras_after = _all_paras(doc)
+    colored = [p for p in paras_after if int(p.getPropertyValue("ParaBackColor")) == 0x123456]
+    assert len(colored) == 1
+    assert colored[0].getString() == "Outer cell"
+    for p in paras_after:
+        if p is not colored[0]:
+            assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
+

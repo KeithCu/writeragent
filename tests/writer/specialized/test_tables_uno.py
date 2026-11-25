@@ -1148,3 +1148,67 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({"doc.agent_edit_review_mode": prev_mode})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_protected_cell_band_delete_refused_and_covered_band_not_deleted_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    tbl = _make_3x3_lettered_table(doc, "ProtTbl")
+    tbl.getCellByName("B1").setPropertyValue("IsProtected", True)
+    before_cells = TableGetCells().execute(tool_ctx, name="ProtTbl")["cells"]
+
+    for rec in (False, True):
+        doc.setPropertyValue("RecordChanges", rec)
+        try:
+            for axis, idx in (("row", 0), ("column", 1)):
+                res = ManageTableStructure().execute_safe(
+                    tool_ctx, action="delete", axis=axis, name="ProtTbl", index=idx
+                )
+                assert res["status"] == "error", res
+                assert res["code"] == "CELLS_PROTECTED", res
+                assert "B1" in res["message"]
+                assert tbl.getRows().getCount() == 3
+                assert tbl.getColumns().getCount() == 3
+                assert TableGetCells().execute(tool_ctx, name="ProtTbl")["cells"] == before_cells
+                assert doc.getRedlines().getCount() == 0
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+
+    tbl.getCellByName("B1").setPropertyValue("IsProtected", False)
+    ok_res = ManageTableStructure().execute_safe(
+        tool_ctx, action="delete", axis="row", name="ProtTbl", index=0
+    )
+    assert ok_res["status"] == "ok", ok_res
+    assert tbl.getRows().getCount() == 2
+
+    # Protect A1, then merge A1:A2: row 1 holds only B2, C2, so precheck passes and LO skips.
+    cov_tbl = _make_3x3_lettered_table(doc, "CoveredProt")
+    cov_tbl.getCellByName("A1").setPropertyValue("IsProtected", True)
+    assert TableMergeCells().execute(tool_ctx, name="CoveredProt", cell_range="A1:A2")["status"] == "ok"
+    cov_res = ManageTableStructure().execute_safe(
+        tool_ctx, action="delete", axis="row", name="CoveredProt", index=1
+    )
+    assert cov_res["status"] == "error", cov_res
+    assert cov_res["code"] == "TABLE_BAND_NOT_DELETED", cov_res
+    assert cov_tbl.getRows().getCount() == 3
+
+    # Empty spanning cell holding only a comment: refusal names a comment and keeps it.
+    ann_tbl = _make_3x3_lettered_table(doc, "CommentSpan")
+    ann_tbl.getCellByName("A1").setString("")
+    ann_tbl.getCellByName("A2").setString("")
+    assert TableMergeCells().execute(tool_ctx, name="CommentSpan", cell_range="A1:A2")["status"] == "ok"
+    ann = doc.createInstance("com.sun.star.text.textfield.Annotation")
+    ann.Content = "keep me"
+    a1 = ann_tbl.getCellByName("A1")
+    a1.insertTextContent(a1.getStart(), ann, False)
+    ann_res = ManageTableStructure().execute_safe(
+        tool_ctx, action="delete", axis="row", name="CommentSpan", index=0
+    )
+    assert ann_res["status"] == "error", ann_res
+    assert ann_res["code"] == "ROW_HAS_SPANNING_CELL", ann_res
+    assert "comment" in ann_res["message"]
+    portions = list(iter_elements(a1.createEnumeration().nextElement().createEnumeration()))
+    assert any(p.getPropertyValue("TextPortionType") == "Annotation" for p in portions)
