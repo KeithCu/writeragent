@@ -1261,6 +1261,45 @@ def test_cancel_without_kill_hook_during_hung_handshake_reports_the_cancel(
         warm.retire()
 
 
+def test_cancel_during_hung_handshake_aborts_without_waiting_for_timeout(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 30.0)
+    warm = WarmChild(
+        _spec(tmp_path, _stdio_worker(tmp_path, preamble="import time\ntime.sleep(60)")),
+        supervisor=supervisor,
+    )
+    scope = SendCancellation()
+    in_handshake = threading.Event()
+    orig_read_ready = warm_child_mod.read_ready_frame_during_io
+
+    def _signal_when_in_handshake(child: Child, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+        in_handshake.set()
+        return orig_read_ready(child, *args, **kwargs)
+
+    monkeypatch.setattr(warm_child_mod, "read_ready_frame_during_io", _signal_when_in_handshake)
+    result: list[dict[str, Any] | None] = [None]
+
+    def _run_lease() -> None:
+        with warm.lease(Deadline(30.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            result[0] = leased
+
+    t = threading.Thread(target=_run_lease)
+    t.start()
+    try:
+        assert in_handshake.wait(timeout=5.0)
+        scope.cancel()
+        t.join(timeout=5.0)
+        assert not t.is_alive()
+        assert result[0] is not None
+        assert result[0]["code"] == "CANCELLED"
+        assert warm.child is None
+    finally:
+        warm.retire()
+        t.join(timeout=5.0)
+
+
 @pytest.mark.parametrize("missing_interpreter", [False, True])
 @pytest.mark.parametrize(
     ("action", "expected_code"),
