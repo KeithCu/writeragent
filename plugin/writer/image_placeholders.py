@@ -43,8 +43,9 @@ log = logging.getLogger("writeragent.writer")
 # newlines add a space mid-word. A picture inside a heading comes back with a <p> between
 # the wrapper and the <img> (<span id="Name"><p><img src=""/></p></span>); the optional <p>
 # in the pattern catches it, so the edit is not refused as "an image without its data".
-# _FRAME_IMAGE_RE shares this pattern for header/footer writes (data-less or with data).
-_FRAME_HEAD = (
+# _FRAME_IMAGE_RE shares FRAME_HEAD for header/footer writes (data-less or with data),
+# and html_export._FRAME_IMG_AHEAD shares it to match picture frames on export.
+FRAME_HEAD = (
     r"(?:\n<!--Next 'div' is emulating the top height of a draw:frame\.-->\s*"
     r'(?:<div style="height:[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?)?'
     r"(?:\n<!--Next '(?:div|span)' is a draw:frame\. -->\n)?"
@@ -54,7 +55,7 @@ _FRAME_TAIL = r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?'
 
 def _frame_image_re(img: str) -> re.Pattern[str]:
     return re.compile(
-        _FRAME_HEAD
+        FRAME_HEAD
         + r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?'
         + img
         + r"\s*(?:</p>\s*)?</\1>"
@@ -71,9 +72,14 @@ _LINK_PROPS = ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
 # text link the pictures sit in. The frame comment before <a> and the clear:both <div> after </a>
 # stay outside when only the wrapper is linked, and are dropped with it.
 _LINKED_MARKERS_RE = re.compile(
-    _FRAME_HEAD
+    FRAME_HEAD
     + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(\s*)</a>"
     + _FRAME_TAIL,
+    re.IGNORECASE,
+)
+# Same rule for region images after frame wrappers are unwrapped: an <a> holding only images is the pictures' own link.
+_LINKED_REGION_IMGS_RE = re.compile(
+    r'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="wa[0-9a-f]{8}img\d+"[^>]*>)+\s*</a>',
     re.IGNORECASE,
 )
 _1PX_PNG_DATA_URI = (
@@ -102,6 +108,7 @@ class _RegionImage(NamedTuple):
     kept: _KeptImage | None
     no_data: bool
     in_region: bool
+    linked: bool = False
 
 
 def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:
@@ -122,19 +129,54 @@ def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:
     )
 
 
-def _refuse_lost_images(missing: list[str]) -> NoReturn:
-    named = (
-        " It names %s, which this document does not have." % ", ".join(repr(n) for n in missing)
-        if missing
-        else ""
-    )
-    raise ToolExecutionError(
-        "The content has an image without its data (src=\"\"), so it would be lost.%s Keep the "
-        "image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
-        "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
-        "delete it, or read with include_images=true to copy it from another document. "
-        "To link the picture, put the <a> around that wrapper." % named
-    )
+def _refuse_lost_images(model: Any, missing: list[str]) -> NoReturn:
+    embedded: list[str] = []
+    unknown: list[str] = []
+    if missing:
+        objects = uno_read(lambda: model.getEmbeddedObjects(), None)
+        for name in missing:
+            is_embedded = bool(objects is not None and uno_read(lambda: objects.hasByName(name), False))
+            (embedded if is_embedded else unknown).append(name)
+    parts = ['The content has an image without its data (src=""), so it would be lost.']
+    if embedded:
+        parts.append(
+            "It names %s, an embedded object (chart, spreadsheet, …) that a write cannot put back. "
+            "Edit around it (target='search'), or leave its wrapper out to delete it."
+            % ", ".join(repr(n) for n in embedded)
+        )
+    if unknown or not embedded:
+        if unknown:
+            parts.append("It names %s, which this document does not have." % ", ".join(repr(n) for n in unknown))
+        parts.append(
+            "Keep the image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
+            "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
+            "delete it, or read with include_images=true to copy it from another document. "
+            "To link the picture, put the <a> around that wrapper."
+        )
+    raise ToolExecutionError(" ".join(parts))
+
+
+def _merged_link(source: Any, kept: dict[str, Any]) -> dict[str, str]:
+    """Merge imported link properties from *source* with *kept* fallback name and target.
+
+    The imported marker's link wins: it is what the agent wrote, with relative URLs resolved.
+    """
+    link = {prop: str(source.getPropertyValue(prop) or "") for prop in _LINK_PROPS}
+    if not link["HyperLinkURL"]:
+        return {prop: "" for prop in _LINK_PROPS}
+    # The XHTML export writes only the URL, so a missing name or target means "unchanged".
+    return {prop: link[prop] or str(kept.get(prop) or "") for prop in _LINK_PROPS}
+
+
+def _set_link(picture: Any, link: dict[str, str]) -> None:
+    """Write only changed link properties onto *picture*.
+
+    Applied untracked because LibreOffice does not track frame attributes; Undo reverts it
+    and Reject All does not.
+    """
+    for prop, value in link.items():
+        if str(picture.getPropertyValue(prop) or "") != value:
+            picture.setPropertyValue(prop, value)
 
 
 def _insert_copy(
@@ -193,7 +235,7 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
 
     swapped = _IMAGE_PLACEHOLDER_RE.sub(_swap, content)
     if missing or _EMPTY_IMG_RE.search(swapped):
-        _refuse_lost_images(missing)
+        _refuse_lost_images(model, missing)
     linked: set[str] = set()
 
     def _note_link(match: re.Match[str]) -> str:
@@ -259,8 +301,11 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
 
     swapped = _FRAME_IMAGE_RE.sub(_swap, html)
     if missing or _EMPTY_IMG_RE.search(swapped):
-        _refuse_lost_images(missing)
-    return swapped, images
+        _refuse_lost_images(model, missing)
+    linked: set[str] = set()
+    for m in _LINKED_REGION_IMGS_RE.finditer(swapped):
+        linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", m.group(0)))
+    return swapped, [img._replace(linked=img.marker in linked) for img in images]
 
 
 def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
@@ -284,6 +329,8 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
         # Only a graphic anchored directly in text_obj can survive the clear; a cell
         # original's _deleted_by_the_edit answers False even though Accept removes the table.
         if image.in_region and not _deleted_by_the_edit(model, kept.original, image.name):
+            if image.linked or kept.props.get("HyperLinkURL"):
+                _set_link(kept.original, _merged_link(imported, kept.props))
             imported.dispose()
             continue
         anchor = imported.getAnchor()
@@ -291,11 +338,12 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
         cursor = anchor_text.createTextCursorByRange(anchor.getStart())
         size = imported.getSize()
         props = dict(kept.props)
-        for prop in ("Title",) + _LINK_PROPS:
-            try:
-                props[prop] = imported.getPropertyValue(prop)
-            except Exception as exc:
-                reraise_if_disposed(exc)
+        try:
+            props["Title"] = imported.getPropertyValue("Title")
+        except Exception as exc:
+            reraise_if_disposed(exc)
+        if image.linked or props.get("HyperLinkURL"):
+            props.update(_merged_link(imported, kept.props))
         graphic = kept.graphic if image.no_data else imported.getPropertyValue("Graphic")
         imported.dispose()
         # Insert a new TextGraphicObject instead of setting AnchorType on the imported one:
@@ -394,7 +442,9 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
     for image, found, insert in plans:
         if not insert:
             # The original is still where it was (page-anchored, or outside what the edit
-            # replaced): drop the marker instead of adding a duplicate.
+            # replaced): apply any link change and drop the marker instead of adding a duplicate.
+            if image.linked or image.props.get("HyperLinkURL"):
+                _set_link(image.original, _merged_link(found, image.props))
             found.setString("")
             continue
         # Known LibreOffice limit (checked live, recorded or not): with review on, a picture in a
@@ -404,11 +454,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         # An unlinked picture inside a text link also has the link on its marker, so without
         # image.linked the marker's URL says nothing about the picture.
         if image.linked or props.get("HyperLinkURL"):
-            # The imported marker's link wins: it is what the agent wrote, with relative URLs resolved.
-            link = {prop: found.getPropertyValue(prop) for prop in _LINK_PROPS}
-            for prop in _LINK_PROPS:
-                # The XHTML export writes only the URL, so a missing name or target means "unchanged".
-                props[prop] = (link[prop] or props.get(prop, "")) if link["HyperLinkURL"] else ""
+            props.update(_merged_link(found, props))
             if image.linked:
                 # Otherwise the anchor keeps a text link and the next export has <a> inside <a>.
                 with record_changes(model, False):

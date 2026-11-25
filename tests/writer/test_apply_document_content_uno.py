@@ -1740,6 +1740,154 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_outline_picture_link_round_trips_full_document_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        text = doc.getText()
+        text.setString("SecHead\n")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AS_CHARACTER)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g, False)
+        g.setName("OutlinePic")
+        g.setPropertyValue("HyperLinkURL", "#1.SecHead|outline")
+
+        html = document_to_content(doc, ctx, scope="full", include_images=False)
+        assert "#1.SecHead|outline" in html
+        res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=html)
+        assert res.get("status") == "ok", res
+        assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "#1.SecHead|outline"
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_linked_picture_inside_text_link_keeps_trailing_link_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        for anchor_type in (AS_CHARACTER, AT_CHARACTER):
+            _clear_body(doc)
+            text = doc.getText()
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", anchor_type)
+            g.setPropertyValue("Width", 400)
+            g.setPropertyValue("Height", 400)
+            text.insertTextContent(text.getStart(), g, False)
+            g.setName("NestedPic")
+            g.setPropertyValue("HyperLinkURL", "https://pic/l")
+
+            html = (
+                '<p data-lo-style="Standard"><a href="https://text/l">before '
+                '<a href="https://pic/l"><span id="NestedPic"><img src=""/></span></a> after</a></p>'
+            )
+            res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=html)
+            assert res.get("status") == "ok", res
+            desc = doc.createSearchDescriptor()
+            desc.SearchString = "after"
+            found = doc.findFirst(desc)
+            assert found is not None
+            assert found.getPropertyValue("HyperLinkURL") == "https://text/l", anchor_type
+            assert doc.getGraphicObjects().getByIndex(0).getPropertyValue("HyperLinkURL") == "https://pic/l"
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_recorded_full_document_at_paragraph_surviving_picture_link_uno(ctx, doc):
+    import base64
+    import os
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.writer.html_export import document_to_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    fd, img_path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(img_path, "wb") as f:
+        f.write(png)
+    try:
+        text = doc.getText()
+        text.setString("only para")
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+        g.setPropertyValue("Width", 400)
+        g.setPropertyValue("Height", 400)
+        text.insertTextContent(text.getEnd(), g, False)
+        g.setName("SurvPic")
+        g.setPropertyValue("HyperLinkURL", "https://pic/old")
+
+        html = document_to_content(doc, ctx, scope="full", include_images=False).replace(
+            "https://pic/old", "https://pic/new"
+        )
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=html)
+            assert res.get("status") == "ok", res
+            assert doc.getGraphicObjects().getByName("SurvPic").getPropertyValue("HyperLinkURL") == "https://pic/new"
+            doc.getUndoManager().undo()
+            assert doc.getGraphicObjects().getByName("SurvPic").getPropertyValue("HyperLinkURL") == "https://pic/old"
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_write_of_dataless_ole_refused_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    ole = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    ole.setPropertyValue("CLSID", "12DCAE26-281F-416F-a234-c3086127382e")
+    text.insertTextContent(text.getEnd(), ole, False)
+
+    html = document_to_content(doc, ctx, scope="full", include_images=False)
+    res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=html)
+    assert res.get("status") == "error", res
+    assert "embedded object" in res.get("message", ""), res
+    assert doc.getEmbeddedObjects().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
 def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
     from plugin.framework.config import get_config, save
 

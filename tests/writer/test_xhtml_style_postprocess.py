@@ -713,6 +713,47 @@ def test_show_hidden_sections_strips_display_none_and_condition():
     assert show_hidden_sections(plain) == plain
 
 
+def test_simplify_drawings_rewrites_shapes_and_drops_empty_or_ole():
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK, expand_tracked_deletions, simplify_drawings
+
+    plain = '<office:body><text:p>Hi</text:p></office:body>'
+    assert simplify_drawings(plain) is plain
+
+    fodt = (
+        '<office:body><office:text>'
+        '<text:p><draw:rect draw:name="R1"><svg:title>T1</svg:title><svg:desc>D1</svg:desc>'
+        '<text:p>Body</text:p></draw:rect>'
+        '<draw:ellipse draw:name="E1"><svg:title>Empty</svg:title><text:p> </text:p></draw:ellipse>'
+        '<draw:a xlink:href="https://x"><draw:line draw:name="L1"/></draw:a>'
+        '</text:p>'
+        '<text:p><draw:frame draw:name="Object1">'
+        '<draw:object><office:document><office:body><draw:object/></office:body></office:document></draw:object>'
+        '<draw:image xlink:href="data:;base64,AAA"/></draw:frame>'
+        '<draw:frame draw:name="Math1"><draw:object><math xmlns="http://www.w3.org/1998/Math/MathML"/></draw:object></draw:frame>'
+        '<draw:frame draw:name="Link1"><draw:object xlink:href="https://obj.example"/></draw:frame>'
+        '</text:p>'
+        '</office:text></office:body>'
+    )
+    out = simplify_drawings(fodt)
+    assert '<draw:frame draw:name="R1"><draw:text-box><text:p>Body</text:p></draw:text-box></draw:frame>' in out
+    assert "T1" not in out and "D1" not in out
+    assert "E1" not in out and "L1" not in out and "<draw:a" not in out
+    assert "office:document" not in out
+    assert '<draw:image xlink:href="data:;base64,AAA"/>' in out
+    assert '<math xmlns="http://www.w3.org/1998/Math/MathML"/>' in out
+    assert '<draw:object xlink:href="https://obj.example"/>' in out
+
+    # A struck paragraph holding only an empty shape gets DELETED_MARK when simplify_drawings runs first.
+    struck = (
+        '<office:body><office:text>'
+        '<text:tracked-changes><text:changed-region text:id="ct1"><text:deletion><text:p/></text:deletion></text:changed-region></text:tracked-changes>'
+        '<text:p><text:change text:change-id="ct1"/><draw:rect draw:name="R2"><text:p> </text:p></draw:rect></text:p>'
+        '</office:text></office:body>'
+    )
+    expanded = expand_tracked_deletions(simplify_drawings(struck))
+    assert expanded is not None and DELETED_MARK in expanded
+
+
 def test_xhtml_to_semantic_html_drops_field_breaks_and_normalizes_following_nbsp():
     from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
 

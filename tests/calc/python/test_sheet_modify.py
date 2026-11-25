@@ -153,6 +153,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
         code='result = [1, 2]',
         rows=1,
         cols=2,
+        values=(((2.0,),),),
     )
     st_rename = WorkbookState.for_doc(doc)
     assert st_rename is not None
@@ -183,7 +184,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet, sheet_name="SheetRenamed")
 
     assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY
-    assert cell_neighbor.getValue() == 0.0 or cell_neighbor.getString() == ""
+    assert cell_neighbor.getType() == 0
 
 
 def test_rename_without_identity_does_not_touch_other_workbooks():
@@ -225,7 +226,7 @@ def test_rename_keeps_spill_registry_when_memory_is_not_loaded(monkeypatch: pyte
     assert state.loaded is True
 
 
-def test_rename_preserves_seen_flag_for_in_memory_spill_when_unloaded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 
     stored: dict[str, object] = {}
@@ -240,18 +241,19 @@ def test_rename_preserves_seen_flag_for_in_memory_spill_when_unloaded(monkeypatc
         lambda _doc, name, value: stored.__setitem__(name, value),
     )
 
-    doc = CalcDocStub(url="file:///unloaded-seen.ods", props={"RuntimeUID": "uid-unloaded-seen"})
+    doc = CalcDocStub(url="file:///unloaded-values.ods", props={"RuntimeUID": "uid-unloaded-values"})
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
     state = WorkbookState.for_doc(doc)
     assert state is not None and state.loaded is False
 
     perform_deferred_spill("Sheet1", 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code="x", key=state.key)
-    assert state.spills[("Sheet1", 0, 0)].seen is True
+    remembered = state.spills[("Sheet1", 0, 0)].values
+    assert remembered is not None
     assert json.loads(str(stored["WriterAgentSpillRegistry"]))["Sheet1:0,0"]["rows"] == 2
 
     migrate_sheet_rename(doc, "Sheet1", "New")
-    assert state.spills[("New", 0, 0)].seen is True
+    assert state.spills[("New", 0, 0)].values is remembered
 
 
 def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):

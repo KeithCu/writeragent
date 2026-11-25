@@ -1965,6 +1965,54 @@ def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
 
 @native_test
 @with_native_doc("writer")
+def test_header_write_keeps_picture_link_target_uno(ctx, doc):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    # Unrecorded AS_CHARACTER: target kept on re-insert.
+    img_path = _write_temp_png_file()
+    try:
+        _insert_header_logo(doc, header, img_path, AS_CHARACTER, name="HdrAsChar", link_url="https://example.com/old")
+        pic = doc.getGraphicObjects().getByName("HdrAsChar")
+        pic.setPropertyValue("HyperLinkTarget", "_blank")
+        html = _get(doc, ctx, "header")["content"].replace("https://example.com/old", "https://example.com/new")
+        res = _set(doc, ctx, "header", html)
+        assert res["status"] == "ok", res
+        pic2 = doc.getGraphicObjects().getByName("HdrAsChar")
+        assert pic2.getPropertyValue("HyperLinkURL") == "https://example.com/new"
+        assert pic2.getPropertyValue("HyperLinkTarget") == "_blank"
+
+        # Recorded AT_PARAGRAPH: survivor gets new URL and keeps target.
+        for i in range(doc.getGraphicObjects().getCount() - 1, -1, -1):
+            doc.getGraphicObjects().getByIndex(i).dispose()
+        header.setString("only")
+        _insert_header_logo(doc, header, img_path, AT_PARAGRAPH, name="HdrAtPara", link_url="https://example.com/old")
+        orig_pic = doc.getGraphicObjects().getByName("HdrAtPara")
+        orig_pic.setPropertyValue("HyperLinkTarget", "_blank")
+        html_p = _get(doc, ctx, "header")["content"].replace("https://example.com/old", "https://example.com/new")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            from plugin.framework.uno_context import uno_same
+
+            res_p = _set(doc, ctx, "header", html_p)
+            assert res_p["status"] == "ok", res_p
+            assert doc.getGraphicObjects().getCount() == 1
+            pic3 = doc.getGraphicObjects().getByName("HdrAtPara")
+            assert uno_same(pic3, orig_pic)
+            assert pic3.getPropertyValue("HyperLinkURL") == "https://example.com/new"
+            assert pic3.getPropertyValue("HyperLinkTarget") == "_blank"
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
 def test_page_set_header_preserves_tex_backslashes_uno(ctx, doc):
     res = _set(doc, ctx, "header", r"<p>Rate $\nu$ and \(\tau\) a\nb</p>")
     assert res["status"] == "ok", res
