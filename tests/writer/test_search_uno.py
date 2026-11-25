@@ -719,12 +719,12 @@ def _strike_substring(doc, xtext, needle: str, *, ctx=None, author: str | None =
     cur.goRight(idx, False)
     cur.goRight(len(needle), True)
     prior = None
-    if author is not None:
-        assert ctx is not None
-        prior = review_authors.begin(ctx)
-        assert review_authors.set_office_author(ctx, author) is True
     doc.setPropertyValue("RecordChanges", True)
     try:
+        if author is not None:
+            assert ctx is not None
+            prior = review_authors.begin(ctx)
+            assert review_authors.set_office_author(ctx, author) is True
         cur.setString("")
     finally:
         doc.setPropertyValue("RecordChanges", False)

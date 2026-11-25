@@ -596,11 +596,14 @@ def _iter_descriptor_hits_with_text(
     after: Any = None,
     *,
     literal: bool = True,
+    with_text: bool = False,
 ) -> Iterator[tuple[Any, str | None]]:
     """Yield ``(hit, visible_or_none)`` for non-struck LO hits and literal crossing hits.
 
-    ``visible_or_none`` is None when no deletion overlaps *hit* (caller uses ``hit.getString()``),
-    avoiding a second ``overlaps``/``visible_text`` pass. *literal* is False for caller ICU regexes.
+    Drops native hits when pending deletions (one or several together) leave no visible text.
+    ``visible_or_none`` is None when no deletion overlaps *hit* or *with_text* is False for a
+    crossing hit, avoiding discarded ``visible_text`` reads. *literal* is False for a caller's own
+    regex: it is ICU syntax, which Python re cannot run.
     """
     crossing = _crossing_hits(doc, sd, deletions, after) if literal and deletions else deque()
     body = doc.getText() if crossing else None
@@ -608,7 +611,7 @@ def _iter_descriptor_hits_with_text(
     while found is not None:
         while crossing and _starts_before(body, crossing[0], found):
             h = crossing.popleft()
-            yield h, deletions.visible_text(h)
+            yield h, (deletions.visible_text(h) if with_text else None)
         if not deletions.overlaps(found):
             yield found, None
         else:
@@ -617,7 +620,7 @@ def _iter_descriptor_hits_with_text(
                 yield found, shown
         found = find_next_after_match(doc, found, sd)
     for h in crossing:
-        yield h, deletions.visible_text(h)
+        yield h, (deletions.visible_text(h) if with_text else None)
 
 
 def _iter_descriptor_hits(
@@ -1794,7 +1797,7 @@ class SearchInDocument(ToolBase):
         deletions = TrackedDeletions(doc)
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
-            hits = _iter_descriptor_hits_with_text(doc, sd, deletions, literal=not use_regex)
+            hits = _iter_descriptor_hits_with_text(doc, sd, deletions, literal=not use_regex, with_text=True)
             found, pre_shown = next(hits, (None, None))
         except Exception as exc:
             reraise_if_disposed(exc)

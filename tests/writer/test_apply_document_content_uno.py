@@ -2081,10 +2081,8 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
 
     with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
         # Place 20 clean matches before one crossing match so occurrence=20 sits outside replaceable.
-        _setup_crossing(case_doc, ("Word there " * 20) + "Word here there")
-        # Move the deletion to the 21st occurrence ("Word here there").
-        case_doc.getText().setString(("Word there " * 20) + "Word here there")
         t = case_doc.getText()
+        t.setString(("Word there " * 20) + "Word here there")
         c = t.createTextCursor()
         c.gotoStart(False)
         c.goRight(len("Word there " * 20) + len("Word "), False)

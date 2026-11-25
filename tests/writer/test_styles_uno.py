@@ -1143,11 +1143,26 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     assert doc.getRedlines().getCount() == 1
     assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
 
+    # Paragraph styles turn recording off for the write and record only ParagraphFormat, leaving Delete intact.
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        para_ok = ApplyStyle().execute(
+            tool_ctx, style="Heading 1", family="ParagraphStyles", target="search", old_content="Word here"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert para_ok["status"] == "ok", para_ok
+    assert visible_range_text(doc, text) == "Word here"
+    assert any(
+        doc.getRedlines().getByIndex(i).RedlineType == "Delete"
+        for i in range(doc.getRedlines().getCount())
+    )
+
     applied = ApplyStyle().execute(
         tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
     )
     assert applied["status"] == "ok", applied
     assert visible_range_text(doc, text) == "Word here"
-    assert doc.getRedlines().getCount() == 1
-    assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
+    types = [doc.getRedlines().getByIndex(i).RedlineType for i in range(doc.getRedlines().getCount())]
+    assert types.count("Delete") == 1, types
 

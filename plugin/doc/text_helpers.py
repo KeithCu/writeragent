@@ -875,10 +875,6 @@ class TrackedDeletions:
             for text, start, end in self._bounds
         )
 
-    def strikes(self, text_range: Any) -> bool:
-        """True when pending deletions, one or several together, leave nothing visible of *text_range*."""
-        return self.overlaps(text_range) and not self.visible_text(text_range)
-
     @functools.cached_property
     def _split_paragraphs(self) -> list[SplitParagraph]:
         """Each paragraph that holds a whole pending deletion, in redline order.

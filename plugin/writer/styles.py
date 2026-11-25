@@ -1970,6 +1970,8 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
+        # Paragraph/page styles turn recording off during the write and record only a ParagraphFormat redline,
+        # so they cannot turn a Delete redline into a Format redline.
         cursors, err, search_mode = target_cursors(
             self, ctx, kwargs, check_crossing=(family == "CharacterStyles")
         )
