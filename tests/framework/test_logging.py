@@ -1975,3 +1975,21 @@ def test_failed_rename_keeps_backup(tmp_path) -> None:
     finally:
         if handler.stream is not None:
             handler.close()
+
+
+@pytest.fixture(scope="class")
+def _writeragent_level_after_test():
+    # Class scope, so this teardown runs after the function-scoped conftest fixtures restore logging state.
+    saved = log.level
+    log.setLevel(logging.NOTSET)
+    try:
+        yield
+        assert log.level == logging.NOTSET
+    finally:
+        log.setLevel(saved)
+
+
+class TestLoggerLevelIsolation:
+    def test_writeragent_level_does_not_leak(self, _writeragent_level_after_test):
+        # A WARNING level left on the writeragent logger hides INFO records from later caplog tests.
+        log.setLevel(logging.WARNING)

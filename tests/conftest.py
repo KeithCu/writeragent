@@ -738,6 +738,7 @@ def _setup_grammar_persistence_test_env():
     root_logger = logging.getLogger()
     plugin_logger = logging.getLogger("plugin")
     old_wa_handlers = list(wa_logger.handlers)
+    old_wa_level = wa_logger.level
     old_root_handlers = list(root_logger.handlers)
     old_plugin_handlers = list(plugin_logger.handlers)
     old_plugin_level = plugin_logger.level
@@ -780,6 +781,7 @@ def _setup_grammar_persistence_test_env():
                     h.close()
                 except Exception:
                     pass
+        wa_logger.setLevel(old_wa_level)
         # init_logging attaches the debug file handler to the plugin logger
         # (not root). Drop handlers this test added before the temp dir goes.
         plugin_logger.setLevel(old_plugin_level)
