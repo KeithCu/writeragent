@@ -179,7 +179,7 @@ def _sheet_required(doc: Any, filter_name: str) -> _FilterError | None:
     return _FilterError(
         "SHEET_REQUIRED",
         f"This workbook has {count} sheets and this format keeps only one. "
-        f"To write one sheet, call document_export with a .csv path and sheet set to one of: {names}. "
+        f"To write one sheet, call document_export with a .csv path (pass sheet from {names}, or omit it for the active sheet). "
         "To keep every sheet, save to .ods or .xlsx.",
     )
 
@@ -209,6 +209,8 @@ def _resolve_save_target(
                 "sheet applies only to .csv exports of a Calc document; omit it for this format.",
             )
     elif save:
+        # Save moves the document onto the one-sheet file and would lose the other sheets;
+        # export leaves the document as it was and reports the sheet it wrote.
         err = _sheet_required(doc, res)
         if err is not None:
             return err
@@ -529,26 +531,25 @@ class DocumentExport(ToolBase):
                 code="PATH_IS_OPEN",
             )
 
-        exported_sheet_name: str | None = None
-        exported_sheet_index: int | None = None
-        sheet_number: int | None = None
+        sheet_obj: Any = None
+        use_sheet_filter = False
         if filter_name == _CSV_FILTER:
-            # _export_sheet_csv copies the file itself, so LibreOffice does not check the target's lock.
-            locked = _lock_refusal(path)
-            if locked is not None:
-                return self._tool_error(locked.message, code=locked.code)
             # Keep outside the try block so UnoObjectError (with available and similar sheet names)
             # reaches execute_safe instead of becoming EXPORT_FAILED.
             sheet_obj = CalcBridge(doc).sheet_or_active(sheet)
-            sheet_idx = int(sheet_obj.getRangeAddress().Sheet)
-            exported_sheet_index = sheet_idx
-            exported_sheet_name = sheet_obj.getName()
-            sheet_number = sheet_idx + 1
+            # With one sheet and no explicit sheet, LibreOffice raises no active-sheet dialog,
+            # and storeToURL keeps inherited CSV options and LibreOffice's own lock handling.
+            use_sheet_filter = sheet is not None or doc.getSheets().getCount() > 1
+            if use_sheet_filter:
+                # _export_sheet_csv copies the file itself, so LibreOffice does not check the target's lock.
+                locked = _lock_refusal(path)
+                if locked is not None:
+                    return self._tool_error(locked.message, code=locked.code)
 
         prompts = _AbortPrompts()
         try:
-            if sheet_number is not None:
-                _export_sheet_csv(doc, sheet_number, path)
+            if use_sheet_filter:
+                _export_sheet_csv(doc, sheet_obj.getRangeAddress().Sheet + 1, path)
             else:
                 doc.storeToURL(
                     url,
@@ -563,11 +564,9 @@ class DocumentExport(ToolBase):
             failure = _save_failure(prompts, exc, path, "EXPORT_FAILED")
             return self._tool_error(failure.message, code=failure.code)
         result: dict[str, Any] = {"status": "ok", "path": path, "url": url, "document": document_entry(doc)}
-        if exported_sheet_name is not None:
-            result["sheet"] = exported_sheet_name
-            result["sheet_index"] = exported_sheet_index
-            which = "active sheet" if sheet is None else "sheet"
-            result["message"] = (
-                f"Exported {which} '{exported_sheet_name}' (index {exported_sheet_index}) to {path}."
-            )
+        if sheet_obj is not None:
+            sheet_name = sheet_obj.getName()
+            result["sheet"] = sheet_name
+            result["sheet_index"] = sheet_obj.getRangeAddress().Sheet
+            result["message"] = f"Exported sheet '{sheet_name}' to {path}."
         return result

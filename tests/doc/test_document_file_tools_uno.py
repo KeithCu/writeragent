@@ -272,8 +272,7 @@ def test_document_export_csv_named_sheet_uno(ctx, doc):
         assert res_active["status"] == "ok", res_active
         assert res_active["sheet"] == "Q1 2026 é"
         assert res_active["sheet_index"] == 1
-        assert "Q1 2026 é" in res_active["message"]
-        assert "1" in res_active["message"]
+        assert res_active["message"] == f"Exported sheet 'Q1 2026 é' to {out_active}."
         with open(out_active, encoding="utf-8") as f:
             assert f.read().replace("\r\n", "\n") == "second-é\n"
         doc.getCurrentController().setActiveSheet(s1)
@@ -402,11 +401,12 @@ def test_document_export_csv_sheet_refuses_locked_target_uno(ctx, doc):
             f.write("Someone Else,other,otherhost,24.11.2026 10:00,file:///x;")
 
         for target in (real_csv, link_csv):
-            res_locked = DocumentExport().execute(tool_ctx, path=target, sheet="Second")
-            assert res_locked["status"] == "error", res_locked
-            assert res_locked["code"] == "FILE_LOCKED"
-            with open(real_csv, encoding="utf-8") as f:
-                assert f.read() == "keep"
+            for kwargs in ({"sheet": "Second"}, {}):
+                res_locked = DocumentExport().execute(tool_ctx, path=target, **kwargs)
+                assert res_locked["status"] == "error", res_locked
+                assert res_locked["code"] == "FILE_LOCKED"
+                with open(real_csv, encoding="utf-8") as f:
+                    assert f.read() == "keep"
 
         os.remove(lock_file)
         res_ok = DocumentExport().execute(tool_ctx, path=link_csv, sheet="Second")
@@ -415,6 +415,42 @@ def test_document_export_csv_sheet_refuses_locked_target_uno(ctx, doc):
         with open(real_csv, encoding="utf-8") as f:
             assert f.read().replace("\r\n", "\n") == "sheet2-data\n"
     finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+def test_document_export_single_sheet_csv_keeps_filter_options_uno(ctx):
+    tmp_dir = tempfile.mkdtemp(prefix="wa_csv_semi_")
+    src_csv = os.path.join(tmp_dir, "semi.csv")
+    out_csv = os.path.join(tmp_dir, "out.csv")
+    desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    csv_doc = None
+    try:
+        with open(src_csv, "w", encoding="utf-8") as f:
+            f.write("a;b\n1;2\n")
+        csv_doc = desktop.loadComponentFromURL(
+            path_to_file_url(src_csv),
+            "_blank",
+            0,
+            (
+                create_property_value("FilterName", "Text - txt - csv (StarCalc)"),
+                create_property_value("FilterOptions", "59,34,UTF-8,1"),
+                create_property_value("Hidden", True),
+            ),
+        )
+        tool_ctx = TestingFactory.create_context(doc=csv_doc, ctx=ctx, env="native")
+        res = DocumentExport().execute(tool_ctx, path=out_csv)
+        assert res["status"] == "ok", res
+        sheet_name = csv_doc.getSheets().getByIndex(0).getName()
+        assert res["sheet"] == sheet_name
+        assert res["sheet_index"] == 0
+        assert res["message"] == f"Exported sheet '{sheet_name}' to {out_csv}."
+        with open(out_csv, encoding="utf-8") as f:
+            got = f.read().replace("\r\n", "\n")
+        assert got == '"a";"b"\n1;2\n', f"got={got!r}"
+    finally:
+        if csv_doc is not None:
+            csv_doc.close(True)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 class _SpyInteractionHandler(unohelper.Base, XInteractionHandler):  # type: ignore[misc]
     def __init__(self) -> None:
