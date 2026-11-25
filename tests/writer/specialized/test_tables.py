@@ -885,6 +885,7 @@ def test_delete_last_column_guard():
         _ctx({"T": t}), action="delete", axis="column", name="T", index=0
     )
     assert res["status"] == "error" and "last column" in res["message"]
+    assert "table_delete" in res["message"]
 
 
 @pytest.mark.parametrize(
@@ -904,6 +905,7 @@ def test_delete_row_refuses_nested_host(rows, cols, cell_names, nested_factory, 
     tool = ManageTableStructure()
     res = tool.execute(ctx, action="delete", axis="row", name="Parent", index=1)
     assert res["status"] == "error" and "Child" in res["message"]
+    assert "table_delete" in res["message"]
     assert parent._rows.n == rows
     if check_other_row:
         ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
@@ -940,6 +942,7 @@ def test_delete_column_refuses_nested_host():
     tool = ManageTableStructure()
     res = tool.execute(ctx, action="delete", axis="column", name="Parent", index=1)
     assert res["status"] == "error" and "Child" in res["message"]
+    assert "table_delete" in res["message"]
     assert parent._cols.n == 2
     ok = tool.execute(ctx, action="delete", axis="column", name="Parent", index=0)
     assert ok["status"] == "ok" and parent._cols.n == 1
@@ -977,6 +980,7 @@ def test_delete_row_bounds_and_last_row_guard():
     # now 1 row left -> deleting it is refused
     res = tool.execute(ctx, action="delete", axis="row", name="T", index=0)
     assert res["status"] == "error" and "last row" in res["message"]
+    assert "table_delete" in res["message"]
 
 
 def test_delete_row_out_of_range():
@@ -1281,6 +1285,7 @@ def test_tracked_delete_fails_closed_when_nothing_was_recorded():
     doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
     res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "left in place" in res["message"]
+    assert res["code"] == "TABLE_DELETE_NOT_TRACKABLE"
 
 
 def test_tracked_delete_reports_an_untracked_removal():
@@ -1571,6 +1576,7 @@ def test_merge_cells_reports_lo_refusal():
     res = TableMergeCells().execute(ctx, name="LegacyTbl", cell_range="A1:B1")
     assert res["status"] == "error"
     assert "LegacyTbl" in res["message"]
+    assert "table_set_cell" in res["message"]
 
 
 @pytest.mark.parametrize(
@@ -1600,12 +1606,10 @@ def test_merge_cells_reports_lo_refusal():
     ],
 )
 def test_column_band_cells_merged_rows(cell_names, seps_by_row, idx, expected):
-    from plugin.writer.range_copy import writer_cell_position
     from plugin.writer.specialized.tables import _column_band_cells
 
     table = FakeTable(2, 3, cell_names=cell_names, seps_by_row=seps_by_row)
-    positions = {n: pos for n in cell_names if (pos := writer_cell_position(n)) is not None}
-    assert set(_column_band_cells(table, positions, idx)) == expected
+    assert set(_column_band_cells(table, idx)) == expected
 
 
 @pytest.mark.parametrize("tall_cell", ["A1", "B1"])
@@ -1634,6 +1638,7 @@ def test_untracked_row_delete_refuses_tall_cell(tall_cell):
     res = ManageTableStructure().execute(ctx, action="delete", axis="row", name="T", index=0)
     assert res["status"] == "error"
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
+    assert "table_split_cell" in res["message"] and "table_set_cell" in res["message"]
     assert table._rows.removes == []
 
 
@@ -1665,6 +1670,7 @@ def test_row_delete_refuses_tall_cell_with_hosted_content(para, expected_keyword
     assert res["status"] == "error"
     assert res["code"] == "ROW_HAS_SPANNING_CELL"
     assert expected_keyword in res["message"]
+    assert "table_set_cell cannot move" in res["message"]
     assert table._rows.removes == []
 
 
@@ -1683,6 +1689,7 @@ def test_delete_refuses_protected_cell(axis, tracked):
     assert res["status"] == "error"
     assert res["code"] == "CELLS_PROTECTED"
     assert "B2" in res["message"]
+    assert "Unprotect Cells" in res["message"]
     band = table._rows if axis == "row" else table._cols
     assert band.removes == []
     if doc is not None:
@@ -1742,6 +1749,20 @@ def test_untracked_row_delete_covered_row_still_removes():
     assert table._rows.removes == [(1, 1)]
 
 
+def _grid_from_seps(seps_per_row, cell_names):
+    from plugin.writer.range_copy import writer_cell_position
+
+    by_pos = {pos: name for name in cell_names if (pos := writer_cell_position(name)) is not None}
+    grid = []
+    for r_idx, seps in enumerate(seps_per_row):
+        edges = [0, *seps, 10000]
+        grid.append([
+            (by_pos.get((c_idx, r_idx)), edges[c_idx], edges[c_idx + 1])
+            for c_idx in range(len(edges) - 1)
+        ])
+    return grid
+
+
 @pytest.mark.parametrize(
     ("seps_per_row", "cell_names", "idx", "expected"),
     [
@@ -1771,22 +1792,99 @@ def test_untracked_row_delete_covered_row_still_removes():
         ),
     ],
 )
-def test_column_wide_cell(seps_per_row, cell_names, idx, expected):
-    from unittest.mock import MagicMock
-    from plugin.writer.specialized.tables import _column_wide_cell
+def test_wide_box(seps_per_row, cell_names, idx, expected):
+    from plugin.writer.specialized.tables import _wide_box
 
-    table = MagicMock()
-    table.getCellNames.return_value = cell_names
-    rows = MagicMock()
-    rows.getCount.return_value = len(seps_per_row)
-    row_objs = []
-    for seps in seps_per_row:
-        r = MagicMock()
-        r.getPropertyValue.return_value = [SimpleNamespace(Position=p) for p in seps]
-        row_objs.append(r)
-    rows.getByIndex.side_effect = lambda i: row_objs[i]
-    table.getRows.return_value = rows
-    assert _column_wide_cell(table, idx) == expected
+    grid = _grid_from_seps(seps_per_row, cell_names)
+    wide = _wide_box(grid, idx)
+    if expected is None:
+        assert wide is None
+    else:
+        assert wide is not None
+        row, col, span, doomed = wide
+        assert (grid[row][col][0], span, doomed) == expected
+
+
+@pytest.mark.parametrize(
+    ("grid", "idx", "expected"),
+    [
+        pytest.param(
+            _grid_from_seps([[6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2"]),
+            0,
+            [("A1", 2)],
+            id="equal_merge",
+        ),
+        pytest.param(
+            _grid_from_seps(
+                [[2000, 6000, 8000], [2000, 4000, 8000], [2000, 4000, 6000, 8000]],
+                ["A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2", "A3", "B3", "C3", "D3", "E3"],
+            ),
+            1,
+            [("B1", 2)],
+            id="staggered_five_col",
+        ),
+        pytest.param(
+            _grid_from_seps([[], [2500, 5000, 7500]], ["A1", "A2", "B2", "C2", "D2"]),
+            0,
+            [("A1", 4)],
+            id="banner_four_col_idx0",
+        ),
+        pytest.param(
+            _grid_from_seps([[], [2500, 5000, 7500]], ["A1", "A2", "B2", "C2", "D2"]),
+            2,
+            [("A1", 4)],
+            id="banner_four_col_idx2",
+        ),
+        pytest.param(
+            _grid_from_seps([[6000], [1500, 6000]], ["A1", "B1", "A2", "B2", "C2"]),
+            0,
+            None,
+            id="unequal_1500_6000",
+        ),
+        pytest.param(
+            _grid_from_seps([[], [999, 8998], [999, 3998, 8998]], ["A1", "A2", "B2", "C2", "A3", "B3", "C3", "D3"]),
+            0,
+            None,
+            id="docx_999_3998_8998",
+        ),
+        pytest.param(
+            [
+                [("A1", 0, 10000)],
+                [("A2", 0, 7199), ("B2", 7199, 10000)],
+                [("A3", 0, 6399), ("B3", 6399, 7199), (None, 7199, 10000)],
+            ],
+            2,
+            None,
+            id="covered_box_would_be_taken",
+        ),
+    ],
+)
+def test_column_split_plan(grid, idx, expected):
+    from plugin.writer.specialized.tables import _column_split_plan
+
+    assert _column_split_plan(grid, idx) == expected
+
+
+def test_delete_column_merged_first_row_is_not_last_column():
+    names = [
+        "A1",
+        "A2", "B2", "C2", "D2",
+        "A3", "B3", "C3", "D3",
+        "A4", "B4", "C4", "D4",
+    ]
+    t = FakeTable(4, 1, cell_names=names, name="T")
+    ctx = _ctx({"T": t})
+    tool = ManageTableStructure()
+    for idx in (0, 2):
+        res = tool.execute(ctx, action="delete", axis="column", name="T", index=idx)
+        assert res["status"] == "error"
+        assert res["code"] == "COLUMN_HAS_SPANNING_CELL"
+        assert "table_split_cell" in res["message"]
+        assert "table_delete" not in res["message"]
+        assert t._cols.removes == []
+    oob = tool.execute(ctx, action="delete", axis="column", name="T", index=9)
+    assert oob["status"] == "error"
+    assert "out of range" in oob["message"]
 
 
 def test_pending_insertions_detects_inserted_table_spans():
