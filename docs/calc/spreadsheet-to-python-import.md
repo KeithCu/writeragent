@@ -247,7 +247,7 @@ flowchart LR
 | 6. **Translate** | Per formula → Python body assigning `result` | Code string |
 | 7. **Wire** | Map precedents → `data` / `data[0]`… / scalar second arg | `=PY("…"; A1:B2; …)` |
 | 8. **Emit** | Write to target sheet; copy constants unchanged | New grid |
-| 9. **Verify** | Full recalc; compare to snapshot oracle | Pass/fail per cell |
+| 9. **Verify** | Full recalc; compare to snapshot oracle; restore original formula on mismatch (volatile formulas like `RAND`/`RANDBETWEEN`/`NOW` normally stay native when verify is on) | Pass/fail per cell |
 | 10. **Report** | Aggregate stats + TODO list | JSON + dialog |
 
 ### Import vs in-place

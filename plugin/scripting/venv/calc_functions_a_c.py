@@ -35,7 +35,6 @@ from .calc_functions_util import (
     is_calc_error,
     match_criteria,
     multi_criteria_mask,
-    npf_result,
     propagate_errors,
     py_str,
     round_half_up,
@@ -1002,21 +1001,25 @@ def _cum_payment(
     t = float(type_val)
     if t not in (0, 1) or r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return ILLEGAL_ARGUMENT_NAN
-    # O(1) closed form via remaining balance (fv) avoids allocating np.arange(s, e + 1) on huge nper.
-    pmt_val = npf_result("pmt", r, n, p, 0, int(t))
-    if not math.isfinite(pmt_val):
+    # O(1) closed form in log1p/expm1 avoids both np.arange OOM and small-rate cancellation.
+    rate_log = math.log1p(r)
+    m = e - s + 1
+    n_log = n * rate_log
+    denom_neg = math.expm1(-n_log)
+    if denom_neg == 0.0:
         return float("nan")
-    if int(t) == 0:
-        cum_princ = npf_result("fv", r, s - 1, pmt_val, p, 0) - npf_result("fv", r, e, pmt_val, p, 0)
+    if n_log > 700.0:
+        # Both (e - n) <= 0 and (s - 1 - n) < 0, so exp(...) <= 1 and expm1(n_log) cannot overflow.
+        cum_princ = -p * (math.exp((e - n) * rate_log) - math.exp((s - 1 - n) * rate_log)) / (-denom_neg)
     else:
-        p1 = p + pmt_val
-        s1 = max(1, s - 1)
-        e1 = e - 1
-        cp_rest = (npf_result("fv", r, s1 - 1, pmt_val, p1, 0) - npf_result("fv", r, e1, pmt_val, p1, 0)) if e1 >= s1 else 0.0
-        cum_princ = (pmt_val if s == 1 else 0.0) + cp_rest
-    if not math.isfinite(cum_princ):
-        return float("nan")
-    res = cum_princ if kind == "ppmt" else (e - s + 1) * pmt_val - cum_princ
+        cum_princ = -p * math.exp((s - 1) * rate_log) * math.expm1(m * rate_log) / math.expm1(n_log)
+    pmt_val = p * r / denom_neg
+    if int(t) == 1:
+        cum_princ /= 1.0 + r
+        if s == 1:
+            cum_princ -= p * r / (1.0 + r)
+        pmt_val /= 1.0 + r
+    res = cum_princ if kind == "ppmt" else m * pmt_val - cum_princ
     return res if math.isfinite(res) else float("nan")
 
 

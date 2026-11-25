@@ -45,6 +45,7 @@ from .calc_functions_util import (
     scipy_stats,
     serial_to_date,
     trend_fit,
+    whole_number,
     yearfrac,
 )
 from .coerce import header_label
@@ -160,7 +161,7 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
 
 @propagate_errors
 def date(year: Any, month: Any, day: Any) -> float:
-    return float(dt.date(int(float(year)), int(float(month)), int(float(day))).toordinal() - 693594)
+    return date_to_serial(dt.date(whole_number(year), whole_number(month), whole_number(day)))
 
 
 @propagate_errors

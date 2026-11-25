@@ -21,6 +21,7 @@ from typing import Any, Callable
 import numpy as np
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError
+from plugin.scripting.calc_range import CalcRange
 
 from .calc_functions_util import (
     RegressionError,
@@ -125,10 +126,10 @@ __all__ = [
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
-    # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not hidden.
+    # Re-raise InterpreterError before the broad catch so sandbox refusals are not hidden.
     try:
-        val = cell_value(f())
-        return alt if is_calc_error(val) else val
+        val = f()
+        return alt if is_calc_error(cell_value(val)) else val
     except InterpreterError:
         raise
     except Exception:
@@ -138,11 +139,10 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     # Catches #N/A values and ValueError/TypeError/OverflowError from an #N/A operand
     # (e.g. np.int64 of a NaN or token, text + number, or a date built from INT_MIN).
-    # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not
-    # hidden; IndexError is not caught because translated INDEX and lookups use helpers that
-    # return error values.
+    # Same InterpreterError re-raise as iferror; IndexError is not caught because
+    # translated INDEX and lookups use helpers that return error values.
     try:
-        val = cell_value(f())
+        val = f()
         return alt if isna(val) else val
     except InterpreterError:
         raise
@@ -447,7 +447,10 @@ def irr(values: Any, guess: Any = 0.1) -> float:
 
 
 def isblank(val: Any) -> bool:
-    return is_blank_value(cell_value(val))
+    # ScIsEmpty (interpr1.cxx:2007) is true only for CELLTYPE_NONE, not =""; keep scalar "" for legacy callers.
+    if isinstance(val, CalcRange):
+        return val.shape == (1, 1) and val.values[0][0] is None
+    return is_blank_value(val)
 
 
 def iserr(val: Any) -> bool:
@@ -643,13 +646,13 @@ def logest(*args: Any, **kwargs: Any) -> Any:
 
 @propagate_errors
 def left(text: Any, n: Any = 1) -> str:
-    return py_str(text)[: int(float(n))]
+    return py_str(text)[: whole_number(n)]
 
 
 @propagate_errors
 def mid(text: Any, start: Any, n: Any) -> str:
-    s = max(0, int(float(start)) - 1)
-    return py_str(text)[s : s + int(float(n))]
+    s = max(0, whole_number(start) - 1)
+    return py_str(text)[s : s + whole_number(n)]
 
 
 @propagate_errors

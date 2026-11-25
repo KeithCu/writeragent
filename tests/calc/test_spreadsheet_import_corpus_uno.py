@@ -49,9 +49,10 @@ def test_corpus_income_statement_verify(ctx):
         report = res.get("report", {})
         converted = report.get("converted", [])
         failed = res.get("failed_verifications", [])
-        if not converted:
+        total_attempted = len(converted) + len(failed)
+        if not total_attempted:
             raise unittest.SkipTest(f"No formulas converted in {path} (skipped={len(report.get('skipped', []))})")
-        pass_rate = (len(converted) - len(failed)) / len(converted)
+        pass_rate = len(converted) / total_attempted
         assert pass_rate >= 0.90, f"verify pass rate {pass_rate:.1%}: {failed[:5]}"
     finally:
         doc.close(True)

@@ -694,7 +694,8 @@ def test_index_and_ifna_sandbox_interpreter_error():
 
 def test_is_predicates_and_iferror_unwrap_calc_range():
     assert calc.isblank(CalcRange([[None]])) is True
-    assert calc.isblank(CalcRange([[""]])) is True
+    assert calc.isblank(CalcRange([[""]])) is False
+    assert calc.isblank(CalcRange([[" "]])) is False
     assert calc.isblank(CalcRange([[0]])) is False
     assert calc.iserror(CalcRange([[float("nan")]])) is True
     assert calc.iserror(CalcRange([["#VALUE!"]])) is True
@@ -717,8 +718,12 @@ def test_is_predicates_and_iferror_unwrap_calc_range():
     assert calc.iferror(lambda: CalcRange([["#VALUE!"]]), 99) == 99
     assert calc.iferror(lambda: CalcRange([[float("nan")]]), 99) == 99
     assert calc.iferror(lambda: CalcRange([[7]]), 99) == 7
+    assert math.isnan(calc.iferror(lambda: CalcRange([[None]]), 0) + 1)
     assert calc.ifna(lambda: CalcRange([["#N/A"]]), 99) == 99
     assert calc.ifna(lambda: CalcRange([[7]]), 99) == 7
+    assert math.isnan(calc.ifna(lambda: CalcRange([[None]]), 0) + 1)
+    assert calc.left("abcdef", None) == ""
+    assert calc.mid("abcdef", None, 2) == "ab"
     # Multi-cell CalcRange is not a scalar match and does not raise.
     multi = CalcRange([[1, 2], [3, 4]])
     assert calc.isblank(multi) is False
