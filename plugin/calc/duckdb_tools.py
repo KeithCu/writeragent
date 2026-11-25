@@ -102,8 +102,16 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         sql = kwargs["sql"].strip()
         if not sql:
             return self._tool_error("sql is required", code="INVALID_PARAM")
-        # files is {SQL table name: basename or basename#Sheet}. Nested values are not schema-checked, hence str(); a null or blank value means no file.
-        file_pairs = [(str(k), str(v)) for k, v in (kwargs.get("files") or {}).items() if v is not None and str(v).strip()]
+        # files is {SQL table name: basename or basename#Sheet}. The argument gate turns numbers into strings but does not
+        # reject other nested types, so those are rejected here; a null or blank value means no file.
+        file_pairs: list[tuple[str, str]] = []
+        for name, spec in (kwargs.get("files") or {}).items():
+            if spec is None:
+                continue
+            if not isinstance(spec, str):
+                return self._tool_error(f"files[{str(name)!r}] must be a file name such as 'budget.xlsx#Sales'; got {type(spec).__name__}", code="INVALID_PARAM")
+            if spec.strip():
+                file_pairs.append((str(name), spec))
         data_range = str(kwargs.get("data_range") or "").strip() or None
         headers: bool = kwargs["headers"]
         tables = dict(kwargs.get("tables") or {})
@@ -166,7 +174,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
     # Separate direct DuckDB-readable files from office files that need LO import.
     # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
     for name_hint, fspec in file_pairs:
-        spec = str(fspec).strip()
+        spec = fspec.strip()
         file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
         bn = str(file_spec.get("file") or "")
 

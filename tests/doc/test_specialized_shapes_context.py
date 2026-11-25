@@ -105,7 +105,7 @@ def test_writer_page_style_uses_view_cursor_text():
             20_000,
             2,  # 1-based slide number -> index 1
             5,
-            ["Document canvas (Draw):", "28000 x 20000", "index 1", "5 page"],
+            ["Document canvas (Draw):", "28000 x 20000", "index 1", "user's page 2", "5 page"],
             id="draw",
         ),
         pytest.param(
@@ -114,7 +114,7 @@ def test_writer_page_style_uses_view_cursor_text():
             19_050,
             1,
             3,
-            ["Document canvas (Impress):", "25400 x 19050"],
+            ["Document canvas (Impress):", "25400 x 19050", "user's page 1"],
             id="impress",
         ),
     ],

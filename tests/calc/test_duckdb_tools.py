@@ -244,6 +244,39 @@ def test_query_folder_sql_null_files_value_is_skipped(mock_resolve, mock_run, mo
     assert list(mock_run.call_args.kwargs["flat_files"].keys()) == ["b"]
 
 
+@pytest.mark.parametrize("value", [True, False, [], ["b.csv"], {}, {"file": "b.csv"}])
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_non_string_files_value_is_invalid_param(mock_resolve, mock_run, mock_exec, value):
+    mock_resolve.return_value = "/tmp/project"
+    mock_exec.side_effect = lambda fn: fn()
+
+    ctx = _mk_ctx()
+    res = _run(ctx, sql="SELECT 1", files={"good": "good.csv", "costs": value})
+
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "costs" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_number_files_value_is_a_file_name(mock_resolve, mock_run, mock_exec, tmp_path):
+    mock_resolve.return_value = str(tmp_path)
+    mock_exec.side_effect = lambda fn: fn()
+
+    ctx = _mk_ctx()
+    res = _run(ctx, sql="SELECT 1", files={"a": 2024})
+
+    assert res["status"] == "error"
+    assert res["code"] == "MISSING_FILE"
+    assert "2024" in res["message"]
+    mock_run.assert_not_called()
+
+
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
 @patch("plugin.framework.queue_executor.main.call")

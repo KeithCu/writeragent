@@ -120,7 +120,7 @@ class GetImage(ToolBase):
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
         "from shape_get_tree on Draw/Impress, or get_content / get_sheet_summary / image_list "
         "on Writer/Calc> for an embedded picture; selection=true for the image "
-        "currently selected; or page=<n> (0-based) to render that whole PAGE as an image "
+        "currently selected; or page=<n> to render that whole PAGE as an image "
         "(Writer/Draw/Impress layout). On Draw/Impress, shape_get_tree is the shape tree — use page= "
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
         "b64 is stripped from normal reads, so use this when you actually need to look. "
@@ -147,7 +147,7 @@ class GetImage(ToolBase):
         else:
             draw_note = " shape_get_tree is structure, not pixels; use page= to see the rendered page." if doc_type == "draw" else ""
             modes = (
-                "for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render "
+                "for an embedded picture; selection=true for the image currently selected; or page=<n> to render "
                 f"that whole page as an image.{draw_note}"
             )
         return (
