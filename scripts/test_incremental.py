@@ -44,8 +44,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.plugin_import_graph import (  # noqa: E402
+    direct_importers,
     dotted_module_name,
-    reverse_import_closure,
 )
 from scripts.typecheck_incremental import (  # noqa: E402
     EXIT_FALLBACK_FULL,
@@ -280,19 +280,20 @@ def get_branch_changed_files(repo_root: Path = REPO_ROOT) -> list[str]:
     return sorted(paths)
 
 
-def _add_stem_matches(
+def _stem_matches(
     rels: Iterable[str],
     by_name: dict[str, list[str]],
     matches_stem: Callable[[str, str], bool],
-    selected: set[str],
-) -> None:
+) -> set[str]:
+    hits: set[str] = set()
     for rel in rels:
         stem = _module_stem(rel)
         if not stem:
             continue
         for test_name, test_rels in by_name.items():
             if matches_stem(test_name, stem):
-                selected.update(test_rels)
+                hits.update(test_rels)
+    return hits
 
 
 def _select_test_files(
@@ -328,7 +329,7 @@ def _select_test_files(
         changed_non_test_py.append(rel)
 
     if changed_non_test_py:
-        _add_stem_matches(changed_non_test_py, by_name, matches_stem, selected)
+        selected.update(_stem_matches(changed_non_test_py, by_name, matches_stem))
         dotted_targets = {
             dotted for rel in changed_non_test_py if (dotted := dotted_module_name(rel)) is not None
         }
@@ -338,8 +339,8 @@ def _select_test_files(
             # Bound expansion to 1 hop of module-level importers matched by stem only:
             # unlimited depth or deferred imports pull in most of plugin/, and package
             # names in naming_modules act as wildcards across unrelated submodules.
-            importers = reverse_import_closure(changed_non_test_py, repo_root, max_depth=1)
-            _add_stem_matches(importers, by_name, matches_stem, selected)
+            importers = direct_importers(changed_non_test_py, repo_root)
+            selected.update(_stem_matches(importers, by_name, matches_stem))
 
     return sorted(selected)
 

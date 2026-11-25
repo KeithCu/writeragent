@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import ast
-from collections import deque
 import os
 from pathlib import Path
 from typing import Iterable
 
 _SKIP_GRAPH_DIRS = frozenset({"build", "node_modules", "tests", "vendor", "__pycache__"})
+# Every UNO test imports plugin.testing_runner, so expanding into it would pull
+# test_testing_runner*.py into unrelated edits.
+_STOP_AT_MODULES = frozenset({"plugin.testing_runner"})
 
 
 def _plugin_mod_to_candidates(mod: str) -> tuple[str, ...]:
@@ -160,48 +162,25 @@ def _iter_non_test_py_files(repo_root: Path) -> Iterable[Path]:
                     yield Path(dirpath) / filename
 
 
-def reverse_import_closure(
+def direct_importers(
     seed_rels: Iterable[str],
     repo_root: Path | str,
-    *,
-    max_depth: int | None = 1,
-    stop_at: frozenset[str] = frozenset({"plugin.testing_runner"}),
 ) -> list[str]:
-    """Return repo-relative paths of modules importing ``seed_rels`` up to ``max_depth``.
-
-    Only module-level runtime imports are followed. ``stop_at`` prevents
-    expanding into harness entrypoints (such as ``plugin.testing_runner``)
-    unless they were directly in ``seed_rels``.
-    """
+    """Return repo-relative paths of modules directly importing ``seed_rels`` at module level."""
     root = Path(repo_root)
     seed_mods = {mod for rel in seed_rels if (mod := dotted_module_name(rel)) is not None}
     if not seed_mods:
         return []
 
-    rev_imports: dict[str, set[str]] = {}
-    mod_to_rel: dict[str, str] = {}
+    importers: list[str] = []
     for path in _iter_non_test_py_files(root):
         rel = path.relative_to(root).as_posix()
         dm = dotted_module_name(rel)
-        if not dm:
+        if not dm or dm in seed_mods or dm in _STOP_AT_MODULES:
             continue
-        mod_to_rel[dm] = rel
-        for imp in module_level_imports(path, root):
-            rev_imports.setdefault(imp, set()).add(dm)
-
-    seen = set(seed_mods)
-    queue: deque[tuple[str, int]] = deque((mod, 0) for mod in seed_mods)
-    while queue:
-        mod, depth = queue.popleft()
-        if max_depth is not None and depth >= max_depth:
-            continue
-        for dependent in rev_imports.get(mod, ()):
-            if dependent in stop_at or dependent in seen:
-                continue
-            seen.add(dependent)
-            queue.append((dependent, depth + 1))
-
-    return [mod_to_rel[mod] for mod in seen if mod not in seed_mods and mod in mod_to_rel]
+        if module_level_imports(path, root) & seed_mods:
+            importers.append(rel)
+    return importers
 
 
 def missing_module_level_plugin_imports(

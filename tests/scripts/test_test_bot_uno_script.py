@@ -121,16 +121,21 @@ def test_list_branch_uno_files_selects_stem_and_1hop_uno_tests_and_caps_large_ex
 
     monkeypatch.setattr(tbu, "UNO_MAX_EXPANDED_FILES", 1)
     assert tbu.list_branch_uno_files(tmp_path) == ["tests/doc/test_text_helpers_uno.py"]
-    assert "exceed cap (1)" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "exceed cap (1)" in captured.err
 
 
-def test_main_scales_timeout_and_distinguishes_124_and_75(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_main_scales_timeout_honours_env_and_distinguishes_124_and_75(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     monkeypatch.delenv("SKIP_UNO", raising=False)
+    monkeypatch.delenv("UNO_PROBE_TIMEOUT", raising=False)
     monkeypatch.setattr(tbu, "is_main_checkout", lambda repo_root, main=None: False)
     monkeypatch.setattr(
         tbu,
         "list_branch_uno_files",
-        lambda repo_root: [f"tests/writer/test_f{idx}_uno.py" for idx in range(6)],
+        lambda repo_root: [f"tests/writer/test_f{idx}_uno.py" for idx in range(15)],
     )
     probe = tmp_path / "uno-probe.sh"
     probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -139,22 +144,19 @@ def test_main_scales_timeout_and_distinguishes_124_and_75(tmp_path: Path, monkey
 
     seen_cmds: list[list[str]] = []
 
-    def _fake_run(returncode: int):
-        class _Proc:
-            def __init__(self, rc: int) -> None:
-                self.returncode = rc
+    def _run(rc: int):
+        return lambda cmd, **_: (seen_cmds.append(cmd), subprocess.CompletedProcess(cmd, rc))[1]
 
-        def _runner(cmd: list[str], **_kwargs: object) -> _Proc:
-            seen_cmds.append(cmd)
-            return _Proc(returncode)
-
-        return _runner
-
-    monkeypatch.setattr(tbu.subprocess, "run", _fake_run(124))
+    monkeypatch.setattr(tbu.subprocess, "run", _run(124))
     assert tbu.main([], repo_root=tmp_path) == 124
-    assert seen_cmds[0][:3] == [str(probe), "--timeout", "360"]
-    assert "timed out after 360s (exit 124)" in capsys.readouterr().err
+    assert seen_cmds[0][:3] == [str(probe), "--timeout", "375"]
+    assert "timed out after 375s (exit 124)" in capsys.readouterr().err
 
-    monkeypatch.setattr(tbu.subprocess, "run", _fake_run(75))
+    monkeypatch.setattr(tbu.subprocess, "run", _run(75))
     assert tbu.main([], repo_root=tmp_path) == 75
     assert "all slots busy (exit 75)" in capsys.readouterr().err
+
+    monkeypatch.setenv("UNO_PROBE_TIMEOUT", "900")
+    monkeypatch.setattr(tbu.subprocess, "run", _run(0))
+    assert tbu.main([], repo_root=tmp_path) == 0
+    assert "--timeout" not in seen_cmds[2]

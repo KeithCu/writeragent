@@ -362,7 +362,7 @@ def test_select_pytest_files_follows_one_hop_and_relative_imports_and_skips_defe
     _write(
         tmp_path,
         "plugin/pkg/__init__.py",
-        "def _init():\n    from . import sibling\n",
+        "from plugin.pkg import sibling\n",
     )
     _write(tmp_path, "plugin/pkg/sibling.py", "x = 1\n")
     _write(tmp_path, "plugin/pkg/other_sibling.py", "x = 2\n")
@@ -378,6 +378,7 @@ def test_select_pytest_files_follows_one_hop_and_relative_imports_and_skips_defe
     _write(tmp_path, "tests/c/test_type_else.py", "x = 1\n")
     _write(tmp_path, "tests/pkg/test_sibling.py", "x = 1\n")
     _write(tmp_path, "tests/pkg/test_other_sibling.py", "import plugin.pkg.other_sibling\n")
+    _write(tmp_path, "tests/x/test_testing_runner.py", "x = 1\n")
     _write(tmp_path, "tests/a/test_consumer_uno.py", "x = 1\n")
     _write(tmp_path, "tests/x/test_unrelated_uno.py", "import plugin.testing_runner\n")
 
@@ -389,7 +390,7 @@ def test_select_pytest_files_follows_one_hop_and_relative_imports_and_skips_defe
     assert tst.select_uno_files(["plugin/a/helper.py"], repo_root=tmp_path) == [
         "tests/a/test_consumer_uno.py",
     ]
-    # Deferred import in __init__.py does not pull in sibling-module tests.
+    # Module-level import in __init__.py does not trigger package-wildcard selection.
     assert tst.select_pytest_files(["plugin/pkg/sibling.py"], repo_root=tmp_path) == [
         "tests/pkg/test_sibling.py",
     ]

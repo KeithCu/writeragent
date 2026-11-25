@@ -36,9 +36,14 @@ from scripts.test_incremental import (  # noqa: E402
 
 DEFAULT_PROBE = Path.home() / "Desktop/Python/wa-pipeline-scripts/uno-probe.sh"
 MAIN_CHECKOUT = Path.home() / "Desktop/Python/writeragent"
+# All-or-nothing cap so foundation modules (e.g. errors.py, uno_context.py) fall
+# back to their direct UNO tests rather than holding a probe slot for 80+ files;
+# CI runs the remaining importers.
 UNO_MAX_EXPANDED_FILES = 40
+# Minimum 300s matches uno-probe.sh's default; 25s/file prevents false 124
+# timeouts on multi-file runs without letting a hung soffice stall a slot for 40m.
 _PROBE_BASE_TIMEOUT = 300
-_PROBE_SECONDS_PER_FILE = 60
+_PROBE_SECONDS_PER_FILE = 25
 
 
 def is_main_checkout(repo_root: Path, main: Path = MAIN_CHECKOUT) -> bool:
@@ -59,6 +64,7 @@ def list_branch_uno_files(repo_root: Path) -> list[str]:
     print(
         f"test-bot: {len(expanded)} UNO files exceed cap ({UNO_MAX_EXPANDED_FILES}); "
         f"running {len(direct)} direct UNO file(s) and leaving {len(expanded) - len(direct)} to CI",
+        file=sys.stderr,
         flush=True,
     )
     return direct
@@ -118,17 +124,27 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         )
         return 0
 
-    timeout_sec = _probe_timeout_seconds(len(files))
+    user_timeout = os.environ.get("UNO_PROBE_TIMEOUT")
+    if user_timeout:
+        timeout_label = f"UNO_PROBE_TIMEOUT={user_timeout}s"
+        timeout_args: list[str] = []
+        timeout_sec_msg = f"{user_timeout}s"
+    else:
+        timeout_sec = _probe_timeout_seconds(len(files))
+        timeout_label = f"timeout {timeout_sec}s"
+        timeout_args = ["--timeout", str(timeout_sec)]
+        timeout_sec_msg = f"{timeout_sec}s"
+
     print(
-        f"test-bot: running {len(files)} UNO file(s) via {probe} (timeout {timeout_sec}s): {', '.join(files)}",
+        f"test-bot: running {len(files)} UNO file(s) via {probe} ({timeout_label}): {', '.join(files)}",
         flush=True,
     )
-    cmd = [str(probe), "--timeout", str(timeout_sec), *[str(repo_root / rel) for rel in files]]
+    cmd = [str(probe), *timeout_args, *[str(repo_root / rel) for rel in files]]
     proc = subprocess.run(cmd, cwd=repo_root, check=False)
     if proc.returncode != 0:
         if proc.returncode == 124:
             print(
-                f"test-bot: UNO probe timed out after {timeout_sec}s (exit 124)",
+                f"test-bot: UNO probe timed out after {timeout_sec_msg} (exit 124)",
                 file=sys.stderr,
                 flush=True,
             )
