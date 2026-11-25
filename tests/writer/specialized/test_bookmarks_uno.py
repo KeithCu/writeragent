@@ -276,3 +276,28 @@ def test_bookmark_delete_header_table_and_collapsed(ctx, doc):
 
     doc.getUndoManager().undo()
     assert doc.getBookmarks().hasByName("collapsed")
+
+
+@native_test
+@with_native_doc("writer")
+def test_bookmark_create_spans_pinned_selection_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.bookmarks import BookmarkCreate
+
+    doc.getText().setString("Alpha beta gamma\nSecond para")
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "beta"
+    found = doc.findFirst(sd)
+    assert found is not None
+    controller = doc.getCurrentController()
+    controller.select(found)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = BookmarkCreate().execute(tctx, name="PinnedBM")
+    assert res["status"] == "ok", res
+    assert doc.getBookmarks().getByName("PinnedBM").getAnchor().getString() == "beta"

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import clone_text_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
 from plugin.writer.edit_review import next_agent_edit_undo_title, run_in_review_session
 
@@ -29,12 +29,20 @@ def _span_cursor(rng: Any, fail: str) -> Any:
 
 
 def request_selection_range(ctx: ToolContext) -> Any | None:
-    """Range a Writer tool acts on for target='selection': ctx.selection_pin.range when set, else live_selection_range(doc controller)."""
+    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set, else live_selection_range(doc controller)."""
     pin = ctx.selection_pin
     if pin is not None and pin.range is not None:
         return pin.range
     controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
     return live_selection_range(controller)
+
+
+def require_selection_range(ctx: ToolContext) -> Any:
+    """request_selection_range(ctx), or ToolExecutionError when the view has no caret."""
+    rng = request_selection_range(ctx)
+    if rng is None:
+        raise ToolExecutionError("No text cursor is available in the document view; nothing was changed.")
+    return rng
 
 
 def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:

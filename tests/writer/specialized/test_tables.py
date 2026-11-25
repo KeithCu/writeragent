@@ -1080,12 +1080,12 @@ def test_table_insert_unknown_parent_or_cell():
 
 def test_table_insert_body_uses_view_cursor_or_end():
     doc = FakeWriterDoc({}, view_cursor="VIEW")
-    res = TableInsert().execute(SimpleNamespace(doc=doc), rows=1, columns=1)
+    res = TableInsert().execute(SimpleNamespace(doc=doc, selection_pin=None), rows=1, columns=1)
     assert res["status"] == "ok"
     assert res["nesting"]["is_nested"] is False
     assert doc._body.inserts[-1][0] == "VIEW"
     doc_no_view = FakeWriterDoc({}, view_error=RuntimeError("no controller"))
-    res_end = TableInsert().execute(SimpleNamespace(doc=doc_no_view), rows=1, columns=1)
+    res_end = TableInsert().execute(SimpleNamespace(doc=doc_no_view, selection_pin=None), rows=1, columns=1)
     assert res_end["status"] == "ok"
     assert doc_no_view._body.inserts[-1][0] == "BODY_END"
 
@@ -1098,7 +1098,7 @@ def test_table_insert_wrong_start_node_tells_caller_to_pass_parent_cell():
 
     body.insertTextContent = boom
     doc = FakeWriterDoc({}, body=body, view_cursor="IN_CELL")
-    res = TableInsert().execute(SimpleNamespace(doc=doc), rows=1, columns=1)
+    res = TableInsert().execute(SimpleNamespace(doc=doc, selection_pin=None), rows=1, columns=1)
     assert res["status"] == "error"
     assert "parent" in res["message"] and "cell" in res["message"]
 

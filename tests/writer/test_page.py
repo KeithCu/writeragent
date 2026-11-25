@@ -211,6 +211,7 @@ def test_insert_page_break():
     text_cursor = MagicMock()
 
     doc.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
     controller.getViewCursor.return_value = view_cursor
     view_cursor.getStart.return_value = start_pos
     view_cursor.getText.return_value = text_obj
@@ -244,6 +245,7 @@ def test_page_break_view_cursor_page_style_and_restart():
     text_cursor = MagicMock()
 
     doc.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
     controller.getViewCursor.return_value = view_cursor
     view_cursor.getStart.return_value = start_pos
     view_cursor.getText.return_value = text_obj
@@ -1697,12 +1699,13 @@ def test_page_break_in_table_cell_errors():
     text_cursor = MagicMock()
     text_cursor.getPropertyValue.side_effect = lambda prop: object() if prop == "TextTable" else None
     doc2.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
     controller.getViewCursor.return_value = view_cursor
     view_cursor.getStart.return_value = start_pos
     view_cursor.getText.return_value = text_obj
     text_obj.createTextCursorByRange.return_value = text_cursor
 
-    ctx = SimpleNamespace(doc=doc2)
+    ctx = SimpleNamespace(doc=doc2, selection_pin=None)
     res2 = PageInsertBreak().execute(ctx)
     assert res2["status"] == "error"
     assert "table cell" in res2["message"]
@@ -1737,12 +1740,13 @@ def test_page_break_page_style_in_table_cell_still_errors():
     text_cursor = MagicMock()
     text_cursor.getPropertyValue.side_effect = lambda prop: object() if prop == "TextTable" else None
     doc2.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
     controller.getViewCursor.return_value = view_cursor
     view_cursor.getStart.return_value = start_pos
     view_cursor.getText.return_value = text_obj
     text_obj.createTextCursorByRange.return_value = text_cursor
 
-    ctx = SimpleNamespace(doc=doc2)
+    ctx = SimpleNamespace(doc=doc2, selection_pin=None)
     res2 = PageInsertBreak().execute(ctx, page_style="Annex")
     assert res2["status"] == "error"
     assert "table cell" in res2["message"]
