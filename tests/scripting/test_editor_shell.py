@@ -104,6 +104,7 @@ const win = {{
       save_script: (name, code, origin, requested) => sent.push({{ type: "save_script", name, code, origin, requested: !!requested }}),
       request_scripts: () => sent.push("request_scripts"),
       select_script: (name) => sent.push({{ type: "select_script", name }}),
+      ask_unsaved: (name) => sent.push({{ type: "ask_unsaved", name }}),
       poll_messages: () => Promise.resolve(queue.splice(0)),
     }},
   }},
@@ -513,6 +514,7 @@ def test_new_script_failure_keeps_script_and_text() -> None:
         await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
         type("a_edit");
         el("btn-new-script").click();
+        await deliver({{type: "unsaved_choice", choice: "discard"}});
         el("new-script-name-input").value = "B";
         el("btn-new-script-create").click();
         await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A", status_error_text: "Failed to save"}});
@@ -595,6 +597,7 @@ def test_new_script_shows_template_only_after_list() -> None:
         await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
         type("a_before_timeout");
         el("btn-new-script").click();
+        await deliver({{type: "unsaved_choice", choice: "discard"}});
         el("new-script-name-input").value = "B";
         el("btn-new-script-create").click();
         await deliver({{type: "error", message: "timeout"}});
@@ -653,3 +656,69 @@ def test_new_script_shows_template_only_after_list() -> None:
         include_scripts_manager=True,
     )
     assert [m for m in load_clear_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": "a0", "selected": "A"}]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_new_script_prompts_when_dirty() -> None:
+    template = '# A simple script\nresult = "Hello from Python!"\n'
+    sections_a = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a0"}}]
+    sections_a_saved = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a_edit"}}]
+    sections_ab = [{"id": "user", "title": "My Scripts", "scripts": {"A": "a_edit", "B": template}}]
+
+    # 1. Cancel keeps dirty edits and does not open the modal.
+    cancel_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        el("new-script-modal").classList.add("toolbar-hidden");
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("a_edit");
+        el("btn-new-script").click();
+        sent.push({{type: "modal_before", hidden: el("new-script-modal").classList.contains("toolbar-hidden")}});
+        await deliver({{type: "unsaved_choice", choice: "cancel"}});
+        sent.push({{type: "modal_after", hidden: el("new-script-modal").classList.contains("toolbar-hidden")}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in cancel_out["sent"] if isinstance(m, dict) and m.get("type") == "ask_unsaved"] == [
+        {"type": "ask_unsaved", "name": "A"}
+    ]
+    assert [m for m in cancel_out["sent"] if isinstance(m, dict) and m.get("type") == "modal_before"] == [
+        {"type": "modal_before", "hidden": True}
+    ]
+    assert [m for m in cancel_out["sent"] if isinstance(m, dict) and m.get("type") == "modal_after"] == [
+        {"type": "modal_after", "hidden": True}
+    ]
+    assert cancel_out["dirty"] is True
+    assert cancel_out["text"] == "a_edit"
+
+    # 2. Save saves A first, opens modal once scripts_list confirms, then creates B.
+    save_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        el("new-script-modal").classList.add("toolbar-hidden");
+        await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+        type("a_edit");
+        el("btn-new-script").click();
+        await deliver({{type: "unsaved_choice", choice: "save"}});
+        sent.push({{type: "modal_while_saving", hidden: el("new-script-modal").classList.contains("toolbar-hidden")}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a_saved)}, selected_script_name: "A", status_ok_text: "Saved"}});
+        sent.push({{type: "modal_after_save", hidden: el("new-script-modal").classList.contains("toolbar-hidden")}});
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_ab)}, selected_script_name: "B", status_ok_text: "Saved"}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in save_out["sent"] if isinstance(m, dict) and m.get("type") == "modal_while_saving"] == [
+        {"type": "modal_while_saving", "hidden": True}
+    ]
+    assert [m for m in save_out["sent"] if isinstance(m, dict) and m.get("type") == "modal_after_save"] == [
+        {"type": "modal_after_save", "hidden": False}
+    ]
+    saves = [(m["name"], m["code"]) for m in save_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
+    assert saves == [("A", "a_edit"), ("B", template)]
+    assert save_out["text"] == template
+    assert save_out["selectValue"] == "B"
+    assert save_out["dirty"] is False

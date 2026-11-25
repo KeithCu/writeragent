@@ -120,13 +120,16 @@ class WriteProjectFile(Tool):
 class ReplyToUserTool(Tool):
     name: str = "reply_to_user"
     description: str = "Continue the PPT-Master session with an HTML message to the user."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"message": {"type": "string", "description": "HTML reply."}}
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = {
+        "answer": {"type": "string", "description": "HTML reply.", "nullable": True},
+        "message": {"type": "string", "description": "HTML reply.", "nullable": True},
+    }
     output_type: str = "string"
     is_final_answer_tool: bool = True
     skip_forward_signature_validation: bool = True
 
-    def forward(self, message: str) -> str:
-        return message
+    def forward(self, message: str | None = None, answer: str | None = None) -> str:
+        return answer if answer is not None else (message or "")
 
 
 class PptMasterFinishedTool(Tool):
