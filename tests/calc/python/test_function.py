@@ -18,7 +18,10 @@ import plugin.calc.python.image_egress as _image_egress
 import plugin.calc.python.function as _function
 import plugin.calc.python.spill as _spill
 import plugin.calc.python.undo as _undo
+from plugin.calc.calc_utils import EMPTY
 from plugin.calc.python.function import build_cell_context, finalize_python_return
+from plugin.calc.python.spill import SpillRecord
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.scripting.calc_range import materialize_inputs
 from plugin.scripting.payload_codec import is_multi_data
 
@@ -1459,10 +1462,10 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     ctx = _ctx_with_doc(doc)
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     if st is not None:
+        st.loaded = True
         st.debounce.cancel_all()
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -1664,3 +1667,226 @@ def test_failed_init_read_names_no_init_session(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
     cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
     assert cell.init_kwargs == {}
+
+
+@pytest.mark.parametrize("new_result", [42, []], ids=["scalar", "empty_list"])
+def test_finalize_python_return_clears_stale_spill_on_scalar_and_empty(
+    monkeypatch: pytest.MonkeyPatch, new_result: Any
+) -> None:
+    doc = CalcDocStub(url="file:///stale-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("stale_code")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    assert finalize_python_return(_cell(ctx, "stale_code", doc), [10, 20, 30]) == 10.0
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getValue() == 20.0
+    assert sheet.getCellByPosition(1, 3).getValue() == 30.0
+
+    val = finalize_python_return(_cell(ctx, "stale_code", doc), new_result)
+    assert val == (42.0 if new_result == 42 else "")
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    rec = st.spills[("Sheet1", 1, 1)]
+    assert (rec.rows, rec.cols) == (1, 1)
+
+
+def test_finalize_python_return_off_main_clears_stale_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///stale-spill-off.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("off_stale")')
+    sheet.getCellByPosition(1, 2).setValue(20.0)
+    sheet.getCellByPosition(1, 3).setValue(30.0)
+    ctx = _ctx_with_doc(doc)
+    reset_calc_workbook_states()
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.spills[("Sheet1", 1, 1)] = SpillRecord(
+        code="off_stale",
+        rows=3,
+        cols=1,
+        values=(((20.0,), (30.0,)),),
+    )
+
+    posted: list[Any] = []
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: posted.append(fn))
+    val = finalize_python_return(_cell(ctx, "off_stale", doc), 42)
+    assert val == 42.0
+    assert len(posted) == 1
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    posted[0]()
+    st.debounce.flush_for_tests("code:off_stale")
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert (st.spills[("Sheet1", 1, 1)].rows, st.spills[("Sheet1", 1, 1)].cols) == (1, 1)
+
+
+def test_finalize_python_return_scalar_with_user_formula_in_old_spill_returns_value_and_keeps_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    doc = CalcDocStub(url="file:///stale-spill-formula.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("stale_uf")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    finalize_python_return(_cell(ctx, "stale_uf", doc), [10, 20, 30])
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    sheet.getCellByPosition(1, 2).setFormula("=1+1")
+
+    assert finalize_python_return(_cell(ctx, "stale_uf", doc), 42) == 42.0
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getFormula() == "=1+1"
+    rec = st.spills[("Sheet1", 1, 1)]
+    assert (rec.rows, rec.cols) == (3, 1)
+
+
+def test_finalize_python_return_array_then_scalar_without_flush_does_not_write_stale_tail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    doc = CalcDocStub(url="file:///array-then-scalar.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("race_code")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    # 1. Plain array -> scalar -> flush (second schedule replaces first).
+    assert finalize_python_return(_cell(ctx, "race_code", doc), [10, 20, 30]) == 10.0
+    assert finalize_python_return(_cell(ctx, "race_code", doc), 42) == 42.0
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert ("Sheet1", 1, 1) not in st.spills
+
+    # 2. Already-posted first write runs after the second scalar evaluation.
+    scheduled: list[Any] = []
+    orig_schedule = st.debounce.schedule
+
+    def _capture_schedule(key: str, delay: float, fn: Any) -> None:
+        scheduled.append(fn)
+        orig_schedule(key, delay, fn)
+
+    monkeypatch.setattr(st.debounce, "schedule", _capture_schedule)
+    assert finalize_python_return(_cell(ctx, "race_code", doc), [10, 20, 30]) == 10.0
+    assert finalize_python_return(_cell(ctx, "race_code", doc), 42) == 42.0
+    scheduled[0]()
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert ("Sheet1", 1, 1) not in st.spills
+
+
+def test_finalize_python_return_off_main_array_then_scalar_without_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    doc = CalcDocStub(url="file:///offmain-array-then-scalar.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("off_race")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.debounce.cancel_all()
+
+    posted: list[Any] = []
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: posted.append(fn))
+
+    finalize_python_return(_cell(ctx, "off_race", doc), [10, 20, 30])
+    assert finalize_python_return(_cell(ctx, "off_race", doc), 42) == 42.0
+    assert len(posted) == 2
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    posted[0]()
+    posted[1]()
+    st.debounce.flush_for_tests("code:off_race")
+
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert ("Sheet1", 1, 1) not in st.spills
+
+
+def test_queued_spill_write_survives_sheet_rename(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.sheet_modify import migrate_sheet_rename
+
+    doc = CalcDocStub(url="file:///rename-queued-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("rename_code")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    assert finalize_python_return(_cell(ctx, "rename_code", doc), [10, 20, 30]) == 10.0
+    sheet.setName("Renamed")
+    migrate_sheet_rename(doc, "Sheet1", "Renamed")
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+
+    assert sheet.getCellByPosition(1, 2).getValue() == 20.0
+    assert sheet.getCellByPosition(1, 3).getValue() == 30.0
+    assert ("Renamed", 1, 1) in st.spills
+    assert not st.pending_spills
+
+
+def test_execute_python_addin_image_only_clears_stale_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///image-clears-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("img_code")')
+    sheet.getCellByPosition(1, 2).setValue(20.0)
+    sheet.getCellByPosition(1, 3).setValue(30.0)
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.loaded = True
+    st.spills[("Sheet1", 1, 1)] = SpillRecord(
+        code="img_code",
+        rows=3,
+        cols=1,
+        values=(((20.0,), (30.0,)),),
+    )
+
+    img_payload = {"__wa_payload__": "image", "format": "png", "data": b"\x00"}
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr(_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": img_payload})
+    monkeypatch.setattr(_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(_function, "workbook_session_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(_function, "insert_image_result_on_sheet", lambda *_a, **_k: None)
+
+    out = _function.execute_python_addin(ctx, "img_code", doc=doc)
+    assert out == "Image inserted"
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    assert (st.spills[("Sheet1", 1, 1)].rows, st.spills[("Sheet1", 1, 1)].cols) == (1, 1)

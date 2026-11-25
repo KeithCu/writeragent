@@ -125,9 +125,9 @@ def migrate_sheet_rename(
 ) -> None:
     """Migrate in-memory and persistent state when a sheet is renamed.
 
-    Rekeys state.spills, state.used_ends, state.listeners, state.debounce,
-    geometric records, and updates dispatcher.sheet_name; loads the spill
-    registry first so the save below never writes an unloaded (empty) map over it.
+    Rekeys state.spills, state.pending_spills, state.used_ends, state.listeners,
+    state.debounce, geometric records, and updates dispatcher.sheet_name; loads
+    the spill registry first so the save below never writes an unloaded (empty) map over it.
     """
     if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
         return
@@ -149,6 +149,10 @@ def migrate_sheet_rename(
             if sname == old_sheet_name:
                 rec = state.spills.pop((sname, r, c))
                 state.spills[(new_sheet_name, r, c)] = rec
+        for (sname, r, c) in list(state.pending_spills):
+            if sname == old_sheet_name:
+                gen = state.pending_spills.pop((sname, r, c))
+                state.pending_spills[(new_sheet_name, r, c)] = gen
         if doc is not None:
             save_spill_registry_for_doc(doc, state)
         if old_sheet_name in state.used_ends:
