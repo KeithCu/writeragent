@@ -478,3 +478,46 @@ def test_run_turn_finished_returns_handoff(monkeypatch: pytest.MonkeyPatch):
         result = run_turn({"query": "q"})
 
     assert result == {"status": "finished", "result": message}
+
+
+@pytest.mark.parametrize("arg_key", ["answer", "message"])
+def test_run_turn_reply_to_user_accepts_answer_and_message(monkeypatch: pytest.MonkeyPatch, arg_key: str):
+    from plugin.contrib.smolagents.tools import validate_tool_arguments
+    from plugin.ppt_master.venv.runner import ReplyToUserTool
+
+    tool = ReplyToUserTool()
+    validate_tool_arguments(tool, {arg_key: "<p>Need confirmation</p>"})
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[[("reply_to_user", {arg_key: "<p>Need confirmation</p>"})]],
+        tools=[tool],
+    )
+
+    assert result == {"status": "ok", "result": "<p>Need confirmation</p>"}
+
+
+def test_run_turn_reply_to_user_rejects_empty_and_retries(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import ReplyToUserTool
+
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[
+            [("reply_to_user", {})],
+            [("reply_to_user", {"answer": "<p>Recovered</p>"})],
+        ],
+        tools=[ReplyToUserTool()],
+    )
+
+    assert result == {"status": "ok", "result": "<p>Recovered</p>"}
+
+
+def test_run_turn_reply_to_user_empty_answer_falls_back_to_message(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import ReplyToUserTool
+
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[[("reply_to_user", {"answer": "", "message": "<p>Fallback</p>"})]],
+        tools=[ReplyToUserTool()],
+    )
+
+    assert result == {"status": "ok", "result": "<p>Fallback</p>"}

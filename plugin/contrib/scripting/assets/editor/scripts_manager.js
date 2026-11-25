@@ -27,10 +27,10 @@
   // Code sent by the last save_script. The host answers with scripts_list,
   // not "saved", so the shell's own "saved" handler never cleared dirty.
   var pendingSavedCode = null;
-  // Dropdown target held while the host asks Save / Don't save / Cancel,
-  // then while a Yes save is in flight.
-  var pendingSwitchName = null;
-  var switchAfterSave = false;
+  // Pending action held while the host asks Save / Don't save / Cancel,
+  // then while a Yes save is in flight: { type: "switch", name: string } or { type: "new" }.
+  var pendingUnsavedAction = null;
+  var runPendingAfterSave = false;
   // New in flight; key is the list key being created, and from/text are the script and text shown when Create was clicked.
   var pendingNew = null;
 
@@ -188,17 +188,20 @@
   function applyScriptsList(msg) {
     if (msg.load_follows) {
       pendingSavedCode = null;
-      pendingSwitchName = null;
-      switchAfterSave = false;
+      pendingUnsavedAction = null;
+      runPendingAfterSave = false;
       pendingNew = null;
       return;
     }
     var shown = currentSelectedName;
     var savedCode = pendingSavedCode;
     pendingSavedCode = null;
-    var switchTo = switchAfterSave ? pendingSwitchName : null;
-    switchAfterSave = false;
-    pendingSwitchName = null;
+    var deferredAction = null;
+    if (runPendingAfterSave) {
+      deferredAction = pendingUnsavedAction;
+      runPendingAfterSave = false;
+      pendingUnsavedAction = null;
+    }
     if (savedCode !== null && !msg.status_error_text && window.editor) {
       // Clear only when the buffer still matches what was saved; an edit
       // typed while the save was in flight stays dirty.
@@ -251,12 +254,13 @@
     }
     // Show the new script only once the host lists it, so the text always belongs to currentSelectedName.
     // An edit or a script switch made while New was in flight stays.
+    // Skip while an unsaved prompt is open so a late New list cannot replace the buffer before the user answers.
     if (msg.status_error_text) {
       pendingNew = null;
     } else if (pendingNew && select && scriptIndex[pendingNew.key] && scriptIndex[pendingNew.key].code === NEW_SCRIPT_TEMPLATE) {
       var created = pendingNew;
       pendingNew = null;
-      if (shown === created.from && window.editor && window.editor.getValue() === created.text) {
+      if (pendingUnsavedAction === null && deferredAction === null && shown === created.from && window.editor && window.editor.getValue() === created.text) {
         select.value = created.key;
         switchToSelected();
       }
@@ -267,27 +271,54 @@
     if (msg.status_error_text) {
       setStatus(msg.status_error_text, "error");
     }
-    // Yes in the unsaved prompt: switch only after the save succeeded.
-    if (switchTo !== null && savedCode !== null && !msg.status_error_text && select) {
-      select.value = switchTo;
-      switchToSelected();
+    // Yes in the unsaved prompt: run the deferred action only after the save succeeded.
+    if (deferredAction !== null && savedCode !== null && !msg.status_error_text) {
+      runUnsavedAction(deferredAction);
     }
   }
 
+  function runUnsavedAction(action) {
+    if (action.type === "switch") {
+      var select = getSelectEl();
+      if (select) {
+        select.value = action.name;
+        switchToSelected();
+      }
+    } else if (action.type === "new") {
+      openScriptModal("new");
+    }
+  }
+
+  function askIfDirty(action) {
+    var api = uiApi();
+    if (!api || !api.isDirty || !api.isDirty()) {
+      return false;
+    }
+    // The host answers with unsaved_choice (Save / Don't save / Cancel).
+    if (pendingUnsavedAction === null && window.pywebview && window.pywebview.api && window.pywebview.api.ask_unsaved) {
+      pendingUnsavedAction = action;
+      window.pywebview.api.ask_unsaved(currentSelectedName || t("this_script", "this script"));
+    }
+    return true;
+  }
+
   function onUnsavedChoice(msg) {
-    var name = pendingSwitchName;
-    var select = getSelectEl();
-    if (name === null || !select) {
+    var action = pendingUnsavedAction;
+    if (action === null) {
       return;
     }
     if (msg.choice === "discard") {
-      pendingSwitchName = null;
-      select.value = name;
-      switchToSelected();
-    } else if (msg.choice === "save" && saveActiveScript(currentSelectedName)) {
-      switchAfterSave = true;
+      pendingUnsavedAction = null;
+      runUnsavedAction(action);
+    } else if (msg.choice === "save") {
+      if (saveActiveScript(currentSelectedName)) {
+        runPendingAfterSave = true;
+      } else {
+        pendingUnsavedAction = null;
+        setStatus(t("no_script_selected_to_save", "No script is selected to save. Use Save As or choose Don't save."), "error");
+      }
     } else {
-      pendingSwitchName = null;
+      pendingUnsavedAction = null;
     }
   }
 
@@ -323,6 +354,8 @@
 
     if (msg.type === "load") {
       pendingNew = null;
+      pendingUnsavedAction = null;
+      runPendingAfterSave = false;
       if (window.waEditorUi && window.waEditorUi.applyUiFromLoad) {
         window.waEditorUi.applyUiFromLoad(msg);
       }
@@ -362,6 +395,12 @@
       applyScriptsList(msg);
     } else if (msg.type === "unsaved_choice") {
       onUnsavedChoice(msg);
+    } else if (msg.type === "error") {
+      // A save that times out answers with error, not scripts_list.
+      if (runPendingAfterSave) {
+        pendingUnsavedAction = null;
+        runPendingAfterSave = false;
+      }
     }
   }
 
@@ -450,14 +489,8 @@
     if (name === currentSelectedName) {
       return;
     }
-    var api = uiApi();
-    if (api && api.isDirty && api.isDirty()) {
-      // The host answers with unsaved_choice (Save / Don't save / Cancel).
+    if (askIfDirty({ type: "switch", name: name })) {
       select.value = currentSelectedName;
-      if (pendingSwitchName === null && window.pywebview && window.pywebview.api && window.pywebview.api.ask_unsaved) {
-        pendingSwitchName = name;
-        window.pywebview.api.ask_unsaved(currentSelectedName || t("this_script", "this script"));
-      }
       return;
     }
     switchToSelected();
@@ -738,6 +771,10 @@
     var btnNew = document.getElementById("btn-new-script");
     if (btnNew) {
       btnNew.addEventListener("click", function() {
+        // Create replaces the buffer with the starter template, so ask before the modal opens.
+        if (askIfDirty({ type: "new" })) {
+          return;
+        }
         openScriptModal("new");
       });
     }
