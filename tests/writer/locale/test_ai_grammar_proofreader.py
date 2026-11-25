@@ -754,11 +754,14 @@ def _proofread_ctx_and_desktop(
     current: Any = None,
     ids: list[tuple[Any, str]] | tuple[tuple[Any, str], ...] = (),
 ) -> tuple[MagicMock, MagicMock]:
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True] * len(models) + [False]
-    enum.nextElement.side_effect = list(models)
+    def _make_enum() -> MagicMock:
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True] * len(models) + [False]
+        enum.nextElement.side_effect = list(models)
+        return enum
+
     comps = MagicMock()
-    comps.createEnumeration.return_value = enum
+    comps.createEnumeration.side_effect = _make_enum
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = current
     desktop.getComponents.return_value = comps
