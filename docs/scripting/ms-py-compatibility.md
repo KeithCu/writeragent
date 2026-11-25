@@ -242,7 +242,7 @@ WriterAgent’s auto-spill:
 - Returns UL value from the formula function.
 - Later (`threading.Timer` ~0.1s) writes other cells and records coordinates in `WriterAgentSpillRegistry`.
 - Remaps spill coordinates on row or column insertion instead of clearing shifted blocks.
-- Collision → cell text `#SPILL!`.
+- Collision → cell text `#SPILL!`; the cells it spilled before are cleared.
 
 That is **best-effort UX**, not engine spill:
 
