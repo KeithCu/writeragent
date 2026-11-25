@@ -338,3 +338,113 @@ def test_main_uno_print_filter_empty_stdout_when_nothing_maps(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no matching UNO files" in captured.err
+
+
+def test_select_pytest_files_follows_one_hop_and_relative_imports_and_skips_deferred_or_harness(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "plugin/a/helper.py", "def fn():\n    return 1\n")
+    _write(tmp_path, "plugin/a/consumer.py", "from .helper import fn\n")
+    _write(tmp_path, "plugin/b/second_hop.py", "from plugin.a import consumer\n")
+    _write(tmp_path, "plugin/b/lazy.py", "def run():\n    from plugin.a import helper\n")
+    _write(tmp_path, "plugin/b/cycle_a.py", "from plugin.b import cycle_b\n")
+    _write(tmp_path, "plugin/b/cycle_b.py", "from plugin.b import cycle_a\n")
+    _write(
+        tmp_path,
+        "plugin/b/type_only.py",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from plugin.a import helper\n",
+    )
+    _write(
+        tmp_path,
+        "plugin/b/type_else.py",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    from plugin.a import helper\n",
+    )
+    _write(
+        tmp_path,
+        "plugin/pkg/__init__.py",
+        "from plugin.pkg import sibling\n",
+    )
+    _write(tmp_path, "plugin/pkg/sibling.py", "x = 1\n")
+    _write(tmp_path, "plugin/pkg/other_sibling.py", "x = 2\n")
+    _write(tmp_path, "plugin/testing_runner.py", "import plugin.a.helper\n")
+
+    _write(tmp_path, "tests/a/test_helper.py", "x = 1\n")
+    _write(tmp_path, "tests/a/test_consumer.py", "x = 1\n")
+    _write(tmp_path, "tests/a/test_names_consumer.py", "import plugin.a.consumer\n")
+    _write(tmp_path, "tests/b/test_second_hop.py", "x = 1\n")
+    _write(tmp_path, "tests/b/test_lazy.py", "x = 1\n")
+    _write(tmp_path, "tests/b/test_cycle_b.py", "x = 1\n")
+    _write(tmp_path, "tests/c/test_type_only.py", "x = 1\n")
+    _write(tmp_path, "tests/c/test_type_else.py", "x = 1\n")
+    _write(tmp_path, "tests/pkg/test_sibling.py", "x = 1\n")
+    _write(tmp_path, "tests/pkg/test_other_sibling.py", "import plugin.pkg.other_sibling\n")
+    _write(tmp_path, "tests/x/test_testing_runner.py", "x = 1\n")
+    _write(tmp_path, "tests/a/test_consumer_uno.py", "x = 1\n")
+    _write(tmp_path, "tests/x/test_unrelated_uno.py", "import plugin.testing_runner\n")
+
+    assert tst.select_pytest_files(["plugin/a/helper.py"], repo_root=tmp_path) == [
+        "tests/a/test_consumer.py",
+        "tests/a/test_helper.py",
+        "tests/c/test_type_else.py",
+    ]
+    assert tst.select_uno_files(["plugin/a/helper.py"], repo_root=tmp_path) == [
+        "tests/a/test_consumer_uno.py",
+    ]
+    # Module-level import in __init__.py does not trigger package-wildcard selection.
+    assert tst.select_pytest_files(["plugin/pkg/sibling.py"], repo_root=tmp_path) == [
+        "tests/pkg/test_sibling.py",
+    ]
+    # Cycles terminate cleanly and select the importer's test.
+    assert tst.select_pytest_files(["plugin/b/cycle_a.py"], repo_root=tmp_path) == [
+        "tests/b/test_cycle_b.py",
+    ]
+
+
+def test_main_includes_committed_branch_changes_vs_master_and_origin_master(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "feature")
+    _write(tmp_path, "plugin/branch_mod.py", "x = 1\n")
+    _write(tmp_path, "tests/test_branch_mod.py", "x = 1\n")
+    _git(tmp_path, "add", "plugin/branch_mod.py", "tests/test_branch_mod.py")
+    _git(tmp_path, "commit", "-m", "committed feature work")
+
+    rc = tst.main(["--print-filter"], repo_root=tmp_path)
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "tests/test_branch_mod.py"
+    assert "running pytest on 1 file(s)" in captured.err
+
+    # origin/master is preferred over master when both exist.
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    _git(tmp_path, "update-ref", "refs/remotes/origin/master", head_sha)
+    rc2 = tst.main(["--print-filter"], repo_root=tmp_path)
+    assert rc2 == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_main_fallback_is_not_sticky_after_conftest_commit_and_handles_no_base_ref(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "feature")
+    _write(tmp_path, "tests/conftest.py", "x = 1\n")
+    _git(tmp_path, "add", "tests/conftest.py")
+    _git(tmp_path, "commit", "-m", "commit conftest")
+
+    _write(tmp_path, "plugin/alpha.py", "x = 1\n")
+    _write(tmp_path, "tests/test_alpha.py", "x = 1\n")
+    rc = tst.main(["--print-filter"], repo_root=tmp_path)
+    assert rc == 0
+    assert capsys.readouterr().out.strip() == "tests/test_alpha.py"
+
+    # When neither origin/master nor master exists, falls back to uncommitted changes.
+    _git(tmp_path, "branch", "-D", "master")
+    assert tst.get_branch_changed_files(tmp_path) == ["plugin/alpha.py", "tests/test_alpha.py"]

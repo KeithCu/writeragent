@@ -3,12 +3,14 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run the branch's added or modified UNO tests through isolated uno-probe.sh.
+"""Run the branch's selected UNO tests through isolated uno-probe.sh.
 
-Used by ``make test-bot`` after incremental pytest. Selects
-``tests/**/test_*_uno.py`` files added or modified relative to the merge-base
-with ``origin/master`` (committed, staged, unstaged, and untracked), excluding
-user-profile and demo-only suites. Invokes ``UNO_PROBE`` (default
+Used by ``make test-bot`` after incremental pytest. Collects files changed
+relative to the merge-base with ``origin/master`` (committed, staged, unstaged,
+and untracked) and selects matching ``tests/**/test_*_uno.py`` files via
+``select_uno_files`` (direct UNO test edits, stem-matched UNO tests, UNO tests
+naming changed modules, and transitive importers), excluding user-profile and
+demo-only suites. Invokes ``UNO_PROBE`` (default
 ``~/Desktop/Python/wa-pipeline-scripts/uno-probe.sh``) once with every selected
 file so LibreOffice starts only once. Skips (exit 0) when the probe is not
 installed, when ``SKIP_UNO=1``, or when run in the main WriterAgent checkout.
@@ -27,41 +29,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.test_incremental import _is_eligible_uno_file  # noqa: E402
-from scripts.typecheck_incremental import (  # noqa: E402
-    _git_z_paths,
-    get_changed_files,
+from scripts.test_incremental import (  # noqa: E402
+    get_branch_changed_files,
+    select_uno_files,
 )
 
 DEFAULT_PROBE = Path.home() / "Desktop/Python/wa-pipeline-scripts/uno-probe.sh"
 MAIN_CHECKOUT = Path.home() / "Desktop/Python/writeragent"
-_BASE_REFS = ("origin/master", "master")
-
-
-def _git_stdout(repo_root: Path, args: list[str]) -> str | None:
-    """Return stripped git stdout, or None if the command failed."""
-    proc = subprocess.run(
-        ["git", *args],
-        cwd=repo_root,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip()
-
-
-def merge_base(repo_root: Path, refs: tuple[str, ...] = _BASE_REFS) -> str | None:
-    """Return the merge-base of HEAD and the first existing base ref."""
-    for ref in refs:
-        if _git_stdout(repo_root, ["rev-parse", "--verify", ref]) is None:
-            continue
-        base = _git_stdout(repo_root, ["merge-base", "HEAD", ref])
-        if base:
-            return base
-    return None
+# All-or-nothing cap so foundation modules (e.g. errors.py, uno_context.py) fall
+# back to their direct UNO tests rather than holding a probe slot for 80+ files;
+# CI runs the remaining importers.
+UNO_MAX_EXPANDED_FILES = 40
+# Minimum 300s matches uno-probe.sh's default; 25s/file prevents false 124
+# timeouts on multi-file runs without letting a hung soffice stall a slot for 40m.
+_PROBE_BASE_TIMEOUT = 300
+_PROBE_SECONDS_PER_FILE = 25
 
 
 def is_main_checkout(repo_root: Path, main: Path = MAIN_CHECKOUT) -> bool:
@@ -73,25 +55,19 @@ def is_main_checkout(repo_root: Path, main: Path = MAIN_CHECKOUT) -> bool:
 
 
 def list_branch_uno_files(repo_root: Path) -> list[str]:
-    """Return eligible UNO test files added or modified on this branch.
-
-    Uses ``git diff`` against the merge-base with ``origin/master`` (falling
-    back to ``master``, then to uncommitted changes only) plus untracked files.
-    Deleted paths and user-profile / demo-only suites are omitted.
-    """
-    paths: set[str] = set()
-    base = merge_base(repo_root)
-    if base is not None:
-        paths.update(_git_z_paths(repo_root, ["diff", "-z", "--name-only", "--diff-filter=ACMR", base]))
-    else:
-        paths.update(get_changed_files(repo_root))
-    paths.update(_git_z_paths(repo_root, ["ls-files", "-z", "--others", "--exclude-standard"]))
-    selected: list[str] = []
-    for raw in sorted(paths):
-        rel = raw.replace("\\", "/")
-        if _is_eligible_uno_file(rel) and (repo_root / rel).is_file():
-            selected.append(rel)
-    return selected
+    """Return eligible UNO test files for this branch's changes."""
+    changed = get_branch_changed_files(repo_root)
+    expanded = select_uno_files(changed, repo_root, include_importers=True)
+    if len(expanded) <= UNO_MAX_EXPANDED_FILES:
+        return expanded
+    direct = select_uno_files(changed, repo_root, include_importers=False)
+    print(
+        f"test-bot: {len(expanded)} UNO files exceed cap ({UNO_MAX_EXPANDED_FILES}); "
+        f"running {len(direct)} direct UNO file(s) and leaving {len(expanded) - len(direct)} to CI",
+        file=sys.stderr,
+        flush=True,
+    )
+    return direct
 
 
 def resolve_probe(env: dict[str, str] | None = None) -> Path:
@@ -101,9 +77,14 @@ def resolve_probe(env: dict[str, str] | None = None) -> Path:
     return Path(raw).expanduser()
 
 
+def _probe_timeout_seconds(file_count: int) -> int:
+    """Scale uno-probe.sh timeout with the number of UNO test files."""
+    return max(_PROBE_BASE_TIMEOUT, file_count * _PROBE_SECONDS_PER_FILE)
+
+
 def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     """CLI entry point for ``make test-bot``'s isolated UNO step."""
-    parser = argparse.ArgumentParser(description="Run the branch's changed UNO tests via uno-probe.sh.")
+    parser = argparse.ArgumentParser(description="Run the branch's selected UNO tests via uno-probe.sh.")
     parser.add_argument(
         "--print-files",
         action="store_true",
@@ -130,7 +111,7 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
 
     if not files:
         print(
-            "test-bot: no added or modified UNO tests vs merge-base; skipping isolated UNO tests",
+            "test-bot: no matching UNO tests vs merge-base; skipping isolated UNO tests",
             flush=True,
         )
         return 0
@@ -143,14 +124,38 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         )
         return 0
 
+    user_timeout = os.environ.get("UNO_PROBE_TIMEOUT")
+    if user_timeout:
+        timeout_label = f"UNO_PROBE_TIMEOUT={user_timeout}s"
+        timeout_args: list[str] = []
+        timeout_sec_msg = f"{user_timeout}s"
+    else:
+        timeout_sec = _probe_timeout_seconds(len(files))
+        timeout_label = f"timeout {timeout_sec}s"
+        timeout_args = ["--timeout", str(timeout_sec)]
+        timeout_sec_msg = f"{timeout_sec}s"
+
     print(
-        f"test-bot: running {len(files)} UNO file(s) via {probe}: {', '.join(files)}",
+        f"test-bot: running {len(files)} UNO file(s) via {probe} ({timeout_label}): {', '.join(files)}",
         flush=True,
     )
-    cmd = [str(probe), *[str(repo_root / rel) for rel in files]]
+    cmd = [str(probe), *timeout_args, *[str(repo_root / rel) for rel in files]]
     proc = subprocess.run(cmd, cwd=repo_root, check=False)
     if proc.returncode != 0:
-        print(f"test-bot: UNO tests failed (exit {proc.returncode})", file=sys.stderr, flush=True)
+        if proc.returncode == 124:
+            print(
+                f"test-bot: UNO probe timed out after {timeout_sec_msg} (exit 124)",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif proc.returncode == 75:
+            print(
+                "test-bot: UNO probe slot unavailable — all slots busy (exit 75)",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"test-bot: UNO tests failed (exit {proc.returncode})", file=sys.stderr, flush=True)
         print("test-bot: UNO files in this run:", file=sys.stderr, flush=True)
         for rel in files:
             print(f"  {rel}", file=sys.stderr, flush=True)
