@@ -116,8 +116,10 @@ def test_generate_form_processing_logic(ctx, doc):
     assert res["status"] == "ok"
     
     # Verify draw page count increased
+    # Bind every shape proxy once before inspecting it (docs/framework/uno-test-lifecycle.md).
     dp = doc.getDrawPage()
-    names = [dp.getByIndex(i).Control.Name for i in range(dp.getCount()) if dp.getByIndex(i).getShapeType() == "com.sun.star.drawing.ControlShape"]
+    shapes = [dp.getByIndex(i) for i in range(dp.getCount())]
+    names = [s.Control.Name for s in shapes if s.getShapeType() == "com.sun.star.drawing.ControlShape"]
     assert "nm" in names
     assert "cb" in names
 

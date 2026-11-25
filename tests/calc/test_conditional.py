@@ -135,7 +135,7 @@ def test_conditional_formatting_list_error_handling():
     ctx.doc = doc
 
     bridge = MagicMock()
-    bridge.resolve_range_or_address.side_effect = RuntimeException("Failed to resolve range")
+    bridge.resolve_range_or_address.side_effect = RuntimeException("Failed to resolve range", None)
 
     tool = _tool("conditional_formatting_list")
 

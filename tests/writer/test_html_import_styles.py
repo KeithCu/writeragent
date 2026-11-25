@@ -965,7 +965,7 @@ def test_parse_data_lo_para_start_and_end_fallback_when_enum_missing():
     from plugin.writer.html_import_styles import parse_data_lo_para
 
     runtime_exc = sys.modules["com.sun.star.uno"].RuntimeException
-    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown", None)):
         props_start, unsupported_start = parse_data_lo_para("text-align:start")
         props_end, unsupported_end = parse_data_lo_para("text-align:end")
     assert props_start == {"text-align": ("ParaAdjust", 0)}

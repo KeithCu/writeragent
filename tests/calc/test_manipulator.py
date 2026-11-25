@@ -1438,7 +1438,7 @@ def test_number_format_key_malformed_code_is_invalid_param():
 
     doc = MagicMock()
     formats = doc.getNumberFormats.return_value
-    formats.addNewConverted.side_effect = MalformedNumberFormatException("bad format")
+    formats.addNewConverted.side_effect = MalformedNumberFormatException("bad format", None, 0)
     manipulator = CellManipulator(SimpleNamespace(doc=doc))
     with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
         with pytest.raises(CalcError) as exc_info:
