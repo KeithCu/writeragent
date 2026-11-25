@@ -3624,3 +3624,28 @@ def test_observe_provider_http_error_redacts_path_secret(client, caplog):
     assert "sk-query" not in caplog.text
     assert "<redacted>" in caplog.text
 
+
+def test_stream_chat_response_redacts_request_path_in_debug_log(caplog):
+    import logging
+
+    secret_uuid = "123e4567-e89b-12d3-a456-426614174000"
+    llm = LlmClient(
+        {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "api_key": "test-key",
+            "endpoint": f"https://proxy.example/s/{secret_uuid}",
+        },
+        MagicMock(),
+    )
+    chunks: list[str] = []
+    resp = create_mock_http_response(sse_lines=_sse_content_lines("Hi"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with caplog.at_level(logging.DEBUG, logger="plugin.framework.client"):
+            llm.stream_chat_response([{"role": "user", "content": "Hi"}], max_tokens=10, append_callback=chunks.append)
+
+    assert chunks == ["Hi"]
+    assert secret_uuid not in caplog.text
+    assert "Request Path:" in caplog.text
+

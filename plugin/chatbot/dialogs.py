@@ -331,7 +331,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         msgbox(ctx, title, message, box_type=3)
         return
     if not ctx:
-        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, redact_urls_in_text(message))
+        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, redact_urls_in_text(str(message)))
         return
     try:
         from plugin.chatbot.bug_report import build_github_issue_url, open_url_in_browser
