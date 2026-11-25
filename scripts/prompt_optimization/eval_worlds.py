@@ -4,6 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """In-memory Writer / Draw / Calc worlds for string-harness eval (no LibreOffice).
 
+FROZEN: Do not add new simulated LibreOffice behavior, parity patches, or
+in-memory workarounds to this file. Only changes that delegate directly to
+production ``plugin/`` code (or fix a broken production import/signature) are
+allowed. New tool fidelity belongs in the real-LibreOffice UNO eval lane
+(``--backend lo`` via ``tools_lo.py`` and ``tests/.../test_*_uno.py``).
+
 HTML apply/search stays on a string so existing oracles keep working. Blocks,
 connections, and formula dests are parsed or recorded so style, comments,
 flowchart edges, and =PY placement can be scored honestly.

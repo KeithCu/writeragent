@@ -4,8 +4,10 @@
 OR native (headless LO)** — this doc is the history of the in-memory
 world, not a claim that ranking is string-only.
 
-- `--backend string` (default) = in-memory simulator; ranks the original
-  17 and **skips** `python_shapes_flag` / `org_chart_gen`.
+- `--backend string` (default) = in-memory simulator (`eval_worlds.py`); ranks the original
+  17 and **skips** `python_shapes_flag` / `org_chart_gen`. **`eval_worlds.py` is frozen**:
+  allow only changes that delegate directly to production `plugin/` code; new tool
+  fidelity belongs in the `--backend lo` UNO lane (`tools_lo.py` and `tests/.../test_*_uno.py`).
 - `--backend lo` = native headless UNO for every selected row (one
   soffice). This is still **eval-1**, not eval-2.
 - `--backend auto` = per-task mix; dual-lane scheduler (string pool
