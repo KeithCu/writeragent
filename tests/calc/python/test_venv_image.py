@@ -1925,6 +1925,22 @@ def test_duplicate_shape_for_taken_slot_is_swept():
     assert first.getPropertyValue("GraphicURL") == "file:///tmp/dup.svg"
 
 
+def test_xlsx_name_tagged_duplicate_slot_is_swept():
+    """A duplicate plot tagged only by Name (XLSX reload) is swept on recalc, leaving the first."""
+    cell = CalcCellStub(col=3, row=6)
+    tag_name = f"{_PLOT_SHAPE_NAME_PREFIX} wa-plot:3,6@3,6"
+    first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, cell)
+    copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=3, row=36))
+    page = _DrawPage([first, copy])
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    with _sheet_insert_ctx(_SheetStub(page), cell, temp_path="/tmp/dup-xlsx.svg"):
+        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_count=1)
+
+    assert page.shapes == [first]
+
+
 def test_plot_moved_with_formula_is_reused_and_retagged():
     """A plot whose anchor shifted by the same delta as its formula is reused and retagged."""
     payload = _make_png_payload(100, 50)

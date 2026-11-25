@@ -440,7 +440,11 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
 def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
 
-    Duplicate shapes for one slot are removed because ``_resolve_slot`` uses the first one.
+    A second shape for a slot that is already taken (a plot pasted from another workbook whose
+    name did not collide under ``SdrObject::MakeNameUnique``, or an XLSX file with two pictures
+    of one name) is never refreshed, because ``_resolve_slot`` uses the first one, so it is
+    removed too, even though a recalc records no undo for it. An in-document paste is renamed
+    (e.g. ``WriterAgentPlot wa-plot:1,2@1, 1``) and is never a slot.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
