@@ -224,6 +224,29 @@ def _reset_package_extension_id_for_tests_between_tests():
         reset_package_extension_id_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _reset_scratch_writer_registry_for_tests(request):
+    """Clear mocked scratch-document UIDs between unit tests so reused mock ids like uid-1 never leak."""
+    mod_file = getattr(request.module, "__file__", "") or ""
+    if mod_file.endswith("_uno.py"):
+        yield
+        return
+
+    from plugin.framework import scratch_writer
+
+    def _clear() -> None:
+        with scratch_writer._scratch_lock:
+            scratch_writer._scratch_uids.clear()
+            scratch_writer._scratch_loads = 0
+            scratch_writer._after_loads.clear()
+
+    _clear()
+    try:
+        yield
+    finally:
+        _clear()
+
+
 _WORKER_ENV_VARS = ("WRITERAGENT_IS_WORKER", "WRITERAGENT_COMPUTE_WORKER")
 for _worker_var in _WORKER_ENV_VARS:
     os.environ.pop(_worker_var, None)
