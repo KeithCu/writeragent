@@ -789,9 +789,8 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
 def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
-    UI load/repair keys the map with ``calc_workbook_base_session_id`` (``calc:`` +
-    ``mint_document_key``, never empty); eval strips with the same key
-    read from the caller document.
+    UI load/repair keys the map with ``WorkbookState.key`` (RuntimeUID); eval
+    strips with the same key read from the caller document.
     """
     from plugin.calc.python.function import build_cell_context
     from plugin.calc.python.geometric_recalc import (
@@ -800,7 +799,8 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         maybe_strip_geometric_eval_args,
         reset_geometric_runtime_for_tests,
     )
-    from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.scripting.session_manager import workbook_session_id
     from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
@@ -811,11 +811,11 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         settle_soffice_config()
         # Isolated + no init: do not set an init script.
         maybe_geometric_on_document_open(ctx, doc)
-        sid = calc_workbook_base_session_id(doc)
-        _progress("geometric isolated sid=%r" % (sid,))
-        assert sid.startswith("calc:"), sid
-        assert sid != "calc:"
-        assert sid[5:], sid
+        state = WorkbookState.for_doc(doc)
+        assert state is not None
+        sid = state.key
+        _progress("geometric isolated key=%r" % (sid,))
+        assert sid
         assert workbook_session_id(doc) is None
 
         sheet = doc.getSheets().getByIndex(0)
@@ -846,7 +846,8 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         col = ((10.0,), (20.0,), (30.0,))
         pred = ((0.0,),)
         cell = build_cell_context(ctx, doc, mean_code, on_main=True)
-        assert cell.workbook_key == sid
+        assert cell.state is not None
+        assert cell.state.key == sid
         assert maybe_strip_geometric_eval_args(mean_code, [col, pred], cell) == [col]
 
         # Isolated is a no-op for Python globals (Shared names do not appear).
