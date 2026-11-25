@@ -551,7 +551,7 @@ def _copy_visible_portions(
     *,
     in_cell: bool,
     state: DeletionState,
-    deletions: TrackedDeletions | None,
+    deletions: TrackedDeletions,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
 
@@ -589,7 +589,7 @@ def _copy_cell_xtext(
     src_cell: Any,
     dest_doc: Any,
     dest_cell: Any,
-    deletions: TrackedDeletions | None,
+    deletions: TrackedDeletions,
     math_records: list[tuple[str, str, bool]] | None = None,
     *,
     mark_struck: bool = False,
@@ -710,7 +710,7 @@ def copy_table(
     dest_doc: Any,
     dest_text: Any,
     dest_cursor: Any,
-    deletions: TrackedDeletions | None,
+    deletions: TrackedDeletions,
     math_records: list[tuple[str, str, bool]] | None,
     *,
     mark_struck: bool = False,
@@ -792,6 +792,7 @@ class _Block:
 
 
 def _accepted_blocks(doc: Any, text: Any, deletions: TrackedDeletions) -> list[_Block]:
+    """Return the tables and joined/live paragraphs Accept All leaves in *text*."""
     state = deletions.state_at(text)
     blocks: list[_Block] = []
     struck = False

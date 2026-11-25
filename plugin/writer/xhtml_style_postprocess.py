@@ -486,6 +486,7 @@ _IMG_TITLE_TEXT_RE = re.compile(
 
 # body.xsl (filter/source/xslt/odf2xhtml/export/xhtml) writes a newline after each field span, and
 # the export writes a space right after a field as nbsp. Left alone, an import reads them as two spaces.
+# The [^\s<&\xa0] lookahead keeps an nbsp before an entity or tag (e.g. "1 &amp; 2", "1 <b>of</b>"); it still does not grow.
 _FIELD_BREAK_RE = re.compile(
     r'(<span title="[a-z-]+"(?:\s*/>|>[^<]*</span>))\n((?:\xa0|&nbsp;|&#160;)(?=[^\s<&\xa0]|<span title=))?'
 )

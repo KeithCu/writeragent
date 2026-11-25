@@ -732,6 +732,7 @@ def visible_portions(
         if state.in_delete:
             if portion_type == "Frame":
                 if deletions is not None and deletions.keeps_frame(portion):
+                    state.para_live = True
                     yield portion, ""
                 else:
                     state.para_frame = True

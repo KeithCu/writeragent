@@ -2041,6 +2041,7 @@ def test_visible_portions_yields_kept_frame_inside_deletion():
 
     para = MagicMock()
     para.createEnumeration.return_value = p_enum
+    para.createContentEnumeration.return_value.hasMoreElements.return_value = False
 
     deletions = MagicMock()
     deletions.keeps_frame.side_effect = lambda portion: portion is kept_frame
@@ -2048,4 +2049,6 @@ def test_visible_portions_yields_kept_frame_inside_deletion():
     state = DeletionState()
     got = list(visible_portions(para, state=state, deletions=deletions))
     assert got == [(kept_frame, "")]
+    assert state.para_live is True
     assert state.para_frame is True
+    assert state.strikes_paragraph(para, False) is False

@@ -1625,7 +1625,7 @@ def test_header_recorded_leading_table_rewrites_do_not_grow_uno(ctx):
                     lengths.append(len(_header_shape(header)))
                 assert len(set(lengths)) == 1, (case, html, lengths)
 
-                # Reject All: [one, two] exact; original leading table has at most one leading blank.
+                # Reject All: [one, two] exact; original leading table has one leading blank; empty checks constant length only.
                 ctrl = rdoc.getCurrentController()
                 execute_dispatch(ctx, ctrl, ".uno:RejectAllTrackedChanges")
                 rejected = _header_shape(header)
@@ -1696,8 +1696,13 @@ def test_header_recorded_heading_does_not_leak_uno(ctx):
                 el = enum.nextElement()
                 if el.getString():
                     paras.append(el)
-            # Last live paragraph is the Header body paragraph; first is Heading 1.
-            h1_para, body_para = paras[0], paras[-1]
+            # Imported Heading 1 and Header paragraphs come first (ahead of any old struck paragraphs).
+            h1_para, body_para = paras[0], paras[1]
+            assert h1_para.getString() == "Title" and body_para.getString() == "Body", (
+                recording,
+                h1_para.getString(),
+                body_para.getString(),
+            )
             assert body_para.getPropertyValue("CharHeight") == hdr_style.getPropertyValue("CharHeight"), recording
             assert body_para.getPropertyValue("CharFontName") == hdr_style.getPropertyValue("CharFontName"), recording
             assert h1_para.getPropertyValue("ParaTopMargin") == h1_style.getPropertyValue("ParaTopMargin"), recording
@@ -1710,10 +1715,10 @@ def test_header_recorded_heading_does_not_leak_uno(ctx):
 def test_header_field_round_trip_keeps_spacing_uno(ctx):
     from plugin.tests.testing_utils import TestingFactory
 
-    for html in (
-        '<p>Page <span title="page-number"/> of ten</p>',
-        '<p><span title="page-number"/>/<span title="page-number"/></p>',
-        '<p><span title="page-number"/><span title="page-number"/></p>',
+    for html, expected, field_count in (
+        ('<p>Page <span title="page-number"/> of ten</p>', "Page 1 of ten", 1),
+        ('<p><span title="page-number"/>/<span title="page-number"/></p>', "1/1", 2),
+        ('<p><span title="page-number"/><span title="page-number"/></p>', "11", 2),
     ):
         rdoc = TestingFactory.create_native_doc(ctx, "writer")
         try:
@@ -1722,10 +1727,12 @@ def test_header_field_round_trip_keeps_spacing_uno(ctx):
             header = style.getPropertyValue("HeaderText")
             res = _set(rdoc, ctx, "header", html)
             assert res["status"] == "ok", res
-            expected = header.getString()
-            for _i in range(3):
+            assert header.getString() == expected, (html, header.getString(), expected)
+            for round_idx in range(3):
                 got = _get(rdoc, ctx, "header")
                 assert got["status"] == "ok", got
+                if round_idx == 0:
+                    assert len(got["fields"]) == field_count, (html, got["fields"])
                 res = _set(rdoc, ctx, "header", got["content"])
                 assert res["status"] == "ok", res
             assert header.getString() == expected, (html, header.getString(), expected)
@@ -1735,23 +1742,33 @@ def test_header_field_round_trip_keeps_spacing_uno(ctx):
 
 @native_test
 def test_header_read_joins_paragraphs_like_accept_uno(ctx):
+    import os
     import re
-    from plugin.framework.uno_context import enum_has_more
-    from plugin.framework.uno_context import execute_dispatch
+    import tempfile
+    import uno
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.framework.uno_context import enum_has_more, execute_dispatch
     from plugin.tests.testing_utils import TestingFactory
 
-    def _block_texts(html):
-        return [re.sub(r"<[^>]+>", "", m) for m in re.findall(r"<(?:p|h[1-6])\b[^>]*>(.*?)</(?:p|h[1-6])>", html, re.S)]
+    def _block_tags_and_texts(html):
+        return [
+            (tag.lower(), re.sub(r"<[^>]+>", "", inner).replace("\xa0", "").replace("&nbsp;", ""))
+            for tag, inner in re.findall(r"<(p|h[1-6])\b[^>]*>(.*?)</\1>", html, re.S)
+        ]
 
-    def _accept_texts(rdoc, header):
+    def _accept_tags_and_texts(rdoc, header):
         execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-        texts = []
+        items = []
         enum = header.createEnumeration()
         while enum_has_more(enum):
-            texts.append(enum.nextElement().getString())
-        return texts
+            el = enum.nextElement()
+            style_name = el.getPropertyValue("ParaStyleName")
+            tag = f"h{style_name.split()[-1]}" if style_name.startswith("Heading ") else "p"
+            items.append((tag, el.getString()))
+        return items
 
-    # Partly struck join + text-only middle strike.
+    # 1. Partly struck join + text-only middle strike.
     rdoc = TestingFactory.create_native_doc(ctx, "writer")
     try:
         style, _ = _style(rdoc)
@@ -1777,20 +1794,86 @@ def test_header_read_joins_paragraphs_like_accept_uno(ctx):
         del_cur.gotoNextParagraph(True)
         del_cur.goRight(6, True)
         del_cur.setString("")
-        # Strike "gone" text only on the middle paragraph.
-        mid_cur = header.createTextCursor()
-        mid_cur.gotoStart(False)
-        mid_cur.gotoNextParagraph(False)
+        # Strike "gone" text only on its paragraph.
+        gone_para = [p for p in iter_elements(header.createEnumeration()) if p.getString() == "gone"][0]
+        mid_cur = header.createTextCursorByRange(gone_para)
+        mid_cur.gotoStartOfParagraph(False)
         mid_cur.gotoEndOfParagraph(True)
         mid_cur.setString("")
 
         got = _get(rdoc, ctx, "header")
         assert got["status"] == "ok", got
-        read_texts = [t.replace("\xa0", "").replace("&nbsp;", "") for t in _block_texts(got["content"])]
-        expected = _accept_texts(rdoc, header)
-        assert read_texts == expected, (read_texts, expected)
+        read_items = _block_tags_and_texts(got["content"])
+        expected = _accept_tags_and_texts(rdoc, header)
+        assert expected == [("p", "keeptail"), ("p", ""), ("p", "after")], expected
+        assert read_items == expected, (read_items, expected)
     finally:
         rdoc.close(True)
+
+    # 2. Wholly struck Heading 1 lead joined to live Header paragraph takes Header style.
+    rdoc = TestingFactory.create_native_doc(ctx, "writer")
+    try:
+        style, _ = _style(rdoc)
+        style.setPropertyValue("HeaderIsOn", True)
+        header = style.getPropertyValue("HeaderText")
+        cur = header.createTextCursor()
+        cur.setPropertyValue("ParaStyleName", "Heading 1")
+        header.insertString(cur, "StruckH1", False)
+        header.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Header")
+        header.insertString(cur, "Body", False)
+
+        rdoc.setPropertyValue("RecordChanges", True)
+        del_cur = header.createTextCursor()
+        del_cur.gotoStart(False)
+        del_cur.gotoNextParagraph(True)
+        del_cur.setString("")
+
+        got = _get(rdoc, ctx, "header")
+        assert got["status"] == "ok", got
+        read_items = _block_tags_and_texts(got["content"])
+        expected = _accept_tags_and_texts(rdoc, header)
+        assert expected == [("p", "Body")], expected
+        assert read_items == expected, (read_items, expected)
+    finally:
+        rdoc.close(True)
+
+    # 3. Dropped struck last paragraph hands its surviving logo to the paragraph before it.
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(_PNG_BYTES)
+        img_path = f.name
+    try:
+        rdoc = TestingFactory.create_native_doc(ctx, "writer")
+        try:
+            style, _ = _style(rdoc)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            cur = header.createTextCursor()
+            header.insertString(cur, "Live", False)
+            header.insertControlCharacter(cur, 0, False)
+            header.insertString(cur, "LastGone", False)
+            g = rdoc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            header.insertTextContent(cur, g, False)
+
+            rdoc.setPropertyValue("RecordChanges", True)
+            del_cur = header.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.gotoNextParagraph(False)
+            del_cur.gotoEndOfParagraph(True)
+            del_cur.setString("")
+
+            got = _get(rdoc, ctx, "header")
+            assert got["status"] == "ok", got
+            assert got["content"].count('data-lo-style="Header"') == 1, got["content"]
+            assert "Live" in got["content"] and "LastGone" not in got["content"], got["content"]
+            assert got["content"].count("<img") == 1, got["content"]
+        finally:
+            rdoc.close(True)
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
 
 
 @native_test
@@ -1835,7 +1918,7 @@ def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
 
             got = _get(rdoc, ctx, "header")
             assert got["status"] == "ok", got
-            assert "<img" in got["content"], got["content"]
+            assert got["content"].count("<img") == 1, got["content"]
             execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
             assert rdoc.getDrawPage().getCount() == 1
         finally:
@@ -1871,6 +1954,8 @@ def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
             got = _get(rdoc, ctx, "header")
             assert got["status"] == "ok", got
             assert "<img" not in got["content"], got["content"]
+            execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+            assert rdoc.getDrawPage().getCount() == 0
         finally:
             rdoc.close(True)
     finally:

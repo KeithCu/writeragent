@@ -1306,12 +1306,14 @@ def test_replace_header_after_inline_logo_uno(ctx, doc):
     )
     assert res["status"] == "ok", res
     assert "NewText" in header.getString()
+    assert "OldText" not in header.getString()
     assert doc.getDrawPage().getCount() == 1
 
 
 @native_test
 @with_native_doc("writer")
 def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements
     from plugin.framework.uno_context import enum_has_more, execute_dispatch
 
     style, style_name = _style(doc)
@@ -1335,9 +1337,9 @@ def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
         del_cur.goRight(4, True)
         del_cur.setString("")
 
-        mid_cur = header.createTextCursor()
-        mid_cur.gotoStart(False)
-        mid_cur.gotoNextParagraph(False)
+        gone_para = [p for p in iter_elements(header.createEnumeration()) if p.getString() == "gone"][0]
+        mid_cur = header.createTextCursorByRange(gone_para)
+        mid_cur.gotoStartOfParagraph(False)
         mid_cur.gotoEndOfParagraph(True)
         mid_cur.setString("")
 
@@ -1355,6 +1357,7 @@ def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
         while enum_has_more(enum2):
             accept_paras.append(enum2.nextElement().getString())
 
+        assert accept_paras == ["keeptail", "", "after"], accept_paras
         assert cloned_paras == accept_paras, (cloned_paras, accept_paras)
     finally:
         doc.setPropertyValue("RecordChanges", False)

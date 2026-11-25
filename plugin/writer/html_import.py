@@ -1407,15 +1407,17 @@ def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
     """Clear *text_obj* and return ``(import_cursor, leftover_cursor)``.
 
     When *text_obj* starts or ends with a table, a text cursor cannot span it, so
-    ``SwXText::setString`` (``sw/source/core/unocore/unotext.cxx``) is used and
-    adds empty helper paragraphs before the first table and after the last one.
-    While recording, that leading helper is merged forward (never ``dispose()``d,
-    because a later Undo aborts LibreOffice) and an empty fresh paragraph is
-    opened for the import so direct properties and heading styles from the old
-    paragraph do not stamp the imported blocks.
+    ``SwXText::setString`` (``sw/source/core/unocore/unotext.cxx``) is used. It
+    appends empty helper paragraphs at the very start and very end of the text
+    whenever it holds any table or section, so a leading helper exists even when
+    only the last element is a table. While recording, that leading helper is
+    merged forward (never ``dispose()``d, because a later Undo aborts LibreOffice)
+    and an empty fresh paragraph is opened for the import so direct properties and
+    heading styles from the old paragraph do not stamp the imported blocks.
     """
     elements = list(iter_elements(text_obj.createEnumeration()))
     tables = [_uno_service_true(el, "com.sun.star.text.TextTable") for el in elements]
+    table_edge = bool(tables and (tables[0] or tables[-1]))
     recording = record_changes.is_recording_changes(model)
     if not recording:
         # Explicit table removal keeps the remaining paragraph's style, whereas
@@ -1423,19 +1425,22 @@ def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
         for el, is_table in zip(elements, tables):
             if is_table:
                 text_obj.removeTextContent(el)
-    if not recording or (tables and (tables[0] or tables[-1])):
+    if not recording or table_edge:
         text_obj.setString("")
     else:
+        # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+        # starts and ends with a paragraph, so Reject All restores the structure without extras.
         doomed = text_obj.createTextCursor()
         doomed.gotoStart(False)
         doomed.gotoEnd(True)
         doomed.setString("")
+    # Create after clearing: createTextCursor() on a table-only region raises "no text available".
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     if not recording:
         _leave_heading_style(model, cursor)
         return cursor, None
-    if tables and (tables[0] or tables[-1]):
+    if table_edge:
         with record_changes.record_changes(model, False):
             _merge_empty_paragraph_forward(cursor)
         cursor.gotoStart(False)
@@ -1537,6 +1542,8 @@ def replace_xtext_with_html(
             ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
         if leftover is not None:
+            # merge_forward_after_table=True is right even without a table: empty content
+            # merges the fresh paragraph into the struck text.
             with record_changes.record_changes(model, False):
                 _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
 
