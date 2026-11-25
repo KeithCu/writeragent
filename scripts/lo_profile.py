@@ -6,6 +6,7 @@
 """Seed, register, or verify LibreOffice extensions.
 
     python scripts/lo_profile.py seed --oxt build/WriterAgent.oxt --profile DIR
+    python scripts/lo_profile.py seed-tree --tree DIR --profile DIR
     python scripts/lo_profile.py register --oxt build/WriterAgent.oxt --profile DIR [--remove ID] [--log PATH]
     python scripts/lo_profile.py verify --id EXTENSION_ID
 
@@ -39,6 +40,7 @@ from scripts.lo_paths import find, profile_url  # noqa: E402
 # unopkg imports the extension's Python components in-process; keep the caller's venv out.
 _SCRUB = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
 _CONFIGMGR_INI = "user/uno_packages/cache/registry/com.sun.star.comp.deployment.configuration.PackageRegistryBackend/configmgr.ini"
+_BUILD_INPUTS = ("plugin", "extension", "locales", "scripts")
 
 
 def _scrubbed_env() -> dict[str, str]:
@@ -94,6 +96,37 @@ def seed(oxt: Path, profile: Path) -> None:
         verify(profile, oxt.name, _run([str(unopkg), "list", "-env:UserInstallation=" + url], env))
 
 
+def seed_tree(tree: Path, profile: Path) -> None:
+    """Build an OXT from *tree* on disk and seed *profile* with it.
+
+    Includes uncommitted and untracked files under ``_BUILD_INPUTS`` and
+    writes nothing into *tree*.
+    """
+    vendor = tree / "vendor"
+    if not vendor.is_dir():
+        raise RuntimeError("%s is missing; run make vendor" % vendor)
+    raw = subprocess.check_output(
+        ["git", "-C", str(tree), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *_BUILD_INPUTS],
+        text=True,
+        timeout=60,
+    )
+    with tempfile.TemporaryDirectory(prefix="wa-oxt-") as tmp:
+        src = Path(tmp) / "src"
+        for rel in raw.split("\0"):
+            if not rel:
+                continue
+            item = tree / rel
+            if item.is_file():
+                dest = src / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, dest)
+        shutil.copytree(vendor, src / "vendor")
+        env = _scrubbed_env()
+        for name in ("generate_manifest.py", "compile_translations.py", "build_oxt.py"):
+            _run([sys.executable, str(src / "scripts" / name)], env)
+        seed(src / "build" / "WriterAgent.oxt", profile)
+
+
 def register(oxt: Path, profile: Path, remove_ids: list[str], logs: list[Path]) -> None:
     """Reinstall *oxt* into the normal profile at *profile* (the Makefile's LO_CONF).
 
@@ -141,6 +174,10 @@ def main(argv: list[str]) -> int:
     seed_cmd.add_argument("--oxt", required=True, type=Path)
     seed_cmd.add_argument("--profile", required=True, type=Path)
 
+    seed_tree_cmd = sub.add_parser("seed-tree", help="build OXT from a worktree copy and seed a fresh profile")
+    seed_tree_cmd.add_argument("--tree", required=True, type=Path)
+    seed_tree_cmd.add_argument("--profile", required=True, type=Path)
+
     reg_cmd = sub.add_parser("register", help="register extension in LibreOffice profile")
     reg_cmd.add_argument("--oxt", required=True, type=Path)
     reg_cmd.add_argument("--profile", required=True, type=Path)
@@ -155,6 +192,9 @@ def main(argv: list[str]) -> int:
         if args.command == "seed":
             seed(args.oxt, args.profile)
             print("Seeded %s into %s" % (args.oxt.name, profile_url(args.profile)))
+        elif args.command == "seed-tree":
+            seed_tree(args.tree, args.profile)
+            print("Seeded %s into %s" % (args.tree, profile_url(args.profile)))
         elif args.command == "register":
             register(args.oxt, args.profile, args.remove, args.log)
         elif args.command == "verify":

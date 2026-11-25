@@ -314,3 +314,72 @@ def test_main_usage_and_register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert rc == 0
     assert not log.exists()
 
+
+def test_seed_tree_builds_files_on_disk(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    tree = tmp_path / "tree"
+    (tree / "plugin").mkdir(parents=True)
+    (tree / "extension").mkdir()
+    (tree / "locales").mkdir()
+    (tree / "scripts").mkdir()
+    (tree / "vendor").mkdir()
+    (tree / "vendor" / "dep.py").write_text("v", encoding="utf-8")
+
+    tracked = tree / "plugin" / "mod.py"
+    tracked.write_text("orig", encoding="utf-8")
+    deleted = tree / "plugin" / "gone.py"
+    deleted.write_text("gone", encoding="utf-8")
+    subprocess.run(["git", "init", str(tree)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tree), "config", "user.email", "t@example.com"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tree), "config", "user.name", "T"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tree), "add", "plugin/mod.py", "plugin/gone.py"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tree), "commit", "-m", "init"], check=True, capture_output=True)
+
+    # Uncommitted modification, deleted tracked file, untracked file, and gitignored file.
+    tracked.write_text("edited", encoding="utf-8")
+    deleted.unlink()
+    (tree / "plugin" / "new.py").write_text("untracked", encoding="utf-8")
+    (tree / ".gitignore").write_text("plugin/ignored.py\n", encoding="utf-8")
+    (tree / "plugin" / "ignored.py").write_text("ignored", encoding="utf-8")
+
+    copied_snapshots: dict[str, str] = {}
+    ran_scripts: list[str] = []
+    seeded_args: list[tuple[Path, Path]] = []
+
+    def fake_run(cmd: list[str], env: dict[str, str] | None = None) -> str:
+        script_path = Path(cmd[1])
+        ran_scripts.append(script_path.name)
+        src_root = script_path.parents[1]
+        if script_path.name == "generate_manifest.py":
+            copied_snapshots["mod"] = (src_root / "plugin" / "mod.py").read_text(encoding="utf-8")
+            copied_snapshots["new"] = (src_root / "plugin" / "new.py").read_text(encoding="utf-8")
+            copied_snapshots["vendor"] = (src_root / "vendor" / "dep.py").read_text(encoding="utf-8")
+            assert not (src_root / "plugin" / "gone.py").exists()
+            assert not (src_root / "plugin" / "ignored.py").exists()
+        elif script_path.name == "build_oxt.py":
+            oxt = src_root / "build" / "WriterAgent.oxt"
+            oxt.parent.mkdir(parents=True, exist_ok=True)
+            oxt.write_text("oxt", encoding="utf-8")
+        return ""
+
+    def fake_seed(oxt: Path, profile: Path) -> None:
+        assert oxt.is_file()
+        seeded_args.append((oxt, profile))
+
+    monkeypatch.setattr(lo_profile, "_run", fake_run)
+    monkeypatch.setattr(lo_profile, "seed", fake_seed)
+
+    profile = tmp_path / "profile"
+    lo_profile.seed_tree(tree, profile)
+
+    assert ran_scripts == ["generate_manifest.py", "compile_translations.py", "build_oxt.py"]
+    assert copied_snapshots == {"mod": "edited", "new": "untracked", "vendor": "v"}
+    assert len(seeded_args) == 1 and seeded_args[0][1] == profile
+    assert not (tree / "build").exists()
+
+
+def test_seed_tree_requires_vendor(tmp_path: Path) -> None:
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    with pytest.raises(RuntimeError, match="vendor"):
+        lo_profile.seed_tree(tree, tmp_path / "profile")
+

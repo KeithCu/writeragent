@@ -623,39 +623,67 @@ def throwaway_writeragent_json() -> Path | None:
     return _office.throwaway_profile_dir / "user" / "config" / "writeragent.json"
 
 
-def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
-    """Copy user-level WriterAgent ``uno_packages`` into the throwaway profile.
+def worktree_root() -> Path | None:
+    """Return the repo root when running inside a linked git worktree, else None."""
+    root = Path(__file__).resolve().parents[1]
+    return root if (root / ".git").is_file() else None
 
-    ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the
-    real profile, so sheet ``=PY()`` is ``#NAME?``. ``unopkg add`` into the
-    throwaway fails (helper soffice ``NoConnectException``). Copying
-    ``user/uno_packages`` is what registers the components.
-    """
-    root = _libreoffice_user_lock_path().parent / "user" / "uno_packages"
-    packages = root / "cache" / "uno_packages"
-    found = False
-    if packages.is_dir():
-        try:
-            for child in packages.iterdir():
-                if child.name.endswith(".tmp_") and (child / "WriterAgent.oxt").exists():
-                    found = True
-                    break
-        except OSError:
-            pass
-    if not found:
-        _progress_verbose(
-            "BOOTSTRAP throwaway seed skip — no user-level WriterAgent.oxt under %s "
-            "(user unopkg is invisible to throwaway UserInstallation; "
-            "sheet =PY() will be #NAME? 504/525) GITHUB_ACTIONS=%s"
-            % (root, on_github_actions())
+
+def _worktree_uno_packages(tree: Path) -> Path:
+    seed = _office.throwaway_profile_dirs[0] / "worktree-seed"
+    if not seed.exists():
+        py = tree / (".venv/Scripts/python.exe" if sys.platform.startswith("win") else ".venv/bin/python")
+        proc = subprocess.run(
+            [str(py), str(tree / "scripts" / "lo_profile.py"), "seed-tree", "--tree", str(tree), "--profile", str(seed)],
+            env=_child_env_without_runner_python(),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        if on_github_actions():
-            raise RuntimeError(
-                "GitHub Actions must seed the UNO throwaway profile from the "
-                "user-level WriterAgent install (make register-built-oxt). "
-                "Missing %s" % root
+        if proc.returncode != 0:
+            output = (proc.stdout + proc.stderr).strip()
+            raise RuntimeError("building the worktree extension failed (%s):\n%s" % (tree, output))
+        _progress("BOOTSTRAP extension built from %s" % tree)
+    return seed / "user" / "uno_packages"
+
+
+def _seed_throwaway_profile(profile_dir: Path) -> None:
+    """Seed a throwaway profile's ``user/uno_packages`` and ``writeragent.json``.
+
+    In a linked git worktree, builds a fresh OXT from the worktree copy once
+    per run and seeds from that; otherwise copies the user-level installed OXT.
+    ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the real
+    profile, so copying ``user/uno_packages`` is what registers the components.
+    """
+    tree = worktree_root()
+    if tree is not None:
+        root = _worktree_uno_packages(tree)
+    else:
+        root = _libreoffice_user_lock_path().parent / "user" / "uno_packages"
+        packages = root / "cache" / "uno_packages"
+        found = False
+        if packages.is_dir():
+            try:
+                for child in packages.iterdir():
+                    if child.name.endswith(".tmp_") and (child / "WriterAgent.oxt").exists():
+                        found = True
+                        break
+            except OSError:
+                pass
+        if not found:
+            _progress_verbose(
+                "BOOTSTRAP throwaway seed skip — no user-level WriterAgent.oxt under %s "
+                "(user unopkg is invisible to throwaway UserInstallation; "
+                "sheet =PY() will be #NAME? 504/525) GITHUB_ACTIONS=%s"
+                % (root, on_github_actions())
             )
-        return
+            if on_github_actions():
+                raise RuntimeError(
+                    "GitHub Actions must seed the UNO throwaway profile from the "
+                    "user-level WriterAgent install (make register-built-oxt). "
+                    "Missing %s" % root
+                )
+            return
     dest = profile_dir / "user" / "uno_packages"
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
@@ -697,7 +725,7 @@ def _soffice_bootstrap_command() -> tuple[list[str], str]:
     # Seed after the lookup so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
     _office.throwaway_profile_dirs.append(profile_dir)
-    _seed_throwaway_profile_with_user_oxt(profile_dir)
+    _seed_throwaway_profile(profile_dir)
     profile_url = profile_dir.as_uri()
     # Same pipe name shape as officehelper / tools_lo; we own --accept now.
     pipe_name = "uno" + secrets.token_hex(8)
