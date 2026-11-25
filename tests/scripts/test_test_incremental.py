@@ -338,3 +338,52 @@ def test_main_uno_print_filter_empty_stdout_when_nothing_maps(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no matching UNO files" in captured.err
+
+
+def test_select_pytest_files_follows_transitive_and_relative_imports_and_skips_type_checking(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "plugin/a/helper.py", "def fn():\n    return 1\n")
+    _write(tmp_path, "plugin/a/consumer.py", "from .helper import fn\n")
+    _write(tmp_path, "plugin/b/top.py", "from plugin.a import consumer\n")
+    _write(tmp_path, "plugin/b/cycle_a.py", "from plugin.b import cycle_b\n")
+    _write(tmp_path, "plugin/b/cycle_b.py", "from plugin.b import cycle_a\n")
+    _write(
+        tmp_path,
+        "plugin/b/type_only.py",
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from plugin.a import helper\n",
+    )
+    _write(tmp_path, "tests/a/test_helper.py", "x = 1\n")
+    _write(tmp_path, "tests/b/test_top.py", "x = 1\n")
+    _write(tmp_path, "tests/c/test_uses_top.py", 'PATCH = "plugin.b.top.run"\n')
+    _write(tmp_path, "tests/c/test_type_only.py", "x = 1\n")
+    _write(tmp_path, "tests/c/test_type_only_uno.py", "import plugin.b.type_only\n")
+    _write(tmp_path, "tests/b/test_top_uno.py", "import plugin.b.top\n")
+
+    assert tst.select_pytest_files(["plugin/a/helper.py"], repo_root=tmp_path) == [
+        "tests/a/test_helper.py",
+        "tests/b/test_top.py",
+        "tests/c/test_uses_top.py",
+    ]
+    assert tst.select_uno_files(["plugin/a/helper.py"], repo_root=tmp_path) == [
+        "tests/b/test_top_uno.py",
+    ]
+    # Cycles terminate cleanly.
+    assert tst.select_pytest_files(["plugin/b/cycle_a.py"], repo_root=tmp_path) == []
+
+
+def test_main_includes_committed_branch_changes_vs_master(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "feature")
+    _write(tmp_path, "plugin/branch_mod.py", "x = 1\n")
+    _write(tmp_path, "tests/test_branch_mod.py", "x = 1\n")
+    _git(tmp_path, "add", "plugin/branch_mod.py", "tests/test_branch_mod.py")
+    _git(tmp_path, "commit", "-m", "committed feature work")
+
+    rc = tst.main(["--print-filter"], repo_root=tmp_path)
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "tests/test_branch_mod.py"
+    assert "running pytest on 1 file(s)" in captured.err

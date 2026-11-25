@@ -95,3 +95,25 @@ def test_main_skip_uno_env(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("builtins.print", lambda *a, **k: printed.append(" ".join(str(x) for x in a)))
     assert tbu.main([], repo_root=tmp_path) == 0
     assert printed == ["test-bot: SKIP_UNO=1 — skipping isolated UNO tests"]
+
+
+def test_list_branch_uno_files_selects_stem_and_transitive_uno_tests(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "plugin/doc/text_helpers.py", "def clean():\n    return ''\n")
+    _touch(tmp_path, "plugin/writer/search.py", "from plugin.doc.text_helpers import clean\n")
+    _touch(tmp_path, "tests/doc/test_text_helpers_uno.py", "x = 1\n")
+    _touch(tmp_path, "tests/writer/test_search_uno.py", "x = 1\n")
+    _touch(tmp_path, "tests/writer/test_uses_search_uno.py", "import plugin.writer.search\n")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "add doc and writer modules")
+
+    _git(tmp_path, "checkout", "-b", "feature")
+    _touch(tmp_path, "plugin/doc/text_helpers.py", "def clean():\n    return 'v2'\n")
+    _git(tmp_path, "add", "plugin/doc/text_helpers.py")
+    _git(tmp_path, "commit", "-m", "edit text_helpers")
+
+    assert tbu.list_branch_uno_files(tmp_path) == [
+        "tests/doc/test_text_helpers_uno.py",
+        "tests/writer/test_search_uno.py",
+        "tests/writer/test_uses_search_uno.py",
+    ]

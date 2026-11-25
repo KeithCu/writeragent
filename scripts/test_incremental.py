@@ -6,17 +6,20 @@
 """Run pytest or UNO tests incrementally on changed test files and module-matched tests.
 
 Used by ``make test-bot``, ``make test-uno``, and ``make test`` to scope pytest (or ``--uno`` for
-``testing_runner.py``) to staged, unstaged, and untracked changes:
+``testing_runner.py``) to branch changes relative to ``origin/master`` (falling back to
+``master``, then uncommitted changes) plus staged, unstaged, and untracked files:
 - Changed ``test_*.py`` files under ``tests/`` (excluding ``*_uno.py`` in pytest
   mode; selecting only ``test_*_uno.py`` in ``--uno`` mode) run directly.
-- Changed non-test ``.py`` modules (e.g. ``plugin/a/b/foo.py``) map by filename
-  to ``tests/**/test_foo.py`` and ``tests/**/test_foo_*.py`` (or
-  ``test_foo_uno.py`` and ``test_foo_*_uno.py`` in ``--uno`` mode), and also to
-  every test file that names the module: ``import plugin.a.b.foo``,
-  ``from plugin.a.b.foo import x``, ``from plugin.a.b import foo``, or a dotted
-  string such as ``patch("plugin.a.b.foo.bar")``. A package ``__init__.py``
-  counts as the package (``plugin.a.b``). Tests that reach the module only
-  through another module are not selected.
+- Changed non-test ``.py`` modules (e.g. ``plugin/a/b/foo.py``) are expanded
+  transitively to every non-test module that imports them (directly or
+  transitively at runtime, skipping ``if TYPE_CHECKING:`` blocks). Each module
+  in that closure maps by filename to ``tests/**/test_<stem>.py`` and
+  ``tests/**/test_<stem>_*.py`` (or ``test_<stem>_uno.py`` and
+  ``test_<stem>_*_uno.py`` in ``--uno`` mode), and also to every test file that
+  names the module: ``import plugin.a.b.foo``, ``from plugin.a.b.foo import x``,
+  ``from plugin.a.b import foo``, or a dotted string such as
+  ``patch("plugin.a.b.foo.bar")``. A package ``__init__.py`` counts as the
+  package (``plugin.a.b``).
 - Changed non-Python files (fixtures, prompts, YAML) select the test files whose
   text contains the file's name, unless the name is one many files share
   (``module.yaml``, ``README.md``...).
@@ -29,6 +32,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+from collections import deque
+import os
 import re
 import subprocess
 import sys
@@ -39,10 +44,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.plugin_import_graph import (  # noqa: E402
+    _is_type_checking_if,
+    _resolved_import_from_module,
+)
 from scripts.typecheck_incremental import (  # noqa: E402
     EXIT_FALLBACK_FULL,
+    _git_z_paths,
     _normalize_rel_path,
     get_changed_files,
+)
+
+_BASE_REFS = ("origin/master", "master")
+_SKIP_GRAPH_DIRS = frozenset(
+    {"build", "contrib", "node_modules", "tests", "vendor", "__pycache__"}
 )
 
 _FULL_RUN_CONFIGS = frozenset({"pyproject.toml", "Makefile"})
@@ -210,22 +225,145 @@ class _TestFileIndex:
         self._imports[test_rel] = result
         return result
 
-    def naming_module(self, dotted: str) -> list[str]:
-        """Return test files that import ``dotted`` or name it in a dotted string."""
-        leaf = dotted.rsplit(".", 1)[-1]
-        pattern = re.compile(r"(?<![\w.])" + re.escape(dotted) + r"(?!\w)")
-        hits: list[str] = []
+    def naming_modules(self, dotted_names: Iterable[str]) -> set[str]:
+        """Return test files that import or name any module in ``dotted_names``."""
+        by_leaf: dict[str, list[tuple[str, re.Pattern[str]]]] = {}
+        for dotted in dotted_names:
+            leaf = dotted.rsplit(".", 1)[-1]
+            pattern = re.compile(r"(?<![\w.])" + re.escape(dotted) + r"(?!\w)")
+            by_leaf.setdefault(leaf, []).append((dotted, pattern))
+        if not by_leaf:
+            return set()
+
+        hits: set[str] = set()
         for test_rel in self._test_files:
             text = self.text(test_rel)
-            if leaf not in text:
-                continue
-            if pattern.search(text) or dotted in self.imported_names(test_rel):
-                hits.append(test_rel)
+            matched = False
+            for leaf, entries in by_leaf.items():
+                if leaf not in text:
+                    continue
+                for dotted, pattern in entries:
+                    if pattern.search(text) or dotted in self.imported_names(test_rel):
+                        hits.add(test_rel)
+                        matched = True
+                        break
+                if matched:
+                    break
         return hits
 
     def naming_file(self, name: str) -> list[str]:
         """Return test files whose text contains the file name ``name``."""
         return [test_rel for test_rel in self._test_files if name in self.text(test_rel)]
+
+
+def _git_stdout(repo_root: Path, args: list[str]) -> str | None:
+    """Return stripped git stdout, or None if the command failed."""
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def merge_base(repo_root: Path, refs: tuple[str, ...] = _BASE_REFS) -> str | None:
+    """Return the merge-base of HEAD and the first existing base ref."""
+    for ref in refs:
+        if _git_stdout(repo_root, ["rev-parse", "--verify", ref]) is None:
+            continue
+        base = _git_stdout(repo_root, ["merge-base", "HEAD", ref])
+        if base:
+            return base
+    return None
+
+
+def get_branch_changed_files(repo_root: Path = REPO_ROOT) -> list[str]:
+    """Return repo-relative paths changed on the branch plus uncommitted/untracked files."""
+    paths: set[str] = set()
+    base = merge_base(repo_root)
+    if base is not None:
+        paths.update(_git_z_paths(repo_root, ["diff", "-z", "--name-only", "--diff-filter=ACMR", base]))
+        paths.update(_git_z_paths(repo_root, ["ls-files", "-z", "--others", "--exclude-standard"]))
+    else:
+        paths.update(get_changed_files(repo_root))
+    return sorted(paths)
+
+
+def _runtime_imports(path: Path, repo_root: Path) -> set[str]:
+    """Return dotted module names imported by ``path`` outside ``if TYPE_CHECKING:``."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    mods: set[str] = set()
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.If) and _is_type_checking_if(node):
+            continue
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mods.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            mod = _resolved_import_from_module(path, node, repo_root)
+            if mod:
+                mods.add(mod)
+                for alias in node.names:
+                    if alias.name != "*":
+                        mods.add(f"{mod}.{alias.name}")
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+    return mods
+
+
+def _iter_non_test_py_files(repo_root: Path) -> Iterable[Path]:
+    """Yield non-test Python files under ``repo_root``, skipping vendored and build dirs."""
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        rel_dir = Path(dirpath).relative_to(repo_root).as_posix()
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not d.startswith(".")
+            and d not in _SKIP_GRAPH_DIRS
+            and not (rel_dir == "plugin" and d in ("contrib", "lib"))
+        ]
+        for filename in filenames:
+            if filename.endswith(".py"):
+                yield Path(dirpath) / filename
+
+
+def _expand_transitive_importers(seed_rels: Iterable[str], repo_root: Path) -> list[str]:
+    """Return repo-relative paths of ``seed_rels`` and all modules that transitively import them."""
+    seed_mods = {mod for rel in seed_rels if (mod := _dotted_module(rel)) is not None}
+    if not seed_mods:
+        return []
+
+    rev_imports: dict[str, set[str]] = {}
+    mod_to_rel: dict[str, str] = {}
+    for path in _iter_non_test_py_files(repo_root):
+        rel = _normalize_rel_path(path.relative_to(repo_root).as_posix())
+        dm = _dotted_module(rel)
+        if not dm:
+            continue
+        mod_to_rel[dm] = rel
+        for imp in _runtime_imports(path, repo_root):
+            rev_imports.setdefault(imp, set()).add(dm)
+
+    seen = set(seed_mods)
+    queue = deque(seed_mods)
+    while queue:
+        mod = queue.popleft()
+        for dependent in rev_imports.get(mod, ()):
+            if dependent not in seen:
+                seen.add(dependent)
+                queue.append(dependent)
+
+    return [mod_to_rel[mod] for mod in seen if mod in mod_to_rel]
 
 
 def _select_test_files(
@@ -242,6 +380,7 @@ def _select_test_files(
     index = _TestFileIndex(repo_root, all_test_files)
 
     selected: set[str] = set()
+    changed_non_test_py: list[str] = []
     for raw in changed:
         rel = _normalize_rel_path(raw)
         if not rel or not (repo_root / rel).is_file():
@@ -255,15 +394,23 @@ def _select_test_files(
             if is_eligible(rel):
                 selected.add(rel)
             continue
+        changed_non_test_py.append(rel)
 
-        stem = _module_stem(rel)
-        if stem:
-            for test_name, test_rels in by_name.items():
-                if matches_stem(test_name, stem):
-                    selected.update(test_rels)
-        dotted = _dotted_module(rel)
-        if dotted:
-            selected.update(index.naming_module(dotted))
+    if changed_non_test_py:
+        expanded = _expand_transitive_importers(changed_non_test_py, repo_root)
+        # Include seed paths even if they live in a skipped dir or lack a dotted module name.
+        all_module_rels = sorted(set(changed_non_test_py) | set(expanded))
+        dotted_targets: set[str] = set()
+        for rel in all_module_rels:
+            stem = _module_stem(rel)
+            if stem:
+                for test_name, test_rels in by_name.items():
+                    if matches_stem(test_name, stem):
+                        selected.update(test_rels)
+            dotted = _dotted_module(rel)
+            if dotted:
+                dotted_targets.add(dotted)
+        selected.update(index.naming_modules(dotted_targets))
 
     return sorted(selected)
 
@@ -322,7 +469,7 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     label = "UNO" if args.uno else "pytest"
     status_stream = sys.stderr if args.print_filter else sys.stdout
 
-    changed = get_changed_files(repo_root)
+    changed = get_branch_changed_files(repo_root)
     if not changed:
         print(f"test-bot: no changed files — nothing to test ({label})", file=status_stream, flush=True)
         return 0
