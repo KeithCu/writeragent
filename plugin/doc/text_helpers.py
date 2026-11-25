@@ -478,20 +478,32 @@ def language_at_start(rng: Any) -> dict[str, Any]:
     return {name: at_start.getPropertyValue(name) for name in _LANGUAGE_PROPERTIES}
 
 
-def reset_direct_char_formatting(cursor: Any, language: Mapping[str, Any] | None = None) -> None:
+_FONT_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+)
+
+
+def uniform_font(rng: Any) -> dict[str, Any]:
+    """Font family and size properties that have one value over all of *rng*; a mixed range reads as None."""
+    values = {name: rng.getPropertyValue(name) for name in _FONT_PROPERTIES}
+    return {name: value for name, value in values.items() if value is not None}
+
+
+def reset_direct_char_formatting(cursor: Any, keep: Mapping[str, Any] | None = None) -> None:
     """Drop direct Char* formatting and the character style on *cursor*, but keep its language.
 
     Resetting any one Char* name on an empty paragraph drops its whole character
     attribute set, language included, so the language is read first and put back
-    (*language* is for callers that want another paragraph's language).
+    (*keep* is for callers that want other values put back instead).
     """
     names = writable_char_names(cursor)
     if names is None:
         return
-    if language is None:
-        language = language_at_start(cursor)
+    if keep is None:
+        keep = language_at_start(cursor)
     reset_properties_to_default(cursor, names)
-    for name, value in language.items():
+    for name, value in keep.items():
         if cursor.getPropertyValue(name) != value:
             cursor.setPropertyValue(name, value)
 

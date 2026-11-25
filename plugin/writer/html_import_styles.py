@@ -508,6 +508,7 @@ _BLOCK_TAGS = (
     "|figure|figcaption|address|details|summary|form|fieldset|legend|hgroup"
 )
 BLOCK_MARKUP_RE = re.compile(r"<(?:%s)\b" % _BLOCK_TAGS, re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"<li\b", re.IGNORECASE)
 # Same tags plus closing forms and <br>: anything here already defines its own paragraphs.
 LINEBREAK_MARKUP_RE = re.compile(r"</?(?:%s|br)\b" % _BLOCK_TAGS, re.IGNORECASE)
 _COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -647,6 +648,29 @@ def extract_block_lo_styles(
         [ex.paras[i] for i in keep_list],
         ex.skipped_para + dropped,
     )
+
+
+def first_block_keeps_layout(content: str, style: str, list_tag: str | None) -> bool:
+    """True when *content*'s first block is new text for a paragraph already in paragraph style *style*.
+
+    Inspects the first block tag found by ``BLOCK_MARKUP_RE.search`` (so a wrapper
+    like ``<div><p>...</p></div>`` or prose before a heading is classed by that first
+    tag). Returns True for text or ``<p>`` without ``data-lo-style``, a single-item
+    list of the same kind, or a block naming *style* itself (its ``data-lo-style``
+    token, or ``<h2>`` for ``Heading 2``). Any other first block (another style, a
+    list, a table) brings its own layout.
+    """
+    match = BLOCK_MARKUP_RE.search(content)
+    tag = match.group()[1:].lower() if match else "p"
+    if tag == list_tag and len(_LIST_ITEM_RE.findall(content)) == 1:
+        tag = "p"
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(content)
+    token = styles[0] if styles else None
+    if token is None and re.fullmatch("h[1-6]", tag):
+        token = f"Heading{tag[1]}"
+    if token is None:
+        return tag == "p"
+    return token in (style, xhtml_post.compact_lo_style_name(style))
 
 
 def resolve_paragraph_style_token(
