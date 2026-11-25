@@ -34,7 +34,7 @@ What is implemented today (not every Writer mutation tool):
 | `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
-| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked row/column deletes refuse protected cells; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
+| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked `table_delete` and row/column deletes refuse with `CELLS_PROTECTED` when the table or band has, or the deleted table is nested in, a protected cell; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets) | No | No |
@@ -55,8 +55,7 @@ replacement. Whitespace the model actually sent is kept.
 
 Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
 
-`table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
-removing every row), so the table would vanish unreviewable. It places the caret in a non-nested
+`table_delete` refuses with `CELLS_PROTECTED` when the table has, or is nested in, a protected cell (whether or not changes are recorded), and cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for removing every row), so the table would vanish unreviewable. It places the caret in a non-nested
 cell, confirms via the view cursor that it landed in the target table (refusing with
 `TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an
@@ -66,7 +65,7 @@ first cell that changes, and `inline_review` resolves them one cell at a time in
 undo step. Writer anchors each **empty** row with a U+200D but records no redline for it, so the
 tool deletes those anchors with tracking on — without that, Accept All left the empty rows behind as
 a table. Rejecting keeps the anchor in the empty cell, as LibreOffice's own Delete Table does.
-`apply_content` uses that same delete when an empty replacement is the last text left in the table,
+`apply_content` uses that same delete (including the `CELLS_PROTECTED` check) when an empty replacement is the last text left in the table,
 inside the edit's existing review session. Clearing one cell while another cell still has text stays
 a text edit.
 

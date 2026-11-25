@@ -2877,7 +2877,7 @@ class _TableProxy:
     """Proxy for table tools."""
 
     def delete(self, *, name: str | None = None, page: int | None = None, index: int | None = None) -> _Item:
-        """Delete a table by name. Writer: removes a top-level or nested TextTable from its containing XText. Nested children of the deleted table are removed with it — this is the intentional remove (do not use table_set_cell, which refuses host cells). Draw/Impress: removes the TableShape from the page.
+        """Delete a table by name. Writer: removes a top-level or nested TextTable from its containing XText. Nested children of the deleted table are removed with it — this is the intentional remove (do not use table_set_cell, which refuses host cells). Refuses a table that has, or is nested in, a protected cell. Draw/Impress: removes the TableShape from the page.
 
         Args:
             name (optional): Table name from table_list.

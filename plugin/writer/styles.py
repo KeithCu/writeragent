@@ -38,6 +38,7 @@ from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit
 from plugin.doc.text_helpers import (
     CLEARABLE_PARA_PROPERTIES,
     PROPERTY_READONLY,
+    iter_elements,
     iter_elements_limited,
     record_walk_cap,
     reset_properties_to_default,
@@ -1690,6 +1691,24 @@ def target_cursors(
     return [cursor_spanning_range(r) for r in ranges], None, mode
 
 
+def _covering_cursors(text: Any) -> Iterator[Any]:
+    """Cursors that together cover *text*: one per cell of the tables it starts with, then the rest.
+
+    SwXTextCursor::gotoStart (sw/source/core/unocore/unoobj.cxx) steps past leading tables, so a
+    cursor over the whole text leaves them out. A cell can itself start with a nested table; its
+    cursor starts at its first paragraph because _expand_to_full_paragraphs cannot expand a range
+    that begins inside another table. Later tables lie inside the last cursor.
+    """
+    for el in iter_elements(text.createEnumeration()):
+        if not el.supportsService("com.sun.star.text.TextTable"):
+            cursor = cursor_spanning_range(el)
+            cursor.gotoEnd(True)
+            yield cursor
+            return
+        for name in el.getCellNames():
+            yield from _covering_cursors(el.getCellByName(name))
+
+
 def apply_to_cursors(
     tool: FrameworkToolBase,
     ctx: ToolContext,
@@ -2073,6 +2092,9 @@ class StyleFormatText(ToolWriterStyleBase):
         cursors, err, search_mode = target_cursors(self, ctx, kwargs)
         if err is not None:
             return err
+        if target == "full_document":
+            # The last one spans the body, which cursors[0] already does.
+            cursors += list(_covering_cursors(ctx.doc.getText()))[:-1]
         if target == "selection" and cursors[0].isCollapsed():
             return self._tool_error(
                 "Selection is empty (caret only): select text first, or use target='search'/set_selection.",
@@ -2088,8 +2110,8 @@ class StyleFormatText(ToolWriterStyleBase):
         char_tracked = False
         para_author: str | None = None
 
-        # One body-spanning cursor covers tables (including nested tables) because
-        # lcl_InsAttr and ResetAttrs walk every node in the range.
+        # Each cursor covers every table inside its range (nested ones too) because lcl_InsAttr
+        # and ResetAttrs walk every node; tables the document starts with have cursors of their own.
         def apply_one(cursor: Any) -> _DirectFormatReport:
             states, incomplete = (
                 _paragraph_revert_states(_expand_to_full_paragraphs(cursor))
