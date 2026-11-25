@@ -346,7 +346,7 @@ falls back to walking its host cells to name the direct parent. `table_list` als
 reads one address (Draw: `matrix` is that one cell). Host slots are the host cell's own paragraphs, not concatenated
 inner-table text. `table_set_cell` on a host cell rewrites those paragraph siblings and
 keeps the nested table (`setString` would destroy it). `table_manage_structure` delete
-refuses a host row/column (scans `getCellNames()`, not `range(cols)`), and refuses a row or column with a protected cell (`CELLS_PROTECTED`, or `TABLE_BAND_NOT_DELETED` if LibreOffice skips an untracked delete due to a protected merged cell or DDE link). A row whose vertically merged cell is empty can be deleted; LibreOffice passes the remaining span to the row below. A non-empty one is refused, naming what it holds. `table_merge_cells`
+refuses a host row/column (scans `getCellNames()`, not `range(cols)`), and refuses a row or column with a protected cell (`CELLS_PROTECTED`, or `TABLE_BAND_NOT_DELETED` if LibreOffice skips an untracked delete due to a protected merged cell or DDE link). Column indexes count first-row cells; when a wider merged cell blocks a column delete (`COLUMN_HAS_SPANNING_CELL`), the refusal lists the splits that make the delete work or says not to split. A row whose vertically merged cell is empty can be deleted; LibreOffice passes the remaining span to the row below. A non-empty one is refused, naming what it holds. `table_merge_cells`
 merges a rectangular block and `table_split_cell` splits one cell into 2–20 row or column
 parts; both renumber cell names per row, return fresh `cell_names`, and are untracked even
 in review mode. `table_insert` with
@@ -502,8 +502,8 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   Search/replace and selection clear raise if the range lives in a cell that hosts a nested
   table. Use `table_set_cell` / `table_*`. `target='full_document'` is not policed for
   nested tables (a full rewrite is supposed to replace the document), but it refuses when the
-  document has any hidden section (`HIDDEN_SECTION`; a full read returns hidden text and
-  re-importing it would make the section visible or delete it) or protected non-index section
+  document has any hidden or conditional section (`HIDDEN_SECTION`; a full read returns hidden text and
+  re-importing it would drop the condition or make the section visible or delete it) or protected non-index section
   (`PROTECTED_SECTION`) outside headers and footers and the tables and frames in them. A visible
   leading section or TOC is replaced with new content placed outside it. `target='selection'`
   refuses when the range starts in a table and ends outside it (`SELECTION_SPANS_TABLE`) or

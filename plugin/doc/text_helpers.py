@@ -626,19 +626,38 @@ class DeletionState:
 
 
 _NESTING_PORTIONS = ("ContentControl", "InContentMetadata")
+_METADATA_FIELD_SERVICE = "com.sun.star.text.textfield.MetadataField"
 
 
-def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
-    """Yield ``(portion, type)`` flattening ``ContentControl`` and ``InContentMetadata``.
+def _nested_portions(portion: Any, kind: str | None) -> Any | None:
+    """Child portion enumeration when *portion* is a container, else None.
 
-    ``lcl_ExportHints`` (``sw/source/core/unocore/unoportenum.cxx``) puts those
-    container portions' inner runs and redline markers into a child enumeration
+    A MetadataField is a ``TextField`` portion with an empty string; its text is only in the
+    field's own enumeration (``lcl_CreateMetaPortion`` in unoportenum.cxx, ``SwXMeta::createEnumeration``).
+    """
+    if kind in _NESTING_PORTIONS:
+        return portion.getPropertyValue(kind).createEnumeration()
+    if kind == "TextField":
+        field = uno_read(lambda: portion.getPropertyValue("TextField"), None, object_type="TextPortion")
+        if field is not None and uno_read(
+            lambda: field.supportsService(_METADATA_FIELD_SERVICE) is True, False, object_type="TextPortion"
+        ):
+            return field.createEnumeration()
+    return None
+
+
+def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(portion, type)`` flattening ``ContentControl``, ``InContentMetadata``, and ``MetadataField``.
+
+    ``lcl_ExportHints`` and ``lcl_CreateMetaPortion`` (``sw/source/core/unocore/unoportenum.cxx``)
+    put those container portions' inner runs and redline markers into a child enumeration
     instead of emitting them at top level, leaving the outer portion's
     ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
-    (``unocontentcontrol.cxx``) refreshes that list for each control, including
-    nested controls, so one recursive call flattens arbitrary nesting. Yields
-    ``(None, None)`` when ``nextElement()`` fails (after ``reraise_if_disposed``),
-    and ``(portion, None)`` when a portion's type or child enumeration is unreadable.
+    (``unocontentcontrol.cxx``) and ``SwXMeta::CreateXMeta`` (``unorefmk.cxx``) refresh that
+    list for each enumeration, including nested controls, so one recursive call flattens
+    arbitrary nesting. Yields ``(None, None)`` when ``nextElement()`` fails (after
+    ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
+    enumeration is unreadable.
     """
     while enum_has_more(portion_enum):
         try:
@@ -648,32 +667,16 @@ def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
             yield None, None
             continue
         kind = _portion_type(portion)
-        if kind in _NESTING_PORTIONS:
-            try:
-                inner = portion.getPropertyValue(kind).createEnumeration()
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                yield portion, None
-                continue
-            yield from _flat_portions(inner)
-        else:
+        try:
+            inner = _nested_portions(portion, kind)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            yield portion, None
+            continue
+        if inner is None:
             yield portion, kind
-
-
-def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str]]:
-    """Yield ``(portion, type)`` from *portion_enum*, flattening nested controls and stopping at the first unreadable portion."""
-    for portion, kind in _flat_portions(portion_enum):
-        if kind is None:
-            break
-        yield portion, kind
-
-
-def section_own_shown(section: Any) -> bool:
-    """True when *section* itself is shown (ignoring ancestor section visibility)."""
-    visible = bool(section.getPropertyValue("IsVisible"))
-    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
-    # condition (section.cxx constructor), so only the OR reflects this section's own state.
-    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+        else:
+            yield from iter_portions(inner)
 
 
 def visible_portions(
@@ -711,7 +714,7 @@ def visible_portions(
         state.in_delete = False
         return
     seen = 0
-    for portion, portion_type in _flat_portions(portion_enum):
+    for portion, portion_type in iter_portions(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
             # The end marker was not read, and an open state would hide the rest of the document.
@@ -863,11 +866,7 @@ class TrackedDeletions:
         )
 
     def strikes(self, text_range: Any) -> bool:
-        """True when pending deletions, one or several together, leave nothing visible of *text_range*.
-
-        Judged by portion-readable text: a hit of struck text plus only a live ``MetadataField``
-        reads ``""`` and is treated as struck.
-        """
+        """True when pending deletions, one or several together, leave nothing visible of *text_range*."""
         return self.overlaps(text_range) and not self.visible_text(text_range)
 
     def keeps_frame(self, portion: Any) -> bool:
@@ -1072,19 +1071,12 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     """Visible text of *para*, or None when a tracked deletion strikes all of it.
 
-    Portions cannot read text inside a ``MetadataField`` (a ``TextField`` portion
-    whose ``getString()`` is empty), so the raw ``para.getString()`` read is used
-    when no deletion touches the paragraph. Blank visible text alone does not mean
-    struck; it is struck when it starts inside a deletion, or has raw text and a
-    Delete marker.
+    Blank visible text alone does not mean struck; it is struck when it starts inside a
+    deletion, or has raw text and a Delete marker. An unenumerable paragraph reads ``""``.
     """
     state = DeletionState(starts_deleted)
-    text = get_string_without_tracked_deletions(para, state)
-    if not (starts_deleted or state.saw_delete):
-        # No marker seen, so raw text is the visible text, except for a deletion
-        # wholly inside a metadata field.
-        return normalize_linebreaks(para.getString())
-    if not text.strip() and (starts_deleted or para.getString().strip()):
+    text = normalize_linebreaks(get_string_without_tracked_deletions(para, state))
+    if not text.strip() and (starts_deleted or (state.saw_delete and para.getString().strip())):
         return None
     return text
 

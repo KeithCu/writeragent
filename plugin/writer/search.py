@@ -464,21 +464,23 @@ def find_text_ranges(
             return []
     sd = _search_descriptor(model, search, False, case_sensitive)
     body = model.getText()
-    hits = islice(
-        (h for h in _iter_descriptor_hits(model, sd, TrackedDeletions(model)) if uno_same(h.getText(), body)),
-        limit,
-    )
-    positions = [p for h in hits for p in (h.getStart(), h.getEnd())]
-    if not positions:
-        return []
-    text, offsets, _ = read_visible_body(model, positions)
-    matches = []
-    for start, end in zip(offsets[::2], offsets[1::2], strict=True):
-        if start is None or end is None:
-            raise ToolExecutionError("Could not measure the offsets of a match.")
-        if start < end:  # a match inside a metadata field has no visible characters to measure
-            matches.append({"start": start, "end": end, "text": text[start:end]})
-    return matches
+    hits = (h for h in _iter_descriptor_hits(model, sd, TrackedDeletions(model)) if uno_same(h.getText(), body))
+    matches: list[dict[str, Any]] = []
+    taken = 0
+    while limit is None or len(matches) < limit:
+        # Each batch at least doubles what was read, so many unmeasurable hits cost few body walks.
+        batch = list(islice(hits, None if limit is None else max(limit - len(matches), taken)))
+        if not batch:
+            break
+        taken += len(batch)
+        positions = [p for h in batch for p in (h.getStart(), h.getEnd())]
+        text, offsets, _ = read_visible_body(model, positions)
+        for start, end in zip(offsets[::2], offsets[1::2], strict=True):
+            if start is None or end is None:
+                raise ToolExecutionError("Could not measure the offsets of a match.")
+            if start < end:  # a match inside an Input field is part of one opaque field portion
+                matches.append({"start": start, "end": end, "text": text[start:end]})
+    return matches[:limit]
 
 
 def escape_for_lo_regex(s: str, *, fold: bool) -> str:

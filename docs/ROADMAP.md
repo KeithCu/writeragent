@@ -1,10 +1,11 @@
 # WriterAgent Roadmap
 
-**Last Updated**: 2026-11-07
+**Last Updated**: 2026-11-24
 **Status**: Active Development
 
 Backlog of *still-open* work. Day-to-day orientation: [`AGENTS.md`](../AGENTS.md).
 Entry points and topic hubs: [`repo-map.md`](repo-map.md). Product map: [`features.md`](features.md).
+Deferred follow-on after 1.0: [`POST-1.0.md`](../POST-1.0.md).
 Do not duplicate those catalogs here.
 
 ## Immediate focus

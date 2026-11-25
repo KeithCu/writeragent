@@ -433,7 +433,6 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr.current_office().options, "filters", [])
-    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
@@ -447,7 +446,8 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path) -> None:
         "plugin.tests.test_r48_skip_native_uno",
     )
     try:
-        summary = json.loads(tr.run_all_tests(object()))
+        ctx = types.SimpleNamespace(getServiceManager=lambda: object())
+        summary = json.loads(tr.run_all_tests(ctx))
     finally:
         config_mod.get_config, config_mod.save, config_mod.get_config_dict = saved
         for key in leaked:
@@ -542,7 +542,6 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr.current_office().options, "filters", ["no_such_test_zzz"])
     monkeypatch.setattr(tr.current_office().options, "soak_repeat", 1)
-    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
@@ -561,7 +560,6 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     plugin_dir.mkdir()
 
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
@@ -681,3 +679,105 @@ def test_rebootstrap_follows_the_new_office_profile(monkeypatch, tmp_path: Path)
     assert config_mod.parse_config_json_text(cfg_b.read_text(encoding="utf-8")) == {
         "scripting.python_session_mode": "shared"
     }
+
+
+def _run_two_uno_suites(monkeypatch, tmp_path, suite_a_body: str, ctx: Any) -> dict[str, Any]:
+    plugin_dir = tmp_path / "plugin"
+    tests_dir = tmp_path / "tests"
+    plugin_dir.mkdir()
+    tests_dir.mkdir()
+    (tests_dir / "test_a_uno.py").write_text(suite_a_body, encoding="utf-8")
+    (tests_dir / "test_b_uno.py").write_text(
+        "from plugin.testing_runner import native_test\n"
+        "@native_test\n"
+        "def test_never_runs(ctx):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    office = tr.current_office()
+    office.reset_death_signals(clear_proc=True)
+    office.consume_recycle_request()
+    monkeypatch.setattr(office, "urp_bridge_dead", False)
+    monkeypatch.setattr(office.options, "use_user_profile", False)
+    monkeypatch.setattr(office.options, "filters", [])
+    monkeypatch.setattr(office.options, "soak_repeat", 1)
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr(tr, "_rebootstrap_ctx", lambda _ctx: None)
+    monkeypatch.setattr(tr, "_open_keeper", lambda _ctx: None)
+
+    saved = (config_mod.get_config, config_mod.save, config_mod.get_config_dict)
+    try:
+        return json.loads(tr.run_all_tests(ctx))
+    finally:
+        config_mod.get_config, config_mod.save, config_mod.get_config_dict = saved
+        office.reset_death_signals(clear_proc=True)
+        office.consume_recycle_request()
+        sys.modules.pop("plugin.tests.test_a_uno", None)
+        sys.modules.pop("plugin.tests.test_b_uno", None)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        RuntimeError("Binary URP bridge already disposed"),
+        RuntimeError("null component context service manager"),
+    ],
+)
+def test_dead_office_between_suites_fails_the_run(monkeypatch, tmp_path, exc: Exception) -> None:
+    """An office that dies between suites stops the run and marks it failed."""
+    bootstrap_calls: list[int] = []
+    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: bootstrap_calls.append(1))
+
+    class _Ctx:
+        dead = False
+
+        def getServiceManager(self):
+            if self.dead:
+                raise exc
+            return object()
+
+    suite_a = (
+        "from plugin.testing_runner import native_test, teardown\n"
+        "@native_test\n"
+        "def test_ok(ctx):\n"
+        "    pass\n"
+        "@teardown\n"
+        "def _td(ctx):\n"
+        "    ctx.dead = True\n"
+    )
+    summary = _run_two_uno_suites(monkeypatch, tmp_path, suite_a, _Ctx())
+
+    assert summary.get("total_passed") == 1
+    assert summary.get("total_failed") == 1
+    names = [entry["name"] for entry in summary["suites"]]
+    assert "test_a_uno" in names
+    assert "test_b_uno" not in names
+    assert "office" in names
+    assert bootstrap_calls == []
+
+
+def test_failed_recycle_fails_the_run(monkeypatch, tmp_path) -> None:
+    """A failed office recycle between suites must fail the run."""
+    monkeypatch.setattr(tr, "_terminate_bootstrap_soffice", lambda: None)
+    monkeypatch.setattr(
+        tr,
+        "_bootstrap_office",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("no office")),
+    )
+
+    suite_a = (
+        "from plugin.testing_runner import current_office, native_test\n"
+        "@native_test\n"
+        "def test_ok(ctx):\n"
+        "    current_office().request_recycle()\n"
+    )
+    ctx = types.SimpleNamespace(getServiceManager=lambda: object())
+    summary = _run_two_uno_suites(monkeypatch, tmp_path, suite_a, ctx)
+
+    assert summary.get("total_passed") == 1
+    assert summary.get("total_failed") == 1
+    names = [entry["name"] for entry in summary["suites"]]
+    assert "test_a_uno" in names
+    assert "test_b_uno" not in names
+    assert "office" in names

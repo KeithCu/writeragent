@@ -60,7 +60,8 @@ removing every row), so the table would vanish unreviewable. It places the caret
 cell, confirms via the view cursor that it landed in the target table (refusing with
 `TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an
-`UndoStepOrRollback` guard. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
+`UndoStepOrRollback` guard. If LibreOffice records nothing — pending insertion, protected section —
+it also refuses with `TABLE_DELETE_NOT_TRACKABLE`. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
 first cell that changes, and `inline_review` resolves them one cell at a time in a single compound
 undo step. Writer anchors each **empty** row with a U+200D but records no redline for it, so the
 tool deletes those anchors with tracking on — without that, Accept All left the empty rows behind as
@@ -159,7 +160,7 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
-  section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
+  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
   and footers and the tables and frames in them, and places new content outside a leading section
   or TOC (while recording, a paragraph is added untracked before a leading section and after a
   trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`

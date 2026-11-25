@@ -22,7 +22,11 @@ from typing import Any
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
-from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
+from .html_export import (
+    PAGE_FIELD_SERVICES,
+    PAGE_NUMBER_NUMBERING_TYPE_NAMES,
+    PAGE_NUMBER_NUMBERING_TYPE_VALS,
+)
 
 log = logging.getLogger("writeragent.writer")
 
@@ -60,8 +64,7 @@ _FIELD_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 _FIELD_TITLE_TO_SERVICE = {
-    "page-number": "com.sun.star.text.textfield.PageNumber",
-    "page-count": "com.sun.star.text.textfield.PageCount",
+    **PAGE_FIELD_SERVICES,
     "time": "com.sun.star.text.textfield.DateTime",
     "date": "com.sun.star.text.textfield.DateTime",
     "chapter": "com.sun.star.text.textfield.Chapter",
@@ -125,6 +128,7 @@ def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
                     props.append(f"offset={off_val}")
             except ValueError:
                 pass
+    if title in PAGE_FIELD_SERVICES:
         num_raw = attrs.get("data-numbering-type")
         if num_raw is not None:
             nt_raw = num_raw.strip().upper()
@@ -133,7 +137,7 @@ def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
             elif nt_raw.isdigit() and int(nt_raw) in PAGE_NUMBER_NUMBERING_TYPE_NAMES:
                 nt_name = PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
             else:
-                log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_raw)
+                log.warning("Unknown field NumberingType attribute %r, defaulting to ARABIC", num_raw)
                 nt_name = "ARABIC"
             if nt_name != "ARABIC":
                 props.append(f"numbering_type={nt_name}")
@@ -184,14 +188,20 @@ def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
     return "".join(out_chunks)
 
 
-def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
-    import uno
-
-    return [
-        ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
-        ("Offset", int(props.get("offset", "0"))),
+def _page_field_properties(title: str, props: dict[str, str]) -> list[tuple[str, Any]]:
+    # LibreOffice creates both fields with NumberingType 0 (CHARS_UPPER_LETTER), which
+    # shows three pages as "C", so NumberingType is always set.
+    pairs: list[tuple[str, Any]] = [
         ("NumberingType", PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
     ]
+    if title == "page-number":
+        import uno
+
+        pairs += [
+            ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
+            ("Offset", int(props.get("offset", "0"))),
+        ]
+    return pairs
 
 
 def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> None:
@@ -206,8 +216,8 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         raise ToolExecutionError("Could not restore the %s field." % title) from e
     props = props or {}
     pairs = (
-        _page_number_properties(props)
-        if title == "page-number"
+        _page_field_properties(title, props)
+        if title in PAGE_FIELD_SERVICES
         else ([_FIELD_FLAG_PROPERTIES[title]] if title in _FIELD_FLAG_PROPERTIES else [])
     )
     for name, value in pairs:

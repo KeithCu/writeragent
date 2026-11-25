@@ -76,13 +76,15 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py`) | None |
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`html_import.py`) | None |
+| `MARKUP_IN_CONTROL` | error | Formatted HTML import inside a content control or input field (`html_import.py`) | None |
+| `HTML_IMPORT_FAILED` | error | StarWriter `insertDocumentFromURL` failed (`html_import.py`) | None |
 | `SELECTION_SPANS_TABLE` | error | Selection starts in a table and ends outside it (`html_import.py`) | None |
 | `SELECTION_NOT_TEXT` | error | Selection is an object (image, frame, shape, OLE, or cell block) rather than text, or the view has no caret (Print Preview) (`html_import.py`) | None |
-| `HIDDEN_SECTION` | error | `full_document` on a document with a hidden section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
+| `HIDDEN_SECTION` | error | `full_document` on a document with a hidden or conditional (`IsVisible=False`) section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
 | `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
-| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
+| `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py`. `commit_or_rollback_mutation` and `styles.py` keep their own code when `UndoOutcome.nothing_landed` is False, but say the change could not be rolled back. | None |
 | `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; `page.py` and `styles.py` reword the message and keep the code, `commit_or_rollback_mutation` returns it as-is | None |
 | `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` after `coerce_call_args`, only for missing required, unknown, or values coercion cannot settle before `execute` (applies on sub-agent paths too). Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
 | `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_content` parameter conflicts/empty strings; Calc argument refusals, including `range_args` and the sheet-filter criteria | None |

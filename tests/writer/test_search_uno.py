@@ -660,3 +660,32 @@ def test_search_reports_metadata_field_hit_uno(ctx, doc):
     assert res["status"] == "ok", res
     assert res["count"] == 1
     assert res["matches"][0]["text"] == "inner"
+
+
+@native_test
+@with_native_doc("writer")
+def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
+    from plugin.writer.search import find_text_ranges
+
+    text = doc.getText()
+    text.setString("xx CTRL yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    meta = doc.createInstance("com.sun.star.text.textfield.MetadataField")
+    text.insertTextContent(cur, meta, True)
+
+    assert find_text_ranges(doc, "CTRL") == [{"start": 3, "end": 7, "text": "CTRL"}]
+
+    # Input field "yy" before body "yy": limit=1 skips the unmeasurable field hit and returns the body row.
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "aa ", False)
+    inp = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp.setPropertyValue("Content", "yy")
+    text.insertTextContent(cur, inp, False)
+    text.insertString(cur, " yy", False)
+
+    rows = find_text_ranges(doc, "yy", limit=1)
+    assert rows == [{"start": 6, "end": 8, "text": "yy"}]

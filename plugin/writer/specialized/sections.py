@@ -28,7 +28,6 @@ from plugin.doc.text_helpers import (
     TrackedDeletions,
     get_string_without_tracked_deletions,
     iter_elements,
-    section_own_shown,
 )
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
@@ -140,14 +139,22 @@ def _section_summary(name: str, section: Any) -> dict[str, Any]:
     }
 
 
+def _own_shown(section: Any) -> bool:
+    """True when *section* itself is shown (ignoring ancestor section visibility)."""
+    visible = bool(section.getPropertyValue("IsVisible"))
+    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
+    # condition (section.cxx constructor), so only the OR reflects this section's own state.
+    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+
+
 def _visibility_fields(section: Any) -> dict[str, Any]:
     visible = bool(section.getPropertyValue("IsVisible"))
     # SwSection::CalcHiddenFlag (sw/source/core/docnode/section.cxx) hides a section when it
     # or any ancestor section is hidden.
-    shown = section_own_shown(section)
+    shown = _own_shown(section)
     parent = section.getParentSection()
     while shown and parent is not None:
-        shown = section_own_shown(parent)
+        shown = _own_shown(parent)
         parent = parent.getParentSection()
     return {
         "is_visible": visible,
