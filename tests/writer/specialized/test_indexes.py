@@ -1511,15 +1511,16 @@ def test_indexes_add_mark_flags_tracked_only_when_recorded(recording: bool, kind
 
 
 @pytest.mark.parametrize(
-    ("target", "recording", "expect_pending"),
+    ("target", "recording", "collapsed", "expect_pending"),
     [
-        ("search", True, True),
-        ("search", False, False),
-        ("beginning", True, False),
+        ("search", True, False, True),
+        ("search", True, True, False),
+        ("search", False, False, False),
+        ("beginning", True, True, False),
     ],
 )
 def test_indexes_create_pending_review_only_for_recorded_search_strike(
-    target: str, recording: bool, expect_pending: bool
+    target: str, recording: bool, collapsed: bool, expect_pending: bool
 ):
     tool = IndexesCreate()
     ctx = MagicMock()
@@ -1529,6 +1530,7 @@ def test_indexes_create_pending_review_only_for_recorded_search_strike(
     doc.getRedlines.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     doc.createInstance.return_value = MagicMock()
     cursor = MagicMock()
+    cursor.isCollapsed.return_value = collapsed
     kwargs = {"kind": "toc", "target": target, "create_from_outline": True}
     if target == "search":
         kwargs["old_content"] = "MATCH"

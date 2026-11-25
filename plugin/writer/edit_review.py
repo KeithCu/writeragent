@@ -192,7 +192,7 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
     """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
     per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
     review-modes topic, or the sidebar prompt) is stale — that text is static while the user
-    can toggle the mode mid-session. Only annotates the non-wait path:
+    can toggle the mode mid-session. Only annotates results that did not block for review:
     with recording on but no blocking wait, the edit landed as a tracked change the agent must
     not resolve and whose accept/reject outcome it will not be told. ``apply_content`` calls
     this only when ``EditReviewSession.left_tracked_changes()`` is true, so a no-op edit is
@@ -656,7 +656,9 @@ class EditReviewSession:
         A registered change counts. So does an untagged redline the edits produced,
         such as a Delete stacked on another author's pending insertion (which
         ``new_redlines_since`` leaves untagged) or a change whose tagging failed.
-        An edit that changed nothing leaves no new redline key. Main thread only.
+        An edit that changed nothing leaves no new redline key. Text that LibreOffice merges
+        into an earlier pending agent insertion also leaves no new key, and the call that
+        made that insertion already reported it. Main thread only.
         """
         if self.changes:
             return True

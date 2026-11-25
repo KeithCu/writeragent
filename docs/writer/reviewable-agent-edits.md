@@ -217,7 +217,9 @@ and the tool message asks the agent to have the user finish reviewing before con
 Outside a blocking wait, `apply_content` adds `review_mode`, `pending_review: true`, and the
 do-not-resolve note only when the call left a tracked change (`EditReviewSession.left_tracked_changes`).
 A change counts even when it is untagged — for example, a deletion stacked on the user's pending
-insertion. A replacement equal to the match gets no review fields. In Wait mode, a call that
+insertion. A replacement equal to the match gets no review fields. Text that LibreOffice merges
+into an earlier pending agent insertion also leaves no new key, and the call that made that
+insertion already reported it. In Wait mode, a call that
 registered no change returns at once and carries the same fields only if it left an untagged redline.
 
 ## MCP vs sidebar

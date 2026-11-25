@@ -1385,7 +1385,8 @@ class IndexesCreate(ToolWriterIndexBase):
                 cursor.getText().insertTextContent(cursor, index, False)
                 if strike:
                     cursor.setString("")
-                replaced_pending = strike
+                # Deleting our own pending insertion removes it, so the cursor collapses.
+                replaced_pending = strike and not cursor.isCollapsed()
             else:
                 if strike:
                     cursor.setString("")
@@ -1404,21 +1405,14 @@ class IndexesCreate(ToolWriterIndexBase):
         }
         if replaced_pending:
             res["pending_review"] = True
-            flag_untracked(
-                res,
-                doc,
-                _(
-                    "The index itself is not a tracked change: rejecting changes does not remove it. "
-                    "The text it replaced is a tracked deletion pending the user's review, so that text "
-                    "is still in the document until the user accepts it. Do not accept or reject it yourself."
-                ),
+            warning = _(
+                "The index itself is not a tracked change: rejecting changes does not remove it. "
+                "The text it replaced is a tracked deletion pending the user's review, so that text "
+                "is still in the document until the user accepts it. Do not accept or reject it yourself."
             )
         else:
-            flag_untracked(
-                res,
-                doc,
-                _("The index itself is not a tracked change: rejecting changes does not remove it."),
-            )
+            warning = _("The index itself is not a tracked change: rejecting changes does not remove it.")
+        flag_untracked(res, doc, warning)
         return res
 
 

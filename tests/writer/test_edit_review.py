@@ -1459,3 +1459,20 @@ def test_left_tracked_changes_false_without_record_mutation():
     assert session.left_tracked_changes() is False
 
 
+def test_left_tracked_changes_keeps_first_snapshot_across_mutations():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    before = {("a", "Insert", "Unknown Author", None, "")}
+    after = before | {("a", "Delete", "WriterAgent (deletions)", None, "")}
+    with (
+        patch.object(session, "_redline_idents", side_effect=[(before, True), (after, True), (after, True)]),
+        patch("plugin.writer.edit_review._review_scan.new_redlines_since", return_value=([], True)),
+    ):
+        session.record_mutation(lambda: None)
+        session.record_mutation(lambda: None)
+        assert session.changes == []
+        assert session.left_tracked_changes() is True
+
+

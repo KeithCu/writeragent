@@ -1323,3 +1323,32 @@ def test_index_create_after_pending_agent_mark_is_refused_uno(ctx, doc):
     created = IndexesCreate().execute(tctx, kind="alphabetical", target="end")
     assert created["status"] == "ok", created
     assert doc.getDocumentIndexes().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(ctx, doc):
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    text.setString("body text")
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+        ins_res = ApplyDocumentContent().execute(tctx, target="beginning", content="TOC_HERE ")
+        assert ins_res["status"] == "ok", ins_res
+        res = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="TOC_HERE"
+        )
+        assert res["status"] == "ok", res
+        assert "pending_review" not in res, res
+        assert res["tracked"] is False, res
+        redlines = doc.getRedlines()
+        types = [redlines.getByIndex(i).RedlineType for i in range(redlines.getCount())]
+        assert "Delete" not in types, types
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
