@@ -17,11 +17,13 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .calc_functions_t_z import vlookup
 from .calc_functions_util import (
     DIV0_NAN,
     ILLEGAL_ARGUMENT_NAN,
     NESTED_ARRAY_NAN,
     RegressionError,
+    VALUE_NAN,
     approx_floor,
     as_nonzero,
     coupon_schedule,
@@ -37,6 +39,7 @@ from .calc_functions_util import (
     match_criteria,
     npf_result,
     propagate_errors,
+    py_str,
     round_half_up,
     round_sig,
     scipy_stats,
@@ -104,6 +107,7 @@ __all__ = [
     "gestep",
     "growth",
     "harmean",
+    "hlookup",
     "hypgeomdist",
 ]
 
@@ -256,7 +260,8 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
         row = db_arr[r_idx]
         if not any(
             all(
-                is_criteria_blank(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
+                # lcl_createExcelQuery (doubleref.cxx): an error criterion cell has no text, so it restricts nothing.
+                is_criteria_blank(c) or is_calc_error(c) or match_criteria(row[crit_cols[j]], criterion_text(c))
                 for j, c in enumerate(crit_arr[i])
             )
             for i in range(1, crit_arr.shape[0])
@@ -398,6 +403,7 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
     return float(dep)
 
 
+@propagate_errors
 def decimal(text: Any, radix: Any) -> float:
     # Every character must be a digit for this radix. Python int() accepts
     # 0x, signs, and underscores; Excel and Calc DECIMAL do not.
@@ -410,7 +416,7 @@ def decimal(text: Any, radix: Any) -> float:
     if isinstance(text, float) and math.isfinite(text) and text.is_integer():
         s = str(int(text))
     else:
-        s = str(text).strip()
+        s = py_str(text).strip()
     if not s:
         return float("nan")
     valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
@@ -419,6 +425,7 @@ def decimal(text: Any, radix: Any) -> float:
     return float(int(s, r))
 
 
+@propagate_errors
 def delta(n1: Any, n2: Any = 0) -> float:
     return 1.0 if float(n1) == float(n2) else 0.0
 
@@ -628,8 +635,13 @@ def effect(nominal_rate: Any, npery: Any) -> float:
     return finite_or_nan(res)
 
 
-def encodeurl(text: Any) -> str:
-    return urllib.parse.quote(str(text), safe="")
+@propagate_errors
+def encodeurl(text: Any) -> str | float:
+    # ScEncodeURL (interpr7.cxx) pushes NoValue (#VALUE!) for an empty string.
+    s = py_str(text)
+    if not s:
+        return VALUE_NAN
+    return urllib.parse.quote(s, safe="")
 
 
 @propagate_errors
@@ -638,6 +650,7 @@ def eomonth(start_date: Any, months: Any) -> float:
     return _month_shift_serial(start_date, months, end_of_month=True)
 
 
+@propagate_errors
 def erf(lower: Any, upper: Any | None = None) -> float:
     lo = float(lower)
     if upper is None:
@@ -645,6 +658,7 @@ def erf(lower: Any, upper: Any | None = None) -> float:
     return math.erf(float(upper)) - math.erf(lo)
 
 
+@propagate_errors
 def erfc(x: Any) -> float:
     return float(math.erfc(float(x)))
 
@@ -708,6 +722,7 @@ def even(n: Any) -> float:
     return float(math.floor(v / 2.0) * 2)
 
 
+@propagate_errors
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     st = scipy_stats()
     if st is None:
@@ -728,6 +743,7 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     return float(st.expon.pdf(x_val, scale=1.0 / lam))
 
 
+@propagate_errors
 def fact(n: Any) -> float | str:
     # ScFact / Fakultaet (interpr3.cxx): < 0 is Err:502 before flooring, then approxFloor,
     # and > 170 pushes NoValue (#VALUE!).
@@ -740,6 +756,7 @@ def fact(n: Any) -> float | str:
     return float(math.factorial(k))
 
 
+@propagate_errors
 def factdouble(n: Any) -> float:
     # n < 0 or n > 300 is #NUM!. LibreOffice ScInterpreter caps FACTDOUBLE at 300;
     # a larger n walks down to 0 by twos.
@@ -752,6 +769,7 @@ def factdouble(n: Any) -> float:
     return float(res)
 
 
+@propagate_errors
 def fdist(x: Any, r1: Any, r2: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -814,6 +832,7 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
     return out.tolist()
 
 
+@propagate_errors
 def finv(p: Any, r1: Any, r2: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -830,6 +849,7 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
     return finite_or_nan(result)
 
 
+@propagate_errors
 def fisher(x: Any) -> float:
     # |x|>=1 is #NUM!. math.atanh raises ValueError (#VALUE!) at 1 and beyond.
     x_val = float(x)
@@ -838,6 +858,7 @@ def fisher(x: Any) -> float:
     return float(math.atanh(x_val))
 
 
+@propagate_errors
 def fisherinv(y: Any) -> float:
     return float(math.tanh(float(y)))
 
@@ -907,6 +928,7 @@ def fvschedule(principal: Any, schedule: Any) -> float:
     return p
 
 
+@propagate_errors
 def gamma(x: Any) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (gamma(200)) is #NUM! on that path.
     x_val = float(x)
@@ -915,6 +937,7 @@ def gamma(x: Any) -> float:
     return float(math.gamma(x_val))
 
 
+@propagate_errors
 def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     st = scipy_stats()
     if st is None:
@@ -938,6 +961,7 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     return float(st.gamma.pdf(x_val, a, scale=b))
 
 
+@propagate_errors
 def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -954,6 +978,7 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
     return finite_or_nan(result)
 
 
+@propagate_errors
 def gammaln(x: Any) -> float:
     # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (lgamma(1e308)) is #NUM! on that path.
     # x <= 0 is #NUM!. math.lgamma of a negative non-integer is finite.
@@ -963,6 +988,7 @@ def gammaln(x: Any) -> float:
     return float(math.lgamma(x_val))
 
 
+@propagate_errors
 def gauss(x: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -980,21 +1006,16 @@ def geomean(*args: Any) -> float:
     return float(np.exp(np.mean(np.log(arr))))
 
 
+@propagate_errors
 def gestep(number: Any, step: Any = 0) -> float:
     return 1.0 if float(number) >= float(step) else 0.0
 
 
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
-        y = np.asarray(known_y, dtype=float)
-        # A blank or non-finite y is #NUM! here; y <= 0 is Err:502 (CheckMatrix with _bLOG, interpr5.cxx).
-        if not np.all(np.isfinite(y)):
-            return "#NUM!"
-        if np.any(y <= 0):
-            return "Err:502"
-        return np.exp(trend_fit(np.log(y), known_x, new_x, const)).tolist()
+        return trend_fit(known_y, known_x, new_x, const, log=True)
     except RegressionError as exc:
-        return str(exc)
+        return exc.args[0]
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -1008,6 +1029,11 @@ def harmean(*args: Any) -> float:
     return float(len(arr) / np.sum(1.0 / arr))
 
 
+def hlookup(lookup_val: Any, table: Any, row_index: Any, is_sorted: Any = True) -> Any:
+    return vlookup(lookup_val, np.atleast_2d(np.asarray(table, dtype=object)).T, row_index, is_sorted)
+
+
+@propagate_errors
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
     st = scipy_stats()
     if st is None:

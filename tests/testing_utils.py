@@ -36,9 +36,7 @@ _register_testing_utils_aliases()
 
 from . import doc_stubs as _doc_stubs  # noqa: E402
 
-# Explicit re-exports: ruff F401 drops unused `from .doc_stubs import X`,
-# and ty/basedpyright need NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS assigned here.
-NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = _doc_stubs.NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
+# Explicit re-exports: ruff F401 drops unused "from .doc_stubs import X".
 ElementStub = _doc_stubs.ElementStub
 WriterDocStub = _doc_stubs.WriterDocStub
 MockDocument = _doc_stubs.MockDocument
@@ -400,7 +398,7 @@ def _log_close_doc_failure(exc: BaseException) -> None:
         format_lifecycle_breadcrumb,
     )
 
-    if not (_is_uno_bridge_disposed(exc) or type(exc).__name__ == "DisposedException"):
+    if not _is_uno_bridge_disposed(exc):
         return
     _progress(
         "LIFECYCLE close_doc dispose pids=%s %s"
@@ -428,7 +426,7 @@ def _log_office_health_after_close(ctx, doc_type: str) -> None:
         desktop = get_desktop(ctx)
         desktop.getComponents()
     except Exception as exc:
-        if _is_uno_bridge_disposed(exc) or type(exc).__name__ == "DisposedException":
+        if _is_uno_bridge_disposed(exc):
             _progress(
                 "LIFECYCLE office dead after close doc_type=%s pids=%s %s"
                 % (doc_type, _soffice_pids(), format_lifecycle_breadcrumb())

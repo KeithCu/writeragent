@@ -152,7 +152,8 @@ When multiple representations exist in one fragment, prefer the most structured 
 ### Inline vs display math
 
 - **Inline:** formula object at cursor within the paragraph.
-- **Display:** paragraph breaks around the object so it stands on its own line, in a centered paragraph.
+- **Display:** paragraph breaks around the object so it stands on its own line, in a centered paragraph. When display math shares a heading paragraph with other text or formulas, its formula paragraph becomes `Text body` so no empty-looking heading enters the outline; a heading holding only one formula keeps its style.
+- **Headers and footers:** `page_set_header_footer_text` writes keep TeX as literal text with its backslashes (escapes expand only outside TeX and MathML).
 
 ### Preferred conversion target
 
@@ -266,7 +267,7 @@ Support the most structured and realistic first wave of HTML math inputs.
 These are **not** Phase 2 TeX work unless noted:
 
 - [ ] Full **minimum test matrix** row coverage (e.g. malformed MathML fixture, KaTeX-shaped HTML file fixture, table-with-math) beyond what `test_writer_mathml_import` already hits.
-- [x] **Structured** tool reporting on `apply_content` return JSON: `math_objects` reports attempted conversions on ok results; any conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted in the document. General `warnings` stays the `data-lo-para` list.
+- [x] **Structured** tool reporting on `apply_content` return JSON: `math_objects` reports attempted conversions on ok results; any conversion or placement failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, with marker text inserted for failed conversions and no marker text when a formula's position was lost. General `warnings` stays the `data-lo-para` list.
 - [ ] **KaTeX/MathJax DOM** detection without relying on `<math>` (only needed if we must handle math with no MathML).
 - [ ] **Reviewer-facing** example document set in-repo (optional `docs/` or fixtures zip).
 
@@ -557,10 +558,10 @@ The implementation could become an open-ended parser project.
 
 | # | Question | Resolution (as of 2026-04) |
 |---|-----------|----------------------------|
-| 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document; not silent. |
+| 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document for failed conversions (a formula whose position was lost leaves no marker text); not silent. |
 | 2 | Ship MathML-only before TeX? | **Yes** historically; **Phase 2 TeX path is now shipped** (MathML still preferred in prompts). |
 | 3 | Auto-repair malformed MathML? | **No** — unclosed `<math>` tails fall back to HTML segment behavior; no repair pass. |
-| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string and debug logs remain. Successful `apply_content` returns include `math_objects` for attempted conversions; any conversion failure reports a `MATH_IMPORT_FAILED` entry in `warnings` with `math_objects`, while preserving the edit's ok status and metadata. General `warnings` stays the `data-lo-para` list. |
+| 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert + tool JSON** — fallback marker string (for failed conversions) and debug logs remain. Successful `apply_content` returns include `math_objects` for attempted conversions; any conversion or placement failure reports a `MATH_IMPORT_FAILED` entry in `warnings` with `math_objects`, while preserving the edit's ok status and metadata. General `warnings` stays the `data-lo-para` list. |
 
 ## Task sequence (for agents)
 

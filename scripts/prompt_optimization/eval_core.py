@@ -372,7 +372,6 @@ def run_eval_on_examples_llm(
     endpoint: str,
     api_key: str,
     model: str,
-    instruction: str | None = None,
     backend: str = "string",
     max_tool_rounds: int = 25,
     verbose: bool = False,
@@ -446,7 +445,7 @@ def run_eval_on_examples_llm(
         if student != "scripted" and gm and not gold:
             if not quiet:
                 print(f"  Generating gold standard with {gm}...")
-            inst_g = instruction or get_eval_system_prompt(task_id)
+            inst_g = get_eval_system_prompt(task_id)
             if bust_cache:
                 inst_g = f"{inst_g}\n\n[Eval gold: {uuid.uuid4().hex[:8]}]"
             gold, _ug, gerr, _gtrace = run_llm_chat_eval(
@@ -472,7 +471,7 @@ def run_eval_on_examples_llm(
             if not quiet:
                 print(f"  Gold generated ({len(gold)} chars).")
 
-        inst = instruction or get_eval_system_prompt(task_id)
+        inst = get_eval_system_prompt(task_id)
         if bust_cache:
             inst = f"{inst}\n\n[Eval: {uuid.uuid4().hex[:8]}]"
 

@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Iterable, cast
 
 from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
+from plugin.contrib.smolagents.agents import ToolOutput
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
@@ -141,7 +141,7 @@ class PptMasterFinishedTool(Tool):
     skip_forward_signature_validation: bool = True
 
     def forward(self, message: str) -> dict[str, Any]:
-        return {"status": "finished", "result": message}
+        return {"status": "finished", "result": message or "PPT-Master complete."}
 
 
 def _build_tools() -> list[Tool]:
@@ -190,44 +190,6 @@ def _build_instructions(*, topic: str | None, ctx_block: str) -> str:
     if topic and topic.strip():
         parts.append(f"\n[PPT-MASTER TOPIC]\n{topic.strip()}\n")
     return "\n\n".join(parts)
-
-
-def _parse_finished(observations: str) -> dict[str, Any] | None:
-    if "'status': 'finished'" not in observations and '"status": "finished"' not in observations:
-        return None
-    # Parse the handoff with ast.literal_eval. str(dict) is a Python literal;
-    # a regex that stops at the first apostrophe cuts "it's done" to "it\\".
-    parsed = _finished_from_literal(observations)
-    if parsed is not None:
-        return parsed
-    match = re.search(r"'result': '([^']*)'", observations) or re.search(r'"result": "([^"]*)"', observations)
-    handoff = match.group(1) if match else None
-    return {"status": "finished", "result": handoff or "PPT-Master complete."}
-
-
-def _finished_from_literal(observations: str) -> dict[str, Any] | None:
-    import ast
-    import json
-
-    start = observations.find("{")
-    end = observations.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    blob = observations[start : end + 1]
-    value: Any
-    try:
-        value = ast.literal_eval(blob)
-    except (SyntaxError, ValueError):
-        try:
-            value = json.loads(blob)
-        except json.JSONDecodeError:
-            return None
-    if not isinstance(value, dict) or value.get("status") != "finished":
-        return None
-    handoff = value.get("result")
-    if not isinstance(handoff, str) or not handoff:
-        handoff = "PPT-Master complete."
-    return {"status": "finished", "result": handoff}
 
 
 def _is_user_stopped(exc: BaseException | None) -> bool:
@@ -287,11 +249,17 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
 
     final_ans = None
+    finished: dict[str, Any] | None = None
     run_stream = cast("Iterable[Any]", agent.run(task, stream=True))
     try:
         for step in run_stream:
             if isinstance(step, ToolCall):
                 emit_worker_event({"kind": "tool", "name": step.name, "arguments": str(step.arguments)[:500]})
+            elif isinstance(step, ToolOutput):
+                # final_answer_tool_name is reply_to_user, so smolagents does not stop on
+                # ppt_master_finished; keep its result until the turn is known to have succeeded.
+                if finished is None and step.tool_call.name == PptMasterFinishedTool.name:
+                    finished = step.output
             elif isinstance(step, ActionStep):
                 # Smol wraps a host Stop inside the step error and would take
                 # another step. Return the same payload as the pre-turn check.
@@ -302,16 +270,13 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
                     mo = step.model_output
                     parts.append(f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n")
                 if step.observations:
-                    obs_str = str(step.observations).strip()
-                    parts.append(f"Observation: {obs_str}\n")
-                    # A failed turn keeps the results of calls that ran, and those must not end the session.
-                    if step.error is None:
-                        finished = _parse_finished(obs_str)
-                        if finished is not None:
-                            emit_worker_event({"kind": "thinking", "text": "".join(parts)})
-                            return finished
+                    parts.append(f"Observation: {str(step.observations).strip()}\n")
                 parts.append("\n")
                 emit_worker_event({"kind": "thinking", "text": "".join(parts)})
+                if step.error is None and finished is not None:
+                    return finished
+                # A failed turn rejects its finish call; the model gets another step.
+                finished = None
             elif isinstance(step, FinalAnswerStep):
                 final_ans = step.output
     except Exception as exc:

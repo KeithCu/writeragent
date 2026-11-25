@@ -1223,6 +1223,44 @@ def test_stop_during_handshake_reports_the_stop(
         warm.retire()
 
 
+def test_cancel_without_kill_hook_during_hung_handshake_reports_the_cancel(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The venv worker leases with a scope that has no kill hook, so a Stop leaves
+    # the hung child running and the handshake ends as "timeout".
+    monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 0.4)
+    warm = WarmChild(
+        _spec(tmp_path, _stdio_worker(tmp_path, preamble="import time\ntime.sleep(60)")),
+        supervisor=supervisor,
+    )
+    scope = SendCancellation()
+    orig_read_ready = warm_child_mod.read_ready_frame_during_io
+    recorded_children: list[Child] = []
+    recorded_tags: list[str] = []
+
+    def _cancel_then_read(child: Child, *args: Any, **kwargs: Any) -> tuple[str, Any]:
+        recorded_children.append(child)
+        scope.cancel()
+        tag, detail = orig_read_ready(child, *args, **kwargs)
+        recorded_tags.append(tag)
+        return (tag, detail)
+
+    monkeypatch.setattr(warm_child_mod, "read_ready_frame_during_io", _cancel_then_read)
+    try:
+        with warm.lease(Deadline(10.0), cancel=scope) as leased:
+            assert isinstance(leased, dict)
+            assert leased["code"] == "CANCELLED"
+        assert recorded_tags == ["timeout"]
+        assert warm.child is None
+        assert warm._generation == 0
+        assert len(recorded_children) == 1
+        popen = recorded_children[0].managed.popen
+        assert popen is not None
+        assert popen.poll() is not None
+    finally:
+        warm.retire()
+
+
 @pytest.mark.parametrize("missing_interpreter", [False, True])
 @pytest.mark.parametrize(
     ("action", "expected_code"),

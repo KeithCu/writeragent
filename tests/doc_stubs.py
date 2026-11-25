@@ -19,47 +19,6 @@ def _register_doc_stubs_aliases() -> None:
 
 _register_doc_stubs_aliases()
 
-# `com.sun.*` sys.modules keys snapshotted by the native runner.
-_COM_SUN_STAR_MOCK_MODULE_KEYS = [
-    "com",
-    "com.sun",
-    "com.sun.star",
-    "com.sun.star.text",
-    "com.sun.star.util",
-    "com.sun.star.document",
-    "com.sun.star.frame",
-    "com.sun.star.beans",
-    "com.sun.star.awt",
-    "com.sun.star.task",
-    "com.sun.star.lang",
-    "com.sun.star.style",
-    "com.sun.star.style.BreakType",
-    "com.sun.star.ui",
-    "com.sun.star.ui.UIElementType",
-    "com.sun.star.container",
-    "com.sun.star.uno",
-    "com.sun.star.datatransfer",
-    "com.sun.star.datatransfer.clipboard",
-]
-
-# UNO and core.* sys.modules keys that plugin.testing_runner.run_all_tests
-# snapshots and restores between native suites. A suite that replaces one of
-# these at import must not leave its stub for the next suite.
-NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = (
-    "uno",
-    "unohelper",
-    "unohelper.Base",
-    *_COM_SUN_STAR_MOCK_MODULE_KEYS,
-    "core",
-    "core.logging",
-    "core.async_stream",
-    "core.config",
-    "core.api",
-    "core.document",
-    "core.document_tools",
-    "core.constants",
-)
-
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):
@@ -198,6 +157,7 @@ _CELL_EMPTY = 0
 _CELL_VALUE = 1
 _CELL_TEXT = 2
 _CELL_FORMULA = 3
+_CONTENT_FLAGS = {_CELL_VALUE: 1 | 2, _CELL_TEXT: 4, _CELL_FORMULA: 16}
 
 
 class _RangeAddress:
@@ -357,11 +317,10 @@ class CalcRangeStub:
 
     def queryContentCells(self, flags):
         addrs = []
-        if flags & 16:
-            for r in range(self._start_row, self._end_row + 1):
-                for c in range(self._start_col, self._end_col + 1):
-                    if self._sheet.getCellByPosition(c, r).getType() == _CELL_FORMULA:
-                        addrs.append(_RangeAddress(c, r, c, r))
+        for r in range(self._start_row, self._end_row + 1):
+            for c in range(self._start_col, self._end_col + 1):
+                if flags & _CONTENT_FLAGS.get(self._sheet.getCellByPosition(c, r).getType(), 0):
+                    addrs.append(_RangeAddress(c, r, c, r))
         return SimpleNamespace(getRangeAddresses=lambda: tuple(addrs))
 
     def setDataArray(self, data):

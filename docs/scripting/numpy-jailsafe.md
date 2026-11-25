@@ -53,7 +53,7 @@ Track with Collabora: [online#16010](https://github.com/CollaboraOnline/online/i
 
 - **Small C++ hooks** in coolkit + coolwsd that call out to a Python compute service (same outbound-HTTP *shape* as AI chat’s `http::Session`).
 - **All NumPy / packing / sandbox** stay in **Python** — C++ never implements [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) or Pickle5.
-- **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST (`application/json` peel today, or `multipart/form-data` when kit switches).
+- **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST a single JSON object or `multipart/form-data`.
 
 ### Excel `xl()` compatibility is handled before execution
 
@@ -114,7 +114,7 @@ flowchart LR
 |-------|----------|------|----------|
 | Kit `=PY()` stub | C++ (small) | Register formula; on recalc read ranges via existing LOKit/cell APIs into **plain nested values**; send request up; apply returned scalar/matrix to cells | `split_grid`, Pickle, NumPy, AST sandbox |
 | coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
-| Compute service | **Python** | MIME-dispatch: peel today’s single JSON object **or** multipart `meta` + raw `code` + optional `init_script` + optional `data`; forward raw `data` bytes; worker loads once and dumps kit JSON once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
+| Compute service | **Python** | MIME-dispatch: peel a single JSON object **or** multipart `meta` + raw `code` + optional `init_script` + optional `data`; forward raw `data` bytes; worker loads once and dumps kit JSON once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
 
 **Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The compute host does **not** re-pack that JSON into `split_grid`; it forwards the `data` blob and the worker's `result_json`. The kit never loads NumPy.
 
@@ -124,14 +124,14 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 
 | `Content-Type` | Body | Host does | Role |
 |----------------|------|-----------|------|
-| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid). Custom walker exists only so we do not deserialize the nested grid. | **Today’s Collabora/kit contract.** Transitional compatibility. |
+| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid). Custom walker exists only so we do not deserialize the nested grid. | What merged Collabora sends ([status](../../compute_service/README.md#what-collabora-sends)). Transitional. |
 | `multipart/form-data` (or other `multipart/*`) | Parts: `meta` (`application/json`: `id?`, `mode?`, `timeout_ms?`), `code` (raw UTF-8), optional `init_script` (raw UTF-8), optional `data` (raw JSON bytes) | Boundary-scan. `json.loads` **meta only** (64 KiB cap). Byte-cap and UTF-8-decode `code` and `init_script`. **Forward `data` bytes untouched** | **Preferred kit↔compute shape.** Control JSON, source, and the grid are separate MIME parts. |
 
-`session_id` stays on the URL (`?session_id=...`) for L7 affinity — not in the request body (`meta` or the peel object).
+`session_id` stays on the URL (`?session_id=...`) for L7 affinity and selects shared or isolated — not in the request body (`meta` or the peel object); `mode` in the body is ignored.
 
 **Why multipart:** cleaner framing (tiny control JSON vs source vs the grid blob). No custom JSON walker, and no JSON unescape of formula source on the HTTP host. Same “forward bytes, don’t re-serialize” win for the grid. That is the long-term wire between kit and this service. The MIME subset (named parts, CRLF or LF, no `base64` / `quoted-printable`) is in [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
 
-**Migration:** support both until Collabora/kit switches to multipart. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No kit date — eventually switch kit to multipart, then delete peel. Today’s C++ `buildExecuteRequestJson` still emits the single-object peel body.
+**Migration:** Both work until Collabora's multipart change (Gerrit 19188) merges; then delete the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. The merged C++ `buildExecuteRequestJson` emits the single-object body.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
@@ -140,10 +140,10 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `wsgi_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **`WSGIDualStackServer`** ([`compute_service/wsgi_server.py`](../../compute_service/wsgi_server.py)) on **`DualStackThreadPoolHTTPServer`** ([`plugin/framework/http_server.py`](../../plugin/framework/http_server.py)).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"<EXTENSION_VERSION>"}` where `version` is [`EXTENSION_VERSION`](../../plugin/version.py) (same as the WriterAgent OXT; unauthenticated for orchestrator liveness/readiness probes).
-- `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
-- `POST /v1/session/reset?session_id=...` — same Bearer auth as execute. `session_id` is **URL query only** (L7 sticky; reject if only in the JSON body). Optional body `{ "id?" }` is a correlation echo. Response `200` `{ "id?", "status": "ok" }` is **idempotent** (unknown / already-gone still `ok`). Reuses pool `reset_session` / LibrePy `reset_sandbox_session`. The supervisor drops its session map only when that worker reset returns `status: ok`; a failed reset is logged and the map stays, because the process may still hold the namespace. Intended caller: coolwsd on DocumentBroker destroy / last view leave. This lands ahead of Online shared; Online still hard-codes `isolated` and does not call reset yet. Idle TTL remains the safety net if reset is missed.
+- `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is what merged Collabora sends and is retired once it sends `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [What Collabora sends](../../compute_service/README.md#what-collabora-sends) and [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
+- `POST /v1/session/reset?session_id=...` — same Bearer auth as execute. `session_id` is **URL query only** (L7 sticky; reject if only in the JSON body). Optional body `{ "id?" }` is a correlation echo. Response `200` `{ "id?", "status": "ok" }` is **idempotent** (unknown / already-gone still `ok`). Reuses pool `reset_session` / LibrePy `reset_sandbox_session`. The supervisor drops its session map only when that worker reset returns `status: ok`; a failed reset is logged and the map stays, because the process may still hold the namespace. Intended caller: coolwsd on Reset Python Session and document close (Gerrit 21275, open). Merged Online sends no `session_id` and does not call reset. Idle TTL remains the safety net if reset is missed.
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
-- `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
+- `session_id` (URL query) selects a shared session, and executes for one id are serialized; without it a call is isolated. `mode` in the body is ignored.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import blocklist (`policy_blocked_imports`/`DANGEROUS_MODULES`), curated Docker image (pinned numpy/pandas/**Pillow**/…).
 - **`POST /v1/execute`** runs user code in a **bounded pool of formula worker subprocesses** ([`formula_pool.py`](../../compute_service/formula_pool.py); optional dedicated OCR workers when `ocr_workers > 0`). The HTTP listener stays in-process; crashes and timeouts are isolated in child processes.
@@ -283,7 +283,7 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 | F2 | Scalar NumPy smoke | manual procedure below | writeragent + local coolwsd |
 | F3 | `images[]` sheet insert | **implemented on `feature/python-compute-plot-images`**, not yet on Gerrit | Core AddIn + `sc` draw layer; design in the [plot plan](../calc/collabora-engine-plot-plan.md) |
 | F4 | Compute container hardening | done except ops (cgroup, private network) | `compute_service/Dockerfile` + run scripts |
-| F5 | Shared workbook kernel | service side done; coolwsd caller not shipped | AddIn + kit + service |
+| F5 | Shared workbook kernel | service side done; Collabora side in Gerrit 21275 (open) | AddIn + kit + service |
 | F6 | Python error detail (look-aside; cell stays `#VALUE!`) | design revised 2026-11-09, not coded | Core AddIn + `sc` per-cell store + two read points |
 | F7 | Single-cell auto-spill | **implemented on `feature/python-compute-engine-spill`**, not yet on Gerrit | Core `sc`; design in the [spill plan](../calc/collabora-engine-spill-plan.md) |
 
@@ -373,13 +373,13 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
 
 ---
 
-### F5 — Shared workbook kernel (`mode:shared` + `session_id`)
+### F5 — Shared workbook kernel (session_id)
 
 **Today:**
 
-- Service [`execute_code`](../../compute_service/formula_worker.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
-- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated. A second shared execute or reset waits at most its own clock on the pool session gate (both spend the remaining admission deadline; the reset's budget is `max_timeout_sec`) and returns `WORKER_POOL_BUSY` on a miss; the in-flight cell keeps the gate entry.
-- Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
+- Service [`_handle_request`](../../compute_service/formula_worker.py) runs in the shared namespace when `session_id` is non-empty, and `FormulaProcessPool._session_gate` serializes executes for one id.
+- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. The caller is in Gerrit 21275 (open); merged Online does not call it. A second shared execute or reset waits at most its own clock on the pool session gate (both spend the remaining admission deadline; the reset's budget is `max_timeout_sec`) and returns `WORKER_POOL_BUSY` on a miss; the in-flight cell keeps the gate entry.
+- Merged Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) **hard-codes** `"mode": "isolated"` (which the service ignores) and sends no `session_id` and no `init_script`. That emit is the **peel / single-JSON** ingress; see [What Collabora sends](../../compute_service/README.md#what-collabora-sends) and [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
 **Online design constraints:**
@@ -389,6 +389,8 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
 
 **Implementation sketch:**
 
+Superseded by Gerrit 21275 and 21287 (open); setting names and flow there win.
+
 1. **Config:** `security.python_compute.session_mode` = `isolated` \| `shared` (default isolated). Separate from macros. Matching LibrePy setting conceptually, but admin-global for Online v1 (per-doc UI later).
 2. **coolwsd `handlePythonComputeFromKit`:** after parsing JSON, if shared mode:
    - Set `mode` to `shared`.
@@ -397,7 +399,7 @@ Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feat
    - Optionally inject `init_script` once per docKey (cache flag on DocumentBroker) by reading a document property via an existing kit command if available; v1 can skip init and only share namespace across `=PY` cells.
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
-   - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body. The map is dropped on `ok`, and a missed reset is reclaimed when the worker has been idle for `idle_worker_ttl_sec`.
+   - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (endpoint landed; caller in Gerrit 21275, open). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body. The map is dropped on `ok`, and a missed reset is reclaimed when the worker has been idle for `idle_worker_ttl_sec`.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.
@@ -491,11 +493,11 @@ Remaining nits from the same reviews: the display name `PY` vs Excel semantics n
 
 **Landed in tree** as the Core ↔ service dialect (keep for contracts / F3 plots / shared kernel). **Do not merge** this into jsuno: typed `appendUnoAsJson` / `parseJsonToAny` (optional QuickJS) is a different contract. Keep Poco in coolwsd. `tools::JsonWriter` is already the shared encoder. See [Do not regress](#do-not-regress-meeks-2026-08).
 
-- **Emit:** `tools::JsonWriter` in `anyjson.cxx` — Calc ranges as `Sequence<Sequence<…>>` first, then flatten 1×N / N×1 when useful (Any **and** typed double grids).
+- **Emit:** `tools::JsonWriter` in `anyjson.cxx` — merged `anyjson.cxx` flattens 1×N / N×1 ranges to a flat list, which the service reads as one input per cell when it is the only argument. Gerrit 21281 (open) keeps every range a list of rows, so `[[1,2,3]]` is (1,3) and `[[1],[2],[3]]` is (3,1).
 - **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). It combines UTF-16 surrogate pairs, rejects unpaired surrogates/trailing junk, and rejects ragged nested arrays. Online coolwsd stays on Poco/`JsonUtil`.
 - **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
 - **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`; one-element lists of every scalar type stay 1×1 matrices. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
-- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). Request emit today is one JSON object (peel path). Service also accepts multipart; kit will switch later — [HTTP ingress](#http-ingress-peel-vs-multipart).
+- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). See [What Collabora sends](../../compute_service/README.md#what-collabora-sends) and [HTTP ingress](#http-ingress-peel-vs-multipart).
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
 ### G4 — Resource caps — **done**
@@ -595,7 +597,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | # | Phase | Scope |
 |---|---|---|
 | 0 | **MVP** | Merge experimental `=PY()` (default off); publish the first compute image. |
-| 1 | **Calc parity** | Python error detail look-aside ([F6](#f6--python-error-detail-look-aside)); auto-spill ([F7](#f7--single-cell-auto-spill)); plot insert ([F3](#f3--online-images--plot-insert)); optional shared kernel ([F5](#f5--shared-workbook-kernel-modeshared--session_id), wsd-owned `session_id`). |
+| 1 | **Calc parity** | Python error detail look-aside ([F6](#f6--python-error-detail-look-aside)); auto-spill ([F7](#f7--single-cell-auto-spill)); plot insert ([F3](#f3--online-images--plot-insert)); optional shared kernel ([F5](#f5--shared-workbook-kernel-session_id), wsd-owned `session_id`). |
 | 2 | **Authoring UX** | Browser Monaco / Run Script / diagnostics. Not pywebview in the jail. |
 | 3 | **Excel files** | Use the LibrePy OOXML rewriter; Online calls convert on open/save (or a thin filter hook). |
 | 4 | **OCR** | Expose LibrePy-style local OCR, plus a config settings UI. |
@@ -606,7 +608,7 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | Step | What | Why / done when |
 |---|---|---|
 | **0a** | Publish the compute image with a pinned NumPy; short admin doc on enabling it; CI smoke test running `=PY("1+1")` against the image. | An admin can turn it on from the doc alone, and CI proves the image answers. Done: [Collabora admin setup](../../compute_service/README.md#production--collabora-online) and the smoke step in `compute-image.yml`. |
-| **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
+| **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Gerrit 19188 (open). Early, because spill and plots want binary parts. |
 | **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
 | **1a** | Python error detail in a per-cell look-aside; the cell stays `#VALUE!` (`ISERROR` true). Online's error help and the status bar show the message for the selected cell ([F6](#f6--python-error-detail-look-aside)). | Most visible gap. After plot insert, because it reuses that interpreter hook. |
 | **1b** | Auto-spill array results into neighbouring cells; `#SPILL!`-style error when the spill would overwrite cells. | On the spill branch ([F7](#f7--single-cell-auto-spill)). |
@@ -619,9 +621,9 @@ Phases 2–5 each get a one-page plan when they come up.
 
 - `[feature M few]` Python error detail look-aside so a failing `=PY()` stays `#VALUE!` with `ISERROR` true while the selected cell's error help and status bar show the Python message (Collabora Core and AddIn work). (§ F6 — Python error detail (look-aside))
 - `[eng M few]` Land the plot-images (F3) and single-cell auto-spill (F7) branches on Gerrit, which are implemented but not yet submitted. (§ Ordered slices)
-- `[feature M few]` Shared workbook kernel for Online: coolwsd sets a server-derived `session_id` and mode, and calls `/v1/session/reset` on broker destroy, since only the service side exists. (§ F5 — Shared workbook kernel)
+- `[feature M few]` Shared workbook kernel for Online: land Gerrit 21275 (wsd-owned `session_id`, reset on document close); only the service side is merged. (§ F5 — Shared workbook kernel)
 - `[eng S few]` Manual or scripted scalar NumPy smoke path showing `import numpy` runs only in the compute service process. (§ F2 — Scalar NumPy smoke)
-- `[eng S few]` Switch the kit to the multipart POST and retire the single-JSON peel ingress in the compute service. (§ HTTP ingress: peel vs multipart)
+- `[eng S few]` Land the multipart POST (Gerrit 19188), then delete the single-JSON peel ingress in the compute service. (§ HTTP ingress: peel vs multipart)
 - `[eng S few]` Ops-level compute container isolation: cgroup memory and CPU limits and a private bridge network. (§ G5 — Service isolation)
 - `[eng S few]` Close remaining Online test gaps: allowlist reject, corrupt upward-frame injection, and disconnect mid-flight. (§ G8 — Test coverage gaps)
 - `[eng S few]` Reviewer nits: a release-note sentence on the `PY` display name versus Excel semantics, en-US-only AddIn help, C-ABI-only exports for `anyjson` test helpers, and `IwyuFilter_scaddins.yaml`. (§ Still open before Gerrit)

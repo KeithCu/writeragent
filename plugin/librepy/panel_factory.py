@@ -213,12 +213,14 @@ class PythonPanelFactory(unohelper.Base, XUIElementFactory):
         self.ctx = ctx
 
     def createUIElement(self, ResourceURL: str, Args: Any) -> PythonPanelElement:
+        # pyuno refuses a partial positional initialiser (pyuno_module.cxx fillStruct) and raises RuntimeException instead, so pass every member.
         if "PythonPanel" not in ResourceURL:
-            raise NoSuchElementException("Unknown resource: " + ResourceURL)
+            raise NoSuchElementException("Unknown resource: " + ResourceURL, self)
         frame = property_arg(Args, "Frame")
         parent_window = property_arg(Args, "ParentWindow")
         if not parent_window:
-            raise IllegalArgumentException("ParentWindow is required")
+            # The last argument is the zero-based position of Args.
+            raise IllegalArgumentException("ParentWindow is required", self, 1)
         return PythonPanelElement(self.ctx, frame, parent_window, ResourceURL)
 
 

@@ -501,18 +501,17 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   Search/replace and selection clear raise if the range lives in a cell that hosts a nested
   table. Use `table_set_cell` / `table_*`. `target='full_document'` is not policed for
   nested tables (a full rewrite is supposed to replace the document), but it refuses when the
-  document has any hidden or conditional section outside headers and footers (`HIDDEN_SECTION`) because a full
-  read returns hidden text and re-importing it would drop the condition or make the section visible or delete it, or
-  when it has any protected non-index section outside headers and footers
-  (`PROTECTED_SECTION`). A visible leading section or TOC is replaced with new content placed
-  outside it. `target='selection'`
+  document has any hidden or conditional section (`HIDDEN_SECTION`; a full read returns hidden text and
+  re-importing it would drop the condition or make the section visible or delete it) or protected non-index section
+  (`PROTECTED_SECTION`) outside headers and footers and the tables and frames in them. A visible
+  leading section or TOC is replaced with new content placed outside it. `target='selection'`
   refuses when the range starts in a table and ends outside it (`SELECTION_SPANS_TABLE`) or
   when an image, shape, frame, OLE object, or cell block is selected, or the view has no caret
   (Print Preview) (`SELECTION_NOT_TEXT`). Body
   search-replace is not treated as a host-cell wipe just because the document has top-level tables.
 - **Picture links in body write-back.** Wrapping a picture's placeholder wrapper in `<a href>` (with no other text inside the `<a>`) sets `HyperLinkURL`, `HyperLinkName`, and `HyperLinkTarget` on the restored picture; removing the `<a>` clears all three. Link changes are not applied when the original picture survives a recorded edit (such as `AT_PARAGRAPH` in the last paragraph).
 - **`apply_content` verifies table imports and rejects bad regex early.** Any insert/replace whose content contains `<table>` compares the table count immediately around the HTML import (after any clearing) and returns `TABLE_INSERT_FAILED` when no table was added; a closed document is `DOCUMENT_DISPOSED`, not "no tables". The check runs inside the edit's undo group (and per match for `all_matches`, plus header/footer HTML writes), so a failed table insert is rolled back, review redlines included, and the document is left as it was. `target='search'` with `regex=true` and a pattern LibreOffice's ICU engine rejects (checked with the `TextSearch2` service; Python-only syntax such as `(?P<name>...)` is rejected, `\p{Lu}` is accepted) returns `INVALID_REGEX` before any matching, the same code `dry_run` reports.
-- **Math formula import failure reporting.** Any formula conversion failure across attempted math blocks leaves the literal fallback text in the document, reports `math_objects` at top level, and adds a `MATH_IMPORT_FAILED` warning diagnostic.
+- **Math formula import failure reporting.** Any formula failure across attempted math blocks reports `math_objects` at top level and adds a `MATH_IMPORT_FAILED` warning diagnostic: a failed conversion leaves the literal fallback text; a formula whose position was lost leaves nothing, and the warning says so.
 - **Search needle normalization, exact-first ladder, and miss reporting.** Literal search returns top-level `normalized_old_content` (HTML stripped, horizontal whitespace collapsed, quotes and dashes preserved). Edit and anchor tools try exact case with exact quotes and dashes first; if nothing matches, they fall back to folded quotes and dashes (only when the needle has at least one letter or digit), then case-insensitive exact, then case-insensitive folded. Passing `case_sensitive` explicitly fixes the case level while keeping quote/dash folding; `regex=true` uses strict ICU matching with no folding. Spaces always fold because horizontal whitespace in the needle is already collapsed. An `old_content` spanning more than half the visible document body returns an error directing callers to `target='full_document'`. A multi-paragraph needle never matches across a table. A search miss reports the closest matching passage across body, tables, text frames, headers, and footers, along with the first differing character.
 - **Nesting through a frame or section.** Discovery walks the host cell’s
   `XEnumeration` and as-character `TextFrame` portions (a frame in a cell is

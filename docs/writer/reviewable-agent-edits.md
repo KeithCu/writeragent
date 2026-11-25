@@ -33,7 +33,7 @@ What is implemented today (not every Writer mutation tool):
 | `apply_content` (chat/MCP worker thread) | Yes | Yes, when wait enabled | Yes |
 | `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
-| Vision / `python_runner` Writer insert | Yes | No | No |
+| Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
 | `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked row/column deletes refuse protected cells; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off) | No | No |
@@ -159,10 +159,10 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
-  or conditional section outside headers and footers (`HIDDEN_SECTION`) or any protected non-index section outside headers
-  and footers (`PROTECTED_SECTION`), and places new content outside a leading section or TOC
-  (while recording, a paragraph is added untracked before a leading section and after a trailing
-  one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
+  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
+  and footers and the tables and frames in them, and places new content outside a leading section
+  or TOC (while recording, a paragraph is added untracked before a leading section and after a
+  trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
   refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a non-text
   selection, or a view with no caret such as Print Preview (`SELECTION_NOT_TEXT`).
 
@@ -360,7 +360,8 @@ If "Wait for Edit Review" should mean the agent pauses until the user resolves *
 edit, not just sidebar/MCP `apply_content`:
 
 * Wire `EditReviewSession.wait_for_review()` (or equivalent) into extend/edit selection, vision
-  insert, and `python_runner` Writer insert — today those paths record but return immediately.
+  insert, `python_runner` Writer insert, and the units / text-analytics / symbolic-math Writer
+  inserts — today those paths record but return immediately.
 * Decide whether other mutation tools (comments, images, page ops, clone heading, …) should go
   through `record_mutation` or stay direct with explicit flags like styles. `table_delete` already
   goes through it (`run_writer_mutation_with_optional_review`).

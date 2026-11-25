@@ -1571,3 +1571,13 @@ def test_header_table_omits_nested_struck_table_uno(ctx, doc):
         assert html.count("<table") == 1, html
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_set_header_preserves_tex_backslashes_uno(ctx, doc):
+    res = _set(doc, ctx, "header", r"<p>Rate $\nu$ and \(\tau\) a\nb</p>")
+    assert res["status"] == "ok", res
+    visible = _region_text(doc, "header").getString()
+    assert r"$\nu$" in visible, visible
+    assert r"\(\tau\)" in visible, visible

@@ -25,7 +25,8 @@ Cell outcomes for ``=PY()`` fall into four kinds:
   ``addin_result_for_worker_status``, host exceptions in
   ``format_addin_error_for_display``, size errors in ``function.py``,
   and missing-caller in ``addin_impl.py``. Write tools recognise this kind
-  with ``is_failed_run_text``.
+  with ``is_failed_run_text``, and nested ``=PY`` array writes check
+  ``has_setup_failure_text`` across all result cells.
 
 Worker failure codes in ``addin_result_for_worker_status`` map as follows:
 
@@ -321,6 +322,11 @@ def is_failed_run_text(text: str) -> bool:
     )
     # An empty prefix would match everything.
     return text.startswith(tuple(p for p in prefixes if p))
+
+
+def has_setup_failure_text(text: str) -> bool:
+    """True when *text* contains the fixed venv-not-found or timeout message anywhere, because ``"x"&PY(..)`` puts text before it."""
+    return any(t and t in text for t in (_venv_not_found_text(), _timed_out_text()))
 
 
 def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:

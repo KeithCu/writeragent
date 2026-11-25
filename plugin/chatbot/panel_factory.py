@@ -1397,13 +1397,15 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     # Called externally by LibreOffice UNO framework; do not remove.
     def createUIElement(self, ResourceURL: str, Args: Any) -> XUIElement:
         log.debug("createUIElement: %s" % ResourceURL)
+        # pyuno refuses a partial positional initialiser (pyuno_module.cxx fillStruct) and raises RuntimeException instead, so pass every member.
         if "ChatPanel" not in ResourceURL:
-            raise NoSuchElementException("Unknown resource: " + ResourceURL)
+            raise NoSuchElementException("Unknown resource: " + ResourceURL, self)
         frame = property_arg(Args, "Frame")
         parent_window = property_arg(Args, "ParentWindow")
         log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
-            raise IllegalArgumentException("ParentWindow is required")
+            # The last argument is the zero-based position of Args.
+            raise IllegalArgumentException("ParentWindow is required", self, 1)
 
         from plugin.framework.frame_session import open_frame_session
         from plugin.framework.uno_context import document_id_for_frame

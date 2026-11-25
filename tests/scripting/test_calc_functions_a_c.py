@@ -11,6 +11,8 @@ import math
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 
 def test_address():
@@ -322,10 +324,10 @@ def test_besselk_bessely_reject_negative_order():
 
 
 def test_code_empty_string_is_zero():
-    # ScCode pushes 0. Do not follow Excel's #VALUE!, and do not treat None as "".
+    # ScCode pushes 0 for empty text and blank cells. Do not follow Excel's #VALUE!.
     assert calc.code("") == 0.0
     assert calc.code("A") == 65.0
-    assert calc.code(None) == float(ord("N"))
+    assert calc.code(None) == 0.0
 
 
 def test_trig_errors_propagate():
@@ -471,4 +473,26 @@ def test_aggregate_error_codes_and_count_modes():
     assert calc.aggregate(3, 0, erred) == 6.0
     assert calc.aggregate(3, 4, erred) == 6.0
     assert calc.aggregate(3, 6, erred) == 4.0
+
+
+def test_criteria_errors_averageif_no_match_and_choose_index_error():
+    assert nan_error_code(calc.countif([1, 2, 3], NA_NAN)) == 0x7FFF
+    assert calc.countif([1, 2, 3], CalcRange([["#DIV/0!"]])) == "#DIV/0!"
+    assert calc.sumif([1, 2, 3], CalcRange([["#DIV/0!"]])) == "#DIV/0!"
+    assert calc.averageif([1, 2, 3], CalcRange([["#DIV/0!"]])) == "#DIV/0!"
+    assert calc.countifs([1, 2], CalcRange([["#DIV/0!"]]), [1, 2], CalcRange([["#N/A"]])) == "#N/A"
+    assert calc.sumifs(["#DIV/0!", 2], [1, 2], CalcRange([["#N/A"]])) == "#N/A"
+    assert calc.averageifs(["#DIV/0!", 2], [1, 2], CalcRange([["#N/A"]])) == "#N/A"
+
+    assert calc.countif(["#N/A"], "#N/A") == 1.0
+    assert calc.countif([1, 2, 3, 4], CalcRange([[">2"]])) == 2.0
+
+    avg_miss = calc.averageif(["a", "b"], "a", ["a", "b"])
+    assert math.isnan(avg_miss) and nan_error_code(avg_miss) == 532
+    avg_ifs_miss = calc.averageifs([1, 2], [1, 2], ">99")
+    assert math.isnan(avg_ifs_miss) and nan_error_code(avg_ifs_miss) == 532
+
+    assert calc.choose("#DIV/0!", 10, 20) == "#DIV/0!"
+    assert calc.choose(1, 5, "#DIV/0!") == 5
+    assert nan_error_code(calc.choose(NA_NAN, 10, 20)) == 0x7FFF
 
