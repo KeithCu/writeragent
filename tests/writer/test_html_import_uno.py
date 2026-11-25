@@ -2980,7 +2980,7 @@ def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, do
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> None:
-    """full_document keeps the first old character's language in every mode, even over a leading section."""
+    """full_document keeps the first old body character's language in every mode, skipping index text."""
     from com.sun.star.lang import Locale
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.config import get_config, save
@@ -2997,7 +2997,7 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
         loc.Language = lang
         return loc
 
-    def _seed(*, leading_section: bool, first_chars_it: bool) -> None:
+    def _seed(*, leading_section: bool, first_chars_it: bool, leading_toc: bool) -> None:
         doc.setPropertyValue("RecordChanges", False)
         text = doc.getText()
         text.setString("")
@@ -3020,6 +3020,11 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
             c.gotoStart(False)
             c.goRight(2, True)
             c.setPropertyValue("CharLocale", _locale("it"))
+        if leading_toc:
+            toc = doc.createInstance("com.sun.star.text.ContentIndex")
+            toc.setPropertyValue("Title", "Table of Contents")
+            text.insertTextContent(text.getStart(), toc, False)
+            toc.update()
 
     def _assert_all_text_portions_lang(expected: str) -> None:
         paras = _body_paragraphs(doc)
@@ -3035,13 +3040,17 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
 
     try:
         save({flag: "off"})
-        for leading_section, first_chars_it, expected in [
-            (False, False, "pt"),
-            (True, False, "pt"),
-            (False, True, "it"),
+        for leading_section, first_chars_it, leading_toc, expected in [
+            (False, False, False, "pt"),
+            (True, False, False, "pt"),
+            (False, True, False, "it"),
+            (False, False, True, "pt"),
         ]:
             for record in (False, True):
-                _seed(leading_section=leading_section, first_chars_it=first_chars_it)
+                _seed(leading_section=leading_section, first_chars_it=first_chars_it, leading_toc=leading_toc)
+                if leading_toc:
+                    first_para = next(iter_elements(doc.getText().createEnumeration()))
+                    assert first_para.getPropertyValue("CharLocale").Language != "pt"
                 doc.setPropertyValue("RecordChanges", record)
                 res = ApplyDocumentContent().execute(
                     tctx, target="full_document", content="<p>One</p><p>Two</p>"

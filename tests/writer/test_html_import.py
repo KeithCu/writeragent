@@ -2352,21 +2352,32 @@ def test_raise_if_protected_sections_lists_names():
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
 
-    def _make_section(*, protected: bool, doc_index: Any = None, impl_name: str = "SwXBodyText"):
+    def _make_section(*, protected: bool, doc_index: Any = None, impl_chain: str | list[str] = "SwXBodyText"):
+        chain = [impl_chain] if isinstance(impl_chain, str) else list(impl_chain)
         sec = MagicMock()
         sec.getPropertyValue.side_effect = lambda prop: {
             "IsProtected": protected,
             "DocumentIndex": doc_index,
         }[prop]
-        sec.getAnchor.return_value.getText.return_value.getImplementationName.return_value = impl_name
+        node: Any = None
+        for name in reversed(chain):
+            cur = MagicMock()
+            cur.getImplementationName.return_value = name
+            cur.getPropertyValue.side_effect = lambda prop, parent=node: parent if prop == "ParentText" else None
+            node = cur
+        sec.getAnchor.return_value.getText.return_value = node
         return sec
 
     sections = {
         "IndexSec": _make_section(protected=True, doc_index=MagicMock()),
-        "HeaderSec": _make_section(protected=True, impl_name="SwXHeadFootText"),
+        "HeaderSec": _make_section(protected=True, impl_chain="SwXHeadFootText"),
+        "HeaderCellSec": _make_section(protected=True, impl_chain=["SwXCell", "SwXHeadFootText"]),
+        "HeaderFrameSec": _make_section(protected=True, impl_chain=["SwXTextFrame", "SwXHeadFootText"]),
         "UnprotSec": _make_section(protected=False),
         "BodyProtA": _make_section(protected=True),
         "BodyProtB": _make_section(protected=True),
+        "BodyCellProt": _make_section(protected=True, impl_chain=["SwXCell", "SwXBodyText"]),
+        "PageFrameProt": _make_section(protected=True, impl_chain=["SwXTextFrame"]),
     }
     model = MagicMock()
     model.getTextSections.return_value.getElementNames.return_value = list(sections.keys())
@@ -2378,6 +2389,10 @@ def test_raise_if_protected_sections_lists_names():
     msg = str(exc_info.value)
     assert "'BodyProtA'" in msg
     assert "'BodyProtB'" in msg
+    assert "'BodyCellProt'" in msg
+    assert "'PageFrameProt'" in msg
     assert "IndexSec" not in msg
     assert "HeaderSec" not in msg
+    assert "HeaderCellSec" not in msg
+    assert "HeaderFrameSec" not in msg
     assert "UnprotSec" not in msg

@@ -344,17 +344,32 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
+def _in_index(element: Any) -> bool:
+    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+    # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
+    # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
+    sections = _sections_at(element)
+    return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
+
+
 def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
     """Yield ``(name, section)`` for each text section outside headers and footers.
 
-    Checking the anchor text's implementation name (``SwXHeadFootText``) rather
-    than ``TextSection`` handles table-only body sections whose anchor text is
-    ``SwXBodyText``.
+    A section in a table cell or text frame belongs to the text that holds the
+    table or frame anchor (``ParentText`` via ``SwXCell::getPropertyValue`` in
+    ``sw/source/core/unocore/unotbl.cxx`` and ``SwXFrame::getPropertyValue``
+    in ``sw/source/core/unocore/unoframe.cxx``). A frame anchored to a page
+    number has no parent text, so its sections count as body sections. Checking
+    the implementation name rather than ``TextSection`` handles table-only body
+    sections whose anchor text is ``SwXBodyText``.
     """
     sections = model.getTextSections()
     for name in sections.getElementNames():
         section = sections.getByName(name)
-        if section.getAnchor().getText().getImplementationName() != "SwXHeadFootText":
+        text = section.getAnchor().getText()
+        while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
+            text = text.getPropertyValue("ParentText")
+        if text is None or text.getImplementationName() != "SwXHeadFootText":
             yield name, section
 
 
@@ -1231,8 +1246,18 @@ def replace_full_document(
         recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
         # Read before the delete: without recording, setString("") leaves one paragraph with the
-        # last old paragraph's character formatting.
-        language = language_at_start(cursor)
+        # last old paragraph's character formatting. An index's own text is usually in the
+        # document default language, so the first paragraph outside any index decides; a body
+        # that is only an index has none, and its start is used.
+        language = language_at_start(
+            next(
+                (
+                    el for el in iter_elements(text.createEnumeration())
+                    if not _uno_service_true(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                ),
+                cursor,
+            )
+        )
         # Leading tables outside sections are already deleted or struck (delete_leading_tables).
         # A table inside a section counts as the start: gotoStart would step past that section.
         first = next(
