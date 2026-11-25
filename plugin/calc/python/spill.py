@@ -193,6 +193,14 @@ def _classify_orphan_record(
     return ("drop", None)
 
 
+def _used_end_delta(state: WorkbookState, sheet: Any, sheet_name: str) -> tuple[int, int] | None:
+    prev = state.used_ends.get(sheet_name)
+    if prev is None:
+        return None
+    cur = _used_end(sheet)
+    return (cur[0] - prev[0], cur[1] - prev[1])
+
+
 def cleanup_orphans(
     state: WorkbookState,
     sheet: Any,
@@ -206,9 +214,7 @@ def cleanup_orphans(
             return
 
         with sheet_modify_scope():
-            cur = _used_end(sheet)
-            prev = state.used_ends.get(sheet_name)
-            delta = (cur[0] - prev[0], cur[1] - prev[1]) if prev is not None else None
+            delta = _used_end_delta(state, sheet, sheet_name)
             to_remove: list[tuple[tuple[str, int, int], bool]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int]]] = []
             for (s_name, frow, fcol), record in list(state.spills.items()):
@@ -519,11 +525,11 @@ def perform_deferred_spill(
 ) -> None:
     """Clear old spilled cells and write new values deferred after rechecking collisions.
 
+    A remap the modify pass has not done yet is applied first, so the recheck uses the right rectangle.
     After rechecking that targets are still free, this clears old cells, classifies the grid into ``SpillValue`` records,
     writes neighbour values/errors and updates the spill registry, then applies
     standard temporal number formats across coalesced blocks. If the recheck finds a
     collision, owned neighbor cells are cleared and the record shrinks to 1 x 1.
-    A pending remap is applied first.
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
     The state key, the sheet looked up by name, the origin formula, and target collisions are
@@ -734,12 +740,8 @@ def _moved_record(state: WorkbookState, sheet: Any, sheet_name: str, row: int, c
     record = state.spills.get((sheet_name, row, col))
     if record is not None and _origin_matches_record(sheet, row, col, record):
         return None
-    prev = state.used_ends.get(sheet_name)
-    if prev is None:
-        return None
-    cur = _used_end(sheet)
-    delta = (cur[0] - prev[0], cur[1] - prev[1])
-    if delta == (0, 0):
+    delta = _used_end_delta(state, sheet, sheet_name)
+    if delta is None or delta == (0, 0):
         return None
     moved = state.spills.get((sheet_name, row - delta[0], col - delta[1]))
     # cleanup_orphans never remaps a record without code.
@@ -784,7 +786,7 @@ def prepare_auto_spill(
     diagnostics store, which the LibrePy sidebar and ``write_range`` read, and
     scheduling a deferred clear of owned neighbor cells), ``PreparedSpill`` when
     the neighbor write should proceed, or ``None`` when ``state.key`` is empty.
-    A formula moved by an insert or delete before it uses its unmoved record's
+    When rows or columns before a formula were inserted or deleted, it uses its unmoved record's
     rectangle; the deferred write remaps and saves.
     """
     if not state.key:
