@@ -3535,7 +3535,7 @@ def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, d
     try:
         for mode in ("off", "accept"):
             save({flag: "off" if mode == "off" else "record"})
-            for override_bg in (False, True):
+            for bg_case in ("keep", "override", "transparent"):
                 doc.setPropertyValue("RecordChanges", False)
                 text = doc.getText()
                 text.setString("")
@@ -3550,27 +3550,31 @@ def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, d
                 p_seed.setPropertyValue("FillColor", 0xFFEEAA)
                 assert int(p_seed.getPropertyValue("ParaBackColor")) == 0xFFEEAA
 
-                html = (
-                    '<p data-lo-style="Standard" data-lo-para="background-color:#00ff00">Updated box</p>'
-                    if override_bg
-                    else '<p data-lo-style="Standard">Updated box</p>'
-                )
+                if bg_case == "override":
+                    html = '<p data-lo-style="Standard" data-lo-para="background-color:#00ff00">Updated box</p>'
+                    expected_bg = 0x00FF00
+                elif bg_case == "transparent":
+                    html = '<p data-lo-style="Standard" data-lo-para="background-color:transparent">Updated box</p>'
+                    expected_bg = -1
+                else:
+                    html = '<p data-lo-style="Standard">Updated box</p>'
+                    expected_bg = 0xFFEEAA
+
                 res = ApplyDocumentContent().execute(
                     native_writer_tool_context(doc, ctx),
                     target="search",
                     old_content="Boxed clause",
                     content=[html],
                 )
-                assert res.get("status") == "ok", (mode, override_bg, res)
+                assert res.get("status") == "ok", (mode, bg_case, res)
                 if mode == "accept":
                     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
                 p0 = _body_paragraphs(doc)[0]
                 for bname in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
-                    assert int(p0.getPropertyValue(bname).OuterLineWidth) == 35, (mode, override_bg, bname)
-                expected_bg = 0x00FF00 if override_bg else 0xFFEEAA
+                    assert int(p0.getPropertyValue(bname).OuterLineWidth) == 35, (mode, bg_case, bname)
                 assert int(p0.getPropertyValue("ParaBackColor")) == expected_bg, (
                     mode,
-                    override_bg,
+                    bg_case,
                     hex(int(p0.getPropertyValue("ParaBackColor"))),
                 )
     finally:
@@ -3610,6 +3614,28 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
             if mode == "accept":
                 _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
             assert int(_body_paragraphs(doc)[0].getPropertyValue("ParaAdjust")) == 1, mode  # RIGHT
+
+        # Same-style with multi-property data-lo-para overrides both margin and alignment
+        save({flag: "off"})
+        doc.setPropertyValue("RecordChanges", False)
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Justified clause", False)
+        pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+        pc.setPropertyValue("ParaStyleName", "Standard")
+        pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
+        pc.setPropertyValue("ParaLeftMargin", 1499)
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx),
+            target="search",
+            old_content="Justified clause",
+            content=['<p data-lo-style="Standard" data-lo-para="margin-left:3cm; text-align:right">Right</p>'],
+        )
+        assert res.get("status") == "ok", res
+        p_css = _body_paragraphs(doc)[0]
+        assert int(p_css.getPropertyValue("ParaAdjust")) == 1  # RIGHT
+        assert abs(int(p_css.getPropertyValue("ParaLeftMargin")) - 3000) <= 5
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)

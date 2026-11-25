@@ -39,6 +39,7 @@ from plugin.doc.text_helpers import (
     reset_direct_char_formatting,
     reset_properties_to_default,
     section_own_shown,
+    set_paragraph_background,
     uniform_font,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
@@ -999,6 +1000,12 @@ def _direct_list_tag(cursor: Any) -> str | None:
     return "ol" if para.getPropertyValue("ListLabelString") else "ul"
 
 
+_SHARED_ITEM_GROUPS = (
+    frozenset({"ParaTopMargin", "ParaBottomMargin", "ParaContextMargin"}),
+    frozenset({"LeftBorder", "RightBorder", "TopBorder", "BottomBorder"}),
+)
+
+
 def _restore_host_para_props(
     model: Any,
     text_obj: Any,
@@ -1013,7 +1020,8 @@ def _restore_host_para_props(
     Snapshots property states once before writing because LibreOffice shares items across
     related properties (``RES_UL_SPACE`` for top/bottom/context margins and ``RES_BOX``
     for all four borders). Explicit ``data-lo-para`` properties and direct properties
-    already set by inline CSS are skipped so caller-requested formatting wins.
+    already set by inline CSS (for properties not sharing an item with an explicit name)
+    are skipped so caller-requested formatting wins.
     """
     if not kept_para:
         return
@@ -1027,18 +1035,22 @@ def _restore_host_para_props(
         if block_paras and block_paras[0]
         else set()
     )
+    shared_with_explicit = {
+        prop for group in _SHARED_ITEM_GROUPS if group & explicit_uno for prop in group
+    }
     states = {name: first_para.getPropertyState(name).value for name in kept_para}
-    has_fill = first_para.getPropertyValue("FillStyle").value != "NONE"
     uno_rt = cast("Any", uno)
     recording = record_changes.is_recording_changes(model)
     with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
         for name, value in kept_para.items():
             if name in explicit_uno:
                 continue
-            if name in ("ParaBackColor", "FillStyle", "FillColor"):
-                if has_fill or "FillColor" in explicit_uno:
+            if name == "ParaBackColor":
+                if first_para.getPropertyValue("FillStyle").value != "NONE":
                     continue
-            elif not explicit_uno and states[name] == "DIRECT_VALUE":
+                set_paragraph_background(first_para, value)
+                continue
+            if name not in shared_with_explicit and states[name] == "DIRECT_VALUE":
                 continue
             if name == "ParaTabStops":
                 uno_rt.invoke(
@@ -1060,12 +1072,9 @@ def _direct_para_props(cursor: Any) -> dict[str, Any]:
         for name in _ABSORB_PARA_PROPERTIES
         if para.getPropertyState(name).value == "DIRECT_VALUE"
     }
-    # Setting ParaBackColor updates XATTR_FILL* without always marking FillColor DIRECT_VALUE.
-    if "FillColor" not in kept and para.getPropertyValue("FillStyle").value != "NONE":
-        kept["FillStyle"] = para.getPropertyValue("FillStyle")
-        kept["FillColor"] = para.getPropertyValue("FillColor")
-    elif "ParaBackColor" not in kept and para.getPropertyValue("ParaBackColor") != -1:
-        kept["ParaBackColor"] = para.getPropertyValue("ParaBackColor")
+    # Solid fill lives in XATTR_FILL* (see set_paragraph_background); store it once under ParaBackColor.
+    if para.getPropertyValue("FillStyle").value == "SOLID":
+        kept["ParaBackColor"] = para.getPropertyValue("FillColor")
     return kept
 
 
