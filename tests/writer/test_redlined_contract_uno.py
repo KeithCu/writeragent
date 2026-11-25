@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO tests for the synthetic redlined contract fixture and opt-in read benchmark."""
+"""UNO tests for the synthetic redlined contract fixture and opt-in read benchmark with ceilings."""
 
 from __future__ import annotations
 
@@ -26,6 +26,16 @@ from tests.writer.redlined_contract_fixture import (
     TABLE_ROWS,
     build_redlined_contract,
 )
+
+# Median seconds allowed on the 301-page redlined contract: three to six times the numbers in
+# docs/writer/redline-timings.md, so only a change in complexity fails, not a slower machine.
+MEDIAN_CEILINGS_S = {
+    "get_content full": 15.0,
+    "search, 20 of many hits": 3.0,
+    "get_tree heading_only": 2.0,
+    "get_tree default": 2.0,
+    "table_get_cells": 0.4,
+}
 
 
 def _write(folder: str, name: str, xml: str) -> str:
@@ -140,3 +150,6 @@ def test_redlined_contract_read_timings_uno(ctx):
     for res in results[:2]:
         full = next(row for row in res["timings"] if row["op"] == "get_content full")
         assert not full["warning"]
+    medians = {row["op"]: row["median"] for row in results[0]["timings"]}
+    slow = {op: (medians[op], limit) for op, limit in MEDIAN_CEILINGS_S.items() if medians[op] > limit}
+    assert not slow, f"median seconds over the ceiling: {slow}"

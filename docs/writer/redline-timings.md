@@ -17,11 +17,13 @@
 
 ## Running the benchmark
 
-The benchmark test in [`tests/writer/test_redlined_contract_uno.py`](../../tests/writer/test_redlined_contract_uno.py) is opt-in via `WRITERAGENT_BENCH=1`:
+The benchmark test in [`tests/writer/test_redlined_contract_uno.py`](../../tests/writer/test_redlined_contract_uno.py) is opt-in via `WRITERAGENT_BENCH=1` and fails if any redlined median exceeds `MEDIAN_CEILINGS_S`:
 
 ```bash
 WRITERAGENT_BENCH=1 ~/Desktop/Python/wa-pipeline-scripts/uno-probe.sh --timeout 900 tests/writer/test_redlined_contract_uno.py test_redlined_contract_read_timings_uno
 ```
+
+The same command is what a nightly job would call.
 
 ## Reference numbers
 
