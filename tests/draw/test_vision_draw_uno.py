@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 from plugin.doc.visual_helpers import graphic_objects_in_selection
+from plugin.framework.errors import DocumentDisposedError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
@@ -130,3 +131,32 @@ def test_draw_vision_unnamed_keeps_discovered_shape_across_selection_change_uno(
                 os.remove(path)
             except OSError:
                 pass
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_vision_named_kept_shape_closed_doc_raises_disposed_uno(ctx, doc):
+    """Closing a Draw document after discovering a named kept shape raises DocumentDisposedError on export."""
+    path = _write_temp_png(10, 20, 30)
+    try:
+        shape = insert_image_at_locator(ctx, doc, path, page_index=0, x_mm=10, y_mm=10, width_mm=20, height_mm=20)
+        assert shape is not None
+        shape.setName("Pic1")
+        _select_shape(doc, shape)
+
+        try:
+            run_and_insert_vision_for_selection(
+                ctx,
+                doc,
+                helper="extract_text",
+                insert_into_document=False,
+                on_discovered=lambda _discovered: doc.close(True),
+            )
+            raise AssertionError("Expected DocumentDisposedError")
+        except DocumentDisposedError:
+            pass
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass

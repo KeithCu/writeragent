@@ -51,7 +51,7 @@ _PREVIEW_MARGIN = 500        # 1/100 mm (5 mm) so the bitmap is mostly content
 def _preview_target(ctx: Any) -> tuple[Any, str, Any | None]:
     doc = get_active_document(ctx)
     if doc is None or not supports_vision_manual(doc):
-        raise no_image_selected_error()
+        raise no_image_selected_error(doc)
     image_name, graphic = discover_vision_images(doc)[0]
     return doc, image_name, graphic
 
@@ -111,7 +111,7 @@ def run_vision_preview(
 def _run_target(ctx: Any) -> Any:
     doc = get_active_document(ctx)
     if doc is None or not supports_vision_manual(doc):
-        raise no_image_selected_error()
+        raise no_image_selected_error(doc)
     if is_draw(doc):
         raise ToolExecutionError(
             _("Vision OCR insert requires a Writer or Calc document; use Preview for Draw/Impress."),
@@ -188,7 +188,7 @@ def render_preview_page(ctx: Any, html: str, summary: str) -> PreviewImage:
         style = doc.getStyleFamilies().getByName("PageStyles").getByName(cursor.getPropertyValue("PageStyleName"))
         for side in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
             style.setPropertyValue(side, _PREVIEW_MARGIN)
-        insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)  # the call Insert uses (vision_egress.py:183)
+        insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)  # the call Insert uses (vision_egress.insert_vision_result_into_writer)
         height = round(_PREVIEW_PIXEL_WIDTH * style.getPropertyValue("Height") / style.getPropertyValue("Width"))
         png, reason = export_current_page_png(doc, 0, pixel_size=(_PREVIEW_PIXEL_WIDTH, height))
         if png is None:

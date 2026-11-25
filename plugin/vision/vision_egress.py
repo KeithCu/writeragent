@@ -316,19 +316,21 @@ def ocr_found_content(result: dict[str, Any]) -> bool:
     return bool(str(result.get("full_text") or "").strip() or result.get("tables"))
 
 
-def _delete_inserted_image(ctx: Any, doc: Any, image_name: str | None) -> bool:
-    """Resolve *image_name* after insert and delete it via visual_helpers.delete_graphic.
+def _delete_inserted_image(ctx: Any, doc: Any, image_name: str | None, graphic: Any | None = None) -> bool:
+    """Delete *graphic* when given, else resolve *image_name* after insert, via visual_helpers.delete_graphic.
 
     Returns False only when LibreOffice cannot record deleting this picture as a
     tracked change (IMAGE_DELETE_NOT_TRACKABLE); all other errors are raised.
     """
-    if not image_name:
-        raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
     from plugin.doc.visual_helpers import delete_graphic, get_graphic_object_by_name
 
-    target = get_graphic_object_by_name(doc, image_name)
+    target = graphic
     if target is None:
-        raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
+        if not image_name:
+            raise ToolExecutionError(_("Cannot delete an unnamed image after OCR insert."), code="VISION_ERROR")
+        target = get_graphic_object_by_name(doc, image_name)
+        if target is None:
+            raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
     try:
         delete_graphic(ctx, doc, target)
     except ToolExecutionError as exc:
@@ -416,14 +418,14 @@ def insert_vision_result(
                         fallback_html = vision_html_from_result(result)
                     insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name, graphic=graphic)
                 if delete_image:
-                    _delete_inserted_image(ctx, doc, image_name)
+                    _delete_inserted_image(ctx, doc, image_name, graphic)
             return outcome
         html = vision_html_from_result(result)
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):
             insert_vision_html_into_calc(doc, ctx, html, image_name=image_name, graphic=graphic)
             if delete_image:
-                _delete_inserted_image(ctx, doc, image_name)
+                _delete_inserted_image(ctx, doc, image_name, graphic)
         return outcome
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")
 
@@ -435,7 +437,7 @@ def insert_vision_item(
     params: dict[str, Any] | None,
     graphics: dict[str, Any | None],
 ) -> VisionInsertOutcome:
-    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, or by the shape kept in *graphics* for an unnamed image."""
+    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, or by the shape kept in *graphics*."""
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
