@@ -88,15 +88,36 @@ def test_parse_edit_params_escaped_table_by_target():
     assert replace_params.has_table is False
 
 
-def test_insert_next_to_match_refuses_entity_encoded_math():
+def test_insert_next_to_match_allows_entity_encoded_math():
+    from plugin.writer.html_import_styles import WriteReport
+
     with patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False):
         tool = ApplyDocumentContent()
         params = tool._parse_edit_params(
             MagicMock(),
             {"content": "<p>&#36;x+1&#36;</p>", "target": "search", "old_content": "x", "position": "after"},
         )
+    assert params.content == "<p>&#36;x+1&#36;</p>"
+
+    cursor = MagicMock()
+    cursor.getPropertyValue.return_value = None  # not in a table cell
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+    found = MagicMock()
+    found.getText.return_value = text_obj
     ctx = MagicMock()
-    res = tool._edit_insert_next_to_match(ctx, MagicMock(), params, MagicMock())
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-    assert "math" in res["message"].lower()
+    with (
+        patch("plugin.writer.apply_document_content._paragraph_boundary_cursor", return_value=(cursor, True)),
+        patch(
+            "plugin.writer.apply_document_content.record_html_atomically",
+            side_effect=lambda session, doc, mutate, *rest, **kw: mutate(),
+        ),
+        patch(
+            "plugin.writer.apply_document_content.html_import.insert_html_after_paragraph",
+            return_value=WriteReport(),
+        ) as mock_insert,
+    ):
+        res = tool._edit_insert_next_to_match(ctx, MagicMock(), params, found)
+    assert res["status"] == "ok"
+    assert res["inserted"] is True
+    assert mock_insert.call_args.args[4] == "<p>$x+1$</p>"

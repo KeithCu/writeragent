@@ -981,3 +981,35 @@ def test_full_export_of_split_copy_reads_its_own_flat_odf():
     assert 'data-lo-para="font-weight:bold"' in html
     assert "#111111" not in html
 
+
+def test_full_export_with_hidden_section_and_no_redlines_exports_scratch_copy():
+    from plugin.writer import html_export as hx
+
+    source_fodt = '<office:document><text:section text:name="H" text:display="none"/></office:document>'
+    source_doc = MagicMock()
+    sec = MagicMock()
+    sec.getPropertyValue.return_value = False
+    sections = MagicMock()
+    sections.getCount.return_value = 1
+    sections.getByIndex.return_value = sec
+    source_doc.getTextSections.return_value = sections
+
+    copy_doc = MagicMock()
+    written = []
+
+    def fake_write(content, ext=""):
+        written.append(content)
+        return MagicMock(__enter__=lambda s: ("/tmp/x.fodt", "file:///tmp/x.fodt"), __exit__=lambda *a: None)
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=False), \
+         patch("plugin.writer.html_export._read_filter_text", return_value=source_fodt), \
+         patch("plugin.writer.html_export.with_temp_buffer", side_effect=fake_write), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._export_semantic", return_value=("<p>ok</p>", False)) as sem:
+        html, _has_ruby = hx._export_full(source_doc, MagicMock())
+
+    assert html == "<p>ok</p>"
+    assert written == ['<office:document><text:section text:name="H"/></office:document>']
+    assert sem.call_args.args[0] is copy_doc
+

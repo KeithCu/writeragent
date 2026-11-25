@@ -78,7 +78,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `TABLE_INSERT_FAILED` | error | Table creation or insertion failed (`html_import.py`) | None |
 | `SELECTION_SPANS_TABLE` | error | Selection starts in a table and ends outside it (`html_import.py`) | None |
 | `SELECTION_NOT_TEXT` | error | Selection is an object (image, frame, shape, OLE, or cell block) rather than text, or the view has no caret (Print Preview) (`html_import.py`) | None |
-| `HIDDEN_LEADING_SECTION` | error | `full_document` on a document starting with a hidden section (`html_import.py`) | None |
+| `HIDDEN_SECTION` | error | `full_document` on a document with a hidden section outside headers and footers (`html_import.py`) | None |
 | `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |

@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    ILLEGAL_ARGUMENT_NAN,
     NA_NAN,
     approx_floor,
     as_nonzero,
@@ -109,6 +110,7 @@ def n(val: Any) -> float:
     return 0.0
 
 
+@propagate_errors
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = scipy_stats()
     if st is None:
@@ -116,11 +118,16 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     # approx_floor(float(+inf)) raises OverflowError, which the worker returns
     # as #NUM! (Excel NEGBINOMDIST is #NUM!).
     k = approx_floor(float(x))
-    r_val = approx_floor(float(r))
+    s = approx_floor(float(r))
     prob = float(p)
-    if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
-        return float("nan")
-    return float(st.nbinom.pmf(k, r_val, prob))
+    # ScNegBinomDist (interpr3.cxx) only rejects f + s <= 1 and p outside [0, 1].
+    if k + s <= 1 or prob < 0 or prob > 1:
+        return ILLEGAL_ARGUMENT_NAN
+    if k <= 0:
+        return prob**s  # its product loop does not run; s >= 1 here
+    if s < 1 or prob == 0:  # a factor (i + s) is 0 at i = -s, or p**s is 0; pow(0, s < 0) is infinite
+        return float("nan") if prob == 0 and s < 0 else 0.0
+    return float(st.nbinom.pmf(float(k), float(s), prob))  # scipy refuses ints above int64
 
 
 @propagate_errors
@@ -237,13 +244,13 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float | str:
-    # ScNPV (interpr2.cxx): the first error among the cash flows is the result;
+    # ScNPV (interpr2.cxx): the first error in argument order (rate first) is the result;
     # booleans are numbers; blank and text cells are skipped without a period.
-    r = float(rate)
     cells = [v for arg in args for v in np.asarray(arg, dtype=object).ravel()]
-    err = first_error(cells)
+    err = first_error([*np.asarray(rate, dtype=object).ravel(), *cells])
     if err is not None:
         return err
+    r = float(rate)
     res = 0.0
     period = 0
     try:
@@ -465,8 +472,10 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
         if len(d) == 0:
             return float("nan")
         val = float(x)
-        sig = int(float(significance))
-        if sig < 1 or sig > 15:
+        sig = approx_floor(float(significance))
+        if sig < 1:
+            return ILLEGAL_ARGUMENT_NAN
+        if sig > 15:
             return float("nan")
         d_sorted = np.sort(d)
         if val < d_sorted[0] or val > d_sorted[-1]:
@@ -534,11 +543,15 @@ def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
 @propagate_errors
 @calc_function
 def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
-    d = np.asarray(data, dtype=float).ravel()
-    p = np.asarray(probs, dtype=float).ravel()
-    if len(d) != len(p) or len(d) == 0:
-        # ScProbability (interpr3.cxx) returns #N/A on empty or mismatched ranges.
+    # ScProbability (interpr3.cxx) compares both dimensions and returns #N/A on
+    # empty or mismatched ranges.
+    d = np.asarray(data, dtype=float)
+    p = np.asarray(probs, dtype=float)
+    if d.ndim != p.ndim:  # a flat list is a row or a column; a scalar is one cell
+        d, p = (a.ravel() if a.size == max(a.shape, default=1) else a for a in (d, p))
+    if d.shape != p.shape or d.size == 0:
         return NA_NAN
+    d, p = d.ravel(), p.ravel()
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)

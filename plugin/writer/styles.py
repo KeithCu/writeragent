@@ -41,10 +41,12 @@ from plugin.doc.text_helpers import (
     iter_elements_limited,
     record_walk_cap,
     reset_properties_to_default,
+    set_paragraph_background,
     writable_char_names,
 )
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import (
+    ToolExecutionError,
     is_disposal,
     name_miss_details,
     reraise_if_disposed,
@@ -320,6 +322,21 @@ def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str])
                 if cell_enum is not _READ_FAILED:
                     yield from _capture_paragraphs(read, cell_enum, notes)
     record_walk_cap(para_enum, seen, _CAPTURE_PARA_LIMIT, "paragraphs", notes)
+
+
+def _touched_paragraphs(cursor: Any) -> Iterator[Any]:
+    """Yield every paragraph a paragraph-level write on *cursor* changes, tables included."""
+    read = _CountingReader()
+    notes: list[str] = []
+    span = _expand_to_full_paragraphs(cursor)
+    yield from _capture_paragraphs(read, span.createEnumeration(), notes)
+    # A range enumeration omits an empty last paragraph after a table
+    # (SwXParagraphEnumerationImpl::IgnoreLastElement, sw/source/core/unocore/unoobj2.cxx);
+    # otherwise this repeats the last paragraph.
+    end = span.getText().createTextCursorByRange(span.getEnd())
+    yield from _capture_paragraphs(read, end.createEnumeration(), notes)
+    if read.failures or notes:
+        raise ToolExecutionError("Not every paragraph in the range could be read.")
 
 
 def _capture_direct_char_overrides(
@@ -2073,8 +2090,15 @@ class StyleFormatText(ToolWriterStyleBase):
                 if para_author is not None
                 else ([], False)
             )
-            pre_updates = {**reset_values, **updates} if char_tracked else updates
+            pre_updates = {
+                k: v
+                for k, v in ({**reset_values, **updates} if char_tracked else updates).items()
+                if k != "ParaBackColor"
+            }
             set_cursor_properties(cursor, pre_updates)
+            if "ParaBackColor" in updates:
+                for para in _touched_paragraphs(cursor):
+                    set_paragraph_background(para, updates["ParaBackColor"])
             cleared = reset_properties_to_default(cursor, reset_names)
             # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
             # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
@@ -2120,7 +2144,11 @@ class StyleFormatText(ToolWriterStyleBase):
         after: dict[str, Any] = {}
         for name in all_names:
             try:
-                raw_after = cursors[0].getPropertyValue(name)
+                if name == "ParaBackColor":
+                    # The cursor reads its own RES_BACKGROUND, not the paragraph fill.
+                    raw_after = next(_touched_paragraphs(cursors[0])).getPropertyValue(name)
+                else:
+                    raw_after = cursors[0].getPropertyValue(name)
                 after[name] = _schema_prop_value(name, raw_after) if raw_after is not None else None
             except Exception as exc:
                 reraise_if_disposed(exc)

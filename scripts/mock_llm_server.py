@@ -879,6 +879,7 @@ def _extract_document_words(messages: list[Any]) -> list[str]:
     if "[END DOCUMENT]" in doc_section:
         doc_section = doc_section.split("[END DOCUMENT]", 1)[0]
     cleaned = re.sub(r"\[DOCUMENT (?:START|END)\]", " ", doc_section)
+    cleaned = re.sub(r"\[SELECTION_(?:START|END)\]", "", cleaned)
     cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
     cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
     cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)

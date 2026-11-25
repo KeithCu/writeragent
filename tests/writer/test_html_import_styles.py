@@ -704,7 +704,10 @@ def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected
         # The paragraph cursor enumerates nothing, so there is no paragraph to format.
         para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
 
-    solid_style, none_style = html_import_styles._get_fill_style_enums()
+    import uno
+
+    solid_style = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    none_style = uno.Enum("com.sun.star.drawing.FillStyle", "NONE")
 
     failed = html_import_styles.apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=[para_decl]

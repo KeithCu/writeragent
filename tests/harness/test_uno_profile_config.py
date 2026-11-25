@@ -19,7 +19,7 @@ from tests.harness import uno_profile_config
 @pytest.fixture
 def throwaway_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the runner's throwaway profile at *tmp_path* and stub soffice sleep/venv."""
-    monkeypatch.setattr(current_office(), "throwaway_profile_dir", tmp_path)
+    monkeypatch.setattr(current_office(), "throwaway_profile_dirs", [tmp_path])
     monkeypatch.setattr(uno_profile_config, "settle_soffice_config", lambda: None)
     monkeypatch.setattr(uno_profile_config, "project_venv", lambda: "/repo/.venv")
     return tmp_path / "user" / "config" / "writeragent.json"
@@ -63,7 +63,28 @@ def test_patch_rejects_unreadable_config(throwaway_cfg: Path) -> None:
 
 
 def test_no_throwaway_profile_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(current_office(), "throwaway_profile_dir", None)
+    monkeypatch.setattr(current_office(), "throwaway_profile_dirs", [])
 
     with pytest.raises(AssertionError, match="no throwaway test profile"):
         uno_profile_config.profile_config_path()
+
+
+def test_profile_config_values_returns_only_the_named_keys(throwaway_cfg: Path) -> None:
+    throwaway_cfg.parent.mkdir(parents=True, exist_ok=True)
+    throwaway_cfg.write_text(
+        CONFIG_SCHEMA_COMMENT
+        + json.dumps(
+            {
+                "api_key": "secret-value",
+                "scripting.python_session_mode": "shared",
+                "other": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    got = uno_profile_config.profile_config_values(
+        "scripting.python_session_mode", "scripting.python_venv_path"
+    )
+    assert got == {"scripting.python_session_mode": "shared"}

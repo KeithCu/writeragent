@@ -227,7 +227,7 @@ help:
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run incremental typecheck + incremental pytest + incremental UNO tests"
-	@echo "  make test-bot               Run incremental pytest only on changed files/modules"
+	@echo "  make test-bot               Incremental pytest on changed files, then the branch's added/modified UNO tests via isolated uno-probe.sh (skipped if the probe is absent)"
 	@echo "  make test-full              Run typecheck (typecheck-full in CI), full pytest + LO tests + excel-py-roundtrip"
 	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
 	@echo "  WRITERAGENT_CI_DEBUG=1      Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0)"
@@ -712,10 +712,16 @@ pytest: proxy-stubs
 	@echo "=== pytest ==="
 	$(PYTEST_UNIT)
 
+# Isolated UNO runner for make test-bot (pool laptop path; skipped when absent).
+UNO_PROBE ?= $(HOME)/Desktop/Python/wa-pipeline-scripts/uno-probe.sh
+
 test-bot: proxy-stubs
 	@echo "=== test-bot (incremental pytest) ==="
 	@PYTHONUNBUFFERED=1 "$(PYTHON)" $(SCRIPTS)/test_incremental.py -- "$(PYTHON)" -u -m pytest $(PYTEST_UNIT_FLAGS); \
-	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pytest; else exit $$rc; fi
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pytest; rc=$$?; fi; \
+	if [ $$rc -ne 0 ]; then exit $$rc; fi
+	@echo "=== test-bot (branch UNO tests, isolated) ==="
+	@UNO_PROBE="$(UNO_PROBE)" PYTHONUNBUFFERED=1 "$(PYTHON)" $(SCRIPTS)/test_bot_uno.py
 
 # Dev-only OpenAI-compatible stub (not MCP: 18766, not 8765/18765). See docs/chat/rich-text-control-sidebar.md
 mock-llm:

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 import uno
 
 from plugin.calc.base import ToolCalcShapeBase
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import (
     SHAPE_TOOL_UNO_SERVICES,
     TRACKED_IMAGE_DELETE_MESSAGE,
@@ -38,7 +39,8 @@ from plugin.framework.errors import ToolExecutionError, WriterAgentException, is
 from plugin.framework.i18n import N_, _
 from plugin.writer.edit_review import flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
-from plugin.writer.specialized_base import ToolWriterShapeBase
+from plugin.writer.search import shape_is_as_character, shape_text_boxes
+from plugin.writer.specialized_base import ToolWriterShapeBase, grouped_text_box_error
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
 from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
@@ -46,6 +48,7 @@ from .tree import (
     custom_shape_geometry,
     ensure_shape_name,
     find_shape_on_page,
+    is_group,
     iter_shape_addresses,
     normalize_negative_span,
     page_shape_names,
@@ -957,6 +960,21 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         is_line = _is_line_shape_type(shape.getShapeType())
 
         cur_pos = shape.getPosition() if (has_pos or has_size) else None
+        # SwXShape::AdjustPositionProperties (sw/source/core/unocore/unodraw.cxx) skips x for
+        # AS_CHARACTER page shapes; a group child moves inside its group, so only page-level shapes are refused.
+        if (
+            "x" in kwargs
+            and isinstance(shape_idx, int)
+            and cur_pos is not None
+            and kwargs["x"] != cur_pos.X
+            and shape_is_as_character(shape)
+        ):
+            return tool._tool_error(
+                "Shape %s is anchored as a character, so its x follows the text and cannot be set. "
+                "Omit x; y is the offset of its top from the text baseline." % shape_idx,
+                code="INVALID_PARAM",
+                parameter="x",
+            )
         cur_size = shape.getSize() if has_size else None
         target_x = kwargs.get("x", cur_pos.X) if cur_pos is not None else 0
         target_y = kwargs.get("y", cur_pos.Y) if cur_pos is not None else 0
@@ -1147,14 +1165,25 @@ class GroupShapes(_AnyDocumentShapeTool):
         dup_err = _reject_duplicate_shapes(self, addresses)
         if dup_err is not None:
             return dup_err
+        # SwXFrame::getShapeType (sw/source/core/unocore/unoframe.cxx) reports Writer text frames,
+        # pictures and OLE objects as plain "FrameShape"; page.group silently drops them, and an
+        # exact match leaves out Draw's qualified com.sun.star.drawing.FrameShape.
+        frames = [addr for addr, shape in zip(addresses, resolved_shapes) if shape.getShapeType() == "FrameShape"]
+        if frames:
+            return self._tool_error(
+                "Cannot group %s: Writer text frames, pictures and embedded objects placed in the text cannot be grouped."
+                % ", ".join(map(str, frames)),
+                code="INVALID_PARAM",
+                parameter="indices",
+            )
         for shape in resolved_shapes:
             shape_collection.add(shape)
         # page.group is the first page mutation; failure propagates to execute_safe.
         group = page.group(shape_collection)
         # SwFmDrawPage::group (sw/source/core/unocore/unodraw.cxx) returns null when none of the
-        # shapes can be marked, for example when all of them are text frames.
+        # shapes can be marked (SdrPageView::IsObjMarkable skips hidden shapes and locked layers).
         if group is None:
-            return self._tool_error("None of these shapes can be grouped (Writer text frames cannot).")
+            return self._tool_error("None of these shapes can be grouped (hidden shapes and shapes on locked layers cannot).")
         group_name = ""
         warnings: list[str] = []
         try:
@@ -1165,9 +1194,17 @@ class GroupShapes(_AnyDocumentShapeTool):
             log.debug("group name assignment failed", exc_info=True)
             warnings.append("Failed to assign group name")
 
+        grouped = group.getCount()
+        if grouped < len(resolved_shapes):
+            # SdrPageView::IsObjMarkable (svx/source/svdraw/svdpagv.cxx) skips hidden shapes and locked layers.
+            warnings.append(
+                f"Only {grouped} of {len(resolved_shapes)} shapes were grouped; "
+                "hidden shapes and shapes on locked layers were left out."
+            )
+
         res: dict[str, Any] = {
             "status": "ok",
-            "message": f"Grouped {len(indices)} shapes.",
+            "message": f"Grouped {grouped} shapes.",
             # The group sits in its topmost member's slot, not last (SdrEditView::GroupMarked,
             # svx/source/svdraw/svdedtv2.cxx). ZOrder is that page index; in Writer both skip
             # shape text boxes (SwTextBoxHelper::getOrdNum and getByIndex).
@@ -1450,13 +1487,22 @@ class DeleteShape(_AnyDocumentShapeTool):
 
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if "index" in kwargs:
-            _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
+            addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
         else:
-            _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["name"], by_name=True)
+            addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["name"], by_name=True)
         if err_res is not None:
             return err_res
-        assert parent is not None and shape is not None
+        assert addr is not None and parent is not None and shape is not None
         picture = is_writer(ctx.doc) and uno_read(lambda: shape.supportsService(WRITER_GRAPHIC_SERVICE), False)
+        boxes: list[Any] = []
+        if is_writer(ctx.doc) and not picture:
+            page_index = int(str(addr).split(".")[0])
+            boxes = [frame for _a, _s, frame in shape_text_boxes(page_index, shape)]
+            if boxes and isinstance(addr, str):
+                return grouped_text_box_error(self, addr)
+            # SwFmDrawPage::remove (sw/source/core/unocore/unodraw.cxx) already disposes a single top-level box's frame.
+            if not is_group(shape):
+                boxes = []
         try:
             if picture:
                 tracked = bool(
@@ -1465,7 +1511,15 @@ class DeleteShape(_AnyDocumentShapeTool):
                     )
                 )
             else:
-                parent.remove(shape)
+                if boxes:
+                    # SwUndoFlyBase::DelFly clears the group's shared text-box node; collect and
+                    # dispose every hidden frame before removing the group in one undo step.
+                    with UndoStepOrRollback(ctx.doc, "WriterAgent: Delete shape"):
+                        for frame in boxes:
+                            frame.dispose()
+                        parent.remove(shape)
+                else:
+                    parent.remove(shape)
                 tracked = False
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=exc.code)

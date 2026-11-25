@@ -147,10 +147,10 @@ _BAD_INPUTS: list[tuple[str, str, tuple[Any, ...], Any]] = [
     ("xirr", "out-of-range-length", ([-100, 110], [0]), "nan"),
     ("xirr", "out-of-range-guess", ([-100, 110], [0, 365], -2), "nan"),
     ("xirr", "text-guess", ([-100, 110], [0, 365], "g"), "nan"),
-    # xlookup: a return array shorter than the match used to raise.
-    ("xlookup", "out-of-range-return", ("b", ["a", "b"], [1]), "#VALUE!"),
-    ("xlookup", "out-of-range-rows", ("c", ["a", "b", "c"], [["x"], ["y"]]), "#VALUE!"),
-    ("xlookup", "out-of-range-column", ("b", [["a"], ["b"]], [[10]]), "#VALUE!"),
+    # xlookup: return shape mismatches report Err:504.
+    ("xlookup", "out-of-range-return", ("b", ["a", "b"], [1]), "Err:504"),
+    ("xlookup", "out-of-range-rows", ("c", ["a", "b", "c"], [["x"], ["y"]]), "Err:504"),
+    ("xlookup", "out-of-range-column", ("b", [["a"], ["b"]], [[10]]), "Err:504"),
     # xmatch: a blank that occurs in the lookup vector is a hit, not an error.
     ("xmatch", "text", ("z", [1, 2, 3]), "nan"),
     ("xmatch", "zero", (0, [1, 2, 3]), "nan"),
@@ -660,6 +660,35 @@ def test_xlookup_invalid_mode_is_err_504():
 
 
 def test_t_z_approx_floor_df():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
     assert calc.tdist(1, 0.29 * 100, 1) == calc.tdist(1, 29, 1)
     assert calc.tinv(0.5, 0.29 * 100) == calc.tinv(0.5, 29)
+    assert math.isclose(calc.tdist(1, 1e20, 1), 0.15865525393145707)
+    assert math.isclose(calc.tinv(0.05, 1e20), 1.95996398454005)
+    assert calc.tdist(1, 10, 1.9999999999999998) == calc.tdist(1, 10, 2)
+    assert calc.tdist(1, 10, 2.9) == calc.tdist(1, 10, 2)
+    assert calc.ttest([1, 2, 3], [2, 3, 5], 1.9999999999999998, 2.9) == calc.ttest([1, 2, 3], [2, 3, 5], 2, 2)
+    assert math.isclose(calc.trimmean([i * i for i in range(1, 101)], 0.58), 2697.1666666666665)
+    bad_df = calc.tdist(1, 0.5, 1)
+    assert math.isnan(bad_df) and nan_error_code(bad_df) == 502
 
+
+def test_xlookup_size_is_checked_before_search():
+    assert calc.xlookup("z", ["a", "b"], [1], "NF") == "Err:504"
+    assert calc.xlookup("b", [["a"], ["b"]], [[1, 2]]) == "Err:504"
+    assert calc.xlookup("a", [["a"]], [[1], [2]]) == "Err:504"
+    assert calc.xlookup("a", [["a", "b"], ["c", "d"]], [1, 2, 3, 4]) == "Err:504"
+    assert calc.xlookup("a", [["a"]], [[1, 2]]) == [1, 2]
+
+
+def test_text_before_after_empty_delimiter_and_text():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    assert calc.textafter("a-b", "", 1, 0, 1) == ""
+    assert calc.textafter("a-b", "", -1, 0, 1) == "a-b"
+    assert calc.textbefore("a-b", "", 1, 0, 1) == "a-b"
+    assert calc.textbefore("a-b", "", -1, 0, 1) == ""
+    assert calc.textafter("a-b", "", 2, 0, 1, "NF") == "NF"
+    empty_res = calc.textafter("", "-", 1, 0, 1, "NF")
+    assert isinstance(empty_res, float) and math.isnan(empty_res) and nan_error_code(empty_res) == 0x7FFF

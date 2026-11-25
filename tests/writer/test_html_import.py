@@ -187,7 +187,6 @@ def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
     model.getUndoManager.return_value = undo_mgr
 
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), \
-         patch("plugin.writer.html_ruby.apply_ruby_spans"), \
          patch("plugin.writer.field_restore.restore_field_placeholders", side_effect=RuntimeError("field failed")):
         with pytest.raises(RuntimeError, match="field failed"):
             replace_xtext_with_html(text, "<p>New</p>", model=model)
@@ -302,50 +301,41 @@ def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
 
 
 def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
-    from plugin.writer import html_import, html_ruby, range_copy
+    import re
+    from plugin.writer import field_restore, html_import
 
     cursor = MagicMock()
+    hit_cur = MagicMock()
+    hit_cur.goRight.return_value = True
+    hit_cur.getString.return_value = "漢字"
+    m = re.match(r"\[\[WA-RUBY:([a-zA-Z0-9]+):(\d+)\]\]", "[[WA-RUBY:abc123:0]]")
+    assert m is not None
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
-         patch.object(range_copy, "prefix_char_count", return_value=7), \
-         patch.object(html_ruby, "apply_ruby_spans") as paint:
+         patch.object(
+             field_restore,
+             "find_tokens",
+             side_effect=lambda _t, prefix, _re: [(hit_cur, m)] if prefix.startswith("[[WA-RUBY:") else [],
+         ):
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<ruby>漢字<rt>かんじ</rt></ruby>")
-    assert frag.call_args.args[1] == "漢字"
-    assert paint.call_args.args[1] == [("漢字", "かんじ", True, 0)]
-    assert paint.call_args.kwargs["skip_chars"] == 7
+    imported = frag.call_args.args[1]
+    assert imported.startswith("[[WA-RUBY:") and imported.endswith(":0]]漢字")
+    hit_cur.setString.assert_called_once_with("")
+    hit_cur.setPropertyValue.assert_any_call("RubyText", "かんじ")
 
 
-@pytest.mark.parametrize(
-    "fn_name, fragment",
-    [
-        pytest.param("insert_inline_at_cursor", "<b>x</b>", id="inline"),
-        pytest.param("_insert_mixed_or_plain_html", "<p>hi</p>", id="mixed_or_plain"),
-    ],
-)
-def test_insert_skips_prefix_count_without_ruby(fn_name, fragment):
-    from plugin.writer import html_import, range_copy
+def test_place_ruby_clears_token_and_skips_when_base_mismatches():
+    import re
+    from plugin.writer import field_restore, html_import, html_ruby
 
-    cursor = MagicMock()
-    with patch.object(range_copy, "prefix_char_count") as count, \
-         patch.object(html_import, "insert_html_fragment_at_cursor"):
-        getattr(html_import, fn_name)(MagicMock(), MagicMock(), cursor, fragment)
-    count.assert_not_called()
-
-
-def test_insert_mixed_html_and_math_counts_prefix_when_segment_contains_ruby():
-    from plugin.writer import html_import, html_ruby, range_copy
-
-    cursor = MagicMock()
-    calls = []
-    with patch.object(range_copy, "prefix_char_count", side_effect=lambda t, c: calls.append("count") or 5) as count, \
-         patch.object(html_import, "insert_html_fragment_at_cursor", side_effect=lambda *a, **k: calls.append("insert")), \
-         patch.object(html_ruby, "apply_ruby_spans") as paint, \
-         patch.object(html_import, "_place_formulas", return_value=[]):
-        html_import._insert_mixed_or_plain_html(
-            MagicMock(), MagicMock(), cursor, "<p><ruby>漢字<rt>かんじ</rt></ruby></p> \\(x^2\\)"
-        )
-    count.assert_called_once()
-    assert calls == ["count", "insert"]
-    assert paint.call_args.kwargs["skip_chars"] == 5
+    hit_cur = MagicMock()
+    hit_cur.goRight.return_value = True
+    hit_cur.getString.return_value = "OTHER"
+    m = re.match(r"\[\[WA-RUBY:([a-zA-Z0-9]+):(\d+)\]\]", "[[WA-RUBY:abc123:0]]")
+    assert m is not None
+    with patch.object(field_restore, "find_tokens", return_value=[(hit_cur, m)]):
+        html_import._place_ruby(MagicMock(), [html_ruby.ImportRubySpan("漢字", "かんじ", True)], "abc123")
+    hit_cur.setString.assert_called_once_with("")
+    hit_cur.setPropertyValue.assert_not_called()
 
 
 
@@ -907,6 +897,10 @@ def test_styled_insert_epilogue_cursor_move():
         ("<ruby>漢字<rt>かんじ</rt></ruby>", 1, []),
         # Normalized HTML tags in prose stay text, not a heading block.
         ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 1, []),
+        # Escapes inside TeX math keep their backslash while prose escapes expand.
+        (r"<h1>Angle \(\theta + \nu\) x</h1>", 1, [{"level": 1, "text": r"Angle \(\theta + \nu\) x"}]),
+        (r"<h1>A $\tau$ z</h1>", 1, [{"level": 1, "text": r"A $\tau$ z"}]),
+        (r"<h1>Line\nTwo</h1>", 1, [{"level": 1, "text": "Line Two"}]),
     ],
 )
 def test_summarize_written_blocks_fixtures(html: str, expected_count: int, expected_headings: list[dict[str, Any]]) -> None:

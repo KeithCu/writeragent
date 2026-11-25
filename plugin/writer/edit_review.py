@@ -72,6 +72,7 @@ from plugin.writer.record_changes import (
     overlaps_foreign_insertion,
     record_changes,
     redline_kinds_covering,
+    redline_spans,
 )
 from plugin.writer.review_view_attachment import refresh_review_toolbar
 from plugin.writer.word_diff_split import split_change
@@ -1286,7 +1287,7 @@ def range_has_tracked_insert_or_delete(doc: Any, text_range: Any) -> bool:
         lambda: text_range.getText().compareRegionStarts(text_range.getStart(), text_range.getEnd()),
         None,
     )
-    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(doc, text_range)):
+    if cmp_val != 0 and (_BLOCKING_REDLINE_TYPES & redline_kinds_covering(redline_spans(doc), text_range)):
         return True
     top = _open_enum(text_range)
     if top is None:
@@ -1406,7 +1407,7 @@ class _WriterStreamedSessionBase:
         self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
 
     def _retarget_links(self) -> str | None:
-        """Point links at a heading this edit renamed. Returns a warning for links left stale."""
+        """Point links at headings this edit renamed. Returns a warning for links left stale."""
         if not self._headings:
             return None
         try:
@@ -1417,7 +1418,7 @@ class _WriterStreamedSessionBase:
             reraise_if_disposed(exc)
             log.exception("streamed edit: heading link update failed")
             detail = str(exc)
-        return _("Links to the renamed heading could not all be updated: {0}").format(detail) if detail else None
+        return _("Links to a renamed or deleted heading could not all be updated: {0}").format(detail) if detail else None
 
     def _exit_stream_recording(self) -> None:
         """Exit the stream's record_changes(False) context, restoring prior recording state."""

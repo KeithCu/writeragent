@@ -18,7 +18,7 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import normalize_linebreaks, set_paragraph_background
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 from plugin.framework.errors import (
     Diagnostic,
@@ -32,6 +32,7 @@ from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
 from .hyperlink_fixup import StaleReason
+from .math.html_math_segment import segment_html_with_mixed_math
 from .record_changes import record_changes
 
 if TYPE_CHECKING:
@@ -502,9 +503,17 @@ def normalize_character_references(text: str) -> str:
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
-    Every write entry point runs this once, before measuring ruby offsets or importing.
+    Every write entry point runs this once, before importing.
     """
     return text.replace("\\n", "\n").replace("\\t", "\t")
+
+
+def expand_prose_escapes(text: str) -> str:
+    """``expand_escapes`` outside math, so TeX such as ``\\nu`` and ``\\tau`` keeps its backslash."""
+    return "".join(
+        expand_escapes(seg.text) if seg.kind == "html" else seg.source
+        for seg in segment_html_with_mixed_math(text)
+    )
 
 
 def plain_paragraphs(content: str) -> list[str]:
@@ -517,15 +526,15 @@ def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
     Normalizes complete character references (keeping < > & " ' escaped),
-    expands escapes, strips ruby, normalizes line breaks, escapes prose angle
+    expands escapes outside math, strips ruby, normalizes line breaks, escapes prose angle
     brackets, and strips boilerplate.
     """
     if not isinstance(content, str) or not content:
         return ""
 
     content = normalize_character_references(content)
-    content = expand_escapes(content)
-    content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content = expand_prose_escapes(content)
+    content = html_ruby.strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)
@@ -1001,43 +1010,19 @@ def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
     return [name for css_list in css_lists for css in css_list if css for name in _declaration_names(css)]
 
 
-def _get_fill_style_enums() -> tuple[Any, Any]:
-    """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
-    import uno
-    return (
-        uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
-        uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
-    )
-
-
 def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list[str]:
     """Apply parsed UNO paragraph properties to one Writer paragraph (``SwXParagraph``).
 
     Everything is set on the paragraph element, not on a text cursor: the paragraph is the
-    only object that exposes the drawing-fill properties a background needs (see below), and
-    it accepts ParaAdjust and the margins just as well. Returns the CSS property names that
-    failed to apply.
+    only object that exposes the drawing-fill properties a background needs (see
+    ``set_paragraph_background``), and it accepts ParaAdjust and the margins just as well.
+    Returns the CSS property names that failed to apply.
     """
     failed: list[str] = []
     for css_name, (uno_prop, val) in mapped.items():
         try:
             if css_name == "background-color":
-                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
-                # converting to fill attributes (only SwXStyle::SetPropertyValue in
-                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
-                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
-                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
-                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
-                # Direct paragraph backgrounds must set FillColor and FillStyle on the
-                # SwXParagraph element itself (FILL_PROPERTIES_SW in
-                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
-                # on COMPLETE_TEXT_CURSOR_MAP).
-                solid_style, none_style = _get_fill_style_enums()
-                if val == -1:
-                    para_obj.setPropertyValue("FillStyle", none_style)
-                else:
-                    para_obj.setPropertyValue("FillColor", val)
-                    para_obj.setPropertyValue("FillStyle", solid_style)
+                set_paragraph_background(para_obj, val)
             else:
                 para_obj.setPropertyValue(uno_prop, val)
         except Exception as exc:

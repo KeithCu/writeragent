@@ -442,6 +442,23 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     return cleared
 
 
+def set_paragraph_background(para: Any, color: int) -> None:
+    """Set the direct background of paragraph *para* (``SwXParagraph``); -1 means no fill."""
+    # Setting ParaBackColor on a cursor or paragraph writes only RES_BACKGROUND without
+    # converting to fill attributes (only SwXStyle::SetPropertyValue in
+    # sw/source/core/unocore/unostyle.cxx converts it), so it is lost on save and a style
+    # fill wins over it. Fill properties exist only on SwXParagraph (FILL_PROPERTIES_SW in
+    # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap), and ParaBackColor reads
+    # derive from them via getSvxBrushItemFromSourceSet
+    # (svx/source/unodraw/unobrushitemhelper.cxx), returning COL_AUTO (-1) when FillStyle
+    # is missing or NONE.
+    if color == -1:
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+    else:
+        para.setPropertyValue("FillColor", color)
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+
+
 def writable_char_names(rng: Any) -> list[str] | None:
     """Return writable Char* property names on *rng*, or None when property info is missing."""
     info = rng.getPropertySetInfo()
@@ -608,6 +625,57 @@ class DeletionState:
         return not has_anchored
 
 
+_NESTING_PORTIONS = ("ContentControl", "InContentMetadata")
+
+
+def _flat_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(portion, type)`` flattening ``ContentControl`` and ``InContentMetadata``.
+
+    ``lcl_ExportHints`` (``sw/source/core/unocore/unoportenum.cxx``) puts those
+    container portions' inner runs and redline markers into a child enumeration
+    instead of emitting them at top level, leaving the outer portion's
+    ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
+    (``unocontentcontrol.cxx``) refreshes that list for each control, including
+    nested controls, so one recursive call flattens arbitrary nesting. Yields
+    ``(None, None)`` when ``nextElement()`` fails (after ``reraise_if_disposed``),
+    and ``(portion, None)`` when a portion's type or child enumeration is unreadable.
+    """
+    while enum_has_more(portion_enum):
+        try:
+            portion = portion_enum.nextElement()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            yield None, None
+            continue
+        kind = _portion_type(portion)
+        if kind in _NESTING_PORTIONS:
+            try:
+                inner = portion.getPropertyValue(kind).createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                yield portion, None
+                continue
+            yield from _flat_portions(inner)
+        else:
+            yield portion, kind
+
+
+def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str]]:
+    """Yield ``(portion, type)`` from *portion_enum*, flattening nested controls and stopping at the first unreadable portion."""
+    for portion, kind in _flat_portions(portion_enum):
+        if kind is None:
+            break
+        yield portion, kind
+
+
+def section_own_shown(section: Any) -> bool:
+    """True when *section* itself is shown (ignoring ancestor section visibility)."""
+    visible = bool(section.getPropertyValue("IsVisible"))
+    # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
+    # condition (section.cxx constructor), so only the OR reflects this section's own state.
+    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+
+
 def visible_portions(
     para: Any,
     *,
@@ -641,7 +709,7 @@ def visible_portions(
         state.in_delete = False
         return
     seen = 0
-    while enum_has_more(portion_enum):
+    for portion, portion_type in _flat_portions(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
             # The end marker was not read, and an open state would hide the rest of the document.
@@ -650,15 +718,6 @@ def visible_portions(
                 truncated_out.append(seen)
             return
         seen += 1
-        try:
-            portion = portion_enum.nextElement()
-        except Exception:
-            if abort_on_portion_error:
-                # The end marker was not read, and an open state would hide the rest of the document.
-                state.in_delete = False
-                return
-            continue
-        portion_type = _portion_type(portion)
         if portion_type is None:
             if abort_on_portion_error:
                 # The end marker was not read, and an open state would hide the rest of the document.
@@ -945,17 +1004,17 @@ def paragraph_deletion_flags(model: Any, elements: list[Any]) -> list[bool]:
 def live_paragraph_text(para: Any, starts_deleted: bool) -> str | None:
     """Visible text of *para*, or None when a tracked deletion strikes all of it.
 
-    Portions cannot read text inside an inline content control or metadata field
-    (``lcl_ExportHints`` in ``sw/source/core/unocore/unoportenum.cxx`` moves inner portions into a
-    child list), so the raw ``para.getString()`` read is used when no deletion touches the
-    paragraph. Blank visible text alone does not mean struck; it is struck when it starts inside a
-    deletion, or has raw text and a Delete marker.
+    Portions cannot read text inside a ``MetadataField`` (a ``TextField`` portion
+    whose ``getString()`` is empty), so the raw ``para.getString()`` read is used
+    when no deletion touches the paragraph. Blank visible text alone does not mean
+    struck; it is struck when it starts inside a deletion, or has raw text and a
+    Delete marker.
     """
     state = DeletionState(starts_deleted)
     text = get_string_without_tracked_deletions(para, state)
     if not (starts_deleted or state.saw_delete):
-        # No marker seen, so raw text is the visible text, except for a deletion wholly inside a
-        # content control or metadata field: its markers are in the child list.
+        # No marker seen, so raw text is the visible text, except for a deletion
+        # wholly inside a metadata field.
         return normalize_linebreaks(para.getString())
     if not text.strip() and (starts_deleted or para.getString().strip()):
         return None
