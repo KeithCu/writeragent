@@ -1119,3 +1119,48 @@ def test_block_summarizer_marks_filled_on_text_and_hr():
     parser.close()
     assert parser.filled == [True, True, True, False]
     assert len(parser.slots) == 4
+
+
+@pytest.mark.parametrize(
+    "html,expected",
+    [
+        (
+            '<blockquote data-lo-style="Quotations">t<p data-lo-style="Standard">x</p></blockquote>',
+            ["Quotations", "Standard"],
+        ),
+        (
+            '<p><hr></p><h1 data-lo-style="Heading1">A</h1><p data-lo-style="Quotations">B</p>',
+            [None, "Heading1", "Quotations"],
+        ),
+        (
+            '<blockquote><hr><p data-lo-style="Quotations">q</p></blockquote>'
+            '<h1 data-lo-style="Heading1">After</h1>',
+            [None, "Quotations", "Heading1"],
+        ),
+        (
+            '<ul><li><ul><li data-lo-style="List2">A</li></ul>'
+            '<p data-lo-style="Quotations">tail</p></li></ul>'
+            '<h1 data-lo-style="Heading1">After</h1>',
+            ["List2", "Quotations", "Heading1"],
+        ),
+        (
+            '<blockquote><table><tr><td>c</td></tr></table>'
+            '<p data-lo-style="Quotations">x</p></blockquote>'
+            '<h1 data-lo-style="Heading1">After</h1>',
+            ["Quotations", "Heading1"],
+        ),
+        (
+            '<p data-lo-style="Standard">A<hr><p data-lo-style="Heading1">B</p>',
+            ["Standard", None, "Heading1"],
+        ),
+        (
+            '<p data-lo-style="Standard">A<p/><h1 data-lo-style="Heading1">B</h1>',
+            ["Standard", "Heading1"],
+        ),
+    ],
+)
+def test_extract_block_lo_styles_nested_and_void_shapes(html: str, expected: list[str | None]):
+    from plugin.writer.html_import_styles import extract_block_lo_styles
+
+    _clean, styles, _paras, _skipped = extract_block_lo_styles(html)
+    assert styles == expected

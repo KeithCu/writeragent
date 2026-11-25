@@ -226,7 +226,7 @@ class _OpenBlock:
 
 # StarWriter import keeps a block that holds one of these, and drops a block with no text at all.
 _CONTENT_TAGS: frozenset[str] = frozenset({
-    "table", "br", "hr", "img", "input", "select", "textarea",
+    "br", "img", "input", "select", "textarea",
     "object", "embed", "iframe",
 })
 
@@ -238,7 +238,6 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
 
     # Paragraph-level blocks cannot contain blocks: a new one closes the open one (<p>a<p>b).
     _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
-    _VOID_BLOCK_TAGS: ClassVar[frozenset[str]] = frozenset({"hr"})
     _table_depth: int
 
     def __init__(self) -> None:
@@ -278,26 +277,25 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
     def _slot(self, tag: str, style: str | None, para: str | None) -> int:
         # <blockquote><p> and <li><p> take two slots but make ONE Writer
         # paragraph, so every later style lands one paragraph late ("2. DO
-        # DIREITO" loses its heading, a list item becomes a quote). A
-        # block's first child block is that same paragraph -- it shares
-        # the slot, and its own style/para wins when it has one, unless
-        # the parent already has content, is a void block like <hr>, or
-        # both parent and child are <li> (nested list items are separate
-        # Writer paragraphs).
+        # DIREITO" loses its heading, a list item becomes a quote).
+        # StarWriter starts a new paragraph for a nested block only when the
+        # current paragraph already has content (NewNumberBulletListItem,
+        # NewTextFormatColl), so a nested block shares only an empty
+        # parent's slot, and its own style/para wins when it has one.
         parent = self._open[-1] if self._open else None
         if (
             parent is not None
             and parent.shared is False
-            and not (parent.tag == "li" and tag == "li")
-            and tag not in self._VOID_BLOCK_TAGS
-            and not (parent.slot_index is not None and self.filled[parent.slot_index])
+            and tag != "hr"
+            and parent.slot_index is not None
+            and not self.filled[parent.slot_index]
         ):
             parent.shared = True
-            slot_idx = len(self.styles) - 1
+            slot_idx = parent.slot_index
             if style is not None:
-                self.styles[-1] = style
+                self.styles[slot_idx] = style
             if para is not None:
-                self.paras[-1] = para
+                self.paras[slot_idx] = para
             self._on_slot_shared(slot_idx, tag, style)
             return slot_idx
         slot_idx = len(self.styles)
@@ -335,6 +333,8 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
 
     def _emit_void_block(self, t: str, attrs: list[tuple[str, str | None]], raw: str) -> None:
         self._close_para_level()
+        if self._open and self._open[-1].shared is False:
+            self._open[-1].shared = True
         slot_idx = self._slot(t, self._style_of(attrs), self._para_of(attrs))
         # StarWriter always creates a Horizontal Line paragraph for <hr>.
         self.filled[slot_idx] = True
@@ -353,7 +353,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
                 self.skipped_para.append(para)
             self._out.append(_strip_data_lo_attrs(raw))
             return
-        if self._table_depth == 0 and t in self._VOID_BLOCK_TAGS:
+        if self._table_depth == 0 and t == "hr":
             self._emit_void_block(t, attrs, raw)
             return
         if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
@@ -378,7 +378,7 @@ class _BlockLoStyleExtractor(xhtml_post.HtmlPassthroughParser):
         t = tag.lower()
         if t in _CONTENT_TAGS:
             self._mark_filled()
-        if self._table_depth == 0 and t in self._VOID_BLOCK_TAGS:
+        if self._table_depth == 0 and t == "hr":
             self._emit_void_block(t, attrs, raw)
         elif self._table_depth == 0 and self._is_block(t, attrs):
             self._close_para_level()
@@ -488,7 +488,7 @@ class _BlockSummarizer(_BlockLoStyleExtractor):
             })
 
     def _append_text(self, text: str) -> None:
-        if self._table_depth > 0 or self._ignored_depth > 0:
+        if self._table_depth > 0:
             return
         slot_index = self._innermost_slot()
         if slot_index is not None and slot_index < len(self.slots):
