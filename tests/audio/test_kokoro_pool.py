@@ -18,7 +18,8 @@ from typing import Any
 
 import pytest
 
-from plugin.audio.kokoro_pool import KokoroProcessPool, _child_env
+from plugin.audio.kokoro_pool import KokoroProcessPool, WORKER_CANCELLED, _child_env
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.warm_child import Supervisor, WarmChild
 
@@ -646,35 +647,31 @@ def test_base_exception_during_request_propagates(tmp_path, monkeypatch, supervi
         pool.shutdown()
 
 
-def test_pool_cancel_just_before_spawn_does_not_run_the_job(tmp_path, supervisor) -> None:
-    from plugin.audio.kokoro_pool import WORKER_CANCELLED
-    from plugin.framework.send_cancellation import SendCancellation
-
+def test_pool_cancel_just_before_spawn_does_not_run_the_job(
+    tmp_path, supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
     script = _fake_worker_script(tmp_path)
     pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     scope = SendCancellation()
-    real_lock = pool._warm._io_lock
-    cancelled_once = False
+    orig_spawn = supervisor.spawn
+    popens: list[subprocess.Popen[bytes]] = []
 
-    class _LockProxy:
-        def acquire(self, *args: Any, **kwargs: Any) -> bool:
-            nonlocal cancelled_once
-            acquired = real_lock.acquire(*args, **kwargs)
-            if acquired and not cancelled_once:
-                cancelled_once = True
-                scope.cancel()
-            return acquired
+    def _cancel_then_spawn(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
+        # The pool's cancel hook finds no child to kill here, so only the scope passed to the lease stops the job.
+        scope.cancel()
+        orig_spawn(managed, timeout_sec=timeout_sec)
+        assert managed.popen is not None
+        popens.append(managed.popen)
 
-        def release(self) -> None:
-            real_lock.release()
-
-    pool._warm._io_lock = _LockProxy()  # type: ignore[assignment]
+    monkeypatch.setattr(supervisor, "spawn", _cancel_then_spawn)
     out_path = tmp_path / "should_not_exist.wav"
     try:
         res = pool.execute({"text": "Hi.", "out_path": str(out_path)}, cancel=scope)
         assert res["status"] == "error"
         assert res["code"] == WORKER_CANCELLED
         assert not out_path.exists()
+        assert len(popens) == 1
+        assert popens[0].poll() is not None
+        assert not pool.is_warm_alive()
     finally:
-        pool._warm._io_lock = real_lock
         pool.shutdown()

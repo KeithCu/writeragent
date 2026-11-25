@@ -1221,7 +1221,6 @@ def test_io_session_body_oserror_does_not_disable_systemd_scope():
 
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     warm = MagicMock()
-    warm._io_lock = threading.Lock()
     mgr._warm = warm
 
     @contextlib.contextmanager
