@@ -777,7 +777,38 @@ def test_text_runs_magic_mock_returns_empty():
     from plugin.writer.html_import import _text_runs
 
     mock_range = MagicMock()
-    assert _text_runs(mock_range) == []
+    assert _text_runs(mock_range, in_redlines=False) == []
+
+
+@pytest.mark.parametrize("in_redlines, expected_texts", [(False, []), (True, ["a", "b"])])
+def test_text_runs_redline_handling(in_redlines, expected_texts):
+    from plugin.writer.html_import import _text_runs
+
+    def _portion(kind: str, text: str = "", *, is_start: bool = False) -> MagicMock:
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: is_start if name == "IsStart" else kind
+        p.getString.return_value = text
+        return p
+
+    portions = [
+        _portion("Text", "a"),
+        _portion("Redline", is_start=True),
+        _portion("Text", "b"),
+        _portion("Redline", is_start=False),
+    ]
+    para = MagicMock()
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    para_enum.nextElement.side_effect = portions
+    para.createEnumeration.return_value = para_enum
+
+    rng = MagicMock()
+    rng_enum = MagicMock()
+    rng_enum.hasMoreElements.side_effect = [True, False]
+    rng_enum.nextElement.return_value = para
+    rng.createEnumeration.return_value = rng_enum
+
+    assert [r.getString() for r in _text_runs(rng, in_redlines=in_redlines)] == expected_texts
 
 
 def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
@@ -2156,6 +2187,8 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     leftover.getString.side_effect = ["", brk, brk]
     leftover.goLeft.return_value = False
     leftover.goRight.return_value = True
+    following = leftover.getText.return_value.createTextCursorByRange.return_value
+    following.getPropertyValue.side_effect = lambda name: MagicMock(value="NONE") if name == "BreakType" else ""
     _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
     leftover.setString.assert_called_once_with("")
 
@@ -2289,7 +2322,7 @@ def test_replace_whole_paragraphs_works_without_styles_module(recording):
     cursor = MagicMock()
     second = MagicMock()
     second.goRight.return_value = False
-    text_obj.createTextCursorByRange.side_effect = [cursor, second]
+    text_obj.createTextCursorByRange.side_effect = lambda r: second if r is rng.getEnd.return_value else cursor
     cursor.getPropertySetInfo.return_value = None
     second.getPropertySetInfo.return_value = None
 
