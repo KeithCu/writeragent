@@ -59,8 +59,8 @@ class _FinalTool(Tool):
         return answer
 
 
-def _make_agent(model: MagicMock, *tools: Tool, agent_cls=ToolCallingAgent):
-    return agent_cls(
+def _make_agent(model: MagicMock, *tools: Tool):
+    return ToolCallingAgent(
         tools=list(tools),
         model=model,
         max_steps=4,
@@ -204,7 +204,6 @@ def test_successful_multicall_turn_keeps_plain_observations():
 
     obs = agent.memory.steps[1].observations
     assert obs == "edited:1\nedited:2"
-    assert "Call 1" not in obs
 
 
 def test_secondary_finish_tool_is_not_accepted_when_turn_fails():
