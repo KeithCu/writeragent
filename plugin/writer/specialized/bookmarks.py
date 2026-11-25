@@ -23,6 +23,7 @@ import logging
 import uuid
 from typing import Any, ClassVar, Generator
 
+from plugin.doc.compound_undo import UndoLock
 from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
 from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
@@ -143,25 +144,10 @@ class BookmarkService(ServiceBase):
         would undo a bookmark instead of their last edit.
         """
         was: bool | None = _read_was_modified(doc)
-        manager = None
         try:
-            manager = doc.getUndoManager()
-            manager.lock()
-        except Exception:
-            manager = None
-        try:
-            with self._ignore_cache():
+            with UndoLock(doc), self._ignore_cache():
                 yield
         finally:
-            if manager is not None:
-                try:
-                    manager.unlock()
-                except Exception:
-                    log.warning(
-                        "BookmarkService: undo manager unlock failed; the undo "
-                        "manager may be left locked",
-                        exc_info=True,
-                    )
             if was is not None:
                 try:
                     doc.setModified(was)
