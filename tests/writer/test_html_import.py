@@ -777,7 +777,38 @@ def test_text_runs_magic_mock_returns_empty():
     from plugin.writer.html_import import _text_runs
 
     mock_range = MagicMock()
-    assert _text_runs(mock_range) == []
+    assert _text_runs(mock_range, in_redlines=False) == []
+
+
+@pytest.mark.parametrize("in_redlines, expected_texts", [(False, []), (True, ["a", "b"])])
+def test_text_runs_redline_handling(in_redlines, expected_texts):
+    from plugin.writer.html_import import _text_runs
+
+    def _portion(kind: str, text: str = "", *, is_start: bool = False) -> MagicMock:
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: is_start if name == "IsStart" else kind
+        p.getString.return_value = text
+        return p
+
+    portions = [
+        _portion("Text", "a"),
+        _portion("Redline", is_start=True),
+        _portion("Text", "b"),
+        _portion("Redline", is_start=False),
+    ]
+    para = MagicMock()
+    para_enum = MagicMock()
+    para_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    para_enum.nextElement.side_effect = portions
+    para.createEnumeration.return_value = para_enum
+
+    rng = MagicMock()
+    rng_enum = MagicMock()
+    rng_enum.hasMoreElements.side_effect = [True, False]
+    rng_enum.nextElement.return_value = para
+    rng.createEnumeration.return_value = rng_enum
+
+    assert [r.getString() for r in _text_runs(rng, in_redlines=in_redlines)] == expected_texts
 
 
 def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:

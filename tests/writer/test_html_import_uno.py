@@ -3440,6 +3440,8 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
     try:
         cases = (
             ("p", ["<p>Second clause revised</p>"]),
+            ("p_same_style", ['<p data-lo-style="Standard">Second clause revised</p>']),
+            ("ol1", ["<ol><li>Second clause revised</li></ol>"]),
             ("two_p", ["<p>Second clause revised</p>", "<p>And another</p>"]),
             ("h2", ["<h2>Second clause revised</h2>"]),
             ("ul", ["<ul><li>one</li><li>two</li></ul>"]),
@@ -3447,7 +3449,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
         )
         for kind, content in cases:
             for mode in ("off", "accept", "reject"):
-                if mode == "reject" and kind != "p":
+                if mode == "reject" and kind not in ("p", "p_same_style"):
                     continue
                 save({flag: "off" if mode == "off" else "record"})
                 d = _seed_and_reload_docx()
@@ -3464,13 +3466,19 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
 
                     paras = _body_paragraphs(d)
                     labels = [str(p.getPropertyValue("ListLabelString") or "") for p in paras]
-                    if kind == "p":
+                    if kind in ("p", "p_same_style", "ol1"):
                         assert labels == ["1.", "2.", "3."], (kind, mode, labels)
+                        if kind == "p_same_style" and mode != "reject":
+                            assert paras[1].getPropertyValue("ParaStyleName") == "Standard", (kind, mode)
                         assert int(paras[1].getPropertyValue("ParaAdjust")) == 2
                         assert int(paras[1].getPropertyValue("ParaLeftMargin")) > 1000
                         assert int(paras[1].getPropertyValue("ParaFirstLineIndent")) < 0
+                        assert int(paras[1].getPropertyValue("ParaBottomMargin")) == int(
+                            paras[0].getPropertyValue("ParaBottomMargin")
+                        ), (kind, mode, paras[1].getPropertyValue("ParaBottomMargin"), paras[0].getPropertyValue("ParaBottomMargin"))
+                        assert len(paras[1].getPropertyValue("ParaTabStops") or ()) >= 1
                         fname, fsize, fweight = _first_font(paras[1])
-                        assert (fname, fsize) == ("Times New Roman", 11.0), (mode, fname, fsize)
+                        assert (fname, fsize) == ("Times New Roman", 11.0), (kind, mode, fname, fsize)
                         assert fweight == (150.0 if mode == "reject" else 100.0)
                     elif kind == "two_p":
                         assert labels == ["1.", "2.", "", "3."], (kind, mode, labels)
@@ -3488,7 +3496,8 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                         assert paras[1].getPropertyValue("ParaStyleName") == "Quotations"
                         assert int(paras[1].getPropertyValue("ParaAdjust")) != 2
                     elif kind == "ul":
-                        assert paras[1].getPropertyValue("ParaStyleName") != "Heading 2"
+                        assert int(paras[1].getPropertyValue("ParaAdjust")) != 2
+                        assert int(paras[1].getPropertyValue("ParaFirstLineIndent")) == 0
                         assert bool(paras[2].getPropertyValue("NumberingIsNumber")) is True
                         assert labels[0] == "1." and labels[-1] == "2."
                 finally:
@@ -3579,7 +3588,7 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
                 assert all(p[2] == 150.0 and p[3] == "https://example.com/target" for p in mid), (mode, pts)
 
         # 2. Another author's insertion & deletion at start and end edges of bold + linked target
-        for mode in ("accept", "reject"):
+        for mode in ("off", "accept", "reject"):
             doc.setPropertyValue("RecordChanges", False)
             text = doc.getText()
             text.setString("")
@@ -3615,7 +3624,7 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
             text.insertString(cur, " omega", False)
 
             review_authors.set_office_author(ctx, "Bob")
-            doc.setPropertyValue("RecordChanges", True)
+            doc.setPropertyValue("RecordChanges", mode != "off")
             rng = text.createTextCursor()
             rng.gotoStart(False)
             rng.goRight(len("alpha ADDEDDEL1"), False)
@@ -3625,17 +3634,25 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
 
             rls = doc.getRedlines()
             authors = [str(rls.getByIndex(i).getPropertyValue("RedlineAuthor")) for i in range(rls.getCount())]
-            assert authors.count("Alice") == 4, authors
-            assert "Bob" in authors, authors
-
-            if mode == "accept":
+            assert authors.count("Alice") == 4, (mode, authors)
+            if mode == "off":
+                assert "Bob" not in authors, authors
+                zz = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "ZZ"]
+                assert zz and zz[0][2] == 150.0 and zz[0][3] == "https://example.com/clause", zz
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                assert text.getString() == "alpha ADDEDZZTAIL omega"
+            elif mode == "accept":
+                assert "Bob" in authors, authors
                 _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
                 assert text.getString() == "alpha ADDEDZZTAIL omega"
                 zz = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "ZZ"]
                 assert zz and zz[0][2] == 150.0 and zz[0][3] == "https://example.com/clause", zz
             else:
+                assert "Bob" in authors, authors
                 _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
                 assert text.getString() == "alpha DEL1old wordsDEL2 omega"
+                ow = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "old words"]
+                assert ow and ow[0][2] == 150.0 and ow[0][3] == "https://example.com/clause", ow
     finally:
         _restore_lo_author(prev_given, prev_sn)
         doc.setPropertyValue("RecordChanges", False)
@@ -3689,16 +3706,82 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
                 while enum_has_more(e):
                     elements.append(e.nextElement())
 
+                bm_anchor = doc.getBookmarks().getByName(bm_name).getAnchor()
                 if not recording:
                     target = elements[1]
                     assert str(target.getPropertyValue("BreakType").value) == "PAGE_BEFORE", (recording, html)
                     assert str(target.getPropertyValue("PageDescName") or "") == "Landscape", (recording, html)
                     if html.startswith("<p>"):
                         assert target.getPropertyValue("ParaStyleName") == "Text body"
+                        assert text.compareRegionStarts(bm_anchor.getStart(), target.getStart()) <= 0
+                        assert text.compareRegionEnds(bm_anchor.getEnd(), target.getEnd()) >= 0
+                    else:
+                        # Table insert leaves the bookmarked empty paragraph after the table.
+                        assert text.compareRegionStarts(bm_anchor.getStart(), elements[2].getStart()) == 0
+                        assert elements[2].getString() == ""
                 else:
                     kept_empty = elements[1]
                     assert kept_empty.getPropertyValue("ParaStyleName") == "Heading 1"
                     assert str(kept_empty.getPropertyValue("BreakType").value) == "PAGE_BEFORE"
                     assert str(kept_empty.getPropertyValue("PageDescName") or "") == "Landscape"
+                    if html.startswith("<p>"):
+                        assert text.compareRegionStarts(bm_anchor.getStart(), elements[2].getStart()) <= 0
+                        assert text.compareRegionEnds(bm_anchor.getEnd(), elements[2].getEnd()) >= 0
+                    else:
+                        assert text.compareRegionStarts(bm_anchor.getStart(), elements[3].getStart()) == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_insert_on_empty_paragraph_respects_direct_vs_style_page_break_uno(ctx: Any, doc: Any) -> None:
+    """Table insert before a direct page break keeps it; before a style page break drops the empty line."""
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.writer.html_import import insert_content_at_position
+
+    text = doc.getText()
+    h1_style = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Heading 1")
+    prev_h1_break = h1_style.getPropertyValue("BreakType")
+    try:
+        # 1. Next paragraph has a direct page break: empty leftover stays so the break is kept.
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Before.", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertString(cur, "After.", False)
+        after_para = _body_paragraphs(doc)[2]
+        text.createTextCursorByRange(after_para.getStart()).setPropertyValue("BreakType", PAGE_BEFORE)
+
+        sel_cur = text.createTextCursorByRange(_body_paragraphs(doc)[1].getStart())
+        insert_content_at_position(
+            doc, ctx, "<table><tr><td>Cell</td></tr></table>", position="selection", selection=sel_cur
+        )
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["Before.", "", "After."]
+        assert doc.getTextTables().getCount() == 1
+        assert str(paras[2].getPropertyValue("BreakType").value) == "PAGE_BEFORE"
+
+        # 2. Next paragraph has a style-supplied page break: empty leftover is dropped.
+        h1_style.setPropertyValue("BreakType", PAGE_BEFORE)
+        text.setString("")
+        cur = text.createTextCursor()
+        text.insertString(cur, "Before.", False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        text.insertString(cur, "Heading.", False)
+        text.createTextCursorByRange(_body_paragraphs(doc)[2].getStart()).setPropertyValue("ParaStyleName", "Heading 1")
+
+        sel_cur = text.createTextCursorByRange(_body_paragraphs(doc)[1].getStart())
+        insert_content_at_position(
+            doc, ctx, "<table><tr><td>Cell</td></tr></table>", position="selection", selection=sel_cur
+        )
+        paras = _body_paragraphs(doc)
+        assert [p.getString() for p in paras] == ["Before.", "Heading."]
+        assert doc.getTextTables().getCount() == 1
+        assert paras[1].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert str(paras[1].getPropertyValue("BreakType").value) == "PAGE_BEFORE"
+    finally:
+        h1_style.setPropertyValue("BreakType", prev_h1_break)

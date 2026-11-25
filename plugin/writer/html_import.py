@@ -21,7 +21,9 @@ import contextlib
 import logging
 import re
 import uuid
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
+
+import uno
 
 
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
@@ -581,8 +583,19 @@ def _delete_preceding_break(cursor: Any) -> bool:
 
 
 def _starts_new_page(cursor: Any) -> bool:
-    """True when *cursor*'s paragraph carries a direct page or column break or a page style."""
-    return cursor.getPropertyValue("BreakType").value != "NONE" or bool(cursor.getPropertyValue("PageDescName"))
+    """True when *cursor*'s paragraph carries a direct page or column break or a direct page style."""
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    target = para if para is not None else cursor
+    return (
+        (
+            target.getPropertyState("BreakType").value == "DIRECT_VALUE"
+            and target.getPropertyValue("BreakType").value != "NONE"
+        )
+        or (
+            target.getPropertyState("PageDescName").value == "DIRECT_VALUE"
+            and bool(target.getPropertyValue("PageDescName"))
+        )
+    )
 
 
 def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) -> None:
@@ -596,10 +609,14 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     Right after a table, ``goLeft(1)`` spans the table (``SwUnoCursor::IsSelOvr`` in
     ``sw/source/core/unocore/unocrsr.cxx``), so no break is deleted. With
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
-    after it, which keeps its own style (``sw_GetJoinFlags`` in
-    ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). In a review-mode full-document replace, a recorded whole-paragraph
-    replace (``_replace_whole_paragraphs``), or a recorded header/footer rewrite
+    after it unless *leftover* holds a bookmark (joining backward keeps bookmarks,
+    whereas merging forward deletes the leftover paragraph and its bookmarks) or the
+    following paragraph carries a direct page/column break or direct page style
+    (which merging forward would drop). When merged, the following paragraph keeps
+    its own style (``sw_GetJoinFlags`` in ``sw/source/core/doc/docedt.cxx``: a
+    deletion starting at offset 0 keeps the end node). In a review-mode
+    full-document replace, a recorded whole-paragraph replace
+    (``_replace_whole_paragraphs``), or a recorded header/footer rewrite
     (``replace_xtext_with_html``), the paragraph after it is the first
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
@@ -982,6 +999,18 @@ def _direct_list_tag(cursor: Any) -> str | None:
     return "ol" if para.getPropertyValue("ListLabelString") else "ul"
 
 
+def _direct_para_props(cursor: Any) -> dict[str, Any]:
+    """Direct paragraph properties on *cursor*'s paragraph that a style write would reset."""
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    if para is None:
+        return {}
+    return {
+        name: para.getPropertyValue(name)
+        for name in _ABSORB_PARA_PROPERTIES
+        if para.getPropertyState(name).value == "DIRECT_VALUE"
+    }
+
+
 def _replace_whole_paragraphs(
     model: Any,
     ctx: Any,
@@ -1007,11 +1036,13 @@ def _replace_whole_paragraphs(
     preserves them (and any uniform font family/size) when the first imported
     block is plain ``<p>``/text for that same paragraph, while headings, lists,
     and differently styled blocks reset layout so they do not inherit the old
-    clause's formatting. The leftover synthetic paragraph is dropped untracked
-    because that break is our own new insertion. Where no following break exists
-    (document end, before a table, section edge), the old paragraph stays empty
-    after Accept; the preceding break is not used because
-    ``DocumentRedlineManager::AppendRedline``
+    clause's formatting. If the first block explicitly names the host's own
+    ``data-lo-style``, direct paragraph properties saved before the import are
+    restored afterward for any property not set by ``data-lo-para``. The leftover
+    synthetic paragraph is dropped untracked because that break is our own new
+    insertion. Where no following break exists (document end, before a table,
+    section edge), the old paragraph stays empty after Accept; the preceding
+    break is not used because ``DocumentRedlineManager::AppendRedline``
     (``sw/source/core/doc/DocumentRedlineManager.cxx``) would restyle the
     struck paragraph.
     """
@@ -1019,11 +1050,9 @@ def _replace_whole_paragraphs(
     cursor = text_obj.createTextCursorByRange(rng.getStart())
     doomed = rng
     recording = record_changes.is_recording_changes(model)
-    # Word clauses store list numbering, indents, justification, and font as direct formatting.
-    # Keep them when the first imported block is plain text/<p> for the same paragraph; reset
-    # when the replacement brings its own block type (heading, list, or different style).
+    host_style = cursor.getPropertyValue("ParaStyleName")
     keep_layout = html_import_styles.first_block_keeps_layout(
-        content, cursor.getPropertyValue("ParaStyleName"), _direct_list_tag(cursor)
+        content, host_style, _direct_list_tag(cursor)
     )
     kept_char = language_at_start(rng)
     if keep_layout:
@@ -1050,7 +1079,37 @@ def _replace_whole_paragraphs(
             reset_direct_char_formatting(cursor, kept_char)
     elif not keep_layout:
         _drop_absorb_paragraph_props(cursor)
-    return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
+    kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
+    prev_anchor = text_obj.createTextCursorByRange(cursor.getStart())
+    has_prev = prev_anchor.goLeft(1, False)
+    report = _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
+    if kept_para:
+        first_cur = text_obj.createTextCursorByRange(prev_anchor.getEnd())
+        if has_prev:
+            first_cur.goRight(1, False)
+        else:
+            first_cur.gotoStart(False)
+        first_para = next(iter_elements(first_cur.createEnumeration()), None)
+        if first_para is not None and first_para.getPropertyValue("ParaStyleName") == host_style:
+            _clean, _styles, block_paras, _skipped = html_import_styles.extract_block_lo_styles(content)
+            explicit_para = (
+                set(html_import_styles.parse_data_lo_para(block_paras[0])[0])
+                if block_paras and block_paras[0]
+                else set()
+            )
+            with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
+                for name, value in kept_para.items():
+                    if name not in explicit_para:
+                        if name == "ParaTabStops":
+                            uno_rt = cast("Any", uno)
+                            uno_rt.invoke(
+                                first_para,
+                                "setPropertyValue",
+                                (name, uno_rt.Any("[]com.sun.star.style.TabStop", value)),
+                            )
+                        else:
+                            first_para.setPropertyValue(name, value)
+    return report
 
 
 def _lo_style_for_replaced_range(
@@ -1287,6 +1346,17 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
+_ABSORB_PARA_PROPERTIES = CLEARABLE_PARA_PROPERTIES + (
+    "ParaLineSpacing",
+    "ParaContextMargin",
+    "ParaTabStops",
+    "LeftBorder",
+    "RightBorder",
+    "TopBorder",
+    "BottomBorder",
+)
+
+
 def _drop_absorb_paragraph_props(cursor: Any) -> None:
     """Drop direct paragraph formatting and direct numbering from the absorb paragraph before HTML import.
 
@@ -1305,19 +1375,7 @@ def _drop_absorb_paragraph_props(cursor: Any) -> None:
     before deleting the old text so Undo restores it. `CLEARABLE_PARA_PROPERTIES`
     remains the clear-direct subset for Ctrl+M / `clear_direct`.
     """
-    reset_properties_to_default(
-        cursor,
-        CLEARABLE_PARA_PROPERTIES
-        + (
-            "ParaLineSpacing",
-            "ParaContextMargin",
-            "ParaTabStops",
-            "LeftBorder",
-            "RightBorder",
-            "TopBorder",
-            "BottomBorder",
-        ),
-    )
+    reset_properties_to_default(cursor, _ABSORB_PARA_PROPERTIES)
     clear_direct_numbering(cursor)
 
 
@@ -1779,12 +1837,15 @@ def content_is_block(content: str | None) -> bool:
 
 
 
-def _text_runs(target_range: Any, *, in_redlines: bool = False) -> list[Any]:
+def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
     less than its string. When *in_redlines* is True, ``Redline`` boundary portions are
     skipped so recorded replaces across another author's change still keep formatting.
+    When *in_redlines* is False (untracked), a range edge may carry a leading/trailing
+    marker, but text inside a redline or a mid-range redline returns ``[]`` so untracked
+    replaces do not alter or split tracked-change markup without recording.
     """
     runs: list[Any] = []
     inside = False

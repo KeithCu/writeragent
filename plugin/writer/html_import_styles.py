@@ -653,10 +653,12 @@ def extract_block_lo_styles(
 def first_block_keeps_layout(content: str, style: str, list_tag: str | None) -> bool:
     """True when *content*'s first block is new text for a paragraph already in paragraph style *style*.
 
-    That is text or ``<p>`` without ``data-lo-style``, a single-item list of the same
-    kind, or a block naming *style* itself (its ``data-lo-style`` token, or ``<h2>`` for
-    ``Heading 2``). Any other first block (another style, a list, a table) brings its
-    own layout.
+    Inspects the first block tag found by ``BLOCK_MARKUP_RE.search`` (so a wrapper
+    like ``<div><p>...</p></div>`` or prose before a heading is classed by that first
+    tag). Returns True for text or ``<p>`` without ``data-lo-style``, a single-item
+    list of the same kind, or a block naming *style* itself (its ``data-lo-style``
+    token, or ``<h2>`` for ``Heading 2``). Any other first block (another style, a
+    list, a table) brings its own layout.
     """
     match = BLOCK_MARKUP_RE.search(content)
     tag = match.group()[1:].lower() if match else "p"
