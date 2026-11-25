@@ -155,7 +155,7 @@ class LlmHttpTransport:
     def _absolute_url(self, path: str) -> str:
         scheme, host, port = self._endpoint_parts()
         default = 443 if scheme == "https" else 80
-        shown = http_security._bracket_ipv6_host(host)
+        shown = http_security.bracket_ipv6_host(host)
         origin = f"{scheme}://{shown}" if port == default else f"{scheme}://{shown}:{port}"
         if not path.startswith("/"):
             path = "/" + path
@@ -553,7 +553,7 @@ class LlmHttpTransport:
                     if cross_origin:
                         self._redirect_origin = new_origin
                         self.close()
-                    log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
+                    log.debug("Following HTTP %s to %s", status, new_origin + new_path)
                     method = new_method
                     wire_headers = new_headers
                     path = new_path

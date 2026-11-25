@@ -174,8 +174,6 @@ queued audit slices.
   extends `RedactingFormatter` instead of this bundle.
 - `_full_url_for_request_path` can leak part of an endpoint password that
   contains a slash, if such a URL is accepted (FU-SECRET-LOGS-7).
-- A few `llm_client` debug lines still call `public_target` (which can
-  raise) instead of `log_target` (FU-SECRET-LOGS-7).
 - A UI-thread bind still waits out the 1.5 s failed-bind backoff even
   though it needs no thread hop (FU-SCRATCH-DOCS-7).
 - An embedded OLE Writer edited in place can bind the host document

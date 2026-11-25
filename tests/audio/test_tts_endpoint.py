@@ -140,8 +140,9 @@ def test_caplog_redacts_credentials(caplog):
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")):
         download_endpoint_speech("Hello", url, "k", model="m", voice="v")
 
+    assert caplog.records
     for record in caplog.records:
-        assert secret not in record.getMessage()
+        assert secret not in caplog.handler.format(record)
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")

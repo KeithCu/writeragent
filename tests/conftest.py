@@ -369,6 +369,35 @@ def _ensure_writeragent_logger_propagates():
 
 
 @pytest.fixture(autouse=True)
+def _clear_known_secrets_between_tests():
+    """Clear registered known secrets before and after every test."""
+    from plugin.framework.log_redaction import clear_known_secrets
+
+    clear_known_secrets()
+    try:
+        yield
+    finally:
+        clear_known_secrets()
+
+
+@pytest.fixture(autouse=True)
+def _redact_caplog_output(request):
+    """Apply RedactingFormatter to caplog, matching writeragent_debug.log."""
+    if "caplog" not in request.fixturenames:
+        yield
+        return
+    from plugin.framework.log_redaction import RedactingFormatter
+
+    caplog = request.getfixturevalue("caplog")
+    old_formatter = caplog.handler.formatter
+    caplog.handler.setFormatter(RedactingFormatter("%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"))
+    try:
+        yield
+    finally:
+        caplog.handler.setFormatter(old_formatter)
+
+
+@pytest.fixture(autouse=True)
 def _suppress_unmocked_extension_update_checks(request):
     """Headless unit tests outside test_extension_update_check must not spawn background update workers."""
     if "test_extension_update_check" in getattr(request.module, "__name__", ""):
