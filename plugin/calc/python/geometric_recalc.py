@@ -65,6 +65,8 @@ class GeometricRuntime:
         # Keyed by (WorkbookState.key, sheet_name, local_a1), one open document each,
         # so a hidden copy or a reloaded document with the same URL has its own entries.
         self.records: dict[tuple[str, str, str], GeometricRecord] = {}
+        # Keyed by (calc_workbook_base_session_id(doc), sheet_name), not WorkbookState.key,
+        # so a reopened or hidden copy of an already reported workbook does not show the box again.
         self.cap_hit_notified: set[tuple[str, str]] = set()
         self.strip_safe: frozenset[EvalIndexKey]
         self.repairing: bool
@@ -218,7 +220,7 @@ def maybe_strip_geometric_eval_args(
     Must run after ``split_python_addin_data_args`` and before
     ``calc_addin_args_from_split`` packs the inputs.
     Off the UI thread, or with no workbook state, args come back unchanged;
-    ``build_cell_context`` resolves ``cell.state`` on the UI thread.
+    ``strip_safe`` is only refreshed on the UI thread.
     """
     if not args or not cell.on_main or cell.state is None:
         return args
@@ -425,7 +427,7 @@ def reconcile(
     doc: Any,
     sheet: Any = None,
 ) -> None:
-    """Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
+    """UI thread only. Flag-on / doc-open / save-path attach: repair sheets in one locked undo unit."""
     if doc is None or _RUNTIME.repairing:
         return
     state = WorkbookState.for_doc(doc)
@@ -458,7 +460,7 @@ def after_py_cell_save(doc: Any, cell: Any) -> None:
     """Primary attach path: Monaco / native Save is already outside recalc."""
     if not geometric_flag_enabled() or doc is None:
         return
-    ctx = uno_read(get_ctx, None) if main.is_current() else None
+    ctx = uno_read(get_ctx, None)
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
         return

@@ -437,21 +437,32 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
         return []
 
 
+def _detach_copy(doc: Any, shape: Any) -> bool:
+    """Rename an XLSX-only duplicate plot so it becomes an ordinary picture; return True if kept."""
+    tag = _read_plot_tag(shape)
+    if tag is None or not tag.from_name:
+        return False
+    name = f"{shape.getPropertyValue('Name')} 1"
+    # SdrObject::SetName (svx/source/svdraw/svdobj.cxx) records undo; tool removals stay recorded.
+    with undo_lock(doc, hide=False):
+        shape.setPropertyValue("Name", name)
+    return True
+
+
 def _drop_extra_plot_slots(doc: Any, draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
 
     A second shape for a slot that is tagged only by its name is a copy made in another
     spreadsheet program that keeps duplicate names, so it is renamed like Calc's own paste
-    and kept; any other duplicate is removed.
+    and kept; any other duplicate is never refreshed (``_resolve_slot`` uses the first one),
+    so it is removed.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
-        tag = _read_plot_tag(s)
-        if slot_idx in taken and tag is not None and tag.from_name:
-            name = f"{s.getPropertyValue('Name')} 1"
-            with undo_lock(doc, hide=False):
-                best_effort(partial(s.setPropertyValue, "Name", name), "_drop_extra_plot_slots: detach copy")
-        elif slot_idx >= image_count or slot_idx in taken:
+        if slot_idx in taken:
+            if not best_effort(partial(_detach_copy, doc, s), "_drop_extra_plot_slots: detach copy", False):
+                best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
+        elif slot_idx >= image_count:
             best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
         taken.add(slot_idx)
 

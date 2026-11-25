@@ -204,7 +204,6 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         if state is not None:
             # state.clear() drops only this workbook's matrix cache; other open workbooks keep theirs.
             best_effort(state.clear, "python_workbook_lifecycle: spill state clear")
-
             best_effort(
                 lambda: clear_in_memory_geometric_state(workbook_key=state.key),
                 "python_workbook_lifecycle: geometric state clear",

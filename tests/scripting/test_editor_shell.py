@@ -604,3 +604,41 @@ def test_new_script_shows_template_only_after_list() -> None:
     )
     timeout_saves = [(m["name"], m["code"]) for m in timeout_out["sent"] if isinstance(m, dict) and m.get("type") == "save_script"]
     assert timeout_saves == [("B", template), ("A", "a_before_timeout")]
+
+    # 5. Empty first list (no script selected) still switches to B on success.
+    empty_out = _run_shell_scenario(
+        f"""
+        backend.focus = () => {{}};
+        await deliver({{type: "load", mode: "run_script", code: "", selected_script_name: "", session_id: "s1"}});
+        await deliver({{type: "scripts_list", session_id: "s1", sections: [], selected_script_name: ""}});
+        el("btn-new-script").click();
+        el("new-script-name-input").value = "B";
+        el("btn-new-script-create").click();
+        await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps([{"id": "user", "title": "My Scripts", "scripts": {"B": template}}])}, selected_script_name: "B", status_ok_text: "Saved"}});
+        sent.push({{type: "after", value: win.editor.getValue(), selected: el("script-select").value}});
+        """,
+        include_scripts_manager=True,
+    )
+    assert [m for m in empty_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": template, "selected": "B"}]
+
+    # 6. load and load_follows clear pendingNew so a later session's list does not switch.
+    for with_load_follows in (True, False):
+        lf_prefix = '{type: "scripts_list", session_id: "s1", load_follows: true},' if with_load_follows else ""
+        load_clear_out = _run_shell_scenario(
+            f"""
+            backend.focus = () => {{}};
+            await deliver({{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s1"}});
+            await deliver({{type: "scripts_list", session_id: "s1", sections: {json.dumps(sections_a)}, selected_script_name: "A"}});
+            el("btn-new-script").click();
+            el("new-script-name-input").value = "B";
+            el("btn-new-script-create").click();
+            await deliverBatch([
+              {lf_prefix}
+              {{type: "load", mode: "run_script", code: "a0", selected_script_name: "A", session_id: "s2"}}
+            ]);
+            await deliver({{type: "scripts_list", session_id: "s2", sections: {json.dumps(sections_ab)}, selected_script_name: "A"}});
+            sent.push({{type: "after", value: win.editor.getValue(), selected: el("script-select").value}});
+            """,
+            include_scripts_manager=True,
+        )
+        assert [m for m in load_clear_out["sent"] if isinstance(m, dict) and m.get("type") == "after"] == [{"type": "after", "value": "a0", "selected": "A"}]

@@ -57,11 +57,7 @@ def _wb_doc(url: str = "file:///pipe.ods") -> object:
 
 def _eval_cell(doc: object, *, on_main: bool = True) -> CellContext:
     """The CellContext fields the strip reads, as build_cell_context sets them for a =PY() call from *doc*."""
-    state = (
-        WorkbookState.for_doc(doc)
-        if on_main and doc is not None
-        else (WorkbookState.known(doc) if doc is not None else None)
-    )
+    state = WorkbookState.for_doc(doc) if on_main else WorkbookState.known(doc)
     return CellContext(
         ctx=None,
         on_main=on_main,
@@ -1138,13 +1134,14 @@ def test_two_workbooks_off_main_doc_does_not_strip():
 
     _reset_geo()
     doc = CalcDocStub(url="file:///a.ods")
-    sid = calc_workbook_base_session_id(doc)
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
     col, pred = _mean_range_and_pred()
-    replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
+    replace_geometric_strip_safe(state.key, frozenset({_key("np.mean(data)", 2, state.key)}))
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
-        assert maybe_strip_geometric_eval_args(
-            "np.mean(data)", [col, pred], _eval_cell(doc, on_main=False)
-        ) == [col, pred]
+        cell = _eval_cell(doc, on_main=False)
+        assert cell.state is not None
+        assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], cell) == [col, pred]
 
 
 def test_isolated_caller_doc_strips():
@@ -1330,7 +1327,9 @@ def test_ensure_strip_index_off_main_is_noop(monkeypatch: pytest.MonkeyPatch):
 
     _reset_geo()
     doc = CalcDocStub(url="file:///hydrate-off.ods")
-    wk = calc_workbook_base_session_id(doc)
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    wk = state.key
     seeded_safe = frozenset({_key("np.mean(data)", 2, wk)})
     replace_geometric_strip_safe(wk, seeded_safe)
     seeded_records = {(wk, "Sheet1", "A1"): GeometricRecord(predecessor="")}
@@ -1343,7 +1342,9 @@ def test_ensure_strip_index_off_main_is_noop(monkeypatch: pytest.MonkeyPatch):
         patch("plugin.calc.python.geometric_recalc.get_document_property") as mock_get_prop,
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
-        ensure_geometric_strip_index_for_eval(_eval_cell(doc, on_main=False))
+        cell = _eval_cell(doc, on_main=False)
+        assert cell.state is not None
+        ensure_geometric_strip_index_for_eval(cell)
     assert _RUNTIME.strip_safe == seeded_safe
     assert _RUNTIME.records == seeded_records
     mock_get_prop.assert_not_called()
@@ -1749,7 +1750,7 @@ def test_save_geometric_registry_skips_when_unchanged(monkeypatch):
     assert set_calls == []  # Skipped because payload matches!
 
 
-def test_two_documents_with_one_url_keep_separate_strip_state():
+def test_two_documents_with_one_url_keep_separate_strip_state(monkeypatch: pytest.MonkeyPatch):
     """Two open documents with the same URL use separate RuntimeUID geometric keys."""
     from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
     from plugin.tests.testing_utils import CalcDocStub
@@ -1758,6 +1759,11 @@ def test_two_documents_with_one_url_keep_separate_strip_state():
     doc_user = CalcDocStub(url="file:///shared.ods", props={"RuntimeUID": "uid-user"})
     doc_copy = CalcDocStub(url="file:///shared.ods", props={"RuntimeUID": "uid-copy"})
     replace_geometric_strip_safe("uid-user", frozenset({EvalIndexKey("uid-user", "np.mean(data)", 2)}))
+    _RUNTIME.records[("uid-user", "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
+
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.get_document_property", lambda *_a, **_kw: None)
+    ensure_geometric_strip_index_for_eval(_eval_cell(doc_copy))
+    assert ("uid-user", "Sheet1", "A2") in _RUNTIME.records
 
     col = ((1.0,), (2.0,))
     pred = ((0.0,),)

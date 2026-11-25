@@ -193,6 +193,7 @@
       pendingNew = null;
       return;
     }
+    var shown = currentSelectedName;
     var savedCode = pendingSavedCode;
     pendingSavedCode = null;
     var switchTo = switchAfterSave ? pendingSwitchName : null;
@@ -255,7 +256,7 @@
     } else if (pendingNew && select && scriptIndex[pendingNew.key] && scriptIndex[pendingNew.key].code === NEW_SCRIPT_TEMPLATE) {
       var created = pendingNew;
       pendingNew = null;
-      if (currentSelectedName === created.from && window.editor && window.editor.getValue() === created.text) {
+      if (shown === created.from && window.editor && window.editor.getValue() === created.text) {
         select.value = created.key;
         switchToSelected();
       }

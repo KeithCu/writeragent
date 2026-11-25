@@ -783,7 +783,7 @@ def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
     import tempfile
     import uno
     from com.sun.star.beans import PropertyValue
-    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl, _read_plot_tag
 
     sheet = doc.getSheets().getByIndex(0)
     draw_page = sheet.getDrawPage()
@@ -823,11 +823,16 @@ def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
             try:
                 reloaded_page = reloaded.getSheets().getByIndex(0).getDrawPage()
                 assert reloaded_page.getCount() == 4
-                before_xs = sorted(reloaded_page.getByIndex(i).getPosition().X for i in range(4))
+                before_xs = [reloaded_page.getByIndex(i).getPosition().X for i in range(4)]
+                before_owners = [_read_plot_tag(reloaded_page.getByIndex(i)).owner for i in range(4)]
+                assert before_owners.count((1, 2)) == 2
+                assert before_owners.count((2, 2)) == 2
                 _insert_both(reloaded)
                 assert reloaded_page.getCount() == 4
-                after_xs = sorted(reloaded_page.getByIndex(i).getPosition().X for i in range(4))
+                after_xs = [reloaded_page.getByIndex(i).getPosition().X for i in range(4)]
+                after_owners = [_read_plot_tag(reloaded_page.getByIndex(i)).owner for i in range(4)]
                 assert after_xs == before_xs
+                assert after_owners == before_owners
             finally:
                 reloaded.close(True)
     finally:
@@ -899,6 +904,10 @@ def test_xlsx_duplicate_named_plot_survives_recalc_uno(ctx, doc):
             try:
                 reloaded_page = reloaded.getSheets().getByIndex(0).getDrawPage()
                 assert reloaded_page.getCount() == 2
+                _insert_image_result_on_sheet_impl(payload, code=code, doc=reloaded, image_index=0, image_count=1)
+                assert reloaded_page.getCount() == 2
+                names = [reloaded_page.getByIndex(i).getPropertyValue("Name") for i in range(2)]
+                assert any(n.endswith(" 1") for n in names)
                 _insert_image_result_on_sheet_impl(payload, code=code, doc=reloaded, image_index=0, image_count=1)
                 assert reloaded_page.getCount() == 2
             finally:

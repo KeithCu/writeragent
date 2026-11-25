@@ -2062,9 +2062,13 @@ def test_xlsx_duplicate_plot_is_kept_as_user_picture():
     copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, tag_name, CalcCellStub(col=1, row=32))
     page = _DrawPage([first, copy])
     doc = MagicMock()
-    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
+    um = MagicMock()
+    um.isLocked.return_value = False
+    doc.getUndoManager.return_value = um
 
     _drop_extra_plot_slots(doc, page, [(first, 0), (copy, 0)], 1)
+    um.lock.assert_called_once_with()
+    um.unlock.assert_called_once_with()
     assert page.shapes == [first, copy]
     assert copy.getPropertyValue("Name") == f"{tag_name} 1"
     assert _plot_slot_index(copy.getPropertyValue("Name")) is None
