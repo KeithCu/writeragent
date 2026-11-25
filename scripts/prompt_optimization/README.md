@@ -69,14 +69,13 @@ python run_eval.py                          # all examples (needs a key; default
 python run_eval.py -e table_from_mess       # one task_id
 python run_eval.py -n 2                     # first 2 examples
 python run_eval.py -v                       # verbose: print every tool call as it runs
-python run_eval.py --compare-with optimized_writer_prompt.json   # compare current vs optimized
 python run_eval.py --no-bust-cache   # disable cache-busting (default: on)
 python run_eval.py --backend string --student scripted -v   # no API key; full pack
 python run_eval.py --backend lo --student scripted --no-bust-cache -v   # headless LO, no key
 # or from repo root: make run_eval-lo-scripted
 ```
 
-Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`); PR CI runs the scripted LO eval pack on Linux in the scripts integration step, and elsewhere it is skipped unless `soffice`, `python-uno`, and the manifest are present. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
+Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`); PR CI runs the scripted LO eval pack on Linux in the scripts integration step, and elsewhere it is skipped unless `soffice`, `python-uno`, and the manifest are present. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `make eval-ab` to compare prompts. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
 
 **Full optimization (MIPROv2, live student):**
 
@@ -219,7 +218,7 @@ Repeat the live commands with `-e tax_column` and, if you want a mid-size point,
 
 ## Applying the result
 
-After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, `WRITER_APPLY_DOCUMENT_HTML_RULES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks. Do not paste a ReAct `optimized_writer_prompt.json` into the sidebar prompt.
+After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, `WRITER_APPLY_DOCUMENT_HTML_RULES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks, or compare with `make eval-ab`.
 
 ## Multi-model evaluation (intelligence per dollar)
 

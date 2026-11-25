@@ -17,13 +17,11 @@ Usage:
   python run_eval.py --example table_from_mess   # one task_id (comma-separated ok)
   python run_eval.py -n 2               # run first 2 examples only
   python run_eval.py -v                 # verbose: print every tool call
-  python run_eval.py --compare-with optimized_writer_prompt.json   # run both prompts, report diff
   python run_eval.py --no-bust-cache   # disable cache-busting (default: enabled)
 """
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -44,16 +42,6 @@ import tools_lo
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = DEFAULT_EVAL_STUDENT_MODEL
-
-
-def _load_prompt_from_json(path: Path) -> str:
-    """Load instruction from a DSPy saved program JSON (optimized_writer_prompt.json)."""
-    data = json.loads(path.read_text())
-    # react.react.signature.instructions is the main ReAct predictor's system prompt
-    try:
-        return data["react.react"]["signature"]["instructions"]
-    except KeyError:
-        raise ValueError(f"Could not find react.react.signature.instructions in {path}")
 
 
 def parse_args(argv: list[str] | None = None):
@@ -90,7 +78,6 @@ def parse_args(argv: list[str] | None = None):
         ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Print every tool call as it runs.")
-    p.add_argument("--compare-with", metavar="JSON", help="Compare: run with current prompt, then with prompt from JSON file, report both scores.")
     p.add_argument("--debug-usage", action="store_true", help="Print raw get_lm_usage() when tokens=0 to debug token extraction.")
     p.add_argument("--no-bust-cache", action="store_true", help="Disable cache-busting (default: enabled for accurate token counts with OpenRouter).")
     p.add_argument(
@@ -180,89 +167,11 @@ def main(argv: list[str] | None = None):
         tools_lo.LOBackend.start()
         lo_lane = LoLane(workers=args.lo_workers)
     try:
-        if args.compare_with:
-            # Compare mode: run both prompts and report
-            compare_path = Path(args.compare_with)
-            if not compare_path.is_absolute():
-                compare_path = SCRIPT_DIR / compare_path
-            if not compare_path.exists():
-                print(f"Error: --compare-with file not found: {compare_path}", file=sys.stderr)
-                return 1
-            try:
-                alt_instruction = _load_prompt_from_json(compare_path)
-            except ValueError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                return 1
-
-            print("=" * 60)
-            print("PROMPT A: Current (get_eval_system_prompt)")
-            print("=" * 60)
-            results_a = run_eval_on_examples_llm(
-                examples,
-                endpoint=api_base,
-                api_key=api_key,
-                model=model,
-                instruction=None,
-                backend=args.backend,
-                verbose=args.verbose,
-                debug_usage=args.debug_usage,
-                bust_cache=not args.no_bust_cache,
-                student=args.student,
-                no_judge=args.no_judge or args.student == "scripted",
-                tools_spec=args.tools,
-                schema_density=args.schema_density,
-                string_jobs=args.jobs,
-                lo_lane=lo_lane,
-            )
-            summary_a = summarize_results(results_a)
-
-            print("=" * 60)
-            print(f"PROMPT B: From {compare_path.name}")
-            print("=" * 60)
-            results_b = run_eval_on_examples_llm(
-                examples,
-                endpoint=api_base,
-                api_key=api_key,
-                model=model,
-                instruction=alt_instruction,
-                backend=args.backend,
-                verbose=args.verbose,
-                debug_usage=args.debug_usage,
-                bust_cache=not args.no_bust_cache,
-                student=args.student,
-                no_judge=args.no_judge or args.student == "scripted",
-                tools_spec=args.tools,
-                schema_density=args.schema_density,
-                string_jobs=args.jobs,
-                lo_lane=lo_lane,
-            )
-            summary_b = summarize_results(results_b)
-
-            avg_a = summary_a["avg_metric_score"]
-            total_tokens_a = summary_a["total_tokens"]
-            avg_b = summary_b["avg_metric_score"]
-            total_tokens_b = summary_b["total_tokens"]
-
-            print("=" * 60)
-            print("COMPARISON")
-            print("=" * 60)
-            print(f"  Current (git):  avg score = {avg_a:.3f}  total tokens = {total_tokens_a}")
-            print(f"  Optimized:      avg score = {avg_b:.3f}  total tokens = {total_tokens_b}")
-            diff = avg_b - avg_a
-            if diff > 0:
-                print(f"  -> Optimized is {diff:.3f} better (higher score)")
-            elif diff < 0:
-                print(f"  -> Current is {-diff:.3f} better (higher score)")
-            else:
-                print("  -> Tie")
-            return 0
-
         results = run_eval_on_examples_llm(
             examples,
             endpoint=api_base,
             api_key=api_key,
             model=model,
-            instruction=None,
             backend=args.backend,
             verbose=args.verbose,
             debug_usage=args.debug_usage,

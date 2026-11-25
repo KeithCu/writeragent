@@ -8,18 +8,31 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+from typing import Any
 import zipfile
 
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
+from eval_worlds import WriterWorld  # noqa: E402
+import llm_chat_eval  # noqa: E402
+from string_eval_tools import dispatch_string_tool  # noqa: E402
 from toc_fixture import EDIT_INSERT, FIXTURE_ROWS, expected_rows_after_edit  # noqa: E402
 from toc_eval import (  # noqa: E402
     TOC_EDIT_TASK_ID,
     TOC_LIST_TASK_ID,
+    finish_answer_from_trace,
     score_toc_example,
 )
+
+
+def _finish(raw_args: str) -> dict[str, Any]:
+    return llm_chat_eval._trace_entry(
+        "workflow_finished",
+        raw_args,
+        dispatch_string_tool(WriterWorld(""), "workflow_finished", raw_args),
+    )
 
 
 def _good_rows() -> list[tuple[str, str]]:
@@ -81,7 +94,7 @@ def _odt(path: Path, *, rows: list[tuple[str, str]] | None = None, bookmark_coun
     return path
 
 
-def _good_edit_trace() -> list[dict[str, str]]:
+def _good_edit_trace() -> list[dict[str, Any]]:
     return [
         {
             "name": "delegate_to_subagent",
@@ -99,10 +112,7 @@ def _good_edit_trace() -> list[dict[str, str]]:
                 "old_content": "Section 3.4 Topic",
             }),
         },
-        {
-            "name": "workflow_finished",
-            "arguments": json.dumps({"answer": "renumbered and inserted"}),
-        },
+        _finish(json.dumps({"answer": "renumbered and inserted"})),
     ]
 
 
@@ -166,10 +176,7 @@ def test_read_task_all_titles_passes() -> None:
             "name": "index_list_toc_entries",
             "arguments": "{}",
         },
-        {
-            "name": "workflow_finished",
-            "arguments": json.dumps({"answer": answer}),
-        },
+        _finish(json.dumps({"answer": answer})),
     ]
     scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
     assert scored.passed is True
@@ -190,10 +197,7 @@ def test_read_task_corrupted_link_fails() -> None:
             "name": "index_list_toc_entries",
             "arguments": "{}",
         },
-        {
-            "name": "workflow_finished",
-            "arguments": json.dumps({"answer": corrupted}),
-        },
+        _finish(json.dumps({"answer": corrupted})),
     ]
     scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
     assert scored.passed is False
@@ -212,10 +216,7 @@ def test_read_task_exact_fixture_link_soft_note() -> None:
             "name": "index_list_toc_entries",
             "arguments": "{}",
         },
-        {
-            "name": "workflow_finished",
-            "arguments": json.dumps({"answer": linked}),
-        },
+        _finish(json.dumps({"answer": linked})),
     ]
     scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
     assert scored.passed is True
@@ -230,11 +231,36 @@ def test_read_task_missing_list_tool_fails() -> None:
             "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
-        {
-            "name": "workflow_finished",
-            "arguments": json.dumps({"answer": answer}),
-        },
+        _finish(json.dumps({"answer": answer})),
     ]
     scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
     assert scored.passed is False
     assert any("index_list_toc_entries" in f for f in scored.failures)
+
+
+def test_structured_answer_is_read_as_json() -> None:
+    trace = [_finish(json.dumps({"answer": ["a", "b"]}))]
+    assert finish_answer_from_trace(trace) == '["a", "b"]'
+
+
+def test_repaired_arguments_answer_is_scored() -> None:
+    answer_lines = "\n".join(f"{r.title} (level {r.level})" for r in FIXTURE_ROWS)
+    raw_args = f'{{"answer": "{answer_lines}"}}'
+    trace = [
+        {
+            "name": "delegate_to_subagent",
+            "arguments": json.dumps({"domain": "indexes", "task": "list"}),
+        },
+        {
+            "name": "index_list_toc_entries",
+            "arguments": "{}",
+        },
+        _finish(raw_args),
+    ]
+    scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
+    assert scored.passed is True
+    assert scored.failures == []
+
+
+def test_rejected_finish_has_no_answer() -> None:
+    assert finish_answer_from_trace([_finish("{}")]) == ""

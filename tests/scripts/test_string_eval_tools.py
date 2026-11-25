@@ -147,9 +147,10 @@ def test_dispatch_apply_style_heading() -> None:
     )
     data = json.loads(out)
     assert data["status"] == "ok"
+    assert data["applied_count"] == 1
     html = s.get_html()
-    assert "<h1>" in html
-    assert "Background" in html
+    assert "<h1>Background</h1>" in html
+    assert "<p>Keep me</p>" in html
 
 
 def test_dispatch_unsupported_writer_tool():
@@ -670,4 +671,195 @@ def test_write_range_array_true_leading_space_is_calc_error() -> None:
     assert res["status"] == "error"
     assert res["code"] == "CALC_ERROR"
     assert c._grid == before
+
+
+def test_apply_style_miss_leaves_document() -> None:
+    w = WriterWorld("<p>Alpha</p>")
+    miss = json.loads(
+        dispatch_string_tool(w, "apply_style", json.dumps({"style": "Heading 1", "target": "search", "old_content": "Nope"}))
+    )
+    assert miss["status"] == "error"
+    assert miss["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert miss["applied"] is False
+    assert miss["matched"] is False
+    assert w.get_html() == "<p>Alpha</p>"
+
+    wrong_case = json.loads(
+        dispatch_string_tool(
+            w,
+            "apply_style",
+            json.dumps({"style": "Heading 1", "target": "search", "old_content": "alpha", "case_sensitive": True}),
+        )
+    )
+    assert wrong_case["status"] == "error"
+    assert wrong_case["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert wrong_case["applied"] is False
+    assert wrong_case["matched"] is False
+    assert w.get_html() == "<p>Alpha</p>"
+
+    fallback = json.loads(
+        dispatch_string_tool(w, "apply_style", json.dumps({"style": "Heading 1", "target": "search", "old_content": "alpha"}))
+    )
+    assert fallback["status"] == "ok"
+    assert w.get_html() == "<h1>Alpha</h1>"
+
+
+def test_apply_style_occurrence_counts_matches() -> None:
+    doc = "<p>foo foo</p><p>foo</p>"
+    w = WriterWorld(doc)
+    second = json.loads(
+        dispatch_string_tool(
+            w, "apply_style", json.dumps({"style": "Heading 2", "target": "search", "old_content": "foo", "occurrence": 2})
+        )
+    )
+    assert second["status"] == "ok"
+    assert w.get_html() == "<p>foo foo</p><h2>foo</h2>"
+
+    for bad_occ in (3, -1):
+        w_err = WriterWorld(doc)
+        err = json.loads(
+            dispatch_string_tool(
+                w_err,
+                "apply_style",
+                json.dumps({"style": "Heading 2", "target": "search", "old_content": "foo", "occurrence": bad_occ}),
+            )
+        )
+        assert err["status"] == "error"
+        assert err["code"] == "OCCURRENCE_OUT_OF_RANGE"
+        assert w_err.get_html() == doc
+
+    w_both = WriterWorld(doc)
+    occ_wins = json.loads(
+        dispatch_string_tool(
+            w_both,
+            "apply_style",
+            json.dumps({"style": "Heading 2", "target": "search", "old_content": "foo", "all_matches": True, "occurrence": 2}),
+        )
+    )
+    assert occ_wins["status"] == "ok"
+    assert w_both.get_html() == "<p>foo foo</p><h2>foo</h2>"
+
+    w_all = WriterWorld(doc)
+    all_res = json.loads(
+        dispatch_string_tool(
+            w_all,
+            "apply_style",
+            json.dumps({"style": "Heading 2", "target": "search", "old_content": "foo", "all_matches": True}),
+        )
+    )
+    assert all_res["status"] == "ok"
+    assert all_res["applied_count"] == 3
+    assert w_all.get_html() == "<h2>foo foo</h2><h2>foo</h2>"
+
+
+def test_apply_style_matches_visible_text() -> None:
+    w_attr = WriterWorld('<p data-lo-style="Default">keep</p><p>default y</p>')
+    res_attr = json.loads(
+        dispatch_string_tool(
+            w_attr, "apply_style", json.dumps({"style": "Heading 1", "target": "search", "old_content": "Default"})
+        )
+    )
+    assert res_attr["status"] == "ok"
+    assert w_attr.get_html() == '<p data-lo-style="Default">keep</p><h1>default y</h1>'
+
+    w_inline = WriterWorld("<p>a <b>Alpha</b> two</p>")
+    res_inline = json.loads(
+        dispatch_string_tool(
+            w_inline, "apply_style", json.dumps({"style": "Heading 1", "target": "search", "old_content": "a Alpha two"})
+        )
+    )
+    assert res_inline["status"] == "ok"
+    assert w_inline.get_html() == "<h1>a <b>Alpha</b> two</h1>"
+
+    w_html_needle = WriterWorld("<h2>Heading 2 again.</h2>")
+    res_needle = json.loads(
+        dispatch_string_tool(
+            w_html_needle,
+            "apply_style",
+            json.dumps({"style": "Heading 1", "target": "search", "old_content": "<h2>Heading 2 again.</h2>"}),
+        )
+    )
+    assert res_needle["status"] == "ok"
+    assert w_html_needle.get_html() == "<h1>Heading 2 again.</h1>"
+
+    w_bare = WriterWorld("<p>Top</p>\n\nBare line\n\n<p>Bottom</p>")
+    res_bare = json.loads(
+        dispatch_string_tool(
+            w_bare, "apply_style", json.dumps({"style": "Heading 1", "target": "search", "old_content": "Bare line"})
+        )
+    )
+    assert res_bare["status"] == "ok"
+    assert w_bare.get_html() == "<p>Top</p>\n\n<h1>Bare line</h1>\n\n<p>Bottom</p>"
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_code"),
+    [
+        ({"style": "Emphasis", "family": "CharacterStyles", "target": "search", "old_content": "Alpha"}, "unsupported_in_eval"),
+        ({"style": "Heading 1", "target": "search", "old_content": "Alpha", "clear_direct": "all"}, "unsupported_in_eval"),
+        ({"style": "Heading 1", "old_content": "Alpha"}, "unsupported_in_eval"),
+        ({"style": "Heading 1", "target": "search", "old_content": "Alpha\nBeta"}, "unsupported_in_eval"),
+        ({"style": "Quotations", "target": "full_document", "clear_direct": "all"}, "INVALID_PARAM"),
+    ],
+)
+def test_apply_style_unsupported_arguments(args: dict[str, object], expected_code: str) -> None:
+    doc = '<p data-lo-style="Default">Alpha</p><p>Beta</p>'
+    w = WriterWorld(doc)
+    res = json.loads(dispatch_string_tool(w, "apply_style", json.dumps(args)))
+    assert res["status"] == "error"
+    assert res["code"] == expected_code
+    assert w.get_html() == doc
+
+    w_none = WriterWorld(doc)
+    ok = json.loads(
+        dispatch_string_tool(
+            w_none,
+            "apply_style",
+            json.dumps({"style": "Heading 1", "target": "search", "old_content": "Alpha", "clear_direct": "none"}),
+        )
+    )
+    assert ok["status"] == "ok"
+    assert w_none.get_html() == "<h1>Alpha</h1><p>Beta</p>"
+
+
+@pytest.mark.parametrize("target", ["beginning", "end", "selection"])
+@pytest.mark.parametrize("content", ["", [], "   ", [""]])
+def test_apply_content_empty_insert_is_refused(target: str, content: object) -> None:
+    w = WriterWorld("<p>Keep</p>")
+    res = json.loads(
+        dispatch_string_tool(w, "apply_content", json.dumps({"target": target, "content": content}))
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert w.get_html() == "<p>Keep</p>"
+
+    w_full = WriterWorld("<p>Keep</p>")
+    full_ok = json.loads(
+        dispatch_string_tool(w_full, "apply_content", json.dumps({"target": "full_document", "content": ""}))
+    )
+    assert full_ok["status"] == "ok"
+    assert w_full.get_html() == ""
+
+
+@pytest.mark.parametrize(
+    ("rng", "values"),
+    [
+        (["A1"], [[["x"]]]),
+        (["A1"], [{"a": 1}]),
+        (["A1"], '[{"a":1}]'),
+        (["A1:A2"], '[{"x":1},2]'),
+    ],
+)
+def test_write_range_rejects_nested_cells(rng: list[str], values: object) -> None:
+    c = CalcWorld("A\tB\n1\t2")
+    before = [list(r) for r in c._grid]
+    res = json.loads(dispatch_string_tool(c, "write_range", json.dumps({"range": rng, "values": values})))
+    assert res["status"] == "error"
+    assert res["code"] == "CALC_ERROR"
+    assert c._grid == before
+    assert c.writes == []
+
+    ok = json.loads(dispatch_string_tool(c, "write_range", json.dumps({"range": ["A1:B1"], "values": [["a", None]]})))
+    assert ok["status"] == "ok"
+    assert c._grid[0] == ["a", None]
 
