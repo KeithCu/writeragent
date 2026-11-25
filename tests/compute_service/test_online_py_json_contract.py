@@ -143,9 +143,10 @@ class TestOnlinePyJsonContract:
         assert out.get("result") is None
 
     def test_request_body_shape(self) -> None:
-        # Merged Online (Gerrit 8123) posts one JSON object and flattens a 1×N or N×1
-        # range, so each cell is its own input. The service ignores `mode`; routing
-        # uses `?session_id=`.
+        # Merged Online (Gerrit 8122, 8123) posts one JSON object and flattens a
+        # 1×N or N×1 range, so each cell is its own input when it is the only
+        # argument. The service ignores `mode` (routing uses `?session_id=`), and
+        # the worker dict below is hand-built after parse_execute_request.
         body = {
             "id": "py-test-1",
             "code": "result = float(np.sum(data))",

@@ -195,7 +195,7 @@ Status on 2026-11-24. Merged: Gerrit 8122 (AddIn) and 8123 (coolwsd). Everything
 | Session | none, every cell is isolated | 21275: `?session_id=` when `security.python_compute.session` selects a shared session |
 | Session reset | not called | 21275: on Reset Python Session and document close |
 | Init script | not sent | 21287: `init_script` part while the document has a non-empty `PythonInitScript`, in every session mode |
-| 1×N and N×1 ranges | flat list, so each cell arrives as its own 1×1 input | 21281: always a list of rows, `[[1,2,3]]` is (1,3) and `[[1],[2],[3]]` is (3,1) |
+| 1×N and N×1 ranges | flat list; as the only argument, each cell arrives as its own 1×1 input ([several arguments](../docs/calc/py-data-shapes.md)) | 21281: always a list of rows, `[[1,2,3]]` is (1,3) and `[[1],[2],[3]]` is (3,1) |
 | Image-only result | the text `Image generated (plot insert not supported yet)` | 21132: plots drawn in the formula cell, whose value is empty |
 
 ### 3. Session Reset Endpoint (`POST /v1/session/reset?session_id={id}`)
