@@ -129,7 +129,11 @@ class ReplyToUserTool(Tool):
     skip_forward_signature_validation: bool = True
 
     def forward(self, message: str | None = None, answer: str | None = None) -> str:
-        return answer if answer is not None else (message or "")
+        # smolagents' plain-text fallback and sidebar modes send `answer`; keep `message` for existing callers.
+        text = answer if answer else message
+        if not text or not text.strip():
+            raise ValueError("reply_to_user requires a non-empty 'answer' or 'message'.")
+        return text
 
 
 class PptMasterFinishedTool(Tool):

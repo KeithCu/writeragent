@@ -254,12 +254,13 @@
     }
     // Show the new script only once the host lists it, so the text always belongs to currentSelectedName.
     // An edit or a script switch made while New was in flight stays.
+    // Skip while an unsaved prompt is open so a late New list cannot replace the buffer before the user answers.
     if (msg.status_error_text) {
       pendingNew = null;
     } else if (pendingNew && select && scriptIndex[pendingNew.key] && scriptIndex[pendingNew.key].code === NEW_SCRIPT_TEMPLATE) {
       var created = pendingNew;
       pendingNew = null;
-      if (shown === created.from && window.editor && window.editor.getValue() === created.text) {
+      if (pendingUnsavedAction === null && shown === created.from && window.editor && window.editor.getValue() === created.text) {
         select.value = created.key;
         switchToSelected();
       }
@@ -272,11 +273,11 @@
     }
     // Yes in the unsaved prompt: run the deferred action only after the save succeeded.
     if (deferredAction !== null && savedCode !== null && !msg.status_error_text) {
-      runPendingUnsavedAction(deferredAction);
+      runUnsavedAction(deferredAction);
     }
   }
 
-  function runPendingUnsavedAction(action) {
+  function runUnsavedAction(action) {
     if (action.type === "switch") {
       var select = getSelectEl();
       if (select) {
@@ -288,7 +289,7 @@
     }
   }
 
-  function requestUnsavedAndRun(action) {
+  function askIfDirty(action) {
     var api = uiApi();
     if (!api || !api.isDirty || !api.isDirty()) {
       return false;
@@ -308,9 +309,14 @@
     }
     if (msg.choice === "discard") {
       pendingUnsavedAction = null;
-      runPendingUnsavedAction(action);
-    } else if (msg.choice === "save" && saveActiveScript(currentSelectedName)) {
-      runPendingAfterSave = true;
+      runUnsavedAction(action);
+    } else if (msg.choice === "save") {
+      if (saveActiveScript(currentSelectedName)) {
+        runPendingAfterSave = true;
+      } else {
+        pendingUnsavedAction = null;
+        setStatus(t("no_script_selected_to_save", "No script selected to save."), "error");
+      }
     } else {
       pendingUnsavedAction = null;
     }
@@ -389,6 +395,9 @@
       applyScriptsList(msg);
     } else if (msg.type === "unsaved_choice") {
       onUnsavedChoice(msg);
+    } else if (msg.type === "error") {
+      pendingUnsavedAction = null;
+      runPendingAfterSave = false;
     }
   }
 
@@ -477,7 +486,7 @@
     if (name === currentSelectedName) {
       return;
     }
-    if (requestUnsavedAndRun({ type: "switch", name: name })) {
+    if (askIfDirty({ type: "switch", name: name })) {
       select.value = currentSelectedName;
       return;
     }
@@ -759,7 +768,8 @@
     var btnNew = document.getElementById("btn-new-script");
     if (btnNew) {
       btnNew.addEventListener("click", function() {
-        if (requestUnsavedAndRun({ type: "new" })) {
+        // Create replaces the buffer with the starter template, so ask before the modal opens.
+        if (askIfDirty({ type: "new" })) {
           return;
         }
         openScriptModal("new");
