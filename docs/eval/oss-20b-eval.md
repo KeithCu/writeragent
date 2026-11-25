@@ -49,21 +49,19 @@ It **passed** both Phase F `=PY` dest rows (`py_refuse_overlap`,
 `py_no_bulk_read`). The model can land `=PY` beside a range; it over-uses
 that tool for sort.
 
-## Why the current DSPy job will not move this score
+## What the DSPy job optimizes
 
 `run_optimize.py` wraps **`llm_chat_eval`**
 (same LlmClient + production schemas + inner specialized loop as
 `make run_eval`) and rewrites a **named slice** (`--slice calc_core`,
-`sort_range`, …). Do not paste `optimized_writer_prompt.json` into
-[`plugin/framework/prompts.py`](../../plugin/framework/prompts.py) because it
-holds ReAct scaffolding (`Next Thought:` / `Next Tool Name:`).
+`sort_range`, …).
 
 Do not optimize one giant Writer instruction over all 17 tasks. 20b’s
 misses live in Calc/Draw directives and **tool descriptions**.
 
 [string-harness-upgrade.md](string-harness-upgrade.md) deferred MIPROv2
 until the metric was honest. Worlds, process oracles, and specialized
-inner loops are shipped. The optimizer was never rewired onto that loop.
+inner loops are shipped. `program_llm.py` runs the optimizer on that loop.
 
 ## Smoking gun: `=PY` docs vs `sort_range`
 
@@ -192,7 +190,6 @@ production-compatible version of a demo is 2–3 lines in
 
 ## What not to do
 
-- Copy `optimized_writer_prompt.json` into `DEFAULT_CHAT_SYSTEM_PROMPT`.
 - Use the judge+token metric as the MIPRO objective (20b needs **passes**).
 - Ship a 20b-only prompt without checking 120b still at 17/17.
 - Bulk `--generate-golds` before a ranking run.

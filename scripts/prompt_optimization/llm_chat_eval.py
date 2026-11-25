@@ -65,13 +65,16 @@ def _trace_entry(name: str, raw_args: str, result: str) -> dict[str, Any]:
             parsed = loaded
     except json.JSONDecodeError:
         parsed = {}
-    return {
+    entry: dict[str, Any] = {
         "name": name,
         "arguments": raw_args,
         "result_status": str(parsed.get("status") or ""),
         "result_chars": len(result or ""),
         "error_code": str(parsed.get("code") or ""),
     }
+    if name == SPECIALIZED_FINISH:
+        entry["answer"] = str(parsed.get("answer") or "")
+    return entry
 
 
 def _build_api_config(
@@ -587,7 +590,8 @@ def _run_llm_chat_eval_impl(
     Run one eval example: multi-round tool loop.
 
     Returns ``(final_document, usage, error, trace)``. Trace entries are
-    ``{name, arguments, result_status, result_chars, error_code}``.
+    ``{name, arguments, result_status, result_chars, error_code}``, with
+    ``answer`` added on ``workflow_finished`` entries.
 
     ``schema_patches`` rewrites advertised tool / param descriptions for
     this run (outer + specialized inner). Same dispatch as production eval.
