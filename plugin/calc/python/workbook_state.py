@@ -41,10 +41,33 @@ def _doc_objects(doc: Any) -> list[Any]:
 class Debounce:
     """Per-workbook debounce: one DeadlineThread, many keyed callbacks."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_drain: Callable[[], None] | None = None) -> None:
         self._lock: threading.Lock = threading.Lock()
         self._entries: dict[str, tuple[Callable[[], None], float]] = {}
         self._timer: DeadlineThread | None = None
+        self._on_drain: Callable[[], None] | None = on_drain
+        self._drain_depth: int = 0
+        self._pending_drains: int = 0
+
+    @property
+    def in_drain(self) -> bool:
+        """True while callbacks from one timer drain or test flush are running."""
+        return self._drain_depth > 0
+
+    def _begin_drain(self) -> None:
+        self._drain_depth += 1
+
+    def _end_drain(self, *, force_flush: bool = False) -> None:
+        self._drain_depth = max(0, self._drain_depth - 1)
+        if not force_flush:
+            with self._lock:
+                self._pending_drains = max(0, self._pending_drains - 1)
+                more_pending = self._pending_drains > 0 or bool(self._entries)
+            if self._drain_depth != 0 or self._on_drain is None or more_pending:
+                return
+        elif self._drain_depth != 0 or self._on_drain is None:
+            return
+        self._on_drain()
 
     def _arm_timer_locked(self) -> None:
         if not self._entries:
@@ -70,8 +93,18 @@ class Debounce:
                     due.append(fn)
                     del self._entries[k]
             self._arm_timer_locked()
-        for fn in due:
-            main.post(fn)
+        if not due:
+            return
+        if self._on_drain is not None:
+            with self._lock:
+                self._pending_drains += 1
+            main.post(self._begin_drain)
+            for fn in due:
+                main.post(fn)
+            main.post(self._end_drain)
+        else:
+            for fn in due:
+                main.post(fn)
 
     def schedule(self, key: str, delay: float, fn: Callable[[], None]) -> None:
         """Store *fn* and arm for *delay* seconds from now (reschedules *key*)."""
@@ -81,15 +114,20 @@ class Debounce:
 
     def cancel(self, key: str) -> None:
         with self._lock:
-            self._entries.pop(key, None)
+            removed = self._entries.pop(key, None)
             self._arm_timer_locked()
+            empty = not self._entries
+        if removed is not None and empty and self._drain_depth == 0 and self._on_drain is not None:
+            main.post(self._on_drain)
 
     def cancel_all(self) -> None:
         with self._lock:
             self._entries.clear()
+            self._pending_drains = 0
             if self._timer is not None:
                 self._timer.stop()
                 self._timer = None
+        self._drain_depth = 0
 
     def flush_for_tests(self, key: str) -> None:
         """Tests only: run *key*'s callback now on the calling thread instead of waiting for the timer."""
@@ -97,7 +135,14 @@ class Debounce:
             ent = self._entries.pop(key, None)
             self._arm_timer_locked()
         if ent is not None:
-            ent[0]()
+            if self._on_drain is not None:
+                self._begin_drain()
+                try:
+                    ent[0]()
+                finally:
+                    self._end_drain(force_flush=True)
+            else:
+                ent[0]()
 
     def rekey(self, old_key: str, new_key: str) -> None:
         with self._lock:
@@ -122,13 +167,31 @@ class WorkbookState:
     used_ends: dict[str, tuple[int, int]] = field(default_factory=dict)
     loaded: bool = False
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
-    debounce: Debounce = field(default_factory=Debounce)
+    debounce: Debounce = field(init=False, repr=False)
+    _dirty_spill_doc: Any = field(default=None, repr=False)
     prior_keys: set[str] = field(default_factory=set)
     # Pending spill generations keyed by (sheet, row, col) so an already-posted write
     # cannot overwrite a newer result; off-main codes track pending posts before locate.
     pending_spills: dict[tuple[str, int, int], int] = field(default_factory=dict)
     pending_off_main_codes: set[str] = field(default_factory=set)
     _spill_seq: int = 0
+
+    def __post_init__(self) -> None:
+        self.debounce = Debounce(on_drain=self.flush_spill_registry)
+
+    def mark_spill_registry_dirty(self, doc: Any) -> None:
+        """Record that *doc*'s spill registry should be saved when the current drain ends."""
+        self._dirty_spill_doc = doc
+
+    def flush_spill_registry(self) -> None:
+        """Persist the spill registry once if any callback in this drain marked it dirty."""
+        doc = self._dirty_spill_doc
+        self._dirty_spill_doc = None
+        if doc is not None:
+            # Lazy: spill imports WorkbookState at its top.
+            from plugin.calc.python.spill import save_spill_registry_for_doc
+
+            save_spill_registry_for_doc(doc, self)
 
     def queue_pending_spill(self, reg_key: tuple[str, int, int]) -> int:
         with _LOCK:
@@ -180,6 +243,7 @@ class WorkbookState:
         self.spills.clear()
         self.used_ends.clear()
         self.listeners.clear()
+        self._dirty_spill_doc = None
         self.debounce.cancel_all()
         with _LOCK:
             self.pending_spills.clear()

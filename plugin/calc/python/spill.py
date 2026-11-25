@@ -444,7 +444,7 @@ def cleanup_orphans(
                     ]
                     for new_k, rec in moved:
                         state.spills[new_k] = rec
-                    save_spill_registry_for_doc(doc, state)
+                    _persist_spill_registry(doc, state)
 
             state.used_ends[sheet_name] = _used_end(sheet)
     except Exception:
@@ -521,6 +521,15 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
         set_document_property(doc, "WriterAgentSpillRegistry", new_val)
     except Exception:
         log.exception("Failed to save spill registry to document property")
+
+
+def _persist_spill_registry(doc: Any, state: WorkbookState) -> None:
+    """Save the spill registry once at the end of a debounce drain, or at once outside a drain."""
+    if state.debounce.in_drain:
+        state.mark_spill_registry_dirty(doc)
+        return
+    state.mark_spill_registry_dirty(None)
+    save_spill_registry_for_doc(doc, state)
 
 
 def _classify_spill_grid(grid: list[list[Any]], num_cols: int, null_dt: datetime.date) -> list[list[SpillValue]]:
@@ -667,7 +676,7 @@ def _clear_owned_and_shrink(
     cleared = _clear_rect(sheet, row, col, owned_r, owned_c)
     if cleared:
         state.spills[(sheet_name, row, col)] = SpillRecord(code=code, rows=1, cols=1)
-        save_spill_registry_for_doc(doc, state)
+        _persist_spill_registry(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
     return cleared
 
@@ -826,7 +835,7 @@ def perform_deferred_spill(
                     cols=num_cols,
                     values=_rect_values(sheet, formula_row, formula_col, num_rows, num_cols),
                 )
-                save_spill_registry_for_doc(doc, state)
+                _persist_spill_registry(doc, state)
                 _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
                 _advance_used_end(state, sheet, sheet_name, before)
 
