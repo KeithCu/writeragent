@@ -24,6 +24,7 @@ def test_create_bookmark(mock_ctx):
     mock_bookmarks.hasByName.return_value = False
 
     mock_ctrl = MagicMock()
+    mock_ctrl.getSelection.return_value = None
     doc.getCurrentController.return_value = mock_ctrl
     mock_cursor = MagicMock()
     mock_ctrl.getViewCursor.return_value = mock_cursor

@@ -10,8 +10,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool import ToolBase
-from plugin.writer.target_resolver import insert_at_target, resolve_target_cursor
+from plugin.writer.target_resolver import insert_at_target, require_selection_range, resolve_target_cursor
 
 
 def _ctx():
@@ -370,4 +371,19 @@ def test_insert_at_target_error_dict_rolls_back_and_drops_session_changes(monkey
     run_rev.assert_called_once()
     session.discard_changes_since.assert_called_once_with(0)
     undo_mgr.undo.assert_called_once()
+
+
+def test_require_selection_range_without_caret_raises():
+    from plugin.framework.tool import SelectionPin
+
+    ctx, _ = _ctx()
+    ctx.doc.getCurrentController.return_value = None
+    with pytest.raises(ToolExecutionError, match="No text cursor is available"):
+        require_selection_range(ctx)
+
+    ctx.doc.getCurrentController.reset_mock()
+    pinned_rng = MagicMock()
+    ctx.selection_pin = SelectionPin(pinned_rng)
+    assert require_selection_range(ctx) is pinned_rng
+    ctx.doc.getCurrentController.assert_not_called()
 

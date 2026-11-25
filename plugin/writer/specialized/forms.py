@@ -36,8 +36,9 @@ from ..edit_review import flag_untracked_delete, run_in_review_session
 from ..html_import import insert_html_fragment_at_cursor, run_writer_mutation_with_optional_review
 from ..record_changes import insert_recorded_content, is_recording_changes
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
+from ..target_resolver import require_selection_range
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-from plugin.doc.text_helpers import clone_text_range, selected_text_range
+from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
@@ -503,9 +504,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             # Anchor 'As Character' so it flows with text
             shape.setPropertyValue("AnchorType", AS_CHARACTER)
 
-            anchor = selected_text_range(doc.getCurrentController())
-            if anchor is None:
-                anchor = doc.getCurrentController().getViewCursor()
+            anchor = require_selection_range(ctx)
             # The anchor's XText owns that range.
             host = anchor.getText()
             recorded = is_recording_changes(doc)
@@ -522,6 +521,8 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             result["pending_review"] = True
         return result
 
+    except ToolExecutionError as exc:
+        return format_error_payload(exc)
     except Exception as e:
         if is_disposal(e):
             raise
@@ -596,8 +597,8 @@ class FormCreate(ToolWriterFormBase):
             return
         if is_draw(doc):
             return
-        vc = doc.getCurrentController().getViewCursor()
-        doc.getText().insertString(vc, " ", False)
+        rng = require_selection_range(ctx)
+        rng.getText().insertString(rng, " ", False)
 
 
 class FormGenerate(ToolWriterFormBase):
@@ -742,8 +743,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             shape.setString(plain)
             return
 
-        vc = doc.getCurrentController().getViewCursor()
-        cursor_range = clone_text_range(vc)
+        cursor_range = clone_text_range(require_selection_range(ctx))
         insert_html_fragment_at_cursor(cursor_range, text, wrap=False)
 
     def _parse_field_tag(self, tag: str) -> dict[str, Any] | None:

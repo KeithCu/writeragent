@@ -30,6 +30,7 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
+from ..target_resolver import require_selection_range
 
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
 
@@ -552,17 +553,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
             return err
 
         doc = ctx.doc
-        ctrl = doc.getCurrentController()
-        if not ctrl:
-            return self._tool_error("No current controller found.")
-
-        view_cursor = ctrl.getViewCursor()
-        if not view_cursor:
-            return self._tool_error("No view cursor found.")
-
-        text = view_cursor.getText()
-        if not text:
-            return self._tool_error("Cannot get text from current cursor position.")
+        rng = require_selection_range(ctx)
 
         bookmark = doc.createInstance("com.sun.star.text.Bookmark")
         bookmark.Name = name
@@ -570,7 +561,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
         # insertTextContent signature: (XTextRange xRange, XTextContent xContent, boolean bAbsorb)
         # If bAbsorb is True, the text content replaces or spans the current selection.
         # If False, it's inserted as a point. We'll use True so if there's a selection, it's spanned.
-        text.insertTextContent(view_cursor, bookmark, True)
+        rng.getText().insertTextContent(rng, bookmark, True)
 
         return {"status": "ok", "message": f"Bookmark '{name}' created."}
 

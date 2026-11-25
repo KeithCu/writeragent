@@ -1243,3 +1243,38 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
         assert len(_region_shapes(doc, cloned_header)[0]) == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
+    from com.sun.star.style.BreakType import NONE, PAGE_BEFORE
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.page import PageInsertBreak
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    controller = doc.getCurrentController()
+    controller.select(cur)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = PageInsertBreak().execute(tctx)
+    assert res["status"] == "ok", res
+
+    paras = []
+    enum = text.createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        paras.append((el.getString(), el.getPropertyValue("BreakType")))
+    assert paras == [("Alpha beta gamma", PAGE_BEFORE), ("Second para", NONE)], paras

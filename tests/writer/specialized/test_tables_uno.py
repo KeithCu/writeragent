@@ -1151,6 +1151,39 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
 
 
 @native_test
+@with_native_doc("writer")
+def test_table_insert_uses_pinned_caret_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.tests.testing_utils import native_writer_tool_context
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    controller = doc.getCurrentController()
+    controller.select(cur)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = TableInsert().execute(tctx, rows=1, columns=1)
+    assert res["status"] == "ok", res
+
+    items = []
+    enum = text.createEnumeration()
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        items.append("<TABLE>" if el.supportsService("com.sun.star.text.TextTable") else el.getString())
+    assert items == ["Alpha ", "<TABLE>", "beta gamma", "Second para"], items
+
+
+@native_test
 @with_native_doc("writer", reuse=False)
 def test_protected_cell_band_delete_refused_and_covered_band_not_deleted_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements

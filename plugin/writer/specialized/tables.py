@@ -35,6 +35,7 @@ from ..table_nesting import (
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
+from ..target_resolver import request_selection_range
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
 
@@ -1295,7 +1296,7 @@ class TableInsert(ToolWriterTableBase):
                     host.insertTextContent(host.getEnd(), table, False)
                 else:
                     text = doc.getText()
-                    cursor = uno_read(lambda: doc.getCurrentController().getViewCursor(), None)
+                    cursor = request_selection_range(ctx)
                     if cursor is None:
                         cursor = text.getEnd()
                     try:
@@ -1304,13 +1305,13 @@ class TableInsert(ToolWriterTableBase):
                         if is_disposal(exc):
                             raise
                         # Body XText + cursor already in a cell: do not guess a nest target.
-                        # doc.getText().insertTextContent(viewCursor, table) raises when the
+                        # doc.getText().insertTextContent(cursor, table) raises when the
                         # cursor already sits in a nested XText (table cell, frame):
                         # "End of content node doesn't have the proper start node".
                         msg = str(exc).lower()
                         if "start node" in msg and "content node" in msg:
                             raise ValueError(
-                                "Cannot insert a table at the view cursor (it is probably inside a cell). "
+                                "Cannot insert a table at the cursor (it is probably inside a cell). "
                                 "Pass parent and cell to nest, or move the cursor out of the table."
                             )
                         raise

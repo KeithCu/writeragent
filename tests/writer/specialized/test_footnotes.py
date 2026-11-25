@@ -10,6 +10,7 @@ from plugin.writer.specialized.footnotes import (
 class FakeCtx:
     def __init__(self, doc):
         self.doc = doc
+        self.selection_pin = None
 
 def test_footnotes_insert():
     doc = MagicMock()
@@ -19,6 +20,7 @@ def test_footnotes_insert():
     v_cursor = MagicMock()
     t_cursor = MagicMock()
 
+    ctrl.getSelection.return_value = None
     ctrl.getViewCursor.return_value = v_cursor
     v_cursor.getText.return_value.createTextCursorByRange.return_value = t_cursor
 
@@ -130,6 +132,7 @@ def test_footnotes_insert_failed_create_is_a_tool_error():
     v_cursor = MagicMock()
     t_cursor = MagicMock()
 
+    ctrl.getSelection.return_value = None
     ctrl.getViewCursor.return_value = v_cursor
     v_cursor.getText.return_value.createTextCursorByRange.return_value = t_cursor
 

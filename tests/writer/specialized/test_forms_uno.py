@@ -36,6 +36,7 @@ class MockCtx:
         self.doc = doc
         self.ctx = ctx
         self.doc_type = "writer"
+        self.selection_pin = None
 
 
 @native_test
@@ -416,6 +417,163 @@ def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
         assert not doc.getPropertyValue("RecordChanges")
     finally:
         save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_form_create_uses_pinned_caret_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.forms import FormCreate
+
+    _clear_doc(doc)
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    controller = doc.getCurrentController()
+    controller.select(cur)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = FormCreate().execute(
+        tctx,
+        fields=[{"control": "text", "name": "f1"}, {"control": "checkbox", "name": "f2"}],
+    )
+    assert res["status"] == "ok", res
+
+    dp = doc.getDrawPage()
+    shapes = {dp.getByIndex(i).Name: dp.getByIndex(i) for i in range(dp.getCount())}
+    assert set(shapes) >= {"f1", "f2"}
+    a1 = shapes["f1"].getAnchor()
+    a2 = shapes["f2"].getAnchor()
+    before_f1 = text.createTextCursorByRange(a1.getStart())
+    before_f1.gotoStart(True)
+    assert before_f1.getString() == "Alpha "
+    assert text.compareRegionStarts(a1.getStart(), a2.getStart()) > 0
+    between = text.createTextCursorByRange(a1.getEnd())
+    between.gotoRange(a2.getStart(), True)
+    assert between.getString() == " "
+    after_f2 = text.createTextCursorByRange(a2.getEnd())
+    after_f2.gotoEnd(True)
+    after_f2_text = after_f2.getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert after_f2_text == " beta gamma\nSecond para", repr(after_f2_text)
+
+
+@native_test
+@with_native_doc("writer")
+def test_form_generate_uses_pinned_caret_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.forms import FormGenerate
+
+    _clear_doc(doc)
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    controller = doc.getCurrentController()
+    controller.select(cur)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    content = "<p>Title</p>Name: {FIELD:control='text',name='g1'} Agree {FIELD:control='checkbox',name='g2'}<p>tail</p>"
+    res = FormGenerate()._process_form_content(tctx, content)
+    assert res["status"] == "ok", res
+
+    dp = doc.getDrawPage()
+    shapes = {dp.getByIndex(i).Name: dp.getByIndex(i) for i in range(dp.getCount())}
+    assert {"g1", "g2"} <= set(shapes)
+    g1_anchor = shapes["g1"].getAnchor()
+    g2_anchor = shapes["g2"].getAnchor()
+    before_g1 = text.createTextCursorByRange(g1_anchor.getStart())
+    before_g1.gotoStart(True)
+    assert before_g1.getString().replace("\r\n", "\n").replace("\r", "\n") == "Alpha Title\nName: "
+    between_g = text.createTextCursorByRange(g1_anchor.getEnd())
+    between_g.gotoRange(g2_anchor.getStart(), True)
+    assert between_g.getString() == "Agree "
+    after_g2 = text.createTextCursorByRange(g2_anchor.getEnd())
+    after_g2.gotoEnd(True)
+    assert after_g2.getString().replace("\r\n", "\n").replace("\r", "\n") == "tail\nbeta gamma\nSecond para"
+
+
+@native_test
+@with_native_doc("writer")
+def test_form_create_in_table_cell_uno(ctx, doc):
+    from plugin.framework.uno_context import uno_same
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.forms import FormCreate
+
+    _clear_doc(doc)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    doc.getText().insertTextContent(doc.getText().getEnd(), table, False)
+    cell = table.getCellByName("A1")
+    doc.getCurrentController().select(cell.getStart())
+
+    tctx = native_writer_tool_context(doc, ctx)
+    res = FormCreate().execute(
+        tctx,
+        fields=[{"control": "text", "name": "cell_f1"}, {"control": "text", "name": "cell_f2"}],
+    )
+    assert res["status"] == "ok", res
+
+    dp = doc.getDrawPage()
+    shapes = {dp.getByIndex(i).Name: dp.getByIndex(i) for i in range(dp.getCount())}
+    assert uno_same(shapes["cell_f1"].getAnchor().getText(), cell)
+    assert uno_same(shapes["cell_f2"].getAnchor().getText(), cell)
+
+
+@native_test
+@with_native_doc("writer")
+def test_form_generate_recorded_over_selection_keeps_text_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.forms import FormGenerate
+
+    _clear_doc(doc)
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "beta"
+    found = doc.findFirst(sd)
+    assert found is not None
+    doc.getCurrentController().select(found)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = FormGenerate()._process_form_content(
+            tctx,
+            "<p>Name: </p>{FIELD:control='text',name='g1'}",
+        )
+        assert res["status"] == "ok", res
+        assert "Name:" in text.getString()
+
+        from plugin.framework.uno_context import execute_dispatch
+
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+        accepted = text.getString()
+        assert "beta" not in accepted
+        assert "Name:" in accepted
+        dp = doc.getDrawPage()
+        assert any(dp.getByIndex(i).Name == "g1" for i in range(dp.getCount()))
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 
