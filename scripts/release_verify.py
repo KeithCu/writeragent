@@ -108,12 +108,10 @@ def _make_uno_env(
             # Leave USERPROFILE alone: soffice and its Python inherit this env.
             env["APPDATA"] = str(home)
     env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
-    if profile is not None:
-        env["WRITERAGENT_UNO_SEED_PROFILE"] = str(profile)
-        if sys.platform == "win32":
-            # Tip: the runner loads extension types (XPythonFunction) from this profile, and
-            # Windows ignores %APPDATA% here. An unknown type in a reply kills the URP bridge.
-            env["UserInstallation"] = profile.as_uri()
+    if profile is not None and sys.platform == "win32":
+        # Tip: the runner loads extension types (XPythonFunction) from this profile, and
+        # Windows ignores %APPDATA% here. An unknown type in a reply kills the URP bridge.
+        env["UserInstallation"] = profile.as_uri()
     return env
 
 

@@ -39,6 +39,11 @@ def _reset_office_test_state(monkeypatch, tmp_path: Path):
 
 
 @pytest.fixture
+def _not_a_worktree(monkeypatch) -> None:
+    monkeypatch.setattr(tr, "worktree_root", lambda: None)
+
+
+@pytest.fixture
 def _fake_officehelper(monkeypatch, tmp_path: Path) -> types.ModuleType:
     fake_oh = types.ModuleType("officehelper")
     fake_oh.__file__ = str(tmp_path / "officehelper.py")
@@ -72,7 +77,7 @@ def test_soffice_bootstrap_command_seeds_throwaway(
 ) -> None:
     seeded: list[Path] = []
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", seeded.append)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
@@ -89,7 +94,7 @@ def test_soffice_bootstrap_command_seeds_throwaway(
 
 
 def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
-    monkeypatch, tmp_path: Path, _fake_officehelper
+    monkeypatch, tmp_path: Path, _fake_officehelper, _not_a_worktree
 ) -> None:
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -109,7 +114,7 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
     """GHA 33749075233: Windows lookup is soffice.exe; a bare ``soffice`` is ignored."""
     seeded: list[Path] = []
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", seeded.append)
     monkeypatch.setattr(tr.sys, "platform", "win32")
     soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
     cmd, accept = tr._soffice_bootstrap_command()
@@ -130,7 +135,7 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     found.parent.mkdir()
     found.write_text("", encoding="utf-8")
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", seeded.append)
     monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda: found)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
@@ -146,7 +151,7 @@ def test_soffice_bootstrap_command_argv0_is_bare_path(
 ) -> None:
     """Current officehelper Popen([sOffice, ...]) — argv[0] must be path-only."""
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", lambda _p: None)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     cmd, accept = tr._soffice_bootstrap_command()
     assert accept == [a[len("--accept=") :] for a in cmd if a.startswith("--accept=")][0]
@@ -175,13 +180,13 @@ def test_on_github_actions_reads_env(monkeypatch) -> None:
     assert tr.on_github_actions() is False
 
 
-def test_writeragent_oxt_in_uno_packages(monkeypatch, tmp_path: Path) -> None:
+def test_writeragent_oxt_in_uno_packages(monkeypatch, tmp_path: Path, _not_a_worktree) -> None:
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     empty_profile = tmp_path / "empty_profile"
     (empty_profile / "user" / "uno_packages").mkdir(parents=True)
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: empty_profile / ".lock")
     dest_empty = tmp_path / "throwaway_empty"
-    tr._seed_throwaway_profile_with_user_oxt(dest_empty)
+    tr._seed_throwaway_profile(dest_empty)
     assert not (dest_empty / "user" / "uno_packages").exists()
 
     packed_profile = tmp_path / "packed_profile"
@@ -190,18 +195,18 @@ def test_writeragent_oxt_in_uno_packages(monkeypatch, tmp_path: Path) -> None:
     (packed / "plugin").mkdir()
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: packed_profile / ".lock")
     dest_packed = tmp_path / "throwaway_packed"
-    tr._seed_throwaway_profile_with_user_oxt(dest_packed)
+    tr._seed_throwaway_profile(dest_packed)
     assert (dest_packed / "user" / "uno_packages" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt").exists()
 
 
-def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) -> None:
+def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path, _not_a_worktree) -> None:
     src = tmp_path / "user-profile" / "user" / "uno_packages"
     oxt = src / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt"
     oxt.mkdir(parents=True)
     (oxt / "addin.py").write_text("ok", encoding="utf-8")
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "user-profile" / ".lock")
     dest_root = tmp_path / "throwaway"
-    tr._seed_throwaway_profile_with_user_oxt(dest_root)
+    tr._seed_throwaway_profile(dest_root)
     copied = dest_root / "user" / "uno_packages" / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt" / "addin.py"
     assert copied.read_text(encoding="utf-8") == "ok"
     seeded_cfg = dest_root / "user" / "config" / "writeragent.json"
@@ -211,22 +216,113 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
     assert "python_venv_path" not in seeded_text
 
 
-def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
+def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path, _not_a_worktree) -> None:
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing" / ".lock")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     try:
-        tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
+        tr._seed_throwaway_profile(tmp_path / "throwaway")
     except RuntimeError as exc:
         assert "register-built-oxt" in str(exc)
     else:
         raise AssertionError("expected RuntimeError on GitHub Actions without user OXT")
 
 
-def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
+def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path, _not_a_worktree) -> None:
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing" / ".lock")
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-    tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
+    tr._seed_throwaway_profile(tmp_path / "throwaway")
     assert not (tmp_path / "throwaway" / "user" / "uno_packages").exists()
+
+
+def test_worktree_root_is_a_git_file_checkout(monkeypatch, tmp_path: Path) -> None:
+    fake_runner = tmp_path / "repo" / "plugin" / "testing_runner.py"
+    fake_runner.parent.mkdir(parents=True)
+    fake_runner.write_text("", encoding="utf-8")
+    monkeypatch.setattr(tr, "__file__", str(fake_runner))
+
+    assert tr.worktree_root() is None
+
+    (tmp_path / "repo" / ".git").mkdir()
+    assert tr.worktree_root() is None
+
+    (tmp_path / "repo" / ".git").rmdir()
+    (tmp_path / "repo" / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+    assert tr.worktree_root() == tmp_path / "repo"
+
+
+def test_seed_in_worktree_never_uses_user_oxt(monkeypatch, tmp_path: Path) -> None:
+    user_oxt = tmp_path / "user-profile" / "user" / "uno_packages" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt"
+    user_oxt.mkdir(parents=True)
+    (user_oxt / "addin.py").write_text("stale", encoding="utf-8")
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "user-profile" / ".lock")
+
+    tree = tmp_path / "worktree"
+    tree.mkdir()
+    monkeypatch.setattr(tr, "worktree_root", lambda: tree)
+    monkeypatch.setenv("PYTHONPATH", "/some/stale/path")
+
+    office = tr.current_office()
+    first_profile = tmp_path / "throwaway-1"
+    second_profile = tmp_path / "throwaway-2"
+    first_profile.mkdir()
+    second_profile.mkdir()
+    office.throwaway_profile_dirs.append(first_profile)
+
+    calls: list[tuple[list[str], object]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> tr.subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs.get("env")))
+        seed_dir = Path(cmd[cmd.index("--profile") + 1])
+        oxt_dir = seed_dir / "user" / "uno_packages" / "cache" / "uno_packages" / "lu2.tmp_" / "WriterAgent.oxt"
+        oxt_dir.mkdir(parents=True)
+        (oxt_dir / "addin.py").write_text("branch", encoding="utf-8")
+        return tr.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tr.subprocess, "run", fake_run)
+
+    tr._seed_throwaway_profile(first_profile)
+    copied = first_profile / "user" / "uno_packages" / "cache" / "uno_packages" / "lu2.tmp_" / "WriterAgent.oxt" / "addin.py"
+    assert copied.read_text(encoding="utf-8") == "branch"
+    assert not list(first_profile.rglob("lu1.tmp_"))
+    cfg = first_profile / "user" / "config" / "writeragent.json"
+    assert '"scripting.python_session_mode": "shared"' in cfg.read_text(encoding="utf-8")
+
+    # Seeding a second profile reuses the cached worktree-seed without rebuilding.
+    tr._seed_throwaway_profile(second_profile)
+    assert len(calls) == 1
+    cmd, env = calls[0]
+    expected_py = tree / (".venv/Scripts/python.exe" if sys.platform.startswith("win") else ".venv/bin/python")
+    assert cmd[0] == str(expected_py)
+    assert "seed-tree" in cmd
+    assert cmd[cmd.index("--tree") + 1] == str(tree)
+    assert isinstance(env, dict) and "PYTHONPATH" not in env
+    copied2 = second_profile / "user" / "uno_packages" / "cache" / "uno_packages" / "lu2.tmp_" / "WriterAgent.oxt" / "addin.py"
+    assert copied2.read_text(encoding="utf-8") == "branch"
+
+
+def test_seed_in_worktree_build_failure_raises(monkeypatch, tmp_path: Path) -> None:
+    user_oxt = tmp_path / "user-profile" / "user" / "uno_packages" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt"
+    user_oxt.mkdir(parents=True)
+    (user_oxt / "addin.py").write_text("stale", encoding="utf-8")
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "user-profile" / ".lock")
+
+    tree = tmp_path / "worktree"
+    tree.mkdir()
+    monkeypatch.setattr(tr, "worktree_root", lambda: tree)
+
+    profile = tmp_path / "throwaway"
+    profile.mkdir()
+    tr.current_office().throwaway_profile_dirs.append(profile)
+
+    monkeypatch.setattr(
+        tr.subprocess,
+        "run",
+        lambda cmd, **kwargs: tr.subprocess.CompletedProcess(cmd, 2, stdout="bad syntax\n", stderr="err\n"),
+    )
+
+    with pytest.raises(RuntimeError, match="bad syntax"):
+        tr._seed_throwaway_profile(profile)
+    assert not (profile / "user" / "uno_packages").exists()
 
 
 def test_parse_cli_user_profile_sets_flags(monkeypatch) -> None:
@@ -722,7 +818,7 @@ def test_clean_exit_stops_office_and_removes_every_profile(
 ) -> None:
     office = tr.current_office()
     monkeypatch.setattr(office.options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", lambda _p: None)
     _touch_soffice_next_to_helper(tmp_path)
 
     tr._soffice_bootstrap_command()
@@ -761,7 +857,7 @@ def test_failed_exit_keeps_profile_and_names_it(
 ) -> None:
     office = tr.current_office()
     monkeypatch.setattr(office.options, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile", lambda _p: None)
     _touch_soffice_next_to_helper(tmp_path)
 
     tr._soffice_bootstrap_command()
