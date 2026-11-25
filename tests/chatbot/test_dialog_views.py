@@ -178,7 +178,10 @@ class TestSettingsInitialModelsFetch:
         if api_key is None:
             dlg._schedule_initial_models_fetch(endpoint)
         else:
-            with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value=api_key):
+            with (
+                patch("plugin.chatbot.dialog_views.api_key_needs_keystore_read", return_value=False),
+                patch("plugin.chatbot.dialog_views.cached_api_key_for_endpoint", return_value=api_key),
+            ):
                 dlg._schedule_initial_models_fetch(endpoint)
         if expected_scheduled:
             listener._schedule_debounced_models_fetch.assert_called_once()
@@ -932,7 +935,7 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
         "https://api.groq.com/openai/v1x": "sk-other",
     }
 
-    with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", side_effect=lambda url: saved.get(url, "")), \
+    with patch("plugin.chatbot.dialog_views.cached_api_key_for_endpoint", side_effect=lambda url: saved.get(url, "")), \
          patch("plugin.chatbot.dialog_views.api_key_field_text", side_effect=lambda url: saved.get(url, "")), \
          patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
@@ -2426,7 +2429,7 @@ def test_ref_in_key_field_is_not_used_as_a_key() -> None:
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
     with (
         patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.groq.com/openai/v1"),
-        patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.dialog_views.cached_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect),
         patch("plugin.chatbot.dialog_views.get_control_text", return_value="keystore:deadbeef"),
         patch("plugin.chatbot.dialog_views.drop_non_text_models", return_value=[]),
@@ -2478,3 +2481,115 @@ def test_endpoint_change_replaces_a_ref_in_the_key_field() -> None:
     ):
         listener._sync_api_key()
     mock_set.assert_called_once_with(api, "sk-together")
+
+
+def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    endpoint = "https://openrouter.ai/api"
+    save({"endpoint": endpoint, "api_keys_by_endpoint": {endpoint: "sk-or-secret"}})
+    ref = get_config("api_keys_by_endpoint")[endpoint]
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    combo = MagicMock()
+    combo.getText.return_value = endpoint
+    api_ctrl = MagicMock()
+    api_ctrl.getText.return_value = ref
+
+    def get_opt(_dlg, name):
+        return api_ctrl if name == "api_key" else None
+
+    workers: list[Any] = []
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_opt),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
+        patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
+        patch.object(listener, "_schedule_debounced_models_fetch") as mock_fetch,
+    ):
+        listener.start_key_read(endpoint)
+        assert fake_keystore.get_calls == 0
+        assert len(workers) == 1
+        workers[0]()
+
+    api_ctrl.setText.assert_called_once_with("sk-or-secret")
+    mock_fetch.assert_called_once()
+
+
+def test_selecting_endpoint_while_key_loading_starts_no_keyless_fetch(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    endpoint = "https://api.together.xyz"
+    save({"api_keys_by_endpoint": {endpoint: "sk-tog"}})
+    ref = get_config("api_keys_by_endpoint")[endpoint]
+    keystore.reset_for_tests(fake_keystore)
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://openrouter.ai/api"
+    combo.getItem.return_value = endpoint
+    api_ctrl = MagicMock()
+    text_state = {"val": ""}
+    api_ctrl.getText.side_effect = lambda: text_state["val"]
+    api_ctrl.setText.side_effect = lambda v: text_state.__setitem__("val", v)
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    event = MagicMock()
+    event.Selected = 0
+    combo.getText.side_effect = lambda: endpoint
+
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: api_ctrl if n == "api_key" else None),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background"),
+        patch.object(listener, "_apply_dropdowns") as mock_apply,
+        patch.object(listener, "_start_bg_fetch") as mock_bg,
+    ):
+        listener.itemStateChanged(event)
+
+    assert text_state["val"] == ref
+    mock_apply.assert_called_once_with(endpoint, models=None)
+    mock_bg.assert_not_called()
+
+
+def test_key_typed_while_pending_survives(fake_keystore) -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, save
+
+    endpoint = "https://openrouter.ai/api"
+    save({"api_keys_by_endpoint": {endpoint: "sk-old"}})
+    ref = get_config("api_keys_by_endpoint")[endpoint]
+    keystore.reset_for_tests(fake_keystore)
+
+    combo = MagicMock()
+    combo.getText.return_value = endpoint
+    api_ctrl = MagicMock()
+    text_state = {"val": ref}
+    api_ctrl.getText.side_effect = lambda: text_state["val"]
+    api_ctrl.setText.side_effect = lambda v: text_state.__setitem__("val", v)
+
+    workers: list[Any] = []
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: api_ctrl if n == "api_key" else None),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
+        patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
+        patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
+    ):
+        listener.start_key_read(endpoint)
+        text_state["val"] = "sk-user-typed"
+        workers[0]()
+
+    assert text_state["val"] == "sk-user-typed"

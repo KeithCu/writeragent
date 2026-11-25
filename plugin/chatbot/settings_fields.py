@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -22,6 +25,8 @@ from plugin.framework.config import get_config, save, secret_config_field_text
 from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
+from plugin.framework.queue_executor import main
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +102,29 @@ def secret_location_label(raw: object) -> str:
     if keystore.can_store():
         return keystore.backend_label()
     return _("plain text")
+
+
+def read_secret_in_background(
+    ctrl: Any,
+    ref: str,
+    read: Callable[[], object],
+    on_done: Callable[[], None],
+    is_closed: Callable[[], bool],
+) -> None:
+    """Read a keystore secret on a dedicated worker, then repaint on the UI thread if *ctrl* still holds *ref*."""
+
+    def _apply() -> None:
+        if is_closed() or get_control_text(ctrl) != ref:
+            return
+        on_done()
+
+    def _worker() -> None:
+        try:
+            read()
+        finally:
+            main.post(_apply)
+
+    run_in_background(_worker, name="settings-secret-read", dedicated=True)
 
 
 def build_module_field_specs(

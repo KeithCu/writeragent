@@ -907,6 +907,8 @@ def cached_tts_models(endpoint: str, api_key_override: str | None = None) -> lis
     base = _catalog_base(endpoint)
     if not base or get_provider_from_endpoint(base) != "openrouter":
         return None
+    if api_key_override is None and api_key_needs_keystore_read(_key_slot_base(endpoint)):
+        return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     return list(memo.tts_ids) if isinstance(memo.tts_ids, list) else None
 

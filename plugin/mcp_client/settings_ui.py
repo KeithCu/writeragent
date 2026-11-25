@@ -24,8 +24,9 @@ from plugin.chatbot.dialogs import (
     set_combo_items,
     set_control_text,
 )
+from plugin.chatbot.settings_fields import read_secret_in_background
 from plugin.framework import config, keystore
-from plugin.framework.config import entry_secret_field_text, get_config
+from plugin.framework.config import entry_secret_field_text, get_config, resolve_entry_secret
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation
@@ -134,24 +135,44 @@ class McpServersEditor:
         if entry is not None:
             entry[1].cancel()
 
+    def _on_token_read(self, name: str, raw_token: Any) -> None:
+        token_text = entry_secret_field_text(SERVERS_KEY, name, "token", raw_token)
+        if keystore.is_ref(token_text):
+            if not self._status.get(name) and not get_control_text(self._controls["status"]).strip():
+                set_control_text(
+                    self._controls["status"],
+                    _("The token is in the keyring but could not be read. Unlock the keyring to see it, or clear the Token field to remove it."),
+                )
+            return
+        set_control_text(self._controls["token"], token_text)
+        prev_url = self._snapshot[name][0] if name in self._snapshot else get_control_text(self._controls["url"]).strip()
+        self._snapshot[name] = (prev_url, token_text.strip())
+
+    def _start_token_read(self, name: str, raw_token: Any, token_ref: str) -> None:
+        read_secret_in_background(
+            self._controls["token"],
+            token_ref,
+            read=lambda: resolve_entry_secret(SERVERS_KEY, name, "token", raw_token),
+            on_done=lambda: self._on_token_read(name, raw_token),
+            is_closed=lambda: self._closed or self._current != name,
+        )
+
     def _load(self, name: str | None) -> None:
         """Populate editor controls for *name* (or a blank form when *name* is None)."""
+        raw_token: Any = None
+        token_text = ""
         if name is not None:
             self._current = name
             entry = self._servers[name]
             raw_token = entry.get("token")
             token_text = entry_secret_field_text(SERVERS_KEY, name, "token", raw_token)
-            unreadable = keystore.is_ref(token_text)
             url_text = str(entry.get("url") or "")
             enabled = server_enabled(entry)
             trusted = server_trusted(entry)
             status_text = self._status.get(name, "")
-            if not status_text and unreadable:
-                status_text = _("The token is in the keyring but could not be read. Unlock the keyring to see it, or clear the Token field to remove it.")
         else:
             self._current = None
             url_text = ""
-            token_text = ""
             enabled = True
             trusted = False
             status_text = ""
@@ -170,6 +191,8 @@ class McpServersEditor:
                 get_control_text(self._controls["url"]).strip(),
                 get_control_text(self._controls["token"]).strip(),
             )
+            if keystore.is_ref(token_text):
+                self._start_token_read(self._current, raw_token, token_text)
 
     def _commit(self) -> None:
         """Write current field values back into ``self._servers``, creating or renaming as needed."""

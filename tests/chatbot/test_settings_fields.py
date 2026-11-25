@@ -533,3 +533,69 @@ def test_field_specs_config_values_maps_select_caption_to_option_value():
     )
     assert mapped == {"vision.layout_model": "heron", "vision.images_scale": 2.0}
 
+
+def test_read_secret_in_background_repaints_on_match_and_drops_on_change_or_close(monkeypatch):
+    import threading
+    from unittest.mock import MagicMock
+
+    from plugin.chatbot import settings_fields
+
+    threads: list[threading.Thread] = []
+
+    def run_bg(fn, *args, **kwargs):
+        t = threading.Thread(target=fn, args=args)
+        t.start()
+        threads.append(t)
+        return t
+
+    monkeypatch.setattr(settings_fields, "run_in_background", run_bg)
+    monkeypatch.setattr(settings_fields.main, "post", lambda fn: fn())
+
+    ctrl = MagicMock()
+    ctrl.getText.return_value = "keystore:11111111"
+    done_calls: list[str] = []
+    settings_fields.read_secret_in_background(
+        ctrl,
+        "keystore:11111111",
+        read=lambda: "ok",
+        on_done=lambda: done_calls.append("matched"),
+        is_closed=lambda: False,
+    )
+    threads[-1].join(timeout=2.0)
+    assert done_calls == ["matched"]
+
+    ctrl.getText.return_value = "user-typed"
+    settings_fields.read_secret_in_background(
+        ctrl,
+        "keystore:11111111",
+        read=lambda: "ok",
+        on_done=lambda: done_calls.append("changed"),
+        is_closed=lambda: False,
+    )
+    threads[-1].join(timeout=2.0)
+    assert done_calls == ["matched"]
+
+    ctrl.getText.return_value = "keystore:11111111"
+    settings_fields.read_secret_in_background(
+        ctrl,
+        "keystore:11111111",
+        read=lambda: "ok",
+        on_done=lambda: done_calls.append("closed"),
+        is_closed=lambda: True,
+    )
+    threads[-1].join(timeout=2.0)
+    assert done_calls == ["matched"]
+
+    def boom() -> None:
+        raise RuntimeError("boom")
+
+    settings_fields.read_secret_in_background(
+        ctrl,
+        "keystore:11111111",
+        read=boom,
+        on_done=lambda: done_calls.append("after_error"),
+        is_closed=lambda: False,
+    )
+    threads[-1].join(timeout=2.0)
+    assert done_calls == ["matched", "after_error"]
+

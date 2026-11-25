@@ -34,11 +34,15 @@ from plugin.framework.i18n import N_, _
 from plugin.framework import keystore
 from plugin.framework.config import (
     api_key_field_text,
+    api_key_needs_keystore_read,
     api_key_slot_value,
+    cached_api_key_for_endpoint,
     get_api_key_for_endpoint,
     get_config,
     get_current_endpoint,
+    get_secret_config,
     save,
+    secret_config_field_text,
 )
 from plugin.framework.client.model_fetcher import (
     cached_image_models,
@@ -65,7 +69,7 @@ from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.config_schema import get_config_schema
-from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control, secret_location_label, stored_select_value
+from plugin.chatbot.settings_fields import populate_settings_control, read_secret_in_background, read_settings_control, secret_location_label, stored_select_value
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import (
     endpoint_from_selector_text,
@@ -209,6 +213,7 @@ class SettingsDialog:
     _endpoint_listener: Any
     _mcp_servers: Any
     _attached: list[tuple[Any, str, Any]]
+    _closed: bool
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -216,6 +221,7 @@ class SettingsDialog:
         self._endpoint_listener = None
         self._mcp_servers = None
         self._attached = []
+        self._closed = False
 
     def _attach(self, ctrl: Any, kind: str, listener: Any) -> None:
         getattr(ctrl, f"add{kind}Listener")(listener)
@@ -252,6 +258,17 @@ class SettingsDialog:
                 test_conn_btn.addActionListener(
                     TestConnectionListener(self._ctx, self._dlg, self._endpoint_listener)
                 )
+            if self._endpoint_listener:
+                self._endpoint_listener.start_key_read(current_endpoint)
+            for spec in field_specs:
+                config_key = spec.get("config_key")
+                val = str(spec.get("value") or "")
+                if not config_key or not keystore.is_ref(val):
+                    continue
+                ctrl = get_optional(self._dlg, spec["name"])
+                if ctrl is None:
+                    continue
+                self._start_config_secret_read(ctrl, val, str(config_key))
             self._schedule_initial_models_fetch(current_endpoint)
             self._apply_sqlite_restrictions()
 
@@ -281,6 +298,15 @@ class SettingsDialog:
             return {}
         finally:
             self._cleanup()
+
+    def _start_config_secret_read(self, ctrl: Any, ref: str, config_key: str) -> None:
+        read_secret_in_background(
+            ctrl,
+            ref,
+            read=lambda: get_secret_config(config_key),
+            on_done=lambda: set_control_text(ctrl, secret_config_field_text(config_key)),
+            is_closed=lambda: self._closed,
+        )
 
     def _create_dialog(self) -> None:
         # Loader returns None after DialogProvider and DialogProvider2 both fail.
@@ -343,7 +369,10 @@ class SettingsDialog:
         from plugin.chatbot.config_ui_helpers import populate_endpoint_selector
 
         raw_api_key = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
-        api_key_val = "" if keystore.is_ref(raw_api_key) else raw_api_key
+        if keystore.is_ref(raw_api_key):
+            api_key_val: str | None = None if api_key_needs_keystore_read(current_endpoint) else ""
+        else:
+            api_key_val = raw_api_key
 
         for field in field_specs:
             # get_optional returns None for a name missing from the XDL
@@ -414,13 +443,13 @@ class SettingsDialog:
         from plugin.framework.client.auth import provider_requires_api_key
 
         listener = self._endpoint_listener
-        if not listener or not endpoint:
+        if not listener or not endpoint or api_key_needs_keystore_read(endpoint):
             return
         provider = get_provider_from_endpoint(endpoint)
         # A key-gated host with an empty key cannot list models. Local and
         # custom endpoints do not use that gate.
         if provider and provider_requires_api_key(provider):
-            if not str(get_api_key_for_endpoint(endpoint) or "").strip():
+            if not str(cached_api_key_for_endpoint(endpoint) or "").strip():
                 return
         listener._schedule_debounced_models_fetch()
 
@@ -466,6 +495,7 @@ class SettingsDialog:
         return result
 
     def _cleanup(self) -> None:
+        self._closed = True
         # suppress_disposed in finally so teardown errors do not mask the original show() failure.
         if self._endpoint_listener:
             with suppress_disposed("close endpoint listener", logger=log, suppress_all=False):
@@ -572,9 +602,11 @@ class TestConnectionListener(BaseActionListener):
         # UI thread: reads the endpoint controls, then the catalog GET runs
         # on the settings worker. Do not wait for the connection probe.
         listener = self._endpoint_listener
+        ak_ctrl = get_optional(self._dlg, "api_key")
+        has_ref = ak_ctrl is not None and keystore.is_ref(str(get_control_text(ak_ctrl) or ""))
         if listener is not None:
             listener.force_catalog_refresh()
-            api_key = listener._api_key_override() or ""
+            api_key = "" if has_ref else (listener._api_key_override() or "")
         else:
             api_key = ""
 
@@ -583,7 +615,8 @@ class TestConnectionListener(BaseActionListener):
         endpoint = endpoint_from_selector_text(endpoint_text)
 
         def _worker() -> None:
-            msg = check_endpoint_connection(endpoint, api_key)[1]
+            resolved_key = get_api_key_for_endpoint(endpoint) if has_ref else api_key
+            msg = check_endpoint_connection(endpoint, resolved_key)[1]
 
             def _apply() -> None:
                 if btn_test:
@@ -1018,6 +1051,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _applied_catalog: tuple[str, str] | None
     _painted_identity: str
     _painted_models: dict[str, str]
+    _pending_key_ref: str | None
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         self._dlg = dialog
@@ -1026,6 +1060,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._debounce_gen = 0
         self._closed = False
         self._timer = None
+        self._pending_key_ref = None
         # Endpoint + live key last painted from the in-memory catalog.
         # A later keystroke with the same pair must not refetch or rewrite.
         self._applied_catalog = None
@@ -1080,8 +1115,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         typed_key = self._typed_api_key(ak_ctrl)
         saved_endpoint = get_current_endpoint()
         target_endpoint = endpoint_from_selector_text(self._ctrl.getText())
-        saved_key = get_api_key_for_endpoint(saved_endpoint)
-        target_key = get_api_key_for_endpoint(target_endpoint)
+        saved_key = cached_api_key_for_endpoint(saved_endpoint)
+        target_key = cached_api_key_for_endpoint(target_endpoint)
 
         return effective_api_key(
             typed_key,
@@ -1110,7 +1145,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def _apply_dropdowns(self, resolved: str, models: Any = None) -> None:
         ak_ctrl = get_optional(self._dlg, "api_key")
-        api_key_ov = self._typed_api_key(ak_ctrl) if ak_ctrl else ""
+        api_key_ov = None if self._key_read_pending() else (self._typed_api_key(ak_ctrl) if ak_ctrl else "")
         resolved_provider = _provider_for_catalog(resolved)
         identity = _catalog_family(resolved)
         same = bool(identity) and identity == self._painted_identity
@@ -1162,7 +1197,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved: str,
         resolved_provider: str | None,
         models: Any,
-        api_key_ov: str,
+        api_key_ov: str | None,
         kind: str,
     ) -> Any:
         """Ids for the Speech-tab STT or TTS combo.
@@ -1179,7 +1214,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
             remote = models if isinstance(models, list) else None
             # No key and no fetched catalog yet: same placeholder as the text combo.
-            if not api_key_ov and remote is None:
+            if api_key_ov == "" and remote is None:
                 return None
             return together_speech_ids(kind, remote)
         if resolved_provider != "openrouter":
@@ -1217,7 +1252,51 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return True
         if not previous:
             return False
-        return current == str(get_api_key_for_endpoint(previous) or "")
+        return current == str(cached_api_key_for_endpoint(previous) or "")
+
+    def _key_read_pending(self) -> bool:
+        if not self._pending_key_ref:
+            return False
+        ak_ctrl = get_optional(self._dlg, "api_key")
+        return ak_ctrl is not None and str(get_control_text(ak_ctrl) or "") == self._pending_key_ref
+
+    def start_key_read(self, resolved: str) -> None:
+        """Start an async keystore read when the ``api_key`` field holds an uncached ref."""
+        ak_ctrl = get_optional(self._dlg, "api_key")
+        if ak_ctrl is None:
+            self._pending_key_ref = None
+            return
+        text = str(get_control_text(ak_ctrl) or "")
+        if not keystore.is_ref(text):
+            self._pending_key_ref = None
+            return
+        self._pending_key_ref = text
+        read_secret_in_background(
+            ak_ctrl,
+            text,
+            read=lambda: get_api_key_for_endpoint(resolved),
+            on_done=lambda: self._on_key_read(resolved),
+            is_closed=lambda: self._closed,
+        )
+
+    def _on_key_read(self, resolved: str) -> None:
+        from plugin.framework.client.auth import provider_requires_api_key
+
+        self._pending_key_ref = None
+        key_text = api_key_field_text(resolved)
+        key_read = not keystore.is_ref(key_text)
+        if key_read:
+            ak_ctrl = get_optional(self._dlg, "api_key")
+            if ak_ctrl is not None:
+                self._syncing_api_key = True
+                try:
+                    set_control_text(ak_ctrl, key_text)
+                finally:
+                    self._syncing_api_key = False
+                self._user_edited_key = False
+        provider = get_provider_from_endpoint(resolved)
+        if key_read or not (provider and provider_requires_api_key(provider)):
+            self._schedule_debounced_models_fetch()
 
     def _sync_api_key(self, *, force: bool = False) -> None:
         """Load the saved key when the resolved endpoint changes.
@@ -1246,6 +1325,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             self._user_edited_key = False
         self._synced_endpoint = resolved
         self._show_key_storage(resolved)
+        self.start_key_read(resolved)
 
     def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return
@@ -1284,6 +1364,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         main.post(apply_ui)
 
     def _schedule_debounced_models_fetch(self) -> None:
+        if self._key_read_pending():
+            self._cancel_pending()
+            return
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         # Once per process for this endpoint+key. A warm memo fills the combos
         # and must not start a timer or a worker. The same pair already painted
@@ -1311,6 +1394,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def force_catalog_refresh(self) -> None:
         """Clear this endpoint+key memo and refetch off the UI thread."""
+        if self._key_read_pending():
+            return
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if not resolved:
             return
@@ -1342,6 +1427,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
+            if self._key_read_pending():
+                self._apply_dropdowns(resolved, models=None)
+                return
             key = self._api_key_override()
             if settings_catalog_is_warm(resolved, api_key_override=key):
                 self._apply_warm_catalog(resolved, key)

@@ -987,6 +987,7 @@ class FakeKeystoreBackend:
     """In-memory keystore backend for unit tests."""
 
     label = "Fake Store"
+    one_lock = False
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
