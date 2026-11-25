@@ -57,9 +57,9 @@ _NOT_RECORDED_HELP = (
 
 def _cursor_refused(name: str) -> ToolExecutionError:
     return ToolExecutionError(
-        "LibreOffice could not place the cursor in table '%s' (it may be in a hidden section), "
-        "so deleting from it cannot be recorded; it was left in place. Ask the user to show the table, then retry."
-        % name,
+        "LibreOffice could not place the cursor in table '%s' (it may be in a hidden or protected section), "
+        "so deleting from it cannot be recorded; it was left in place. Ask the user to show or unprotect it, "
+        "then retry." % name,
         code="TABLE_DELETE_NOT_TRACKABLE",
     )
 
@@ -567,6 +567,9 @@ def _column_span(grid: list[list[_Box]], left: int, right: int) -> int:
 def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tuple[int, int, int, int] | None:
     """Widest merged box in column *idx*: ``(row, col, span, doomed_columns)``, or None.
 
+    The delete guard counts named cells only; the split planner sets ``covered=True``
+    because LibreOffice deletes covered boxes too.
+
     ``SwXTableColumns::removeByIndex`` (``sw/source/core/unocore/unotbl.cxx``) calls
     ``SwDoc::DeleteCol`` (``sw/source/core/docnode/ndtbl.cxx``), which expands the
     selection across any wider cell; a full-width row makes LibreOffice delete the whole table.
@@ -576,14 +579,8 @@ def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tup
         for row, col in _column_band(grid, idx)
         if covered or grid[row][col][0] is not None
     ]
-    seen_rows: set[int] = set()
-    has_multi_in_row = False
-    for row, _col in coords:
-        if row in seen_rows:
-            has_multi_in_row = True
-            break
-        seen_rows.add(row)
-    if not has_multi_in_row:
+    rows = [row for row, _col in coords]
+    if len(set(rows)) == len(rows):
         return None
     spans = [
         (_column_span(grid, grid[row][col][1], grid[row][col][2]), row, col)
@@ -593,7 +590,7 @@ def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tup
     left_min = min(grid[r][c][1] for r, c in coords)
     right_max = max(grid[r][c][2] for r, c in coords)
     doomed = _column_span(grid, left_min, right_max)
-    return (row, col, span, doomed)
+    return row, col, span, doomed
 
 
 def _column_split_plan(grid: list[list[_Box]], idx: int) -> list[tuple[str, int]] | None:
@@ -616,11 +613,22 @@ def _column_split_plan(grid: list[list[_Box]], idx: int) -> list[tuple[str, int]
                 return steps
             row, col, parts, _doomed = wide
         name, left, right = grid[row][col]
+        # One split per row keeps the other rows' cell names valid, so the listed names stay correct.
         if name is None or row in done or not 2 <= parts <= 20:
             return None
         done.add(row)
         cuts = [left + (right - left) * k // parts for k in range(parts + 1)]
         grid[row][col:col + 1] = [(name, cuts[k], cuts[k + 1]) for k in range(parts)]
+        # SwTable::SplitCol (sw/source/core/doc/tblrwcl.cxx:1157) expands across covered boxes below.
+        for r2 in range(row + 1, len(grid)):
+            match = next(
+                (c2 for c2, (n2, l2, r2_edge) in enumerate(grid[r2]) if n2 is None and l2 == left and r2_edge == right),
+                None,
+            )
+            if match is None:
+                break
+            grid[r2][match:match + 1] = [(None, cuts[k], cuts[k + 1]) for k in range(parts)]
+            done.add(r2)
         steps.append((name, parts))
 
 
@@ -647,8 +655,8 @@ def _column_refusal(table: Any, idx: int) -> str | None:
     if steps is None:
         return reason + (
             " Do not split cells: the parts would not line up with the other rows. "
-            "Empty that column's cells with table_set_cell instead (addresses from "
-            "table_get_cells), or ask the user to delete the column."
+            "Empty that column's cells (not protected ones) with table_set_cell instead "
+            "(addresses from table_get_cells), or ask the user to delete the column."
         )
     splits = ", ".join("'%s' (parts=%d)" % step for step in steps)
     return reason + (
@@ -1190,6 +1198,7 @@ class ManageTableStructure(ToolWriterTableBase):
                                 _row_refusal(cell_name, row_span, found),
                                 code="ROW_HAS_SPANNING_CELL",
                             )
+            # Outside the idx < count and count > 1 block because count is row 0's box count (SwXTableColumns::getCount).
             if not insert and axis_arg == "column":
                 refusal = _column_refusal(table, idx)
                 if refusal is not None:
@@ -1282,7 +1291,8 @@ class TableMergeCells(ToolWriterTableBase):
         # mergeRange returns False on a DDE table or an old-model table whose block LibreOffice rejects.
         if not (cursor.gotoCellByName(last, True) and cursor.mergeRange()):
             return self._tool_error(
-                "LibreOffice could not merge %s:%s in table '%s'. Leave the cells as they are and edit their text with table_set_cell."
+                "LibreOffice could not merge %s:%s in table '%s'. "
+                "Leave the cells as they are and edit their text with table_set_cell."
                 % (first, last, name)
             )
         # After mergeRange the cursor sits on the merged box, so getRangeName() is its name.
@@ -1340,7 +1350,8 @@ class TableSplitCell(ToolWriterTableBase):
         # SwDoc::SplitTable records no redline, so it is not wrapped in run_writer_mutation_with_optional_review.
         if not cursor.splitRange(parts - 1, direction == "rows"):
             return self._tool_error(
-                "LibreOffice could not split cell %s in table '%s'. Leave the cells as they are and edit their text with table_set_cell."
+                "LibreOffice could not split cell %s in table '%s'. "
+                "Leave the cells as they are and edit their text with table_set_cell."
                 % (cell_name, name)
             )
         return _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)

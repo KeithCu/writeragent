@@ -1267,14 +1267,35 @@ def test_column_refusal_splits_work_when_followed_uno(ctx, doc):
 
     # 2. 4x4 banner A1:D1, delete idx 0 and idx 2
     for idx, expected in (
-        (0, {"A1": "", "B1": "", "C1": "", "A2": "b2", "B2": "c2", "C2": "d2"}),
-        (2, {"A1": "h1\nh2\nh3\nh4", "B1": "", "C1": "", "A2": "a2", "B2": "b2", "C2": "d2"}),
+        (
+            0,
+            {
+                "A1": "", "B1": "", "C1": "",
+                "A2": "b2", "B2": "c2", "C2": "d2",
+                "A3": "b3", "B3": "c3", "C3": "d3",
+                "A4": "b4", "B4": "c4", "C4": "d4",
+            },
+        ),
+        (
+            2,
+            {
+                "A1": "h1\nh2\nh3\nh4", "B1": "", "C1": "",
+                "A2": "a2", "B2": "b2", "C2": "d2",
+                "A3": "a3", "B3": "b3", "C3": "d3",
+                "A4": "a4", "B4": "b4", "C4": "d4",
+            },
+        ),
     ):
         tb = TableInsert().execute(
             tool_ctx,
-            rows=2,
+            rows=4,
             columns=4,
-            data=[["h1", "h2", "h3", "h4"], ["a2", "b2", "c2", "d2"]],
+            data=[
+                ["h1", "h2", "h3", "h4"],
+                ["a2", "b2", "c2", "d2"],
+                ["a3", "b3", "c3", "d3"],
+                ["a4", "b4", "c4", "d4"],
+            ],
         )["table_name"]
         assert TableMergeCells().execute_safe(tool_ctx, name=tb, cell_range="A1:D1")["status"] == "ok"
         ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
@@ -1286,6 +1307,29 @@ def test_column_refusal_splits_work_when_followed_uno(ctx, doc):
         ok = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
         assert ok["status"] == "ok", ok
         assert TableGetCells().execute(tool_ctx, name=tb)["cells"] == expected
+
+    # 3. 3x3 with A1:B2 merged (both directions), delete col 0
+    t3 = TableInsert().execute(
+        tool_ctx,
+        rows=3,
+        columns=3,
+        data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]],
+    )["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B2")["status"] == "ok"
+    ref3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ref3["status"] == "error" and ref3["code"] == "COLUMN_HAS_SPANNING_CELL", ref3
+    steps3 = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref3["message"])]
+    assert steps3, ref3["message"]
+    for cell_name, parts in steps3:
+        assert TableSplitCell().execute_safe(tool_ctx, name=t3, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+    ok3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ok3["status"] == "ok", ok3
+    cells3 = TableGetCells().execute(tool_ctx, name=t3)["cells"]
+    assert cells3 == {
+        "A1": "", "B1": "c1",
+        "B2": "c2",
+        "A3": "b3", "B3": "c3",
+    }, cells3
 
 
 def _set_table_separators(table, positions):
@@ -1354,7 +1398,10 @@ def test_column_refusal_unequal_widths_says_do_not_split_uno(ctx, doc):
             docx_url, "_blank", 0, (create_property_value("Hidden", True),)
         )
         r_ctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
-        r_name = reloaded.getTextTables().getElementNames()[0]
+        r_names = list(reloaded.getTextTables().getElementNames())
+        assert len(r_names) == 1, r_names
+        r_name = r_names[0]
+        assert reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString() == "h1\nh2\nh3\nh4"
         r_ref = ManageTableStructure().execute_safe(r_ctx, action="delete", axis="column", name=r_name, index=0)
         assert r_ref["status"] == "error" and r_ref["code"] == "COLUMN_HAS_SPANNING_CELL", r_ref
         assert "parts=" not in r_ref["message"], r_ref["message"]
@@ -1486,14 +1533,16 @@ def test_protected_section_refusal_while_recording_uno(ctx, doc):
     try:
         err_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)
         assert err_row["status"] == "error" and err_row["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_row
-        assert "section" in err_row["message"].lower(), err_row
+        assert "protected section" in err_row["message"] and "did not record" in err_row["message"], err_row
         assert tbl.getRows().getCount() == 2
+        assert tbl.getCellByName("A2").getString() == "s2"
 
         err_tbl = TableDelete().execute_safe(tool_ctx, name="SecTbl")
         assert err_tbl["status"] == "error" and err_tbl["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_tbl
-        assert "section" in err_tbl["message"].lower(), err_tbl
+        assert "protected section" in err_tbl["message"] and "did not record" in err_tbl["message"], err_tbl
         assert doc.getTextTables().hasByName("SecTbl")
         assert tbl.getCellByName("A1").getString() == "s1"
+        assert tbl.getCellByName("A2").getString() == "s2"
 
         sec.setPropertyValue("IsProtected", False)
         ok_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)

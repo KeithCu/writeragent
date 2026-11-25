@@ -58,9 +58,10 @@ Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_promp
 `table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
 removing every row), so the table would vanish unreviewable. It places the caret in a non-nested
 cell, confirms via the view cursor that it landed in the target table (refusing with
-`TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table, or if a pending insertion or protected section blocks tracking), and
+`TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an
-`UndoStepOrRollback` guard. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
+`UndoStepOrRollback` guard. If LibreOffice records nothing — pending insertion, protected section —
+it also refuses with `TABLE_DELETE_NOT_TRACKABLE`. `EditReviewSession.record_mutation` anchors multi-cell `table_delete` and row/column deletes in the
 first cell that changes, and `inline_review` resolves them one cell at a time in a single compound
 undo step. Writer anchors each **empty** row with a U+200D but records no redline for it, so the
 tool deletes those anchors with tracking on — without that, Accept All left the empty rows behind as
