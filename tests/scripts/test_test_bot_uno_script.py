@@ -1,0 +1,97 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Tests for scripts/test_bot_uno.py."""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from scripts import test_bot_uno as tbu
+
+
+def _touch(root: Path, rel: str, text: str = "x = 1\n") -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _init_repo(root: Path) -> None:
+    _touch(root, "plugin/base.py")
+    _touch(root, "tests/writer/test_base_uno.py")
+    _git(root, "init", "-b", "master")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+
+
+def test_list_branch_uno_files_selects_committed_and_dirty_changes(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "tests/writer/test_new_uno.py")
+    _git(tmp_path, "checkout", "-b", "feature")
+    _git(tmp_path, "add", "tests/writer/test_new_uno.py")
+    _git(tmp_path, "commit", "-m", "add uno")
+    _touch(tmp_path, "tests/writer/test_base_uno.py", "x = 2\n")
+    _touch(tmp_path, "tests/writer/test_dirty_uno.py")
+    _touch(tmp_path, "tests/writer/test_plain.py")
+    _touch(tmp_path, "plugin/base.py", "x = 2\n")
+    _touch(tmp_path, "tests/chatbot/test_mock_llm_sidebar_uno.py")
+    selected = tbu.list_branch_uno_files(tmp_path)
+    assert selected == [
+        "tests/writer/test_base_uno.py",
+        "tests/writer/test_dirty_uno.py",
+        "tests/writer/test_new_uno.py",
+    ]
+
+
+def test_list_branch_uno_files_omits_deleted_uno_tests(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "feature")
+    _git(tmp_path, "rm", "tests/writer/test_base_uno.py")
+    _git(tmp_path, "commit", "-m", "remove uno")
+    assert tbu.list_branch_uno_files(tmp_path) == []
+
+
+def test_main_print_files_and_skip_when_probe_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("SKIP_UNO", raising=False)
+    _init_repo(tmp_path)
+    _touch(tmp_path, "tests/writer/test_new_uno.py")
+    _git(tmp_path, "checkout", "-b", "feature")
+    _git(tmp_path, "add", "tests/writer/test_new_uno.py")
+    _git(tmp_path, "commit", "-m", "add uno")
+    monkeypatch.setattr(tbu, "is_main_checkout", lambda repo_root, main=None: False)
+    printed: list[str] = []
+
+    def _fake_print(*args: object, **kwargs: object) -> None:
+        printed.append(" ".join(str(a) for a in args))
+
+    monkeypatch.setattr("builtins.print", _fake_print)
+    assert tbu.main(["--print-files"], repo_root=tmp_path) == 0
+    assert printed == ["tests/writer/test_new_uno.py"]
+
+    monkeypatch.setenv("UNO_PROBE", str(tmp_path / "missing-uno-probe.sh"))
+    printed.clear()
+    assert tbu.main([], repo_root=tmp_path) == 0
+    assert any("uno-probe.sh not found" in line for line in printed)
+
+
+def test_main_skip_uno_env(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SKIP_UNO", "1")
+    monkeypatch.setattr(tbu, "is_main_checkout", lambda repo_root, main=None: False)
+    printed: list[str] = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: printed.append(" ".join(str(x) for x in a)))
+    assert tbu.main([], repo_root=tmp_path) == 0
+    assert printed == ["test-bot: SKIP_UNO=1 — skipping isolated UNO tests"]

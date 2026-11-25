@@ -681,3 +681,16 @@ def expand_tracked_deletions(fodt: str) -> str | None:
             if i < len(cid_blocks) - 1 or block.has_content or lead:
                 stack[para].struck = True
     return "".join(out) + fodt[pos:] if changed else None
+
+
+# filter/source/xslt/odf2xhtml/export/xhtml/body.xsl skips <text:section text:display="none">;
+# xmloff/source/text/XMLSectionExport.cxx writes text:display="condition" when IsVisible is false,
+# which odf2xhtml leaks into HTML as literal "display:condition; ".
+_HIDDEN_SECTION_DISPLAY_RE = re.compile(
+    r'(<text:section\b[^<>]*?)\s+text:display="(?:none|condition)"([^<>]*>)',
+)
+
+
+def show_hidden_sections(fodt: str) -> str:
+    """Strip ``text:display="none|condition"`` from ``<text:section>`` open tags in flat ODF."""
+    return _HIDDEN_SECTION_DISPLAY_RE.sub(r"\1\2", fodt)

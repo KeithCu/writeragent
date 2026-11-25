@@ -2413,6 +2413,7 @@ def test_image_download_logs_hide_signed_query(tmp_path, monkeypatch, caplog):
     png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
     url = "https://u:Hunter2pw@example.com/logo.png?sig=SignedSecret123"
     caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="writeragent")
 
     with patch(
         "plugin.writer.images.image_utils.sync_request",

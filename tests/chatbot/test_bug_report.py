@@ -219,6 +219,21 @@ def test_open_url_in_browser_returns_false_when_both_fail():
             assert br.open_url_in_browser(ctx, "https://example.com/issue") is False
 
 
+def test_open_url_failure_log_omits_query(caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("no uno")
+    target = "https://github.com/KeithCu/writeragent/issues/new?body=hunter2"
+
+    with patch("webbrowser.open", return_value=False) as wb_open:
+        assert br.open_url_in_browser(ctx, target) is False
+
+    wb_open.assert_called_once_with(target)
+    assert "hunter2" not in caplog.text
+
+
 def test_issue_url_does_not_read_uncached_key(fake_keystore):
     from plugin.framework import config as fw_config, keystore
 

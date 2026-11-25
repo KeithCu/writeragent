@@ -430,7 +430,6 @@ def _run_one_model(
     """Run eval for one model (used in a worker process). Returns summary dict."""
     from eval_core import summarize_results
 
-    _tools_lo.VERBOSE = verbose
     examples = to_eval_examples(ALL_EXAMPLES)
     if task_ids is not None:
         by_id = {getattr(ex, "task_id", ""): ex for ex in examples}
@@ -782,8 +781,6 @@ def main(argv: list[str] | None = None) -> int:
     for note in selected.notes:
         print(note, flush=True)
     examples = selected.examples
-
-    _tools_lo.VERBOSE = args.verbose
 
     # One-time gold generation logic
     if args.generate_golds:

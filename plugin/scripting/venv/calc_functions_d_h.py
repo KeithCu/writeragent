@@ -19,6 +19,7 @@ import numpy as np
 
 from .calc_functions_util import (
     DIV0_NAN,
+    ILLEGAL_ARGUMENT_NAN,
     NESTED_ARRAY_NAN,
     RegressionError,
     approx_floor,
@@ -338,32 +339,29 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
 
 @propagate_errors
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
-    # 1 <= period <= life + 1, and cost, salvage, life, and month must be valid.
-    # Period 0 is #NUM!, not 0.
+    # ScDB (interpr2.cxx): period is a double and month uses approxFloor;
+    # salvage > cost, life > 1200, and period > life + 1 are Err:502.
     c = float(cost)
     s = float(salvage)
     life_val = float(life)
-    p = int(float(period))
-    m = int(float(month))
-    if c <= 0 or s < 0 or life_val <= 0 or m < 1 or m > 12:
-        return float("nan")
-    if p < 1 or p > life_val + 1:
-        return float("nan")
+    per = float(period)
+    m = approx_floor(float(month))
+    if m < 1 or m > 12 or life_val > 1200 or s < 0 or per > life_val + 1 or s > c or c <= 0 or life_val <= 0 or per <= 0:
+        return ILLEGAL_ARGUMENT_NAN
     # LibreOffice ScDB rounds the depreciation rate half away from zero with
     # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
     # is half-to-even, which rounded ties down.
     rate = float(round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
-    val = c
+    written = c * rate * m / 12.0
+    if approx_floor(per) == 1:
+        return written
     dep = 0.0
-    for i in range(1, p + 1):
-        if i == 1:
-            dep = val * rate * m / 12.0
-        elif i == life_val + 1:
-            dep = val * rate * (12 - m) / 12.0
-        else:
-            dep = val * rate
-        val -= dep
-    return float(dep)
+    for _idx in range(2, approx_floor(min(life_val, per)) + 1):
+        dep = (c - written) * rate
+        written += dep
+    if per > life_val:
+        dep = (c - written) * rate * (12 - m) / 12.0
+    return dep
 
 
 def dcount(db: Any, field: Any, criteria: Any) -> float | str:
@@ -406,9 +404,9 @@ def decimal(text: Any, radix: Any) -> float:
     # ScDecimal (interpr2.cxx) takes GetString(). An integral numeric cell
     # arrives as 111.0, and str(111.0) is "111.0", so the dot failed the
     # digit check. The cell's text has no trailing ".0".
-    r = int(float(radix))
+    r = approx_floor(float(radix))
     if r < 2 or r > 36:
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
     if isinstance(text, float) and math.isfinite(text) and text.is_integer():
         s = str(int(text))
     else:
@@ -730,11 +728,16 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     return float(st.expon.pdf(x_val, scale=1.0 / lam))
 
 
-def fact(n: Any) -> float:
+def fact(n: Any) -> float | str:
+    # ScFact / Fakultaet (interpr3.cxx): < 0 is Err:502 before flooring, then approxFloor,
+    # and > 170 pushes NoValue (#VALUE!).
     v = float(n)
-    if v < 0 or v > 170:  # math.factorial limit
-        return float("nan")
-    return float(math.factorial(int(v)))
+    if v < 0:
+        return ILLEGAL_ARGUMENT_NAN
+    k = approx_floor(v)
+    if k > 170:
+        return "#VALUE!"
+    return float(math.factorial(k))
 
 
 def factdouble(n: Any) -> float:
@@ -755,12 +758,12 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     x_val = float(x)
-    # ScFDist (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
-    df1 = float(approx_floor(float(r1)))
-    df2 = float(approx_floor(float(r2)))
-    # st.f.sf of a negative x is 1, and df below 1 is finite. Excel is #NUM!.
-    if x_val < 0 or df1 < 1 or df2 < 1:
-        return float("nan")
+    # ScFDist (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # st.f.sf of a negative x is 1, and df below 1 is finite; Calc returns Err:502.
+    df1 = approx_floor(float(r1))
+    df2 = approx_floor(float(r2))
+    if x_val < 0 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:
+        return ILLEGAL_ARGUMENT_NAN
     return float(st.f.sf(x_val, df1, df2))  # Calc returns right-tailed by default for FDIST
 
 
@@ -772,20 +775,11 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         arr = np.asarray(range_arr)
         # dtype=object: a mixed list such as [1, ""] would otherwise become a text array.
         crit = np.asarray(criteria, dtype=object)
-        row = (
-            (arr.ndim == 1 and crit.size == arr.size)
-            or (arr.ndim == 2 and (
-                (crit.ndim == 1 and crit.size == arr.shape[0])
-                or (crit.ndim == 2 and crit.shape == (arr.shape[0], 1))
-            ))
-        )
-        col = arr.ndim == 2 and (
-            (crit.ndim == 1 and crit.size == arr.shape[1])
-            or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
-        )
-        # ScFilter (interpr1.cxx:8258-8263) refuses a two-dimensional include (NoValue);
-        # an empty mask would otherwise select nothing and return if_empty.
-        if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1) or not (row or col):
+        # ScFilter (interpr1.cxx) checks 2-D include first (#VALUE!), then evaluates
+        # include errors and checks for an empty match before checking shape (Err:504).
+        # A two-dimensional include must be refused here because an empty mask would
+        # otherwise select nothing and return if_empty.
+        if arr.size == 0 or crit.size == 0 or (crit.ndim == 2 and min(crit.shape) > 1):
             return "#VALUE!"
         # ScFilter (interpr1.cxx) reads include in order: an error element is the result,
         # other non-empty text is an error (Calc's internal 536, shown here as #VALUE!),
@@ -797,12 +791,26 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
             if isinstance(x, str) and x != "":
                 return "#VALUE!"
             include.append(x is not None and x != "" and float(x) > 0)
+        if not any(include):
+            return if_empty
+        row = (
+            (arr.ndim == 1 and crit.size == arr.size)
+            or (arr.ndim == 2 and (
+                (crit.ndim == 1 and crit.size == arr.shape[0])
+                or (crit.ndim == 2 and crit.shape == (arr.shape[0], 1))
+            ))
+        )
+        col = arr.ndim == 2 and (
+            (crit.ndim == 1 and crit.size == arr.shape[1])
+            or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
+        )
+        # ScFilter needs more than one include element along the filtered axis.
+        if crit.size == 1 or not (row or col):
+            return "Err:504"
         mask = np.asarray(include, dtype=bool)
         out = arr[mask] if row else arr[:, mask]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
-    if out.size == 0:
-        return if_empty
     return out.tolist()
 
 
@@ -812,13 +820,12 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
         return float("nan")
 
     prob = float(p)
-    # ScFInv (interpr3.cxx) floors df with approxFloor before the < 1 check; float() keeps large df accepted by scipy's fdtrc.
-    df1 = float(approx_floor(float(r1)))
-    df2 = float(approx_floor(float(r2)))
-    # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
-    # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
-    if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
-        return float("nan")
+    # ScFInv (interpr3.cxx) floors df with approxFloor and rejects df < 1 or df >= 1e10 (Err:502).
+    # It also rejects fP <= 0 and fP > 1; prob == 0 would otherwise return inf from isf.
+    df1 = approx_floor(float(r1))
+    df2 = approx_floor(float(r2))
+    if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1 or df1 >= 10**10 or df2 >= 10**10:
+        return ILLEGAL_ARGUMENT_NAN
     result = float(st.f.isf(prob, df1, df2))
     return finite_or_nan(result)
 
@@ -1010,7 +1017,12 @@ def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
     n = approx_floor(float(n_sample))
     K = approx_floor(float(successes))
     N = approx_floor(float(n_pop))
-    # scipy returns 0 for an impossible draw. Excel is #NUM!.
-    if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
-        return float("nan")
+    # ScHypGeomDist (interpr3.cxx) rejects x < 0, n < x, N < n, N < M, M < 0 (Err:502);
+    # an impossible draw is 0.0, and an empty population (N == 0) is 1.0 (scipy returns NaN).
+    if k < 0 or n < k or N < n or N < K or K < 0:
+        return ILLEGAL_ARGUMENT_NAN
+    if n - k > N - K or k > K:
+        return 0.0
+    if N == 0:
+        return 1.0
     return float(st.hypergeom.pmf(k, N, K, n))

@@ -9,8 +9,8 @@ Public entries: ``document_to_content`` and ``xtext_to_content``.
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
-semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
-base run (``html_ruby.extract_and_strip_ruby`` / ``apply_ruby_spans``).
+semantic post-process. Apply swaps ``<ruby>`` for placeholders then sets
+``RubyText`` on the base run (``html_ruby.ruby_placeholders`` / ``html_import._place_ruby``).
 """
 
 from __future__ import annotations
@@ -727,40 +727,52 @@ def _range_to_content_via_temp_doc(
 
 
 
+def _has_section_display(model: Any) -> bool:
+    """True when any text section has IsVisible=False (LO writes ``text:display``)."""
+    sections = model.getTextSections()
+    return any(not sections.getByIndex(i).getPropertyValue("IsVisible") for i in range(sections.getCount()))
+
+
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
-    """Export the full document via XHTML, expanding tracked deletions first.
+    """Export the full document via XHTML, expanding tracked deletions and hidden sections first.
 
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
-    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks; when
-    tracked deletions cross a paragraph break or empty a paragraph, expand them
-    in the flat-ODF sidecar and export a hidden copy instead. Tables Accept All
-    removes are left out of the copy.
+    ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
+    multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks and
+    ``text:section[@text:display='none']``; when tracked deletions cross a
+    paragraph break or empty a paragraph, or any section has ``IsVisible``
+    false, rewrite the flat-ODF sidecar and export a hidden copy instead.
+    Tables Accept All removes are left out of the copy.
     """
-    fodt: str | None = None
-    if TrackedDeletions(model):
+    deletions = bool(TrackedDeletions(model))
+    if not deletions and not _has_section_display(model):
+        return _export_semantic(model, read_ruby=True)
+    struck: list[str] = []
+    if deletions:
         # Judged on the model: the copy's struck cells hold marker text, so there they read as live.
         tables = model.getTextTables()
         struck = [
             name for name in tables.getElementNames()
             if range_copy.table_is_struck(model, tables.getByName(name), DeletionState())
         ]
-        fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
-        expanded = xhtml_post.expand_tracked_deletions(fodt)
-        if expanded is not None or struck:
-            with with_temp_buffer(fodt if expanded is None else expanded, ext=FODT_EXTENSION) as (_path, url):
-                copy = load_scratch_document(get_desktop(ctx), url)
-                if copy is None:
-                    raise ToolExecutionError("Could not read the document (no scratch document).")
-                try:
-                    copy_tables = copy.getTextTables()
-                    for name in struck:
-                        if copy_tables.hasByName(name):  # a nested one goes with its host
-                            copy_tables.getByName(name).dispose()
-                    # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
-                    return _export_semantic(copy, read_ruby=True)
-                finally:
-                    best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
-    return _export_semantic(model, read_ruby=True, fodt=fodt)
+    fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+    expanded = xhtml_post.expand_tracked_deletions(fodt) if deletions else None
+    readable = xhtml_post.show_hidden_sections(expanded or fodt)
+    if readable == fodt and not struck:
+        return _export_semantic(model, read_ruby=True, fodt=fodt)
+    with with_temp_buffer(readable, ext=FODT_EXTENSION) as (_path, url):
+        copy = load_scratch_document(get_desktop(ctx), url)
+        if copy is None:
+            raise ToolExecutionError("Could not read the document (no scratch document).")
+        try:
+            copy_tables = copy.getTextTables()
+            for name in struck:
+                if copy_tables.hasByName(name):  # a nested one goes with its host
+                    copy_tables.getByName(name).dispose()
+            # The copy numbers its autostyles (P1...) again, so it needs its own sidecar.
+            return _export_semantic(copy, read_ruby=True)
+        finally:
+            best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
 
 
 def document_to_content(

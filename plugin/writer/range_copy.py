@@ -41,15 +41,6 @@ def record_math_placeholder(records: list[tuple[str, str, bool]], emb: Any, *, d
     return ph
 
 
-def iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
-    for portion in iter_elements(portions):
-        try:
-            kind = portion.getPropertyValue("TextPortionType")
-        except Exception:
-            break
-        yield portion, kind
-
-
 def _portion_field(portion: Any) -> Any:
     try:
         return portion.getPropertyValue("TextField")
@@ -984,18 +975,6 @@ ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
     "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 ) + GRAPHIC_LAYOUT_PROPS
-
-
-def prefix_char_count(text_obj: Any, cursor: Any) -> int:
-    """``getString()`` length from the start of *text_obj* to *cursor*.
-
-    Captured before import so we can apply ruby only to the inserted suffix.
-    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
-    """
-    measure = text_obj.createTextCursor()
-    measure.gotoStart(False)
-    measure.gotoRange(cursor.getStart(), True)
-    return len(measure.getString() or "")
 
 
 def copy_xtext_into_doc(

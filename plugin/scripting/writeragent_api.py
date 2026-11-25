@@ -1409,7 +1409,7 @@ class _FrameProxy:
         return _result(call_host_tool("frame_set_properties", name=name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient))
 
     def __iter__(self) -> Iterator[_Item]:
-        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box).
+        """List all text frames in the document, including Word text boxes (shape_index and shape_name set; frame_delete removes the whole box, except one inside a group, whose shape_index is a dotted path).
 
         Collection form: ``for item in wa.frame`` (also ``len(wa.frame)``, ``name in wa.frame``, and ``wa.frame[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
@@ -1435,7 +1435,7 @@ class _FrameProxy:
         return _get_item(call_host_tool("frame_get_info", name=name), name, lambda: call_host_tool("frame_list"))
 
     def __delitem__(self, name: str) -> None:
-        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape.
+        """Delete a text frame by name (see frame_list). A Word text box is removed together with its shape. A text box inside a group cannot be deleted alone.
 
         Args:
             name (required): Name of the text frame (from frame_list).
@@ -3079,7 +3079,7 @@ class _WriterProxy:
         return _result(call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct))
 
     def get_content(self, *, scope: str = 'full', max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool = False) -> _Item:
-        """Get document (or selection/range) content. Result includes document_length (counts the visible body text: body paragraphs and table cells, one character per paragraph or cell break, without text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and comment text are not counted) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning.
+        """Get document (or selection/range) content. Result includes document_length (counts the visible body text: body paragraphs and table cells, including hidden sections, one character per paragraph or cell break, without text deleted by pending tracked changes; text frames, footnote bodies, headers/footers and comment text are not counted) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning.
 
         Args:
             scope (optional): Return full document, current selection/cursor region, or a character range (requires start and end). One of: full, selection, range.
