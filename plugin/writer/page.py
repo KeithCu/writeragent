@@ -21,7 +21,6 @@ Page styles, margins, headers/footers, columns, and page breaks.
 
 from __future__ import annotations
 
-from itertools import islice
 import logging
 import math
 from typing import TYPE_CHECKING, Any
@@ -35,6 +34,7 @@ from plugin.doc.text_helpers import (
     iter_portions,
     record_walk_cap,
     visible_range_text,
+    walk_cap_warning,
 )
 from plugin.framework.errors import (
     ToolExecutionError,
@@ -1097,9 +1097,9 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
 
 
-# A field shows digits the reader sees, and struck text must not match, so both become
-# \x01 per step. doc.findFirst is the wrong tool here too: it hits the body first, and it
-# cannot see a header on a page style no page uses.
+# One \x01 per field and per struck character: a field shows digits the reader sees, and
+# struck text must not match. doc.findFirst is the wrong tool here too: it hits the body
+# first, and it cannot see a header on a page style no page uses.
 _OPAQUE_CURSOR_STEP = "\x01"
 
 
@@ -1110,7 +1110,11 @@ def _paragraph_runs(para: Any, state: DeletionState) -> list[tuple[Any, str]] | 
         return None
     runs: list[tuple[Any, str]] = []
     seen = 0
-    for portion, kind in islice(iter_portions(portions), _SCAN_PORTION_LIMIT):
+    for portion, kind in iter_portions(portions):
+        if seen >= _SCAN_PORTION_LIMIT:
+            log.warning("%s", walk_cap_warning("text portions", seen, _SCAN_PORTION_LIMIT))
+            state.in_delete = False
+            return runs
         seen += 1
         if kind == "Redline":
             state.apply_marker(portion)
@@ -1121,8 +1125,6 @@ def _paragraph_runs(para: Any, state: DeletionState) -> list[tuple[Any, str]] | 
             chunk = uno_read(portion.getString, None)
             text = chunk if isinstance(chunk, str) else ""
         runs.append((portion, _OPAQUE_CURSOR_STEP * len(text) if state.in_delete else text))
-    if record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None):
-        state.in_delete = False
     return runs
 
 
@@ -1446,11 +1448,11 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                     "Could not select '%s' in the %s. Nothing was changed." % (old_content, region)
                 )
             selected = uno_read(cursor.getString, None)
-            # The portion index and the cursor must name the same characters.
-            # A miss here means a field was counted wrong; do not setString.
+            # Refuse a match crossing a control edge, where goRight also steps over the
+            # control's hidden mark characters.
             if not isinstance(selected, str) or (pair := _fold(selected, old_content, case_sensitive))[0] != pair[1]:
                 return self._tool_error(
-                    "The match for '%s' did not line up with the text (a field may sit inside it). "
+                    "The match for '%s' did not line up with the text (a field or control may sit inside it). "
                     "Nothing was changed." % old_content
                 )
             cursors.append(cursor)

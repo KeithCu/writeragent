@@ -1331,15 +1331,20 @@ def test_page_replace_header_footer_with_controls_fields_and_frame_uno(ctx, doc)
     header.insertString(cur, " yy", False)
     res_frame = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="yy", content="ZZ", all_matches=False)
     assert res_frame["status"] == "ok", res_frame
-    assert header.getString().endswith(" ZZ")
+    assert header.getString() == "xx  ZZ"
 
-    # 3. Replacing text inside a ContentControl keeps the ContentControl portion intact.
+    # 3. Replacing text inside a ContentControl keeps the ContentControl portion intact;
+    # a match crossing a control edge ("x CT") is refused with unchanged text.
     header.setString("xx CTRL yy")
     cur = header.createTextCursor()
     cur.gotoStart(False)
     cur.goRight(3, False)
     cur.goRight(4, True)
     header.insertTextContent(cur, doc.createInstance("com.sun.star.text.ContentControl"), True)
+    res_edge = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="x CT", content="NO", all_matches=False)
+    assert res_edge["status"] == "error", res_edge
+    assert header.getString() == "xx CTRL yy"
+
     res_inner = tool.execute_safe(tool_ctx, style=s_name, region="header", old_content="CTRL", content="DONE", all_matches=False)
     assert res_inner["status"] == "ok", res_inner
     assert header.getString() == "xx DONE yy"

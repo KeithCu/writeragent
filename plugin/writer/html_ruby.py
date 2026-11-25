@@ -174,6 +174,7 @@ def _iter_ruby_spans_in_paragraph(
     offset = 0
     for portion, kind in iter_portions(portion_enum):
         if kind is None:
+            # Offsets after an unreadable portion would be wrong, and the caller matches them to visible text.
             break
         if kind == "Redline":
             state.apply_marker(portion)

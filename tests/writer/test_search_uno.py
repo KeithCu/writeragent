@@ -688,6 +688,4 @@ def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
     text.insertString(cur, " yy", False)
 
     rows = find_text_ranges(doc, "yy", limit=1)
-    assert len(rows) == 1
-    assert rows[0]["text"] == "yy"
-    assert rows[0]["start"] > 3
+    assert rows == [{"start": 6, "end": 8, "text": "yy"}]

@@ -372,7 +372,8 @@ def raise_if_hidden_section(model: Any) -> None:
     leaving it in place while overwriting what follows. Also covers a section
     whose condition currently shows it (``IsVisible=False``), because the
     rewrite would drop the condition and LibreOffice aborts when such a
-    section starts the body and is deleted.
+    section starts the body and is deleted (reproduces in pure UNO: paragraph before
+    the section, select all, ``setString("")``).
     """
     hidden_names = [
         name for name, sec in _iter_body_sections(model)

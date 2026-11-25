@@ -2250,9 +2250,10 @@ def test_find_text_ranges_skips_unmeasurable_hits_and_fills_limit():
 
     with (
         patch("plugin.writer.search.uno_same", return_value=True),
-        patch("plugin.writer.search._iter_descriptor_hits", return_value=iter([unmeasurable, good])),
         patch("plugin.writer.search.read_visible_body", side_effect=_measure),
     ):
+        doc.findFirst.return_value = unmeasurable
+        doc.findNext.side_effect = [good, None]
         rows = find_text_ranges(doc, "yy", limit=1)
     assert rows == [{"start": 5, "end": 7, "text": "yy"}]
 
@@ -2273,9 +2274,10 @@ def test_find_text_ranges_skips_unmeasurable_hits_and_fills_limit():
 
     with (
         patch("plugin.writer.search.uno_same", return_value=True),
-        patch("plugin.writer.search._iter_descriptor_hits", return_value=iter([*bad_hits, good])),
         patch("plugin.writer.search.read_visible_body", side_effect=_measure_many) as rvb,
     ):
+        doc.findFirst.return_value = bad_hits[0]
+        doc.findNext.side_effect = [*bad_hits[1:], good, None]
         rows_many = find_text_ranges(doc, "yy", limit=1)
     assert rows_many == [{"start": 5, "end": 7, "text": "yy"}]
     assert rvb.call_count <= 4
