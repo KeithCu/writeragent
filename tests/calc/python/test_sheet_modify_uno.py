@@ -20,8 +20,10 @@ from plugin.tests.testing_utils import with_native_doc
 from tests.calc.python.calc_workbook_test_access import SHEET_MODIFY_LISTENERS
 
 
-# Renaming Sheet1 and asserting orphan-clear delta == (0, 0) requires a fresh
-# workbook without leftover used_ends or modify listeners from earlier pooled tests.
+# The orphan pass clears the block only when the used-area end has not moved.
+# A pooled workbook can keep a used_ends value from an earlier test, measured
+# before the pool reset emptied the sheet, so the pass would drop the record
+# and clear nothing.
 @native_test
 @with_native_doc("calc", reuse=False)
 def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):

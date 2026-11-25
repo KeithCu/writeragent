@@ -2194,6 +2194,7 @@ def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pyt
     reset_calc_workbook_states()
     state = WorkbookState.for_doc(doc)
     assert state is not None
+    active_state = state
     try:
         assert not state.loaded
         state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="x", rows=2, cols=1)
@@ -2207,11 +2208,16 @@ def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pyt
             "Sheet2:0,0": {"code": "y", "rows": 3, "cols": 1}
         }
 
-        _spill.load_spill_registry_for_doc(doc, state)
-        assert ("Sheet1", 0, 0) not in state.spills
-        assert ("Sheet2", 0, 0) in state.spills
-    finally:
         WorkbookState.forget_key(state.key)
+        reloaded_state = WorkbookState.for_doc(doc)
+        assert reloaded_state is not None
+        active_state = reloaded_state
+        assert not reloaded_state.loaded
+        _spill.load_spill_registry_for_doc(doc, reloaded_state)
+        assert ("Sheet1", 0, 0) not in reloaded_state.spills
+        assert ("Sheet2", 0, 0) in reloaded_state.spills
+    finally:
+        WorkbookState.forget_key(active_state.key)
 
 
 def test_load_spill_registry_unparsable_payload_marks_loaded_and_allows_recovery() -> None:
