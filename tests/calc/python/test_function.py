@@ -1455,6 +1455,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     assert state3 is not None
     assert state3.debounce.pending_for_tests() == {"spill:Sheet1:0:0"}
     state3.debounce.flush_for_tests("spill:Sheet1:0:0")
+    assert (state3.spills[("Sheet1", 0, 0)].rows, state3.spills[("Sheet1", 0, 0)].cols) == (1, 1)
     assert sheet3.getCellByPosition(1, 0).getFormula() == ""
     assert sheet3.getCellByPosition(0, 1).getFormula() == ""
 
