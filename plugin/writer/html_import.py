@@ -1244,6 +1244,17 @@ def _insert_at_caret(
     return report
 
 
+def _should_insert_into_empty_paragraph(
+    cursor: Any, content: str, *, recording: bool
+) -> bool:
+    """Return True when *cursor* sits in an empty paragraph that should open or absorb a line."""
+    return bool(
+        cursor.isStartOfParagraph()
+        and cursor.isEndOfParagraph()
+        and (recording or content_is_block(content))
+    )
+
+
 def _insert_into_empty_paragraph(
     model: Any,
     ctx: Any,
@@ -1307,22 +1318,43 @@ def _resolve_selection_range(model: Any, selection: Any | None) -> tuple[Any, An
     return rng, rng_text, cursor
 
 
-def _replace_range_with_block_html(
+def _prepare_block_range_replace(
+    rng: Any,
+    content: str,
+    *,
+    clear_target: Any,
+    author_deletion: bool = False,
+) -> tuple[bool, bool, html_import_styles.StyleSkipCode | None]:
+    """Compute style/whole-paragraph flags for *rng* and clear partial ranges.
+
+    *clear_target* and *author_deletion* preserve existing caller differences:
+    ``replace_single_range_with_content`` clears through its cursor and authors
+    the deletion, whereas ``insert_content_at_position`` clears through *rng*
+    without authoring.
+    """
+    apply_styles, note = _lo_style_for_replaced_range(content, rng)
+    whole_paragraphs = _range_covers_whole_paragraphs(rng)
+    if not whole_paragraphs:
+        if author_deletion:
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                clear_target.setString("")
+        else:
+            clear_target.setString("")
+    return apply_styles, whole_paragraphs, note
+
+
+def _import_block_range_replace(
     model: Any,
     ctx: Any,
     rng: Any,
     cursor: Any,
     content: str,
     *,
-    clear_target: Any,
-    author_deletion: bool = False,
+    apply_styles: bool,
+    whole_paragraphs: bool,
+    note: html_import_styles.StyleSkipCode | None,
 ) -> html_import_styles.WriteReport:
-    """Replace *rng* with block/mixed *content*, preserving whole-paragraph layout when aligned."""
-    apply_styles, note = _lo_style_for_replaced_range(content, rng)
-    whole_paragraphs = _range_covers_whole_paragraphs(rng)
-    if not whole_paragraphs:
-        with _deletion_author() if author_deletion else contextlib.nullcontext():
-            clear_target.setString("")
+    """Import block/mixed *content* into *rng* after ``_prepare_block_range_replace``."""
     if whole_paragraphs:
         report = _replace_whole_paragraphs(model, ctx, rng, content, apply_styles=apply_styles)
     else:
@@ -1343,6 +1375,8 @@ def _insert_at_end(
     text = model.getText()
     cursor = text.createTextCursor()
     cursor.gotoEnd(False)
+    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert);
+    # _import_and_drop_leftover defaults to apply_styles=True.
     cursor = _ensure_empty_absorb_for_styled_insert(
         text, cursor, "end", recording=recording,
     )
@@ -1360,14 +1394,11 @@ def _insert_at_beginning(
     text = model.getText()
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
+    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
     cursor = _ensure_empty_absorb_for_styled_insert(
         text, cursor, "beginning", recording=recording,
     )
-    if (
-        cursor.isStartOfParagraph()
-        and cursor.isEndOfParagraph()
-        and (recording or content_is_block(content))
-    ):
+    if _should_insert_into_empty_paragraph(cursor, content, recording=recording):
         return _insert_into_empty_paragraph(
             model, ctx, cursor, content, apply_styles=True, recording=recording
         )
@@ -1384,16 +1415,13 @@ def _insert_at_selection(
 ) -> html_import_styles.WriteReport:
     """Insert or replace *content* at the resolved text selection or caret."""
     rng, rng_text, cursor = _resolve_selection_range(model, selection)
+    # A collapsed range is the user's caret.
     caret = rng_text.compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
     raise_if_range_hosts_nested_table(rng)
     if caret:
         styled, note = _lo_style_for_replaced_range(content, rng)
         rng.setString("")
-        if (
-            cursor.isStartOfParagraph()
-            and cursor.isEndOfParagraph()
-            and (recording or content_is_block(content))
-        ):
+        if _should_insert_into_empty_paragraph(cursor, content, recording=recording):
             report = _insert_into_empty_paragraph(
                 model, ctx, cursor, content, apply_styles=styled, recording=recording
             )
@@ -1410,8 +1438,7 @@ def _insert_at_selection(
     # replaces the selection in place, like typing over it. Otherwise
     # ensure_html_linebreaks wraps it in <p>, which splits the host
     # paragraph on import (SwHTMLParser::CallParser in
-    # sw/source/filter/html/swhtml.cxx). Whole-paragraph block
-    # selections go through _replace_whole_paragraphs.
+    # sw/source/filter/html/swhtml.cxx).
     if not content_is_block(content):
         styled, note = _lo_style_for_replaced_range(content, rng)
         if recording and _within_one_paragraph(rng):
@@ -1426,8 +1453,19 @@ def _insert_at_selection(
             report.style_skips.append(note)
         return report
 
-    return _replace_range_with_block_html(
-        model, ctx, rng, cursor, content, clear_target=rng
+    # Whole-paragraph block selections go through _replace_whole_paragraphs.
+    apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
+        rng, content, clear_target=rng
+    )
+    return _import_block_range_replace(
+        model,
+        ctx,
+        rng,
+        cursor,
+        content,
+        apply_styles=apply_styles,
+        whole_paragraphs=whole_paragraphs,
+        note=note,
     )
 
 
@@ -1700,15 +1738,27 @@ def replace_single_range_with_content(
         # and data-lo-para apply whether Track Changes is recording or not (the import sits in
         # its own paragraphs). A partial range leaves neighbor text that would be restyled by
         # the block style.
+        if inline_preserve:
+            apply_styles, whole_paragraphs, note = False, False, None
+            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+                cursor.setString("")
+        else:
+            apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
+                text_range,
+                prepared,
+                clear_target=cursor,
+                author_deletion=True,
+            )
         try:
-            return _replace_range_with_block_html(
+            return _import_block_range_replace(
                 model,
                 ctx,
                 text_range,
                 cursor,
                 prepared,
-                clear_target=cursor,
-                author_deletion=True,
+                apply_styles=apply_styles,
+                whole_paragraphs=whole_paragraphs,
+                note=note,
             )
         except Exception as e:
             reraise_if_disposed(e)
