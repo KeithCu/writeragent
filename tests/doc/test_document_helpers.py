@@ -596,15 +596,32 @@ def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
 
 def test_inject_markers_struck_paragraphs():
     # Single struck slot
-    assert _inject_markers("aa\n\nbb", 0, 0, 0, "", "", struck=[3]) == "aa\n[tracked deletion]\nbb"
+    assert _inject_markers("aa\n\nbb", 0, None, None, "", "", struck=[3]) == "aa\n[tracked deletion]\nbb"
     # Run of consecutive struck slots collapsed to N paragraphs
-    assert _inject_markers("aa\n\n\n\nbb", 0, 0, 0, "", "", struck=[3, 4, 5]) == (
+    assert _inject_markers("aa\n\n\n\nbb", 0, None, None, "", "", struck=[3, 4, 5]) == (
         "aa\n[tracked deletion, 3 paragraphs]\n\n\nbb"
     )
     # Combined with selection
     assert _inject_markers("aa\n\nbb", 0, 4, 6, "", "", struck=[3]) == (
         "aa\n[tracked deletion]\n[SELECTION_START]bb[SELECTION_END]"
     )
+
+
+@pytest.mark.parametrize(
+    "excerpt, excerpt_start, sel_start, sel_end, expected",
+    [
+        pytest.param("abc", 5, 5, 5, "[SELECTION_START][SELECTION_END]abc", id="caret_at_start"),
+        pytest.param("abc", 5, 8, 8, "abc[SELECTION_START][SELECTION_END]", id="caret_at_end"),
+        pytest.param("abc", 5, 4, 4, "abc", id="caret_before"),
+        pytest.param("abc", 5, 9, 9, "abc", id="caret_after"),
+        pytest.param("abc", 5, 2, 5, "abc", id="range_touching_start"),
+        pytest.param("abc", 5, 8, 9, "abc", id="range_touching_end"),
+        pytest.param("", 0, 0, 0, "[SELECTION_START][SELECTION_END]", id="empty_caret_at_0"),
+        pytest.param("", 0, None, None, "", id="empty_no_selection"),
+    ],
+)
+def test_inject_markers_caret_edges(excerpt, excerpt_start, sel_start, sel_end, expected):
+    assert _inject_markers(excerpt, excerpt_start, sel_start, sel_end, "", "") == expected
 
 
 @patch("plugin.doc.text_helpers.read_visible_body")
@@ -836,6 +853,43 @@ def test_get_document_context_for_chat_truncated_selection_markers():
     ):
         across_out = get_document_context_for_chat(MagicMock(), max_context=10, include_end=False, include_selection=True)
     assert "[DOCUMENT START]\n0123456[SELECTION_START]789[SELECTION_END]\n\n[... document truncated ...]" in across_out
+
+
+def test_get_document_context_for_chat_caret_edges():
+    from plugin.framework.doc_type import DocumentType
+
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=("Hello", [0, 0], [])),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        start_out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=True)
+    assert "[DOCUMENT START]\n[SELECTION_START][SELECTION_END]Hello" in start_out
+
+    long_body = "A" * 1500 + "B" * 1500
+    total = len(long_body)
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(long_body, [total, total], [])),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        tail_caret = get_document_context_for_chat(MagicMock(), max_context=100, include_end=True, include_selection=True)
+    assert tail_caret.count("[SELECTION_START]") == 1
+    assert tail_caret.count("[SELECTION_END]") == 1
+    assert "B" * 50 + "[SELECTION_START][SELECTION_END]" in tail_caret
+
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), "s", "e")),
+        patch("plugin.doc.text_helpers.read_visible_body", return_value=(long_body, [0, 0], [])),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        head_caret = get_document_context_for_chat(MagicMock(), max_context=100, include_end=True, include_selection=True)
+    assert head_caret.count("[SELECTION_START]") == 1
+    assert head_caret.count("[SELECTION_END]") == 1
+    assert "[DOCUMENT START]\n[SELECTION_START][SELECTION_END]" + "A" * 50 in head_caret
 
 
 def test_document_context_end_document_markers():

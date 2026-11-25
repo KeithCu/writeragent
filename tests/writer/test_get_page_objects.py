@@ -762,6 +762,54 @@ def test_scan_page_lists_text_box_frame(monkeypatch):
     assert [s["name"] for s in result["shapes"]] == ["Text Box 2"]
 
 
+def test_scan_page_lists_grouped_text_box_frame(monkeypatch):
+    from types import SimpleNamespace
+
+    import com.sun.star.text.TextContentAnchorType as anchor_types
+
+    at_page = object()
+    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
+    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+
+    frame = MagicMock()
+    frame.getName.return_value = "Frame1"
+    frame.getPropertyValue.side_effect = (
+        lambda p: SimpleNamespace(Width=3000, Height=2000) if p == "Size" else None
+    )
+
+    child = MagicMock()
+    child.Name = "S0"
+    child.getName.return_value = "S0"
+    child.supportsService.return_value = False
+    child.getPropertyValue.side_effect = lambda p: {"TextBox": True, "TextBoxContent": frame}.get(p)
+
+    group = MagicMock()
+    group.Name = "Grp"
+    group.getName.return_value = "Grp"
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.supportsService.side_effect = lambda svc: svc == "com.sun.star.drawing.GroupShape"
+    group.getCount.return_value = 1
+    group.getByIndex.return_value = child
+    group.getSize.return_value = SimpleNamespace(Width=3000, Height=2000)
+    group.getPosition.return_value = SimpleNamespace(X=10, Y=20)
+    group.getPropertyValue.side_effect = lambda p: {"AnchorType": at_page, "AnchorPageNo": 2}.get(
+        p, False if p == "TextBox" else None
+    )
+
+    draw = MagicMock()
+    draw.getCount.return_value = 1
+    draw.getByIndex.return_value = group
+    doc = _make_doc(draw=draw)
+
+    result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    assert result["frames"] == [
+        {"name": "Frame1", "width_mm": 30, "height_mm": 20, "shape_index": "0.0", "shape_name": "S0"}
+    ]
+    assert [s["name"] for s in result["shapes"]] == ["Grp"]
+
+
 @pytest.mark.parametrize(
     "exc, expect_disposed",
     [

@@ -113,7 +113,7 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     """Compare scratch getString() with html_to_search_text after ruby strip."""
     from plugin.framework.html_stripper import html_to_search_text
     from plugin.writer.html_import import insert_html_fragment_at_cursor
-    from plugin.writer.html_ruby import extract_and_strip_ruby
+    from plugin.writer.html_ruby import strip_ruby
 
     fixtures = [
         "<p>First paragraph</p><p>Second paragraph</p>",
@@ -125,7 +125,7 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     for html in fixtures:
         text.setString("")
         cur = text.createTextCursor()
-        base_html, _unused = extract_and_strip_ruby(html)
+        base_html = strip_ruby(html)
         insert_html_fragment_at_cursor(cur, base_html)
         scratch_text = text.getString().strip().replace("\r\n", "\n")
         search_text = html_to_search_text(base_html).strip()
@@ -2903,3 +2903,53 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_ruby_after_8190_chars_and_table_or_in_cell_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_export import document_to_content
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+    pad = "x" * 8190
+
+    # 1. Existing 8190-char paragraph + table in document, ruby appended at end.
+    text.setString(pad)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    tbl.getCellByName("A1").setString("c")
+    res = ApplyDocumentContent().execute(
+        tctx, target="end", content="<p><ruby>漢字<rt>かんじ</rt></ruby></p>"
+    )
+    assert res.get("status") == "ok", res
+    html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>漢字<rt>かんじ</rt></ruby>" in html
+    assert "かんじ" not in text.getString()
+    assert "WA-RUBY" not in text.getString()
+
+    # 2. Same 8190-char paragraph + table + ruby inside one full_document import, plus ruby in a cell.
+    res = ApplyDocumentContent().execute(
+        tctx,
+        target="full_document",
+        content=(
+            f"<p>{pad}</p>"
+            "<table><tr><td><ruby>東京<rt>とうきょう</rt></ruby></td></tr></table>"
+            "<p><ruby>京都<rt>きょうと</rt></ruby></p>"
+        ),
+    )
+    assert res.get("status") == "ok", res
+    html = document_to_content(doc, ctx, scope="full")
+    assert "<ruby>東京<rt>とうきょう</rt></ruby>" in html
+    assert "<ruby>京都<rt>きょうと</rt></ruby>" in html
+    body_text = text.getString()
+    assert "とうきょう" not in body_text
+    assert "きょうと" not in body_text
+    assert "WA-RUBY" not in body_text
+    cell_text = doc.getTextTables().getByIndex(0).getCellByName("A1").getString()
+    assert "とうきょう" not in cell_text
+    assert "WA-RUBY" not in cell_text
+    assert "WA-RUBY" not in html
