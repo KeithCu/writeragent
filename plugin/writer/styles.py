@@ -2546,12 +2546,22 @@ class StyleImport(ToolWriterStyleBase):
             return self._tool_error("path must be an absolute filesystem path.", code="INVALID_PARAM")
         if not os.path.isfile(file_path):
             return self._tool_error("path does not exist: %s" % file_path, code="INVALID_PARAM")
+        # SwDocShell::LoadStylesFromFile (sw/source/uibase/app/docsh2.cxx:1632-1693) silently skips
+        # non-Writer ODF storage packages and returns ERRCODE_NONE without throwing.
+        if os.path.splitext(file_path)[1].lower() not in (".odt", ".ott"):
+            return self._tool_error("style_import only supports .odt and .ott files.", code="INVALID_PARAM")
 
         overwrite = kwargs.get("overwrite", True)
         load_text = kwargs.get("load_paragraph_styles", True)
         load_page = kwargs.get("load_page_styles", False)
         load_frame = kwargs.get("load_frame_styles", False)
         load_num = kwargs.get("load_numbering_styles", False)
+
+        # Without any Load* flag and OverwriteStyles=True, SwgReaderOption::IsFormatsOnly
+        # (sw/inc/shellio.hxx:114) is false so LO imports content.xml into the document;
+        # with OverwriteStyles=False the call is a silent no-op.
+        if not any((load_text, load_page, load_frame, load_num)):
+            return self._tool_error("Choose at least one style type to load.", code="INVALID_PARAM")
 
         url = uno.systemPathToFileUrl(file_path)
 
