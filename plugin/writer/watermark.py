@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from com.sun.star.frame import XStatusListener
 
+from plugin.doc.compound_undo import UndoLock
 from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.uno_context import create_property_value, execute_dispatch, resolve_uno_context
@@ -187,15 +188,11 @@ def _update_inactive_watermarks(doc: Any, text: str) -> None:
     if not inactive:
         return
     active_model = cast("Any", model)
-    undo_mgr = doc.getUndoManager()
-    undo_mgr.lock()
-    try:
+    with UndoLock(doc):
         for shape in inactive:
             shape.setString(text)
             for name in _WATERMARK_LOOK_PROPS:
                 shape.setPropertyValue(name, active_model.getPropertyValue(name))
-    finally:
-        undo_mgr.unlock()
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:

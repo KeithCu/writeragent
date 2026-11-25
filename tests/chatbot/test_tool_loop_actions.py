@@ -2120,7 +2120,7 @@ def test_execute_fn_copies_turn_selection_pin_onto_tool_context():
 
     host = FakeHost()
     turn = begin_send_turn(host)
-    pin = SelectionPin(MagicMock())
+    pin = SelectionPin(MagicMock(), host._get_document_model())
     turn.selection_pin = pin
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
@@ -2141,11 +2141,24 @@ def test_refresh_document_context_passes_pin_range():
     host = FakeHost()
     turn = begin_send_turn(host)
     pin_range = MagicMock()
-    turn.selection_pin = SelectionPin(pin_range)
+    turn.selection_pin = SelectionPin(pin_range, host._get_document_model())
     interpreter = ToolLoopEffectInterpreter(host)
 
     assert interpreter.execute(UpdateDocumentContextEffect()) is False
     assert host.session.refresh_calls[-1][2] is pin_range
+
+
+def test_refresh_document_context_skips_pin_for_different_document():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.tool import SelectionPin
+
+    host = FakeHost()
+    turn = begin_send_turn(host)
+    turn.selection_pin = SelectionPin(MagicMock(), MagicMock())
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is False
+    assert host.session.refresh_calls[-1][2] is None
 
 
 def test_refresh_document_context_passes_none_without_pin():

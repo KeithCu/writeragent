@@ -26,21 +26,26 @@ form ``keystore:<8 hex>`` (``REF_PREFIX``). When no OS store is available or
 a write fails, secrets remain in plain text in ``writeragent.json``.
 
 Concurrency: all ``set_secret`` and ``delete_secret`` calls run inside
-``config.save()`` while ``_config_write_lock`` is held. ``_read_locks[name]``
-is held across the OS read so concurrent readers of one name share one OS call
-and one outcome. Lock order is ``_config_write_lock`` -> read lock ->
+``config.save()`` while ``_config_write_lock`` is held. ``_read_locks``
+serializes OS reads per secret name on macOS/Windows (where prompts are per
+item) and under a single shared lock key on Linux Secret Service (where one
+collection lock covers all items), so concurrent readers share one OS call and
+one outcome. Lock order is ``_config_write_lock`` -> read lock ->
 ``_cache_lock``; nothing inside a read takes ``_config_write_lock``.
-``_cache_lock`` is a leaf lock that guards ``_cache``, ``_locked``, and
-``_read_locks`` only and is never held across an OS call. Setters write the OS
-first and overwrite ``_cache[name]``; readers call the OS without
-``_cache_lock`` on a miss and merge with ``_cache.setdefault(name, value)`` so
-a stale read never overwrites a newer write or delete.
+``_cache_lock`` is a leaf lock that guards ``_cache``, ``_locked``,
+``_store_locked_at``, and ``_read_locks`` only and is never held across an OS
+call. Setters write the OS first and overwrite ``_cache[name]``; readers call
+the OS without ``_cache_lock`` on a miss and merge with
+``_cache.setdefault(name, value)`` so a stale read never overwrites a newer
+write or delete.
 
 Troubleshooting unreadable stores:
 - Linux (Secret Service / gnome-keyring / Plasma ksecretd): unlock the login
   keyring or answer the unlock prompt; a cancelled prompt is not cached—reads
-  within ``LOCKED_RETRY_S`` return ``None`` without prompting, and the next read
-  after that prompts again.
+  within ``LOCKED_RETRY_S`` return ``None`` without prompting (including other
+  names in the same Secret Service store), and the next read after that
+  prompts again. A cancelled Send (``KeystoreStopped``) marks only that name
+  locked.
 - macOS (Keychain): click Allow / Always Allow on the Keychain access prompt
   (a LibreOffice update changes the code signature and may re-prompt).
 - Windows (Credential Manager): verify the ``WriterAgent/<name>`` generic
@@ -89,14 +94,14 @@ _read_failures_logged: set[str] = set()
 # Names whose last read hit a locked keyring (or a cancelled unlock prompt),
 # with the monotonic time of that read. Not cached, so a later read can prompt
 # again, but reads within LOCKED_RETRY_S return None without prompting:
-# Settings reads the same key several times while opening
-# (settings_dialog._get_core_field_specs, dialog_views._schedule_initial_models_fetch,
-# and the TTS voice context), and background callers such as the grammar checker
-# read on every request. A cancelled prompt must not come right back for each of
-# them; Send itself reads once on its LLM worker.
+# background callers such as the grammar checker read on every request, and a
+# cancelled prompt must not come straight back for each of them.
 _locked: dict[str, float] = {}
-# One lock per secret name (not a global lock): on macOS each item has its own
-# access prompt, so an open prompt for one item must not block already-allowed items.
+# Store-wide locked timestamp for backends with one_lock=True (Secret Service),
+# so cancelling one unlock prompt suppresses prompts for all names for LOCKED_RETRY_S.
+_store_locked_at: float | None = None
+# One lock per secret name on per-item backends (macOS/Windows) so an open prompt
+# for one item does not block already-allowed items; Secret Service uses key "".
 _read_locks: dict[str, threading.Lock] = {}
 LOCKED_RETRY_S = 5.0
 
@@ -113,8 +118,15 @@ class KeystoreLocked(KeystoreError):
     code: str = "KEYSTORE_LOCKED"
 
 
+class KeystoreStopped(KeystoreLocked):
+    """The read was stopped by the caller's SendCancellation."""
+
+    code: str = "KEYSTORE_STOPPED"
+
+
 class _KeystoreBackend(Protocol):
     label: str
+    one_lock: bool
 
     def get(self, name: str, cancel: SendCancellation | None = None) -> str | None: ...
     def set(self, name: str, value: str) -> None: ...
@@ -179,6 +191,7 @@ class _LibSecret:
     """Linux Secret Service backend using ctypes on libsecret-1 and libglib-2.0."""
 
     label = "Secret Service"
+    one_lock = True
 
     def __init__(self) -> None:
         libsecret = ctypes.CDLL("libsecret-1.so.0")
@@ -337,11 +350,11 @@ class _LibSecret:
                     ctypes.byref(err),
                 )
                 if err and cancellable is not None and cancellable.is_cancelled():
-                    # Raise KeystoreLocked rather than KeystoreError: a plain
-                    # KeystoreError is cached as None for the session, so Stop
-                    # would lose the key until restart.
+                    # Raise KeystoreStopped (a KeystoreLocked subclass) rather than
+                    # KeystoreError: a plain KeystoreError is cached as None for the
+                    # session, so Stop would lose the key until restart.
                     self._g_error_free(err)
-                    raise KeystoreLocked(f"Reading {name!r} was stopped")
+                    raise KeystoreStopped(f"Reading {name!r} was stopped")
                 self._raise_gerror(err)
                 if not ptr:
                     if self._item_exists(table):
@@ -400,6 +413,7 @@ class _WinCredentials:
     """Windows Credential Manager backend using ctypes on advapi32."""
 
     label = "Credential Manager"
+    one_lock = False
     _cred_struct: Any
     _cred_read: Any
     _cred_write: Any
@@ -505,6 +519,7 @@ class _MacKeychain:
     """macOS Keychain backend ported from keyring (keyring/backends/macOS/api.py)."""
 
     label = "Keychain"
+    one_lock = False
 
     def __init__(self) -> None:
         sec = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
@@ -682,7 +697,7 @@ def _get_backend() -> _KeystoreBackend | None:
 
 def reset_for_tests(backend: Any = _UNSET) -> None:
     """Reset cached keystore state for unit tests (optionally installing *backend*)."""
-    global _detected, _resolved, _writes_failed
+    global _detected, _resolved, _writes_failed, _store_locked_at
     if backend is _UNSET:
         _detected = False
         _resolved = None
@@ -693,6 +708,7 @@ def reset_for_tests(backend: Any = _UNSET) -> None:
         _cache.clear()
         _read_failures_logged.clear()
         _locked.clear()
+        _store_locked_at = None
         _read_locks.clear()
     _writes_failed = False
 
@@ -727,8 +743,14 @@ def _answer_without_read(name: str) -> Any:
     with _cache_lock:
         if name in _cache:
             return _cache[name]
+        now = time.monotonic()
         locked_at = _locked.get(name)
-        if locked_at is not None and time.monotonic() - locked_at < LOCKED_RETRY_S:
+        if locked_at is not None and now - locked_at < LOCKED_RETRY_S:
+            return None
+        if _store_locked_at is not None and now - _store_locked_at < LOCKED_RETRY_S:
+            # Mark the name locked too; without it is_locked() stays False and
+            # _normalized_api_key_slot_patch deletes the orphan item.
+            _locked.setdefault(name, _store_locked_at)
             return None
     return _UNSET
 
@@ -739,6 +761,7 @@ def _read_backend(
     cancel: SendCancellation | None,
 ) -> tuple[str | None, bool]:
     """Read *name* from *backend* and update cache/lock state; returns (value, was_locked)."""
+    global _store_locked_at
     try:
         value = backend.get(name, cancel=cancel)
     except KeystoreLocked as exc:
@@ -750,7 +773,11 @@ def _read_backend(
                 return _cache[name], False
             if name not in _locked:
                 log.warning("Secret %r unavailable: %s", name, exc)
-            _locked[name] = time.monotonic()
+            now = time.monotonic()
+            _locked[name] = now
+            if backend.one_lock and not isinstance(exc, KeystoreStopped):
+                # Stop must not latch other names, or stopping a Send makes a tunnel start refuse.
+                _store_locked_at = now
         return None, False
     except KeystoreError as exc:
         with _cache_lock:
@@ -759,7 +786,13 @@ def _read_backend(
                 log.warning("Failed to read secret %r from %s: %s", name, backend.label, exc)
             return _cache.setdefault(name, None), False
     with _cache_lock:
-        was_locked = _locked.pop(name, None) is not None
+        # A missing item (None) does not prove a one_lock store is unlocked.
+        if backend.one_lock and value is not None:
+            was_locked = bool(_locked)
+            _locked.clear()
+            _store_locked_at = None
+        else:
+            was_locked = _locked.pop(name, None) is not None
         return _cache.setdefault(name, value), was_locked
 
 
@@ -776,8 +809,9 @@ def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
     backend = _get_backend()
     if backend is None:
         return None
+    lock_key = "" if backend.one_lock else name
     with _cache_lock:
-        lock = _read_locks.setdefault(name, threading.Lock())
+        lock = _read_locks.setdefault(lock_key, threading.Lock())
     if not acquire_unless_cancelled(lock, cancel):
         return None
     was_locked = False
@@ -794,6 +828,12 @@ def get_secret(name: str, cancel: SendCancellation | None = None) -> str | None:
     return value
 
 
+def cached_secret(name: str) -> str | None:
+    """Return the in-memory cached value for *name*, or ``None`` without reading the OS."""
+    with _cache_lock:
+        return _cache.get(name)
+
+
 def is_locked(name: str) -> bool:
     """True when the last read of *name* found it in a locked keyring."""
     with _cache_lock:
@@ -808,7 +848,7 @@ def is_cached(name: str) -> bool:
 
 def set_secret(name: str, value: str) -> bool:
     """Write *name* to the OS keystore; returns ``False`` on failure or missing store."""
-    global _writes_failed
+    global _writes_failed, _store_locked_at
     backend = _get_backend()
     if backend is None or _writes_failed:
         return False
@@ -820,7 +860,11 @@ def set_secret(name: str, value: str) -> bool:
         return False
     with _cache_lock:
         _cache[name] = value
-        _locked.pop(name, None)
+        if backend.one_lock:
+            _locked.clear()
+            _store_locked_at = None
+        else:
+            _locked.pop(name, None)
     return True
 
 

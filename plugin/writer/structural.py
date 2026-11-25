@@ -36,6 +36,7 @@ from plugin.doc.visual_helpers import safe_get_property
 from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.framework.tool_schema import page_index_param
 from plugin.writer.target_resolver import update_selection_pin
 
 from .search import shape_text_boxes
@@ -67,7 +68,7 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         return None
 
 
-_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "0-based page index: the user's page 2 is page=1."}
+_PAGE_PROPERTY: dict[str, Any] = page_index_param()
 
 
 class NavGotoPage(ToolWriterStructuralBase):

@@ -52,7 +52,7 @@ import time
 import uuid
 from typing import Any, Callable, ClassVar, Generator
 
-from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
+from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
@@ -618,7 +618,8 @@ class EditReviewSession:
                 "(not a reviewable agent change)",
                 n,
             )
-            with self._undo_lock():
+            # Keep bookkeeping writes off the undo stack so Ctrl+Z reverts the visible edit, not our bookkeeping.
+            with UndoLock(self.doc):
                 _tag_new_redlines(new_redlines, "")
             return result
 
@@ -762,37 +763,13 @@ class EditReviewSession:
                 return "rejected"
         return "modified"
 
-    @contextlib.contextmanager
-    def _undo_lock(self) -> Generator[None, None, None]:
-        """Keep our internal bookkeeping (redline tagging, anchor bookmarks) OFF the user's
-        undo stack. Without this, the first one or two Ctrl+Z presses after an agent edit only
-        toggle our invisible wa_review bookmarks instead of undoing the visible change. Locking
-        the document undo manager around those writes is a no-op if the manager is unavailable."""
-        manager = None
-        try:
-            manager = self.doc.getUndoManager()
-            manager.lock()
-        except Exception:
-            manager = None
-        try:
-            yield
-        finally:
-            if manager is not None:
-                try:
-                    manager.unlock()
-                except Exception:
-                    # A stuck lock can later make a surgical rollback's undo() throw (the manager is
-                    # locked), silently degrading atomicity -- surface it, don't bury at debug.
-                    log.warning("EditReviewSession: undo manager unlock failed; the undo manager may "
-                                "be left locked", exc_info=True)
-
     def _remove_anchor_bookmarks(self, records: list[ChangeRecord]) -> None:
         """Remove the anchor bookmarks of *records*, under the undo lock so the removal stays off the
         user's undo stack. Best-effort: any failure is logged at debug, never raised. Shared by
         cleanup() and discard_changes_since()."""
         try:
             bookmarks = self.doc.getBookmarks()
-            with self._undo_lock():
+            with UndoLock(self.doc):
                 for record in records:
                     try:
                         if bookmarks.hasByName(record.bookmark):

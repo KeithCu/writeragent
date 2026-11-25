@@ -95,3 +95,68 @@ def test_main_skip_uno_env(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("builtins.print", lambda *a, **k: printed.append(" ".join(str(x) for x in a)))
     assert tbu.main([], repo_root=tmp_path) == 0
     assert printed == ["test-bot: SKIP_UNO=1 — skipping isolated UNO tests"]
+
+
+def test_list_branch_uno_files_selects_stem_and_1hop_uno_tests_and_caps_large_expansions(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "plugin/doc/text_helpers.py", "def clean():\n    return ''\n")
+    _touch(tmp_path, "plugin/writer/search.py", "from plugin.doc.text_helpers import clean\n")
+    _touch(tmp_path, "tests/doc/test_text_helpers_uno.py", "x = 1\n")
+    _touch(tmp_path, "tests/writer/test_search_uno.py", "x = 1\n")
+    _touch(tmp_path, "tests/writer/test_uses_search_uno.py", "import plugin.writer.search\n")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "add doc and writer modules")
+
+    _git(tmp_path, "checkout", "-b", "feature")
+    _touch(tmp_path, "plugin/doc/text_helpers.py", "def clean():\n    return 'v2'\n")
+    _git(tmp_path, "add", "plugin/doc/text_helpers.py")
+    _git(tmp_path, "commit", "-m", "edit text_helpers")
+
+    assert tbu.list_branch_uno_files(tmp_path) == [
+        "tests/doc/test_text_helpers_uno.py",
+        "tests/writer/test_search_uno.py",
+    ]
+
+    monkeypatch.setattr(tbu, "UNO_MAX_EXPANDED_FILES", 1)
+    assert tbu.list_branch_uno_files(tmp_path) == ["tests/doc/test_text_helpers_uno.py"]
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "exceed cap (1)" in captured.err
+
+
+def test_main_scales_timeout_honours_env_and_distinguishes_124_and_75(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.delenv("SKIP_UNO", raising=False)
+    monkeypatch.delenv("UNO_PROBE_TIMEOUT", raising=False)
+    monkeypatch.setattr(tbu, "is_main_checkout", lambda repo_root, main=None: False)
+    monkeypatch.setattr(
+        tbu,
+        "list_branch_uno_files",
+        lambda repo_root: [f"tests/writer/test_f{idx}_uno.py" for idx in range(15)],
+    )
+    probe = tmp_path / "uno-probe.sh"
+    probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    probe.chmod(0o755)
+    monkeypatch.setenv("UNO_PROBE", str(probe))
+
+    seen_cmds: list[list[str]] = []
+
+    def _run(rc: int):
+        return lambda cmd, **_: (seen_cmds.append(cmd), subprocess.CompletedProcess(cmd, rc))[1]
+
+    monkeypatch.setattr(tbu.subprocess, "run", _run(124))
+    assert tbu.main([], repo_root=tmp_path) == 124
+    assert seen_cmds[0][:3] == [str(probe), "--timeout", "375"]
+    assert "timed out after 375s (exit 124)" in capsys.readouterr().err
+
+    monkeypatch.setattr(tbu.subprocess, "run", _run(75))
+    assert tbu.main([], repo_root=tmp_path) == 75
+    assert "all slots busy (exit 75)" in capsys.readouterr().err
+
+    monkeypatch.setenv("UNO_PROBE_TIMEOUT", "900")
+    monkeypatch.setattr(tbu.subprocess, "run", _run(0))
+    assert tbu.main([], repo_root=tmp_path) == 0
+    assert "--timeout" not in seen_cmds[2]

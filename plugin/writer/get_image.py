@@ -23,6 +23,7 @@ from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
+from plugin.framework.tool_schema import page_index_param
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 from plugin.writer.page_png import render_writer_page_png, write_page_png
 
@@ -131,7 +132,7 @@ class GetImage(ToolBase):
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from shape_get_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page."},
-            "page": {"type": "integer", "description": "0-based page/slide index (the user's page 2 is page=1). Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page."},
+            "page": page_index_param("Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page."),
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names)."},
         },
         "required": [],
@@ -171,7 +172,7 @@ class GetImage(ToolBase):
             del out["properties"]["page"]
             out["properties"]["selection"]["description"] = f"If true, fetch the currently selected image instead of naming one. {one_mode}"
         else:
-            out["properties"]["page"]["description"] = f"0-based page index (the user's page 2 is page=1). Renders that whole page as an image. {one_mode}"
+            out["properties"]["page"] = page_index_param(f"Renders that whole page as an image. {one_mode}")
         return out
 
     # Impress also supports DrawingDocument; list both so execution accepts either service set.

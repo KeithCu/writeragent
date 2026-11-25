@@ -441,7 +441,7 @@ def test_form_create_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = FormCreate().execute(
@@ -488,7 +488,7 @@ def test_form_generate_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     content = "<p>Title</p>Name: {FIELD:control='text',name='g1'} Agree {FIELD:control='checkbox',name='g2'}<p>tail</p>"

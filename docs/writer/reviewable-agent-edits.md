@@ -34,7 +34,7 @@ What is implemented today (not every Writer mutation tool):
 | `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
-| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked row/column deletes refuse protected cells; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
+| `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked `table_delete` and row/column deletes refuse with `CELLS_PROTECTED` when the table or band has, or the deleted table is nested in, a protected cell; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets) | No | No |
@@ -55,8 +55,10 @@ replacement. Whitespace the model actually sent is kept.
 
 Extend/Edit read `extend_selection_system_prompt` / `edit_selection_system_prompt` from `writeragent.json`; `additional_instructions` stays the chat prompt (the shared Edit dialog still saves its Extra instructions there for Calc and Settings, but Writer does not use it as its system prompt).
 
-`table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
-removing every row), so the table would vanish unreviewable. It places the caret in a non-nested
+`table_delete` refuses with `CELLS_PROTECTED` when the table has, or is nested in, a protected cell
+(whether or not changes are recorded). It cannot use `removeTextContent` under tracking: Writer
+records nothing for it (nor for removing every row), so the table would vanish unreviewable. It
+places the caret in a non-nested
 cell, confirms via the view cursor that it landed in the target table (refusing with
 `TABLE_DELETE_NOT_TRACKABLE` if the table is hidden so it cannot strike another table), and
 dispatches `.uno:DeleteTable`, which Writer records as a tracked deletion inside an
@@ -66,7 +68,7 @@ first cell that changes, and `inline_review` resolves them one cell at a time in
 undo step. Writer anchors each **empty** row with a U+200D but records no redline for it, so the
 tool deletes those anchors with tracking on — without that, Accept All left the empty rows behind as
 a table. Rejecting keeps the anchor in the empty cell, as LibreOffice's own Delete Table does.
-`apply_content` uses that same delete when an empty replacement is the last text left in the table,
+`apply_content` uses that same delete (including the `CELLS_PROTECTED` check) when an empty replacement is the last text left in the table,
 inside the edit's existing review session. Clearing one cell while another cell still has text stays
 a text edit.
 
@@ -106,7 +108,8 @@ other path releases it, including a successful non-wait edit.
   outcome and `final_text` preview. The anchor bookmark lives inside the edit's undo step without
   locking the undo manager, so one Undo removes both the edit and the bookmark together. Before
   dispatching Accept or Reject, any leftover `wa_review_*` bookmarks are removed under undo lock so
-  undoing the reject never encounters unregistered bookmark indexes.
+  undoing the reject never encounters unregistered bookmark indexes. Bookkeeping writes use `UndoLock`
+  (`compound_undo.py`), which leaves a document with undo off untouched.
 * Tracking is forced on for the duration even if the user didn't have it on, and their prior
   `RecordChanges` state is restored afterward. Markup is forced **visible** (`ShowChanges = True`)
   so a reviewable change is never left invisible.
@@ -320,7 +323,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * Cleared character formatting (`clear_direct="style_props"` or `"all"`) is not restored on Reject and sets `style_unreviewed: true`.
   * List levels, and numbers under an outline-numbered heading style, are not restored on Reject and set `style_unreviewed: true`.
   * Empty paragraphs get no `ParagraphFormat` redline (flagged only when no paragraph in the target was recorded).
-  * Undo leaves the `ParagraphFormat` redline in place (matching LibreOffice's UI). Direct paragraph formatting set after such an undo is not restored on Reject, because the next change reuses the stale redline.
+  * Undo leaves the `ParagraphFormat` redline in place (matching LibreOffice's UI). Direct paragraph formatting set after such an undo is not restored on Reject, because the next change reuses the stale redline. Rejecting the leftover redline on a list paragraph resets its level (LibreOffice's UI loses the number too).
   * Rejecting a `Format` redline over a whole paragraph drops that paragraph's direct formatting (`RejectRedline` → `ResetAttrs`). A whole-paragraph character change recorded *after* a `ParagraphFormat` redline therefore loses the restored margins on Reject All; `apply_style` and `style_format_text` detect this redline order and set `style_unreviewed: true` with a warning (this can over-report paragraphs that had no direct formatting, because revert properties are not readable through UNO).
   * ODT save drops `ParagraphFormat` redlines while DOCX keeps them.
   * Typing into a paragraph while recording accepts its `ParagraphFormat` redline.

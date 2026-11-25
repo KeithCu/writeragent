@@ -140,7 +140,7 @@ def test_run_turn_returns_user_stopped_when_host_stops(monkeypatch: pytest.Monke
     with (
         patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
         patch("plugin.ppt_master.venv.runner._build_tools", return_value=[]),
-        patch("plugin.ppt_master.venv.runner.PartialTurnToolCallingAgent", return_value=agent),
+        patch("plugin.ppt_master.venv.runner.ToolCallingAgent", return_value=agent),
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
     ):
@@ -167,7 +167,7 @@ def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
     with (
         patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
         patch("plugin.ppt_master.venv.runner._build_tools", return_value=[]),
-        patch("plugin.ppt_master.venv.runner.PartialTurnToolCallingAgent", return_value=agent) as mock_agent,
+        patch("plugin.ppt_master.venv.runner.ToolCallingAgent", return_value=agent) as mock_agent,
         patch("plugin.ppt_master.venv.runner.HostRpcModel"),
     ):
         result = run_turn({"query": "hi"})

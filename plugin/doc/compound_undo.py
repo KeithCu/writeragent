@@ -27,6 +27,44 @@ def _is_undo_locked(um: Any) -> bool:
     return fn() is True
 
 
+class UndoLock:
+    """Keep bookkeeping writes off the document's undo stack: ``with UndoLock(doc):``.
+
+    Without this, the first Ctrl+Z presses undo invisible bookkeeping instead of the
+    visible edit. Does nothing when undo is already off. ``unlock()`` turns recording back on
+    (UndoManagerHelper_Impl::unlock, framework/source/fwe/helper/undomanagerhelper.cxx),
+    which would enable undo in a document where it is disabled (Undo/Steps 0, no view);
+    with Undo/Steps 0 the next undo group crashes LibreOffice. Best-effort: a manager that
+    is missing or fails to lock is ignored. A class rather than a generator context manager
+    so pyuno exceptions pass through unchanged (docs/framework/exception-policy.md).
+    """
+
+    _doc: Any
+    _manager: Any | None
+
+    def __init__(self, doc: Any) -> None:
+        self._doc = doc
+        self._manager = None
+
+    def __enter__(self) -> None:
+        try:
+            manager = self._doc.getUndoManager()
+            if not _is_undo_locked(manager):
+                manager.lock()
+                self._manager = manager
+        except Exception:
+            log.debug("UndoLock: could not lock the undo manager", exc_info=True)
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._manager is None:
+            return
+        try:
+            self._manager.unlock()
+        except Exception:
+            # A stuck lock can make a later rollback's undo() throw and silently degrade atomicity.
+            log.warning("UndoLock: unlock failed; the undo manager may be left locked", exc_info=True)
+
+
 def undo_titles(doc: Any) -> tuple[str, ...] | None:
     """Return the undo-stack titles of ``doc`` as a tuple, newest first.
 

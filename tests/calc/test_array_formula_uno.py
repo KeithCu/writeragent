@@ -279,11 +279,9 @@ def test_array_error_hints_and_commit_code_uno(ctx, doc):
     assert sheet.getCellByPosition(0, 0).getValue() == 1
 
 
-@native_test(timeout=60)
+@native_test
 @with_native_doc("calc")
 def test_measure_avoids_referenced_rows_uno(ctx, doc):
-    from plugin.calc.python.workbook_state import WorkbookState
-
     sheet = doc.getCurrentController().getActiveSheet()
     for row, val in enumerate((1, 2, 3)):
         sheet.getCellByPosition(0, row).setValue(val)
@@ -291,21 +289,6 @@ def test_measure_avoids_referenced_rows_uno(ctx, doc):
     res_sum = _execute_calc_tool(doc, ctx, "write_range", {"range": ["H20"], "values": "=SUM(1:3)", "array": True})
     assert res_sum.get("status") == "ok", res_sum
     assert sheet.getCellByPosition(7, 19).getValue() == 6
-
-    try:
-        with repo_venv_in_profile():
-            res_py = _execute_calc_tool(
-                doc,
-                ctx,
-                "write_range",
-                {"range": ["H25"], "values": '=TRANSPOSE(PY("result = 7"; 1:3))', "array": True},
-            )
-            assert res_py.get("status") == "ok", res_py
-            assert sheet.getCellByPosition(7, 24).getValue() == 7
-    finally:
-        st = WorkbookState.known(doc)
-        if st is not None:
-            WorkbookState.forget_key(st.key)
 
     doc.getSheets().insertNewByName("Fresh", 1)
     fresh = doc.getSheets().getByName("Fresh")
@@ -327,42 +310,30 @@ def test_measure_keeps_last_column_cells_uno(ctx, doc):
     assert [sheet.getCellByPosition(16383, r).getString() for r in (0, 1, 50)] == ["top1", "top2", "end"]
 
 
-@native_test(timeout=60)
-@with_native_doc("calc")
-def test_nested_py_setup_failure_refused_uno(ctx, doc):
-    from plugin.calc.python.workbook_state import WorkbookState
-
-    sheet = doc.getCurrentController().getActiveSheet()
-    try:
-        with venv_in_profile("/nonexistent/venv"):
-            for target_range, formula in (
-                ("A1", '=TRANSPOSE(PY("result = 1"))'),
-                ("B1", '=IF(ROW(1:2)=1;"h1";PY("result = 1"))'),
-            ):
-                res = _execute_calc_tool(doc, ctx, "write_range", {"range": [target_range], "values": formula, "array": True})
-                assert res.get("status") == "error", res
-                msg = res.get("message") or res.get("error") or ""
-                assert "Python venv not found" in msg, res
-            assert [sheet.getCellByPosition(0, r).getString() for r in range(2)] == ["", ""]
-            assert [sheet.getCellByPosition(1, r).getString() for r in range(2)] == ["", ""]
-    finally:
-        st = WorkbookState.known(doc)
-        if st is not None:
-            WorkbookState.forget_key(st.key)
-
-
 @native_test
 @with_native_doc("calc")
-def test_nested_py_own_data_refused_uno(ctx, doc):
+def test_nested_py_array_refused_uno(ctx, doc):
     sheet = doc.getCurrentController().getActiveSheet()
     sheet.getCellByPosition(0, 0).setValue(42)
 
-    res = _execute_calc_tool(
+    res_if = _execute_calc_tool(
         doc,
         ctx,
         "write_range",
         {"range": ["A1"], "values": '=IFERROR(PY("result = 1"; A1:A3);7)', "array": True},
     )
-    assert res.get("status") == "error", res
-    assert res.get("code") == "PY_CIRCULAR", res
+    assert res_if.get("status") == "error", res_if
+    assert res_if.get("code") == "INVALID_PARAM", res_if
     assert sheet.getCellByPosition(0, 0).getValue() == 42
+
+    res_tr = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["C1"], "values": '=TRANSPOSE(PY("result = 1"))', "array": True},
+    )
+    assert res_tr.get("status") == "error", res_tr
+    assert res_tr.get("code") == "INVALID_PARAM", res_tr
+    c1 = sheet.getCellByPosition(2, 0)
+    assert c1.getString() == ""
+    assert sheet.getCellRangeByPosition(2, 0, 2, 0).getArrayFormula() == ""

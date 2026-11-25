@@ -397,3 +397,25 @@ def test_apply_document_content_table_position_after_uno(ctx, doc):
     table = doc.getTextTables().getByIndex(0)
     assert table.getCellByName("A1").getString() == "Col A"
     assert table.getCellByName("B1").getString() == "Col B"
+
+
+@native_test
+@with_native_doc("writer")
+def test_emptying_a_table_with_a_protected_cell_is_refused_uno(ctx, doc):
+    table = insert_named_table(doc, "Fee", 1, 2, {"A1": "ONLY_FEE"})
+    table.getCellByName("B1").setPropertyValue("IsProtected", True)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    try:
+        for all_matches in (False, True):
+            res = ApplyDocumentContent().execute_safe(
+                tool_ctx,
+                content=[""],
+                old_content="ONLY_FEE",
+                target="search",
+                all_matches=all_matches,
+            )
+            assert res["status"] == "error" and res["code"] == "CELLS_PROTECTED", res
+            assert doc.getTextTables().hasByName("Fee")
+            assert table.getCellByName("A1").getString() == "ONLY_FEE"
+    finally:
+        table.getCellByName("B1").setPropertyValue("IsProtected", False)

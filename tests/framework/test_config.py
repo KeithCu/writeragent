@@ -1889,3 +1889,61 @@ def test_locked_keystore_reported_for_openwebui_flagged_endpoint(fake_keystore):
             {"endpoint": "https://openrouter.ai/api/v1", "api_key": "", "is_openwebui": True}
         )
     assert exc_info.value.code == "keyring_locked"
+
+
+def test_field_text_getters_and_cached_api_key_make_zero_backend_calls(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import (
+        api_key_field_text,
+        cached_api_key_for_endpoint,
+        entry_secret_field_text,
+        get_config,
+        save,
+        secret_config_field_text,
+    )
+
+    endpoint = "https://openrouter.ai/api"
+    save({
+        "api_keys_by_endpoint": {endpoint: "sk-ep"},
+        "mcp.tunnel_provider_token": "tok-tun",
+        "mcp_client.servers": {"s": {"url": "http://localhost:8000", "token": "tok-srv"}},
+    })
+    raw_srv_token = get_config("mcp_client.servers")["s"]["token"]
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    assert keystore.is_ref(api_key_field_text(endpoint))
+    assert keystore.is_ref(secret_config_field_text("mcp.tunnel_provider_token"))
+    assert keystore.is_ref(entry_secret_field_text("mcp_client.servers", "s", "token", raw_srv_token))
+    assert cached_api_key_for_endpoint(endpoint) == ""
+    assert fake_keystore.get_calls == 0
+
+
+def test_migrate_legacy_slot_under_store_latch_keeps_slot_and_orphan(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, migrate_secrets_to_keystore, save
+
+    fake_keystore.one_lock = True
+    legacy = "https://openrouter.ai/api/v1"
+    save({
+        "api_keys_by_endpoint": {legacy: "SECRET"},
+        "mcp.tunnel_provider_token": "tok-tun",
+    })
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+    assert keystore.get_secret("mcp.tunnel_provider_token") is None
+
+    migrate_secrets_to_keystore()
+    slots = get_config("api_keys_by_endpoint")
+    assert legacy in slots
+    assert f"api_key:{legacy}" in fake_keystore.store
+
+
+def test_cold_main_thread_get_api_key_for_endpoint_still_reads_os(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import get_api_key_for_endpoint, save
+
+    endpoint = "https://openrouter.ai/api"
+    save({"api_keys_by_endpoint": {endpoint: "sk-real"}})
+    keystore.reset_for_tests(fake_keystore)
+    assert get_api_key_for_endpoint(endpoint) == "sk-real"

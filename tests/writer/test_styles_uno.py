@@ -1115,6 +1115,240 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
             assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 
 
+def _para_portion_snapshot(para):
+    portions = []
+    p_enum = para.createEnumeration()
+    while enum_has_more(p_enum):
+        portion = p_enum.nextElement()
+        if str(portion.getPropertyValue("TextPortionType")) != "Text":
+            continue
+        portions.append((
+            portion.getString(),
+            float(portion.getPropertyValue("CharHeight")),
+            float(portion.getPropertyValue("CharWeight")),
+            str(portion.getPropertyValue("CharStyleName")),
+        ))
+    return portions
+
+
+def _redline_records(doc):
+    records = []
+    r_enum = doc.getRedlines().createEnumeration()
+    while enum_has_more(r_enum):
+        rl = r_enum.nextElement()
+        records.append((
+            str(rl.getPropertyValue("RedlineType")),
+            str(rl.getPropertyValue("RedlineIdentifier")),
+        ))
+    return records
+
+
+def _body_paras(doc):
+    paras = []
+    b_enum = doc.getText().createEnumeration()
+    while enum_has_more(b_enum):
+        el = b_enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+    return paras
+
+
+def _para_format_snapshot(doc):
+    return [
+        (
+            _para_portion_snapshot(p),
+            str(p.getPropertyValue("ParaStyleName")),
+            int(p.getPropertyValue("ParaAdjust")),
+        )
+        for p in _body_paras(doc)
+    ]
+
+
+@native_test
+def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
+    from plugin.framework.config import get_config, save
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    prev_review = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    cases = [
+        ("apply_para", lambda tc: ApplyStyle().execute(tc, style="Heading 2", target="search", old_content="rest of clause")),
+        ("apply_char", lambda tc: ApplyStyle().execute(tc, style="Source Text", family="CharacterStyles", target="search", old_content="rest of clause")),
+        ("format_text", lambda tc: StyleFormatText().execute(tc, properties={"CharHeight": 20.0}, target="search", old_content="rest of clause")),
+    ]
+    try:
+        for recording in (False, True):
+            for kind, call_tool in cases:
+                doc = desktop.loadComponentFromURL(
+                    "private:factory/swriter", "_blank", 0, (create_property_value("Hidden", True),)
+                )
+                try:
+                    text = doc.getText()
+                    cur = text.createTextCursor()
+                    cur.setPropertyValue("ParaAdjust", 2)  # BLOCK (justified)
+                    cur.setPropertyValue("CharHeight", 9.0)
+                    cur.setPropertyValue("CharWeight", 150.0)
+                    text.insertString(cur, "First", False)
+                    cur.setPropertyValue("CharWeight", 100.0)
+                    text.insertString(cur, " rest of clause", False)
+                    text.insertControlCharacter(cur, 0, False)
+                    text.insertString(cur, " TYPED", False)
+
+                    doc.setPropertyValue("RecordChanges", recording)
+                    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+                    um = doc.getUndoManager()
+
+                    snap_paras = _para_format_snapshot(doc)
+                    snap_redlines = _redline_records(doc)
+                    snap_titles = tuple(um.getAllUndoActionTitles() or ())
+                    snap_rec = bool(doc.getPropertyValue("RecordChanges"))
+
+                    um.lock()
+                    try:
+                        res_locked = call_tool(tool_ctx)
+                    finally:
+                        um.unlock()
+                    assert res_locked["status"] == "error", (recording, kind, res_locked)
+                    assert res_locked["code"] == "UNDO_UNAVAILABLE", (recording, kind, res_locked)
+
+                    assert _para_format_snapshot(doc) == snap_paras
+                    assert _redline_records(doc) == snap_redlines
+                    assert tuple(um.getAllUndoActionTitles() or ()) == snap_titles
+                    assert bool(doc.getPropertyValue("RecordChanges")) == snap_rec
+
+                    res_ok = call_tool(tool_ctx)
+                    assert res_ok["status"] == "ok", (recording, kind, res_ok)
+                    assert len(um.getAllUndoActionTitles() or ()) == len(snap_titles) + 1
+
+                    p0 = _body_paras(doc)[0]
+                    if kind == "apply_para":
+                        assert str(p0.getPropertyValue("ParaStyleName")) == "Heading 2"
+                        assert _para_portion_snapshot(p0) != snap_paras[0][0]
+                    elif kind == "apply_char":
+                        assert any(cs == "Source Text" for _, _, _, cs in _para_portion_snapshot(p0))
+                    else:
+                        assert any(h == 20.0 for _, h, _, _ in _para_portion_snapshot(p0))
+                    if recording:
+                        assert doc.getRedlines().getCount() == 1
+
+                    um.undo()
+                    assert _para_format_snapshot(doc) == snap_paras, (
+                        recording,
+                        kind,
+                        _para_format_snapshot(doc),
+                        snap_paras,
+                    )
+
+                    um.undo()
+                    assert "TYPED" not in doc.getText().getString()
+                finally:
+                    doc.close(True)
+    finally:
+        save({"doc.agent_edit_review_mode": prev_review})
+
+
+@native_test
+def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
+    from plugin.framework.config import get_config, save
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    prev_review = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docx_path = os.path.join(tmpdir, "contract.docx")
+            docx_url = uno.systemPathToFileUrl(docx_path)
+
+            src = desktop.loadComponentFromURL(
+                "private:factory/swriter", "_blank", 0, (create_property_value("Hidden", True),)
+            )
+            try:
+                text = src.getText()
+                cur = text.createTextCursor()
+                for idx, body in enumerate(("Clause one.", "Clause two target.", "Clause three.")):
+                    if idx > 0:
+                        text.insertControlCharacter(cur, 0, False)
+                    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+                    cur.setPropertyValue("ParaAdjust", 2)
+                    text.insertString(cur, body, False)
+
+                src.setPropertyValue("RecordChanges", True)
+                sd = src.createSearchDescriptor()
+                sd.SearchString = "one"
+                r1 = src.findFirst(sd)
+                r1.collapseToEnd()
+                text.insertString(r1, " inserted", False)
+
+                sd.SearchString = "three"
+                r3 = src.findFirst(sd)
+                r3.setString("revised")
+                src.setPropertyValue("RecordChanges", False)
+
+                src.storeToURL(docx_url, (create_property_value("FilterName", "MS Word 2007 XML"),))
+            finally:
+                src.close(True)
+
+            for recording in (False, True):
+                doc = desktop.loadComponentFromURL(
+                    docx_url, "_blank", 0, (create_property_value("Hidden", True),)
+                )
+                try:
+                    um = doc.getUndoManager()
+                    assert um.isLocked() is False
+                    doc.setPropertyValue("RecordChanges", recording)
+
+                    paras_before = _body_paras(doc)
+                    snap = [
+                        (
+                            str(p.getPropertyValue("ListLabelString")),
+                            int(p.getPropertyValue("ParaAdjust")),
+                            str(p.getPropertyValue("ParaStyleName")),
+                            _para_portion_snapshot(p),
+                        )
+                        for p in paras_before
+                    ]
+                    redlines_before = _redline_records(doc)
+                    before_types = [t for t, _ in redlines_before]
+                    assert before_types.count("Insert") == 2 and before_types.count("Delete") == 1
+                    titles_before = tuple(um.getAllUndoActionTitles() or ())
+
+                    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+                    res = ApplyStyle().execute(
+                        tool_ctx, style="Heading 1", target="search", old_content="Clause two target."
+                    )
+                    assert res["status"] == "ok", res
+                    assert len(um.getAllUndoActionTitles() or ()) == len(titles_before) + 1
+
+                    p1_after = _body_paras(doc)[1]
+                    assert str(p1_after.getPropertyValue("ParaStyleName")) == "Heading 1"
+                    assert _para_portion_snapshot(p1_after) != snap[1][3]
+                    assert int(p1_after.getPropertyValue("ParaAdjust")) != snap[1][1]
+                    redlines_after = _redline_records(doc)
+                    for orig in redlines_before:
+                        assert orig in redlines_after, (recording, orig, redlines_after)
+                    if recording:
+                        assert any(t == "ParagraphFormat" for t, _ in redlines_after)
+
+                    um.undo()
+                    paras_undone = _body_paras(doc)
+                    assert len(paras_undone) == len(snap)
+                    for idx, p in enumerate(paras_undone):
+                        got = (
+                            str(p.getPropertyValue("ListLabelString")),
+                            int(p.getPropertyValue("ParaAdjust")),
+                            str(p.getPropertyValue("ParaStyleName")),
+                            _para_portion_snapshot(p),
+                        )
+                        assert got == snap[idx], (recording, idx, got, snap[idx])
+                    redlines_undone = _redline_records(doc)
+                    for orig in redlines_before:
+                        assert orig in redlines_undone, (recording, orig, redlines_undone)
+                finally:
+                    doc.close(True)
+    finally:
+        save({"doc.agent_edit_review_mode": prev_review})
+
+
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_style_format_text_nested_failure_does_not_claim_nothing_changed_uno(ctx, doc):
@@ -1155,4 +1389,133 @@ def test_style_format_text_nested_failure_does_not_claim_nothing_changed_uno(ctx
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
     assert float(cursor.getPropertyValue("CharWeight")) == 150.0
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_full_document_covers_leading_tables_uno(ctx, doc):
+    text = doc.getText()
+    t1 = _insert_table(doc, text, text.getStart(), rows=2, cols=3)
+    t1.getCellByName("A1").setString("Lead1")
+    # B1 stays empty.
+    t1.getCellByName("C1").setString("MergedCell")
+    cur = t1.createCursorByCellName("C1")
+    cur.goDown(1, True)
+    cur.mergeRange()
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    host = t1.getCellByName("A2")
+    host.insertTextContent(host.getStart(), nested, False)
+    nested.getCellByName("A1").setString("NestedLead")
+
+    t2 = _insert_table(doc, text, text.getEnd(), rows=1, cols=1)
+    t2.getCellByName("A1").setString("Lead2")
+    text.insertString(text.getEnd(), "Body text", False)
+
+    body_enum = text.createEnumeration()
+    assert body_enum.nextElement().supportsService("com.sun.star.text.TextTable")
+    assert body_enum.nextElement().supportsService("com.sun.star.text.TextTable")
+    assert host.getText().createEnumeration().nextElement().supportsService("com.sun.star.text.TextTable")
+
+    before_fonts = {s: p["CharFontName"] for s, p in _portion_fonts(text)}
+    undo_mgr = doc.getUndoManager()
+    undo_before = len(undo_mgr.getAllUndoActionTitles())
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = StyleFormatText().execute(
+        tool_ctx,
+        properties={"CharFontName": "Arial", "ParaLeftMargin": 400},
+        target="full_document",
+    )
+    assert res["status"] == "ok", res
+    assert len(undo_mgr.getAllUndoActionTitles()) == undo_before + 1
+
+    portions = _portion_fonts(text)
+    assert {s for s, _ in portions} >= {"Lead1", "MergedCell", "NestedLead", "Lead2", "Body text"}
+    for s, props in portions:
+        assert props["CharFontName"] == "Arial", (s, props)
+        assert abs(props["ParaLeftMargin"] - 400) <= 2, (s, props)
+
+    b1_enum = t1.getCellByName("B1").getText().createEnumeration()
+    b1_para = b1_enum.nextElement()
+    assert b1_para.getPropertyValue("CharFontName") == "Arial"
+
+    undo_mgr.undo()
+    assert {s: p["CharFontName"] for s, p in _portion_fonts(text)} == before_fonts
+
+    res_set = StyleFormatText().execute(
+        tool_ctx,
+        properties={"CharFontName": "Arial"},
+        target="full_document",
+    )
+    assert res_set["status"] == "ok", res_set
+    res_reset = StyleFormatText().execute(
+        tool_ctx,
+        reset=["CharFontName"],
+        target="full_document",
+    )
+    assert res_reset["status"] == "ok", res_reset
+    assert {s: p["CharFontName"] for s, p in _portion_fonts(text)} == before_fonts
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_full_document_leading_table_tracked_uno(ctx, doc):
+    text = doc.getText()
+    t1 = _insert_table(doc, text, text.getStart(), rows=1, cols=2)
+    t1.getCellByName("A1").setString("TrackedLead")
+    # B1 stays empty so an empty leading cell does not clear para_complete.
+    text.insertString(text.getEnd(), "TrackedBody", False)
+    assert text.createEnumeration().nextElement().supportsService("com.sun.star.text.TextTable")
+
+    before = {s: (p["CharFontName"], p["ParaLeftMargin"]) for s, p in _portion_fonts(text)}
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = StyleFormatText().execute(
+            tool_ctx,
+            properties={"CharFontName": "Arial", "ParaLeftMargin": 400},
+            target="full_document",
+        )
+        assert res["status"] == "ok" and res.get("tracked") is True, res
+        assert "style_unreviewed" not in res, res
+        assert "Not fully recorded" not in (res.get("warning") or ""), res
+        for s, props in _portion_fonts(text):
+            assert props["CharFontName"] == "Arial", (s, props)
+            assert abs(props["ParaLeftMargin"] - 400) <= 2, (s, props)
+
+        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        after_reject = {s: (p["CharFontName"], p["ParaLeftMargin"]) for s, p in _portion_fonts(text)}
+        assert after_reject == before
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
+    text = doc.getText()
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("LeadSec")
+    text.insertTextContent(text.getStart(), sec, False)
+    sec_anchor = sec.getAnchor()
+    tbl = _insert_table(doc, sec_anchor.getText(), sec_anchor.getStart(), rows=1, cols=1)
+    tbl.getCellByName("A1").setString("SecLead")
+    text.insertString(text.getEnd(), "AfterSec", False)
+    first_el = text.createEnumeration().nextElement()
+    assert first_el.supportsService("com.sun.star.text.TextTable")
+    assert first_el.getPropertyValue("TextSection") is not None
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = StyleFormatText().execute(
+        tool_ctx,
+        properties={"CharFontName": "Arial"},
+        target="full_document",
+    )
+    assert res["status"] == "ok", res
+    portions = _portion_fonts(text)
+    assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
+    for s, props in portions:
+        assert props["CharFontName"] == "Arial", (s, props)
 
