@@ -184,8 +184,9 @@ class WriterCompoundUndo:
         so unchanged titles set ``left_no_entry = True`` and return False. At a full
         undo stack, ``EnterListAction`` drops the oldest entry on entry and
         ``ImplLeaveListAction`` does not restore it, so an empty group leaves
-        ``before[:-1]``. Inside an outer group the titles never change, so
-        ``left_no_entry`` is meaningful only for the outermost group.
+        ``before[:-1]``. ``left_no_entry`` is set only when the closed group was
+        empty and outermost. With an enclosing group open, or after a non-empty
+        stack was cleared, it stays False because the stack cannot tell.
         """
         if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
             return False
@@ -196,8 +197,16 @@ class WriterCompoundUndo:
             # EnterListAction drops the oldest entry when the undo stack is at its step limit
             # (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx), and
             # ImplLeaveListAction removes an empty group without restoring it, leaving before[:-1].
-            if after in (self._titles_before, self._titles_before[:-1]):
-                self.left_no_entry = True
+            # An empty list after a non-empty one is an edit that cleared the stack
+            # (sw UndoManager::DelAllUndoObj), so it says nothing about what landed.
+            if after == self._titles_before or (after and after == self._titles_before[:-1]):
+                # While an enclosing group is open the top-level titles include it and never
+                # change, and isUndoPossible is False (UndoManagerHelper::isUndoPossible,
+                # framework/source/fwe/helper/undomanagerhelper.cxx). When after is empty,
+                # before was also empty, so no outer group is open (an open outer group
+                # would be a title entry) and isUndoPossible is skipped because it is False
+                # on an empty stack.
+                self.left_no_entry = not after or bool(self._undo_manager.isUndoPossible())
                 return False
             if after and after[0] == self._title:
                 self._undo_manager.undo()
@@ -248,9 +257,9 @@ class UndoOutcome:
     """Result of :func:`commit_or_rollback`.
 
     ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
-    ``nothing_landed`` is True when undo ran or the closed group left no undo entry. It is
-    always False on success, when the group did not close, and when another entry sits on top.
-    Only meaningful for the outermost undo group.
+    ``nothing_landed`` is True when undo ran or the closed outermost group left no undo entry.
+    False on success, when the group did not close, when another entry sits on top, when an
+    enclosing undo group is still open, and when the edit cleared a non-empty undo stack.
     ``error`` is None when the edit succeeded (or when mutate raised and was rolled
     back; then ``mutate_error`` holds the exception). Otherwise it is one of three dicts:
 
