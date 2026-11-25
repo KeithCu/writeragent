@@ -475,6 +475,27 @@ class TestWriterImageCursorConversion:
 
         host.removeTextContent.assert_called_once_with(frame)
 
+    def test_header_insert_raises_without_falling_back_to_body_caret(self):
+        body_text = MagicMock()
+        header_text = MagicMock()
+        header_text.insertTextContent.side_effect = RuntimeError("header insert failed")
+        style = MagicMock()
+        style.getPropertyValue.side_effect = lambda prop: True if prop == "HeaderIsOn" else header_text
+        model = MagicMock()
+        model.getText.return_value = body_text
+        ctx = MagicMock()
+
+        with (
+            patch("plugin.writer.page.resolve_page_style", return_value=style),
+            patch("plugin.writer.page.header_footer_layout", return_value=(False, 0)),
+            patch.object(image_tools, "_create_embedded_graphic", return_value=MagicMock()),
+        ):
+            with pytest.raises(RuntimeError, match="header insert failed"):
+                image_tools.insert_image_into_header_footer(model, "/tmp/logo.png", "header", ctx=ctx)
+
+        body_text.insertTextContent.assert_not_called()
+        model.CurrentController.ViewCursor.getText.assert_not_called()
+
     def test_insert_frame_does_not_jump_to_page_start_when_insert_raises(self):
         host = MagicMock()
         host.insertTextContent.side_effect = RuntimeError("no selection")

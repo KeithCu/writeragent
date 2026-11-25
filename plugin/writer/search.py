@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
+from collections import deque
 from dataclasses import dataclass
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, cast
@@ -319,11 +320,12 @@ def prepare_old_content(raw: Any) -> str:
     return normalize_search_string_for_find(plain)
 
 
-# LibreOffice search also matches text a pending tracked change deleted, so matches struck
-# by pending deletions are filtered out and a phrase that runs across a deletion is not found.
+# LibreOffice search runs on raw node text without a layout, so matches wholly inside pending
+# deletions are filtered out and matches across a deleted paragraph break or regex across a deletion are not found.
 _TRACKED_DELETION_HINT = (
     " This document has pending tracked deletions: matches inside deleted text are left out,"
-    " and a phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
+    " and a phrase that runs across a deleted paragraph break is not found, nor is a regex that"
+    " runs across a deletion. Use a shorter piece on one side of it."
 )
 
 
@@ -447,6 +449,34 @@ def anchor_miss_message(kind: AnchorMissKind, *, tracked_deletions: bool = False
     return msg + hint
 
 
+CROSSES_DELETION_MESSAGE = (
+    "The matched text runs across a pending tracked deletion, so it was not changed. Accept or reject "
+    "that deletion first, or use a shorter piece on one side of it."
+)
+
+
+def match_crosses_deletion(deletions: TrackedDeletions, found: Any) -> bool:
+    """True when *found* lies in one paragraph and a pending deletion strikes part of it.
+
+    An untracked replace would put new text inside the struck run or remove another author's
+    deletion, and a recorded character format turns the Delete redline into a Format redline.
+    A chained match over several paragraphs is not checked.
+    """
+    if not deletions.overlaps(found):
+        return False
+    text = found.getText()
+    para_end = text.createTextCursorByRange(found.getStart())
+    para_end.gotoEndOfParagraph(False)
+    return starts_at_or_after(text, para_end, found.getEnd())
+
+
+def crossing_match_error(doc: Any, found: Any) -> dict[str, Any] | None:
+    """The MATCH_CROSSES_DELETION tool error for *found*, or None when it may be edited."""
+    if not match_crosses_deletion(TrackedDeletions(doc), found):
+        return None
+    return make_tool_error(CROSSES_DELETION_MESSAGE, code="MATCH_CROSSES_DELETION")
+
+
 def find_text_ranges(
     model: Any,
     search: str,
@@ -535,17 +565,75 @@ def _paragraph_matches_part(
     return actual_norm == expected_norm, None
 
 
+def _starts_before(body: Any, left: Any, right: Any) -> bool:
+    """True when *left* comes before *right* in LibreOffice's search order (body and its tables,
+    then other texts). Two different texts outside the body have no order and return False."""
+    order = uno_read(lambda: body.compareRegionStarts(left, right), None)
+    if order is None:
+        order = uno_read(lambda: left.getText().compareRegionStarts(left, right), None)
+    if order is not None:
+        return order == 1
+    return uno_read(lambda: body.compareRegionStarts(left, left) == 0, False)
+
+
+def _crossing_hits(doc: Any, sd: Any, deletions: TrackedDeletions, after: Any) -> deque[Any]:
+    """Literal matches of *sd* that run across a pending deletion, body first."""
+    pattern = re_mod.compile(
+        sd.SearchString if sd.SearchRegularExpression else re_mod.escape(sd.SearchString),
+        0 if sd.SearchCaseSensitive else re_mod.IGNORECASE,
+    )
+    body = doc.getText()
+    hits = [h for h in deletions.crossing_matches(pattern) if after is None or not _starts_before(body, h, after)]
+    # Redlines list headers and frames before the body (node order); the search lists the body first.
+    hits.sort(key=lambda h: uno_read(lambda: body.compareRegionStarts(h, h), None) is None)
+    return deque(hits)
+
+
+def _iter_descriptor_hits_with_text(
+    doc: Any,
+    sd: Any,
+    deletions: TrackedDeletions,
+    after: Any = None,
+    *,
+    literal: bool = True,
+    with_text: bool = False,
+) -> Iterator[tuple[Any, str | None]]:
+    """Yield ``(hit, visible_or_none)`` for non-struck LO hits and literal crossing hits.
+
+    Drops native hits when pending deletions (one or several together) leave no visible text.
+    ``visible_or_none`` is None when no deletion overlaps *hit* or *with_text* is False for a
+    crossing hit, avoiding discarded ``visible_text`` reads. *literal* is False for a caller's own
+    regex: it is ICU syntax, which Python re cannot run.
+    """
+    crossing = _crossing_hits(doc, sd, deletions, after) if literal and deletions else deque()
+    body = doc.getText() if crossing else None
+    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
+    while found is not None:
+        while crossing and _starts_before(body, crossing[0], found):
+            h = crossing.popleft()
+            yield h, (deletions.visible_text(h) if with_text else None)
+        if not deletions.overlaps(found):
+            yield found, None
+        else:
+            shown = deletions.visible_text(found)
+            if shown:
+                yield found, shown
+        found = find_next_after_match(doc, found, sd)
+    for h in crossing:
+        yield h, (deletions.visible_text(h) if with_text else None)
+
+
 def _iter_descriptor_hits(
     doc: Any,
     sd: Any,
     deletions: TrackedDeletions,
     after: Any = None,
+    *,
+    literal: bool = True,
 ) -> Iterator[Any]:
-    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
-    while found is not None:
-        if not deletions.strikes(found):
-            yield found
-        found = find_next_after_match(doc, found, sd)
+    """LibreOffice hits not wholly struck, plus literal matches that run across a deletion."""
+    for hit, _shown in _iter_descriptor_hits_with_text(doc, sd, deletions, after=after, literal=literal):
+        yield hit
 
 
 def _collect_capped(
@@ -554,7 +642,7 @@ def _collect_capped(
     deletions: TrackedDeletions,
     limit: int = MAX_SEARCH_REPLACEMENTS,
 ) -> list[Any]:
-    return list(islice(_iter_descriptor_hits(doc, sd, deletions), limit))
+    return list(islice(_iter_descriptor_hits(doc, sd, deletions, literal=False), limit))
 
 
 def _lo_regex_descriptor(doc: Any, text: str, *, fold: bool) -> Any:
@@ -1393,7 +1481,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     deletions = TrackedDeletions(doc)
     if not all_matches:
-        return next(_iter_descriptor_hits(doc, sd, deletions), None)
+        return next(_iter_descriptor_hits(doc, sd, deletions, literal=False), None)
     return _collect_capped(doc, sd, deletions)
 
 
@@ -1706,9 +1794,11 @@ class SearchInDocument(ToolBase):
 
         doc = ctx.doc
         labeler = LocationLabeler(doc)
+        deletions = TrackedDeletions(doc)
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
-            found = doc.findFirst(sd)
+            hits = _iter_descriptor_hits_with_text(doc, sd, deletions, literal=not use_regex, with_text=True)
+            found, pre_shown = next(hits, (None, None))
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("search: createSearchDescriptor / findFirst failed")
@@ -1723,13 +1813,12 @@ class SearchInDocument(ToolBase):
         def add(text: str, location: str, context: str) -> None:
             matches.append({"text": text, "location": location, "context": context})
 
-        deletions = TrackedDeletions(doc)
         total_count = 0
         warning = None
         while found is not None and total_count < MAX_SEARCH_HITS:
             try:
                 hit_text = found.getString()
-                shown = deletions.visible_text(found) if deletions.overlaps(found) else hit_text
+                shown = hit_text if pre_shown is None else pre_shown
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search: hit read failed")
@@ -1739,17 +1828,15 @@ class SearchInDocument(ToolBase):
                 # Zero-width matches do not advance findNext, so stop the walk and flag truncation.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
-            if shown:  # empty means pending deletions strike the whole hit
-                total_count += 1
-                if len(matches) < max_results:
-                    add(
-                        shown,
-                        labeler.describe(found),
-                        enclosing_paragraph_text(found, deletions),
-                    )
+            total_count += 1
+            if len(matches) < max_results:
+                add(
+                    shown,
+                    labeler.describe(found),
+                    enclosing_paragraph_text(found, deletions),
+                )
             try:
-                # hit_text is non-empty here, so skip find_next_after_match's second getString.
-                found = doc.findNext(found.getEnd(), sd)
+                found, pre_shown = next(hits, (None, None))
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.exception("search: findNext failed")

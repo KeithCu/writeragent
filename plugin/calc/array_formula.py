@@ -95,9 +95,8 @@ def skip_quoted(s: str, i: int) -> int:
     return n
 
 
-def _scan_calls(formula: str) -> Iterator[tuple[str, int, int]]:
+def _scan_calls(formula: str) -> Iterator[tuple[str, int]]:
     text = formula[1:] if formula.startswith("=") else formula
-    offset = len(formula) - len(text)
     depth = 0
     i = 0
     n = len(text)
@@ -114,7 +113,7 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int, int]]:
             match = _CALL.match(text, i)
             if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_.")):
                 fn = match.group(1).upper().removeprefix("_XLFN.").removeprefix("_XLWS.")
-                yield fn, depth, offset + match.start()
+                yield fn, depth
                 # Land on '(' so this '(' counts on the next iteration.
                 # =SUM(FILTER(...)) then yields FILTER at depth 1.
                 i = match.end() - 1
@@ -122,41 +121,21 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int, int]]:
         i += 1
 
 
-def _call_end(formula: str, open_idx: int) -> int | None:
-    depth = 0
-    i = open_idx
-    n = len(formula)
-    while i < n:
-        ch = formula[i]
-        if ch in "\"'":
-            i = skip_quoted(formula, i)
-            continue
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return None
+def nests_py_call(formula: str) -> bool:
+    """True when *formula* calls ``=PY`` / ``=PYTHON`` but is not one valid such call.
 
-
-def py_calls(formula: str) -> list[PyFormula]:
-    """Return every ``=PY`` / ``=PYTHON`` call in *formula* at any depth.
-
-    Text inside quotes is ignored, and an unclosed call is skipped.
+    Also true when a single ``=PY`` call does not parse (for example, unclosed
+    or with undoubled quotes). Text inside quotes is ignored.
     """
     if "PY" not in formula.upper():
-        return []
-    calls: list[PyFormula] = []
-    for _fn, _depth, start in _scan_calls(formula):
-        if match_py_alias(formula[start:], require_equals=False) is None:
-            continue
-        end = _call_end(formula, formula.index("(", start))
-        parts = PyFormula.parse("=" + formula[start:end]) if end is not None else None
-        if parts is not None:
-            calls.append(parts)
-    return calls
+        return False
+    calls = list(_scan_calls(formula))
+    py_count = sum(match_py_alias(f"{name}(", require_equals=False) is not None for name, _depth in calls)
+    if not py_count:
+        return False
+    top_count = sum(depth == 0 for _name, depth in calls)
+    # PyFormula.parse also accepts =PY(..)+SUM(..) and =PY(..;PY(..)), so the calls are counted as well.
+    return py_count > 1 or top_count != 1 or PyFormula.parse(formula) is None
 
 
 def returns_array(formula: str, forced: bool | None = None) -> bool:
@@ -172,8 +151,8 @@ def returns_array(formula: str, forced: bool | None = None) -> bool:
     if not isinstance(formula, str) or not formula.startswith("=") or len(formula) <= 1:
         return False
     calls = list(_scan_calls(formula))
-    top = {name for name, depth, _start in calls if depth == 0}
-    names = {name for name, _depth, _start in calls}
+    top = {name for name, depth in calls if depth == 0}
+    names = {name for name, _depth in calls}
     return bool(top & ARRAY_FUNCTIONS) or (
         bool(top & _ARRAY_PASSTHROUGH) and bool(names & ARRAY_FUNCTIONS)
     )

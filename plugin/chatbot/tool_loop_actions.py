@@ -1009,7 +1009,7 @@ class ToolLoopEffectInterpreter:
                 return _fail("\n[Document closed or unavailable.]\n")
             pin = turn.selection_pin
             turn.session.refresh_document_context(
-                doc, host.ctx, selection=pin.range if pin is not None else None
+                doc, host.ctx, selection=pin.range if pin is not None and pin.applies_to(doc) else None
             )
             return False
         except Exception as exc:

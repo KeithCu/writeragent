@@ -4,8 +4,8 @@
 OR native (headless LO)** — this doc is the history of the in-memory
 world, not a claim that ranking is string-only.
 
-- `--backend string` (default) = in-memory simulator; ranks the original
-  17 and **skips** `python_shapes_flag` / `org_chart_gen`.
+- `--backend string` (default) = in-memory simulator (`scripts/prompt_optimization/eval_worlds.py`);
+  skips `backend=lo` rows. `eval_worlds.py` is frozen; the rule is in its module docstring.
 - `--backend lo` = native headless UNO for every selected row (one
   soffice). This is still **eval-1**, not eval-2.
 - `--backend auto` = per-task mix; dual-lane scheduler (string pool

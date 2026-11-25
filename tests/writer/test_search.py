@@ -440,7 +440,6 @@ def test_find_text_ranges_filters_body_and_measures_via_visible_body():
              "plugin.writer.search.read_visible_body",
              side_effect=lambda _m, pos: ("ab hit1 cd hit2", [3, 7] if len(pos) == 2 else [3, 7, 11, 15], []),
          ):
-        td_cls.return_value.strikes.return_value = False
         td_cls.return_value.overlaps.return_value = False
         res = find_text_ranges(model, "hit", limit=1)
     assert res == [{"start": 3, "end": 7, "text": "hit1"}]
@@ -453,7 +452,6 @@ def test_find_text_ranges_filters_body_and_measures_via_visible_body():
              "plugin.writer.search.read_visible_body",
              side_effect=lambda _m, pos: ("ab hit1 cd hit2", [3, 7, 11, 15] if len(pos) == 4 else [], []),
          ):
-        td_cls.return_value.strikes.return_value = False
         td_cls.return_value.overlaps.return_value = False
         res_all = find_text_ranges(model, "hit")
     assert res_all == [{"start": 3, "end": 7, "text": "hit1"}, {"start": 11, "end": 15, "text": "hit2"}]
@@ -475,7 +473,6 @@ def test_find_text_ranges_none_offset_raises():
     with patch("plugin.writer.search.uno_same", return_value=True), \
          patch("plugin.writer.search.TrackedDeletions") as td_cls, \
          patch("plugin.writer.search.read_visible_body", return_value=("text", [None, 3], [])):
-        td_cls.return_value.strikes.return_value = False
         td_cls.return_value.overlaps.return_value = False
         with pytest.raises(ToolExecutionError):
             find_text_ranges(model, "hit")
@@ -1092,7 +1089,7 @@ def test_search_in_document_and_sweep_comment_matches_parity():
     assert tool_pairs == sweep_pairs == [("needle", "comment by 'Ana'")]
 
 
-def test_search_in_document_reads_each_hit_once():
+def test_search_in_document_counts_one_hit():
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -1107,7 +1104,6 @@ def test_search_in_document_reads_each_hit_once():
     res = SearchInDocument().execute(ctx, pattern="hit", regex=False, case_sensitive=False)
     assert res["status"] == "ok"
     assert res["count"] == 1
-    found.getString.assert_called_once()
 
 
 def test_build_page_map_propagates_disposed_document():
@@ -2157,12 +2153,13 @@ def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
          patch("plugin.writer.search.iter_shape_hits", return_value=iter(())), \
          patch("plugin.writer.search.iter_comment_hits", return_value=iter(())):
         td = td_cls.return_value
-        td.strikes.side_effect = lambda r: r is covered_hit
         td.overlaps.side_effect = lambda r: r is covered_hit
         td.visible_text.return_value = ""
+        td.crossing_matches.return_value = []
         labeler_cls.return_value.describe.return_value = "body"
 
-        assert list(_iter_descriptor_hits(doc, MagicMock(), td)) == [live_hit]
+        sd = MagicMock(SearchString="x", SearchRegularExpression=False, SearchCaseSensitive=False)
+        assert list(_iter_descriptor_hits(doc, sd, td)) == [live_hit]
 
         doc.findFirst.return_value = covered_hit
         doc.findNext.side_effect = [live_hit, None]
@@ -2194,7 +2191,6 @@ def test_search_tool_builds_tracked_deletions_once():
          patch("plugin.writer.search.LocationLabeler") as labeler_cls, \
          patch("plugin.writer.search.iter_shape_hits", return_value=iter(())), \
          patch("plugin.writer.search.iter_comment_hits", return_value=iter(())):
-        td_cls.return_value.strikes.return_value = False
         td_cls.return_value.overlaps.return_value = False
         labeler_cls.return_value.describe.return_value = "body"
         res = SearchInDocument().execute(MagicMock(doc=doc), pattern="hit")

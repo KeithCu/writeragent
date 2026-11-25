@@ -33,9 +33,9 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     """Run a focused read-only smol agent on *opened_model*; not a delegate gateway recurse.
 
     The child context clears active_page_index, active_domain, approval_callback,
-    chat_append_callback, set_active_domain_callback, and python_tool_domain because
-    the opened file is not the parent document, and Draw read tools treat
-    active_page_index as the page.
+    chat_append_callback, set_active_domain_callback, python_tool_domain, and
+    selection_pin because the opened file is not the parent document, and Draw
+    read tools treat active_page_index as the page.
     """
     registry = parent_ctx.services.get("tools")
     allowlist = READ_TOOLS_BY_DOC_TYPE.get(doc_type)
@@ -52,6 +52,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         set_active_domain_callback=None,
         active_domain=None,
         python_tool_domain=None,
+        selection_pin=None,
     )
 
     def _fetch_inner_tools() -> list[ToolBase]:

@@ -177,6 +177,7 @@ def read_ready_frame_during_io(
     is_alive: Callable[[], bool],
     max_payload_bytes: int,
     unpacker: Callable[[bytes], Any] | None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[HandshakeTag, Any]:
     """Read the spawn ready frame while *spawned* owns the pipes (between begin_io and end_io)."""
     if spawned.was_signaled():
@@ -191,8 +192,12 @@ def read_ready_frame_during_io(
                 max_payload_bytes=max_payload_bytes,
                 require_dict=True,
                 unpacker=unpacker,
+                cancel=cancel,
             )
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            # Stop also raises TimeoutExpired (see read_frame_payload); keep this
+            # as "timeout" so _spawn_child kills the child and _ensure_live
+            # reports CANCELLED from _publish_refusal.
             return ("timeout", None)
     if spawned.was_signaled():
         return ("interrupted", None)
@@ -315,12 +320,14 @@ class ChildSlot:
         cap_sec: float,
         max_payload_bytes: int,
         unpacker: Callable[[bytes], Any] | None,
+        cancel: SendCancellation | None = None,
     ) -> SpawnOutcome:
         """Start *managed*, publish it, read the ready frame, and clean up every failure.
 
         Every outcome except ``ready`` leaves the slot without this child. *start*
         must run ``Popen`` on the supervisor spawner thread (PDEATHSIG follows the
-        creating thread).
+        creating thread). *cancel* ends the ready-frame read early; compute slots
+        have none.
         """
         spawned: Child | None = None
         published = False
@@ -350,6 +357,7 @@ class ChildSlot:
                     is_alive=self.is_alive,
                     max_payload_bytes=max_payload_bytes,
                     unpacker=unpacker,
+                    cancel=cancel,
                 )
                 if tag == "interrupted":
                     self._drop_child(spawned)
@@ -565,7 +573,7 @@ class WarmChild(ChildSlot):
         ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``refuse`` is consulted
         only while waiting for the lock—not after it is held, because ``begin_io`` makes this
         thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
-        ``cancel`` is checked again once the lock is held, before any spawn, when a spawned child is published, and when a spawn fails.
+        ``cancel`` is checked again once the lock is held, before any spawn, when a spawned child is published, during the spawn handshake, and when a spawn fails.
         """
         acquire_end: float | None = None
         if wait is not None and wait > 0:
@@ -710,6 +718,7 @@ class WarmChild(ChildSlot):
             cap_sec=SPAWN_READY_TIMEOUT_SEC,
             max_payload_bytes=self.spec.max_payload_bytes,
             unpacker=self.spec.unpacker,
+            cancel=self._lease_cancel,
         )
         name = self.spec.name
         if outcome.tag == "ready":

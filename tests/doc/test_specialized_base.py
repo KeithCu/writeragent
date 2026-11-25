@@ -401,6 +401,7 @@ def test_delegate_finish_only_stays_ok(
     assert result_edit["status"] == "ok"
     assert result_edit["finished"] is True
     assert result_edit["answer"] == answer
+    assert result_edit["message"]
     assert result_edit.get("note") == NO_EDIT_TOOL_NOTE
     chat_line = format_delegate_result_chat_line({"domain": "structural"}, result_edit)
     assert "done" in chat_line

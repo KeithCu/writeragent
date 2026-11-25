@@ -53,6 +53,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.i18n import _
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
@@ -455,7 +456,7 @@ _LEGEND_POSITION_MEMBER = {
 # Shared parameters for Create and Edit
 CHART_PROPERTIES: dict[str, Any] = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
-    "page": {"type": "integer", "description": "0-based page/slide index, Draw/Impress only (the user's page 2 is page=1; omitted page means the current page, otherwise page 0)."},
+    "page": page_index_param("Draw/Impress only; omitted page means the current page, otherwise page 0."),
     "data_range": {"type": "string", "description": "Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData')."},
     "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
     "headers": {"type": "array", "items": {"type": ["string", "number"]}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
@@ -484,10 +485,7 @@ _CHART_LOOKUP_SHEET: dict[str, Any] = {
     "type": "string",
     "description": "Sheet to search for the chart (Calc only; omit to search all sheets).",
 }
-_CHART_LOOKUP_PAGE: dict[str, Any] = {
-    "type": "integer",
-    "description": "0-based slide/page index to search, Draw/Impress only (the user's page 2 is page=1).",
-}
+_CHART_LOOKUP_PAGE: dict[str, Any] = page_index_param("The page to search. Draw/Impress only.")
 
 
 def _create_requirements_error(kwargs: dict[str, Any], *, is_calc: bool) -> str | None:

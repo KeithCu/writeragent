@@ -93,21 +93,29 @@ def _name_looks_readonly(name: str) -> bool:
 
 
 class SelectionPin:
-    """Writer selection the current sidebar send acts on.
+    """Writer selection the current sidebar send acts on, scoped to one document.
 
-    Holds a model text cursor copied from the view when the user pressed Send.
-    A cursor keeps its place while the user moves the caret, follows text
-    inserted before it, and sits after text inserted at it, so a later
-    target="selection" edit lands where the user asked, not where the caret is
-    now. set_selection replaces the cursor. None range means "no text selection
-    at Send": readers fall back to the live view. MCP contexts carry no pin.
+    Holds a model text cursor copied from the view when the user pressed Send,
+    along with the owning ``doc`` because a cursor from another document raises
+    or edits the wrong file. A cursor keeps its place while the user moves the
+    caret, follows text inserted before it, and sits after text inserted at it,
+    so a later target="selection" edit lands where the user asked, not where the
+    caret is now. set_selection replaces the cursor. None range means "no text
+    selection at Send": readers fall back to the live view. MCP contexts carry
+    no pin.
     """
 
-    __slots__: ClassVar[tuple[str, ...]] = ("range",)
+    __slots__: ClassVar[tuple[str, ...]] = ("range", "doc")
     range: Any
+    doc: Any
 
-    def __init__(self, text_range: Any) -> None:
+    def __init__(self, text_range: Any, doc: Any) -> None:
         self.range = text_range
+        self.doc = doc
+
+    def applies_to(self, doc: Any) -> bool:
+        """True when *doc* is the document this pin was captured from."""
+        return doc is not None and self.doc == doc
 
 
 class ToolContext:

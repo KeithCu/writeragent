@@ -199,3 +199,27 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
         assert doc.getText().getString() == "dear NAME,"
 
+
+@native_test
+@with_native_doc("writer")
+def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+
+    _set_body(doc, "Word OLD here")
+    cur = doc.getText().createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Word "), False)
+    cur.goRight(len("OLD "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = FieldsInsert().execute(tool_ctx, field="PageCount", target="search", old_content="Word here")
+    assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", res
+    assert visible_range_text(doc, doc.getText()) == "Word here"
+    assert doc.getRedlines().getCount() == 1
+    assert _count_text_fields(doc) == 0
+

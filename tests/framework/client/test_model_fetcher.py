@@ -2416,3 +2416,17 @@ def test_native_vision_log_hides_userinfo(caplog):
     finally:
         mf._catalog_memos.clear()
         mf._catalog_fetch_waiters.clear()
+
+
+def test_cached_tts_models_skips_uncached_keystore_ref(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.client import model_fetcher as mf
+    from plugin.framework.config import save
+
+    endpoint = "https://openrouter.ai/api"
+    save({"api_keys_by_endpoint": {endpoint: "sk-tts"}})
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.get_calls = 0
+
+    assert mf.cached_tts_models(endpoint) is None
+    assert fake_keystore.get_calls == 0

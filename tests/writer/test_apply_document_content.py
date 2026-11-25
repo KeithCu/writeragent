@@ -1764,7 +1764,7 @@ def test_edit_selection_passes_pinned_range_to_html_import():
     pinned_rng = MagicMock()
     pinned_anchor = MagicMock()
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_anchor
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
 
     with patch.object(
         html_import,

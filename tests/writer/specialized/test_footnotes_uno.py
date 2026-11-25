@@ -155,7 +155,7 @@ def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
     controller.select(found)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = FootnotesInsert().execute(tctx, note="footnote", text="Pinned note")
