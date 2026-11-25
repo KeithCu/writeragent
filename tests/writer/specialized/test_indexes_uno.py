@@ -1356,3 +1356,54 @@ def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(c
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
+    from plugin.doc.text_helpers import iter_elements, visible_range_text
+    from plugin.writer.specialized.indexes import IndexesRefreshTocEntry
+
+    tctx = _tool_ctx(ctx, doc)
+    text = doc.getText()
+    text.setString("Word OLD here")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Word "), False)
+    cur.goRight(len("OLD "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res_create = IndexesCreate().execute(
+        tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="Word here"
+    )
+    assert res_create["status"] == "error" and res_create["code"] == "MATCH_CROSSES_DELETION", res_create
+    assert visible_range_text(doc, text) == "Word here"
+    assert doc.getRedlines().getCount() == 1
+
+    # Also test index_refresh_toc_entry on a TOC entry whose text crosses a deletion.
+    text.setString("Heading 1")
+    para = next(iter_elements(text.createEnumeration()))
+    para.setPropertyValue("ParaStyleName", "Heading 1")
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    toc.CreateFromOutline = True
+    text.insertTextContent(text.getEnd(), toc, False)
+    toc.update()
+
+    toc_anchor = toc.getAnchor()
+    toc_paras = [p for p in iter_elements(toc_anchor.createEnumeration()) if p.supportsService("com.sun.star.text.Paragraph")]
+    entry_para = next(p for p in toc_paras if "Heading 1" in p.getString())
+    tcur = text.createTextCursorByRange(entry_para.getStart())
+    tcur.goRight(len("Heading "), False)
+    tcur.goRight(len("1"), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        tcur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res_refresh = IndexesRefreshTocEntry().execute(tctx, old_content="Heading \t1", content="New Title")
+    assert res_refresh["status"] == "error" and res_refresh["code"] == "MATCH_CROSSES_DELETION", res_refresh

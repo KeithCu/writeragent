@@ -967,7 +967,7 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 #### 4. `search` match shape (updated 2026-07)
 
 `search` returns `{status, matches, count, returned}` where each match is
-`{text, location, context}` — **not** `paragraph_index`. `text` is visible text (pending tracked deletions hidden), and hits with nothing visible left are omitted. `location` is human-readable
+`{text, location, context}` — **not** `paragraph_index`. `text` is visible text (pending tracked deletions hidden), and hits with nothing visible left are omitted; a literal phrase (`regex=false`) is also found across a pending tracked deletion within one paragraph (`regex=true` is not). `location` is human-readable
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
 

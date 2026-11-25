@@ -56,11 +56,12 @@ from plugin.framework.errors import (
     ToolExecutionError,
     append_warnings,
     format_error_payload,
+    make_tool_error,
     reraise_if_disposed,
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import KeepViewSelection
+from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import (
@@ -936,9 +937,12 @@ class ApplyDocumentContent(ToolBase):
         # occurrence is the index into the same body, table, and frame ranges the
         # edit path uses. Shape and comment previews sit in not_replaceable, so a
         # position in that list is not an occurrence.
+        deletions = TrackedDeletions(ctx.doc) if position == "replace" and not regex else None
         for idx, found in enumerate(ranges[:search_mod.DEFAULT_SEARCH_RESULTS]):
             loc, text = _match_snippet(found)
-            row = {"occurrence": idx, "location": loc, "text": text}
+            row: dict[str, Any] = {"occurrence": idx, "location": loc, "text": text}
+            if deletions and search_mod.match_crosses_deletion(deletions, found):
+                row["edit_refused"] = "MATCH_CROSSES_DELETION"
             if rewrites_outline:
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
@@ -1448,13 +1452,18 @@ class ApplyDocumentContent(ToolBase):
 
 
     def _edit_replace_all(
-        self, ctx: ToolContext, session: EditReviewSession, params: EditParams, ranges: list[Any],
+        self,
+        ctx: ToolContext,
+        session: EditReviewSession,
+        params: EditParams,
+        ranges: list[Any],
+        *,
+        max_limit_hit: bool,
     ) -> dict[str, Any]:
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
-        max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
         # Decide before any replace. An empty replacement that is the last text
         # in a table deletes the table instead of leaving an empty shell; those
         # matches are not also cleared as text (that would add a second redline).
@@ -1623,11 +1632,34 @@ class ApplyDocumentContent(ToolBase):
             params.case_sensitive,
             limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
         )
+        # Inserting beside a match leaves it untouched, and a regex match is raw text as LibreOffice finds it.
+        deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex else None
+        first = params.occurrence or 0
+        picked = ranges if params.all_matches else ranges[first : first + 1]
+        editable = [r for r in picked if not deletions or not search_mod.match_crosses_deletion(deletions, r)]
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
-        if not ranges:
+        if picked and not editable:
+            res = make_tool_error(
+                search_mod.CROSSES_DELETION_MESSAGE,
+                code="MATCH_CROSSES_DELETION",
+                top_level={"replaced_count": 0},
+            )
+        elif not ranges:
             res = self._finish_search_miss(doc, params)
         elif params.all_matches:
-            res = self._edit_replace_all(ctx, session, params, ranges)
+            res = self._edit_replace_all(
+                ctx,
+                session,
+                params,
+                editable,
+                max_limit_hit=len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS,
+            )
+            if res.get("status") == "ok" and len(editable) < len(picked):
+                skipped = len(picked) - len(editable)
+                res["message"] = (
+                    (res.get("message") or "").rstrip()
+                    + f" {skipped} more match(es) run across a pending tracked deletion and were not changed."
+                )
         elif params.occurrence is not None and params.occurrence >= len(ranges):
             res = self._occurrence_oor(params.occurrence, len(ranges))
         else:

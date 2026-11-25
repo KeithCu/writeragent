@@ -45,6 +45,8 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and while the document is recording or in Record/Wait its `target='search'` deletion is recorded — tagged as an agent change only in Record/Wait — and the result carries `pending_review: true` while the index itself is not tracked; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, …) | No | No | No |
 
+Single-paragraph literal search matches that run across a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` on destructive edit paths (`apply_content` replace, `insert_at_target` replacements, `index_create target="search"`, `index_refresh_toc_entry`, and `apply_style`/`style_format_text` with `target="search"` while recording or in review mode).
+
 Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
 before `RecordChanges` changes, and before the first `setString`, and the menu shows a message.

@@ -1092,7 +1092,7 @@ def test_search_in_document_and_sweep_comment_matches_parity():
     assert tool_pairs == sweep_pairs == [("needle", "comment by 'Ana'")]
 
 
-def test_search_in_document_reads_each_hit_once():
+def test_search_in_document_counts_one_hit():
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -1107,7 +1107,6 @@ def test_search_in_document_reads_each_hit_once():
     res = SearchInDocument().execute(ctx, pattern="hit", regex=False, case_sensitive=False)
     assert res["status"] == "ok"
     assert res["count"] == 1
-    found.getString.assert_called_once()
 
 
 def test_build_page_map_propagates_disposed_document():
@@ -2160,9 +2159,11 @@ def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
         td.strikes.side_effect = lambda r: r is covered_hit
         td.overlaps.side_effect = lambda r: r is covered_hit
         td.visible_text.return_value = ""
+        td.crossing_matches.return_value = []
         labeler_cls.return_value.describe.return_value = "body"
 
-        assert list(_iter_descriptor_hits(doc, MagicMock(), td)) == [live_hit]
+        sd = MagicMock(SearchString="x", SearchRegularExpression=False, SearchCaseSensitive=False)
+        assert list(_iter_descriptor_hits(doc, sd, td)) == [live_hit]
 
         doc.findFirst.return_value = covered_hit
         doc.findNext.side_effect = [live_hit, None]

@@ -64,6 +64,7 @@ from plugin.writer.specialized_base import (
 from ..search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
+    crossing_match_error,
     find_literal_ranges,
     parse_non_negative_int,
 )
@@ -873,6 +874,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         )
         if err is not None:
             return err
+        crossing_err = crossing_match_error(doc, found)
+        if crossing_err is not None:
+            return crossing_err
         preview, preview_error = self._preview(found, content, override)
         if preview_error or preview is None:
             return preview_error or self._tool_error(
@@ -1372,6 +1376,10 @@ class IndexesCreate(ToolWriterIndexBase):
                     code="INDEX_IN_TRACKED_CHANGE",
                 )
             strike = kwargs.get("target", "selection") == "search"
+            if strike:
+                crossing_err = crossing_match_error(doc, cursor)
+                if crossing_err is not None:
+                    return crossing_err
             # Insert first while recording so the Delete redline does not stretch over the index;
             # delete first otherwise so a match at paragraph end leaves no extra empty paragraph.
             if is_recording_changes(doc):

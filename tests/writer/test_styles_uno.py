@@ -1113,3 +1113,41 @@ def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_un
         if p is not colored[0]:
             assert int(p.getPropertyValue("ParaBackColor")) == 0x00FF00
 
+
+@native_test
+@with_native_doc("writer")
+def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_range_text
+
+    text = doc.getText()
+    text.setString("Word OLD here")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Word "), False)
+    cur.goRight(len("OLD "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        refused = ApplyStyle().execute(
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert refused["status"] == "error" and refused["code"] == "MATCH_CROSSES_DELETION", refused
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
+
+    applied = ApplyStyle().execute(
+        tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="Word here"
+    )
+    assert applied["status"] == "ok", applied
+    assert visible_range_text(doc, text) == "Word here"
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
+

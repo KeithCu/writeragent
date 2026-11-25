@@ -38,6 +38,7 @@ from plugin.doc.compound_undo import UndoUnavailable, WriterCompoundUndo, commit
 from plugin.doc.text_helpers import (
     CLEARABLE_PARA_PROPERTIES,
     PROPERTY_READONLY,
+    TrackedDeletions,
     iter_elements_limited,
     record_walk_cap,
     reset_properties_to_default,
@@ -1687,6 +1688,18 @@ def target_cursors(
             err.update(mode.result_fields())
             return [], err, mode
         ranges = [ranges[occ]]
+    if is_recording_changes(ctx.doc) or review_recording_enabled():
+        # A recorded character format over a pending Delete becomes a Format redline, and the struck text is live again.
+        deletions = TrackedDeletions(ctx.doc)
+        ranges = [r for r in ranges if not search_mod.match_crosses_deletion(deletions, r)]
+        if not ranges:
+            err = tool._tool_error(
+                search_mod.CROSSES_DELETION_MESSAGE,
+                code="MATCH_CROSSES_DELETION",
+                top_level={"applied": False, "matched": True},
+            )
+            err.update(mode.result_fields())
+            return [], err, mode
     return [cursor_spanning_range(r) for r in ranges], None, mode
 
 

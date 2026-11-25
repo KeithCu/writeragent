@@ -19,12 +19,14 @@ cursor move across a table lands after it.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 if TYPE_CHECKING:
+    import re
     from collections.abc import Generator, Iterable, Iterator, Mapping, Sequence
 
 import uno
@@ -758,6 +760,14 @@ def _paragraph_visible_text(para: Any, state: DeletionState | None = None) -> st
     return "".join(chunk for _unused, chunk in visible_portions(para, state=state))
 
 
+class SplitParagraph(NamedTuple):
+    text: Any        # the XText that owns the paragraph
+    para: Any
+    opened: bool     # starts inside a tracked deletion
+    visible: str     # visible text; U+007F for each character of a field, footnote number or other non-Text portion
+    cuts: list[int]  # visible offsets where a pending deletion is hidden
+
+
 class TrackedDeletions:
     """The pending Delete redlines of a Writer document, read once.
 
@@ -869,6 +879,54 @@ class TrackedDeletions:
         """True when pending deletions, one or several together, leave nothing visible of *text_range*."""
         return self.overlaps(text_range) and not self.visible_text(text_range)
 
+    @functools.cached_property
+    def _split_paragraphs(self) -> list[SplitParagraph]:
+        """Each paragraph that holds a whole pending deletion, in redline order.
+
+        LibreOffice keeps redlines sorted by position, so only the previous one can already be
+        open at a paragraph start. Asking state_at() would compare every redline for every paragraph.
+        """
+        found: list[SplitParagraph] = []
+        last: Any = None
+        prev_end: Any = None
+        for text, start, end in self._bounds:
+            before, prev_end = prev_end, end
+            whole = uno_read(lambda: paragraph_cursor(text, start), None, object_type="TextRange")
+            if whole is None or not starts_at_or_after(text, whole.getEnd(), end):
+                continue  # runs into a later paragraph: its visible text lies on one side only
+            if last is not None and uno_read(lambda: text.compareRegionStarts(last, whole) == 0, False):
+                continue
+            last = whole
+            para = next(iter_elements(whole.createEnumeration()), None)
+            if para is None:
+                continue
+            opened = before is not None and uno_read(lambda: text.compareRegionStarts(whole, before) == 1, False)
+            state = DeletionState(opened)
+            parts: list[str] = []
+            cuts: list[int] = []
+            run = 0
+            for portion, chunk in visible_portions(para, state=state):
+                if state.saw_delete:
+                    cuts.append(run)
+                    state.saw_delete = False
+                chunk = normalize_linebreaks(chunk)
+                # LibreOffice search sees a field as U+007F (lcl_CleanStr, findtxt.cxx), so a needle must not match inside one.
+                parts.append(chunk if _portion_type(portion) == "Text" else "\x7f" * len(chunk))
+                run += len(chunk)
+            found.append(SplitParagraph(text, para, opened, "".join(parts), cuts))
+        return found
+
+    def crossing_matches(self, pattern: re.Pattern[str]) -> Iterator[Any]:
+        """Ranges where *pattern* matches visible text on both sides of a pending deletion in one paragraph."""
+        for text, para, opened, visible, cuts in self._split_paragraphs:
+            for m in pattern.finditer(visible):
+                if any(m.start() < cut < m.end() for cut in cuts):
+                    start, _rel = visible_point_in_paragraph(para, m.start(), opened=opened, at_end=False)
+                    end, _rel = visible_point_in_paragraph(para, m.end(), opened=opened, at_end=True)
+                    cursor = text.createTextCursorByRange(start)
+                    cursor.gotoRange(end, True)
+                    yield cursor
+
     def keeps_frame(self, portion: Any) -> bool:
         """True when *portion* is a Frame whose anchored object Accept All keeps."""
         contents = uno_read(lambda: portion.createContentEnumeration("com.sun.star.text.TextContent"), None)
@@ -888,6 +946,14 @@ class TrackedDeletions:
         )
 
 
+def paragraph_cursor(text: Any, position: Any) -> Any:
+    """Cursor over the whole paragraph that holds the start of *position*."""
+    cursor = text.createTextCursorByRange(position.getStart())
+    cursor.gotoStartOfParagraph(False)
+    cursor.gotoEndOfParagraph(True)
+    return cursor
+
+
 def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: Any) -> bool:
     """Match Writer's Accept-All frame deletion for ``AS_CHARACTER``, ``AT_CHARACTER``, and ``AT_PARAGRAPH``.
 
@@ -902,9 +968,7 @@ def _deletion_removes_anchor(bounds: tuple[Any, Any, Any], kind: str, anchor: An
         return after_start >= 0 and before_end == 1
     if kind == "AT_CHARACTER" and after_start == 1 and before_end == 1:
         return True
-    para = text.createTextCursorByRange(point)
-    para.gotoStartOfParagraph(False)
-    para.gotoEndOfParagraph(True)
+    para = paragraph_cursor(text, point)
     if not bounds_cover(bounds, para):
         return False
     # getStart() skips a leading table (SwNodes::GoStartOfSection), so only treat [start, end]
