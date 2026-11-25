@@ -77,13 +77,21 @@ def test_redlined_contract_fixture_loads_uno(ctx):
             assert len(first_table.getCellNames()) == TABLE_ROWS * TABLE_COLS - 3 - 1
             assert doc.getDocumentIndexes().getCount() == 1
 
-            clause3 = None
+            clause3 = section2 = None
             paras = doc.getText().createEnumeration()
             while enum_has_more(paras):
                 para = paras.nextElement()
-                if para.supportsService("com.sun.star.text.Paragraph") and "Clause 3:" in para.getString():
+                if not para.supportsService("com.sun.star.text.Paragraph"):
+                    continue
+                text = para.getString()
+                if section2 is None and "Section 2 Terms" in text:
+                    section2 = para
+                if clause3 is None and "Clause 3:" in text:
                     clause3 = para
+                if section2 is not None and clause3 is not None:
                     break
+            assert section2 is not None
+            assert section2.getPropertyValue("ListLabelString") == "1.2"
             assert clause3 is not None
             assert int(clause3.getPropertyValue("ParaAdjust")) == 2
             assert clause3.getPropertyValue("ListLabelString") == "(c)"
@@ -117,7 +125,6 @@ def test_redlined_contract_read_timings_uno(ctx):
             cases.append({"name": name, "url": url, "ops": ops, "repeats": repeats})
         results = bench.run_in_soffice(ctx, cases)
 
-    assert results[0]["pages"] >= 250
     print("\n| Document | Pages | Changes | Read | First (s) | Median (s) | Hits | Warning |")
     print("|---|---|---|---|---|---|---|---|")
     for res in results:
@@ -128,3 +135,8 @@ def test_redlined_contract_read_timings_uno(ctx):
                 f"| {res['name']} | {res['pages']} | {res['redlines']} | {row['op']} "
                 f"| {row['first']:.3f} | {row['median']:.3f} | {hits} | {warn} |"
             )
+
+    assert results[0]["pages"] >= 250
+    for res in results[:2]:
+        full = next(row for row in res["timings"] if row["op"] == "get_content full")
+        assert not full["warning"]

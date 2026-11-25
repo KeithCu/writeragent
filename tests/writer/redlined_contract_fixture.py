@@ -25,7 +25,7 @@ _HEAD = """<?xml version="1.0" encoding="UTF-8"?>
 <style:style style:name="Clause" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="justify" fo:margin-bottom="0.25cm" fo:line-height="130%"/></style:style>
 <style:style style:name="Heading_20_1" style:display-name="Heading 1" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Clause" style:default-outline-level="1"><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="Heading_20_2" style:display-name="Heading 2" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Clause" style:default-outline-level="2"><style:text-properties fo:font-size="13pt" fo:font-weight="bold"/></style:style>
-<text:outline-style style:name="Outline"><text:outline-level-style text:level="1" style:num-suffix="." style:num-format="1"/><text:outline-level-style text:level="2" style:display-levels="2" style:num-format="1"/></text:outline-style>
+<text:outline-style style:name="Outline"><text:outline-level-style text:level="1" style:num-suffix="." style:num-format="1"/><text:outline-level-style text:level="2" text:display-levels="2" style:num-format="1"/></text:outline-style>
 """
 _LIST_STYLE = '<text:list-style style:name="%s"><text:list-level-style-number text:level="1" style:num-prefix="(" style:num-suffix=")" style:num-format="a"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" fo:text-indent="-0.6cm" fo:margin-left="1.2cm"/></style:list-level-properties></text:list-level-style-number></text:list-style>\n'
 _PAGE = """</office:styles>
@@ -129,7 +129,10 @@ def build_redlined_contract(
     ``redline_every=0`` gives the same base text with no tracked changes. One clause in
     *redline_every* has a deletion and one an insertion; one in *multi_every* carries a
     deletion over three paragraphs. ``shared_list=True`` numbers every clause with one list
-    style instead of one per article.
+    style instead of one per article; the default keeps lists per-article because a long
+    single list causes LibreOffice's ``odf2xhtml`` filter to abort at 3000 template
+    recursions, making ``get_content`` fall back to StarWriter HTML instead of timing
+    the XHTML route.
     """
     changes = _Changes()
     body: list[str] = []

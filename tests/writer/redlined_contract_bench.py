@@ -59,7 +59,7 @@ def _use_checkout_plugin() -> None:
     (``testing_runner._seed_throwaway_profile_with_user_oxt``), and that copy is already
     imported in soffice when the job starts.
     """
-    os.environ["WRITERAGENT_UNO_THREAD_GUARD"] = "0"  # release bundles ship no guard
+    os.environ["WRITERAGENT_UNO_THREAD_GUARD"] = "0"  # read at import (plugin/framework/thread_guard.py); release bundles ship no guard
     for name in [n for n in sys.modules if n.split(".")[0] == "plugin"]:
         del sys.modules[name]
     sys.path.insert(0, REPO_ROOT)
@@ -89,6 +89,8 @@ def _run_case(ctx: Any, tools: Any, services: Any, case: dict[str, Any]) -> dict
     hidden = PropertyValue()
     hidden.Name, hidden.Value = "Hidden", True
     doc = desktop.loadComponentFromURL(case["url"], "_blank", 0, (hidden,))
+    if doc is None:
+        raise AssertionError(case["url"])
     try:
         doc.getDocumentIndexes().getByIndex(0).update()
         out: dict[str, Any] = {
@@ -108,8 +110,8 @@ def _run_case(ctx: Any, tools: Any, services: Any, case: dict[str, Any]) -> dict
                 start = time.perf_counter()
                 result = tools.execute(tool, tctx, **call)
                 seconds.append(time.perf_counter() - start)
-            if result.get("status") != "ok":
-                raise AssertionError("%s: %r" % (label, result))
+                if result.get("status") != "ok":
+                    raise AssertionError("%s: %r" % (label, result))
             out["timings"].append(
                 {
                     "op": label,
@@ -145,7 +147,13 @@ class _MainThreadCall(unohelper.Base, XCallback):
 
 
 class RedlinedContractBench(unohelper.Base, XJob):
-    """UNO XJob entry point that dispatches benchmark cases to soffice's main thread."""
+    """UNO XJob entry point that dispatches benchmark cases to soffice's main thread.
+
+    Running directly on the calling URP thread hung once in two probes with every thread
+    idle on a futex, and the product runs its tools on the main thread. ``done.wait()``
+    has no timeout because the client test watchdog owns the timeout; adding one here
+    would create a second outcome owner.
+    """
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
