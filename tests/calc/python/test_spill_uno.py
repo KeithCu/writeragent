@@ -68,6 +68,7 @@ def test_blocked_respill_clears_previous_cells_uno(ctx, doc):
         assert sheet.getCellByPosition(0, 1).getType() == EMPTY
         assert sheet.getCellByPosition(0, 2).getType() == EMPTY
         assert sheet.getCellByPosition(0, 3).getValue() == 7.0
+        st.flush_spill_registry()
         raw = get_document_property(doc, "WriterAgentSpillRegistry", "")
         data = json.loads(raw)
         assert data[f"{sheet_name}:0,0"]["rows"] == 1
@@ -98,6 +99,7 @@ def test_blocked_respill_clears_previous_cells_uno(ctx, doc):
         assert sheet.getCellByPosition(0, 1).getType() == EMPTY
         assert sheet.getCellByPosition(0, 2).getType() == EMPTY
         assert sheet.getCellByPosition(0, 3).getValue() == 8.0
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert data[f"{sheet_name}:0,0"]["rows"] == 1
     finally:
@@ -142,6 +144,7 @@ def test_blocked_respill_protected_sheet_keeps_record_uno(ctx, doc):
         # Protected cells cannot be cleared; record keeps ownership (rows == 3).
         assert sheet.getCellByPosition(0, 1).getValue() == 2.0
         assert sheet.getCellByPosition(0, 2).getValue() == 3.0
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert data[f"{sheet_name}:0,0"]["rows"] == 3
 
@@ -161,6 +164,7 @@ def test_blocked_respill_protected_sheet_keeps_record_uno(ctx, doc):
         assert sheet.getCellByPosition(0, 1).getValue() == 2.0
         assert sheet.getCellByPosition(0, 2).getValue() == 3.0
         assert sheet.getCellByPosition(0, 3).getValue() == 4.0
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert data[f"{sheet_name}:0,0"]["rows"] == 4
     finally:
@@ -191,6 +195,7 @@ def test_row_insert_then_immediate_recalc_respills_uno(ctx, doc):
             key=key,
         )
         ensure_sheet_modify_listener(ctx, doc, sheet)
+        st.flush_spill_registry()
         saved_before = get_document_property(doc, "WriterAgentSpillRegistry", "")
 
         sheet.getRows().insertByIndex(0, 1)
@@ -214,6 +219,7 @@ def test_row_insert_then_immediate_recalc_respills_uno(ctx, doc):
 
         assert sheet.getCellByPosition(0, 0).getType() == EMPTY
         assert [sheet.getCellByPosition(0, r).getValue() for r in (2, 3, 4)] == [20.0, 30.0, 40.0]
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert list(data.keys()) == [f"{sheet_name}:1,0"]
         assert data[f"{sheet_name}:1,0"]["rows"] == 4
@@ -295,6 +301,7 @@ def test_row_insert_pass_first_then_recalc_write_uno(ctx, doc):
             key=key,
         )
         ensure_sheet_modify_listener(ctx, doc, sheet)
+        st.flush_spill_registry()
         saved_before = get_document_property(doc, "WriterAgentSpillRegistry", "")
 
         sheet.getRows().insertByIndex(0, 1)
@@ -320,6 +327,7 @@ def test_row_insert_pass_first_then_recalc_write_uno(ctx, doc):
         st.debounce.flush_for_tests(f"spill:{sheet_name}:1:0")
         assert sheet.getCellByPosition(0, 0).getType() == EMPTY
         assert [sheet.getCellByPosition(0, r).getValue() for r in (2, 3, 4)] == [20.0, 30.0, 40.0]
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert list(data.keys()) == [f"{sheet_name}:1,0"]
         assert data[f"{sheet_name}:1,0"]["rows"] == 4
@@ -367,6 +375,7 @@ def test_adjacent_spills_survive_row_insert_recalc_uno(ctx, doc):
         assert sheet.getCellByPosition(1, 1).getValue() == 20.0
         assert sheet.getCellByPosition(1, 2).getValue() == 40.0
         assert sheet.getCellByPosition(2, 2).getValue() == 50.0
+        st.flush_spill_registry()
         data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
         assert set(data.keys()) == {f"{sheet_name}:1,0", f"{sheet_name}:2,0"}
         assert data[f"{sheet_name}:1,0"]["cols"] == 2

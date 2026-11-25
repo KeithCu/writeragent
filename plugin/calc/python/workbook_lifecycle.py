@@ -81,6 +81,7 @@ def rekey_listener(old: str, new: str) -> None:
 
 
 _UNLOAD_RESET_TIMEOUT_SEC: int = 3
+_SAVE_PREPARE_EVENTS = frozenset({"OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"})
 
 
 def _should_retry(res: Any) -> bool:
@@ -138,6 +139,11 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         name = getattr(Event, "EventName", "") or ""
         if name == "OnUnload":
             self._teardown()
+        elif name in _SAVE_PREPARE_EVENTS and self._state is not None:
+            # LibreOffice fires these synchronously before storing (SfxBaseModel::storeSelf,
+            # sfx2/source/doc/sfxbasemodel.cxx:1681), so flushing here writes the registry into
+            # the saved file and avoids a post-save dirty mark.
+            best_effort(self._state.flush_spill_registry, "python_workbook_lifecycle: spill registry save flush")
 
     def on_disposing(self, Source: Any) -> None:
         self._teardown()

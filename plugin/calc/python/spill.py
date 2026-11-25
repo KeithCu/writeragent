@@ -397,6 +397,9 @@ def cleanup_orphans(
                             if surv != (record.rows, record.cols):
                                 to_shrink.append(((sheet_name, frow, fcol), surv))
                             else:
+                                # _rect_unchanged and _surviving_shape need current values typed
+                                # over a spill, and Calc's XModifyListener sends only Source=sheet
+                                # with no range (ScCellRangesBase::Notify, cellsuno.cxx:1521-1528).
                                 record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
                         continue
 
@@ -524,12 +527,13 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
 
 
 def _persist_spill_registry(doc: Any, state: WorkbookState) -> None:
-    """Save the spill registry once at the end of a debounce drain, or at once outside a drain."""
-    if state.debounce.in_drain:
-        state.mark_spill_registry_dirty(doc)
-        return
-    state.mark_spill_registry_dirty(None)
-    save_spill_registry_for_doc(doc, state)
+    """Schedule one debounced registry save instead of saving per spill.
+
+    Saving after every spill rewrites the full JSON property per spill, making a full recalc of N
+    spills O(N^2). Document save events flush ``state.flush_spill_registry`` synchronously so the
+    stored file never pairs new spilled cells with a stale registry.
+    """
+    state.mark_spill_registry_dirty(doc)
 
 
 def _classify_spill_grid(grid: list[list[Any]], num_cols: int, null_dt: datetime.date) -> list[list[SpillValue]]:

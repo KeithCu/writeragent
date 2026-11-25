@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import threading
-from typing import Any
 from unittest.mock import patch
 
-from plugin.calc.python.workbook_state import Debounce
+from plugin.calc.python.workbook_state import Debounce, WorkbookState
 
 
 def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
@@ -63,25 +62,28 @@ def test_debounce_posts_due_callback_to_main() -> None:
         debounce.cancel_all()
 
 
-def test_debounce_with_on_drain_brackets_due_callbacks() -> None:
-    """When on_drain is set, one timer wakeup brackets due callbacks with in_drain=True then calls on_drain once."""
-    events: list[tuple[str, bool]] = []
-    debounce = Debounce(on_drain=lambda: events.append(("drain", debounce.in_drain)))
-    posted: list[Any] = []
-    all_posted = threading.Event()
-
-    def _capture_post(fn: Any) -> None:
-        posted.append(fn)
-        if not debounce.pending_for_tests() and fn == debounce._end_drain:
-            all_posted.set()
-
+def test_workbook_state_dirty_spill_registry_schedules_once_without_rearming() -> None:
+    """Marking dirty schedules 'spill-registry' once without re-arming, and flush clears it."""
+    state = WorkbookState(key="uid-dirty-once")
+    doc = object()
+    saved: list[object] = []
     try:
-        with patch("plugin.framework.queue_executor.main.post", side_effect=_capture_post):
-            debounce.schedule("a", 0.01, lambda: events.append(("cb1", debounce.in_drain)))
-            debounce.schedule("b", 0.01, lambda: events.append(("cb2", debounce.in_drain)))
-            assert all_posted.wait(2.0)
-        for fn in posted:
-            fn()
-        assert events == [("cb1", True), ("cb2", True), ("drain", False)]
+        with (
+            patch.object(state.debounce, "schedule", wraps=state.debounce.schedule) as mock_sched,
+            patch("plugin.calc.python.spill.save_spill_registry_for_doc", side_effect=lambda d, _st: saved.append(d)),
+        ):
+            state.mark_spill_registry_dirty(doc)
+            state.mark_spill_registry_dirty(doc)
+            state.mark_spill_registry_dirty(doc)
+            mock_sched.assert_called_once_with("spill-registry", 0.1, state.flush_spill_registry)
+            assert "spill-registry" in state.debounce.pending_for_tests()
+
+            state.flush_spill_registry()
+            assert saved == [doc]
+            assert "spill-registry" not in state.debounce.pending_for_tests()
+
+            # A second flush (e.g. from a late timer callback) is a no-op.
+            state.flush_spill_registry()
+            assert saved == [doc]
     finally:
-        debounce.cancel_all()
+        state.clear()
