@@ -69,6 +69,7 @@ DESELECTED_K = (
     "test_aggregate_stubs_and_bools",
     "test_materialize_calc_range_shape_assertion",
     # --strip drops log.debug/log.info and grammar_obs calls these checks look for.
+    "test_image_download_logs_hide_signed_query",
     "test_resize_logging_behavior",
     "test_peer_not_chat_mode_logs_probe_failure",
     "test_header_case_insensitivity_and_none",

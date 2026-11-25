@@ -38,7 +38,6 @@ class TestInitLogging:
         import plugin.framework.logging as logging_mod
 
         self._saved_config_path = config_mod._resolved_config_path
-        self._saved_debug_path = logging_mod._shared()["debug_log_path"]
         self._saved_hooks = getattr(sys, "_writeragent_excepthook", None)
         self._saved_excepthook = sys.excepthook
         import threading
@@ -46,12 +45,7 @@ class TestInitLogging:
         self._saved_threading_excepthook = getattr(threading, "excepthook", None)
         self._saved_root_handlers = list(logging.getLogger().handlers)
         self._saved_last_resort = logging.lastResort
-        self._saved_propagate = log.propagate
-        self._saved_level = log.level
-        plugin_logger = logging.getLogger("plugin")
-        self._saved_plugin_propagate = plugin_logger.propagate
-        self._saved_plugin_level = plugin_logger.level
-        self._saved_plugin_handlers = list(plugin_logger.handlers)
+        self._saved_plugin_handlers = list(logging.getLogger("plugin").handlers)
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._shared()["debug_log_path"] = None
@@ -63,11 +57,17 @@ class TestInitLogging:
             log.removeHandler(h)
 
     def _release_debug_handlers(self) -> None:
-
+        # Close debug file handlers before a test's own TemporaryDirectory exits.
         import plugin.framework.logging as logging_mod
 
-        for logger in (log, logging.getLogger(), logging.getLogger("plugin")):
+        for logger, saved in (
+            (log, ()),
+            (logging.getLogger(), self._saved_root_handlers),
+            (logging.getLogger("plugin"), self._saved_plugin_handlers),
+        ):
             for handler in list(logger.handlers):
+                if handler in saved:
+                    continue
                 try:
                     logger.removeHandler(handler)
                     handler.close()
@@ -80,11 +80,8 @@ class TestInitLogging:
         import sys
 
         import plugin.framework.config as config_mod
-        import plugin.framework.logging as logging_mod
 
         config_mod._resolved_config_path = self._saved_config_path
-        logging_mod._shared()["debug_log_path"] = self._saved_debug_path
-        logging_mod._debug_slot()["handler"] = None
         if self._saved_hooks is not None:
             setattr(sys, "_writeragent_excepthook", self._saved_hooks)
         else:
@@ -95,33 +92,6 @@ class TestInitLogging:
         if self._saved_threading_excepthook is not None:
             threading.excepthook = self._saved_threading_excepthook
         logging.lastResort = self._saved_last_resort
-        log.propagate = self._saved_propagate
-        log.setLevel(self._saved_level)
-        plugin_logger = logging.getLogger("plugin")
-        plugin_logger.propagate = self._saved_plugin_propagate
-        plugin_logger.setLevel(self._saved_plugin_level)
-        for handler in list(plugin_logger.handlers):
-            if handler not in self._saved_plugin_handlers:
-                plugin_logger.removeHandler(handler)
-                try:
-                    handler.close()
-                except Exception:
-                    pass
-        for h in list(log.handlers):
-            log.removeHandler(h)
-            try:
-                h.close()
-            except Exception:
-                pass
-        root = logging.getLogger()
-        for h in list(root.handlers):
-            root.removeHandler(h)
-            try:
-                h.close()
-            except Exception:
-                pass
-        for h in self._saved_root_handlers:
-            root.addHandler(h)
 
     def test_init_logging_skips_missing_config_dir(self):
         mock_ctx = MagicMock()
@@ -174,33 +144,37 @@ class TestInitLogging:
             log.addHandler(logging.StreamHandler(wa_buf))
             module_logger = logging.getLogger("plugin.chatbot.send_handlers")
             module_stderr_buf = io.StringIO()
-            module_logger.addHandler(logging.StreamHandler(module_stderr_buf))
+            module_handler = logging.StreamHandler(module_stderr_buf)
+            module_logger.addHandler(module_handler)
+            try:
+                mock_ctx = MagicMock()
+                with (
+                    patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                    patch("plugin.framework.config.user_config_dir", return_value=tmp),
+                ):
+                    init_logging(mock_ctx)
 
-            mock_ctx = MagicMock()
-            with (
-                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
-                patch("plugin.framework.config.user_config_dir", return_value=tmp),
-            ):
-                init_logging(mock_ctx)
+                log.warning("writeragent-console-probe")
+                module_logger.warning("module-console-probe")
+                for handler in list(log.handlers) + list(root.handlers):
+                    if isinstance(handler, logging.FileHandler):
+                        logging.FileHandler.flush(handler)
 
-            log.warning("writeragent-console-probe")
-            module_logger.warning("module-console-probe")
-            for handler in list(log.handlers) + list(root.handlers):
-                if isinstance(handler, logging.FileHandler):
-                    logging.FileHandler.flush(handler)
-
-            expected_log = os.path.join(tmp, "writeragent_debug.log")
-            with open(expected_log, encoding="utf-8") as fh:
-                contents = fh.read()
-            assert ("writeragent-console-probe") in (contents)
-            assert ("module-console-probe") in (contents)
-            assert (wa_buf.getvalue()) == ("")
-            # writeragent does not propagate. plugin.* still does, so a root
-            # handler sees module logs and not the writeragent logger.
-            assert ("writeragent-console-probe") not in (root_buf.getvalue())
-            assert ("module-console-probe") in (root_buf.getvalue())
-            assert ("module-console-probe") in (module_stderr_buf.getvalue())
-            self._release_debug_handlers()
+                expected_log = os.path.join(tmp, "writeragent_debug.log")
+                with open(expected_log, encoding="utf-8") as fh:
+                    contents = fh.read()
+                assert ("writeragent-console-probe") in (contents)
+                assert ("module-console-probe") in (contents)
+                assert (wa_buf.getvalue()) == ("")
+                # writeragent does not propagate. plugin.* still does, so a root
+                # handler sees module logs and not the writeragent logger.
+                assert ("writeragent-console-probe") not in (root_buf.getvalue())
+                assert ("module-console-probe") in (root_buf.getvalue())
+                assert ("module-console-probe") in (module_stderr_buf.getvalue())
+            finally:
+                self._release_debug_handlers()
+                module_logger.removeHandler(module_handler)
+                module_handler.close()
 
     def test_init_logging_leaves_root_and_last_resort(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -1660,10 +1634,8 @@ class _FormatHandler(logging.Handler):
 
 
 def _isolated_logger(name: str) -> tuple[logging.Logger, _FormatHandler]:
-    logger = logging.getLogger(name)
-    logger.handlers.clear()
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+    # Unregistered Logger so tests do not leave entries in logging.Logger.manager.loggerDict.
+    logger = logging.Logger(name, logging.DEBUG)
     handler = _FormatHandler()
     logger.addHandler(handler)
     return logger, handler
@@ -1683,13 +1655,10 @@ def test_log_emit_does_not_stringify_pyuno() -> None:
 
     proxy = pyuno()
     logger, handler = _isolated_logger("writeragent.test.pyuno-emit")
-    try:
-        logger.debug("v=%s", proxy)
-        logger.debug(proxy)  # type: ignore[arg-type]
-        logger.debug("v=%s", {"d": proxy})
-        logger.debug("v=%s", [proxy])
-    finally:
-        logger.handlers.clear()
+    logger.debug("v=%s", proxy)
+    logger.debug(proxy)  # type: ignore[arg-type]
+    logger.debug("v=%s", {"d": proxy})
+    logger.debug("v=%s", [proxy])
     assert calls == []
     assert handler.messages == ["v=<pyuno>", "<pyuno>", "v={'d': '<pyuno>'}", "v=['<pyuno>']"]
 
@@ -1714,17 +1683,14 @@ def test_log_does_not_deep_str_uno_struct() -> None:
 
     obj = UnoStruct()
     logger, handler = _isolated_logger("writeragent.test.uno-struct-emit")
+    logger.warning("v=%s", obj)
+    logger.warning("%r", obj)
+    logger.warning("v=%s", [obj])
+    logger.warning("v=%s", {obj: 1})
     try:
-        logger.warning("v=%s", obj)
-        logger.warning("%r", obj)
-        logger.warning("v=%s", [obj])
-        logger.warning("v=%s", {obj: 1})
-        try:
-            raise obj
-        except Exception:
-            logger.exception("failed")
-    finally:
-        logger.handlers.clear()
+        raise obj
+    except Exception:
+        logger.exception("failed")
 
     assert calls == []
     assert len(handler.messages) == 5
@@ -1754,14 +1720,11 @@ def test_log_exception_chained_uno_struct_does_not_deep_str() -> None:
     logger, handler = _isolated_logger("writeragent.test.uno-chain-emit")
     try:
         try:
-            try:
-                raise UnoStruct()
-            except UnoStruct as uno_err:
-                raise ValueError("wrapper error") from uno_err
-        except ValueError:
-            logger.exception("failed")
-    finally:
-        logger.handlers.clear()
+            raise UnoStruct()
+        except UnoStruct as uno_err:
+            raise ValueError("wrapper error") from uno_err
+    except ValueError:
+        logger.exception("failed")
 
     assert calls == []
     assert len(handler.messages) == 1
@@ -1792,10 +1755,7 @@ def test_logged_uno_label_non_str_or_missing_message(has_message: bool, message_
 
     obj = UnoStruct()
     logger, handler = _isolated_logger("writeragent.test.uno-edge-emit")
-    try:
-        logger.warning("v=%s", obj)
-    finally:
-        logger.handlers.clear()
+    logger.warning("v=%s", obj)
 
     assert calls == []
     assert len(handler.messages) == 1
@@ -1823,12 +1783,9 @@ def test_exception_text_is_formatted_before_handler_emit() -> None:
 
     handler.emit = tracked_emit  # type: ignore[method-assign]
     try:
-        try:
-            raise Boom()
-        except Boom:
-            logger.exception("failed")
-    finally:
-        logger.handlers.clear()
+        raise Boom()
+    except Boom:
+        logger.exception("failed")
     assert calls
     assert all(flag is False for flag in calls)
     assert handler.exc_text_at_emit
@@ -1927,8 +1884,7 @@ def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
         logging_mod._debug_slot()["handler"] = None
         handler = logging_mod._shared_debug_file_handler()
 
-        test_logger = logging.getLogger("writeragent.test_mask")
-        test_logger.setLevel(logging.DEBUG)
+        test_logger = logging.Logger("writeragent.test_mask", logging.DEBUG)
         test_logger.addHandler(handler)
         try:
             test_logger.debug("%s", debug_texts[0])

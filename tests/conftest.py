@@ -357,15 +357,70 @@ def _cleanup_history_keepers():
 
 
 @pytest.fixture(autouse=True)
-def _ensure_writeragent_logger_propagates():
-    """Ensure writeragent log records propagate to root logger for caplog fixtures."""
+def _isolate_logging_state(_setup_grammar_persistence_test_env):
+    """Own and restore logging state around every test.
+
+    Owns handlers, levels, and ``propagate`` on ``writeragent``, ``plugin``, and
+    the root logger, plus ``debug_log_path``, ``enable_agent_log``, and the
+    debug handler slot. Enables propagation on ``writeragent`` so pytest's
+    ``caplog`` fixture captures its records.
+
+    Requests ``_setup_grammar_persistence_test_env`` so this fixture tears down
+    first: ``init_logging`` attaches the debug file handler to ``plugin`` (not
+    root), so handlers must be closed before the temp config dir is removed.
+    """
     import logging
 
+    from plugin.framework import logging as logging_mod
+
+    shared = logging_mod._shared()
+    old_debug_log_path = shared["debug_log_path"]
+    old_enable_agent_log = shared["enable_agent_log"]
+
     wa_logger = logging.getLogger("writeragent")
-    old_propagate = wa_logger.propagate
+    root_logger = logging.getLogger()
+    plugin_logger = logging.getLogger("plugin")
+
+    old_wa_propagate = wa_logger.propagate
+    old_wa_handlers = list(wa_logger.handlers)
+    old_wa_level = wa_logger.level
+    old_root_handlers = list(root_logger.handlers)
+    old_root_level = root_logger.level
+    old_plugin_propagate = plugin_logger.propagate
+    old_plugin_handlers = list(plugin_logger.handlers)
+    old_plugin_level = plugin_logger.level
+
     wa_logger.propagate = True
-    yield
-    wa_logger.propagate = old_propagate
+    try:
+        yield
+    finally:
+        shared = logging_mod._shared()
+        shared["debug_log_path"] = old_debug_log_path
+        shared["enable_agent_log"] = old_enable_agent_log
+        # Reset rather than restore: any previous handler may already be closed.
+        logging_mod._debug_slot()["handler"] = None
+
+        for logger, saved_handlers in (
+            (wa_logger, old_wa_handlers),
+            (root_logger, old_root_handlers),
+            (plugin_logger, old_plugin_handlers),
+        ):
+            for h in list(logger.handlers):
+                if h not in saved_handlers:
+                    logger.removeHandler(h)
+                    try:
+                        h.close()
+                    except Exception:
+                        pass
+            for h in saved_handlers:
+                if h not in logger.handlers:
+                    logger.addHandler(h)
+
+        wa_logger.propagate = old_wa_propagate
+        wa_logger.setLevel(old_wa_level)
+        root_logger.setLevel(old_root_level)
+        plugin_logger.propagate = old_plugin_propagate
+        plugin_logger.setLevel(old_plugin_level)
 
 
 @pytest.fixture(autouse=True)
@@ -759,30 +814,13 @@ def _setup_grammar_persistence_test_env():
     """Isolate grammar persistence AND the config path for every test, so no test can leak
     files into mock-derived paths."""
     from plugin.framework import config as config_mod
-    from plugin.framework import logging as logging_mod
     from plugin.writer.locale import grammar_persistence
-    import logging
     import shutil
     import tempfile
 
     # Reset doc instances to ensure fresh initialization per test
     old_doc_instances = dict(grammar_persistence.grammar_registry.doc_persistence_instances)
     grammar_persistence.grammar_registry.doc_persistence_instances.clear()
-
-    # Save logging state
-    shared = logging_mod._shared()
-    old_debug_log_path = shared["debug_log_path"]
-    old_enable_agent_log = shared["enable_agent_log"]
-
-    # Save log handlers
-    wa_logger = logging.getLogger("writeragent")
-    root_logger = logging.getLogger()
-    plugin_logger = logging.getLogger("plugin")
-    old_wa_handlers = list(wa_logger.handlers)
-    old_wa_level = wa_logger.level
-    old_root_handlers = list(root_logger.handlers)
-    old_plugin_handlers = list(plugin_logger.handlers)
-    old_plugin_level = plugin_logger.level
 
     tmp_dir = tempfile.mkdtemp()
     # Seed the resolved-config-path cache too. Patching the user_config_dir attribute below does
@@ -801,39 +839,6 @@ def _setup_grammar_persistence_test_env():
     finally:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = old_resolved
-
-        # Restore logging state
-        shared = logging_mod._shared()
-        shared["debug_log_path"] = old_debug_log_path
-        shared["enable_agent_log"] = old_enable_agent_log
-
-        # Close and remove any handlers added during the test
-        for h in list(wa_logger.handlers):
-            if h not in old_wa_handlers:
-                wa_logger.removeHandler(h)
-                try:
-                    h.close()
-                except Exception:
-                    pass
-        for h in list(root_logger.handlers):
-            if h not in old_root_handlers:
-                root_logger.removeHandler(h)
-                try:
-                    h.close()
-                except Exception:
-                    pass
-        wa_logger.setLevel(old_wa_level)
-        # init_logging attaches the debug file handler to the plugin logger
-        # (not root). Drop handlers this test added before the temp dir goes.
-        plugin_logger.setLevel(old_plugin_level)
-        for h in list(plugin_logger.handlers):
-            if h not in old_plugin_handlers:
-                plugin_logger.removeHandler(h)
-                try:
-                    h.close()
-                except Exception:
-                    pass
-        logging_mod._debug_slot()["handler"] = None
 
         # Clean up
         grammar_persistence.grammar_registry.doc_persistence_instances.clear()
