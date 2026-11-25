@@ -809,3 +809,35 @@ def test_clean_exit_leaves_user_profile_office_running(monkeypatch) -> None:
 
     assert exc.value.code == 0
     assert terminated == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group test")
+def test_terminate_kills_the_office_behind_a_stuck_launcher(monkeypatch) -> None:
+    import select
+    import signal
+    import subprocess
+
+    proc = subprocess.Popen(
+        ["sh", "-c", 'trap "" TERM; sleep 30 & echo up; wait'],
+        stdout=subprocess.PIPE,
+        bufsize=0,
+        start_new_session=True,
+    )
+    try:
+        assert proc.stdout is not None
+        assert proc.stdout.readline() == b"up\n"
+        real_wait = proc.wait
+        monkeypatch.setattr(proc, "wait", lambda timeout=None: real_wait(timeout=0.3))
+        monkeypatch.setattr(tr.current_office(), "soffice_proc", proc)
+
+        tr._terminate_bootstrap_soffice()
+
+        assert real_wait(timeout=5) == -signal.SIGKILL
+        ready, _, _ = select.select([proc.stdout], [], [], 5)
+        assert ready == [proc.stdout]
+        assert proc.stdout.read(1) == b""
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass

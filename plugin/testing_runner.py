@@ -39,6 +39,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Sequence
 
+from plugin.framework.managed_subprocess import kill_process_tree
+
 log = logging.getLogger(__name__)
 
 # CLI path/name filters from ``python -m plugin.testing_runner <filter>``.
@@ -362,7 +364,7 @@ def collect_post_test_death(ctx: Any = None) -> str | None:
 def probe_uno_bridge(ctx: Any = None) -> str:
     """Cheap URP liveness: ``alive``, ``disposed``, ``no_probe``, or ``error:Type``.
 
-    Uses ``ctx.getServiceManager()`` only (same check as ``_ensure_live_ctx``).
+    Uses ``ctx.getServiceManager()`` only (same check as ``run_all_tests`` makes before each suite).
     Unit-test ctx objects without that method are ``no_probe`` — not a fail.
     """
     if ctx is None:
@@ -948,23 +950,31 @@ def _bootstrap_user_profile_gui() -> Any:
 
 
 def _terminate_bootstrap_soffice() -> None:
-    """Best-effort kill of the harness soffice Popen before a bootstrap retry."""
+    """Best-effort stop of the harness soffice (bootstrap retry, recycle, clean exit)."""
     proc = _office.soffice_proc
-    if proc is None:
+    if proc is None or proc.poll() is not None:
         return
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    # On Linux proc is the oosplash launcher, and killing only that leaves soffice.bin
+    # running (desktop/unx/source/start.c). Both are in the group _spawn_soffice created.
+    kill_process_tree(proc)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _progress("OFFICE still running after kill pid=%s" % proc.pid)
 
 
 def _remove_throwaway_profiles() -> None:
     """Stop the headless soffice and delete every profile this run created.
 
     A ``--user-profile`` run created none, so its office is left alone. Windows
-    may keep files that a surviving soffice.bin still holds open.
+    may keep some files: soffice.bin ends itself just after soffice.exe
+    (sal/osl/w32/dllentry.cxx, ParentMonitorThreadProc).
     """
     if not _office.throwaway_profile_dirs:
         return
@@ -1021,8 +1031,7 @@ def _ensure_writeragent_bind() -> None:
 def _rebootstrap_ctx(ctx: Any) -> None:
     """Bind config and the extension to a live UNO context.
 
-    Recycle, the initial run_all_tests bootstrap, and _ensure_live_ctx
-    all do this. Each caller keeps its own try/except.
+    Recycle and the initial run_all_tests bootstrap both do this. Each caller keeps its own try/except.
     """
     from plugin.framework.uno_context import set_fallback_ctx
     from plugin.framework.config import init_config, reset_config_for_tests
@@ -1578,24 +1587,6 @@ def run_all_tests(ctx: Any) -> str:
     except Exception as e:
         log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
 
-    def _ensure_live_ctx(current_ctx: Any) -> Any:
-        try:
-            current_ctx.getServiceManager()
-            return current_ctx
-        except Exception as exc:
-            if _is_uno_bridge_disposed(exc):
-                _mark_urp_dead(exc, "_ensure_live_ctx getServiceManager")
-                return current_ctx
-        try:
-            new_ctx = _bootstrap_office()
-            _rebootstrap_ctx(new_ctx)
-            return new_ctx
-        except Exception as e:
-            log.warning("run_all_tests: could not refresh disposed UNO context: %s", e)
-            if _is_uno_bridge_disposed(e):
-                _mark_urp_dead(e, "_ensure_live_ctx refresh")
-            return current_ctx
-
     from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
@@ -1650,10 +1641,11 @@ def run_all_tests(ctx: Any) -> str:
             ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
             skip_keeper_close = False
             for i, module_path in enumerate(ordered_candidates):
-                if office.urp_bridge_dead:
-                    _progress("SUITE skip remaining: URP already disposed")
-                    break
-                ctx = _ensure_live_ctx(ctx)
+                if not office.urp_bridge_dead:
+                    try:
+                        ctx.getServiceManager()
+                    except Exception as exc:
+                        _mark_urp_dead(exc, "start of %s" % os.path.basename(module_path))
                 if office.urp_bridge_dead:
                     _progress("SUITE skip remaining: URP already disposed")
                     break
@@ -1735,6 +1727,18 @@ def run_all_tests(ctx: Any) -> str:
             _progress_verbose("KEEPER close done")
         except Exception:
             _progress("KEEPER close failed")
+
+    if office.urp_bridge_dead and not total_failed:
+        # The office died outside any test (suite teardown, failed recycle), so no test
+        # failed, but the remaining suites did not run.
+        suites.append(
+            {
+                "name": "office",
+                "failed": 1,
+                "log": ["office died between suites; remaining suites did not run"],
+            }
+        )
+        total_failed += 1
 
     summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
     if total_failed:
