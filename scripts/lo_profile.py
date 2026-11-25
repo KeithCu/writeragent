@@ -40,6 +40,7 @@ from scripts.lo_paths import find, profile_url  # noqa: E402
 # unopkg imports the extension's Python components in-process; keep the caller's venv out.
 _SCRUB = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
 _CONFIGMGR_INI = "user/uno_packages/cache/registry/com.sun.star.comp.deployment.configuration.PackageRegistryBackend/configmgr.ini"
+# Omit tests/: build_oxt only warns when absent, producing a dev OXT without test files.
 _BUILD_INPUTS = ("plugin", "extension", "locales", "scripts")
 
 
@@ -105,11 +106,17 @@ def seed_tree(tree: Path, profile: Path) -> None:
     vendor = tree / "vendor"
     if not vendor.is_dir():
         raise RuntimeError("%s is missing; run make vendor" % vendor)
-    raw = subprocess.check_output(
-        ["git", "-C", str(tree), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *_BUILD_INPUTS],
-        text=True,
-        timeout=60,
-    )
+    # Use check_output directly: _run merges stderr into the returned file list.
+    try:
+        raw = subprocess.check_output(
+            ["git", "-C", str(tree), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *_BUILD_INPUTS],
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        raise RuntimeError("git ls-files failed for %s: %s" % (tree, exc)) from exc
+    # Build in a private copy: build_oxt deletes and rewrites build/bundle and plugin/lib,
+    # so building in place would race across concurrent probes.
     with tempfile.TemporaryDirectory(prefix="wa-oxt-") as tmp:
         src = Path(tmp) / "src"
         for rel in raw.split("\0"):

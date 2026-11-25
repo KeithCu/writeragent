@@ -259,6 +259,7 @@ def test_seed_in_worktree_never_uses_user_oxt(monkeypatch, tmp_path: Path) -> No
     tree = tmp_path / "worktree"
     tree.mkdir()
     monkeypatch.setattr(tr, "worktree_root", lambda: tree)
+    monkeypatch.setenv("PYTHONPATH", "/some/stale/path")
 
     office = tr.current_office()
     first_profile = tmp_path / "throwaway-1"
@@ -267,10 +268,10 @@ def test_seed_in_worktree_never_uses_user_oxt(monkeypatch, tmp_path: Path) -> No
     second_profile.mkdir()
     office.throwaway_profile_dirs.append(first_profile)
 
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], object]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> tr.subprocess.CompletedProcess[str]:
-        calls.append(cmd)
+        calls.append((cmd, kwargs.get("env")))
         seed_dir = Path(cmd[cmd.index("--profile") + 1])
         oxt_dir = seed_dir / "user" / "uno_packages" / "cache" / "uno_packages" / "lu2.tmp_" / "WriterAgent.oxt"
         oxt_dir.mkdir(parents=True)
@@ -289,6 +290,12 @@ def test_seed_in_worktree_never_uses_user_oxt(monkeypatch, tmp_path: Path) -> No
     # Seeding a second profile reuses the cached worktree-seed without rebuilding.
     tr._seed_throwaway_profile(second_profile)
     assert len(calls) == 1
+    cmd, env = calls[0]
+    expected_py = tree / (".venv/Scripts/python.exe" if sys.platform.startswith("win") else ".venv/bin/python")
+    assert cmd[0] == str(expected_py)
+    assert "seed-tree" in cmd
+    assert cmd[cmd.index("--tree") + 1] == str(tree)
+    assert isinstance(env, dict) and "PYTHONPATH" not in env
     copied2 = second_profile / "user" / "uno_packages" / "cache" / "uno_packages" / "lu2.tmp_" / "WriterAgent.oxt" / "addin.py"
     assert copied2.read_text(encoding="utf-8") == "branch"
 

@@ -626,10 +626,19 @@ def throwaway_writeragent_json() -> Path | None:
 def worktree_root() -> Path | None:
     """Return the repo root when running inside a linked git worktree, else None."""
     root = Path(__file__).resolve().parents[1]
+    # Linked worktrees have a .git file; main checkouts and CI have a .git directory.
     return root if (root / ".git").is_file() else None
 
 
 def _worktree_uno_packages(tree: Path) -> Path:
+    """Build the worktree OXT once per run and return its ``uno_packages`` dir.
+
+    Seeds into ``throwaway_profile_dirs[0] / "worktree-seed"`` so
+    ``_remove_throwaway_profiles`` cleans it up with the run; checking
+    ``seed.exists()`` assumes a failed build ends the run without retries.
+    Uses ``tree/.venv`` because ``build_oxt`` needs PyYAML and polib, which
+    LibreOffice's Python lacks.
+    """
     seed = _office.throwaway_profile_dirs[0] / "worktree-seed"
     if not seed.exists():
         py = tree / (".venv/Scripts/python.exe" if sys.platform.startswith("win") else ".venv/bin/python")
@@ -641,6 +650,7 @@ def _worktree_uno_packages(tree: Path) -> Path:
             check=False,
         )
         if proc.returncode != 0:
+            # Never fall back to the user OXT: soffice would run code that is not the branch.
             output = (proc.stdout + proc.stderr).strip()
             raise RuntimeError("building the worktree extension failed (%s):\n%s" % (tree, output))
         _progress("BOOTSTRAP extension built from %s" % tree)
@@ -650,8 +660,9 @@ def _worktree_uno_packages(tree: Path) -> Path:
 def _seed_throwaway_profile(profile_dir: Path) -> None:
     """Seed a throwaway profile's ``user/uno_packages`` and ``writeragent.json``.
 
-    In a linked git worktree, builds a fresh OXT from the worktree copy once
-    per run and seeds from that; otherwise copies the user-level installed OXT.
+    In a linked git worktree, builds a fresh OXT from the files on disk
+    (uncommitted and untracked included) once per run and seeds from that;
+    otherwise copies the user-level installed OXT.
     ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the real
     profile, so copying ``user/uno_packages`` is what registers the components.
     """
@@ -722,8 +733,8 @@ def _soffice_bootstrap_command() -> tuple[list[str], str]:
     """
     soffice = _resolve_soffice_bin()
     profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
-    # Seed after the lookup so a missing user OXT on GitHub Actions
-    # raises instead of becoming a silent None command.
+    # Append before seeding: _worktree_uno_packages stores the seed under
+    # throwaway_profile_dirs[0], and a missing user OXT on GitHub Actions raises.
     _office.throwaway_profile_dirs.append(profile_dir)
     _seed_throwaway_profile(profile_dir)
     profile_url = profile_dir.as_uri()

@@ -329,10 +329,7 @@ def test_seed_tree_builds_files_on_disk(monkeypatch: pytest.MonkeyPatch, tmp_pat
     deleted = tree / "plugin" / "gone.py"
     deleted.write_text("gone", encoding="utf-8")
     subprocess.run(["git", "init", str(tree)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(tree), "config", "user.email", "t@example.com"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(tree), "config", "user.name", "T"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(tree), "add", "plugin/mod.py", "plugin/gone.py"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(tree), "commit", "-m", "init"], check=True, capture_output=True)
 
     # Uncommitted modification, deleted tracked file, untracked file, and gitignored file.
     tracked.write_text("edited", encoding="utf-8")
@@ -369,12 +366,13 @@ def test_seed_tree_builds_files_on_disk(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(lo_profile, "seed", fake_seed)
 
     profile = tmp_path / "profile"
+    before = sorted(p.relative_to(tree) for p in tree.rglob("*") if ".git" not in p.parts)
     lo_profile.seed_tree(tree, profile)
 
     assert ran_scripts == ["generate_manifest.py", "compile_translations.py", "build_oxt.py"]
     assert copied_snapshots == {"mod": "edited", "new": "untracked", "vendor": "v"}
     assert len(seeded_args) == 1 and seeded_args[0][1] == profile
-    assert not (tree / "build").exists()
+    assert sorted(p.relative_to(tree) for p in tree.rglob("*") if ".git" not in p.parts) == before
 
 
 def test_seed_tree_requires_vendor(tmp_path: Path) -> None:

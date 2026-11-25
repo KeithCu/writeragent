@@ -11,11 +11,13 @@ from pathlib import Path
 
 import uno
 
-from plugin.testing_runner import native_test, worktree_root
+from plugin.testing_runner import current_office, native_test, worktree_root
 
 
 @native_test
 def test_soffice_loads_this_worktree(ctx) -> None:
+    if current_office().options.use_user_profile:
+        raise unittest.SkipTest("--user-profile uses the installed OXT by design")
     tree = worktree_root()
     if tree is None:
         raise unittest.SkipTest("not in a linked worktree")
