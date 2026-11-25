@@ -209,6 +209,49 @@ def test_attach_math_objects_any_failure_is_math_import_failed_warning() -> None
     assert html_import_styles.attach_write_report(err_res, html_import_styles.WriteReport(math=entries)) == err_res
 
 
+def test_attach_math_objects_distinguishes_lost_position_from_conversion_failure() -> None:
+    lost_entry = {
+        "kind": "tex",
+        "display_block": True,
+        "snippet": "x^2",
+        "ok": False,
+        "error": html_import_styles.MATH_POSITION_LOST,
+    }
+    res_lost = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Done"},
+        html_import_styles.WriteReport(math=[lost_entry]),
+    )
+    assert len(res_lost["warnings"]) == 1
+    diag_lost = res_lost["warnings"][0]
+    assert diag_lost["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert "x^2" in diag_lost["message"]
+    assert "[Math import failed]" not in diag_lost["message"]
+
+    mixed_entries = [
+        {"kind": "tex", "display_block": False, "snippet": "a", "ok": True},
+        {
+            "kind": "tex",
+            "display_block": True,
+            "snippet": r"\sqrt{",
+            "ok": False,
+            "error": "NoAvailableTokensError",
+        },
+        lost_entry,
+    ]
+    res_mixed = html_import_styles.attach_write_report(
+        {"status": "ok", "message": "Done"},
+        html_import_styles.WriteReport(math=mixed_entries),
+    )
+    assert res_mixed["math_objects"] == mixed_entries
+    assert len(res_mixed["warnings"]) == 1
+    diag_mixed = res_mixed["warnings"][0]
+    assert diag_mixed["code"] == html_import_styles.MATH_IMPORT_FAILED
+    assert r"\sqrt{" in diag_mixed["message"]
+    assert "NoAvailableTokensError" in diag_mixed["message"]
+    assert "x^2" in diag_mixed["message"]
+    assert "[Math import failed]" in diag_mixed["message"]
+
+
 def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
     """A partial-match style skip with a token builds a diagnostic, suggested call, and updates message."""
     from plugin.framework.errors import suggest_call

@@ -158,6 +158,23 @@ def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
     assert failed.unapplied_para == ["margin-top", "font-weight"]
 
 
+def test_replace_xtext_with_html_preserves_tex_backslashes_and_expands_prose():
+    """Header/footer writes expand prose escapes outside TeX while keeping TeX backslashes."""
+    text = MagicMock()
+    imported: list[str] = []
+    html = r"<p>Rate $\nu$ \(\tau\) a\nb</p>"
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=lambda cursor, prepared, **kw: imported.append(prepared),
+    ):
+        replace_xtext_with_html(text, html, model=_undo_model())
+
+    assert len(imported) == 1
+    assert r"$\nu$" in imported[0]
+    assert r"\(\tau\)" in imported[0]
+    assert "a\nb" in imported[0] or "a<br" in imported[0]
+
+
 def test_replace_xtext_with_html_plain_html_skips_style_walk():
     text = MagicMock()
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
