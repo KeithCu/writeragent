@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 import ast
+from collections import deque
+import os
 from pathlib import Path
+from typing import Iterable
+
+_SKIP_GRAPH_DIRS = frozenset({"build", "node_modules", "tests", "vendor", "__pycache__"})
 
 
 def _plugin_mod_to_candidates(mod: str) -> tuple[str, ...]:
@@ -36,9 +41,8 @@ def _module_level_import_nodes(tree: ast.AST) -> list[ast.AST]:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
                 nodes.append(stmt)
             elif isinstance(stmt, ast.If):
-                if _is_type_checking_if(stmt):
-                    continue
-                walk(stmt.body)
+                if not _is_type_checking_if(stmt):
+                    walk(stmt.body)
                 walk(stmt.orelse)
             elif isinstance(stmt, ast.Try):
                 handler_names = []
@@ -90,6 +94,114 @@ def _resolved_import_from_module(
             return ".".join(rel_base + tuple(node.module.split(".")))
         return ".".join(rel_base)
     return node.module
+
+
+def dotted_module_name(rel: str) -> str | None:
+    """Return the dotted import name of a repo-relative ``.py`` file ``rel``."""
+    path = Path(rel)
+    if path.suffix != ".py":
+        return None
+    parts = list(path.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    if not parts or not all(part.isidentifier() for part in parts):
+        return None
+    return ".".join(parts)
+
+
+def module_level_imports(path: Path | str, repo_root: Path | str | None = None) -> set[str]:
+    """Return dotted module names imported at module level in ``path``.
+
+    Uses ``_module_level_import_nodes`` (which skips ``if TYPE_CHECKING:``
+    bodies while keeping ``else:`` branches, and skips ``try`` bodies guarded by
+    ``ImportError``/``ModuleNotFoundError``) and resolves relative imports.
+    """
+    p = Path(path)
+    try:
+        tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"), filename=str(p))
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    mods: set[str] = set()
+    for node in _module_level_import_nodes(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mods.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            mod = _resolved_import_from_module(p, node, repo_root)
+            if mod:
+                mods.add(mod)
+                for alias in node.names:
+                    if alias.name != "*":
+                        mods.add(f"{mod}.{alias.name}")
+    return mods
+
+
+def _iter_non_test_py_files(repo_root: Path) -> Iterable[Path]:
+    """Yield non-test Python files under ``plugin/``, ``scripts/``, and ``compute_service/``.
+
+    Skips ``plugin/lib`` (third-party vendored packages) while keeping
+    ``plugin/contrib`` because first-party adapters inside it import ``plugin.framework``.
+    """
+    for root_name in ("plugin", "scripts", "compute_service"):
+        base = repo_root / root_name
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            rel_dir = Path(dirpath).relative_to(repo_root).as_posix()
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if not d.startswith(".")
+                and d not in _SKIP_GRAPH_DIRS
+                and not (rel_dir == "plugin" and d == "lib")
+            ]
+            for filename in filenames:
+                if filename.endswith(".py"):
+                    yield Path(dirpath) / filename
+
+
+def reverse_import_closure(
+    seed_rels: Iterable[str],
+    repo_root: Path | str,
+    *,
+    max_depth: int | None = 1,
+    stop_at: frozenset[str] = frozenset({"plugin.testing_runner"}),
+) -> list[str]:
+    """Return repo-relative paths of modules importing ``seed_rels`` up to ``max_depth``.
+
+    Only module-level runtime imports are followed. ``stop_at`` prevents
+    expanding into harness entrypoints (such as ``plugin.testing_runner``)
+    unless they were directly in ``seed_rels``.
+    """
+    root = Path(repo_root)
+    seed_mods = {mod for rel in seed_rels if (mod := dotted_module_name(rel)) is not None}
+    if not seed_mods:
+        return []
+
+    rev_imports: dict[str, set[str]] = {}
+    mod_to_rel: dict[str, str] = {}
+    for path in _iter_non_test_py_files(root):
+        rel = path.relative_to(root).as_posix()
+        dm = dotted_module_name(rel)
+        if not dm:
+            continue
+        mod_to_rel[dm] = rel
+        for imp in module_level_imports(path, root):
+            rev_imports.setdefault(imp, set()).add(dm)
+
+    seen = set(seed_mods)
+    queue: deque[tuple[str, int]] = deque((mod, 0) for mod in seed_mods)
+    while queue:
+        mod, depth = queue.popleft()
+        if max_depth is not None and depth >= max_depth:
+            continue
+        for dependent in rev_imports.get(mod, ()):
+            if dependent in stop_at or dependent in seen:
+                continue
+            seen.add(dependent)
+            queue.append((dependent, depth + 1))
+
+    return [mod_to_rel[mod] for mod in seen if mod not in seed_mods and mod in mod_to_rel]
 
 
 def missing_module_level_plugin_imports(

@@ -36,6 +36,9 @@ from scripts.test_incremental import (  # noqa: E402
 
 DEFAULT_PROBE = Path.home() / "Desktop/Python/wa-pipeline-scripts/uno-probe.sh"
 MAIN_CHECKOUT = Path.home() / "Desktop/Python/writeragent"
+UNO_MAX_EXPANDED_FILES = 40
+_PROBE_BASE_TIMEOUT = 300
+_PROBE_SECONDS_PER_FILE = 60
 
 
 def is_main_checkout(repo_root: Path, main: Path = MAIN_CHECKOUT) -> bool:
@@ -49,7 +52,16 @@ def is_main_checkout(repo_root: Path, main: Path = MAIN_CHECKOUT) -> bool:
 def list_branch_uno_files(repo_root: Path) -> list[str]:
     """Return eligible UNO test files for this branch's changes."""
     changed = get_branch_changed_files(repo_root)
-    return select_uno_files(changed, repo_root)
+    expanded = select_uno_files(changed, repo_root, include_importers=True)
+    if len(expanded) <= UNO_MAX_EXPANDED_FILES:
+        return expanded
+    direct = select_uno_files(changed, repo_root, include_importers=False)
+    print(
+        f"test-bot: {len(expanded)} UNO files exceed cap ({UNO_MAX_EXPANDED_FILES}); "
+        f"running {len(direct)} direct UNO file(s) and leaving {len(expanded) - len(direct)} to CI",
+        flush=True,
+    )
+    return direct
 
 
 def resolve_probe(env: dict[str, str] | None = None) -> Path:
@@ -59,9 +71,14 @@ def resolve_probe(env: dict[str, str] | None = None) -> Path:
     return Path(raw).expanduser()
 
 
+def _probe_timeout_seconds(file_count: int) -> int:
+    """Scale uno-probe.sh timeout with the number of UNO test files."""
+    return max(_PROBE_BASE_TIMEOUT, file_count * _PROBE_SECONDS_PER_FILE)
+
+
 def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     """CLI entry point for ``make test-bot``'s isolated UNO step."""
-    parser = argparse.ArgumentParser(description="Run the branch's changed UNO tests via uno-probe.sh.")
+    parser = argparse.ArgumentParser(description="Run the branch's selected UNO tests via uno-probe.sh.")
     parser.add_argument(
         "--print-files",
         action="store_true",
@@ -101,14 +118,28 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         )
         return 0
 
+    timeout_sec = _probe_timeout_seconds(len(files))
     print(
-        f"test-bot: running {len(files)} UNO file(s) via {probe}: {', '.join(files)}",
+        f"test-bot: running {len(files)} UNO file(s) via {probe} (timeout {timeout_sec}s): {', '.join(files)}",
         flush=True,
     )
-    cmd = [str(probe), *[str(repo_root / rel) for rel in files]]
+    cmd = [str(probe), "--timeout", str(timeout_sec), *[str(repo_root / rel) for rel in files]]
     proc = subprocess.run(cmd, cwd=repo_root, check=False)
     if proc.returncode != 0:
-        print(f"test-bot: UNO tests failed (exit {proc.returncode})", file=sys.stderr, flush=True)
+        if proc.returncode == 124:
+            print(
+                f"test-bot: UNO probe timed out after {timeout_sec}s (exit 124)",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif proc.returncode == 75:
+            print(
+                "test-bot: UNO probe slot unavailable — all slots busy (exit 75)",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"test-bot: UNO tests failed (exit {proc.returncode})", file=sys.stderr, flush=True)
         print("test-bot: UNO files in this run:", file=sys.stderr, flush=True)
         for rel in files:
             print(f"  {rel}", file=sys.stderr, flush=True)
