@@ -102,7 +102,7 @@ from plugin.writer.locale.grammar_work_queue import (
     grammar_queue,
 )
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import background_if_dummy_thread
+from plugin.framework.thread_guard import background_if_dummy_thread, guard_uno
 
 BIND_RETRY_SEC: float = 1.5
 
@@ -141,24 +141,23 @@ def _current_component(desktop: Any) -> Any | None:
     return desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
 
 
-def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
+def _resolve_proofread_writer_model(ctx: Any, *, on_ui_thread: bool) -> Any | None:
     """Writer model this proofreading call is for, or None.
 
-    ``aDocumentIdentifier`` is the persistence map key. It is often a small
-    integer, not ``RuntimeUID``, so the model cannot be loaded from that map.
-    RuntimeUID is checked first, and the desktop's current text component is the
-    fallback. Otherwise use the only open Writer. Several Writers and no id match
-    is not a guess.
-
-    WriterAgent's hidden scratch Writers are left out: LibreOffice proofreads
-    only documents with a visible view (``sw/source/core/doc/docnew.cxx``
-    ``SwDoc::StartGrammarChecking``), and a scratch Writer's ``RuntimeUID``
-    can equal a document id.
+    ``aDocumentIdentifier`` is LibreOffice's own counter (``gciterator.cxx``
+    ``GetOrCreateDocId``) and names no model. A call that starts on the UI
+    thread is the context menu or the spelling dialog
+    (``checkSentenceAtPosition``), which acts on the current component. Any
+    other call comes from LibreOffice's grammar thread, which may be walking a
+    background document: ``isProofreading`` is true for the document being
+    checked and for documents still queued (``gciterator.cxx``
+    ``isProofreading``). Each document has one id, so a model already bound to
+    another id is not this one. More than one remaining model is not a guess.
     """
     if not main.is_current():
         return None
-    from plugin.framework.scratch_writer import is_scratch_document
-    from plugin.framework.uno_context import get_desktop, get_runtime_uid, iter_open_models
+    from plugin.framework.uno_context import get_desktop, iter_open_models
+    from plugin.writer.locale.grammar_persistence import persistence_for_model
 
     try:
         desktop = get_desktop(ctx)
@@ -167,40 +166,29 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         return None
     if desktop is None:
         return None
-    writers = [
-        model
-        for model in iter_open_models(desktop)
-        if _is_text_document(model) and not is_scratch_document(model)
-    ]
-
-    for model in writers:
-        uid = get_runtime_uid(model)
-        if uid and uid == doc_id:
-            return model
-
-    current = _current_component(desktop)
-    if _is_text_document(current):
-        return current
-
-    if len(writers) == 1:
-        return writers[0]
-    return None
+    if on_ui_thread:
+        current = _current_component(desktop)
+        candidates = [current] if _is_text_document(current) else []
+    else:
+        iterator = guard_uno(
+            ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
+        )
+        candidates = [model for model in iter_open_models(desktop) if iterator.isProofreading(model)]
+    unbound = [model for model in candidates if persistence_for_model(model) is None]
+    return unbound[0] if len(unbound) == 1 else None
 
 
-def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
+def _ensure_persistence_bound(ctx: Any, doc_id: str, *, on_ui_thread: bool) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
     ``get_document_model_for_id`` only returns ``p.model`` when a
-    ``DocumentPersistence`` for the id is already in the map, so the
-    first ``doProofreading`` always gets None and returns. Udprops
-    never load and save listeners never register.
-    ``doProofreading`` calls this only when the map has no model, so
-    that lookup cannot succeed. Nothing else passes the open Writer
-    into ``get_persistence``; the linguistic id stays an unbound map
-    key. Resolve the Writer on this main thread and pass that model
-    in. A second call sees a bound model and does not replace it or
-    reload udprops over live edits. No model → return without
-    raising. Returns the resolved model or None.
+    ``DocumentPersistence`` for the id is already in the map, so the first
+    ``doProofreading`` resolves the Writer on the main thread (the current
+    Writer on a UI-thread call, or the unique unbound model reported by
+    ``XProofreadingIterator.isProofreading`` on a grammar-thread call) and
+    passes it into ``get_persistence(doc_id, model=...)``. A second call sees
+    a bound model and does not replace it or reload udprops over live edits.
+    No model -> return None without raising. Returns the resolved model or None.
     """
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
@@ -208,7 +196,7 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
     if model is not None:
         return model
     try:
-        model = _resolve_proofread_writer_model(ctx, doc_id)
+        model = _resolve_proofread_writer_model(ctx, on_ui_thread=on_ui_thread)
         if model is None:
             return None
         get_persistence(doc_id, model=model)
@@ -218,16 +206,11 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
         return None
 
 
-def _persistence_for_doc(ctx: Any, doc_id: str) -> Any | None:
-    _ensure_persistence_bound(ctx, doc_id)
+def _ignore_rule_on_main(doc_id: str, rule_identifier: str) -> None:
     from plugin.writer.locale.grammar_persistence import get_persistence
 
-    return get_persistence(doc_id)
-
-
-def _ignore_rule_on_main(ctx: Any, doc_id: str, rule_identifier: str) -> None:
     ignore_rule_add(str(rule_identifier))
-    p = _persistence_for_doc(ctx, doc_id)
+    p = get_persistence(doc_id)
     if not p:
         return
 
@@ -239,9 +222,11 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str, rule_identifier: str) -> None:
     log.debug("[grammar] ignoreRule added: '%s' (stored: '%s') to doc_id=%s", rule_identifier, stored, doc_id)
 
 
-def _reset_ignore_rules_on_main(ctx: Any, doc_id: str) -> None:
+def _reset_ignore_rules_on_main(doc_id: str) -> None:
+    from plugin.writer.locale.grammar_persistence import get_persistence
+
     ignore_rules_clear()
-    p = _persistence_for_doc(ctx, doc_id)
+    p = get_persistence(doc_id)
     if not p:
         return
     p.clear_ignored_rules()
@@ -505,14 +490,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         # when opening Tools → Options → Language Settings (Writing aids).
         self._locales = uno_locales_for_tags(GRAMMAR_REGISTRY_LOCALE_TAGS)
 
-    def _ensure_document_bound_on_main(self, doc_id: str) -> None:
+    def _ensure_document_bound_on_main(self, doc_id: str, on_ui_thread: bool) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
         # get_runtime_uid is main-thread-only, so this runs via main.call.
         with self._bind_lock:
             if doc_id in self._bound_docs:
                 return
-            model = _ensure_persistence_bound(self.ctx, doc_id)
+            model = _ensure_persistence_bound(self.ctx, doc_id, on_ui_thread=on_ui_thread)
             if model is None:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
                 return
@@ -542,7 +527,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            main.run(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
+            # The grammar thread is tagged by background_if_dummy_thread, so main.is_current() is False there.
+            main.run(self._ensure_document_bound_on_main, doc_id, main.is_current(), timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -861,12 +847,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del aLocale
         self._run_doc_op(
             "ignoreRule",
-            lambda doc_id: main.run(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
+            lambda doc_id: main.run(_ignore_rule_on_main, doc_id, aRuleIdentifier),
         )
 
     def resetIgnoreRules(self) -> None:
         def _action(doc_id: str) -> None:
-            main.run(_reset_ignore_rules_on_main, self.ctx, doc_id)
+            main.run(_reset_ignore_rules_on_main, doc_id)
             self.broadcast_proofread_again()
 
         self._run_doc_op("resetIgnoreRules", _action)

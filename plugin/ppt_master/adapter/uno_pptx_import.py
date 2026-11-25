@@ -21,14 +21,17 @@ from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.draw.shape_clone import clone_shape
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
-from plugin.framework.uno_context import create_property_value, get_desktop, uno_same
+from plugin.framework.uno_context import create_property_value, get_desktop
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
 
 
 def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno_ctx: Any | None = None) -> int:
-    """Copy all shapes from *source_page* to *target_page*; return count copied."""
+    """Copy all shapes from *source_page* to *target_page*; return count copied.
+
+    A source shape that cannot be cloned is skipped and leaves nothing on *target_page*.
+    """
     copied = 0
     for i in range(source_page.getCount()):
         src = source_page.getByIndex(i)
@@ -99,16 +102,6 @@ def _page_shapes(page: Any) -> list[Any]:
     return [page.getByIndex(i) for i in range(page.getCount())]
 
 
-def _remove_added_shapes(page: Any, previous: list[Any]) -> None:
-    """Remove every shape on *page* that is not in *previous*.
-
-    A copy that reports no successes can still have left a shape from the clone that failed.
-    """
-    for shape in _page_shapes(page):
-        if not any(uno_same(shape, old) for old in previous):
-            page.remove(shape)
-
-
 def _drop_page(pages: Any, page: Any) -> None:
     best_effort(lambda: pages.remove(page), "drop unused import page")
 
@@ -160,12 +153,13 @@ def _import_slides_from_source(
         source_page = source_pages.getByIndex(src_index)
         # Copy first, and remove the previous shapes only after this slide's
         # copy reports at least one shape, because clearing first would lose
-        # the slide when nothing copies. A failed copy removes what it added,
-        # or drops a slide this call created, leaving an existing slide's
-        # shapes in place. Previous shapes are recorded and removed as objects
-        # because clone_shape copies ZOrder, which moves each clone to its
-        # source index (svx/source/unodraw/unoshape.cxx OWN_ATTR_ZORDER), so
-        # positions do not tell old shapes from new ones.
+        # the slide when nothing copies. ``copy_shapes_to_page`` leaves no shape
+        # behind for a source shape that failed, so a copy with no successes
+        # only has to drop a slide this call created. Previous shapes are
+        # recorded and removed as objects because ``clone_shape`` copies ZOrder,
+        # which moves each clone to its source index
+        # (svx/source/unodraw/unoshape.cxx OWN_ATTR_ZORDER), so positions do
+        # not tell old shapes from new ones.
         replace = clear_existing or out_index > 0
         existed = out_index < int(pages.getCount())
         target_page = _ensure_target_page(bridge, out_index)
@@ -174,8 +168,6 @@ def _import_slides_from_source(
         if copied < 1:
             if not existed:
                 _drop_page(pages, target_page)
-            else:
-                _remove_added_shapes(target_page, previous)
             return format_error_payload(
                 ToolExecutionError(f"No shapes copied from PPTX slide {src_index + 1}")
             )

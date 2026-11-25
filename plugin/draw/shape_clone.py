@@ -12,7 +12,7 @@ import tempfile
 from typing import Any, NamedTuple
 
 from plugin.doc.text_helpers import iter_elements
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import best_effort, is_disposal
 from plugin.framework.uno_context import create_property_value, get_service_manager
 from plugin.framework.url_utils import path_to_file_url
 
@@ -228,10 +228,11 @@ def reimport_graphic(
     return False
 
 
-def clone_shape(
+def _fill_clone(
     dest_doc: Any,
-    dest_container: Any,
+    clone: Any,
     src_shape: Any,
+    shape_type: str,
     *,
     uno_ctx: Any = None,
     image_path: str | None = None,
@@ -239,29 +240,6 @@ def clone_shape(
     shape_index: int = 0,
     warnings: list[str] | None = None,
 ) -> ClonedShape:
-    """Create a dest-owned shape, add it, then copy visual props + geometry."""
-    shape_type = getattr(src_shape, "ShapeType", "")
-    if not (isinstance(shape_type, str) and shape_type):
-        get_st = getattr(src_shape, "getShapeType", None)
-        if callable(get_st):
-            try:
-                st_val = get_st()
-                shape_type = str(st_val or "")
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                shape_type = ""
-        else:
-            shape_type = ""
-    shape_type = str(shape_type)
-    if not shape_type.startswith("com.sun.star."):
-        raise RuntimeError("Unsupported shape type: %s" % shape_type)
-
-    clone = dest_doc.createInstance(shape_type)
-    if clone is None:
-        raise RuntimeError(f"createInstance returned no shape for {shape_type}")
-
-    dest_container.add(clone)
     shape_warnings: list[str] = []
     for prop in SHAPE_CLONE_PROPS:
         res = copy_prop(clone, src_shape, prop)
@@ -409,3 +387,58 @@ def clone_shape(
         graphic_reimports=graphic_reimports,
         empty_group_message=empty_group_message,
     )
+
+
+def clone_shape(
+    dest_doc: Any,
+    dest_container: Any,
+    src_shape: Any,
+    *,
+    uno_ctx: Any = None,
+    image_path: str | None = None,
+    image_paths: list[str | None] | None = None,
+    shape_index: int = 0,
+    warnings: list[str] | None = None,
+) -> ClonedShape:
+    """Create a dest-owned shape, add it, then copy visual props + geometry.
+
+    A clone that fails part way is removed from *dest_container* before the error propagates.
+    """
+    shape_type = getattr(src_shape, "ShapeType", "")
+    if not (isinstance(shape_type, str) and shape_type):
+        get_st = getattr(src_shape, "getShapeType", None)
+        if callable(get_st):
+            try:
+                st_val = get_st()
+                shape_type = str(st_val or "")
+            except Exception as exc:
+                if is_disposal(exc):
+                    raise
+                shape_type = ""
+        else:
+            shape_type = ""
+    shape_type = str(shape_type)
+    if not shape_type.startswith("com.sun.star."):
+        raise RuntimeError("Unsupported shape type: %s" % shape_type)
+
+    clone = dest_doc.createInstance(shape_type)
+    if clone is None:
+        raise RuntimeError(f"createInstance returned no shape for {shape_type}")
+
+    dest_container.add(clone)
+    try:
+        return _fill_clone(
+            dest_doc,
+            clone,
+            src_shape,
+            shape_type,
+            uno_ctx=uno_ctx,
+            image_path=image_path,
+            image_paths=image_paths,
+            shape_index=shape_index,
+            warnings=warnings,
+        )
+    except Exception as exc:
+        if not is_disposal(exc):
+            best_effort(lambda: dest_container.remove(clone), "remove partial clone")
+        raise
