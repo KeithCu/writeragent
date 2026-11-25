@@ -13,6 +13,7 @@ import tempfile
 import uno
 from com.sun.star.beans import PropertyValue
 
+from plugin.doc.compound_undo import undo_titles
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.shapes import AlignShapes, DeleteShape, DistributeShapes, GetDrawSummary, GroupShapes, UpsertShape
 from plugin.draw.tree import GetDrawTree, find_shape_on_page
@@ -1562,6 +1563,7 @@ def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
     shape = doc.createInstance("com.sun.star.drawing.CustomShape")
     shape.setSize(Size(3000, 2000))
     shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    shape.setPropertyValue("TextAutoGrowHeight", False)
     text.insertTextContent(cur, shape, False)
     shape.setString("orig")
     orig_pos = shape.getPosition()
@@ -1578,6 +1580,34 @@ def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
     assert ok_y["status"] == "ok", ok_y
     assert shape.getPosition().Y == -1000
 
+    orig_size = shape.getSize()
+    orig_pos_y = shape.getPosition().Y
+    err_neg_w = UpsertShape().execute(tctx, action="edit", index=0, width=-700, text="nope")
+    assert err_neg_w["status"] == "error", err_neg_w
+    assert err_neg_w["code"] == "INVALID_PARAM"
+    assert err_neg_w["details"]["parameter"] == "width"
+    assert shape.getSize().Width == orig_size.Width
+    assert shape.getSize().Height == orig_size.Height
+    assert shape.getString() == "orig"
+
+    ok_neg_h = UpsertShape().execute(tctx, action="edit", index=0, height=-700)
+    assert ok_neg_h["status"] == "ok", ok_neg_h
+    assert shape.getSize().Height == 700
+    assert shape.getPosition().Y == orig_pos_y - 700
+
+    line = doc.createInstance("com.sun.star.drawing.LineShape")
+    line.setSize(Size(2000, 0))
+    line.setPropertyValue("AnchorType", AS_CHARACTER)
+    text.insertTextContent(text.getEnd(), line, False)
+    line_idx = doc.getDrawPage().getCount() - 1
+    orig_poly = line.PolyPolygon
+    orig_x0, orig_x1 = orig_poly[0][0].X, orig_poly[0][-1].X
+    ok_line = UpsertShape().execute(tctx, action="edit", index=line_idx, width=-1500)
+    assert ok_line["status"] == "ok", ok_line
+    new_poly = line.PolyPolygon
+    new_x0, new_x1 = new_poly[0][0].X, new_poly[0][-1].X
+    assert (orig_x1 - orig_x0) * (new_x1 - new_x0) < 0
+
     desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     scratch = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
     reloaded, docx_path = build_grouped_text_boxes(ctx, scratch, anchor_type=AS_CHARACTER)
@@ -1588,6 +1618,15 @@ def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
         ok_child = UpsertShape().execute(gtctx, action="edit", index="0.1", x=orig_x + 2000)
         assert ok_child["status"] == "ok", ok_child
         assert child.getPosition().X != orig_x
+
+        ok_child_neg_w = UpsertShape().execute(gtctx, action="edit", index="0.1", width=-1500)
+        assert ok_child_neg_w["status"] == "ok", ok_child_neg_w
+        assert abs(child.getSize().Width - 1500) <= 2
+
+        ok_align = AlignShapes().execute(gtctx, indices=["0.0", "0.1"], alignment="left")
+        assert ok_align["status"] == "ok", ok_align
+        child0 = reloaded.getDrawPage().getByIndex(0).getByIndex(0)
+        assert child0.getPosition().X == child.getPosition().X
     finally:
         try:
             reloaded.close(True)
@@ -1599,4 +1638,177 @@ def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
             pass
         if os.path.exists(docx_path):
             os.unlink(docx_path)
+
+
+def _assert_delete_group_member_undo_warning(ctx, doc, doc_type):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    start = page.getCount()
+    created_indices = []
+    for x in (1000, 4000, 7000):
+        created = UpsertShape().execute(
+            tctx,
+            action="create",
+            shape_type="rectangle",
+            page=0,
+            x=x,
+            y=1000,
+            width=1500,
+            height=1200,
+        )
+        assert created["status"] == "ok", created
+        created_indices.append(created["index"])
+
+    grouped = GroupShapes().execute(tctx, indices=created_indices, page=0)
+    assert grouped["status"] == "ok", grouped
+    group_idx = grouped["index"]
+    group = page.getByIndex(group_idx)
+    assert group.getCount() == 3
+
+    titles_before = undo_titles(doc)
+    res_member = DeleteShape().execute(tctx, index=f"{group_idx}.1", page=0)
+    assert res_member["status"] == "ok", res_member
+    assert group.getCount() == 2
+    assert undo_titles(doc) == titles_before
+    assert "warning" in res_member
+
+    titles_before_group = undo_titles(doc)
+    res_group = DeleteShape().execute(tctx, index=group_idx, page=0)
+    assert res_group["status"] == "ok", res_group
+    assert "warning" not in res_group
+    titles_after_group = undo_titles(doc)
+    assert len(titles_after_group) == len(titles_before_group) + 1
+    assert page.getCount() == start
+
+    doc.getUndoManager().undo()
+    assert page.getCount() == start + 1
+    restored_group = page.getByIndex(group_idx)
+    assert restored_group.getCount() == 2
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_delete_group_member_undo_warning_uno(ctx, doc):
+    _assert_delete_group_member_undo_warning(ctx, doc, "writer")
+
+
+@native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_delete_group_member_undo_warning_uno(ctx, doc):
+    _assert_delete_group_member_undo_warning(ctx, doc, "draw")
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_calc_delete_group_member_undo_warning_uno(ctx, doc):
+    _assert_delete_group_member_undo_warning(ctx, doc, "calc")
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_delete_group_member_while_recording_uno(ctx, doc):
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    created_indices = []
+    for x in (1000, 4000, 7000):
+        created = UpsertShape().execute(
+            tctx,
+            action="create",
+            shape_type="rectangle",
+            page=0,
+            x=x,
+            y=1000,
+            width=1500,
+            height=1200,
+        )
+        assert created["status"] == "ok", created
+        created_indices.append(created["index"])
+
+    grouped = GroupShapes().execute(tctx, indices=created_indices, page=0)
+    assert grouped["status"] == "ok", grouped
+    group_idx = grouped["index"]
+
+    solo = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=4000,
+        width=1500,
+        height=1200,
+    )
+    assert solo["status"] == "ok", solo
+    solo_idx = solo["index"]
+
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_member = DeleteShape().execute(tctx, index=f"{group_idx}.1", page=0)
+        assert res_member["status"] == "ok", res_member
+        assert res_member["tracked"] is False
+        assert "Ctrl+Z undoes it" not in res_member["warning"]
+
+        count_before_solo_delete = page.getCount()
+        res_solo = DeleteShape().execute(tctx, index=solo_idx, page=0)
+        assert res_solo["status"] == "ok", res_solo
+        assert res_solo["tracked"] is False
+        assert page.getCount() == count_before_solo_delete - 1
+
+        doc.getUndoManager().undo()
+        assert page.getCount() == count_before_solo_delete
+    finally:
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_inline_shape_align_distribute_uno(ctx, doc):
+    from com.sun.star.awt import Size
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    text = doc.getText()
+    text.setString("Hello world ")
+    inline_shapes = []
+    for _idx in range(2):
+        shape = doc.createInstance("com.sun.star.drawing.CustomShape")
+        shape.setSize(Size(1500, 1000))
+        shape.setPropertyValue("AnchorType", AS_CHARACTER)
+        text.insertTextContent(text.getEnd(), shape, False)
+        inline_shapes.append(shape)
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    rect_res = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=6000,
+        y=2000,
+        width=2000,
+        height=1500,
+    )
+    assert rect_res["status"] == "ok", rect_res
+    page = doc.getDrawPage()
+    rect = page.getByIndex(rect_res["index"])
+    all_shapes = [*inline_shapes, rect]
+    orig_positions = [(s.getPosition().X, s.getPosition().Y) for s in all_shapes]
+    indices = [0, 1, rect_res["index"]]
+
+    for alignment in ("left", "center_horizontal", "right"):
+        res = AlignShapes().execute(tctx, indices=indices, alignment=alignment, page=0)
+        assert res["status"] == "error", res
+        assert res["code"] == "INVALID_PARAM"
+        assert [(s.getPosition().X, s.getPosition().Y) for s in all_shapes] == orig_positions
+
+    res_dist = DistributeShapes().execute(tctx, indices=indices, axis="horizontal", page=0)
+    assert res_dist["status"] == "error", res_dist
+    assert res_dist["code"] == "INVALID_PARAM"
+    assert [(s.getPosition().X, s.getPosition().Y) for s in all_shapes] == orig_positions
+
+    assert UpsertShape().execute(tctx, action="edit", index=0, y=-500)["status"] == "ok"
+    assert UpsertShape().execute(tctx, action="edit", index=1, y=-1200)["status"] == "ok"
+    res_top = AlignShapes().execute(tctx, indices=[0, 1], alignment="top", page=0)
+    assert res_top["status"] == "ok", res_top
+    assert inline_shapes[0].getPosition().Y == inline_shapes[1].getPosition().Y
 

@@ -20,7 +20,8 @@ Box = tuple[int, int, int, int]
 DEFAULT_PAGE_WIDTH = 28000
 DEFAULT_PAGE_HEIGHT = 15750
 
-ALIGNMENTS = ("left", "center_horizontal", "right", "top", "center_vertical", "bottom")
+HORIZONTAL_ALIGNMENTS = ("left", "center_horizontal", "right")
+ALIGNMENTS = (*HORIZONTAL_ALIGNMENTS, "top", "center_vertical", "bottom")
 DISTRIBUTE_AXES = ("horizontal", "vertical")
 DIAGRAM_LAYOUTS = ("horizontal_flow", "vertical_flow", "grid", "custom")
 
@@ -40,7 +41,7 @@ def align_boxes(boxes: Sequence[Box], alignment: str) -> list[Box]:
     if len(boxes) < 2:
         raise ValueError("Need at least two shapes to align")
 
-    start, extent = (0, 2) if alignment in ("left", "right", "center_horizontal") else (1, 3)
+    start, extent = (0, 2) if alignment in HORIZONTAL_ALIGNMENTS else (1, 3)
     if alignment in ("left", "top"):
         edge = min(b[start] for b in boxes)
         return [_with_start(b, start, edge) for b in boxes]
