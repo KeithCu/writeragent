@@ -37,6 +37,7 @@ from plugin.doc.text_helpers import (
     reset_direct_char_formatting,
     reset_properties_to_default,
     section_own_shown,
+    uniform_font,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
@@ -579,6 +580,11 @@ def _delete_preceding_break(cursor: Any) -> bool:
     return False
 
 
+def _starts_new_page(cursor: Any) -> bool:
+    """True when *cursor*'s paragraph carries a direct page or column break or a page style."""
+    return cursor.getPropertyValue("BreakType").value != "NONE" or bool(cursor.getPropertyValue("PageDescName"))
+
+
 def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) -> None:
     """Drop the empty paragraph *leftover* left at the import point.
 
@@ -608,7 +614,6 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     if leftover.getString() != "":
         return
     # A trailing inline picture or formula stays in this paragraph and has no text.
-    # Joining the paragraph keeps its bookmarks, so they need not block it.
     if any(
         paragraph_has_non_text_portion(para, ignore_markers=True, ignore_bookmarks=True)
         for para in iter_elements(leftover.createEnumeration())
@@ -619,8 +624,16 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # removes it rather than adding a Delete redline.
     if _delete_preceding_break(leftover) or not merge_forward_after_table or not at_paragraph_start:
         return
+    # Joining backward keeps bookmarks, whereas merging forward deletes the
+    # leftover paragraph and its bookmarks.
+    if any(
+        paragraph_has_non_text_portion(para, ignore_markers=True)
+        for para in iter_elements(leftover.createEnumeration())
+    ):
+        return
     if leftover.goRight(1, True):
-        if leftover.getString() in _PARAGRAPH_BREAKS:
+        following = leftover.getText().createTextCursorByRange(leftover.getEnd())
+        if leftover.getString() in _PARAGRAPH_BREAKS and not _starts_new_page(following):
             leftover.setString("")
         else:
             leftover.collapseToStart()
@@ -957,6 +970,18 @@ def _import_and_drop_leftover(
     return report
 
 
+def _direct_list_tag(cursor: Any) -> str | None:
+    """``"ol"`` or ``"ul"`` when *cursor*'s paragraph is in a list set directly on it, else None."""
+    para = next(iter_elements(cursor.createEnumeration()), None)
+    if (
+        para is None
+        or not para.getPropertyValue("NumberingIsNumber")
+        or para.getPropertyState("NumberingStyleName").value != "DIRECT_VALUE"
+    ):
+        return None
+    return "ol" if para.getPropertyValue("ListLabelString") else "ul"
+
+
 def _replace_whole_paragraphs(
     model: Any,
     ctx: Any,
@@ -977,12 +1002,16 @@ def _replace_whole_paragraphs(
     empty), while Reject keeps both styles because ``AppendRedline`` skips its
     tdf#119571 restyle when the deletion starts at offset 0. We then open a
     fresh paragraph before the struck text and reset the copied direct character
-    formatting on it so direct paragraph formatting and numbering on the target
-    paragraph survive for plain ``<p>`` replacements. The leftover synthetic
-    paragraph is dropped untracked because that break is our own new insertion. Where no
-    following break exists (document end, before a table, section edge), the
-    old paragraph stays empty after Accept; the preceding break is not used
-    because ``DocumentRedlineManager::AppendRedline``
+    formatting on it. Because a Word clause's numbering, indents, justification,
+    and font are direct formatting, a reset would drop them; ``keep_layout``
+    preserves them (and any uniform font family/size) when the first imported
+    block is plain ``<p>``/text for that same paragraph, while headings, lists,
+    and differently styled blocks reset layout so they do not inherit the old
+    clause's formatting. The leftover synthetic paragraph is dropped untracked
+    because that break is our own new insertion. Where no following break exists
+    (document end, before a table, section edge), the old paragraph stays empty
+    after Accept; the preceding break is not used because
+    ``DocumentRedlineManager::AppendRedline``
     (``sw/source/core/doc/DocumentRedlineManager.cxx``) would restyle the
     struck paragraph.
     """
@@ -990,6 +1019,15 @@ def _replace_whole_paragraphs(
     cursor = text_obj.createTextCursorByRange(rng.getStart())
     doomed = rng
     recording = record_changes.is_recording_changes(model)
+    # Word clauses store list numbering, indents, justification, and font as direct formatting.
+    # Keep them when the first imported block is plain text/<p> for the same paragraph; reset
+    # when the replacement brings its own block type (heading, list, or different style).
+    keep_layout = html_import_styles.first_block_keeps_layout(
+        content, cursor.getPropertyValue("ParaStyleName"), _direct_list_tag(cursor)
+    )
+    kept_char = language_at_start(rng)
+    if keep_layout:
+        kept_char |= uniform_font(text_obj.createTextCursorByRange(rng))
     if recording:
         following = text_obj.createTextCursorByRange(rng.getEnd())
         if following.goRight(1, True) and following.getString() in _PARAGRAPH_BREAKS:
@@ -998,7 +1036,7 @@ def _replace_whole_paragraphs(
     else:
         # Before the delete: on the emptied paragraph this reset cannot be undone, and
         # Undo would bring the old text back without its font, size and language.
-        reset_direct_char_formatting(text_obj.createTextCursorByRange(rng))
+        reset_direct_char_formatting(text_obj.createTextCursorByRange(rng), kept_char)
     with _deletion_author():
         doomed.setString("")
     if recording:
@@ -1007,7 +1045,11 @@ def _replace_whole_paragraphs(
         # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
         # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
         with record_changes.record_changes(model, False):
-            reset_direct_char_formatting(cursor)
+            if not keep_layout:
+                _drop_absorb_paragraph_props(cursor)
+            reset_direct_char_formatting(cursor, kept_char)
+    elif not keep_layout:
+        _drop_absorb_paragraph_props(cursor)
     return _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
@@ -1737,19 +1779,29 @@ def content_is_block(content: str | None) -> bool:
 
 
 
-def _text_runs(target_range: Any) -> list[Any]:
+def _text_runs(target_range: Any, *, in_redlines: bool = False) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
-    less than its string.
+    less than its string. When *in_redlines* is True, ``Redline`` boundary portions are
+    skipped so recorded replaces across another author's change still keep formatting.
     """
     runs: list[Any] = []
+    inside = False
     try:
         for para in iter_elements(target_range.createEnumeration()):
             for portion in iter_elements(para.createEnumeration()):
-                if portion.getPropertyValue("TextPortionType") not in ("Text", "SoftPageBreak"):
+                kind = portion.getPropertyValue("TextPortionType")
+                if kind == "Redline":
+                    inside = portion.getPropertyValue("IsStart")
+                    if runs and not inside and not in_redlines:
+                        return []
+                    continue
+                if kind not in ("Text", "SoftPageBreak"):
                     return []
                 if portion.getString():
+                    if inside and not in_redlines:
+                        return []
                     runs.append(portion)
     except Exception as exc:
         reraise_if_disposed(exc)
@@ -1811,7 +1863,7 @@ def _replace_recorded(
     # Track Changes: run-by-run redlines scramble the edit, so insert the new text once after
     # the longest run (leaving the deletion in two parts when that run is not last).
     cursor = text.createTextCursorByRange(target_range)
-    runs = _text_runs(target_range)
+    runs = _text_runs(target_range, in_redlines=True)
     lengths = [len(run.getString()) for run in runs]
     if new_text and runs and sum(lengths) == len(old_text):
         # Text inserted at a run's end takes that run's formatting (SwTextNode::InsertText, ndtxt.cxx).
@@ -1886,7 +1938,7 @@ def _replace_untracked(text: Any, target_range: Any, old_text: str, new_text: st
     # would run on the main thread, inside the caller's undo context.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
-    lengths = [len(run.getString()) for run in _text_runs(target_range)]
+    lengths = [len(run.getString()) for run in _text_runs(target_range, in_redlines=False)]
     if sum(lengths) == old_len:
         start = 0
         for i, plen in enumerate(lengths):

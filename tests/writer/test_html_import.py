@@ -2156,6 +2156,8 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     leftover.getString.side_effect = ["", brk, brk]
     leftover.goLeft.return_value = False
     leftover.goRight.return_value = True
+    following = leftover.getText.return_value.createTextCursorByRange.return_value
+    following.getPropertyValue.side_effect = lambda name: MagicMock(value="NONE") if name == "BreakType" else ""
     _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
     leftover.setString.assert_called_once_with("")
 
@@ -2289,7 +2291,7 @@ def test_replace_whole_paragraphs_works_without_styles_module(recording):
     cursor = MagicMock()
     second = MagicMock()
     second.goRight.return_value = False
-    text_obj.createTextCursorByRange.side_effect = [cursor, second]
+    text_obj.createTextCursorByRange.side_effect = lambda r: second if r is rng.getEnd.return_value else cursor
     cursor.getPropertySetInfo.return_value = None
     second.getPropertySetInfo.return_value = None
 

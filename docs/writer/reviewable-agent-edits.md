@@ -146,7 +146,7 @@ made in `record_preserve_replace` in
   link only when the whole range shares one URL. Whole-paragraph block replaces
   (whether Track Changes is recording or not)
   are owned by `_replace_whole_paragraphs`, which while recording deletes across the following
-  paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (resetting the fresh paragraph's copied direct character formatting untracked while keeping direct paragraph formatting and numbering, leaving
+  paragraph break, imports new blocks into a fresh paragraph before the struck `old¶` (resetting the fresh paragraph's copied direct character formatting untracked—and its direct paragraph formatting and numbering too when the replacement changes block type or style, while keeping layout and uniform font for plain `<p>` replacements—leaving
   new blocks first, then the struck paragraph while pending), and drops the synthetic leftover
   paragraph untracked. Where no following break exists (document end, before a table, section
   edge), one trailing empty paragraph remains after Accept. In `full_document` replace, any
