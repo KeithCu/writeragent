@@ -1749,7 +1749,7 @@ def test_nested_py_array_refused_during_planning(keeps_block: bool, formula: str
         patch("plugin.calc.manipulator.accepts_returned_any", return_value=keeps_block),
         patch.object(manipulator, "_probe_array_formula") as mock_probe,
     ):
-        with pytest.raises(CalcError) as exc:
+        with pytest.raises(CalcError, match=r"exactly one =PY") as exc:
             manipulator.plan_write("A1", formula, array=array)
         assert exc.value.code == "INVALID_PARAM"
         mock_probe.assert_not_called()

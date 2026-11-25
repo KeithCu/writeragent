@@ -1670,10 +1670,13 @@ class CellManipulator:
 
     def _refuse_py_array_write(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> PyFormula | None:
         """Return the =PY call *formula* is, or None; refuse one nested in another formula, overlapping its data, or before LibreOffice 26.8."""
+        # Before 26.8 a nested =PY passes only its top-left value to the outer function.
+        # On any version its failure text can land in any result cell, or be hidden by IFERROR,
+        # so a failed run cannot be told from data.
         if nests_py_call(formula):
             raise CalcError(
-                "=PY cannot be part of a larger array formula. Nothing was written. "
-                "Do the whole calculation in one =PY formula, or write =PY to its own cell "
+                'An array formula with =PY must be exactly one =PY(...) call (double any quote inside the code as ""). '
+                "Nothing was written. Do the whole calculation in one =PY formula, or write =PY to its own cell "
                 "and use the cells it fills in the other formula.",
                 code="INVALID_PARAM",
             )

@@ -122,9 +122,10 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int]]:
 
 
 def nests_py_call(formula: str) -> bool:
-    """True when *formula* calls ``=PY`` / ``=PYTHON`` but is not exactly one such call.
+    """True when *formula* calls ``=PY`` / ``=PYTHON`` but is not one valid such call.
 
-    Text inside quotes is ignored.
+    Also true when a single ``=PY`` call does not parse (for example, unclosed
+    or with undoubled quotes). Text inside quotes is ignored.
     """
     if "PY" not in formula.upper():
         return False
