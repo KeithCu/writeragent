@@ -3442,6 +3442,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
             ("p", ["<p>Second clause revised</p>"]),
             ("p_same_style", ['<p data-lo-style="Standard">Second clause revised</p>']),
             ("p_same_style_para", ['<p data-lo-style="Standard" data-lo-para="margin-left:3cm">Second clause revised</p>']),
+            ("p_same_style_top", ['<p data-lo-style="Standard" data-lo-para="margin-top:1cm">Second clause revised</p>']),
             ("ol1", ["<ol><li>Second clause revised</li></ol>"]),
             ("two_p", ["<p>Second clause revised</p>", "<p>And another</p>"]),
             ("h2", ["<h2>Second clause revised</h2>"]),
@@ -3450,7 +3451,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
         )
         for kind, content in cases:
             for mode in ("off", "accept", "reject"):
-                if mode == "reject" and kind not in ("p", "p_same_style"):
+                if mode == "reject" and kind not in ("p", "p_same_style", "p_same_style_para"):
                     continue
                 save({flag: "off" if mode == "off" else "record"})
                 d = _seed_and_reload_docx()
@@ -3467,22 +3468,26 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
 
                     paras = _body_paragraphs(d)
                     labels = [str(p.getPropertyValue("ListLabelString") or "") for p in paras]
-                    if kind in ("p", "p_same_style", "p_same_style_para", "ol1"):
+                    if kind in ("p", "p_same_style", "p_same_style_para", "p_same_style_top", "ol1"):
                         assert labels == ["1.", "2.", "3."], (kind, mode, labels)
-                        if kind in ("p_same_style", "p_same_style_para") and mode != "reject":
+                        if kind in ("p_same_style", "p_same_style_para", "p_same_style_top") and mode != "reject":
                             assert paras[1].getPropertyValue("ParaStyleName") == "Standard", (kind, mode)
                         assert int(paras[1].getPropertyValue("ParaAdjust")) == 2
-                        expected_left = 3000 if kind == "p_same_style_para" else 1499
+                        expected_left = 3000 if (kind == "p_same_style_para" and mode != "reject") else 1499
                         assert abs(int(paras[1].getPropertyValue("ParaLeftMargin")) - expected_left) <= 5, (
                             kind,
                             mode,
                             paras[1].getPropertyValue("ParaLeftMargin"),
                         )
+                        if kind == "p_same_style_top" and mode != "reject":
+                            assert abs(int(paras[1].getPropertyValue("ParaTopMargin")) - 1000) <= 5, (
+                                mode,
+                                paras[1].getPropertyValue("ParaTopMargin"),
+                            )
                         assert int(paras[1].getPropertyValue("ParaFirstLineIndent")) < 0
-                        if kind in ("p", "ol1"):
-                            assert int(paras[1].getPropertyValue("ParaBottomMargin")) == int(
-                                paras[0].getPropertyValue("ParaBottomMargin")
-                            ), (kind, mode, paras[1].getPropertyValue("ParaBottomMargin"), paras[0].getPropertyValue("ParaBottomMargin"))
+                        assert int(paras[1].getPropertyValue("ParaBottomMargin")) == int(
+                            paras[0].getPropertyValue("ParaBottomMargin")
+                        ), (kind, mode, paras[1].getPropertyValue("ParaBottomMargin"), paras[0].getPropertyValue("ParaBottomMargin"))
                         assert len(paras[1].getPropertyValue("ParaTabStops") or ()) >= 1
                         fname, fsize, fweight = _first_font(paras[1])
                         assert (fname, fsize) == ("Times New Roman", 11.0), (kind, mode, fname, fsize)
@@ -3509,8 +3514,82 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                         assert labels[0] == "1." and labels[-1] == "2."
                 finally:
                     d.close(True)
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 
-        # Text body host with direct justification replaced by data-lo-para="text-align:right"
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, doc: Any) -> None:
+    """Same-style replace keeps all four direct borders and background unless overridden by data-lo-para."""
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    border = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+    border.OuterLineWidth = 35
+    border.Color = 0x336699
+    try:
+        for mode in ("off", "accept"):
+            save({flag: "off" if mode == "off" else "record"})
+            for override_bg in (False, True):
+                doc.setPropertyValue("RecordChanges", False)
+                text = doc.getText()
+                text.setString("")
+                cur = text.createTextCursor()
+                text.insertString(cur, "Boxed clause", False)
+                p_seed = _body_paragraphs(doc)[0]
+                pc = text.createTextCursorByRange(p_seed)
+                pc.setPropertyValue("ParaStyleName", "Standard")
+                for bname in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
+                    pc.setPropertyValue(bname, border)
+                p_seed.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+                p_seed.setPropertyValue("FillColor", 0xFFEEAA)
+                assert int(p_seed.getPropertyValue("ParaBackColor")) == 0xFFEEAA
+
+                html = (
+                    '<p data-lo-style="Standard" data-lo-para="background-color:#00ff00">Updated box</p>'
+                    if override_bg
+                    else '<p data-lo-style="Standard">Updated box</p>'
+                )
+                res = ApplyDocumentContent().execute(
+                    native_writer_tool_context(doc, ctx),
+                    target="search",
+                    old_content="Boxed clause",
+                    content=[html],
+                )
+                assert res.get("status") == "ok", (mode, override_bg, res)
+                if mode == "accept":
+                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                p0 = _body_paragraphs(doc)[0]
+                for bname in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
+                    assert int(p0.getPropertyValue(bname).OuterLineWidth) == 35, (mode, override_bg, bname)
+                expected_bg = 0x00FF00 if override_bg else 0xFFEEAA
+                assert int(p0.getPropertyValue("ParaBackColor")) == expected_bg, (
+                    mode,
+                    override_bg,
+                    hex(int(p0.getPropertyValue("ParaBackColor"))),
+                )
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any, doc: Any) -> None:
+    """Text body host with direct justification lets data-lo-para="text-align:right" win."""
+    from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
         for mode in ("off", "accept"):
             save({flag: "off" if mode == "off" else "record"})
             doc.setPropertyValue("RecordChanges", False)
@@ -3531,10 +3610,25 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
             if mode == "accept":
                 _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
             assert int(_body_paragraphs(doc)[0].getPropertyValue("ParaAdjust")) == 1, mode  # RIGHT
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 
-        # Same-style restore when target is first in text and when target follows a table
-        for pos in ("first", "after_table"):
-            save({flag: "off"})
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_same_style_restore_anchor_positions_uno(ctx: Any, doc: Any) -> None:
+    """Same-style restore works when target is first in text or follows a table (off and Accept)."""
+    from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        for pos, mode in (("first", "off"), ("after_table", "off"), ("after_table", "accept")):
+            save({flag: "off" if mode == "off" else "record"})
             doc.setPropertyValue("RecordChanges", False)
             text = doc.getText()
             text.setString("")
@@ -3555,13 +3649,34 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                 old_content="Lead clause",
                 content=['<p data-lo-style="Standard">Lead revised</p>'],
             )
-            assert res.get("status") == "ok", (pos, res)
+            assert res.get("status") == "ok", (pos, mode, res)
+            if mode == "accept":
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
             p_after = _body_paragraphs(doc)[0]
-            assert p_after.getPropertyValue("ParaStyleName") == "Standard", pos
-            assert int(p_after.getPropertyValue("ParaAdjust")) == 2, pos
-            assert abs(int(p_after.getPropertyValue("ParaLeftMargin")) - 1400) <= 5, (pos, p_after.getPropertyValue("ParaLeftMargin"))
+            assert p_after.getPropertyValue("ParaStyleName") == "Standard", (pos, mode)
+            assert int(p_after.getPropertyValue("ParaAdjust")) == 2, (pos, mode)
+            assert abs(int(p_after.getPropertyValue("ParaLeftMargin")) - 1400) <= 5, (
+                pos,
+                mode,
+                p_after.getPropertyValue("ParaLeftMargin"),
+            )
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)
 
-        # Single-item <ul> on a directly bulleted host paragraph keeps its bullet via _direct_list_tag
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_whole_paragraph_single_item_ul_keeps_bullet_layout_uno(ctx: Any, doc: Any) -> None:
+    """Single-item <ul> on a directly bulleted host paragraph keeps its bullet and layout via _direct_list_tag."""
+    from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
+    from plugin.framework.config import get_config, save
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
         save({flag: "off"})
         doc.setPropertyValue("RecordChanges", False)
         text = doc.getText()

@@ -1006,25 +1006,39 @@ def _restore_host_para_props(
     cursor: Any,
     host_style: str,
     kept_para: dict[str, Any],
-    recording: bool,
+    content: str,
 ) -> None:
-    """Restore direct paragraph properties cleared by a same-style ``data-lo-style`` write."""
+    """Restore direct paragraph properties cleared by a same-style ``data-lo-style`` write.
+
+    Snapshots property states once before writing because LibreOffice shares items across
+    related properties (``RES_UL_SPACE`` for top/bottom/context margins and ``RES_BOX``
+    for all four borders). Explicit ``data-lo-para`` properties and direct properties
+    already set by inline CSS are skipped so caller-requested formatting wins.
+    """
     if not kept_para:
         return
     start = _insert_start_from_anchor(text_obj, anchor, cursor)
     first_para = next(iter_elements(start.createEnumeration()), None)
     if first_para is None or first_para.getPropertyValue("ParaStyleName") != host_style:
         return
-    has_fill = (
-        first_para.getPropertyState("FillColor").value == "DIRECT_VALUE"
-        or first_para.getPropertyState("FillStyle").value == "DIRECT_VALUE"
+    _clean, _styles, block_paras, _skipped = html_import_styles.extract_block_lo_styles(content)
+    explicit_uno = (
+        {uno_prop for uno_prop, _ in html_import_styles.parse_data_lo_para(block_paras[0])[0].values()}
+        if block_paras and block_paras[0]
+        else set()
     )
+    states = {name: first_para.getPropertyState(name).value for name in kept_para}
+    has_fill = first_para.getPropertyValue("FillStyle").value != "NONE"
     uno_rt = cast("Any", uno)
+    recording = record_changes.is_recording_changes(model)
     with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
         for name, value in kept_para.items():
-            if name == "ParaBackColor" and has_fill:
+            if name in explicit_uno:
                 continue
-            if first_para.getPropertyState(name).value == "DIRECT_VALUE":
+            if name in ("ParaBackColor", "FillStyle", "FillColor"):
+                if has_fill or "FillColor" in explicit_uno:
+                    continue
+            elif not explicit_uno and states[name] == "DIRECT_VALUE":
                 continue
             if name == "ParaTabStops":
                 uno_rt.invoke(
@@ -1041,11 +1055,18 @@ def _direct_para_props(cursor: Any) -> dict[str, Any]:
     para = next(iter_elements(cursor.createEnumeration()), None)
     if para is None:
         return {}
-    return {
+    kept = {
         name: para.getPropertyValue(name)
         for name in _ABSORB_PARA_PROPERTIES
         if para.getPropertyState(name).value == "DIRECT_VALUE"
     }
+    # Setting ParaBackColor updates XATTR_FILL* without always marking FillColor DIRECT_VALUE.
+    if "FillColor" not in kept and para.getPropertyValue("FillStyle").value != "NONE":
+        kept["FillStyle"] = para.getPropertyValue("FillStyle")
+        kept["FillColor"] = para.getPropertyValue("FillColor")
+    elif "ParaBackColor" not in kept and para.getPropertyValue("ParaBackColor") != -1:
+        kept["ParaBackColor"] = para.getPropertyValue("ParaBackColor")
+    return kept
 
 
 def _replace_whole_paragraphs(
@@ -1119,7 +1140,7 @@ def _replace_whole_paragraphs(
     kept_para = _direct_para_props(cursor) if keep_layout and apply_styles else {}
     anchor = _insert_start_anchor(text_obj, cursor)
     report = _import_and_drop_leftover(model, ctx, cursor, content, apply_styles=apply_styles)
-    _restore_host_para_props(model, text_obj, anchor, cursor, host_style, kept_para, recording)
+    _restore_host_para_props(model, text_obj, anchor, cursor, host_style, kept_para, content)
     return report
 
 
