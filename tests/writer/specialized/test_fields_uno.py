@@ -91,6 +91,7 @@ def test_fields_insert_search_absorb(ctx, doc):
     count_before = _count_text_fields(doc)
     res = FieldsInsert().execute(tool_ctx, field="PageNumber", target="search", old_content="TARGET")
     assert res["status"] == "ok", res
+    assert "tracked" not in res
     assert _count_text_fields(doc) == count_before + 1
 
     body = doc.getText().getString()
@@ -141,6 +142,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
                 tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
             )
             assert res["status"] == "ok", res
+            assert res["tracked"] is True and res["pending_review"] is True, res
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
             assert doc.getText().getString() == "hello MATCH world"
             assert _count_text_fields(doc) == 0
@@ -149,6 +151,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
                 tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
             )
             assert res2["status"] == "ok", res2
+            assert res2["tracked"] is True and res2["pending_review"] is True, res2
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
             body_accept = doc.getText().getString()
             assert "MATCH" not in body_accept
@@ -172,6 +175,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
                 tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
             )
             assert res_f["status"] == "ok", res_f
+            assert res_f["tracked"] is True and res_f["pending_review"] is True, res_f
             redlines = doc.getRedlines()
             comments = [
                 str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "")
@@ -187,6 +191,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
             target="search", old_content="NAME",
         )
         assert res_m["status"] == "ok", res_m
+        assert res_m["tracked"] is True and res_m["pending_review"] is True, res_m
         redlines = doc.getRedlines()
         assert redlines.getCount() >= 1
         comments = [str(redlines.getByIndex(i).getPropertyValue("RedlineComment") or "") for i in range(redlines.getCount())]

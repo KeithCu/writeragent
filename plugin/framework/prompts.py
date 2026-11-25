@@ -403,7 +403,7 @@ TOOL_USAGE_PATTERNS = f"""TOOL USAGE PATTERNS:
 
 WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - The user picks ONE of three review modes; you never pick or switch it. off: edits are live immediately. record: edits are tracked changes pending accept/reject; you will NOT be told the later outcome. wait: edits are tracked changes; the tool blocks until the user finishes reviewing (or a timeout) and the result reports what was accepted or rejected.
-- apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session.
+- apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session. No pending_review means the call left no new tracked change (nothing changed, or the text joined a change that is already pending), not that review is off.
 - In record and wait, NEVER accept or reject changes yourself, including through the tracking sub-agent — resolving redlines is the user's decision.
 - get_content lists pending changes under tracked_changes — they are pending review, not errors to fix.
 - data-lo-deleted="true" on a get_content block, and [tracked deletion] in the document text, mark a paragraph a pending deletion already covers. It is not an empty paragraph: do not tidy, fill or delete it, and leave it out of content you write. The marker text is not in the document."""

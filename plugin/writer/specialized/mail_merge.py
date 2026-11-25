@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from ..record_changes import insert_recorded_content
+from ..record_changes import insert_recorded_content, is_recording_changes
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import insert_at_target
 from plugin.doc.text_helpers import iter_elements
@@ -362,17 +362,25 @@ class InsertField(ToolWriterMailMergeBase):
             return self._tool_error("Failed to create database textfield service.")
         field.attachTextFieldMaster(master)
 
+        recorded = False
+
+        def insert(cursor: Any) -> None:
+            nonlocal recorded
+            # The review session has already turned recording on in Record/Wait.
+            recorded = is_recording_changes(doc)
+            insert_recorded_content(doc, cursor.getText(), cursor, field)
+
         err = insert_at_target(
             self,
             ctx,
             kwargs,
-            lambda cursor: insert_recorded_content(doc, cursor.getText(), cursor, field),
+            insert,
             what="the merge field",
         )
         if err is not None:
             return err
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "message": f"Successfully inserted merge field '<{column_name}>'.",
             "field": {
@@ -382,6 +390,10 @@ class InsertField(ToolWriterMailMergeBase):
                 "command_type": command_type_str,
             },
         }
+        if recorded:
+            result["tracked"] = True
+            result["pending_review"] = True
+        return result
 
 
 class ListFields(ToolWriterMailMergeBase):
