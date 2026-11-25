@@ -1920,7 +1920,7 @@ def test_reset_direct_char_formatting_reads_language_from_start():
     assert cursor_vals == start_langs
 
 
-def test_strikes_text_true_when_anchored_content_keeps_strikes_paragraph_false():
+def test_strikes_paragraph_false_when_anchored_content_present():
     from plugin.doc.text_helpers import DeletionState, visible_portions
 
     def _marker(is_start: bool):
@@ -1952,7 +1952,6 @@ def test_strikes_text_true_when_anchored_content_keeps_strikes_paragraph_false()
 
     state = DeletionState()
     list(visible_portions(para, state=state))
-    assert state.strikes_text(para, False) is True
     assert state.strikes_paragraph(para, False) is False
 def test_reset_direct_char_formatting_uses_given_language():
     from plugin.doc.text_helpers import reset_direct_char_formatting
@@ -1987,7 +1986,7 @@ def test_reset_direct_char_formatting_uses_given_language():
     at_start.getPropertyValue.assert_not_called()
 
 
-def test_strikes_text_tracks_struck_inline_frame_only():
+def test_strikes_paragraph_tracks_struck_inline_frame_only():
     from plugin.doc.text_helpers import DeletionState, visible_portions
 
     def _marker(is_start: bool):
@@ -2010,12 +2009,49 @@ def test_strikes_text_tracks_struck_inline_frame_only():
         p_enum.nextElement.side_effect = portions
         para = MagicMock()
         para.createEnumeration.return_value = p_enum
+        para.createContentEnumeration.return_value.hasMoreElements.return_value = False
         para.getString.return_value = ""
         state = DeletionState(in_delete=opened)
         list(visible_portions(para, state=state))
-        return state.strikes_text(para, opened)
+        return state.strikes_paragraph(para, opened)
 
     # [Frame, end marker] inside an open deletion: inline image is struck.
     assert _run([_frame(), _marker(False)], opened=True) is True
     # [end marker, Frame]: inline image is live.
     assert _run([_marker(False), _frame()], opened=True) is False
+
+
+def test_visible_portions_yields_kept_frame_inside_deletion():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+
+    def _marker(is_start: bool):
+        p = MagicMock()
+        p.getPropertyValue.side_effect = lambda name: (
+            "Redline" if name == "TextPortionType"
+            else ("Delete" if name == "RedlineType" else is_start)
+        )
+        return p
+
+    kept_frame = MagicMock()
+    kept_frame.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
+    removed_frame = MagicMock()
+    removed_frame.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
+
+    portions = [_marker(True), kept_frame, removed_frame, _marker(False)]
+    p_enum = MagicMock()
+    p_enum.hasMoreElements.side_effect = [True] * len(portions) + [False]
+    p_enum.nextElement.side_effect = portions
+
+    para = MagicMock()
+    para.createEnumeration.return_value = p_enum
+    para.createContentEnumeration.return_value.hasMoreElements.return_value = False
+
+    deletions = MagicMock()
+    deletions.keeps_frame.side_effect = lambda portion: portion is kept_frame
+
+    state = DeletionState()
+    got = list(visible_portions(para, state=state, deletions=deletions))
+    assert got == [(kept_frame, "")]
+    assert state.para_live is True
+    assert state.para_frame is True
+    assert state.strikes_paragraph(para, False) is False

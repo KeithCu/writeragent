@@ -52,7 +52,8 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     dest_cell.createTextCursor.return_value = dest_cursor
     dest_cell.createTextCursorByRange.return_value = run
 
-    rc._copy_cell_xtext(MagicMock(), src_cell, dest_doc, dest_cell)
+    from plugin.doc.text_helpers import TrackedDeletions
+    rc._copy_cell_xtext(MagicMock(), src_cell, dest_doc, dest_cell, TrackedDeletions(MagicMock()))
 
     dest_cell.insertString.assert_any_call(dest_cursor, "Bold", False)
     run.setPropertyValue.assert_any_call("CharWeight", 150.0)
@@ -673,7 +674,8 @@ def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
         patch.object(rc, "_copy_math_or_text", return_value=""),
         patch.object(rc, "clone_graphics", return_value=1) as clone,
     ):
-        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell)
+        from plugin.doc.text_helpers import TrackedDeletions
+        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, TrackedDeletions(MagicMock()))
         assert clone.call_count == 2
         assert clone.call_args_list[0].args[0] is frame_portion
         assert clone.call_args_list[1].args[0] is para
@@ -837,8 +839,9 @@ def test_copy_cell_xtext_marks_struck_only_when_requested():
         dest_cursor = MagicMock()
         dest_cell.createTextCursor.return_value = dest_cursor
 
+        from plugin.doc.text_helpers import TrackedDeletions
         with patch.object(rc, "clone_graphics", return_value=0):
-            rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, mark_struck=mark_struck)
+            rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, TrackedDeletions(MagicMock()), mark_struck=mark_struck)
         return dest_cell
 
     marked = _run(mark_struck=True)
@@ -860,11 +863,12 @@ def test_copy_cell_xtext_skips_struck_nested_table():
     src_cell = MagicMock()
     src_cell.createEnumeration.return_value = cell_enum
 
+    from plugin.doc.text_helpers import TrackedDeletions
     with (
         patch.object(rc, "table_is_struck", return_value=True),
         patch.object(rc, "copy_table") as mock_copy_table,
     ):
-        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), MagicMock(), mark_struck=True)
+        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), MagicMock(), TrackedDeletions(MagicMock()), mark_struck=True)
     mock_copy_table.assert_not_called()
 
 

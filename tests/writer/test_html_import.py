@@ -569,6 +569,7 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
             return MagicMock()
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -638,6 +639,7 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
             return cursor
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -687,6 +689,7 @@ def test_trailing_paragraph_disposal_is_not_success():
             return _Enum([_Para(), _Para()])
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False
     model.findFirst.return_value = None
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False

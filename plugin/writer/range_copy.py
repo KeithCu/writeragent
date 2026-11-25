@@ -8,7 +8,7 @@ without clipboard transferables or XHTML filter roundtrips.
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
@@ -551,6 +551,7 @@ def _copy_visible_portions(
     *,
     in_cell: bool,
     state: DeletionState,
+    deletions: TrackedDeletions,
 ) -> list[tuple[Any, str]]:
     """Copy visible portions of *para* at *cursor*.
 
@@ -559,7 +560,7 @@ def _copy_visible_portions(
     each run as they go.
     """
     copied: list[tuple[Any, str]] = []
-    for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state):
+    for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state, deletions=deletions):
         kind = portion.getPropertyValue("TextPortionType")
         if kind == "TextField":
             field = _portion_field(portion)
@@ -577,7 +578,7 @@ def _copy_visible_portions(
         else:
             text = _copy_math_or_text(portion, para, dest_text, cursor, math_records)
             if not text and kind == "Frame":
-                text = OBJECT_REPLACEMENT * clone_graphics(portion, dest_doc, dest_text, cursor)
+                text = OBJECT_REPLACEMENT * clone_graphics(portion, dest_doc, dest_text, cursor, deletions)
             if text:
                 copied.append((portion, text))
     return copied
@@ -588,6 +589,7 @@ def _copy_cell_xtext(
     src_cell: Any,
     dest_doc: Any,
     dest_cell: Any,
+    deletions: TrackedDeletions,
     math_records: list[tuple[str, str, bool]] | None = None,
     *,
     mark_struck: bool = False,
@@ -617,16 +619,16 @@ def _copy_cell_xtext(
         fresh = is_table
         if fresh:
             # Recreate the nested table inside dest_cell (same walk as body copy_table).
-            copy_table(src_doc, para, dest_doc, dest_cell, dest_cursor, math_records, mark_struck=mark_struck)
+            copy_table(src_doc, para, dest_doc, dest_cell, dest_cursor, deletions, math_records, mark_struck=mark_struck)
             continue
         opened = state.in_delete
         _copy_visible_portions(
-            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state
+            para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state, deletions=deletions
         )
         dest_cursor.gotoEnd(False)
         if mark_struck and state.strikes_paragraph(para, opened):
             dest_cell.insertString(dest_cursor, DELETED_MARK, False)
-        clone_graphics(para, dest_doc, dest_cell, dest_cursor)
+        clone_graphics(para, dest_doc, dest_cell, dest_cursor, deletions)
 
 
 def writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -708,6 +710,7 @@ def copy_table(
     dest_doc: Any,
     dest_text: Any,
     dest_cursor: Any,
+    deletions: TrackedDeletions,
     math_records: list[tuple[str, str, bool]] | None,
     *,
     mark_struck: bool = False,
@@ -742,7 +745,9 @@ def copy_table(
             except Exception as exc:
                 log.debug("copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
-            _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records, mark_struck=mark_struck)
+            _copy_cell_xtext(
+                src_doc, src_cell, dest_doc, dest_cell, deletions, math_records=math_records, mark_struck=mark_struck
+            )
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -753,7 +758,9 @@ def copy_table(
                 except Exception as exc:
                     log.debug("copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
-                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records, mark_struck=mark_struck)
+                _copy_cell_xtext(
+                    src_doc, src_cell, dest_doc, dest_cell, deletions, math_records=math_records, mark_struck=mark_struck
+                )
 
 
 def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
@@ -771,15 +778,50 @@ def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
         log.debug("range copy: paragraph break failed: %s", exc)
 
 
-def _struck_paragraph_state(para: Any, state: DeletionState) -> DeletionState | None:
-    """The state after *para* when a pending deletion leaves no text of it, else None.
+@dataclass
+class _Block:
+    """One table or paragraph that Accept All leaves.
 
-    *state* is left as it was, so a live paragraph can still be walked with it.
+    A paragraph lists the source paragraphs a deletion joins, each with the deletion
+    state at its start; a table has no *parts*. *element* gives the paragraph formatting.
     """
-    after = replace(state)
-    for _unused in visible_portions(para, state=after):
-        pass
-    return after if after.strikes_text(para, state.in_delete) else None
+
+    element: Any
+    parts: list[tuple[Any, DeletionState]]
+    live: bool = True
+
+
+def _accepted_blocks(doc: Any, text: Any, deletions: TrackedDeletions) -> list[_Block]:
+    """Return the tables and joined/live paragraphs Accept All leaves in *text*."""
+    state = deletions.state_at(text)
+    blocks: list[_Block] = []
+    struck = False
+    for el in iter_elements(text.createEnumeration()):
+        if supports_service(el, "com.sun.star.text.TextTable"):
+            if not table_is_struck(doc, el, state):
+                blocks.append(_Block(el, []))
+            continue
+        start = replace(state)
+        state.saw_delete = False
+        # Nothing is struck without deletions, so portions are only walked when some are pending.
+        # List comprehension runs visible_portions to the end so state sees every redline marker.
+        live = not deletions or any([True for _u in visible_portions(el, state=state, deletions=deletions)])
+        if not (start.in_delete and blocks and blocks[-1].parts):
+            blocks.append(_Block(el, [(el, start)], live))
+            struck = start.in_delete or state.saw_delete
+            continue
+        # A paragraph that starts inside a deletion is joined to the one before it on Accept.
+        block = blocks[-1]
+        block.parts.append((el, start))
+        struck = True
+        if not block.live:
+            # A wholly struck start keeps the later paragraph's formatting (sw_GetJoinFlags, docedt.cxx).
+            block.element, block.live = el, live
+    # Every recorded rewrite leaves a struck last paragraph. A copy of it would come back as live
+    # text, so only a logo Accept keeps is carried, on the paragraph before it.
+    if struck and len(blocks) > 1 and blocks[-1].parts and not blocks[-1].live and blocks[-2].parts:
+        blocks[-2].parts.extend(blocks.pop().parts)
+    return blocks
 
 
 def _copy_xtext_by_portions(
@@ -800,39 +842,25 @@ def _copy_xtext_by_portions(
     and every inherited margin and font would come back as a hand-set ``data-lo-para``
     override (same rule as range export, see ``_copy_properties``).
 
-    Wholly struck paragraphs are skipped so they do not reappear as live blank
-    paragraphs on a round trip; any surviving logo anchored to one moves to the
-    preceding paragraph.
+    Paragraphs joined across a deletion are merged as Accept All does, blank
+    struck paragraphs stay as blanks unless they are the trailing struck
+    paragraph left by a recorded rewrite, and any surviving logo anchored to a
+    dropped last paragraph moves to the preceding paragraph.
     """
     style_cache: dict[str, Any] = {}
     dest_text = dest_doc.getText()
     dest_text.setString("")
     dest_cursor = dest_text.createTextCursor()
     dest_cursor.gotoStart(False)
-    try:
-        enum = src_text.createEnumeration()
-    except Exception:
-        dest_text.setString(src_text.getString())
-        return
     deletions = TrackedDeletions(src_doc)
-    state = deletions.state_at(src_text)
     fresh = True
-    for el in iter_elements(enum):
-        is_table = supports_service(el, "com.sun.star.text.TextTable")
-        # A table inside an open deletion or with all rows marked deleted is struck whole.
-        if is_table and table_is_struck(src_doc, el, state):
-            continue
-        if not is_table and deletions and (after := _struck_paragraph_state(el, state)) is not None:
-            # No paragraph of its own: a blank one would come back as live text on the next write.
-            # A logo that Accept keeps moves to the paragraph before it.
-            state = after
-            clone_graphics(el, dest_doc, dest_text, dest_cursor, deletions)
-            continue
+    for block in _accepted_blocks(src_doc, src_text, deletions):
         if not fresh:
             begin_next_paragraph(dest_text, dest_cursor)
-        fresh = is_table
+        el = block.element
+        fresh = not block.parts
         if fresh:
-            copy_table(src_doc, el, dest_doc, dest_text, dest_cursor, math_records)
+            copy_table(src_doc, el, dest_doc, dest_text, dest_cursor, deletions, math_records)
             continue
         style = None
         style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
@@ -841,12 +869,16 @@ def _copy_xtext_by_portions(
         # Insert unformatted, then paint: a run painted while it is the paragraph's only text
         # lands on the paragraph (SwTextNode::SetAttr), and text inserted after a painted run
         # takes its formatting (SwTextNode::Update).
-        copied = _copy_visible_portions(
-            el, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state
-        )
+        copied: list[tuple[Any, str]] = []
+        for para, state in block.parts:
+            copied += _copy_visible_portions(
+                para, dest_doc, dest_text, dest_cursor, math_records, in_cell=False, state=state, deletions=deletions
+            )
+            dest_cursor.gotoEnd(False)
         paint_direct_formatting(el, copied, dest_text, 0, sum(len(c) for _p, c in copied), style)
         dest_cursor.gotoEnd(False)
-        clone_graphics(el, dest_doc, dest_text, dest_cursor, deletions)
+        for para, _state in block.parts:
+            clone_graphics(para, dest_doc, dest_text, dest_cursor, deletions)
 
 
 def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
@@ -868,54 +900,37 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
     cursor.setString("")
     cursor.gotoStart(False)
     fields_copied = 0
-    try:
-        enum = src_text.createEnumeration()
-    except Exception:
-        try:
-            dest_text.insertString(cursor, src_text.getString(), False)
-        except Exception as exc:
-            log.debug("copy_flow_into_xtext: plain-text fallback failed: %s", exc)
-        return 0
-
     deletions = TrackedDeletions(doc)
-    state = deletions.state_at(src_text)
     fresh = True
-    for el in iter_elements(enum):
-        is_table = supports_service(el, "com.sun.star.text.TextTable")
-        # A table inside an open deletion or with all rows marked deleted is struck whole.
-        if is_table and table_is_struck(doc, el, state):
-            continue
-        if not is_table and deletions and (after := _struck_paragraph_state(el, state)) is not None:
-            # No paragraph of its own: a blank one would come back as live text on the next write.
-            # A logo that Accept keeps moves to the paragraph before it.
-            state = after
-            clone_graphics(el, doc, dest_text, cursor, deletions)
-            continue
+    for block in _accepted_blocks(doc, src_text, deletions):
         if not fresh:
             begin_next_paragraph(dest_text, cursor)
-        fresh = is_table
+        el = block.element
+        fresh = not block.parts
         if fresh:
             # copy_table also clones cell graphics.
-            copy_table(doc, el, doc, dest_text, cursor, None)
+            copy_table(doc, el, doc, dest_text, cursor, deletions, None)
             continue
-        for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
-            kind = portion.getPropertyValue("TextPortionType")
-            if kind == "TextField":
-                field = _portion_field(portion)
-                if field is None:
-                    continue
-                if _copy_field_into(doc, dest_text, cursor, field):
-                    fields_copied += 1
-                cursor.gotoEnd(False)
-            elif kind == "Frame":
-                clone_graphics(portion, doc, dest_text, cursor)
-                cursor.gotoEnd(False)
-            elif kind == "Text":
-                if not chunk:
-                    continue
-                copy_text_run(portion, dest_text, cursor, chunk)
+        for para, state in block.parts:
+            for portion, chunk in visible_portions(para, abort_on_portion_error=True, state=state, deletions=deletions):
+                kind = portion.getPropertyValue("TextPortionType")
+                if kind == "TextField":
+                    field = _portion_field(portion)
+                    if field is None:
+                        continue
+                    if _copy_field_into(doc, dest_text, cursor, field):
+                        fields_copied += 1
+                    cursor.gotoEnd(False)
+                elif kind == "Frame":
+                    clone_graphics(portion, doc, dest_text, cursor, deletions)
+                    cursor.gotoEnd(False)
+                elif kind == "Text":
+                    if not chunk:
+                        continue
+                    copy_text_run(portion, dest_text, cursor, chunk)
         _copy_para_properties_to_end(dest_text, cursor, el)
-        clone_graphics(el, doc, dest_text, cursor, deletions)
+        for para, _state in block.parts:
+            clone_graphics(para, doc, dest_text, cursor, deletions)
 
     return fields_copied
 

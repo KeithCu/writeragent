@@ -1095,18 +1095,23 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
 
 
-# A field or a struck character is one cursor step in goRight, because getString() expands
-# a field to the digits the reader sees, so the search string uses \x01 per TextField and per
-# struck character rather than getString(). doc.findFirst is the wrong tool here too: it hits
-# the body first, and it cannot see a header on a page style no page uses.
+# A field, inline frame/image, or struck character is one cursor step in goRight, because
+# getString() expands a field to the digits the reader sees, so the search string uses \x01
+# per TextField, inline Frame, and struck character rather than getString(). doc.findFirst is
+# the wrong tool here too: it hits the body first, and it cannot see a header on a page style
+# no page uses.
 _OPAQUE_CURSOR_STEP = "\x01"
 
 
 def _portion_cursor_text(portion: Any) -> str:
-    """Text this portion contributes to a goRight index. A field is one step."""
+    """Text this portion contributes to a goRight index. A field or inline image is one step."""
     kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
     if kind == "TextField":
         return _OPAQUE_CURSOR_STEP
+    if kind == "Frame":
+        # An AS_CHARACTER object is one character; an AT_CHARACTER one takes none.
+        text = portion.getText()
+        return _OPAQUE_CURSOR_STEP if text.compareRegionEnds(portion.getStart(), portion.getEnd()) else ""
     chunk = uno_read(portion.getString, None)
     return chunk if isinstance(chunk, str) else ""
 

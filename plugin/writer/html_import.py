@@ -545,8 +545,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     *merge_forward_after_table*, the empty paragraph is merged into the paragraph
     after it, which keeps its own style (``sw_GetJoinFlags`` in
     ``sw/source/core/doc/docedt.cxx``: a deletion starting at offset 0 keeps the
-    end node). In a review-mode full-document replace or a recorded whole-paragraph
-    replace (``_replace_whole_paragraphs``), the paragraph after it is the first
+    end node). In a review-mode full-document replace, a recorded whole-paragraph
+    replace (``_replace_whole_paragraphs``), or a recorded header/footer rewrite
+    (``replace_xtext_with_html``), the paragraph after it is the first
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
@@ -1440,6 +1441,84 @@ def replace_single_range_with_content(
 
 
 
+def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
+    """Clear *text_obj* and return ``(import_cursor, leftover_cursor)``.
+
+    When *text_obj* starts or ends with a table, a text cursor cannot span it, so
+    ``SwXText::setString`` (``sw/source/core/unocore/unotext.cxx``) is used. It
+    appends empty helper paragraphs at the very start and very end of the text
+    whenever it holds any table or section, so a leading helper exists even when
+    only the last element is a table. While recording, that leading helper is
+    merged forward (never ``dispose()``d, because a later Undo aborts LibreOffice)
+    and an empty fresh paragraph is opened for the import so direct properties and
+    heading styles from the old paragraph do not stamp the imported blocks.
+    """
+    elements = list(iter_elements(text_obj.createEnumeration()))
+    tables = [_uno_service_true(el, "com.sun.star.text.TextTable") for el in elements]
+    table_edge = bool(tables and (tables[0] or tables[-1]))
+    recording = record_changes.is_recording_changes(model)
+    if not recording:
+        # Explicit table removal keeps the remaining paragraph's style, whereas
+        # SwXText::setString alone resets it to Standard.
+        for el, is_table in zip(elements, tables):
+            if is_table:
+                text_obj.removeTextContent(el)
+    if not recording or table_edge:
+        text_obj.setString("")
+    else:
+        # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
+        # starts and ends with a paragraph, so Reject All restores the structure without extras.
+        doomed = text_obj.createTextCursor()
+        doomed.gotoStart(False)
+        doomed.gotoEnd(True)
+        doomed.setString("")
+    # Create after clearing: createTextCursor() on a table-only region raises "no text available".
+    cursor = text_obj.createTextCursor()
+    cursor.gotoStart(False)
+    if not recording:
+        _leave_heading_style(model, cursor)
+        return cursor, None
+    if table_edge:
+        with record_changes.record_changes(model, False):
+            _merge_empty_paragraph_forward(cursor)
+        cursor.gotoStart(False)
+    text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    cursor.goLeft(1, False)
+    with record_changes.record_changes(model, False):
+        _drop_absorb_paragraph_props(cursor)
+        reset_direct_char_formatting(cursor)
+        _leave_heading_style(model, cursor)
+    return cursor, text_obj.createTextCursorByRange(cursor.getStart())
+
+
+def _merge_empty_paragraph_forward(cursor: Any) -> None:
+    """Merge an empty paragraph at *cursor* into the following paragraph.
+
+    Joining two empty paragraphs keeps the first one's style (``sw_GetJoinFlags``
+    in ``sw/source/core/doc/docedt.cxx``), so copy the next paragraph's style first.
+    """
+    para = cursor.getText().createTextCursorByRange(cursor)
+    para.gotoEndOfParagraph(True)
+    if para.getString():
+        return
+    if cursor.goRight(1, True) and cursor.getString() in _PARAGRAPH_BREAKS:
+        following = cursor.getText().createTextCursorByRange(cursor.getEnd())
+        para.setPropertyValue("ParaStyleName", following.getPropertyValue("ParaStyleName"))
+        cursor.setString("")
+
+
+def _leave_heading_style(model: Any, cursor: Any) -> None:
+    """Switch off any style whose follow style differs (such as headings or Title).
+
+    ``SwHTMLParser::CallParser`` / ``SetTextCollAttrs`` (``sw/source/filter/html/swhtml.cxx``)
+    stamps the insertion paragraph's effective attributes onto every imported block.
+    """
+    name = cursor.getPropertyValue("ParaStyleName")
+    style = model.getStyleFamilies().getByName("ParagraphStyles").getByName(name)
+    if style.getPropertyValue("FollowStyle") != name:
+        cursor.setPropertyValue("ParaStyleName", "Standard")
+
+
 def replace_xtext_with_html(
     text_obj: Any, html: str, *, model: Any
 ) -> html_import_styles.WriteReport:
@@ -1480,33 +1559,8 @@ def replace_xtext_with_html(
     title = next_agent_edit_undo_title()
 
     def mutate() -> None:
-        elements = list(iter_elements(text_obj.createEnumeration()))
-        if not record_changes.is_recording_changes(model):
-            # Explicit table removal keeps the remaining paragraph's style, whereas
-            # SwXText::setString alone resets it to Standard.
-            for el in elements:
-                if _uno_service_true(el, "com.sun.star.text.TextTable"):
-                    text_obj.removeTextContent(el)
-            text_obj.setString("")
-        elif elements and (
-            _uno_service_true(elements[0], "com.sun.star.text.TextTable")
-            or _uno_service_true(elements[-1], "com.sun.star.text.TextTable")
-        ):
-            # SwXText::setString (sw/source/core/unocore/unotext.cxx) adds helper paragraphs
-            # around tables, needed when the region starts or ends with a table because a text
-            # cursor cannot span across it. While recording, that helper stays as a struck empty
-            # paragraph. Do not remove the helper with dispose(): a later Undo aborts LibreOffice.
-            text_obj.setString("")
-        else:
-            # Cursor clear avoids SwXText::setString's helper paragraphs when text_obj both
-            # starts and ends with a paragraph, so Reject All restores the structure without extras.
-            cursor = text_obj.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            cursor.setString("")
+        cursor, leftover = _clear_region(model, text_obj)
         tables_before = _table_count(model) if "<table" in prepared.lower() else None
-        cursor = text_obj.createTextCursor()
-        cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False,
         )
@@ -1525,6 +1579,11 @@ def replace_xtext_with_html(
                 model, text_obj, text_obj.getStart(), block_styles, paras=block_paras,
             ))
         _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce)
+        if leftover is not None:
+            # merge_forward_after_table=True is right even without a table: empty content
+            # merges the fresh paragraph into the struck text.
+            with record_changes.record_changes(model, False):
+                _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
 
         # Issue #1424: HTML import can leave a trailing empty paragraph.
         # If there is more than one paragraph and the last one is entirely empty, remove it.

@@ -496,7 +496,8 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   nested tables Accept All removes). Copy walks
   `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
   helper stays in this shipped file, not `specialized.tables`). Cell images are copied
-  across body range reads, header/footer reads, and page-style clones.
+  across body range reads, header/footer reads, and page-style clones, leaving out cell
+  images Accept All removes.
 - **`apply_content` refuses a host-cell wipe, table-start/non-text selection, or any hidden or protected section.**
   Search/replace and selection clear raise if the range lives in a cell that hosts a nested
   table. Use `table_set_cell` / `table_*`. `target='full_document'` is not policed for

@@ -711,3 +711,21 @@ def test_show_hidden_sections_strips_display_none_and_condition():
 
     plain = '<office:body><text:section text:name="V"><text:p>v</text:p></text:section></office:body>'
     assert show_hidden_sections(plain) == plain
+
+
+def test_xhtml_to_semantic_html_drops_field_breaks_and_normalizes_following_nbsp():
+    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
+
+    xhtml = (
+        '<html><body>'
+        '<p>Page <span title="page-number">1</span>\n\xa0of <span title="page-count">3</span>\n/'
+        '<span title="date">today</span>\n\xa0<span title="time">now</span>\n\xa0</p>'
+        '<p><span class="text-T1">plain</span>\nkept</p>'
+        '</body></html>'
+    )
+    out = xhtml_to_semantic_html(xhtml)
+    assert (
+        '<p>Page <span title="page-number">1</span> of <span title="page-count">3</span>/'
+        '<span title="date">today</span> <span title="time">now</span>\xa0</p>'
+    ) in out
+    assert '<span>plain</span>\nkept' in out
