@@ -47,7 +47,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort, format_erro
 from plugin.framework.send_cancellation import unpack_approval
 from plugin.framework.url_utils import get_url_domain
 from plugin.contrib.cdp import browser_cdp_tool
-from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
+from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot import web_research_firefox
@@ -102,7 +102,7 @@ class WebAgentRunParams:
 
 
 
-class WebResearchToolCallingAgent(PartialTurnToolCallingAgent):
+class WebResearchToolCallingAgent(ToolCallingAgent):
     """Subclass of ToolCallingAgent that injects the step budget into the prompt on each step."""
 
     def execute_tool_call(self, tool_name: str, arguments: dict[str, str] | str) -> Any:

@@ -1052,25 +1052,69 @@ class ToolCallingAgent(MultiStepAgent):
             for tool_call in chat_message.tool_calls:
                 tool_call.function.arguments = parse_json_if_needed(tool_call.function.arguments)
         final_answer, got_final_answer = None, False
-        for output in self.process_tool_calls(chat_message, memory_step):
-            yield output
-            if isinstance(output, ToolOutput):
-                if output.is_final_answer:
-                    if got_final_answer:
-                        raise AgentToolExecutionError(
-                            "You returned multiple final answers. Please return only one single final answer!",
-                            self.logger,
-                        )
-                    final_answer = output.output
-                    got_final_answer = True
+        requested: dict[str, ToolCall] = {}
+        outputs: dict[str, ToolOutput] = {}
+        try:
+            for output in self.process_tool_calls(chat_message, memory_step):
+                if isinstance(output, ToolCall):
+                    requested[output.id] = output
+                elif isinstance(output, ToolOutput):
+                    outputs[output.id] = output
+                yield output
+                if isinstance(output, ToolOutput):
+                    if output.is_final_answer:
+                        if got_final_answer:
+                            raise AgentToolExecutionError(
+                                "You returned multiple final answers. Please return only one single final answer!",
+                                self.logger,
+                            )
+                        final_answer = output.output
+                        got_final_answer = True
 
-                    # Manage state variables
-                    if isinstance(final_answer, str) and final_answer in self.state.keys():
-                        final_answer = self.state[final_answer]
+                        # Manage state variables
+                        if isinstance(final_answer, str) and final_answer in self.state.keys():
+                            final_answer = self.state[final_answer]
+        except AgentError:
+            # The error text alone already reports a single-call failure.
+            if len(requested) > 1:
+                self._record_partial_turn(memory_step, requested, outputs)
+            raise
         yield ActionOutput(
             output=final_answer,
             is_final_answer=got_final_answer,
         )
+
+    def _record_partial_turn(
+        self,
+        memory_step: ActionStep,
+        requested: dict[str, ToolCall],
+        outputs: dict[str, ToolOutput],
+    ) -> None:
+        # Calls run one at a time in request order. With two finish calls every started call
+        # has an output and none raised; otherwise the first call without one raised.
+        failure_passed = sum(o.is_final_answer for o in outputs.values()) > 1
+        lines: list[str] = []
+        for i, call in enumerate(requested.values(), 1):
+            output = outputs.get(call.id)
+            if output is not None:
+                # A tool can end a session without being this agent's final_answer_tool_name
+                # (e.g. PPT-Master's ppt_master_finished), so its ToolOutput.is_final_answer is
+                # False; vendored Tool classes do not all define is_final_answer_tool.
+                if output.is_final_answer or getattr(self.tools.get(call.name), "is_final_answer_tool", False):
+                    lines.append(f"Call {i} ({call.name}) was not accepted because this turn failed.")
+                else:
+                    lines.append(f"Call {i} ({call.name}) ran:\n{output.observation}")
+            elif not failure_passed:
+                failure_passed = True
+                lines.append(f"Call {i} ({call.name}) failed; its error is below.")
+            else:
+                lines.append(f"Call {i} ({call.name}) did not run because this turn had already failed.")
+                self.on_call_not_run(call)
+        memory_step.tool_calls = list(requested.values())
+        memory_step.observations = "\n".join(lines)
+
+    def on_call_not_run(self, call: ToolCall) -> None:
+        """Called for each call skipped after the turn failed. Override to record it."""
 
     def process_tool_calls(
         self, chat_message: ChatMessage, memory_step: ActionStep

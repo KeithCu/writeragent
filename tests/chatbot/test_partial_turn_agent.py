@@ -1,10 +1,9 @@
-"""Tests for PartialTurnToolCallingAgent."""
+"""Tests for partial-turn recovery in ToolCallingAgent."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.models import (
     ChatMessage,
@@ -60,7 +59,7 @@ class _FinalTool(Tool):
         return answer
 
 
-def _make_agent(model: MagicMock, *tools: Tool, agent_cls=PartialTurnToolCallingAgent):
+def _make_agent(model: MagicMock, *tools: Tool, agent_cls=ToolCallingAgent):
     return agent_cls(
         tools=list(tools),
         model=model,
@@ -192,26 +191,19 @@ def test_single_failing_call_leaves_observations_and_tool_calls_none():
     assert first_action.tool_calls is None
 
 
-def test_successful_multicall_turn_matches_base_observations():
-    edit_partial = _EditTool()
-    edit_base = _EditTool()
-    replies = [
+def test_successful_multicall_turn_keeps_plain_observations():
+    edit = _EditTool()
+    model = MagicMock()
+    model.generate.side_effect = [
         _assistant_msg(("edit_doc", {"n": 1}, "c1"), ("edit_doc", {"n": 2}, "c2")),
         _assistant_msg(("final_answer", {"answer": "done"}, "c3")),
     ]
-    m1 = MagicMock()
-    m1.generate.side_effect = list(replies)
-    m2 = MagicMock()
-    m2.generate.side_effect = list(replies)
 
-    partial = _make_agent(m1, edit_partial, _FinalTool(), agent_cls=PartialTurnToolCallingAgent)
-    base = _make_agent(m2, edit_base, _FinalTool(), agent_cls=ToolCallingAgent)
+    agent = _make_agent(model, edit, _FinalTool())
+    assert agent.run("t") == "done"
 
-    partial.run("t")
-    base.run("t")
-
-    obs = partial.memory.steps[1].observations
-    assert obs == base.memory.steps[1].observations
+    obs = agent.memory.steps[1].observations
+    assert obs == "edited:1\nedited:2"
     assert "Call 1" not in obs
 
 
