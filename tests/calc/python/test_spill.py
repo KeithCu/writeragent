@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -377,6 +378,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
 
     cell_B2.setFormula("")
     _fire_sheet_modify(MagicMock(), doc, sheet)
+    st.flush_spill_registry()
 
     assert key not in SPILL_REGISTRY
     assert cell_B3.getType() == 0
@@ -410,6 +412,7 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
         ctx = MagicMock()
         SheetModifyDispatcher(ctx, active, "Sheet1").modified(SimpleNamespace(Source=sheet))
         flush_sheet_modify_pass_for_tests(ctx, owner, sheet, sheet_name="Sheet1")
+        st.flush_spill_registry()
         assert key not in SPILL_REGISTRY
         assert spilled.getValue() == 0
         assert saved == [owner]
@@ -1067,6 +1070,7 @@ def test_prepare_auto_spill_blocked_clears_owned_cells_after_settle(monkeypatch:
         assert sheet.getCellByPosition(0, 1).getValue() == 10
 
         state.debounce.flush_for_tests("spill:Sheet1:0:0")
+        state.flush_spill_registry()
 
         assert sheet.getCellByPosition(0, 1).getType() == _spill.EMPTY
         assert sheet.getCellByPosition(0, 2).getValue() == 5
@@ -1706,6 +1710,7 @@ def test_moved_formula_respills_before_modify_pass(
                 code=code,
                 key=st.key,
             )
+            st.flush_spill_registry()
             assert sheet.getCellByPosition(0, 3).getValue() == 30.0
             assert list(json.loads(saved[-1]).keys()) == ["Sheet1:1,0"]
         else:
@@ -2200,6 +2205,7 @@ def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pyt
         state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="x", rows=2, cols=1)
 
         _spill.cleanup_orphans(state, sheet1, doc=doc, sheet_name="Sheet1")
+        state.flush_spill_registry()
 
         assert state.loaded
         assert ("Sheet1", 0, 0) not in state.spills
@@ -2254,5 +2260,66 @@ def test_load_spill_registry_missing_property_marks_loaded() -> None:
         _spill.load_spill_registry_for_doc(doc, st)
         assert st.loaded
         assert st.spills == {}
+    finally:
+        WorkbookState.forget_key(st.key)
+
+
+def test_multiple_spills_in_one_debounce_drain_save_registry_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Multiple deferred spills in one cycle defer persistence until the registry debounce flushes."""
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    saved_payloads: list[str] = []
+
+    def _mock_set_prop(_model: Any, name: str, value: Any) -> None:
+        if name == "WriterAgentSpillRegistry":
+            saved_payloads.append(value)
+
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", _mock_set_prop)
+
+    reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///batch-save.ods", props={"RuntimeUID": "uid-batch-save"})
+    sheet = doc.getSheets().getByIndex(0)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+
+    try:
+        specs = [
+            (0, 0, "c0", [[1], [2]]),
+            (0, 3, "c1", [[3], [4], [5]]),
+            (0, 6, "c2", [[6, 7]]),
+        ]
+        for row, col, code, grid in specs:
+            origin_cell = sheet.getCellByPosition(col, row)
+            origin_cell.setFormula(f'=PY("{code}")')
+            prepared = _spill.prepare_auto_spill(
+                MagicMock(),
+                doc,
+                st,
+                FormulaOrigin(sheet, origin_cell, "Sheet1", row, col),
+                code,
+                grid,
+            )
+            assert isinstance(prepared, _spill.PreparedSpill)
+            _spill.queue_deferred_spill_write(st, doc, prepared, grid)
+            st.debounce.flush_for_tests(f"spill:Sheet1:{row}:{col}")
+
+        # All three cell blocks are written immediately, while registry persistence is deferred.
+        assert saved_payloads == []
+        assert "spill-registry" in st.debounce.pending_for_tests()
+        assert sheet.getCellByPosition(0, 1).getValue() == 2
+        assert sheet.getCellByPosition(3, 2).getValue() == 5
+        assert sheet.getCellByPosition(7, 0).getValue() == 7
+
+        st.debounce.flush_for_tests("spill-registry")
+        assert len(saved_payloads) == 1
+        assert json.loads(saved_payloads[0]) == {
+            "Sheet1:0,0": {"code": "c0", "rows": 2, "cols": 1},
+            "Sheet1:0,3": {"code": "c1", "rows": 3, "cols": 1},
+            "Sheet1:0,6": {"code": "c2", "rows": 1, "cols": 2},
+        }
+        assert "spill-registry" not in st.debounce.pending_for_tests()
+        st.flush_spill_registry()
+        assert len(saved_payloads) == 1
     finally:
         WorkbookState.forget_key(st.key)

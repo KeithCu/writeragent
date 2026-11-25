@@ -123,12 +123,32 @@ class WorkbookState:
     loaded: bool = False
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
     debounce: Debounce = field(default_factory=Debounce)
+    _dirty_spill_doc: Any = field(default=None, repr=False)
     prior_keys: set[str] = field(default_factory=set)
     # Pending spill generations keyed by (sheet, row, col) so an already-posted write
     # cannot overwrite a newer result; off-main codes track pending posts before locate.
     pending_spills: dict[tuple[str, int, int], int] = field(default_factory=dict)
     pending_off_main_codes: set[str] = field(default_factory=set)
     _spill_seq: int = 0
+
+    def mark_spill_registry_dirty(self, doc: Any) -> None:
+        """Schedule a single non-re-armed 0.1 s registry save if not already dirty."""
+        if self._dirty_spill_doc is not None:
+            return
+        self._dirty_spill_doc = doc
+        self.debounce.schedule("spill-registry", 0.1, self.flush_spill_registry)
+
+    def flush_spill_registry(self) -> None:
+        """Persist the spill registry once if dirty, cancelling any pending timer."""
+        doc = self._dirty_spill_doc
+        if doc is None:
+            return
+        self._dirty_spill_doc = None
+        self.debounce.cancel("spill-registry")
+        # Lazy: spill imports WorkbookState at its top.
+        from plugin.calc.python.spill import save_spill_registry_for_doc
+
+        save_spill_registry_for_doc(doc, self)
 
     def queue_pending_spill(self, reg_key: tuple[str, int, int]) -> int:
         with _LOCK:
@@ -180,6 +200,7 @@ class WorkbookState:
         self.spills.clear()
         self.used_ends.clear()
         self.listeners.clear()
+        self._dirty_spill_doc = None
         self.debounce.cancel_all()
         with _LOCK:
             self.pending_spills.clear()

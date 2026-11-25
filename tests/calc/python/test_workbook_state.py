@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import patch
 
-from plugin.calc.python.workbook_state import Debounce
+from plugin.calc.python.workbook_state import Debounce, WorkbookState
 
 
 def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
@@ -60,3 +60,30 @@ def test_debounce_posts_due_callback_to_main() -> None:
             assert "k" not in debounce.pending_for_tests()
     finally:
         debounce.cancel_all()
+
+
+def test_workbook_state_dirty_spill_registry_schedules_once_without_rearming() -> None:
+    """Marking dirty schedules 'spill-registry' once without re-arming, and flush clears it."""
+    state = WorkbookState(key="uid-dirty-once")
+    doc = object()
+    saved: list[object] = []
+    try:
+        with (
+            patch.object(state.debounce, "schedule", wraps=state.debounce.schedule) as mock_sched,
+            patch("plugin.calc.python.spill.save_spill_registry_for_doc", side_effect=lambda d, _st: saved.append(d)),
+        ):
+            state.mark_spill_registry_dirty(doc)
+            state.mark_spill_registry_dirty(doc)
+            state.mark_spill_registry_dirty(doc)
+            mock_sched.assert_called_once_with("spill-registry", 0.1, state.flush_spill_registry)
+            assert "spill-registry" in state.debounce.pending_for_tests()
+
+            state.flush_spill_registry()
+            assert saved == [doc]
+            assert "spill-registry" not in state.debounce.pending_for_tests()
+
+            # A second flush (e.g. from a late timer callback) is a no-op.
+            state.flush_spill_registry()
+            assert saved == [doc]
+    finally:
+        state.clear()

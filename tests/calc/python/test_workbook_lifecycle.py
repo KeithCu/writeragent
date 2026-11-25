@@ -122,6 +122,27 @@ def test_unload_clears_in_memory_spill_state():
     assert not state.loaded
 
 
+@pytest.mark.parametrize("event_name", ["OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"])
+def test_save_events_flush_dirty_spill_registry_once(event_name: str):
+    """Save-prepare events flush a dirty spill registry once and clear the pending timer."""
+    doc = MagicMock()
+    state = WorkbookState(key="key-save-flush")
+    listener = _CalcPythonUnloadListener("key-save-flush", "calc:file:///save.ods", state)
+    try:
+        state.mark_spill_registry_dirty(doc)
+        assert "spill-registry" in state.debounce.pending_for_tests()
+        with patch("plugin.calc.python.spill.save_spill_registry_for_doc") as mock_save:
+            listener.on_document_event(MagicMock(EventName=event_name))
+            mock_save.assert_called_once_with(doc, state)
+            assert "spill-registry" not in state.debounce.pending_for_tests()
+
+            # A later flush (e.g. a timer callback that already fired) writes nothing.
+            state.flush_spill_registry()
+            mock_save.assert_called_once()
+    finally:
+        state.clear()
+
+
 def test_unload_clears_in_memory_geometric_state():
     reset_geometric_runtime_for_tests()
     key = "key-geo"
