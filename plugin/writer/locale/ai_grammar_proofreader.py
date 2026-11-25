@@ -196,6 +196,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str, locale: Any) -> Any |
     for model in iter_open_models(desktop):
         if not _is_text_document(model):
             continue
+        # -1 for nErrorPosInPara stops after the first sentence and returns our result.
         result = iterator.checkSentenceAtPosition(model, probe, _DOC_ID_PROBE_TEXT, locale, 0, -1, -1)
         if result.aDocumentIdentifier == doc_id:
             return model
@@ -698,6 +699,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
         if aText == _DOC_ID_PROBE_TEXT:
             # _resolve_proofread_writer_model asks which id this document has; it holds _bind_lock.
+            # LibreOffice returns our result only when nBehindEndOfSentencePosition > 0.
             return _create_empty_result(self, aDocumentIdentifier, aText, aLocale, 0, len(aText), u16_map=Utf16OffsetMap(aText))
         with background_if_dummy_thread("proofreading"):
             if uno_mod is None:

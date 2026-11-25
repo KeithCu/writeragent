@@ -256,14 +256,15 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
 
 
 @native_test(timeout=90)
-def test_writers_open_before_the_checker_is_enabled_load_their_own_ignore_rules(ctx: Any) -> None:
+def test_each_of_several_open_writers_binds_by_its_own_document_id(ctx: Any) -> None:
     import json
     import tempfile
+    import time
     from pathlib import Path
 
     import uno
     from plugin.doc.udprops import get_document_property, set_document_property
-    from plugin.framework.scratch_writer import load_scratch_document
+    from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
     from plugin.framework.uno_context import get_desktop
     from plugin.writer.locale.ai_grammar_proofreader import IMPLEMENTATION_NAME, SERVICE_NAME
     from plugin.writer.locale.grammar_proofread_locale import (
@@ -277,7 +278,16 @@ def test_writers_open_before_the_checker_is_enabled_load_their_own_ignore_rules(
     iterator = ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
     en_loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
     saved_services = tuple(lsm.getConfiguredServices(SERVICE_NAME, en_loc))
-    saved_enabled = setup_grammar_proof_tests(ctx)
+    # Binding runs before the enabled check; saving "off" keeps runner and soffice
+    # aligned whether or not soffice has initialized config.
+    try:
+        saved_enabled = get_config("doc.grammar_proofreader_enabled")
+    except Exception:
+        saved_enabled = "off"
+    save({"doc.grammar_proofreader_enabled": "off"})
+    if saved_enabled != "off":
+        # Allow config._load's 2 s cache in soffice to expire if an earlier test cached "llm".
+        time.sleep(2.1)
     hidden_pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
 
     docs_to_close: list[Any] = []
@@ -287,59 +297,61 @@ def test_writers_open_before_the_checker_is_enabled_load_their_own_ignore_rules(
         lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
-            for idx in range(3):
-                doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_pv,))
-                doc.getText().setString("The party of the first part agree.\n" * 20)
-                payload = {
-                    "version": GRAMMAR_CACHE_VERSION,
-                    "model": "off",
-                    "locales": {},
-                    "ignored_rules": [f"rule-{idx}"],
-                }
-                set_document_property(doc, GRAMMAR_DOC_CACHE_UDPROP, json.dumps(payload))
-                url = uno.systemPathToFileUrl(str(tmp_path / f"contract-{idx}.odt"))
-                doc.storeToURL(url, ())
-                doc.close(True)
+            try:
+                for idx in range(3):
+                    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_pv,))
+                    doc.getText().setString("The party of the first part agree.\n" * 20)
+                    payload = {
+                        "version": GRAMMAR_CACHE_VERSION,
+                        "model": "off",
+                        "locales": {},
+                        "ignored_rules": [f"rule-{idx}"],
+                    }
+                    set_document_property(doc, GRAMMAR_DOC_CACHE_UDPROP, json.dumps(payload))
+                    url = uno.systemPathToFileUrl(str(tmp_path / f"contract-{idx}.odt"))
+                    doc.storeToURL(url, ())
+                    doc.close(True)
 
-                vis_doc = desktop.loadComponentFromURL(url, "_blank", 0, ())
-                docs_to_close.append(vis_doc)
-                writers.append(vis_doc)
+                    vis_doc = desktop.loadComponentFromURL(url, "_blank", 0, ())
+                    docs_to_close.append(vis_doc)
+                    writers.append(vis_doc)
 
-            calc_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())
-            docs_to_close.append(calc_doc)
-            scratch = load_scratch_document(desktop, "private:factory/swriter")
+                calc_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())
+                docs_to_close.append(calc_doc)
+                scratch = load_scratch_document(desktop, "private:factory/swriter")
 
-            lsm.setConfiguredServices(SERVICE_NAME, en_loc, (IMPLEMENTATION_NAME,))
-            for writer in writers:
-                fp = writer.getFlatParagraphIterator(4, False).getFirstPara()
-                assert fp is not None
-                para_text = fp.getText()
-                iterator.checkSentenceAtPosition(writer, fp, para_text, en_loc, 0, len(para_text), 0)
+                lsm.setConfiguredServices(SERVICE_NAME, en_loc, (IMPLEMENTATION_NAME,))
+                # Headless UNO has no visible page layout (unoflatpara.cxx GetFirstVisPage),
+                # so the automatic walk does not start; checkSentenceAtPosition exercises
+                # real per-document id resolution across all open Writers directly.
+                for writer in writers:
+                    fp = writer.getFlatParagraphIterator(4, False).getFirstPara()
+                    assert fp is not None
+                    para_text = fp.getText()
+                    iterator.checkSentenceAtPosition(writer, fp, para_text, en_loc, 0, len(para_text), 0)
 
-            for idx, writer in enumerate(writers):
-                set_document_property(writer, GRAMMAR_DOC_CACHE_UDPROP, "{}")
-                copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
-                writer.storeToURL(copy_url, ())
+                for idx, writer in enumerate(writers):
+                    set_document_property(writer, GRAMMAR_DOC_CACHE_UDPROP, "{}")
+                    copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
+                    writer.storeToURL(copy_url, ())
 
-            lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
-            for idx in range(3):
-                copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
-                reopened = desktop.loadComponentFromURL(copy_url, "_blank", 0, (hidden_pv,))
-                docs_to_close.append(reopened)
-                raw = get_document_property(reopened, GRAMMAR_DOC_CACHE_UDPROP)
-                assert raw is not None
-                assert json.loads(raw)["ignored_rules"] == [f"rule-{idx}"]
+                lsm.setConfiguredServices(SERVICE_NAME, en_loc, ())
+                for idx in range(3):
+                    copy_url = uno.systemPathToFileUrl(str(tmp_path / f"copy-{idx}.odt"))
+                    reopened = desktop.loadComponentFromURL(copy_url, "_blank", 0, (hidden_pv,))
+                    docs_to_close.append(reopened)
+                    raw = get_document_property(reopened, GRAMMAR_DOC_CACHE_UDPROP)
+                    assert raw is not None
+                    assert json.loads(raw)["ignored_rules"] == [f"rule-{idx}"]
+            finally:
+                for doc in docs_to_close:
+                    try:
+                        doc.close(True)
+                    except Exception:
+                        pass
+                if scratch is not None:
+                    close_scratch_document(scratch)
     finally:
-        for doc in docs_to_close:
-            try:
-                doc.close(True)
-            except Exception:
-                pass
-        if scratch is not None:
-            try:
-                scratch.close(True)
-            except Exception:
-                pass
         try:
             lsm.setConfiguredServices(SERVICE_NAME, en_loc, saved_services)
         except Exception:

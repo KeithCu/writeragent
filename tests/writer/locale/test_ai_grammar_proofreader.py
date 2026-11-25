@@ -896,8 +896,8 @@ def test_ensure_persistence_bound_never_probes_a_non_writer() -> None:
         gp.grammar_registry.clear_all()
 
 
-def test_ensure_persistence_bound_dedupes_two_windows_of_one_writer() -> None:
-    """Two windows on one Writer yield the model twice on the desktop; it still binds once."""
+def test_ensure_persistence_bound_binds_first_match_when_writer_has_two_windows() -> None:
+    """Two windows on one Writer yield the model twice on the desktop; the first match binds."""
     from plugin.writer.locale import grammar_persistence as gp
 
     writer = _writer_model()
@@ -920,11 +920,12 @@ def test_ensure_persistence_bound_dedupes_two_windows_of_one_writer() -> None:
 def test_do_proofreading_answers_id_probe_without_binding(
     mock_config_fixture, mock_locale_fixture, mock_queue_fixture
 ) -> None:
-    """The id probe returns immediately even while _bind_lock is held."""
+    """The id probe returns immediately without calling _ensure_document_bound."""
     pr = _make_proofreader()
     text = proofreader._DOC_ID_PROBE_TEXT
-    with pr._bind_lock:
+    with patch.object(pr, "_ensure_document_bound") as mock_bind:
         res = pr.doProofreading("7", text, mock_locale_fixture, 0, len(text), ())
+    mock_bind.assert_not_called()
     assert res.aDocumentIdentifier == "7"
     assert res.nBehindEndOfSentencePosition == len(text)
     mock_queue_fixture.enqueue.assert_not_called()
