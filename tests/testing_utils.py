@@ -1930,6 +1930,9 @@ class FakeUnoPortion:
                 def createEnumeration(self) -> FakeUnoEnum:
                     return FakeUnoEnum(inner)
 
+                def supportsService(self, svc: str) -> bool:
+                    return svc == "com.sun.star.text.textfield.MetadataField"
+
             return _Container()
         raise KeyError(name)
 

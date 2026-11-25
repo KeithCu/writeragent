@@ -1183,10 +1183,10 @@ def test_copy_page_regions_does_not_export_html():
 class _ReplaceCursor:
     """goRight cursor over a portion-index string. ``\\x01`` is one field step."""
 
-    def __init__(self, hay):
+    def __init__(self, hay, pos=0):
         self.hay = hay
-        self.pos = 0
-        self.anchor = 0
+        self.pos = pos
+        self.anchor = pos
         self.written = None
 
     def goRight(self, count, expand):
@@ -1217,9 +1217,10 @@ class _ReplaceCursor:
         return ("end", self.pos)
 
 
-def _text_portion(text):
+def _text_portion(text, start=0):
     portion = _portion("Text")
     portion.getString.return_value = text
+    portion.getStart.return_value = start
     return portion
 
 
@@ -1227,7 +1228,7 @@ def _replace_doc(portions, shapes=(), hay=""):
     """Page style whose footer enumerates *portions*. Cursors walk *hay*."""
     text_obj = MagicMock()
     text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph(portions)])
-    text_obj.createTextCursorByRange.side_effect = lambda _rng: _ReplaceCursor(hay)
+    text_obj.createTextCursorByRange.side_effect = lambda rng: _ReplaceCursor(hay, rng if isinstance(rng, int) else 0)
     doc, _style = _page_style_doc(text_obj, shapes=shapes)
     return doc, text_obj
 
@@ -1236,8 +1237,8 @@ def _cursors_for(text_obj, hay):
     """Record every cursor the replace tool builds so tests can see setString."""
     seen = []
 
-    def make(_rng):
-        cursor = _ReplaceCursor(hay)
+    def make(rng):
+        cursor = _ReplaceCursor(hay, rng if isinstance(rng, int) else 0)
         seen.append(cursor)
         return cursor
 
@@ -1341,10 +1342,10 @@ def test_replace_header_footer_default_case_insensitive():
     assert len(seen) == 1 and seen[0].written == "Hi"
 
 
-def test_replace_header_footer_counts_a_field_as_one_cursor_step():
-    """The literal after a field is indexed with \\x01, not the field's visible digits."""
+def test_replace_header_footer_after_a_field_starts_at_its_portion():
+    """A match after a field starts at that portion rather than counting earlier steps."""
     hay = "Annex \x01 of 274"
-    portions = [_text_portion("Annex "), _portion("TextField", _page_number_field()), _text_portion(" of 274")]
+    portions = [_text_portion("Annex ", start=0), _portion("TextField", _page_number_field()), _text_portion(" of 274", start=7)]
     doc, text_obj = _replace_doc(portions, hay=hay)
     shape = _logo_anchored_in(text_obj)
     doc.getDrawPage().getCount.return_value = 1
@@ -1356,9 +1357,6 @@ def test_replace_header_footer_counts_a_field_as_one_cursor_step():
     assert res["fields_preserved"] == 1
     assert res["shapes_preserved"] == 1
     assert len(seen) == 1 and seen[0].written == "300"
-    # "Annex " (6) + field (1) + " of " (4) = 11. A getString() index would use the
-    # field's presentation ("1") and still land here only because that happens to
-    # be one character; the haystack itself is the cursor index.
     assert seen[0].anchor == 11
 
 
@@ -2228,13 +2226,14 @@ def test_page_set_style_properties_invalid_back_color_writes_nothing():
     style.setPropertyValue.assert_not_called()
 
 
-def _cursor_portion(kind: str, text: str = "", *, is_start: bool = False):
+def _cursor_portion(kind: str, text: str = "", *, is_start: bool = False, start: int = 0):
     p = MagicMock()
     p.getPropertyValue.side_effect = lambda name: (
         kind if name == "TextPortionType"
         else ("Delete" if name == "RedlineType" else is_start)
     )
     p.getString.return_value = text
+    p.getStart.return_value = start
     return p
 
 
@@ -2253,11 +2252,11 @@ def test_replace_header_footer_skips_struck_portions():
 
     # Case 1: live "Annex ", struck "Annex", live " Annex" in one paragraph, driven through the tool.
     portions = [
-        _cursor_portion("Text", "Annex "),
+        _cursor_portion("Text", "Annex ", start=0),
         _cursor_portion("Redline", is_start=True),
-        _cursor_portion("Text", "Annex"),
+        _cursor_portion("Text", "Annex", start=6),
         _cursor_portion("Redline", is_start=False),
-        _cursor_portion("Text", " Annex"),
+        _cursor_portion("Text", " Annex", start=11),
     ]
     hay = "Annex Annex Annex"
     doc, text_obj = _replace_doc(portions, hay=hay)
@@ -2272,28 +2271,31 @@ def test_replace_header_footer_skips_struck_portions():
     # Case 2: deletion opens in paragraph 1 and closes in paragraph 2.
     doc2 = MagicMock()
     doc2.getRedlines.return_value.hasElements.return_value = False
+    p2a_first = _cursor_portion("Text", "Annex ", start=0)
     p2a = _cursor_para([
-        _cursor_portion("Text", "Annex "),
+        p2a_first,
         _cursor_portion("Redline", is_start=True),
-        _cursor_portion("Text", "Annex"),
+        _cursor_portion("Text", "Annex", start=6),
     ])
+    p2b_last = _cursor_portion("Text", " Annex", start=6)
     p2b = _cursor_para([
-        _cursor_portion("Text", "Annex"),
+        _cursor_portion("Text", "Annex", start=0),
         _cursor_portion("Redline", is_start=False),
-        _cursor_portion("Text", " Annex"),
+        p2b_last,
     ])
     t2 = MagicMock()
     t2.createEnumeration.return_value = _enum_of([p2a, p2b])
     hits2, _ = _find_region_matches(doc2, t2, "Annex", True)
-    assert [(h[0], h[1]) for h in hits2] == [(p2a, 0), (p2b, 6)]
+    assert [(h[0], h[1]) for h in hits2] == [(p2a_first, 0), (p2b_last, 1)]
 
     # Case 3: a TextTable before the paragraph is skipped without createEnumeration().
     tbl = _cursor_para([], is_table=True)
-    p3 = _cursor_para([_cursor_portion("Text", "Annex")])
+    p3_text = _cursor_portion("Text", "Annex")
+    p3 = _cursor_para([p3_text])
     t3 = MagicMock()
     t3.createEnumeration.return_value = _enum_of([tbl, p3])
     hits3, _ = _find_region_matches(doc2, t3, "Annex", True)
-    assert [(h[0], h[1]) for h in hits3] == [(p3, 0)]
+    assert [(h[0], h[1]) for h in hits3] == [(p3_text, 0)]
 
 
 def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
@@ -2331,18 +2333,3 @@ def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
     assert scan["images"] == []
     assert scan["has_struck"] is True
     assert _region_holds_content(doc, text_obj) is True
-
-
-def test_portion_cursor_text_counts_inline_frame_and_skips_collapsed_frame():
-    from plugin.writer.page import _OPAQUE_CURSOR_STEP, _portion_cursor_text
-
-    inline_frame = MagicMock()
-    inline_frame.getPropertyValue.return_value = "Frame"
-    inline_frame.getText.return_value.compareRegionEnds.return_value = 1
-
-    anchored_frame = MagicMock()
-    anchored_frame.getPropertyValue.return_value = "Frame"
-    anchored_frame.getText.return_value.compareRegionEnds.return_value = 0
-
-    assert _portion_cursor_text(inline_frame) == _OPAQUE_CURSOR_STEP
-    assert _portion_cursor_text(anchored_frame) == ""

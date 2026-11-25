@@ -126,7 +126,7 @@ class SetSelection(ToolBase):
             "char_start": found.start,
         }
         if found.end < char_end:
-            result["warning"] = "Character range was truncated at the document end."
+            result["warning"] = "The range ends past the readable text; it was cut at offset %d." % found.end
         else:
             result["char_end"] = found.end
         return result

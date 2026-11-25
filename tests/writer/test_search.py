@@ -2216,3 +2216,69 @@ def test_multiline_miss_builds_tracked_deletions_once():
     assert hits == []
     td_cls.assert_called_once_with(doc)
 
+
+def test_find_text_ranges_skips_unmeasurable_hits_and_fills_limit():
+    from unittest.mock import patch
+    from plugin.writer.search import find_text_ranges
+
+    def _hit(label: str):
+        h = MagicMock()
+        h.getStart.return_value = f"{label}:s"
+        h.getEnd.return_value = f"{label}:e"
+        return h
+
+    body = MagicMock()
+    unmeasurable = _hit("field")
+    good = _hit("body")
+    for h in (unmeasurable, good):
+        h.getText.return_value = body
+
+    doc = MagicMock()
+    doc.getText.return_value = body
+    doc.getRedlines.return_value.hasElements.return_value = False
+
+    def _measure(_model, positions):
+        offsets = []
+        for pos in positions:
+            if pos == "field:s" or pos == "field:e":
+                offsets.append(2)
+            elif pos == "body:s":
+                offsets.append(5)
+            else:
+                offsets.append(7)
+        return "xx   yy", offsets, []
+
+    with (
+        patch("plugin.writer.search.uno_same", return_value=True),
+        patch("plugin.writer.search.read_visible_body", side_effect=_measure),
+    ):
+        doc.findFirst.return_value = unmeasurable
+        doc.findNext.side_effect = [good, None]
+        rows = find_text_ranges(doc, "yy", limit=1)
+    assert rows == [{"start": 5, "end": 7, "text": "yy"}]
+
+    bad_hits = [_hit(f"f{i}") for i in range(5)]
+    for h in bad_hits:
+        h.getText.return_value = body
+
+    def _measure_many(_model, positions):
+        offsets = []
+        for pos in positions:
+            if pos == "body:s":
+                offsets.append(5)
+            elif pos == "body:e":
+                offsets.append(7)
+            else:
+                offsets.append(2)
+        return "xx   yy", offsets, []
+
+    with (
+        patch("plugin.writer.search.uno_same", return_value=True),
+        patch("plugin.writer.search.read_visible_body", side_effect=_measure_many) as rvb,
+    ):
+        doc.findFirst.return_value = bad_hits[0]
+        doc.findNext.side_effect = [*bad_hits[1:], good, None]
+        rows_many = find_text_ranges(doc, "yy", limit=1)
+    assert rows_many == [{"start": 5, "end": 7, "text": "yy"}]
+    assert rvb.call_count <= 4
+
