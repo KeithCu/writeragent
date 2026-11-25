@@ -73,7 +73,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("npv", ("", 100, 200), ValueError, "npv-blank"),
     ("npv", (None, 100, 200), TypeError, "npv-blank-none"),
     ("numbervalue", ("text",), "nan", "numbervalue-text"),
-    ("numbervalue", ("",), 0.0, "numbervalue-blank"),
+    ("numbervalue", ("",), "nan", "numbervalue-blank"),
     ("numbervalue", (0,), 0.0, "numbervalue-zero"),
     ("numbervalue", ("1.2.3",), "nan", "numbervalue-out-of-range"),
     ("odd", ("",), ValueError, "odd-blank"),
@@ -676,4 +676,11 @@ def test_npv_booleans_and_text():
     assert math.isclose(calc.npv(0.1, [1, True]), 1.0 / 1.1 + 1.0 / 1.21)
     assert math.isclose(calc.npv(0.1, [True, False], 10), 1.0 / 1.1 + 10.0 / 1.331)
     assert math.isclose(calc.npv(0.1, ["1"], 10), 10.0 / 1.1)
+
+
+def test_numbervalue_empty_text_is_value_error():
+    from plugin.scripting.venv.calc_functions_util import nan_error_code
+
+    res = calc.numbervalue("")
+    assert math.isnan(res) and nan_error_code(res) == 519
 

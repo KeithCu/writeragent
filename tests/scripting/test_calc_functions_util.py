@@ -545,26 +545,35 @@ def test_format_quantized():
 
 
 def test_orient_columns():
+    y_1d = np.zeros(3)
     # 1-D length 3 gives shape (3, 1)
     arr_1d = np.array([1, 2, 3])
-    assert orient_columns(arr_1d, 3, axis=0).shape == (3, 1)
+    assert orient_columns(arr_1d, y_1d, 3, axis=0).shape == (3, 1)
 
     # a (2, 3) block with size=3, axis=0 is transposed to (3, 2)
     arr_2x3 = np.zeros((2, 3))
-    assert orient_columns(arr_2x3, 3, axis=0).shape == (3, 2)
+    assert orient_columns(arr_2x3, y_1d, 3, axis=0).shape == (3, 2)
 
     # a (3, 2) block with size=3, axis=0 is unchanged
     arr_3x2 = np.zeros((3, 2))
-    assert orient_columns(arr_3x2, 3, axis=0).shape == (3, 2)
+    assert orient_columns(arr_3x2, y_1d, 3, axis=0).shape == (3, 2)
 
     # a (2, 1) block with size=2, axis=1 becomes (1, 2)
     arr_2x1 = np.zeros((2, 1))
-    assert orient_columns(arr_2x1, 2, axis=1).shape == (1, 2)
+    assert orient_columns(arr_2x1, np.zeros(2), 2, axis=1).shape == (1, 2)
+
+    # 2-D known_y fixes orientation: column y keeps arr, row y transposes it
+    col_y = np.zeros((3, 1))
+    row_y = np.zeros((1, 3))
+    assert orient_columns(arr_3x2, col_y, 3, axis=0).shape == (3, 2)
+    assert orient_columns(arr_2x3, col_y, 3, axis=0).shape == (2, 3)
+    assert orient_columns(arr_2x3, row_y, 3, axis=0).shape == (3, 2)
+    assert orient_columns(arr_3x2, row_y, 3, axis=0).shape == (2, 3)
 
     # a scalar (0-d) is one 1×1 sample on either axis
     arr_0d = np.array(5)
-    assert orient_columns(arr_0d, 1, axis=0).shape == (1, 1)
-    assert orient_columns(arr_0d, 1, axis=1).shape == (1, 1)
+    assert orient_columns(arr_0d, y_1d, 1, axis=0).shape == (1, 1)
+    assert orient_columns(arr_0d, y_1d, 1, axis=1).shape == (1, 1)
 
 
 @pytest.mark.parametrize(
@@ -730,4 +739,31 @@ def test_propagate_errors():
     assert isinstance(coded_range, float) and math.isnan(coded_range) and nan_error_code(coded_range) == 532
     assert _echo("#DIV/0!", "#N/A") == "#N/A"
     assert _echo("#DIV/0!", kw="#REF!") == "#REF!"
+
+    from plugin.scripting.calc_range import CalcRange
+
+    assert _echo(CalcRange([["#DIV/0!"]])) == "#DIV/0!"
+    unwrapped, _ = _echo(CalcRange([[42]]))
+    assert unwrapped == (42,)
+
+
+def test_criterion_error_whole_number_and_py_str():
+    from plugin.scripting.calc_range import CalcRange
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, criterion_error, nan_error_code, py_str, whole_number
+
+    assert criterion_error(["#N/A"]) is None
+    assert criterion_error([CalcRange([["#DIV/0!"]])]) == "#DIV/0!"
+    assert criterion_error([DIV0_NAN, CalcRange([["#N/A"]])]) == "#N/A"
+    coded = criterion_error(["#REF!", NA_NAN])
+    assert isinstance(coded, float) and math.isnan(coded) and nan_error_code(coded) == 0x7FFF
+
+    assert whole_number(1.9) == 1
+    assert whole_number(-1.9) == -1
+    assert whole_number(-0.5) == 0
+    assert whole_number(None) == 0
+    assert whole_number(CalcRange([[None]])) == 0
+
+    assert py_str(None) == ""
+    assert py_str(CalcRange([[None]])) == ""
+    assert py_str(CalcRange([[7]])) == "7"
 

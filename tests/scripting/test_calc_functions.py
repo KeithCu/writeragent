@@ -574,7 +574,7 @@ def test_address_bad_input_returns_value_error():
     assert calc.address(1, 1) == "$A$1"
     assert calc.address("x", 1) == "#VALUE!"
     assert calc.address(1, float("inf")) == "#VALUE!"
-    assert calc.address(float("nan"), 1) == "#VALUE!"
+    assert math.isnan(calc.address(float("nan"), 1))
     assert calc.address(1, 1, float("inf")) == "#VALUE!"
     # Row/col below 1 after int() truncation. 0.9 becomes 0.
     assert calc.address(0, 1) == "#VALUE!"
@@ -912,7 +912,7 @@ def test_logest_nonpositive_y_is_illegal_argument():
     assert calc.logest([0]) == "Err:502"
     assert calc.logest([[1.0], [0.0], [4.0]]) == "Err:502"
     assert calc.logest([0, 2, 3], [1, 2]) == "Err:502"
-    assert calc.logest(["1", "2", "4"]) == "#VALUE!"
+    assert calc.logest(["1", "2", "4"]) == "Err:502"
     coeffs = calc.logest([1, 2, 4, 8, 16])
     assert math.isclose(coeffs[0], 2.0)
     assert math.isclose(coeffs[1], 0.5)
@@ -1642,5 +1642,144 @@ def test_input_error_code_is_kept(err_kind: str):
     _check(calc.pearson([1.0, err], [1.0, 2.0]))
     _check(calc.trimmean([1.0, err, 3.0], 0.2))
     assert calc.large([1, float("nan"), 3], 1) == 3.0
+
+
+@pytest.mark.parametrize(
+    ("name", "tail"),
+    [
+        ("acot", ()),
+        ("acoth", ()),
+        ("address", (1,)),
+        ("arabic", ()),
+        ("asc", ()),
+        ("base", (2,)),
+        ("besseli", (1,)),
+        ("besselj", (1,)),
+        ("besselk", (1,)),
+        ("bessely", (1,)),
+        ("betadist", (1, 2)),
+        ("betainv", (1, 2)),
+        ("binomdist", (1, 0.5, 1)),
+        ("bitand", (1,)),
+        ("bitlshift", (1,)),
+        ("bitor", (1,)),
+        ("bitrshift", (1,)),
+        ("bitxor", (1,)),
+        ("char", ()),
+        ("chidist", (1,)),
+        ("chiinv", (1,)),
+        ("clean", ()),
+        ("code", ()),
+        ("combin", (1,)),
+        ("combina", (1,)),
+        ("complex", (1,)),
+        ("confidence", (1, 10)),
+        ("cot", ()),
+        ("coth", ()),
+        ("critbinom", (0.5, 0.5)),
+        ("csc", ()),
+        ("csch", ()),
+        ("decimal", (2,)),
+        ("delta", (0,)),
+        ("encodeurl", ()),
+        ("erf", ()),
+        ("erfc", ()),
+        ("expondist", (1,)),
+        ("fact", ()),
+        ("factdouble", ()),
+        ("fdist", (1, 1)),
+        ("finv", (1, 1)),
+        ("fisher", ()),
+        ("fisherinv", ()),
+        ("gamma", ()),
+        ("gammadist", (1, 1)),
+        ("gammainv", (1, 1)),
+        ("gammaln", ()),
+        ("gauss", ()),
+        ("gestep", ()),
+        ("hypgeomdist", (1, 1, 2)),
+        ("imabs", ()),
+        ("imaginary", ()),
+        ("imargument", ()),
+        ("imconjugate", ()),
+        ("imcos", ()),
+        ("imcosh", ()),
+        ("imcot", ()),
+        ("imcsc", ()),
+        ("imcsch", ()),
+        ("imdiv", ("1+i",)),
+        ("imexp", ()),
+        ("imln", ()),
+        ("imlog10", ()),
+        ("imlog2", ()),
+        ("impower", (2,)),
+        ("improduct", ()),
+        ("imreal", ()),
+        ("imsec", ()),
+        ("imsech", ()),
+        ("imsin", ()),
+        ("imsinh", ()),
+        ("imsqrt", ()),
+        ("imsub", ("1+i",)),
+        ("imsum", ()),
+        ("imtan", ()),
+        ("imtanh", ()),
+        ("jis", ()),
+        ("loginv", (0, 1)),
+        ("lognormdist", (0, 1)),
+        ("multinomial", ()),
+        ("munit", ()),
+        ("n", ()),
+        ("normdist", (0, 1, 1)),
+        ("norminv", (0, 1)),
+        ("normsdist", ()),
+        ("normsinv", ()),
+        ("numbervalue", ()),
+        ("permut", (1,)),
+        ("poisson", (1,)),
+        ("regex", ("a",)),
+        ("rept", (1,)),
+        ("sec", ()),
+        ("sech", ()),
+        ("sqrtpi", ()),
+        ("standardize", (0, 1)),
+        ("t", ()),
+        ("tdist", (1, 1)),
+        ("tinv", (1,)),
+        ("unichar", ()),
+        ("unicode", ()),
+        ("weibull", (1, 1)),
+    ],
+)
+def test_decorated_scalar_helpers_propagate_error_code(name: str, tail: tuple[object, ...]):
+    from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
+
+    fn = getattr(calc, name)
+    assert fn("#DIV/0!", *tail) == "#DIV/0!"
+    na_res = fn(NA_NAN, *tail)
+    assert isinstance(na_res, float) and math.isnan(na_res) and nan_error_code(na_res) == 0x7FFF
+
+
+def test_last_argument_error_wins_and_blank_text_range():
+    from plugin.scripting.calc_range import CalcRange
+    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
+
+    assert calc.bitand("#DIV/0!", "#N/A") == "#N/A"
+    res = calc.normdist(DIV0_NAN, NA_NAN, 1, 1)
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 0x7FFF
+
+    blank = CalcRange([[None]])
+    for text_res in (
+        calc.clean(blank),
+        calc.asc(blank),
+        calc.jis(blank),
+        calc.rept(blank, 3),
+        calc.regex(blank, "x"),
+        calc.text(blank, "0.00"),
+        calc.textjoin(",", True, blank),
+        calc.py_str(blank),
+    ):
+        assert "None" not in str(text_res)
+    assert calc.t(CalcRange([["hi"]])) == "hi"
 
 

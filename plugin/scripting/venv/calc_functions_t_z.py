@@ -23,26 +23,35 @@ from .calc_functions_util import (
     ILLEGAL_PARAMETER_NAN,
     NA_NAN,
     RegressionError,
+    VALUE_NAN,
     approx_floor,
     as_nonzero,
     build_holiday_set,
+    cell_value,
     clean_paired_arrays,
     collect_a_values,
     date_to_serial,
     extract_numeric_array,
+    first_error,
     format_quantized,
     is_calc_error,
     number_text,
     parse_weekend,
     propagate_errors,
+    py_str,
     round_half_up,
     scipy_stats,
     serial_to_date,
+    sorted_match,
     trend_fit,
+    value_matcher,
+    whole_number,
     wildcard_fullmatch,
     yearfrac,
 )
 from .coerce import is_blank_value, is_error_token
+
+_OMITTED: Any = object()
 
 
 __all__ = [
@@ -66,6 +75,7 @@ __all__ = [
     "unique",
     "vara",
     "varpa",
+    "vlookup",
     "weekday",
     "weeknum",
     "weibull",
@@ -83,10 +93,12 @@ __all__ = [
 ]
 
 
+@propagate_errors
 def t(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+@propagate_errors
 def tdist(x: Any, df: Any, tails: Any) -> float:
     val = float(x)
     # ScTDist (interpr3.cxx) floors df and tails with approxFloor; float()
@@ -153,7 +165,10 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
 
 
 def text(val: Any, fmt: Any) -> str | float:
-    fmt_str = str(fmt).strip('"').strip("'")
+    val = cell_value(val)
+    fmt_str = py_str(fmt).strip('"').strip("'")
+    if val is None:
+        val = 0.0 if fmt_str else ""
     try:
         spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
         if spec is not None:
@@ -201,14 +216,14 @@ def text(val: Any, fmt: Any) -> str | float:
 fmt = text
 
 
-def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mode: Any, match_end: Any, if_not_found: Any, *, after: bool) -> str | float:
+def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mode: Any, match_end: Any, if_not_found: Any, *, after: bool) -> Any:
     try:
         # bool("0") is true, so a zero flag invented a virtual delimiter.
         # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
         use_end = as_nonzero(match_end)
-        s = str(text)
-        delim = str(delimiter)
-        inst = int(float(instance_num))
+        s = py_str(text)
+        delim = py_str(delimiter)
+        inst = whole_number(instance_num)
         if inst == 0 or not s:
             # Calc 26.8 gives #N/A for empty text even with if_not_found.
             return NA_NAN
@@ -217,7 +232,7 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         # into the lowered string no longer lines up with s: textbefore of
         # "aİb" on "b" included the b. rfind also sees overlapping matches
         # ("aaa" / "aa" at 1) that the split count above it did not.
-        flags = re.IGNORECASE if match_mode == 1 else 0
+        flags = re.IGNORECASE if as_nonzero(match_mode) else 0
         # An empty delimiter matches nothing (re.finditer("") would otherwise match at
         # every position), while match_end still adds its boundary.
         spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=flags)] if delim else []
@@ -240,17 +255,20 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
         # not start + len(delim).
         idx = chosen[1] if after else chosen[0]
         return s[idx:] if after else s[:idx]
-    except (ValueError, TypeError, OverflowError):
-        # int(float(instance_num)) of an infinite instance raises OverflowError;
-        # return plain NaN (#NUM!), as for a text instance.
+    except (ValueError, TypeError):
+        return VALUE_NAN
+    except OverflowError:
+        # whole_number(inf) raises OverflowError; return plain NaN (#NUM!).
         return float("nan")
 
 
-def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
+@propagate_errors
+def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> Any:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=True)
 
 
-def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> str | float:
+@propagate_errors
+def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = NA_NAN) -> Any:
     return _text_before_or_after(text, delimiter, instance_num, match_mode, match_end, if_not_found, after=False)
 
 
@@ -290,14 +308,14 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
                     parts.append("")
             else:
                 parts.append(_textjoin_piece(val))
-    return str(delim).join(parts)
+    return py_str(delim).join(parts)
 
 
 def _split_pieces(text: str, delimiter: Any, case_insensitive: bool, skip_empty: bool) -> list[str]:
     if delimiter is None:
         parts = [text]
     else:
-        delim = str(delimiter)
+        delim = py_str(delimiter)
         if not delim:
             raise ValueError("empty separator")
         if case_insensitive:
@@ -311,7 +329,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     # Case-insensitive split still returns the original text. lower() would
     # change the pieces, not just the match.
     try:
-        s = str(text)
+        s = py_str(text)
         # ScTextSplit pushes IllegalParameter on empty text, so empty text is NaN,
         # not [[""]].
         if s == "":
@@ -372,6 +390,7 @@ def timevalue(text: Any) -> float:
     return float("nan")
 
 
+@propagate_errors
 def tinv(prob: Any, df: Any) -> float:
     # float(10**400) raises OverflowError. The handler only caught
     # ValueError and TypeError, so TINV of a huge probability raised.
@@ -400,13 +419,13 @@ def trend(*args: Any) -> Any:
         if not args:
             return "#VALUE!"
         return trend_fit(
-            np.asarray(args[0], dtype=float),
+            args[0],
             args[1] if len(args) > 1 else None,
             args[2] if len(args) > 2 else None,
             args[3] if len(args) > 3 else True,
-        ).tolist()
+        )
     except RegressionError as exc:
-        return str(exc)
+        return exc.args[0]
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -477,6 +496,7 @@ def type(val: Any) -> float:
     return 1.0
 
 
+@propagate_errors
 def unichar(number: Any) -> str | float:
     val = int(float(number))
     if val <= 0 or val > 0x10FFFF:
@@ -484,8 +504,9 @@ def unichar(number: Any) -> str | float:
     return chr(val)
 
 
+@propagate_errors
 def unicode(text: Any) -> float:
-    s = str(text)
+    s = py_str(text)
     if not s:
         return float("nan")
     return float(ord(s[0]))
@@ -656,6 +677,7 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
     return float(_system1_week_number(day, start))
 
 
+@propagate_errors
 def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
     # float(10**400) raises OverflowError, which this handler missed.
     try:
@@ -901,7 +923,35 @@ def _return_axis(lookup: np.ndarray, ret: np.ndarray) -> int | None:
     return next((a for a in axes if ret.shape[a] == n), None)
 
 
-def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = "#N/A", match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
+def vlookup(lookup_val: Any, table: Any, col_index: Any, is_sorted: Any = True) -> Any:
+    # CalculateLookup (interpr1.cxx) reads is_sorted, then the index and its range check, then the lookup value.
+    err = first_error([cell_value(is_sorted), cell_value(col_index)])
+    if err is not None:
+        return err
+    try:
+        approximate = as_nonzero(cell_value(is_sorted))
+        col = whole_number(col_index) - 1
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    arr = np.atleast_2d(np.asarray(table, dtype=object))
+    if not 0 <= col < arr.shape[1]:
+        return "Err:502"
+    val = cell_value(lookup_val)
+    err = first_error([val])
+    if err is not None:
+        return err
+    keys = arr[:, 0]
+    if approximate:
+        row = sorted_match(val, keys)
+    elif is_blank_value(val):
+        row = None
+    else:
+        matches = value_matcher("=", val)
+        row = next((i for i, key in enumerate(keys) if matches(key)), None)
+    return NA_NAN if row is None else arr[row, col]
+
+
+def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = _OMITTED, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
         return "Err:504"
     # dtype=object. A mixed return such as ["x", 5] became strings,
@@ -911,10 +961,14 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     axis = _return_axis(np.asarray(lookup_arr, dtype=object), ret)
     if axis is None:
         return "Err:504"
-    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
+    lookup_val = cell_value(lookup_val)
+    err = first_error([lookup_val])
+    best_idx = None if err is not None else _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
-        # ScXLookup pushes #N/A when the 4th argument is omitted. None
-        # became a blank cell. An explicit None is still returned.
+        # ScXLookup pushes #N/A (or the lookup error) when the 4th argument is omitted.
+        # An explicit None is still returned.
+        if if_not_found is _OMITTED:
+            return "#N/A" if err is None else err
         return if_not_found
     if ret.ndim == 2:
         return _scalar_if_singleton(ret.take(best_idx, axis=axis).tolist())
@@ -923,15 +977,16 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     return cell.item() if isinstance(cell, np.generic) else cell
 
 
-def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
+def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float | str:
     if not _modes_supported(match_mode, search_mode):
         return ILLEGAL_PARAMETER_NAN
+    lookup_val = cell_value(lookup_val)
+    err = first_error([lookup_val])
+    if err is not None:
+        return err
     best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is not None:
         return float(best_idx + 1)
-    # ScXMatch (interpr1.cxx): a miss is #N/A; an error lookup value is the result.
-    if isinstance(lookup_val, (float, np.floating)) and math.isnan(lookup_val):
-        return float(lookup_val)
     return NA_NAN
 
 
