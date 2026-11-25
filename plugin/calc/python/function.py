@@ -166,13 +166,40 @@ def _record_py_diagnostic(
 
 
 def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
-    """The grid *result* spills into, or None when the formula returns one value."""
-    if not isinstance(result, (list, tuple)) or not result:
-        return None
+    """The grid *result* spills into, ``[]`` to clear a stale spill, or None when auto-spill is off."""
     if cell.is_matrix or not get_config("scripting.python_auto_spill"):
         return None
+    if not isinstance(result, (list, tuple)) or not result:
+        return []
     grid = result_as_spill_grid(result)
-    return grid if grid[0] else None
+    return grid if grid[0] else []
+
+
+def _dispatch_auto_spill(cell: CellContext, grid_to_spill: list[list[Any]]) -> str | None:
+    """Queue a spill write or stale-spill clear.
+
+    Returns ``"#SPILL!"`` when an array spill is blocked, ``"dispatched"`` when a main-thread
+    write or clear was queued, or ``None`` when skipped or queued off-main.
+    """
+    try:
+        if not grid_to_spill and (
+            cell.state is None or (cell.state.loaded and not cell.state.has_spill_activity())
+        ):
+            return None
+        if not cell.on_main:
+            if cell.doc is not None:
+                queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
+            return None
+        if cell.origin is not None and cell.state is not None:
+            prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
+            if prepared == "#SPILL!":
+                return "#SPILL!"
+            if isinstance(prepared, PreparedSpill):
+                queue_deferred_spill_write(cell.state, cell.doc, prepared, grid_to_spill)
+                return "dispatched"
+    except Exception:
+        log.exception("Error dispatching auto-spill")
+    return None
 
 
 def finalize_python_return(
@@ -184,21 +211,11 @@ def finalize_python_return(
 
     grid_to_spill = _auto_spill_grid(cell, result)
     if grid_to_spill is not None:
-        try:
-            if not cell.on_main:
-                if cell.doc is not None:
-                    queue_off_main_auto_spill(cell.ctx, cell.code, grid_to_spill, cell.doc)
-                return matrix_result(cell.ctx, result)
-
-            if cell.origin is not None and cell.state is not None:
-                prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, grid_to_spill)
-                if prepared == "#SPILL!":
-                    return "#SPILL!"
-                if isinstance(prepared, PreparedSpill):
-                    queue_deferred_spill_write(cell.state, cell.doc, prepared, grid_to_spill)
-                    return py_addin_cell_value(grid_to_spill[0][0])
-        except Exception:
-            log.exception("Error checking spill collision")
+        status = _dispatch_auto_spill(cell, grid_to_spill)
+        if status == "#SPILL!":
+            return "#SPILL!"
+        if status == "dispatched" and grid_to_spill:
+            return py_addin_cell_value(grid_to_spill[0][0])
 
     if isinstance(result, (list, tuple)):
         return matrix_result(cell.ctx, result)
@@ -305,6 +322,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 if first_error is not None:
                     raise first_error
                 if cells is None:
+                    _dispatch_auto_spill(cell_ctx, [])
                     return _("Image inserted") if len(images) == 1 else _("Images inserted")
                 return finalize_python_return(cell_ctx, cells)
             return finalize_python_return(cell_ctx, result)
