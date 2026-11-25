@@ -236,6 +236,8 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
                 tctx, path=tmp_logo, target="header", style="Standard", auto_height=True, width_mm=10, height_mm=10
             )
             assert res_hdr0["status"] == "ok", res_hdr0
+            assert res_hdr0["pending_review"] is True
+            assert "review_mode" not in res_hdr0
             assert res_hdr0.get("style_unreviewed") is True
             assert doc.getRedlines().getCount() == 1
             assert doc.getRedlines().getByIndex(0).getPropertyValue("RedlineType") == "Insert"

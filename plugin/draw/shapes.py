@@ -37,7 +37,7 @@ from plugin.doc.visual_helpers import (
 from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
-from plugin.writer.edit_review import flag_untracked
+from plugin.writer.edit_review import flag_tracked, flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.search import shape_is_as_character, shape_text_boxes
 from plugin.writer.specialized_base import ToolWriterShapeBase, grouped_text_box_error
@@ -1551,14 +1551,14 @@ class DeleteShape(_AnyDocumentShapeTool):
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
         if tracked:
-            return {
+            result: dict[str, Any] = {
                 "status": "ok",
                 "message": TRACKED_IMAGE_DELETE_MESSAGE,
                 "page": actual_idx,
-                "tracked": True,
-                "pending_review": True,
             }
-        result: dict[str, Any] = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
+            flag_tracked(result)
+            return result
+        result = {"status": "ok", "message": "Shape deleted", "page": actual_idx}
         if isinstance(addr, str):
             # SvxShapeGroup::remove (svx/source/unodraw/unoshap2.cxx) adds no undo step in any app,
             # unlike removal from the page, so the next Ctrl+Z reverts the edit before this one.

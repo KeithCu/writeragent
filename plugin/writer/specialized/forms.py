@@ -32,9 +32,9 @@ import uno
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from ..edit_review import flag_untracked_delete, run_in_review_session
+from ..edit_review import flag_tracked, flag_untracked_delete, run_in_review_session
 from ..html_import import insert_html_fragment_at_cursor, run_writer_mutation_with_optional_review
-from ..record_changes import insert_recorded_content, is_recording_changes
+from ..record_changes import insert_recorded_content
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
 from ..target_resolver import require_selection_range
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
@@ -508,8 +508,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             anchor = require_selection_range(ctx)
             # The anchor's XText owns that range.
             host = anchor.getText()
-            recorded = is_recording_changes(doc)
-            insert_recorded_content(doc, host, anchor, shape)
+            recorded = insert_recorded_content(doc, host, anchor, shape)
 
         result: dict[str, Any] = {
             "status": "ok",
@@ -518,8 +517,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             "group_name": group_name,
         }
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         return result
 
     except ToolExecutionError as exc:
@@ -586,9 +584,8 @@ class FormCreate(ToolWriterFormBase):
             return batch_err
 
         result: dict[str, Any] = {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
-        if any(isinstance(r, dict) and r.get("tracked") for r in results):
-            result["tracked"] = True
-            result["pending_review"] = True
+        if any(r.get("tracked") for r in results):
+            flag_tracked(result)
         return result
 
     def _insert_space(self, ctx: Any) -> None:
@@ -715,9 +712,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             return batch_err
 
         result: dict[str, Any] = {"status": "ok", "message": "Form generation completed and inserted."}
-        if any(isinstance(r, dict) and r.get("tracked") for r in field_results):
-            result["tracked"] = True
-            result["pending_review"] = True
+        if any(r.get("tracked") for r in field_results):
+            flag_tracked(result)
         return result
 
     def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:

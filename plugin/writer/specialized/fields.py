@@ -27,8 +27,8 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase
 
-from ..edit_review import next_agent_edit_undo_title
-from ..record_changes import insert_recorded_content, is_recording_changes
+from ..edit_review import flag_tracked, next_agent_edit_undo_title
+from ..record_changes import insert_recorded_content
 from ..search import LocationLabeler
 from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import insert_at_target
@@ -319,9 +319,7 @@ class FieldsInsert(ToolWriterFieldBase):
 
         def insert(cursor: Any) -> None:
             nonlocal recorded
-            # The review session has already turned recording on in Record/Wait.
-            recorded = is_recording_changes(doc)
-            insert_recorded_content(doc, cursor.getText(), cursor, field)
+            recorded = insert_recorded_content(doc, cursor.getText(), cursor, field)
 
         err = insert_at_target(
             self,
@@ -339,8 +337,7 @@ class FieldsInsert(ToolWriterFieldBase):
             "applied_properties": properties,
         }
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         return result
 
 

@@ -18,6 +18,7 @@ from plugin.calc.formula_dialect import to_api
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value, execute_dispatch
+from plugin.writer.edit_review import flag_tracked
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
 from ..specialized_base import ToolWriterEmbeddedBase, enum_param, target_params
 from ..target_resolver import insert_at_target
@@ -338,8 +339,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             "message": f"Inserted spreadsheet OLE {container_name!r}.",
         }
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         return result
 
 

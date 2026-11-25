@@ -63,6 +63,7 @@ from plugin.writer.edit_review import (
     agent_format_author,
     annotate_review_status,
     flag_style_unreviewed,
+    flag_tracked,
     next_agent_edit_undo_title,
     paragraph_redline_author,
     review_recording_enabled,
@@ -1140,6 +1141,12 @@ _TEXT_PROPERTY_PREFIXES = ("Char", "HyperLink", "Ruby", "Visited", "Unvisited")
 _RECORDABLE_PARA_PROPERTIES = frozenset({*_REVERT_PARA_PROPERTIES, "NumberingStyleName"} - {"BreakType", "WritingMode"})
 
 
+def _records_char_format(doc: Any, cursors: list[Any]) -> bool:
+    """True when a character write on *cursors* is recorded: Writer is recording and there is text
+    to record a Format redline on, which a caret does not have."""
+    return is_recording_changes(doc) and not all(c.isCollapsed() for c in cursors)
+
+
 def _is_text_property(name: str) -> bool:
     return name.startswith(_TEXT_PROPERTY_PREFIXES)
 
@@ -1950,12 +1957,11 @@ class ApplyStyle(FrameworkToolBase):
         else:
             res["message"] = "Applied style '%s' (%s) to %s." % (style_name, family, target)
         res.update(self._merge_reports(reports))
-        if char_tracked:
-            res["tracked"] = True
+        if char_tracked or res.get("tracked"):
+            flag_tracked(res)
+            return annotate_review_status(res)
         if "tracked" not in res:
             flag_style_unreviewed(res)
-        if res.get("tracked"):
-            return annotate_review_status(res)
         return res
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -2017,12 +2023,7 @@ class ApplyStyle(FrameworkToolBase):
             # change itself, whether or not the document was recording.
             recording_cm = record_changes(ctx.doc, False)
         with recording_cm:
-            # A caret has no text to record a Format redline on.
-            char_tracked = (
-                family == "CharacterStyles"
-                and is_recording_changes(ctx.doc)
-                and not all(c.isCollapsed() for c in cursors)
-            )
+            char_tracked = family == "CharacterStyles" and _records_char_format(ctx.doc, cursors)
             reports, err = apply_to_cursors(
                 self,
                 ctx,
@@ -2182,7 +2183,9 @@ class StyleFormatText(ToolWriterStyleBase):
 
         with (record_changes(ctx.doc, True) if review_recording_enabled() else nullcontext()):
             recording = is_recording_changes(ctx.doc)
-            char_tracked = recording and bool(reset_values or any(_is_text_property(n) for n in updates))
+            char_tracked = _records_char_format(ctx.doc, cursors) and bool(
+                reset_values or any(_is_text_property(n) for n in updates)
+            )
             if recording and any(n in _RECORDABLE_PARA_PROPERTIES for n in all_names):
                 para_author = paragraph_redline_author(ctx.ctx)
             reports, err = apply_to_cursors(self, ctx, cursors, apply_one, "direct formatting")

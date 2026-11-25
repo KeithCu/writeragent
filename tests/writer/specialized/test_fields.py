@@ -729,8 +729,7 @@ def test_fields_insert_flags_tracked_only_when_recorded(mock_ctx, recording: boo
     cursor = MagicMock()
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.specialized.fields.is_recording_changes", return_value=recording),
-        patch("plugin.writer.specialized.fields.insert_recorded_content"),
+        patch("plugin.writer.specialized.fields.insert_recorded_content", return_value=recording),
     ):
         res = FieldsInsert().execute(mock_ctx, field="PageNumber", target="selection")
 

@@ -23,6 +23,7 @@ from plugin.writer.specialized_base import (
     index_error,
 )
 from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
+from plugin.writer.edit_review import flag_tracked
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
@@ -225,14 +226,15 @@ class FootnotesDelete(ToolWriterFootnoteBase):
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
         if uno_read(lambda: is_recording_changes(ctx.doc), False):
-            return {
+            result: dict[str, Any] = {
                 "status": "ok",
-                "tracked": True,
                 "message": (
                     f"{note_type} at index {index} is marked for deletion by tracked changes; "
                     "accept or reject it in LibreOffice (Edit > Track Changes)."
                 ),
             }
+            flag_tracked(result)
+            return result
         return self._tool_error(
             f"Could not delete {note_type} at index {index}: it is still in the document.")
 

@@ -72,8 +72,8 @@ def record_changes(doc: Any, on: bool) -> Generator[bool, None, None]:
                 log.warning("record_changes: failed to restore RecordChanges=%s", was_recording)
 
 
-def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> None:
-    """Insert *content* into *host* at *cursor*, recording an Insert redline when tracking is on."""
+def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) -> bool:
+    """Insert *content* into *host* at *cursor*; True when tracking is on, so Writer recorded the insertion."""
     # An embedded object gets no redline of its own, and an Input field gets one that covers
     # only its first character, so Reject would delete the wrong text. Text inside an Insert
     # redline belongs to it, so deleting our own insertion markers removes them outright.
@@ -81,7 +81,7 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
     # the tail marker would delete the object.
     if not is_recording_changes(model):
         host.insertTextContent(cursor, content, False)
-        return
+        return False
     with WriterCompoundUndo(model, "WriterAgent: Insert object"):
         span = host.createTextCursorByRange(cursor.getStart())
         host.insertString(span, "xx", True)  # two recorded characters, one on each side
@@ -96,6 +96,7 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
             head = host.createTextCursorByRange(span.getStart())
             head.goRight(1, True)
             head.setString("")
+    return True
 
 
 def redline_spans(doc: Any) -> list[RedlineSpan]:

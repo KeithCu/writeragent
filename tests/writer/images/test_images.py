@@ -2339,6 +2339,11 @@ def test_image_generate_pending_review_only_on_writer_insert():
     svc.generate_image.return_value = (["/tmp/gen.png"], None)
 
     ctx_insert = TestingFactory.create_context(doc_type="writer")
+    rec_state = [False]
+    ctx_insert.doc.getPropertyValue = lambda prop: rec_state[0] if prop == "RecordChanges" else None
+    ctx_insert.doc.setPropertyValue = (
+        lambda prop, val: rec_state.__setitem__(0, bool(val)) if prop == "RecordChanges" else None
+    )
     with (
         _patch_image_generate(svc),
         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
@@ -2346,6 +2351,17 @@ def test_image_generate_pending_review_only_on_writer_insert():
         res_insert = ImageGenerate().execute(ctx_insert, prompt="a cat")
     assert res_insert["status"] == "ok"
     assert res_insert["pending_review"] is True
+
+    ctx_unrecorded = TestingFactory.create_context(doc_type="writer")
+    ctx_unrecorded.doc.getPropertyValue = lambda prop: False if prop == "RecordChanges" else None
+    ctx_unrecorded.doc.setPropertyValue = lambda _prop, _val: None
+    with (
+        _patch_image_generate(svc),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+    ):
+        res_unrecorded = ImageGenerate().execute(ctx_unrecorded, prompt="a bird")
+    assert res_unrecorded["status"] == "ok"
+    assert "pending_review" not in res_unrecorded
 
     ctx_edit = TestingFactory.create_context(doc_type="writer")
     target_obj = MagicMock()

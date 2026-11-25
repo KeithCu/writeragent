@@ -31,8 +31,8 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
-from plugin.writer.record_changes import insert_recorded_content, is_recording_changes, record_changes
-from ..edit_review import flag_untracked, flag_untracked_delete
+from plugin.writer.record_changes import insert_recorded_content, record_changes
+from ..edit_review import flag_tracked, flag_untracked, flag_untracked_delete
 from ..search import text_box_shapes
 from ..specialized_base import ToolWriterTextFramesBase, grouped_text_box_error, target_params
 from ..target_resolver import insert_at_target
@@ -368,10 +368,9 @@ class FrameInsert(ToolWriterTextFramesBase):
             # insert_at_target has already deleted a search match. A recorded deletion only strikes
             # the match, so the cursor still spans it.
             replaced_pending = kwargs.get("target") == "search" and not cursor.isCollapsed()
-            recorded = anchor_type == 1 and is_recording_changes(doc)
             host = cursor.getText()
             if anchor_type == 1:
-                insert_recorded_content(doc, host, cursor, frame)
+                recorded = insert_recorded_content(doc, host, cursor, frame)
             else:
                 host.insertTextContent(cursor, frame, False)
                 if anchor_type == 2:
@@ -408,10 +407,8 @@ class FrameInsert(ToolWriterTextFramesBase):
         real_anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
         result: dict[str, Any] = {"status": "ok", "frame_name": inserted_name, "anchor_type": real_anchor_type}
         if recorded:
-            result["tracked"] = True
-            result["pending_review"] = True
+            flag_tracked(result)
         elif replaced_pending:
-            result["pending_review"] = True
             flag_untracked(
                 result,
                 doc,
@@ -420,6 +417,7 @@ class FrameInsert(ToolWriterTextFramesBase):
                     "a tracked deletion pending the user's review, so that text is still in the document "
                     "(Ctrl+Z undoes both). Do not accept or reject it yourself. Tell the user."
                 ),
+                replaced_pending=True,
             )
         else:
             flag_untracked(
