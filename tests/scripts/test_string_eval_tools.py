@@ -810,16 +810,18 @@ def test_apply_style_unsupported_arguments(args: dict[str, object], expected_cod
     assert res["code"] == expected_code
     assert w.get_html() == doc
 
-    w_none = WriterWorld(doc)
+
+def test_apply_style_clear_direct_none_is_ok() -> None:
+    w = WriterWorld('<p data-lo-style="Default">Alpha</p><p>Beta</p>')
     ok = json.loads(
         dispatch_string_tool(
-            w_none,
+            w,
             "apply_style",
             json.dumps({"style": "Heading 1", "target": "search", "old_content": "Alpha", "clear_direct": "none"}),
         )
     )
     assert ok["status"] == "ok"
-    assert w_none.get_html() == "<h1>Alpha</h1><p>Beta</p>"
+    assert w.get_html() == "<h1>Alpha</h1><p>Beta</p>"
 
 
 @pytest.mark.parametrize("target", ["beginning", "end", "selection"])
@@ -833,12 +835,14 @@ def test_apply_content_empty_insert_is_refused(target: str, content: object) -> 
     assert res["code"] == "INVALID_PARAM"
     assert w.get_html() == "<p>Keep</p>"
 
-    w_full = WriterWorld("<p>Keep</p>")
-    full_ok = json.loads(
-        dispatch_string_tool(w_full, "apply_content", json.dumps({"target": "full_document", "content": ""}))
+
+def test_apply_content_empty_full_document_clears() -> None:
+    w = WriterWorld("<p>Keep</p>")
+    ok = json.loads(
+        dispatch_string_tool(w, "apply_content", json.dumps({"target": "full_document", "content": ""}))
     )
-    assert full_ok["status"] == "ok"
-    assert w_full.get_html() == ""
+    assert ok["status"] == "ok"
+    assert w.get_html() == ""
 
 
 @pytest.mark.parametrize(
@@ -859,6 +863,9 @@ def test_write_range_rejects_nested_cells(rng: list[str], values: object) -> Non
     assert c._grid == before
     assert c.writes == []
 
+
+def test_write_range_allows_null_cell() -> None:
+    c = CalcWorld("A\tB\n1\t2")
     ok = json.loads(dispatch_string_tool(c, "write_range", json.dumps({"range": ["A1:B1"], "values": [["a", None]]})))
     assert ok["status"] == "ok"
     assert c._grid[0] == ["a", None]

@@ -221,7 +221,7 @@ One table, not a growing `if name ==`:
 | Draw | `shape_upsert`, `shape_connect`, `shape_group`, `shape_get_tree`, `shape_get_summary`, `workflow_finished` |
 | Calc | `get_sheet_summary`, `read_range`, `write_range`, `sort_range`, `workflow_finished` |
 
-Calls pass through `prepare_tool_call`, so missing, wrong-typed, or unknown arguments behave as live, and `workflow_finished` is validated by the real headless tool on both backends. Arguments that cannot be simulated faithfully return `unsupported_in_eval`: `apply_content` with `start_anchor`/`end_anchor`, `dry_run=true`, `position="before"|"after"`, or (on `target="search"`) `regex=true` or non-blank `hyperlink_url`; `search` with `regex=true`; `comment_add` with `parent_name`; `apply_style` with `family="CharacterStyles"`, `clear_direct="all"` (an `INVALID_PARAM` on `full_document`, as live), an `old_content` that spans paragraphs, any `target` other than `search` (omitted means `selection`), or non-Quotations `target="full_document"`; and `write_range` with `source` or `array=true` (when given a `=` formula). `apply_style` matches each paragraph's visible text and restyles the whole paragraph; the other Writer tools match the exported HTML. Everything else in the advertised catalog returns:
+Calls pass through `prepare_tool_call`, so missing, wrong-typed, or unknown arguments behave as live, and `workflow_finished` is validated by the real headless tool on both backends. Arguments that cannot be simulated faithfully return `unsupported_in_eval`: `apply_content` with `start_anchor`/`end_anchor`, `dry_run=true`, `position="before"|"after"`, or (on `target="search"`) `regex=true` or non-blank `hyperlink_url`; `search` with `regex=true`; `comment_add` with `parent_name`; `apply_style` with `family="CharacterStyles"`, `clear_direct="all"` (an `INVALID_PARAM` on `full_document`, as live), an `old_content` that spans paragraphs, any `target` other than `search` or `full_document` (omitted means `selection`), or non-Quotations `full_document`; and `write_range` with `source` or `array=true` (when given a `=` formula). `apply_style` matches each paragraph's visible text and restyles the whole paragraph; the other Writer tools match the exported HTML. Everything else in the advertised catalog returns:
 
 ```json
 {"status": "error", "code": "unsupported_in_eval",
@@ -257,8 +257,7 @@ that breaks old IpD CSV comparability.
 
 `{name, arguments, result_status, result_chars, error_code}`
 
-No full result bodies in the saved JSON (those can be huge). Keep
-counts.
+`workflow_finished` entries also carry `answer`, because TOC list scoring reads it; every other result body stays out of the saved JSON (those can be huge). Keep counts.
 
 ### Process oracles
 

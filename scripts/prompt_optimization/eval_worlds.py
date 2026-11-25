@@ -579,6 +579,7 @@ class WriterWorld:
 
         html = self._html
         blocks = _style_blocks(html)
+        # Search visible text so an attribute value is not a match and does not shift occurrence.
         # One line per paragraph, so a match's line number is its paragraph's index.
         text = "\n".join(prepare_old_content(html[start:end]).replace("\n", " ") for start, end, _attrs, _inner in blocks)
         hits = [text.count("\n", 0, start) for start, _end in _find_spans(text, needle, kwargs.get("case_sensitive"))]
