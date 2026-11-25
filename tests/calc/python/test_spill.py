@@ -190,7 +190,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
         if name == "WriterAgentSpillRegistry":
             saved_payload = value
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc = CalcDocStub(url="file:///fake_doc.ods")
@@ -249,7 +249,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         if name == "WriterAgentSpillRegistry":
             stored[id(model)] = value
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     doc1 = CalcDocStub(url="", props={"RuntimeUID": "uid-spill-1"}, selection="B2")
@@ -814,7 +814,7 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
         "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]},
     })
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
     doc = CalcDocStub(url="file:///fake_malformed.ods")
@@ -1418,7 +1418,7 @@ def test_arm_spill_registry_loads_and_arms_sheets(monkeypatch: pytest.MonkeyPatc
         "MissingSheet:0,0": {"code": "c", "rows": 2, "cols": 1},
     })
     monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
+        "plugin.calc.python.spill.read_document_property",
         lambda _model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
     )
 
@@ -1666,7 +1666,7 @@ def test_moved_formula_respills_before_modify_pass(
         if name == "WriterAgentSpillRegistry":
             saved.append(value)
 
-    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get_prop)
+    monkeypatch.setattr("plugin.calc.python.spill.read_document_property", mock_get_prop)
     monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
 
     sheet = CalcSheetStub("Sheet1")
@@ -2126,52 +2126,87 @@ def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkey
     import json
 
     stored = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
-    fail_read = True
-    saved_calls: list[str] = []
 
-    def mock_get_prop(_model: Any, name: str, default: Any = None) -> Any:
-        if name != "WriterAgentSpillRegistry":
-            return default
-        if fail_read:
-            raise RuntimeError("transient read error")
-        return stored
+    for fail_kind in ("getPropertyValue", "getPropertySetInfo"):
+        doc = CalcDocStub(url=f"file:///fail_{fail_kind}.ods", props={"RuntimeUID": f"uid-fail-{fail_kind}"})
+        bag = doc.getDocumentProperties().UserDefinedProperties
+        bag.values["WriterAgentSpillRegistry"] = stored
+        orig_get_value = bag.getPropertyValue
+        orig_get_info = bag.getPropertySetInfo
+        fail_read = True
 
-    def mock_set_prop(_model: Any, name: str, value: Any) -> bool:
-        if name == "WriterAgentSpillRegistry":
-            saved_calls.append(str(value))
-        return True
+        def _maybe_fail_value(name: str, _orig=orig_get_value) -> Any:
+            if fail_read and name == "WriterAgentSpillRegistry":
+                raise RuntimeError("transient getPropertyValue error")
+            return _orig(name)
 
-    monkeypatch.setattr(_spill, "get_document_property", mock_get_prop)
-    monkeypatch.setattr(_spill, "set_document_property", mock_set_prop)
+        def _maybe_fail_info(_orig=orig_get_info) -> Any:
+            if fail_read:
+                raise RuntimeError("transient getPropertySetInfo error")
+            return _orig()
 
-    doc = CalcDocStub(url="file:///fail_load.ods", props={"RuntimeUID": "uid-fail-load"})
+        if fail_kind == "getPropertyValue":
+            monkeypatch.setattr(bag, "getPropertyValue", _maybe_fail_value)
+        else:
+            monkeypatch.setattr(bag, "getPropertySetInfo", _maybe_fail_info)
+
+        reset_calc_workbook_states()
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        try:
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert not st.loaded
+            assert st.spills == {}
+
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert bag.values["WriterAgentSpillRegistry"] == stored
+
+            fail_read = False
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert st.loaded
+            assert ("Sheet1", 0, 0) in st.spills
+
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+                "Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}
+            }
+        finally:
+            WorkbookState.forget_key(st.key)
+
+
+def test_load_spill_registry_unparsable_payload_marks_loaded_and_allows_recovery() -> None:
+    import json
+
+    for bad_payload in ("{not-json", "[1, 2]"):
+        doc = CalcDocStub(url="file:///bad_json.ods", props={"RuntimeUID": "uid-bad-json"})
+        bag = doc.getDocumentProperties().UserDefinedProperties
+        bag.values["WriterAgentSpillRegistry"] = bad_payload
+
+        reset_calc_workbook_states()
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        try:
+            _spill.load_spill_registry_for_doc(doc, st)
+            assert st.loaded
+            assert st.spills == {}
+
+            st.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="recovered", rows=2, cols=1)
+            _spill.save_spill_registry_for_doc(doc, st)
+            assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+                "Sheet1:0,0": {"code": "recovered", "rows": 2, "cols": 1}
+            }
+        finally:
+            WorkbookState.forget_key(st.key)
+
+
+def test_load_spill_registry_missing_property_marks_loaded() -> None:
     reset_calc_workbook_states()
+    doc = CalcDocStub(url="file:///clean_load.ods", props={"RuntimeUID": "uid-clean-load"})
     st = WorkbookState.for_doc(doc)
     assert st is not None
     try:
         _spill.load_spill_registry_for_doc(doc, st)
-        assert not st.loaded
-        assert st.spills == {}
-
-        _spill.save_spill_registry_for_doc(doc, st)
-        assert saved_calls == []
-
-        fail_read = False
-        _spill.load_spill_registry_for_doc(doc, st)
         assert st.loaded
-        assert ("Sheet1", 0, 0) in st.spills
-
-        _spill.save_spill_registry_for_doc(doc, st)
-        assert len(saved_calls) == 1
-        assert json.loads(saved_calls[0]) == {"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}}
-
-        # Missing property is a clean state and marks loaded=True.
-        reset_calc_workbook_states()
-        stored_empty_doc = CalcDocStub(url="file:///clean_load.ods", props={"RuntimeUID": "uid-clean-load"})
-        monkeypatch.setattr(_spill, "get_document_property", lambda _m, _n, default=None: default)
-        st_clean = WorkbookState.for_doc(stored_empty_doc)
-        assert st_clean is not None
-        _spill.load_spill_registry_for_doc(stored_empty_doc, st_clean)
-        assert st_clean.loaded
+        assert st.spills == {}
     finally:
         WorkbookState.forget_key(st.key)

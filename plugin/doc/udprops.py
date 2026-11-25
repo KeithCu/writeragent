@@ -47,6 +47,21 @@ def _user_defined_properties(model: Any) -> Any:
     return thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
 
 
+def read_document_property(model: Any, name: str, default: Any = None) -> Any:
+    """Read a custom document property from the model, raising on UNO failures.
+
+    Returns *default* only when the document has no ``UserDefinedProperties`` bag
+    (for example a non-ODF model where ``set_document_property`` also cannot write)
+    or when the property is confirmed absent.
+    """
+    props = _user_defined_properties(model)
+    if props is None:
+        return default
+    if uno_call(lambda: bool(props.getPropertySetInfo().hasPropertyByName(name)), "Check property existence"):
+        return uno_call(lambda: props.getPropertyValue(name), "Get property value")
+    return default
+
+
 def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     """Get a custom document property from the model.
 
@@ -54,12 +69,7 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     client is a socket bootstrap), so this is not @main_thread_only.
     """
     try:
-        props = _user_defined_properties(model)
-        if props is None:
-            return default
-        if _user_defined_property_exists(props, name):
-            return uno_call(lambda: props.getPropertyValue(name), "Get property value")
-        return default
+        return read_document_property(model, name, default)
     except UnoObjectError:
         if name in ("WriterAgentSessionID", "WriterAgentPythonSessionId"):
             log.debug("get_document_property (optional property %s not set yet)", name)

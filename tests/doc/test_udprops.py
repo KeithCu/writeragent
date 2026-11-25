@@ -181,3 +181,35 @@ def test_read_and_write_builtin_document_properties():
     assert bag.Title == "new"
     assert bag.Keywords == ("a", "b")
 
+
+def test_read_document_property_raises_on_uno_failure_and_returns_default_when_absent():
+    from plugin.doc.udprops import read_document_property
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    assert read_document_property(doc, "Missing", "fallback") == "fallback"
+
+    props.values["Present"] = "ok"
+    assert read_document_property(doc, "Present") == "ok"
+
+    class _FailingInfo:
+        def getPropertySetInfo(self):
+            raise RuntimeError("info boom")
+
+    with pytest.raises(UnoObjectError):
+        read_document_property(_DocWithUserDefinedProperties(_FailingInfo()), "Present")
+
+    class _FailingValue:
+        def getPropertySetInfo(self):
+            class _Info:
+                def hasPropertyByName(self, _name):
+                    return True
+
+            return _Info()
+
+        def getPropertyValue(self, _name):
+            raise RuntimeError("value boom")
+
+    with pytest.raises(UnoObjectError):
+        read_document_property(_DocWithUserDefinedProperties(_FailingValue()), "Present")
+

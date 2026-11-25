@@ -42,7 +42,7 @@ from plugin.calc.python.formula_locator_cache import (
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
-from plugin.doc.udprops import get_document_property, set_document_property
+from plugin.doc.udprops import read_document_property, set_document_property
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.queue_executor import main
 
@@ -376,6 +376,9 @@ def cleanup_orphans(
         if not main.is_current():
             return
 
+        # Load before cleanup so a recovered read merges stored records before anything is popped.
+        load_spill_registry_for_doc(doc, state)
+
         with sheet_modify_scope():
             delta = _used_end_delta(state, sheet, sheet_name)
             to_remove: list[tuple[tuple[str, int, int], bool]] = []
@@ -449,56 +452,62 @@ def cleanup_orphans(
 
 
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
-    """Load the registry from UserDefinedProperties once per workbook state; later calls do nothing."""
-    if state.loaded:
+    """Load the registry from UserDefinedProperties until it succeeds; later calls do nothing."""
+    if state.loaded or not state.key:
         return
     try:
-        raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
-        if not isinstance(raw, str) or not raw.strip():
-            if state.key:
-                state.loaded = True
-            return
-        if not state.key:
-            return
-        data = json.loads(raw)
-        for key, value in data.items():
-            try:
-                parts = key.split(":")
-                if len(parts) == 2:
-                    sheet_name, coords = parts
-                    row_col = coords.split(",")
-                    if len(row_col) == 2:
-                        frow, fcol = int(row_col[0]), int(row_col[1])
-                        if isinstance(value, dict):
-                            code = str(value.get("code") or "")
-                            cells = value.get("cells")
-                            if cells:
-                                # Registries written before rectangles listed every spilled cell;
-                                # the rectangle is their bounding box with the formula cell.
-                                rows = max(int(c["r"]) for c in cells) - frow + 1
-                                cols = max(int(c["c"]) for c in cells) - fcol + 1
-                            else:
-                                rows = int(value.get("rows") or 1)
-                                cols = int(value.get("cols") or 1)
-                            reg_key = (sheet_name, frow, fcol)
-                            if reg_key not in state.spills:
-                                # Keep any in-memory record written this session (it is newer).
-                                state.spills[reg_key] = SpillRecord(
-                                    code=code,
-                                    rows=max(rows, 1),
-                                    cols=max(cols, 1),
-                                )
-            except Exception:
-                log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
-                continue
-        state.loaded = True
+        raw = read_document_property(doc, "WriterAgentSpillRegistry", None)
     except Exception:
         log.exception("Failed to load spill registry from document property")
+        return
+    if not isinstance(raw, str) or not raw.strip():
+        state.loaded = True
+        return
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dict in spill registry, got {type(data).__name__}")
+    except Exception:
+        log.warning("Spill registry payload is unparsable; resetting to empty", exc_info=True)
+        state.loaded = True
+        return
+    for key, value in data.items():
+        try:
+            parts = key.split(":")
+            if len(parts) == 2:
+                sheet_name, coords = parts
+                row_col = coords.split(",")
+                if len(row_col) == 2:
+                    frow, fcol = int(row_col[0]), int(row_col[1])
+                    if isinstance(value, dict):
+                        code = str(value.get("code") or "")
+                        cells = value.get("cells")
+                        if cells:
+                            # Registries written before rectangles listed every spilled cell;
+                            # the rectangle is their bounding box with the formula cell.
+                            rows = max(int(c["r"]) for c in cells) - frow + 1
+                            cols = max(int(c["c"]) for c in cells) - fcol + 1
+                        else:
+                            rows = int(value.get("rows") or 1)
+                            cols = int(value.get("cols") or 1)
+                        reg_key = (sheet_name, frow, fcol)
+                        if reg_key not in state.spills:
+                            # Keep any in-memory record written this session (it is newer).
+                            state.spills[reg_key] = SpillRecord(
+                                code=code,
+                                rows=max(rows, 1),
+                                cols=max(cols, 1),
+                            )
+        except Exception:
+            log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
+            continue
+    state.loaded = True
 
 
 def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
-    """Save the document's spill registry to its UserDefinedProperties."""
+    """Save the document's spill registry to its UserDefinedProperties when loaded."""
     try:
+        # An unloaded map is not the full registry, so saving it would drop stored records.
         if not state.key or not state.loaded:
             return
         doc_spills: dict[str, Any] = {}
@@ -765,6 +774,7 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
+                # Retry loading if prepare_auto_spill's load failed; without a loaded state, save below is skipped.
                 load_spill_registry_for_doc(doc, state)
                 # The modify pass may still be waiting: remap any moved record and clear or drop
                 # any record whose formula is no longer at this origin before this write decides
@@ -962,7 +972,7 @@ def _spill_is_blocked(
     return False
 
 
-def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord, *, doc: Any | None = None) -> bool:
+def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord, *, doc: Any) -> bool:
     formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
     return (
         is_matching_py_formula(formula, record.code, sheet=sheet, doc=doc)
@@ -978,7 +988,7 @@ def _moved_record(
     row: int,
     col: int,
     *,
-    doc: Any | None = None,
+    doc: Any,
 ) -> SpillRecord | None:
     """Return this cell's record when rows or columns before it were inserted or deleted and
     cleanup_orphans has not remapped it yet; None when the cell already has its own record.
