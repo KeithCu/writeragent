@@ -32,6 +32,7 @@ from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
 from .hyperlink_fixup import StaleReason
+from .math.html_math_segment import segment_html_with_mixed_math
 from .record_changes import record_changes
 
 if TYPE_CHECKING:
@@ -502,9 +503,17 @@ def normalize_character_references(text: str) -> str:
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
-    Every write entry point runs this once, before measuring ruby offsets or importing.
+    Every write entry point runs this once, before importing.
     """
     return text.replace("\\n", "\n").replace("\\t", "\t")
+
+
+def expand_prose_escapes(text: str) -> str:
+    """``expand_escapes`` outside math, so TeX such as ``\\nu`` and ``\\tau`` keeps its backslash."""
+    return "".join(
+        expand_escapes(seg.text) if seg.kind == "html" else seg.source
+        for seg in segment_html_with_mixed_math(text)
+    )
 
 
 def plain_paragraphs(content: str) -> list[str]:
@@ -517,15 +526,15 @@ def _prepare_import_html(content: str) -> str:
     """Prepare HTML or plain-text content for import / summary walk.
 
     Normalizes complete character references (keeping < > & " ' escaped),
-    expands escapes, strips ruby, normalizes line breaks, escapes prose angle
+    expands escapes outside math, strips ruby, normalizes line breaks, escapes prose angle
     brackets, and strips boilerplate.
     """
     if not isinstance(content, str) or not content:
         return ""
 
     content = normalize_character_references(content)
-    content = expand_escapes(content)
-    content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content = expand_prose_escapes(content)
+    content = html_ruby.strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)

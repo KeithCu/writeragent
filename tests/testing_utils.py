@@ -1910,11 +1910,13 @@ class FakeUnoPortion:
         *,
         redline_type: str | None = None,
         is_start: bool = False,
+        inner: list[Any] | None = None,
     ) -> None:
         self._ptype = ptype
         self._text = text
         self._redline_type = redline_type
         self._is_start = is_start
+        self._inner = inner
 
     def getPropertyValue(self, name: str) -> Any:
         if name == "TextPortionType":
@@ -1923,6 +1925,14 @@ class FakeUnoPortion:
             return self._redline_type
         if name == "IsStart":
             return self._is_start
+        if name == self._ptype and self._inner is not None:
+            inner = self._inner
+
+            class _Container:
+                def createEnumeration(self) -> FakeUnoEnum:
+                    return FakeUnoEnum(inner)
+
+            return _Container()
         raise KeyError(name)
 
     def getString(self) -> str:

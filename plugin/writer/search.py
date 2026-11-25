@@ -37,6 +37,7 @@ from plugin.doc.text_helpers import (
     visible_point_in_paragraph,
     with_view_cursor_left_body_locked,
 )
+from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
@@ -1138,23 +1139,33 @@ def text_box_frame(shape: Any) -> Any | None:
     return None
 
 
-def text_box_shapes(doc: Any) -> list[tuple[int, Any, str]]:
-    """(draw-page index, shape, frame name) for every Word-style text box."""
+def shape_text_boxes(index: int, shape: Any) -> Iterator[tuple[int | str, Any, Any]]:
+    """(address, shape, hidden TextFrame) for a page-level shape that is a Word text box, or for each one inside a group."""
+    frame = text_box_frame(shape)
+    if frame is not None:
+        yield index, shape, frame
+    elif is_group(shape):
+        for address, child, _parent in iter_shape_addresses(shape, base=str(index)):
+            frame = text_box_frame(child)
+            if frame is not None:
+                yield address, child, frame
+
+
+def text_box_shapes(doc: Any) -> list[tuple[int | str, Any, str]]:
+    """(address, shape, frame name) for every Word text box, including those inside groups.
+
+    The address is the draw-page index, or a dotted path for a group child, as shape_upsert takes it.
+    """
     page = doc.getDrawPage()
-    boxes = []
+    boxes: list[tuple[int | str, Any, str]] = []
     for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        frame = text_box_frame(shape)
-        if frame is not None:
-            boxes.append((i, shape, frame.getName()))
+        for address, shape, frame in shape_text_boxes(i, page.getByIndex(i)):
+            boxes.append((address, shape, frame.getName()))
     return boxes
 
 
 def iter_text_frame_names(doc: Any) -> Iterator[str]:
-    """Names of every text frame including Word text boxes, all served by getTextFrames().getByName().
-
-    Boxes inside group shapes are not included.
-    """
+    """Names of every text frame including Word text boxes, all served by getTextFrames().getByName()."""
     yield from doc.getTextFrames().getElementNames()
     for _idx, _shape, name in text_box_shapes(doc):
         yield name

@@ -820,6 +820,29 @@ def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     texts3 = {n: tbl3.getCellByName(n).getString() for n in tbl3.getCellNames()}
     assert texts3 == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}, texts3
 
+    # 4. Staggered merges B1:C1 and C2:D2 in 3x5 -> col 1 names B1 (spans 2) affecting 3 columns; split 2 recovers
+    t4 = TableInsert().execute(
+        tool_ctx, rows=3, columns=5,
+        data=[
+            ["a1", "b1", "c1", "d1", "e1"],
+            ["a2", "b2", "c2", "d2", "e2"],
+            ["a3", "b3", "c3", "d3", "e3"],
+        ],
+    )["table_name"]
+    TableMergeCells().execute_safe(tool_ctx, name=t4, cell_range="B1:C1")
+    TableMergeCells().execute_safe(tool_ctx, name=t4, cell_range="C2:D2")
+    res4 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t4, index=1)
+    assert res4["status"] == "error"
+    assert res4["code"] == "COLUMN_HAS_SPANNING_CELL"
+    assert "'B1' spans 2 columns, so 3 columns" in res4["message"], res4["message"]
+    split4 = TableSplitCell().execute_safe(tool_ctx, name=t4, cell="B1", direction="columns", parts=2)
+    assert split4["status"] == "ok", split4
+    del4 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t4, index=1)
+    assert del4["status"] == "ok", del4
+    tbl4 = doc.getTextTables().getByName(t4)
+    row1 = [tbl4.getCellByName(c).getString() for c in ("A1", "B1", "C1", "D1")]
+    assert row1 == ["a1", "", "d1", "e1"], row1
+
 
 @native_test
 @with_native_doc("writer")
@@ -889,7 +912,6 @@ def test_tall_cell_row_delete_untracked_and_middle_tracked_and_after_split_uno(c
 def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     from plugin.doc.text_helpers import DeletionState, visible_range_text
     from plugin.tests.testing_utils import strike_across_paragraphs
-    from plugin.writer.range_copy import cell_has_visible_text
     from plugin.writer.table_nesting import cell_plain_siblings
 
     text = doc.getText()
@@ -909,7 +931,7 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     assert "gone" not in res["cells"]["A1"], res["cells"]
     assert "Tail" in res["cells"]["A1"], res["cells"]
 
-    # cell_has_visible_text is False and visible_range_text is empty for a cell whose three paragraphs are one Delete.
+    # visible_range_text is empty for a cell whose three paragraphs are one Delete.
     cell_b1 = tbl.getCellByName("B1")
     b_cur = cell_b1.createTextCursor()
     for idx, line in enumerate(["d1", "d2", "d3"]):
@@ -931,7 +953,6 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     mid_enum = b_paras[1].createEnumeration()
     while mid_enum.hasMoreElements():
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
-    assert cell_has_visible_text(cell_b1) is False
     assert visible_range_text(doc, cell_b1).strip("\n") == ""
 
 

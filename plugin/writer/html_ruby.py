@@ -14,23 +14,29 @@ from plugin.doc.text_helpers import (
     FAILED,
     DeletionState,
     TrackedDeletions,
-    go_right,
+    iter_portions,
     iter_xtext_paragraphs,
 )
-from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
-import plugin.writer.range_copy as range_copy
+from plugin.framework.errors import best_effort, uno_read
 
 log = logging.getLogger("writeragent.writer")
 
 # StarWriter HTML import has no ruby rule: <ruby>漢字<rt>かんじ</rt></ruby> becomes
-# concatenated body text. Strip <rt> before import, then set RubyText on the base.
+# concatenated body text. Swap <ruby> for [[WA-RUBY:<nonce>:<i>]]<base> before
+# import, then delete the token and set RubyText on the base.
 _RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.DOTALL)
 _RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
 _RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_ASCII_WS = " \t\r\n"
+_LEADING_WS_OR_TAGS_RE = re.compile(rf"(?:[{_ASCII_WS}]|<[^>]+>)*")
 _RUBY_UNDER_RE = re.compile(r"ruby-position\s*:\s*under", re.IGNORECASE)
-_BR_RE = re.compile(r"<br\b[^>]*>", re.IGNORECASE)
-_PARA_END_RE = re.compile(r"</(?:p|h[1-6])\s*>", re.IGNORECASE)
+RUBY_TOKEN_RE = re.compile(r"\[\[WA-RUBY:([a-zA-Z0-9]+):(\d+)\]\]")
+
+
+def ruby_token_prefix(nonce: str) -> str:
+    """Placeholder prefix for *nonce*, used by ``field_restore.find_tokens``."""
+    return f"[[WA-RUBY:{nonce}:"
 
 
 class RubySpan(NamedTuple):
@@ -166,7 +172,7 @@ def _iter_ruby_spans_in_paragraph(
     base_parts: list[str] = []
     base_start = 0
     offset = 0
-    for portion, kind in range_copy.iter_portions(portion_enum):
+    for portion, kind in iter_portions(portion_enum):
         if kind == "Redline":
             state.apply_marker(portion)
             continue
@@ -236,7 +242,6 @@ class ImportRubySpan(NamedTuple):
     base: str
     reading: str
     is_above: bool
-    visible_offset: int
 
 
 
@@ -246,174 +251,58 @@ def _visible_html_text(fragment: str) -> str:
 
 
 
-def _kept_text_len(fragment: str) -> int:
-    """Length of the text StarWriter keeps for *fragment*.
-
-    Tags are dropped; <br> and each paragraph end keep one character (an LF).
-    See test_html_import_uno.test_html_to_search_text_oracle_uno.
-    """
-    if not fragment:
-        return 0
-    return (
-        len(_visible_html_text(fragment))
-        + len(_BR_RE.findall(fragment))
-        + len(_PARA_END_RE.findall(fragment))
-    )
+def _ruby_base_html(inner: str) -> str:
+    return _RT_RE.sub("", _RP_RE.sub("", inner))
 
 
 
-def extract_and_strip_ruby(html: str) -> tuple[str, list[ImportRubySpan]]:
-    """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
+def strip_ruby(html: str) -> str:
+    """Replace ``<ruby>`` blocks with their base HTML, dropping ``<rt>`` and ``<rp>``."""
+    if not html:
+        return html
+    lower = html.lower()
+    if "<ruby" not in lower:
+        return html
+    # Unclosed <ruby> makes the DOTALL regex scan to end from every open tag.
+    if lower.count("<ruby") != lower.count("</ruby>"):
+        return _ruby_base_html(html)
+    return _RUBY_BLOCK_RE.sub(lambda m: _ruby_base_html(m.group(2) or ""), html)
 
-    Each span is ``(base, reading, is_above, visible_offset)`` in document order.
-    ``visible_offset`` counts the text StarWriter keeps: tags are dropped, each
-    ``<br>`` and paragraph end keeps one character. StarWriter concatenates ruby
-    children, so the import must see base only; ``RubyText`` is painted afterwards
-    via ``apply_ruby_spans``, which starts at this offset instead of the first
-    copy of the base.
+
+
+def ruby_placeholders(html: str, nonce: str) -> tuple[str, list[ImportRubySpan]]:
+    """Replace ``<ruby>`` with ``[[WA-RUBY:<nonce>:<i>]]<base>`` and return ``(clean_html, spans)``.
+
+    StarWriter concatenates ruby children, so the import must see base only.
+    Each span in *spans* corresponds to placeholder index ``i`` and is painted
+    after import via ``html_import._place_ruby``.
     """
     if not html:
         return html, []
     lower = html.lower()
-    if "<ruby" not in lower:
-        return html, []
-    # Unclosed <ruby> makes the DOTALL regex scan to end from every open tag.
-    if lower.count("<ruby") != lower.count("</ruby>"):
-        return _RT_RE.sub("", _RP_RE.sub("", html)), []
+    if "<ruby" not in lower or lower.count("<ruby") != lower.count("</ruby>"):
+        return strip_ruby(html), []
+
     spans: list[ImportRubySpan] = []
-    out: list[str] = []
-    visible_len = 0
-    pos = 0
-    for match in _RUBY_BLOCK_RE.finditer(html):
-        before = html[pos:match.start()]
-        out.append(before)
-        # Offset in the text StarWriter will keep, not in the HTML source.
-        # An earlier identical base (plain 漢字 before <ruby>漢字</ruby>) must
-        # not receive this reading.
-        visible_len += _kept_text_len(before)
+
+    def _replace(match: re.Match[str]) -> str:
         attrs = match.group(1) or ""
         inner = match.group(2) or ""
         rt_m = _RT_RE.search(inner)
         reading = _visible_html_text(rt_m.group(1) if rt_m else "").strip()
-        base_html = _RP_RE.sub("", inner)
-        base_html = _RT_RE.sub("", base_html)
-        base = _visible_html_text(base_html)
+        base_html = _ruby_base_html(inner)
+        # Strip ASCII whitespace only: StarWriter keeps U+00A0 from &nbsp; and U+3000 in body text.
+        base = _visible_html_text(base_html).strip(_ASCII_WS)
         is_above = _RUBY_UNDER_RE.search(attrs) is None
-        if base and reading:
-            spans.append(ImportRubySpan(base, reading, is_above, visible_len))
-        out.append(base_html)
-        visible_len += _kept_text_len(base_html)
-        pos = match.end()
-    out.append(html[pos:])
-    return "".join(out), spans
+        if not base or not reading:
+            return base_html
+        idx = len(spans)
+        spans.append(ImportRubySpan(base, reading, is_above))
+        token = f"{ruby_token_prefix(nonce)}{idx}]]"
+        # Place the token after leading whitespace and opening tags so it sits right
+        # before the first visible character (and leading whitespace still collapses).
+        lead = _LEADING_WS_OR_TAGS_RE.match(base_html)
+        ws_len = lead.end() if lead else 0
+        return base_html[:ws_len] + token + base_html[ws_len:]
 
-
-
-def ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
-    """Character count before *cursor* when *spans* is non-empty, else 0.
-
-    Building the prefix cursor and calling ``getString()`` reads the entire
-    text before the insert point, which is wasted when there is no ruby.
-    """
-    if not spans:
-        return 0
-    return range_copy.prefix_char_count(text_obj, cursor)
-
-
-
-def apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
-    """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
-
-    After a StarWriter import the document has base characters only. Offsets
-    come from ``getString()`` then ``goRight`` — they agree on plain imported
-    body text (no fields/ruby yet).
-    """
-    if not spans:
-        return
-    def read_imported() -> tuple[Any, str]:
-        origin = text_obj.getStart()
-        hay = text_obj.createTextCursorByRange(origin)
-        hay.gotoEnd(True)
-        return origin, hay.getString() or ""
-
-    got = uno_read(read_imported, None)
-    if got is None:
-        return
-    origin, haystack = got
-    # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
-    # are relative to that suffix, not to earlier document text.
-    anchor = skip_chars
-    pos = anchor
-
-    cur: Any = None
-    cur_pos = 0
-
-    for base, reading, is_above, offset in spans:
-        is_above = bool(is_above)
-
-        # The span's fourth item is the base's visible-text offset, so a repeated
-        # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
-        target_offset = anchor + offset
-
-        if target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:
-            idx = target_offset
-        else:
-            log.debug("apply_ruby_spans: base %r not at offset %d, falling back to find", base, target_offset)
-            idx = haystack.find(base, pos)
-
-        if idx < 0:
-            log.debug("apply_ruby_spans: base %r not found in imported text", base)
-            continue
-
-        try:
-            if cur is None:
-                cur = text_obj.createTextCursorByRange(origin)
-                cur_pos = 0
-
-            delta = idx - cur_pos
-            if delta < 0:
-                cur = text_obj.createTextCursorByRange(origin)
-                cur_pos = 0
-                delta = idx
-
-            if delta > 0 and not go_right(cur, delta, False):
-                cur = None
-                continue
-            cur_pos = idx
-
-            sel = text_obj.createTextCursorByRange(cur)
-            if not go_right(sel, len(base), True):
-                cur = None
-                continue
-
-            if sel.getString() != base:
-                resync = 0
-                while sel.getString() != base and resync < 50 and go_right(cur, 1, False):
-                    cur_pos += 1
-                    resync += 1
-                    sel = text_obj.createTextCursorByRange(cur)
-                    if not go_right(sel, len(base), True):
-                        break
-
-            if sel.getString() != base:
-                log.debug(
-                    "apply_ruby_spans: offset mismatch want %r got %r",
-                    base, sel.getString(),
-                )
-                go_right(cur, len(base), False)
-                cur_pos = idx + len(base)
-                pos = cur_pos
-                continue
-
-            sel.setPropertyValue("RubyText", reading)
-            # RubyIsAbove and RubyAdjust are on the same cursor that just took RubyText.
-            sel.setPropertyValue("RubyIsAbove", is_above)
-            sel.setPropertyValue("RubyAdjust", 0)
-            go_right(cur, len(base), False)
-            cur_pos = cur_pos + len(base)
-            pos = idx + len(base)
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.warning("apply_ruby_spans: failed for %r", base, exc_info=True)
-            cur = None
-            pos = idx + len(base)
+    return _RUBY_BLOCK_RE.sub(_replace, html), spans

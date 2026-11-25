@@ -1708,15 +1708,29 @@ def test_untracked_row_delete_covered_row_still_removes():
     ("seps_per_row", "cell_names", "idx", "expected"),
     [
         # Header merge A1:B1 in 3-col table, deleting col 0 -> A1 spans 2 cols
-        ([[6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, ("A1", 2)),
+        ([[6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, ("A1", 2, 2)),
         # Lower merge A3:B3 in 3-col table, deleting col 0 -> A3 spans 2 cols
-        ([[3333, 6666], [3333, 6666], [6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3"], 0, ("A3", 2)),
+        ([[3333, 6666], [3333, 6666], [6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3"], 0, ("A3", 2, 2)),
         # Full-width row A3:C3 in 3-col table, deleting col 1 -> A3 spans 3 cols
-        ([[3333, 6666], [3333, 6666], []], ["A1", "B1", "C1", "A2", "B2", "C2", "A3"], 1, ("A3", 3)),
+        ([[3333, 6666], [3333, 6666], []], ["A1", "B1", "C1", "A2", "B2", "C2", "A3"], 1, ("A3", 3, 3)),
         # Rectangular 3x3 table -> None
         ([[3333, 6666], [3333, 6666], [3333, 6666]], ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"], 0, None),
         # A1:B1 merged in 2-col table, deleting idx 1 (beyond row 0's 1-cell count) -> None
         ([[], [5000]], ["A1", "A2", "B2"], 1, None),
+        # Staggered B1:C1 and C2:D2 in 5-col table, deleting col 1 -> B1 spans 2, 3 cols deleted
+        (
+            [[2000, 6000, 8000], [2000, 4000, 8000], [2000, 4000, 6000, 8000]],
+            ["A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2", "A3", "B3", "C3", "D3", "E3"],
+            1,
+            ("B1", 2, 3),
+        ),
+        # A1:B1 and B2:C2 in 4-col table, deleting col 1 -> B2 is the spanning cell (2 cols)
+        (
+            [[5000, 7500], [2500, 7500], [2500, 5000, 7500]],
+            ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3", "D3"],
+            1,
+            ("B2", 2, 2),
+        ),
     ],
 )
 def test_column_wide_cell(seps_per_row, cell_names, idx, expected):

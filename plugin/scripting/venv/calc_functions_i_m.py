@@ -21,6 +21,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    RegressionError,
     as_nonzero,
     clean_paired_arrays,
     collect_a_values,
@@ -32,8 +33,8 @@ from .calc_functions_util import (
     match_criteria,
     nan_error_code,
     npf_result,
-    orient_columns,
     propagate_errors,
+    regression_x,
     require_samples,
     serial_to_date,
     yearfrac,
@@ -559,32 +560,27 @@ def _numeric_only(arg: Any) -> np.ndarray:
 
 
 def _regression_inputs(
-    args: tuple[Any, ...], kwargs: dict[str, Any]
+    args: tuple[Any, ...], kwargs: dict[str, Any], *, log: bool
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Shared known_y / known_x / const parse for LINEST and LOGEST.
 
-    Illegal ranges raise ValueError, and linest / logest catch that and
-    return "#VALUE!". Omitted known_x (the one-argument call) is ``1..n``.
-    A present blank (``None``) is not that omission: ``ScLinest`` uses
-    ``1..n`` only for ``IsMissing``. The fourth argument, ``stats``, is
-    ignored. ``CalculateRGPRKP`` builds a 5-row statistics matrix this
-    helper does not port.
+    Checks y <= 0 (for LOGEST, Err:502), then shape (Err:502 via regression_x),
+    then sample count (Err:504 via require_samples): CheckMatrix, CalculateRGPRKP
+    (interpr5.cxx). Other bad inputs raise ValueError. Omitted known_x (the
+    one-argument call) is ``1..n``; a present blank (``None``) is not that
+    omission: ``ScLinest`` uses ``1..n`` only for ``IsMissing``. The fourth
+    argument, ``stats``, is ignored; ``CalculateRGPRKP`` builds a 5-row
+    statistics matrix this helper does not port.
     """
-    data_y = _numeric_only(args[0]).ravel()
-    if data_y.size == 0:
-        raise ValueError
-    if len(args) <= 1:
-        data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
-    elif args[1] is None:
-        raise ValueError
-    else:
-        data_x = orient_columns(_numeric_only(args[1]), len(data_y), axis=0)
-    if data_x.shape[0] != len(data_y):
-        raise ValueError
-    raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
-    const = as_nonzero(raw_const)
+    known_y = _numeric_only(args[0])
+    if log:
+        if np.any(known_y <= 0):
+            raise RegressionError("Err:502")
+        known_y = np.log(known_y)
+    data_x = regression_x(known_y, None if len(args) <= 1 else _numeric_only(args[1]))
+    const = as_nonzero(kwargs.get("const", args[2] if len(args) > 2 else True))
     require_samples(data_x.shape[0], data_x.shape[1], const)
-    return data_y, data_x, const
+    return known_y.ravel(), data_x, const
 
 
 def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
@@ -603,8 +599,10 @@ def linest(*args: Any, **kwargs: Any) -> Any:
     # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        data_y, data_x, const = _regression_inputs(args, kwargs)
+        data_y, data_x, const = _regression_inputs(args, kwargs, log=False)
         return _fit_line(data_y, data_x, const)
+    except RegressionError as exc:
+        return str(exc)
     except _REGRESSION_ERRORS:
         return "#VALUE!"
 
@@ -613,11 +611,11 @@ def logest(*args: Any, **kwargs: Any) -> Any:
     # Excel order reverses the slopes. const=False forces b = 1. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        data_y, data_x, const = _regression_inputs(args, kwargs)
-        if np.any(data_y <= 0):
-            return "#VALUE!"
-        fitted = _fit_line(np.log(data_y), data_x, const)
+        data_y, data_x, const = _regression_inputs(args, kwargs, log=True)
+        fitted = _fit_line(data_y, data_x, const)
         return [float(np.exp(v)) for v in fitted]
+    except RegressionError as exc:
+        return str(exc)
     except _REGRESSION_ERRORS:
         return "#VALUE!"
 
@@ -808,13 +806,13 @@ def mode(*args: Any) -> Any:
     # A Calc bool is a numeric cell, so True and 1 are the same value and
     # must stay merged.
     arr = extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
+    # ScModalValue (interpr3.cxx) pushes NoValue (#VALUE!) for empty or no repeat.
     if not arr.size:
-        return float("nan")
+        return "#VALUE!"
     counts = Counter(arr.tolist())
     best = max(counts.values())
-    # No repeat is #VALUE! in Calc (ScModalValue, interpr3.cxx); this returns a plain NaN (#NUM!).
     if best < 2:
-        return float("nan")
+        return "#VALUE!"
     # Tie-break is the lowest value, the first run after ScModalValue sorts.
     # mode([2, 2, 1, 1]) was 2 when Counter's first key won.
     return float(min(value for value, count in counts.items() if count == best))

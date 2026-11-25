@@ -703,7 +703,7 @@ def test_heading_rename_in_review_mode_uno(ctx, doc) -> None:
     # Direct EditReviewSession.tag_side_effects check: tokens are stamped, no ChangeRecord is added,
     # and _pending_tokens does not wait for them.
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}, []))
+        session.tag_side_effects(lambda: retarget_outline_links(doc, {"Rev New": "Rev Direct"}))
         assert session.changes == []
         pending, reliable = session._pending_tokens()
         assert pending == set() and reliable is True
@@ -1228,3 +1228,119 @@ def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
             with unittest.TestCase().assertRaisesRegex(RuntimeError, "boom"):
                 tool.execute(tool_ctx, target="search", old_content="only", content="")
         assert _snapshot() == before
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_two_links_in_one_paragraph_while_recording_uno(ctx, doc) -> None:
+    from plugin.writer.hyperlink_fixup import retarget_outline_links
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for idx, (label, sep) in enumerate([("go0", " . "), ("go1", " . ")]):
+        if idx:
+            text.insertString(cur, sep, False)
+        text.insertString(cur, label, True)
+        cur.setPropertyValue("HyperLinkURL", "#Old|outline")
+        cur.collapseToEnd()
+    text.insertString(cur, " . ", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "go2", True)
+    cur.setPropertyValue("HyperLinkURL", "#Old|outline")
+    cur.collapseToEnd()
+
+    original_text = text.getString()
+    doc.setPropertyValue("RecordChanges", True)
+
+    assert retarget_outline_links(doc, {"Old": "New"}) == (3, {})
+    assert retarget_outline_links(doc, {"Old": "New"}) == (0, {})
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+    assert text.getString() == original_text
+    urls = _read_portion_urls(doc)
+    assert urls == [("go0", "#New|outline"), ("go1", "#New|outline"), ("go2", "#New|outline")]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_rename_leaves_link_to_kept_numbered_title_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">1 Scope</h1>',
+            '<h1 data-lo-style="Heading 1">2.1 Scope</h1>',
+            '<p><a href="#1 Scope|outline">first</a> and <a href="#2.1 Scope|outline">second</a></p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    res = tool.execute(tool_ctx, target="search", old_content="1 Scope", content="Aim")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 1, res
+    assert _read_portion_urls(doc) == [
+        ("first", "#Aim|outline"),
+        ("second", "#2.1 Scope|outline"),
+    ]
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    _jump_to_mark(ctx, doc, "2.1 Scope|outline")
+    assert _view_cursor_paragraph_text(doc) == "2.1 Scope"
+
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Scope</h1>',
+            '<p><a href="#Scope|outline">one</a> and <a href="#Scope|outline">two</a></p>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    res = tool.execute(tool_ctx, target="search", old_content="Scope", content="1.Scope")
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 2, res
+    assert _read_portion_urls(doc) == [
+        ("one", "#1.Scope|outline"),
+        ("two", "#1.Scope|outline"),
+    ]
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    _jump_to_mark(ctx, doc, "1.Scope|outline")
+    assert _view_cursor_paragraph_text(doc) == "1.Scope"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_moved_appendix_is_not_retargeted_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Appendix A</h1>',
+            '<h1 data-lo-style="Heading 1">Costs</h1>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+
+    header_text = _set_header_outline_links(doc, ["Appendix A"])
+
+    res = tool.execute(
+        tool_ctx,
+        target="full_document",
+        content=[
+            '<h1 data-lo-style="Heading 1">Costs</h1>',
+            '<h1 data-lo-style="Heading 1">Appendix B</h1>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_text_portion_urls(header_text) == [("to-Appendix A", "#Appendix A|outline")]
+    warnings = res.get("warnings") or []
+    assert any(
+        w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Appendix A|outline"
+        for w in warnings
+    ), warnings

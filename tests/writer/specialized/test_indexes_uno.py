@@ -1313,14 +1313,18 @@ def test_index_create_after_pending_agent_mark_is_refused_uno(ctx, doc):
         rl_before = doc.getRedlines().getCount()
         text_before = text.getString()
 
-        refused = IndexesCreate().execute(tctx, kind="alphabetical", target="end")
+        refused = IndexesCreate().execute(
+            tctx, kind="alphabetical", target="end", create_from_outline=True
+        )
         assert refused["status"] == "error", refused
         assert refused["code"] == "INDEX_IN_TRACKED_CHANGE", refused
         assert text.getString() == text_before
         assert doc.getRedlines().getCount() == rl_before
 
     execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-    created = IndexesCreate().execute(tctx, kind="alphabetical", target="end")
+    created = IndexesCreate().execute(
+        tctx, kind="alphabetical", target="end", create_from_outline=True
+    )
     assert created["status"] == "ok", created
     assert doc.getDocumentIndexes().getCount() == 1
 
