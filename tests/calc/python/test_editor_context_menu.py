@@ -407,5 +407,22 @@ def test_install_defers_view_registration_past_scratch_load(monkeypatch: pytest.
         return scratch_model
 
     desktop.loadComponentFromURL.side_effect = _load
-    scratch_writer.load_scratch_document(desktop, "file:///tmp/budget.xlsx")
-    interception.registerContextMenuInterceptor.assert_not_called()
+    interceptor = MagicMock()
+    with patch.object(mod, "_get_interceptor", return_value=interceptor):
+        scratch_writer.load_scratch_document(desktop, "file:///tmp/budget.xlsx")
+        interception.registerContextMenuInterceptor.assert_not_called()
+
+        # Positive control: an ordinary Calc view outside a scratch load is registered once.
+        user_model = MagicMock()
+        user_model.getRuntimeUID.return_value = "user-calc-1"
+        user_model.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+        user_ctrl = MagicMock()
+        user_ctrl.getModel.return_value = user_model
+        user_interception = MagicMock()
+        user_ctrl.queryInterface.return_value = user_interception
+        user_evt = MagicMock()
+        user_evt.EventName = "OnViewCreated"
+        user_evt.ViewController = user_ctrl
+        user_evt.Source = user_model
+        listener.on_document_event(user_evt)
+        user_interception.registerContextMenuInterceptor.assert_called_once_with(interceptor)
