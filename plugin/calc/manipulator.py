@@ -55,13 +55,13 @@ from plugin.calc.address_utils import (
     parse_range_string,
     qualify_a1,
 )
-from plugin.calc.array_formula import CellRect, MAX_ARRAY_CELLS, plan_target, py_calls, returns_array
+from plugin.calc.array_formula import CellRect, MAX_ARRAY_CELLS, nests_py_call, plan_target, returns_array
 from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
-from plugin.calc.python.addin_values import accepts_returned_any, has_setup_failure_text, is_failed_run_text
+from plugin.calc.python.addin_values import accepts_returned_any, is_failed_run_text
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_edit import repair_py_code_newlines
@@ -736,7 +736,7 @@ def _latest_py_diagnostic(doc: Any, parts: PyFormula | None) -> DiagnosticEntry 
     )
 
 
-def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) -> str:
+def _py_run_detail(doc: Any, parts: PyFormula | None, prior: DiagnosticEntry | None) -> str:
     """Return the =PY run's new error text from diagnostics, or empty string."""
     # The cell itself can only show Err:519 or #SPILL!. The add-in records a
     # new entry in the diagnostics store on every failed run; comparing
@@ -748,38 +748,22 @@ def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) ->
     return f" ({_squeeze_clip(latest.message)})"
 
 
-def _py_run_priors(doc: Any, formula: str) -> list[tuple[PyFormula, DiagnosticEntry | None]]:
-    """Snapshot each =PY call's latest diagnostic before writing so new errors can be isolated."""
-    return [(p, _latest_py_diagnostic(doc, p)) for p in py_calls(formula)]
-
-
 def _raise_if_array_failed(
     doc: Any,
     cell: Any,
-    block: Any,
-    formula: str,
-    priors: Sequence[tuple[PyFormula, DiagnosticEntry | None]],
+    parts: PyFormula | None,
+    prior: DiagnosticEntry | None,
 ) -> None:
     """Raise CalcError when an array cell shows a Calc error or =PY failure text."""
     err = int(cell.Error)
-    whole_py = py_formula_or_none(formula) is not None
+    shown = cell.getString()
     if err:
-        shown = cell.getString()
-        detail = next(filter(None, (_py_run_detail(doc, p, prior) for p, prior in priors)), "")
+        detail = _py_run_detail(doc, parts, prior)
         # A =PY cell shows 525 when the Python result is #NAME?, so the function name is not at fault.
-        hint = "" if err == 525 and whole_py else _ARRAY_ERROR_HINTS.get(err, "")
+        hint = "" if err == 525 and parts is not None else _ARRAY_ERROR_HINTS.get(err, "")
         raise CalcError("The formula returns an error (%s, code %d)%s." % (shown or "error", err, detail or hint))
-    if whole_py:
-        shown = cell.getString()
-        if is_failed_run_text(shown):
-            raise CalcError(f"=PY returned an error message instead of a result: {_squeeze_clip(shown)}")
-    elif priors:
-        # A nested =PY can put its text in any result cell. Only the fixed setup texts count,
-        # because data the formula passes through may itself start with "Error:".
-        for row in block.getDataArray():
-            for value in row:
-                if isinstance(value, str) and has_setup_failure_text(value):
-                    raise CalcError(f"=PY returned an error message instead of a result: {_squeeze_clip(value)}")
+    if parts is not None and is_failed_run_text(shown):
+        raise CalcError(f"=PY returned an error message instead of a result: {_squeeze_clip(shown)}")
 
 
 def _free_block_right_of(
@@ -824,7 +808,7 @@ def _refuse_circular_py(
     sheet: Any,
     sheet_name: str,
     formula: str,
-    calls: Sequence[PyFormula],
+    parts: PyFormula,
     start: tuple[int, int],
     end: tuple[int, int],
     *,
@@ -832,7 +816,7 @@ def _refuse_circular_py(
     array: bool = False,
 ) -> None:
     """Refuse writing a =PY formula onto cells covered by its own data argument."""
-    args = [a for call in calls for a in call.data_args()]
+    args = parts.data_args()
     box = (start[0], start[1], end[0], end[1])
     target = format_range(*box, collapse_single=True)
     rows = end[1] - start[1] + 1
@@ -1682,19 +1666,25 @@ class CellManipulator:
                 continue
             col = start[0] + (idx % width)
             row = start[1] + (idx // width)
-            _refuse_circular_py(sheet, sheet_name, value, [parts], (col, row), (col, row), suggest=suggest)
+            _refuse_circular_py(sheet, sheet_name, value, parts, (col, row), (col, row), suggest=suggest)
 
-    def _refuse_py_array_write(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> None:
-        """Refuse a =PY array write overlapping its data, or on pre-26.8 LibreOffice where =PY returns only its top-left value."""
-        calls = py_calls(formula)
-        if not calls:
-            return
-        whole_py = py_formula_or_none(formula) is not None
-        keeps_block = not whole_py or accepts_returned_any(unwrap_uno(get_ctx()))
+    def _refuse_py_array_write(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> PyFormula | None:
+        """Return the =PY call *formula* is, or None; refuse one nested in another formula, overlapping its data, or before LibreOffice 26.8."""
+        if nests_py_call(formula):
+            raise CalcError(
+                "=PY cannot be part of a larger array formula. Nothing was written. "
+                "Do the whole calculation in one =PY formula, or write =PY to its own cell "
+                "and use the cells it fills in the other formula.",
+                code="INVALID_PARAM",
+            )
+        parts = py_formula_or_none(formula)
+        if parts is None:
+            return None
+        keeps_block = accepts_returned_any(unwrap_uno(get_ctx()))
         # Before 26.8 the answer below suggests the origin cell alone, so only that cell must be outside the data.
-        _refuse_circular_py(sheet, sheet.getName(), formula, calls, start, end if keeps_block else start, suggest=True, array=keeps_block)
+        _refuse_circular_py(sheet, sheet.getName(), formula, parts, start, end if keeps_block else start, suggest=True, array=keeps_block)
         if keeps_block:
-            return
+            return parts
         raise CalcError(
             "This LibreOffice (before 26.8) shows only the first value of a =PY result in every cell of an array formula. "
             "Write it to one cell without array=true; the result spills from there when Python auto-spill is on.",
@@ -1744,15 +1734,15 @@ class CellManipulator:
             if formulas_on and _requests_array_formula(values, array):
                 # Repair literal \n in model-written =PY() code before probing or planning.
                 values = repair_py_code_newlines(values)
-                self._refuse_py_array_write(sheet, values, start, end)
+                py_parts = self._refuse_py_array_write(sheet, values, start, end)
                 array_size = self._probe_array_formula(sheet, values, start, end, premeasured_array_size)
-                if start == end:
+                if py_parts is not None and start == end:
                     rows, cols = array_size
                     _refuse_circular_py(
                         sheet,
                         sheet.getName(),
                         values,
-                        py_calls(values),
+                        py_parts,
                         start,
                         (start[0] + cols - 1, start[1] + rows - 1),
                         suggest=True,
@@ -2049,7 +2039,8 @@ class CellManipulator:
         refs = self.dialects.references(formula, used.Sheet)
         col, row0 = self._array_probe_origin(used, target, refs)
         expr = formula[1:] if formula.startswith("=") else formula
-        priors = _py_run_priors(self.bridge.doc, formula)
+        parts = py_formula_or_none(formula)
+        prior = _latest_py_diagnostic(self.bridge.doc, parts)
         sizes: list[int] = []
         try:
             for row, fn in ((row0, "ROWS"), (row0 + 1, "COLUMNS")):
@@ -2062,7 +2053,7 @@ class CellManipulator:
                     # error it returned one value. The parentheses keep a =PY here from being
                     # located as a formula cell that spills beside the scratch cell.
                     probe.setArrayFormula("=(%s)" % expr)
-                    _raise_if_array_failed(self.bridge.doc, cell, probe, formula, priors)
+                    _raise_if_array_failed(self.bridge.doc, cell, parts, prior)
                     return 1, 1
                 sizes.append(int(round(cell.getValue())))
         finally:
@@ -2135,12 +2126,13 @@ class CellManipulator:
             sheet.getCellRangeByPosition(*replaced_box).setArrayFormula("")
 
         rng = sheet.getCellRangeByPosition(*target)
-        priors = _py_run_priors(self.bridge.doc, formula)
+        parts = py_formula_or_none(formula)
+        prior = _latest_py_diagnostic(self.bridge.doc, parts)
         rng.setArrayFormula(formula)
         anchor = sheet.getCellByPosition(target.left, target.top)
         # Read anchor error/text before clearing the block, because clearing resets them to 0 / "".
         try:
-            _raise_if_array_failed(self.bridge.doc, anchor, rng, formula, priors)
+            _raise_if_array_failed(self.bridge.doc, anchor, parts, prior)
         except CalcError:
             best_effort(lambda: _clear_array_range(rng), "clear rejected array formula")
             raise

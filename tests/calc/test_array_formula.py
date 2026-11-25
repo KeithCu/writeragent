@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-from plugin.calc.array_formula import _scan_calls, py_calls, returns_array
+from plugin.calc.array_formula import _scan_calls, nests_py_call, returns_array
 import pytest
 
 
 def _top_level_calls(formula: str) -> list[str]:
-    return [name for name, depth, _start in _scan_calls(formula) if depth == 0]
+    return [name for name, depth in _scan_calls(formula) if depth == 0]
 
 
 @pytest.mark.parametrize(
@@ -127,15 +127,24 @@ def test_plan_target_smaller_result_notes(rows, cols, height, width, expect_repe
 @pytest.mark.parametrize(
     ("formula", "expected"),
     [
-        ('=PY("a(";A1:A3)+SUM(B1)', [("a(", ["A1:A3"], False)]),
-        ('=TRANSPOSE(PY("x = ""q)"" ";\'S (1)\'.A1:A3))', [('x = "q)" ', ["'S (1)'.A1:A3"], False)]),
-        ('=PY("a";PY("b";A1:A3))', [("a", ['PY("b"', "A1:A3"], False), ("b", ["A1:A3"], False)]),
-        ('=PYX(1)+XPY(2)+"PY("', []),
-        ('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("result = 1"; A1:B2)', [("result = 1", ["A1:B2"], False)]),
-        ('=IF(C1;PY($C$1;B2);0)', [("$C$1", ["B2"], True)]),
-        ('=PY("unclosed"', []),
+        ('=PY("f(PY(1))";A1:A3)', False),
+        ('=PY("a";ROW(A1:A3))', False),
+        ("=PY(\"a\";'S (1)'.A1)", False),
+        ("=PY($C$1;B2)", False),
+        ("=PY(sp.prime(100))", False),
+        ('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("r"; A1:B2)', False),
+        ('=PYX(1)+XPY(2)+"PY("', False),
+        ("=SORT('PY(x)'.A1:A3)", False),
+        ('=TRANSPOSE(PY("a"))', True),
+        ("=IF(C1;PY($C$1;B2);0)", True),
+        ('=PY("a";A1:A3)+SUM(B1)', True),
+        ('=PY("a")+1', True),
+        ('=PY("a")&PY("b")', True),
+        ('=(PY("a"))', True),
+        ('=PY("a";PY("b";A1:A3))', True),
+        ('=TRANSPOSE(PY("a"', True),
+        ('=PY("unclosed"', True),
     ],
 )
-def test_py_calls(formula: str, expected: list[tuple[str, list[str], bool]]) -> None:
-    calls = py_calls(formula)
-    assert [(c.code, c.data_args(), c.code_is_ref) for c in calls] == expected
+def test_nests_py_call(formula: str, expected: bool) -> None:
+    assert nests_py_call(formula) is expected
