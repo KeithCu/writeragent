@@ -53,7 +53,7 @@ import uuid
 from typing import Any, Callable, ClassVar, Generator
 
 from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -359,7 +359,8 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
 
     ``skip_type="Delete"`` yields the text as it would read if everything were ACCEPTED;
     ``skip_type="Insert"`` yields the text as if everything were REJECTED. ``Frame`` portions
-    read as ``_OBJECT_MARK`` so object-only changes are distinguishable. Mirrors
+    read as ``_OBJECT_MARK`` so object-only changes are distinguishable. Content controls and
+    metadata are flattened via ``iter_portions``. Mirrors
     ``text_helpers.get_string_without_tracked_deletions`` but parameterized.
     """
     # The raw string is the fail-closed result when the walk cannot start.
@@ -395,8 +396,10 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
             para_chunks = []
             has_non_skipped = False
             try:
-                for portion in iter_elements(portion_enum):
-                    portion_type = portion.getPropertyValue("TextPortionType")
+                for portion, portion_type in iter_portions(portion_enum):
+                    if portion_type is None:
+                        take_para(True)
+                        return
                     if portion_type == "Redline":
                         if str(portion.getPropertyValue("RedlineType")) == skip_type:
                             skipping = bool(portion.getPropertyValue("IsStart"))
