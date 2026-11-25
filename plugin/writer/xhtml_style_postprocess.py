@@ -52,7 +52,7 @@ _PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
 # Unicode noncharacter carried as text through the scratch copy, outside the math placeholder range (U+E000+).
 DELETED_MARK = "\ufdd0"
 _TRAILING_EMPTY_P_RE = re.compile(
-    r"\s*<p\b(?![^>]*\bdata-lo-deleted)[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
+    r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
 _BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
 
@@ -281,7 +281,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
     _norm: dict[str, str]
     _open: list[str]
     _box_next: bool
-    _block_at: int
+    _block_stack: list[list[Any]]
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -291,7 +291,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
         self._autostyle_overrides = autostyle_overrides or {}
         self._open = []
         self._box_next = False
-        self._block_at = 0
+        self._block_stack = []
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
         self._named_fingerprint: dict[str, list[str]] = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
@@ -406,10 +406,13 @@ class _SemanticTransformer(HtmlPassthroughParser):
         if self._in_frame_after_box():
             return
         if DELETED_MARK in data:
-            self._out[self._block_at] = inject_attr(self._out[self._block_at], ' data-lo-deleted="true"')
-            # A non-breaking space, as in a live blank block: StarWriter import drops an empty <p>,
-            # and every later data-lo-style would land one paragraph late.
-            data = data.replace(DELETED_MARK, "\xa0")
+            for entry in reversed(self._block_stack):
+                if entry[0] not in ("ul", "ol"):
+                    entry[2] = True
+                    break
+            data = data.replace(DELETED_MARK, "")
+            if not data:
+                return
         super().handle_data(data)
 
     def handle_entityref(self, name: str) -> None:
@@ -438,8 +441,11 @@ class _SemanticTransformer(HtmlPassthroughParser):
             # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
             # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
             # write side's positional styles skipped that paragraph and the next ones shifted.
-            self._block_at = len(self._out)
+            self._block_stack.append([t, len(self._out), False, False])
             self._out.append(self._rewrite_block(raw, attrs))
+        elif t in ("ul", "ol"):
+            self._block_stack.append([t, len(self._out), False, False])
+            self._out.append(raw)
         elif t == "span":
             self._out.append(self._rewrite_span(raw, attrs))
         else:
@@ -462,6 +468,13 @@ class _SemanticTransformer(HtmlPassthroughParser):
                 self._open[-1] = "after_box"
         if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
+        if self._block_stack and self._block_stack[-1][0] == t:
+            _tag, start_at, is_deleted, had_deleted_child = self._block_stack.pop()
+            if is_deleted or (had_deleted_child and not "".join(self._out[start_at + 1:]).strip()):
+                del self._out[start_at:]
+                if self._block_stack:
+                    self._block_stack[-1][3] = True
+                return
         self._out.append("</%s>" % tag)
 
     def result(self) -> str:

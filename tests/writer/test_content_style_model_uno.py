@@ -850,10 +850,10 @@ def test_partial_match_suggested_call_replay_recorded_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_full_document_write_with_marked_deleted_nbsp_keeps_following_styles_uno(ctx, doc):
+def test_full_document_write_with_nbsp_block_keeps_following_styles_uno(ctx, doc):
     html = (
         '<p data-lo-style="Standard">A</p>'
-        '<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>'
+        '<p data-lo-style="Standard">\xa0</p>'
         '<p data-lo-style="Quotations">B</p>'
         '<p data-lo-style="Standard">C</p>'
     )
