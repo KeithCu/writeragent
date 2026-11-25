@@ -289,7 +289,7 @@ def test_get_document_content_selection_scope_uses_pinned_range():
 
     pinned = MagicMock()
     ctx = MagicMock()
-    ctx.selection_pin = SelectionPin(pinned)
+    ctx.selection_pin = SelectionPin(pinned, ctx.doc)
     ctx.services.document.get_document_length.return_value = 20
     with patch("plugin.writer.html_export.document_to_content", return_value="<p>pinned</p>") as mock_export:
         res = GetDocumentContent().execute(ctx, scope="selection")

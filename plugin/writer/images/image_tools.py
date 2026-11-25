@@ -199,7 +199,10 @@ def _dispatch_insert_image(
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
         if visual_helpers.is_writer_like(inside):
             if add_frame:
-                _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
+                _insert_frame(
+                    ctx, model, img_path, width_units, height_units, title, description,
+                    text_cursor=text_cursor,
+                )
                 return None
             return _insert_writer_graphic(
                 ctx,
@@ -240,6 +243,7 @@ def insert_image(
     add_frame: bool = False,
     *,
     size_units: tuple[int, int] | None = None,
+    text_cursor: Any = None,
 ) -> None:
     """Inserts an image into the document.
 
@@ -263,6 +267,7 @@ def insert_image(
         height_units,
         title,
         description,
+        text_cursor=text_cursor,
         add_frame=add_frame,
     )
 
@@ -431,7 +436,11 @@ def _insert_embedded_at_writer_cursor(
     text_container: Any = None,
     ctx: Any | None = None,
 ) -> Any:
-    doc_text = text_container if text_container is not None else model.getText()
+    doc_text = (
+        text_container
+        if text_container is not None
+        else (text_cursor.getText() if text_cursor is not None else model.getText())
+    )
     file_url = _file_url_for_path(img_path)
     image = _create_embedded_graphic(model, "writer", file_url, ctx=ctx)
     # Headers/footers need AS_CHARACTER so the image contributes to line height
@@ -535,8 +544,18 @@ _FRAME_TITLE_HEIGHT_UNITS = 500
 # Frame height adds fixed title space, captions insert at frame_text.getEnd(), and
 # a failed image insert removes the empty frame because compound undo does not roll
 # back on exception.
-def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, title: str, description: str) -> None:
-    view_cursor = model.CurrentController.ViewCursor
+def _insert_frame(
+    ctx: Any,
+    model: Any,
+    img_path: str,
+    width: int,
+    height: int,
+    title: str,
+    description: str,
+    *,
+    text_cursor: Any = None,
+) -> None:
+    target = text_cursor if text_cursor is not None else model.CurrentController.ViewCursor
     recording = is_recording_changes(model)
     text_frame = model.createInstance("com.sun.star.text.TextFrame")
     frame_size = Size()
@@ -545,8 +564,8 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
     text_frame.setSize(frame_size)
     text_frame.setPropertyValue("AnchorType", AS_CHARACTER if recording else AT_FRAME)
 
-    host, text_cursor = cursor_for_writer_view(view_cursor)
-    insert_recorded_content(model, host, text_cursor, text_frame)
+    host, insert_cursor = cursor_for_writer_view(target)
+    insert_recorded_content(model, host, insert_cursor, text_frame)
 
     frame_text = text_frame.getText()
     frame_cursor = frame_text.createTextCursor()

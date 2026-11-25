@@ -29,9 +29,9 @@ def _span_cursor(rng: Any, fail: str) -> Any:
 
 
 def request_selection_range(ctx: ToolContext) -> Any | None:
-    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set, else live_selection_range(doc controller)."""
+    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set for ctx.doc, else live_selection_range(doc controller)."""
     pin = ctx.selection_pin
-    if pin is not None and pin.range is not None:
+    if pin is not None and pin.range is not None and pin.applies_to(ctx.doc):
         return pin.range
     controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
     return live_selection_range(controller)
@@ -46,9 +46,10 @@ def require_selection_range(ctx: ToolContext) -> Any:
 
 
 def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:
-    """Move the turn's pinned Writer selection to *text_range* when a pin exists."""
-    if ctx.selection_pin is not None and text_range is not None:
-        ctx.selection_pin.range = clone_text_range(text_range)
+    """Move the turn's pinned Writer selection to *text_range* when a pin exists for ctx.doc."""
+    pin = ctx.selection_pin
+    if pin is not None and text_range is not None and pin.applies_to(ctx.doc):
+        pin.range = clone_text_range(text_range)
 
 
 def resolve_target_cursor(
@@ -149,7 +150,8 @@ def insert_at_target(
     tool error: the resolver's message for a bad target or a search miss;
     UNDO_UNAVAILABLE "Cannot insert {what} as one undo step (no usable undo context);
     the document was not changed."; or `code` with "Failed to insert {what}; the change
-    was rolled back (cause)." when insert raises. undo_title defaults to
+    was rolled back (cause)." when insert raises (or, when the change was not undone, a
+    message saying part of it may still be in the document). undo_title defaults to
     next_agent_edit_undo_title(). The step runs inside an agent review session, so what
     LibreOffice records of the match deletion and the insert is one tagged change in
     Record/Wait.

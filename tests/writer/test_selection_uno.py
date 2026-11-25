@@ -31,7 +31,7 @@ def test_set_selection_updates_pin_for_later_apply_content_uno(ctx, doc):
     controller.select(found)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
 
     res_sel = SetSelection().execute(tctx, search_text="Outro")
     assert res_sel.get("status") == "ok", res_sel

@@ -14,7 +14,6 @@ from plugin.chatbot.web_pages import (
     PagedVisitTool,
     PageStore,
     ReadPageTool,
-    effective_context_window,
     page_budget_chars,
     split_parts,
 )
@@ -517,25 +516,22 @@ def test_store_reuses_page_for_same_url():
 
 
 @pytest.mark.parametrize(
-    "window, is_ollama, expected_window, expected_budget, expected_part",
+    "window, expected_budget, expected_part",
     [
-        pytest.param(4_000, False, 4_000, 2_000, 1_000, id="4k"),
-        pytest.param(4_096, True, 4_096, 2_048, 1_024, id="4096"),
-        pytest.param(8_000, False, 8_000, 4_000, 2_000, id="8k"),
-        pytest.param(8_192, True, 8_192, 4_096, 2_048, id="8192"),
-        pytest.param(32_000, False, 32_000, 16_000, 8_000, id="32k"),
-        pytest.param(32_768, False, 32_768, 16_384, 8_192, id="32768"),
-        pytest.param(128_000, False, 128_000, 48_000, 24_000, id="128k"),
-        pytest.param(200_000, False, 200_000, 48_000, 24_000, id="200k"),
-        pytest.param(1_000_000, False, 1_000_000, 48_000, 24_000, id="1M"),
-        pytest.param(1_000, False, 1_000, 2_000, 1_000, id="below-floor-clamped"),
-        pytest.param(None, True, 4_096, 2_048, 1_024, id="unknown-ollama"),
-        pytest.param(None, False, 24_000, 12_000, 6_000, id="unknown-other"),
+        pytest.param(4_000, 2_000, 1_000, id="4k"),
+        pytest.param(4_096, 2_048, 1_024, id="4096"),
+        pytest.param(8_000, 4_000, 2_000, id="8k"),
+        pytest.param(8_192, 4_096, 2_048, id="8192"),
+        pytest.param(32_000, 16_000, 8_000, id="32k"),
+        pytest.param(32_768, 16_384, 8_192, id="32768"),
+        pytest.param(128_000, 48_000, 24_000, id="128k"),
+        pytest.param(200_000, 48_000, 24_000, id="200k"),
+        pytest.param(1_000_000, 48_000, 24_000, id="1M"),
+        pytest.param(1_000, 2_000, 1_000, id="below-floor-clamped"),
     ],
 )
-def test_page_budget_formula_table(window, is_ollama, expected_window, expected_budget, expected_part):
-    assert effective_context_window(window, is_ollama=is_ollama) == expected_window
-    budget = page_budget_chars(window, is_ollama=is_ollama)
+def test_page_budget_formula_table(window, expected_budget, expected_part):
+    budget = page_budget_chars(window)
     assert budget == expected_budget
     store = PageStore(budget_chars=budget)
     assert store.budget_chars == expected_budget

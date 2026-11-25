@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
 from plugin.framework.client.auth import resolve_auth_for_config
-from plugin.framework.client.errors import format_context_window_label
 from plugin.framework.client.model_fetcher import resolve_context_window
 from plugin.framework.constants import BIDI_BROWSER_TYPE, CDP_BROWSER_TYPES
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
@@ -53,13 +52,13 @@ from plugin.contrib.smolagents.tools import Tool
 from plugin.chatbot import web_research_firefox
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_pages import (
-    MIN_WEB_RESEARCH_CONTEXT_TOKENS,
+    FALLBACK_CONTEXT_TOKENS,
     PAGE_TEXT_MAX_CHARS,
+    RECOMMENDED_CONTEXT_TOKENS,
     FindInPageTool,
     PageStore,
     PagedVisitTool,
     ReadPageTool,
-    effective_context_window,
     page_budget_chars,
 )
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
@@ -469,15 +468,17 @@ class VisitWebpageBrowserTool(Tool):
             _browser_refcount.visit_leave()
 
 
-def _resolve_web_research_window(client: Any) -> tuple[int, bool]:
-    """Return (window_tokens, assumed) for this run's client (once per WebResearchTool.execute).
+def _resolve_web_research_window(client: Any) -> int:
+    """Return the context window, in tokens, that sizes this run's pages (once per WebResearchTool.execute).
 
-    Provider detection goes through resolve_auth_for_config so it stays in lockstep with
-    LlmClient._get_provider and resolve_context_window.
+    An unreported window gets a default (RECOMMENDED_CONTEXT_TOKENS on Ollama,
+    FALLBACK_CONTEXT_TOKENS elsewhere). Provider detection goes through
+    resolve_auth_for_config so it stays in lockstep with LlmClient._get_provider
+    and resolve_context_window.
     """
     raw = resolve_context_window(client)
     if raw is not None:
-        return raw, False
+        return raw
     config = client.config
     is_ollama = (
         isinstance(config, dict)
@@ -487,7 +488,9 @@ def _resolve_web_research_window(client: Any) -> tuple[int, bool]:
         )
         == "ollama"
     )
-    return effective_context_window(None, is_ollama=is_ollama), True
+    assumed = RECOMMENDED_CONTEXT_TOKENS if is_ollama else FALLBACK_CONTEXT_TOKENS
+    log.info("Web research: context window not reported, assuming %d tokens.", assumed)
+    return assumed
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -876,26 +879,17 @@ class WebResearchTool(ToolBase):
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         try:
-            window_tokens, assumed = _resolve_web_research_window(smol_model.api)
-            if window_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS:
-                label = format_context_window_label(window_tokens) or str(window_tokens)
-                min_label = format_context_window_label(MIN_WEB_RESEARCH_CONTEXT_TOKENS) or str(MIN_WEB_RESEARCH_CONTEXT_TOKENS)
-                if assumed:
-                    message = _(
-                        "Ollama did not report num_ctx, so WriterAgent assumed {0} tokens, which is too small for web research "
-                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
-                        "Raise num_ctx to at least {1} (via PARAMETER num_ctx {2} or higher in a Modelfile with ollama create), "
-                        "then use Test Connection in Settings (or restart LibreOffice) and try again."
-                    ).format(label, min_label, MIN_WEB_RESEARCH_CONTEXT_TOKENS)
-                else:
-                    message = _(
-                        "Context window ({0} tokens) is too small for web research "
-                        "(the research prompt and tools alone use about 2,000 tokens, plus output tokens). "
-                        "Raise num_ctx to at least {1} (or switch to a model with a larger context window) and try again."
-                    ).format(label, min_label)
-                return format_error_payload(
-                    ToolExecutionError(message, code="WEB_RESEARCH_CONTEXT_TOO_SMALL")
-                )
+            window_tokens = _resolve_web_research_window(smol_model.api)
+            small_window = window_tokens < RECOMMENDED_CONTEXT_TOKENS
+            if small_window:
+                log.warning("Web research: context window of %d tokens is small (recommended: %d).", window_tokens, RECOMMENDED_CONTEXT_TOKENS)
+                if ctx.chat_append_callback:
+                    ctx.chat_append_callback(
+                        _(
+                            "Warning: the model's context window ({0} tokens) is small for web research, so the answer may be "
+                            "incomplete. Use a model or setting with at least {1} tokens for better results.\n"
+                        ).format(window_tokens, RECOMMENDED_CONTEXT_TOKENS)
+                    )
             pages = PageStore(budget_chars=page_budget_chars(window_tokens))
 
             if browser_enabled:
@@ -964,7 +958,8 @@ class WebResearchTool(ToolBase):
                 cacheable = True
 
             cache_fields: dict[str, Any] = {}
-            if final_ans.get("status") == "ok" and cacheable and cache_enabled and cache_path and unique_key:
+            # A small window may have cut the research short; a cached copy would keep being served after the user enlarges it.
+            if final_ans.get("status") == "ok" and cacheable and not small_window and cache_enabled and cache_path and unique_key:
                 result_text = str(final_ans.get("result", ""))
                 if result_text.strip():
                     try:

@@ -320,7 +320,7 @@ def test_nav_goto_page_updates_selection_pin():
     doc.getCurrentController.return_value.getViewCursor.return_value = vc
     ctx = MagicMock()
     ctx.doc = doc
-    ctx.selection_pin = SelectionPin(MagicMock())
+    ctx.selection_pin = SelectionPin(MagicMock(), doc)
 
     res = NavGotoPage().execute(ctx, page=4)
     assert res["status"] == "ok"

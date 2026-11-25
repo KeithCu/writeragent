@@ -26,6 +26,7 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawCommentBase
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, uno_same
 
 if TYPE_CHECKING:
@@ -189,7 +190,7 @@ class ListPageComments(ToolDrawCommentBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (the user's page 2 is page=1; all pages if omitted)."},
+            "page": page_index_param("All pages if omitted."),
             "offset": {"type": "integer", "default": 0, "description": "Skip this many comments in deck order."},
         },
         "required": [],

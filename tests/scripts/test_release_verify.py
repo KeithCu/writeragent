@@ -142,7 +142,6 @@ def test_platform_profile_and_seed(
         assert uno_env["APPDATA"] == str(win_home)
         assert uno_env.get("USERPROFILE") != str(win_home)
     else:
-        assert uno_env["WRITERAGENT_UNO_SEED_PROFILE"] == str(expected_profile)
         assert uno_env["WRITERAGENT_PROJECT_ROOT"] == str(PROJECT_ROOT)
 
     run.kill_mock.assert_called_once_with([1234])

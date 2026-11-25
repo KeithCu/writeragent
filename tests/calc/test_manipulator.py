@@ -790,14 +790,6 @@ def test_plan_write_refuses_py_array_before_268():
         assert exc_info.value.details["suggested_call"]["arguments"]["range"] == ["Sheet1.A1"]
         mock_probe.assert_not_called()
 
-        plan_nested = manipulator.plan_write(
-            "A1:B1",
-            '=TRANSPOSE(PY("result = [1, 2]"))',
-            array=True,
-            premeasured_array_size=(1, 2),
-        )
-        assert plan_nested.kind == "array"
-
     with patch("plugin.calc.manipulator.accepts_returned_any", return_value=True):
         plan_ok = manipulator.plan_write(
             "A1:A3",
@@ -1733,29 +1725,18 @@ def test_array_525_drops_unknown_function_hint_for_whole_py() -> None:
     assert "unknown function" not in msg
 
 
-def test_nested_py_setup_failure_refused_and_filter_error_text_allowed() -> None:
-    from plugin.calc.manipulator import _py_run_priors, _raise_if_array_failed
-
-    venv_msg = "Error: Python venv not found. Open Settings → Python, set the venv path, then Test."
-    anchor = MagicMock(Error=0)
-    anchor.getString.return_value = "h1"
-
-    block_venv = MagicMock()
-    block_venv.getDataArray.return_value = (("h1",), (venv_msg,))
-    priors = _py_run_priors(MagicMock(), '=TRANSPOSE(PY("result = 1"))')
-    with pytest.raises(CalcError, match="Python venv not found"):
-        _raise_if_array_failed(MagicMock(), anchor, block_venv, '=TRANSPOSE(PY("result = 1"))', priors)
-
-    block_log = MagicMock()
-    block_log.getDataArray.return_value = (("Error: disk full",), ("ok",))
-    priors_filter = _py_run_priors(MagicMock(), '=FILTER(A1:A3;PY("result = 1"))')
-    _raise_if_array_failed(MagicMock(), anchor, block_log, '=FILTER(A1:A3;PY("result = 1"))', priors_filter)
-
-
-def test_nested_py_circular_array_refused_during_planning() -> None:
+@pytest.mark.parametrize("keeps_block", [True, False])
+@pytest.mark.parametrize(
+    ("formula", "array"),
+    [
+        ('=TRANSPOSE(PY("result = data"; B1:B3))', None),
+        ('=IFERROR(PY("result = 1");7)', True),
+        ('=PY("a";PY("b"))', True),
+    ],
+)
+def test_nested_py_array_refused_during_planning(keeps_block: bool, formula: str, array: bool | None) -> None:
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
-    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",),)
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
     cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
@@ -1764,16 +1745,14 @@ def test_nested_py_circular_array_refused_during_planning() -> None:
     bridge.resolve_range_or_address.return_value = cell_range
     manipulator = CellManipulator(bridge)
 
-    with patch.object(manipulator, "_probe_array_formula", return_value=(1, 3)) as mock_probe:
-        with pytest.raises(CalcError) as exc1:
-            manipulator.plan_write("A1", '=TRANSPOSE(PY("result = data"; A1:A3))')
-        assert exc1.value.code == "PY_CIRCULAR"
+    with (
+        patch("plugin.calc.manipulator.accepts_returned_any", return_value=keeps_block),
+        patch.object(manipulator, "_probe_array_formula") as mock_probe,
+    ):
+        with pytest.raises(CalcError, match=r"exactly one =PY") as exc:
+            manipulator.plan_write("A1", formula, array=array)
+        assert exc.value.code == "INVALID_PARAM"
         mock_probe.assert_not_called()
-
-        with pytest.raises(CalcError) as exc2:
-            manipulator.plan_write("A1", '=TRANSPOSE(PY("result = data"; B1:B3))')
-        assert exc2.value.code == "PY_CIRCULAR"
-        mock_probe.assert_called_once()
 
 
 def test_ordinary_nested_py_still_plans_as_cells() -> None:
@@ -1787,28 +1766,29 @@ def test_ordinary_nested_py_still_plans_as_cells() -> None:
     bridge.resolve_range_or_address.return_value = cell_range
     manipulator = CellManipulator(bridge)
 
-    plan = manipulator.plan_write("A1", '=SUM(PY("result = data"; A1:A3))', array=False)
-    assert plan.kind == "cells"
+    assert manipulator.plan_write("A1", '=SUM(PY("result = data"; A1:A3))', array=False).kind == "cells"
+    assert manipulator.plan_write("A1", '=TRANSPOSE(PY("result = data"; B1:B3))', array=False).kind == "cells"
 
 
 def test_free_block_right_of_skips_wide_tall_data_and_keeps_one_column() -> None:
     from plugin.calc.manipulator import _refuse_circular_py
-    from plugin.calc.array_formula import py_calls
+    from plugin.calc.python.cell_discovery import py_formula_or_none
 
     sheet = MagicMock()
     sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",),)
     formula = '=PY("result = data"; A1:A200000)'
-    calls = py_calls(formula)
+    parts = py_formula_or_none(formula)
+    assert parts is not None
 
     # 2-column target over tall data: no occupancy read and no suggested_call
     with pytest.raises(CalcError) as exc_wide:
-        _refuse_circular_py(sheet, "Sheet1", formula, calls, (0, 0), (1, 0), suggest=True, array=True)
+        _refuse_circular_py(sheet, "Sheet1", formula, parts, (0, 0), (1, 0), suggest=True, array=True)
     assert exc_wide.value.code == "PY_CIRCULAR"
     assert "suggested_call" not in (exc_wide.value.details or {})
     sheet.getCellRangeByPosition.assert_not_called()
 
     # 1-column target over tall data: still suggests B1
     with pytest.raises(CalcError) as exc_narrow:
-        _refuse_circular_py(sheet, "Sheet1", formula, calls, (0, 0), (0, 0), suggest=True, array=True)
+        _refuse_circular_py(sheet, "Sheet1", formula, parts, (0, 0), (0, 0), suggest=True, array=True)
     assert exc_narrow.value.code == "PY_CIRCULAR"
     assert (exc_narrow.value.details or {})["suggested_call"]["arguments"]["range"] == ["Sheet1.B1"]

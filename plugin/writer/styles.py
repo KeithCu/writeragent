@@ -1723,9 +1723,18 @@ def apply_to_cursors(
 
         try:
             outcome = commit_or_rollback(ctx.doc, title, mutate)
+        # Writing here anyway would add no undo entry, so Ctrl+Z would revert the user's
+        # previous edit and leave the style in place
+        # (SfxUndoManager::ImplAddUndoAction_NoNotify, svl/source/undo/undo.cxx).
         except UndoUnavailable:
             return [], tool._tool_error(
-                "Cannot apply %s to every match in one undo step. Nothing was changed." % label,
+                (
+                    "Cannot apply %s: LibreOffice is not recording undo for this document, "
+                    "so the change could not be undone. Nothing was changed. Do not repeat the call. "
+                    "Tell the user to save, close and reopen the document; if it still fails, "
+                    "Undo/Steps in LibreOffice's Expert Configuration must be at least 1."
+                )
+                % label,
                 code="UNDO_UNAVAILABLE",
             )
         if outcome.mutate_error is not None:
@@ -1736,16 +1745,15 @@ def apply_to_cursors(
                     % (len(reports), len(cursors), error),
                     code="TOOL_EXECUTION_ERROR",
                 )
-            # Not rolled back with no finished range: the first write was refused before it
-            # changed anything, so the undo group is empty.
-            if outcome.rolled_back or not reports:
+            # True when the group was undone or left no undo entry (the first write was refused).
+            if outcome.nothing_landed:
                 return [], tool._tool_error(
                     "Nothing was changed: %s" % (error,),
                     # set_cursor_properties raises ValueError for a value Writer rejects.
                     code="INVALID_PARAM" if isinstance(error, ValueError) else "TOOL_EXECUTION_ERROR",
                 )
             return [], tool._tool_error(
-                "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                "Applied to %d of %d; failed on one match: %s. The change could not be rolled back, so part of it may still be in the document."
                 % (len(reports), len(cursors), error),
                 code="TOOL_EXECUTION_ERROR",
             )

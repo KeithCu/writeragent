@@ -78,7 +78,7 @@ Start here by task.
 | Styles / LLM styling | [writer/llm-styles.md](writer/llm-styles.md) |
 | Writer list numbering (list-only) | [writer/list-numbering.md](writer/list-numbering.md) |
 | Writer chapter numbering (`chapter_number` on `writer_tree`) | [writer/chapter-numbering.md](writer/chapter-numbering.md) |
-| Writer API references | [writer/bookmarks-api-reference.md](writer/bookmarks-api-reference.md), [writer/footnotes-api-reference.md](writer/footnotes-api-reference.md), [writer/page-api-reference.md](writer/page-api-reference.md), [writer/tracking-api-reference.md](writer/tracking-api-reference.md) |
+| Writer API references | [writer/bookmarks-api-reference.md](writer/bookmarks-api-reference.md), [writer/footnotes-api-reference.md](writer/footnotes-api-reference.md), [writer/page-api-reference.md](writer/page-api-reference.md), [writer/tracking-api-reference.md](writer/tracking-api-reference.md), [writer/redline-timings.md](writer/redline-timings.md) |
 | Writer CJK ruby (read/write) | [writer/ruby.md](writer/ruby.md) — [`plugin/writer/html_ruby.py`](../plugin/writer/html_ruby.py) |
 | Reviewable agent edits (surgical redlines, toolbar) | [writer/reviewable-agent-edits.md](writer/reviewable-agent-edits.md) |
 | LO-DOM & Semantic Tree | [writer/lo-dom-semantic-tree.md](writer/lo-dom-semantic-tree.md) |
@@ -110,7 +110,7 @@ Start here by task.
 | UNO Dialogs & Wizards | [framework/uno-dialogs.md](framework/uno-dialogs.md) |
 | UNO exception policy (disposed vs leaf catches) | [framework/exception-policy.md](framework/exception-policy.md) |
 | LLM Hacks & Workarounds | [chat/llm-hacks.md](chat/llm-hacks.md) |
-| Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
+| Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md), [POST-1.0.md](../POST-1.0.md) |
 | LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
 | Eval-2 headed benchmarks (sibling of string-pack hard/partial/cost; separate JSON/charts) | [eval/eval-2/benchmarks.md](eval/eval-2/benchmarks.md), [eval/eval-2/README.md](eval/eval-2/README.md) |
 | Manifest generation | [framework/manifest-generation.md](framework/manifest-generation.md) |

@@ -25,6 +25,7 @@ schema types and folds enum spellings; rules are listed on the function.
 call: an empty ``properties`` object is a no-arg schema.
 ``normalize_outbound_tool_calls`` applies that allow-list once, before any
 provider shim builds a request.
+``page_index_param`` builds every page/slide index property.
 """
 
 from __future__ import annotations
@@ -45,6 +46,18 @@ _INT_RE = re.compile(r"[+-]?[0-9]+", re.ASCII)
 _NUMBER_RE = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?", re.ASCII)
 _TRUE_WORDS = frozenset({"true", "yes", "1"})
 _FALSE_WORDS = frozenset({"false", "no", "0"})
+
+
+def page_index_param(detail: str = "", *, name: str = "page") -> dict[str, Any]:
+    """JSON-schema page/slide index property: the one place that words the 0-based rule.
+
+    *name* is the parameter's own key, so the example reads ``to_page=1`` on ``to_page``.
+    *detail* is whole sentences added after the rule (scope, what omission means).
+    The example is part of the description because sub-agents, MCP clients and the Draw
+    prompts do not see the page-index bullet in ``prompts.TOOL_USAGE_PATTERNS``.
+    """
+    rule = f"0-based page/slide index (the user's page 2 is {name}=1)."
+    return {"type": "integer", "description": f"{rule} {detail}".rstrip()}
 
 
 def value_matches_type(value: Any, schema_type: Any) -> bool:

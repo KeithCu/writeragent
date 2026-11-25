@@ -613,7 +613,8 @@ class ApplyDocumentContent(ToolBase):
 
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
-        Raises ToolExecutionError when the URL write fails; the text change is rolled back first.
+        Raises ToolExecutionError when the URL write fails; the text change is rolled back first
+        when possible.
         """
         reports_holder: list[list[dict[str, Any]]] = []
 

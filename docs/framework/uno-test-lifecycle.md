@@ -25,11 +25,12 @@ its last hidden Draw doc.
 
 `python -m plugin.testing_runner` aliases `sys.modules["plugin.testing_runner"]` to the `__main__` module before `main()`, so recycle/breadcrumb state lives on one object.
 
-`_ensure_live_ctx` only runs **between suites**, and only if
-`getServiceManager()` already fails. Inside a suite, the next
+The runner checks `getServiceManager()` **before each suite**. Any failure
+stops the run, and no second office is started. If no test failed, the
+run still fails with one `office` suite entry. Inside a suite, the next
 `@with_native_doc` open is the first place a dead bridge is noticed.
 
-Only a "Binary URP bridge" message counts as a dead bridge. A closed document raises the same `com.sun.star.lang.DisposedException` class on a healthy office, so it fails its own test and the run continues.
+Inside a suite, only a "Binary URP bridge" message counts as a dead bridge. A closed document raises the same `com.sun.star.lang.DisposedException` class on a healthy office, so it fails its own test and the run continues. The check before each suite is broader because nothing closes the component context except office shutdown, so there is no closed-document case there.
 
 `close_doc` still swallows most errors (a failed close must not hide the
 test body). Dispose during close is now **logged** (`LIFECYCLE close_doc dispose`).
@@ -805,7 +806,7 @@ terminal. `TEST end … OK` also prints `exit=` (`-` while the child lives).
 
 ### Patches reach only the test process
 
-`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, use `patch_profile_config` (then `settle_soffice_config`, because soffice caches config for 2 s) or `repo_venv_in_profile` from `tests/harness/uno_profile_config.py`, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). Client `save()` also reaches the live profile, including after a recycle, and needs the same `settle_soffice_config` wait. A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
+`*_uno.py` tests run in a separate Python process over URP. For code that soffice runs itself—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches—soffice runs its own installed copy in another process: `_seed_throwaway_profile` seeds a build of the worktree when running in a linked git worktree (a failed worktree build ends the run), and copies the user-level installed OXT in the main checkout, CI, and release verification. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, use `patch_profile_config` (then `settle_soffice_config`, because soffice caches config for 2 s) or `repo_venv_in_profile` from `tests/harness/uno_profile_config.py`, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). Client `save()` also reaches the live profile, including after a recycle, and needs the same `settle_soffice_config` wait. A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
 
 ### Use only the standard library and LibreOffice
 
@@ -822,7 +823,7 @@ QA soak (`make test-uno-soak PAIR=dup-move REPEAT=20`): mid
 Error`, the test still returns OK, then `test_duplicate_rename_move_slide`
 fails `Binary URP bridge already disposed` (pids gone). `PAIR=tree-math`:
 same Error during `test_get_draw_tree_marks_blank_and_label_hint` (OK), then
-the next soak iter dies at `_ensure_live_ctx`.
+the next soak iter dies at the check before each suite.
 
 **This is not a Draw assertion flake.** Python finished the killer; soffice
 did not.
@@ -930,8 +931,8 @@ current=<victim> start_pids=… now_pids=… pids_changed=0|1
 bridge=alive|disposed|no_probe|error:…
 ```
 
-`bridge=` is `ctx.getServiceManager()` at **TEST start** (same check as
-`_ensure_live_ctx`). Factory-open failures also include `pre_open=` from a
+`bridge=` is `ctx.getServiceManager()` at **TEST start** (same call as the
+check before each suite). Factory-open failures also include `pre_open=` from a
 probe immediately before `loadComponentFromURL`:
 
 - `pre_open=disposed` — office was already dead; the previous TEST end is the
@@ -999,9 +1000,16 @@ zero failures, `python -m plugin.testing_runner` calls `os._exit(0)`
 instead of a normal `SystemExit(0)`. Interpreter teardown of pyuno /
 LibreOffice proxies can SIGABRT (`FATAL: exception not rethrown`) and
 turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
-`os._exit(0)` skips atexit and GC of UNO proxies. A clean headless pass stops its own soffice and deletes every throwaway profile it created; a failing run keeps both and prints `OFFICE PROFILE kept for debugging`, and `--user-profile` is left untouched. `lo-kill` reaps whatever is left. A failing summary still raises
-`SystemExit(1)` so real test failures stay visible. Unit test:
-`test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.
+`os._exit(0)` skips atexit and GC of UNO proxies. A clean headless pass
+stops its own soffice (killing its whole process group if it ignores
+SIGTERM for 5 s) and deletes every throwaway profile it created; a
+failing run keeps both and prints `OFFICE PROFILE kept for debugging`,
+and `--user-profile` is left untouched. `lo-kill` reaps whatever is
+left. A failing summary still raises `SystemExit(1)` so real test
+failures stay visible. Unit tests: `test_exit_after_summary_*` in
+`tests/framework/test_testing_runner.py`, and `test_clean_exit_*` and
+`test_failed_exit_keeps_profile_and_names_it` in
+`tests/scripts/test_testing_runner_cli.py`.
 
 A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.
 

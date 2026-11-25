@@ -6,23 +6,27 @@
 """Run pytest or UNO tests incrementally on changed test files and module-matched tests.
 
 Used by ``make test-bot``, ``make test-uno``, and ``make test`` to scope pytest (or ``--uno`` for
-``testing_runner.py``) to staged, unstaged, and untracked changes:
+``testing_runner.py``) to branch changes relative to ``origin/master`` (falling back to
+``master``, then uncommitted changes) plus staged, unstaged, and untracked files:
 - Changed ``test_*.py`` files under ``tests/`` (excluding ``*_uno.py`` in pytest
   mode; selecting only ``test_*_uno.py`` in ``--uno`` mode) run directly.
 - Changed non-test ``.py`` modules (e.g. ``plugin/a/b/foo.py``) map by filename
-  to ``tests/**/test_foo.py`` and ``tests/**/test_foo_*.py`` (or
-  ``test_foo_uno.py`` and ``test_foo_*_uno.py`` in ``--uno`` mode), and also to
-  every test file that names the module: ``import plugin.a.b.foo``,
+  to ``tests/**/test_<stem>.py`` and ``tests/**/test_<stem>_*.py`` (or
+  ``test_<stem>_uno.py`` and ``test_<stem>_*_uno.py`` in ``--uno`` mode), and also
+  to every test file that names the module: ``import plugin.a.b.foo``,
   ``from plugin.a.b.foo import x``, ``from plugin.a.b import foo``, or a dotted
   string such as ``patch("plugin.a.b.foo.bar")``. A package ``__init__.py``
-  counts as the package (``plugin.a.b``). Tests that reach the module only
-  through another module are not selected.
+  counts as the package (``plugin.a.b``).
+- Direct (1-hop) module-level runtime importers of changed modules (excluding
+  ``plugin.testing_runner`` and ``if TYPE_CHECKING:`` bodies) are also selected
+  by stem only, keeping single-file edits fast and avoiding package-name
+  wildcards.
 - Changed non-Python files (fixtures, prompts, YAML) select the test files whose
   text contains the file's name, unless the name is one many files share
   (``module.yaml``, ``README.md``...).
-- Exits with ``EXIT_FALLBACK_FULL`` (10) when ``pyproject.toml``, ``Makefile``,
-  any ``conftest.py``, or any shared test helper under ``tests/`` changed so
-  the ``Makefile`` can fall back to the full target.
+- Exits with ``EXIT_FALLBACK_FULL`` (10) when uncommitted changes touch
+  ``pyproject.toml``, ``Makefile``, any ``conftest.py``, or any shared test
+  helper under ``tests/`` so the ``Makefile`` can fall back to the full target.
 """
 
 from __future__ import annotations
@@ -39,11 +43,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.plugin_import_graph import (  # noqa: E402
+    direct_importers,
+    dotted_module_name,
+)
 from scripts.typecheck_incremental import (  # noqa: E402
     EXIT_FALLBACK_FULL,
+    _git_z_paths,
     _normalize_rel_path,
     get_changed_files,
 )
+
+_BASE_REFS = ("origin/master", "master")
 
 _FULL_RUN_CONFIGS = frozenset({"pyproject.toml", "Makefile"})
 # Keep in sync with _USER_PROFILE_ONLY_UNO | _DEMO_ONLY_UNO in plugin/testing_runner.py:
@@ -157,19 +168,6 @@ _GENERIC_DATA_NAMES = frozenset(
 )
 
 
-def _dotted_module(rel: str) -> str | None:
-    """Return the import name of the repo-relative ``.py`` file ``rel``."""
-    path = Path(rel)
-    if path.suffix != ".py":
-        return None
-    parts = list(path.with_suffix("").parts)
-    if parts and parts[-1] == "__init__":
-        parts.pop()
-    if not parts or not all(part.isidentifier() for part in parts):
-        return None
-    return ".".join(parts)
-
-
 class _TestFileIndex:
     """Lazily read test files and answer which ones name a module or file."""
 
@@ -210,22 +208,92 @@ class _TestFileIndex:
         self._imports[test_rel] = result
         return result
 
-    def naming_module(self, dotted: str) -> list[str]:
-        """Return test files that import ``dotted`` or name it in a dotted string."""
-        leaf = dotted.rsplit(".", 1)[-1]
-        pattern = re.compile(r"(?<![\w.])" + re.escape(dotted) + r"(?!\w)")
-        hits: list[str] = []
+    def naming_modules(self, dotted_names: Iterable[str]) -> set[str]:
+        """Return test files that import or name any module in ``dotted_names``."""
+        candidates = [
+            (
+                dotted.rsplit(".", 1)[-1],
+                dotted,
+                re.compile(r"(?<![\w.])" + re.escape(dotted) + r"(?!\w)"),
+            )
+            for dotted in dotted_names
+        ]
+        if not candidates:
+            return set()
+
+        hits: set[str] = set()
         for test_rel in self._test_files:
             text = self.text(test_rel)
-            if leaf not in text:
-                continue
-            if pattern.search(text) or dotted in self.imported_names(test_rel):
-                hits.append(test_rel)
+            if any(
+                leaf in text and (pattern.search(text) or dotted in self.imported_names(test_rel))
+                for leaf, dotted, pattern in candidates
+            ):
+                hits.add(test_rel)
         return hits
 
     def naming_file(self, name: str) -> list[str]:
         """Return test files whose text contains the file name ``name``."""
         return [test_rel for test_rel in self._test_files if name in self.text(test_rel)]
+
+
+def _git_stdout(repo_root: Path, args: list[str]) -> str | None:
+    """Return stripped git stdout, or None if the command failed."""
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def merge_base(repo_root: Path, refs: tuple[str, ...] = _BASE_REFS) -> str | None:
+    """Return the merge-base of HEAD and the first existing base ref."""
+    for ref in refs:
+        if _git_stdout(repo_root, ["rev-parse", "--verify", ref]) is None:
+            continue
+        base = _git_stdout(repo_root, ["merge-base", "HEAD", ref])
+        if base:
+            return base
+    return None
+
+
+def get_branch_changed_files(repo_root: Path = REPO_ROOT) -> list[str]:
+    """Return repo-relative paths changed on this branch plus uncommitted/untracked files.
+
+    Uses ``git diff --diff-filter=ACMR`` against the merge-base with
+    ``origin/master`` (falling back to ``master``, then to ``get_changed_files``
+    for uncommitted/untracked files only) so branch diffs exclude later commits on
+    the base ref and omit deleted paths.
+    """
+    paths: set[str] = set()
+    base = merge_base(repo_root)
+    if base is not None:
+        paths.update(_git_z_paths(repo_root, ["diff", "-z", "--name-only", "--diff-filter=ACMR", base]))
+        paths.update(_git_z_paths(repo_root, ["ls-files", "-z", "--others", "--exclude-standard"]))
+    else:
+        paths.update(get_changed_files(repo_root))
+    return sorted(paths)
+
+
+def _stem_matches(
+    rels: Iterable[str],
+    by_name: dict[str, list[str]],
+    matches_stem: Callable[[str, str], bool],
+) -> set[str]:
+    hits: set[str] = set()
+    for rel in rels:
+        stem = _module_stem(rel)
+        if not stem:
+            continue
+        for test_name, test_rels in by_name.items():
+            if matches_stem(test_name, stem):
+                hits.update(test_rels)
+    return hits
 
 
 def _select_test_files(
@@ -234,6 +302,8 @@ def _select_test_files(
     all_test_files: list[str],
     is_eligible: Callable[[str], bool],
     matches_stem: Callable[[str, str], bool],
+    *,
+    include_importers: bool = True,
 ) -> list[str]:
     """Map changed files to sorted, existing test files."""
     by_name: dict[str, list[str]] = {}
@@ -242,6 +312,7 @@ def _select_test_files(
     index = _TestFileIndex(repo_root, all_test_files)
 
     selected: set[str] = set()
+    changed_non_test_py: list[str] = []
     for raw in changed:
         rel = _normalize_rel_path(raw)
         if not rel or not (repo_root / rel).is_file():
@@ -255,15 +326,21 @@ def _select_test_files(
             if is_eligible(rel):
                 selected.add(rel)
             continue
+        changed_non_test_py.append(rel)
 
-        stem = _module_stem(rel)
-        if stem:
-            for test_name, test_rels in by_name.items():
-                if matches_stem(test_name, stem):
-                    selected.update(test_rels)
-        dotted = _dotted_module(rel)
-        if dotted:
-            selected.update(index.naming_module(dotted))
+    if changed_non_test_py:
+        selected.update(_stem_matches(changed_non_test_py, by_name, matches_stem))
+        dotted_targets = {
+            dotted for rel in changed_non_test_py if (dotted := dotted_module_name(rel)) is not None
+        }
+        selected.update(index.naming_modules(dotted_targets))
+
+        if include_importers:
+            # Bound expansion to 1 hop of module-level importers matched by stem only:
+            # unlimited depth or deferred imports pull in most of plugin/, and package
+            # names in naming_modules act as wildcards across unrelated submodules.
+            importers = direct_importers(changed_non_test_py, repo_root)
+            selected.update(_stem_matches(importers, by_name, matches_stem))
 
     return sorted(selected)
 
@@ -278,7 +355,12 @@ def _matches_uno_stem(test_name: str, stem: str) -> bool:
     )
 
 
-def select_pytest_files(changed: Iterable[str], repo_root: Path = REPO_ROOT) -> list[str]:
+def select_pytest_files(
+    changed: Iterable[str],
+    repo_root: Path = REPO_ROOT,
+    *,
+    include_importers: bool = True,
+) -> list[str]:
     """Map changed ``.py`` files to sorted, existing non-UNO pytest files."""
     return _select_test_files(
         changed,
@@ -286,10 +368,16 @@ def select_pytest_files(changed: Iterable[str], repo_root: Path = REPO_ROOT) -> 
         _collect_pytest_files(repo_root),
         _is_eligible_pytest_file,
         _matches_pytest_stem,
+        include_importers=include_importers,
     )
 
 
-def select_uno_files(changed: Iterable[str], repo_root: Path = REPO_ROOT) -> list[str]:
+def select_uno_files(
+    changed: Iterable[str],
+    repo_root: Path = REPO_ROOT,
+    *,
+    include_importers: bool = True,
+) -> list[str]:
     """Map changed ``.py`` files to sorted, existing standard UNO test files."""
     return _select_test_files(
         changed,
@@ -297,6 +385,7 @@ def select_uno_files(changed: Iterable[str], repo_root: Path = REPO_ROOT) -> lis
         _collect_uno_files(repo_root),
         _is_eligible_uno_file,
         _matches_uno_stem,
+        include_importers=include_importers,
     )
 
 
@@ -322,12 +411,15 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     label = "UNO" if args.uno else "pytest"
     status_stream = sys.stderr if args.print_filter else sys.stdout
 
-    changed = get_changed_files(repo_root)
-    if not changed:
+    uncommitted = get_changed_files(repo_root)
+    changed = get_branch_changed_files(repo_root)
+    if not changed and not uncommitted:
         print(f"test-bot: no changed files — nothing to test ({label})", file=status_stream, flush=True)
         return 0
 
-    fallback = find_full_fallback_trigger(changed)
+    # Check only uncommitted changes for full-suite triggers so a committed
+    # conftest/Makefile change does not force full runs on later commits.
+    fallback = find_full_fallback_trigger(uncommitted)
     if fallback is not None:
         reason, rel = fallback
         print(

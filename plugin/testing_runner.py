@@ -39,6 +39,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Sequence
 
+from plugin.framework.managed_subprocess import kill_process_tree
+
 log = logging.getLogger(__name__)
 
 # CLI path/name filters from ``python -m plugin.testing_runner <filter>``.
@@ -362,7 +364,7 @@ def collect_post_test_death(ctx: Any = None) -> str | None:
 def probe_uno_bridge(ctx: Any = None) -> str:
     """Cheap URP liveness: ``alive``, ``disposed``, ``no_probe``, or ``error:Type``.
 
-    Uses ``ctx.getServiceManager()`` only (same check as ``_ensure_live_ctx``).
+    Uses ``ctx.getServiceManager()`` only (same check as ``run_all_tests`` makes before each suite).
     Unit-test ctx objects without that method are ``no_probe`` — not a fail.
     """
     if ctx is None:
@@ -623,39 +625,78 @@ def throwaway_writeragent_json() -> Path | None:
     return _office.throwaway_profile_dir / "user" / "config" / "writeragent.json"
 
 
-def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
-    """Copy user-level WriterAgent ``uno_packages`` into the throwaway profile.
+def worktree_root() -> Path | None:
+    """Return the repo root when running inside a linked git worktree, else None."""
+    root = Path(__file__).resolve().parents[1]
+    # Linked worktrees have a .git file; main checkouts and CI have a .git directory.
+    return root if (root / ".git").is_file() else None
 
-    ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the
-    real profile, so sheet ``=PY()`` is ``#NAME?``. ``unopkg add`` into the
-    throwaway fails (helper soffice ``NoConnectException``). Copying
-    ``user/uno_packages`` is what registers the components.
+
+def _worktree_uno_packages(tree: Path) -> Path:
+    """Build the worktree OXT once per run and return its ``uno_packages`` dir.
+
+    Seeds into ``throwaway_profile_dirs[0] / "worktree-seed"`` so
+    ``_remove_throwaway_profiles`` cleans it up with the run; checking
+    ``seed.exists()`` assumes a failed build ends the run without retries.
+    Uses ``tree/.venv`` because ``build_oxt`` needs PyYAML and polib, which
+    LibreOffice's Python lacks.
     """
-    root = _libreoffice_user_lock_path().parent / "user" / "uno_packages"
-    packages = root / "cache" / "uno_packages"
-    found = False
-    if packages.is_dir():
-        try:
-            for child in packages.iterdir():
-                if child.name.endswith(".tmp_") and (child / "WriterAgent.oxt").exists():
-                    found = True
-                    break
-        except OSError:
-            pass
-    if not found:
-        _progress_verbose(
-            "BOOTSTRAP throwaway seed skip — no user-level WriterAgent.oxt under %s "
-            "(user unopkg is invisible to throwaway UserInstallation; "
-            "sheet =PY() will be #NAME? 504/525) GITHUB_ACTIONS=%s"
-            % (root, on_github_actions())
+    seed = _office.throwaway_profile_dirs[0] / "worktree-seed"
+    if not seed.exists():
+        py = tree / (".venv/Scripts/python.exe" if sys.platform.startswith("win") else ".venv/bin/python")
+        proc = subprocess.run(
+            [str(py), str(tree / "scripts" / "lo_profile.py"), "seed-tree", "--tree", str(tree), "--profile", str(seed)],
+            env=_child_env_without_runner_python(),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        if on_github_actions():
-            raise RuntimeError(
-                "GitHub Actions must seed the UNO throwaway profile from the "
-                "user-level WriterAgent install (make register-built-oxt). "
-                "Missing %s" % root
+        if proc.returncode != 0:
+            # Never fall back to the user OXT: soffice would run code that is not the branch.
+            output = (proc.stdout + proc.stderr).strip()
+            raise RuntimeError("building the worktree extension failed (%s):\n%s" % (tree, output))
+        _progress("BOOTSTRAP extension built from %s" % tree)
+    return seed / "user" / "uno_packages"
+
+
+def _seed_throwaway_profile(profile_dir: Path) -> None:
+    """Seed a throwaway profile's ``user/uno_packages`` and ``writeragent.json``.
+
+    In a linked git worktree, builds a fresh OXT from the files on disk
+    (uncommitted and untracked included) once per run and seeds from that;
+    otherwise copies the user-level installed OXT.
+    ``-env:UserInstallation=<tmp>`` does not inherit ``unopkg add`` on the real
+    profile, so copying ``user/uno_packages`` is what registers the components.
+    """
+    tree = worktree_root()
+    if tree is not None:
+        root = _worktree_uno_packages(tree)
+    else:
+        root = _libreoffice_user_lock_path().parent / "user" / "uno_packages"
+        packages = root / "cache" / "uno_packages"
+        found = False
+        if packages.is_dir():
+            try:
+                for child in packages.iterdir():
+                    if child.name.endswith(".tmp_") and (child / "WriterAgent.oxt").exists():
+                        found = True
+                        break
+            except OSError:
+                pass
+        if not found:
+            _progress_verbose(
+                "BOOTSTRAP throwaway seed skip — no user-level WriterAgent.oxt under %s "
+                "(user unopkg is invisible to throwaway UserInstallation; "
+                "sheet =PY() will be #NAME? 504/525) GITHUB_ACTIONS=%s"
+                % (root, on_github_actions())
             )
-        return
+            if on_github_actions():
+                raise RuntimeError(
+                    "GitHub Actions must seed the UNO throwaway profile from the "
+                    "user-level WriterAgent install (make register-built-oxt). "
+                    "Missing %s" % root
+                )
+            return
     dest = profile_dir / "user" / "uno_packages"
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
@@ -694,10 +735,10 @@ def _soffice_bootstrap_command() -> tuple[list[str], str]:
     """
     soffice = _resolve_soffice_bin()
     profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
-    # Seed after the lookup so a missing user OXT on GitHub Actions
-    # raises instead of becoming a silent None command.
+    # Append before seeding: _worktree_uno_packages stores the seed under
+    # throwaway_profile_dirs[0], and a missing user OXT on GitHub Actions raises.
     _office.throwaway_profile_dirs.append(profile_dir)
-    _seed_throwaway_profile_with_user_oxt(profile_dir)
+    _seed_throwaway_profile(profile_dir)
     profile_url = profile_dir.as_uri()
     # Same pipe name shape as officehelper / tools_lo; we own --accept now.
     pipe_name = "uno" + secrets.token_hex(8)
@@ -948,23 +989,31 @@ def _bootstrap_user_profile_gui() -> Any:
 
 
 def _terminate_bootstrap_soffice() -> None:
-    """Best-effort kill of the harness soffice Popen before a bootstrap retry."""
+    """Best-effort stop of the harness soffice (bootstrap retry, recycle, clean exit)."""
     proc = _office.soffice_proc
-    if proc is None:
+    if proc is None or proc.poll() is not None:
         return
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    # On Linux proc is the oosplash launcher, and killing only that leaves soffice.bin
+    # running (desktop/unx/source/start.c). Both are in the group _spawn_soffice created.
+    kill_process_tree(proc)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _progress("OFFICE still running after kill pid=%s" % proc.pid)
 
 
 def _remove_throwaway_profiles() -> None:
     """Stop the headless soffice and delete every profile this run created.
 
     A ``--user-profile`` run created none, so its office is left alone. Windows
-    may keep files that a surviving soffice.bin still holds open.
+    may keep some files: soffice.bin ends itself just after soffice.exe
+    (sal/osl/w32/dllentry.cxx, ParentMonitorThreadProc).
     """
     if not _office.throwaway_profile_dirs:
         return
@@ -1021,8 +1070,8 @@ def _ensure_writeragent_bind() -> None:
 def _rebootstrap_ctx(ctx: Any) -> None:
     """Bind config and the extension to a live UNO context.
 
-    Recycle, the initial run_all_tests bootstrap, and _ensure_live_ctx
-    all do this. Each caller keeps its own try/except.
+    Recycle and the initial run_all_tests bootstrap both do this.
+    Each caller keeps its own try/except.
     """
     from plugin.framework.uno_context import set_fallback_ctx
     from plugin.framework.config import init_config, reset_config_for_tests
@@ -1578,24 +1627,6 @@ def run_all_tests(ctx: Any) -> str:
     except Exception as e:
         log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
 
-    def _ensure_live_ctx(current_ctx: Any) -> Any:
-        try:
-            current_ctx.getServiceManager()
-            return current_ctx
-        except Exception as exc:
-            if _is_uno_bridge_disposed(exc):
-                _mark_urp_dead(exc, "_ensure_live_ctx getServiceManager")
-                return current_ctx
-        try:
-            new_ctx = _bootstrap_office()
-            _rebootstrap_ctx(new_ctx)
-            return new_ctx
-        except Exception as e:
-            log.warning("run_all_tests: could not refresh disposed UNO context: %s", e)
-            if _is_uno_bridge_disposed(e):
-                _mark_urp_dead(e, "_ensure_live_ctx refresh")
-            return current_ctx
-
     from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
@@ -1650,10 +1681,13 @@ def run_all_tests(ctx: Any) -> str:
             ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
             skip_keeper_close = False
             for i, module_path in enumerate(ordered_candidates):
-                if office.urp_bridge_dead:
-                    _progress("SUITE skip remaining: URP already disposed")
-                    break
-                ctx = _ensure_live_ctx(ctx)
+                if not office.urp_bridge_dead:
+                    # Nothing closes the component context except office shutdown, so any
+                    # failure here means the office is dead.
+                    try:
+                        ctx.getServiceManager()
+                    except Exception as exc:
+                        _mark_urp_dead(exc, "start of %s" % os.path.basename(module_path))
                 if office.urp_bridge_dead:
                     _progress("SUITE skip remaining: URP already disposed")
                     break
@@ -1735,6 +1769,18 @@ def run_all_tests(ctx: Any) -> str:
             _progress_verbose("KEEPER close done")
         except Exception:
             _progress("KEEPER close failed")
+
+    if office.urp_bridge_dead and not total_failed:
+        # The office died outside any test (suite teardown, failed recycle), so no test
+        # failed, but the remaining suites did not run.
+        suites.append(
+            {
+                "name": "office",
+                "failed": 1,
+                "log": ["office died; remaining suites did not run"],
+            }
+        )
+        total_failed += 1
 
     summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
     if total_failed:

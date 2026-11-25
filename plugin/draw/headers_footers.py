@@ -22,6 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.tool_schema import page_index_param
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -218,7 +219,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": ("0-based slide index (the user's slide 2 is page=1). When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).")},
+            "page": page_index_param("When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index)."),
             "is_master_page": {"type": "boolean", "default": False, "description": "If True, read the master page linked to the slide at page."},
         },
         "required": ["page"],
@@ -253,7 +254,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": ("0-based slide index (the user's slide 2 is page=1). When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
+            "page": page_index_param("When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide."),
             "is_master_page": {"type": "boolean", "default": False, "description": "If True, update the master page linked to the slide at page."},
             "header": {"type": "string", "description": "Header text. Slide master only (written to the master's header shape); not available on a normal slide."},
             "footer": {"type": "string", "description": "The text for the footer. Setting it enables footer_visible unless footer_visible is passed."},

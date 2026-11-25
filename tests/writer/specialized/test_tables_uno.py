@@ -591,7 +591,7 @@ def test_tracked_table_and_band_delete_failures_and_nested_uno(ctx, doc):
             for i in range(doc.getRedlines().getCount())
         )
         err_tbl = TableDelete().execute_safe(tool_ctx, name="PendingTbl")
-        assert err_tbl["status"] == "error"
+        assert err_tbl["status"] == "error" and err_tbl["code"] == "TABLE_DELETE_NOT_TRACKABLE"
         assert ptbl.getCellByName("A1").getString() == "p1"
         assert ptbl.getCellByName("A2").getString() == "p2"
         assert all(
@@ -760,15 +760,13 @@ def test_colspan_column_delete_preserves_nested_table_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_column_band_cells_matches_libreoffice_delete_uno(ctx, doc):
-    from plugin.writer.range_copy import writer_cell_position
     from plugin.writer.specialized.tables import _column_band_cells
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     t_name = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")
     table = doc.getTextTables().getByName(t_name)
-    positions = {n: pos for n in table.getCellNames() if (pos := writer_cell_position(n)) is not None}
-    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, positions, 0)}
+    predicted_texts = {table.getCellByName(n).getString() for n in _column_band_cells(table, 0)}
     assert predicted_texts == {"a1\nb1", "a2", "b2"}
 
     before_texts = {table.getCellByName(n).getString() for n in table.getCellNames()}
@@ -1169,7 +1167,7 @@ def test_table_insert_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = TableInsert().execute(tctx, rows=1, columns=1)
@@ -1245,3 +1243,310 @@ def test_protected_cell_band_delete_refused_and_covered_band_not_deleted_uno(ctx
     assert "comment" in ann_res["message"]
     portions = list(iter_elements(a1.createEnumeration().nextElement().createEnumeration()))
     assert any(p.getPropertyValue("TextPortionType") == "Annotation" for p in portions)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_column_refusal_splits_work_when_followed_uno(ctx, doc):
+    import re
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    # 1. Equal header merge A1:B1 on 2x3, delete col 0
+    t1 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a", "b", "c"], ["a2", "b2", "c2"]])["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t1, cell_range="A1:B1")["status"] == "ok"
+    ref1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
+    assert ref1["status"] == "error" and ref1["code"] == "COLUMN_HAS_SPANNING_CELL"
+    steps1 = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref1["message"])]
+    assert steps1, ref1["message"]
+    for cell_name, parts in steps1:
+        assert TableSplitCell().execute_safe(tool_ctx, name=t1, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+    ok1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t1, index=0)
+    assert ok1["status"] == "ok", ok1
+    assert TableGetCells().execute(tool_ctx, name=t1)["cells"] == {"A1": "", "B1": "c", "A2": "b2", "B2": "c2"}
+
+    # 2. 4x4 banner A1:D1, delete idx 0 and idx 2
+    for idx, expected in (
+        (
+            0,
+            {
+                "A1": "", "B1": "", "C1": "",
+                "A2": "b2", "B2": "c2", "C2": "d2",
+                "A3": "b3", "B3": "c3", "C3": "d3",
+                "A4": "b4", "B4": "c4", "C4": "d4",
+            },
+        ),
+        (
+            2,
+            {
+                "A1": "h1\nh2\nh3\nh4", "B1": "", "C1": "",
+                "A2": "a2", "B2": "b2", "C2": "d2",
+                "A3": "a3", "B3": "b3", "C3": "d3",
+                "A4": "a4", "B4": "b4", "C4": "d4",
+            },
+        ),
+    ):
+        tb = TableInsert().execute(
+            tool_ctx,
+            rows=4,
+            columns=4,
+            data=[
+                ["h1", "h2", "h3", "h4"],
+                ["a2", "b2", "c2", "d2"],
+                ["a3", "b3", "c3", "d3"],
+                ["a4", "b4", "c4", "d4"],
+            ],
+        )["table_name"]
+        assert TableMergeCells().execute_safe(tool_ctx, name=tb, cell_range="A1:D1")["status"] == "ok"
+        ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
+        assert ref["status"] == "error" and ref["code"] == "COLUMN_HAS_SPANNING_CELL", ref
+        steps = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref["message"])]
+        assert steps, ref["message"]
+        for cell_name, parts in steps:
+            assert TableSplitCell().execute_safe(tool_ctx, name=tb, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+        ok = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=tb, index=idx)
+        assert ok["status"] == "ok", ok
+        assert TableGetCells().execute(tool_ctx, name=tb)["cells"] == expected
+
+    # 3. 3x3 with A1:B2 merged (both directions), delete col 0
+    t3 = TableInsert().execute(
+        tool_ctx,
+        rows=3,
+        columns=3,
+        data=[["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]],
+    )["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B2")["status"] == "ok"
+    ref3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ref3["status"] == "error" and ref3["code"] == "COLUMN_HAS_SPANNING_CELL", ref3
+    steps3 = [(c, int(p)) for c, p in re.findall(r"'([A-Za-z]+\d+)' \(parts=(\d+)\)", ref3["message"])]
+    assert steps3, ref3["message"]
+    for cell_name, parts in steps3:
+        assert TableSplitCell().execute_safe(tool_ctx, name=t3, cell=cell_name, direction="columns", parts=parts)["status"] == "ok"
+    ok3 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
+    assert ok3["status"] == "ok", ok3
+    cells3 = TableGetCells().execute(tool_ctx, name=t3)["cells"]
+    assert cells3 == {
+        "A1": "", "B1": "c1",
+        "B2": "c2",
+        "A3": "b3", "B3": "c3",
+    }, cells3
+
+
+def _set_table_separators(table, positions):
+    seps = []
+    for pos in positions:
+        sep = uno.createUnoStruct("com.sun.star.text.TableColumnSeparator")
+        sep.Position = pos
+        sep.IsVisible = True
+        seps.append(sep)
+    uno.invoke(
+        table,
+        "setPropertyValue",
+        ("TableColumnSeparators", uno.Any("[]com.sun.star.text.TableColumnSeparator", tuple(seps))),
+    )
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_column_refusal_unequal_widths_says_do_not_split_uno(ctx, doc):
+    import os
+    import tempfile
+    from plugin.framework.uno_context import create_property_value
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx, rows=2, columns=3, data=[["a1", "b1", "c1"], ["a2", "b2", "c2"]]
+    )["table_name"]
+    table = doc.getTextTables().getByName(t_name)
+    _set_table_separators(table, (1500, 6000))
+    got_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+    assert abs(got_seps[0] - 1500) <= 1 and abs(got_seps[1] - 6000) <= 1, got_seps
+
+    assert TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:B1")["status"] == "ok"
+    before_cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+    before_row1_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+
+    ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t_name, index=0)
+    assert ref["status"] == "error" and ref["code"] == "COLUMN_HAS_SPANNING_CELL", ref
+    assert "parts=" not in ref["message"], ref["message"]
+    assert "table_set_cell" in ref["message"], ref["message"]
+    assert TableGetCells().execute(tool_ctx, name=t_name)["cells"] == before_cells
+    after_row1_seps = [int(s.Position) for s in table.getRows().getByIndex(1).getPropertyValue("TableColumnSeparators")]
+    assert after_row1_seps == before_row1_seps
+
+    # DOCX round trip: widths 1000/4000/9000 with A1:D1 and B2:C2 merged
+    doc.getText().setString("")
+    docx_tbl_name = TableInsert().execute(
+        tool_ctx,
+        rows=3,
+        columns=4,
+        data=[["h1", "h2", "h3", "h4"], ["a2", "b2", "c2", "d2"], ["a3", "b3", "c3", "d3"]],
+    )["table_name"]
+    docx_tbl = doc.getTextTables().getByName(docx_tbl_name)
+    _set_table_separators(docx_tbl, (1000, 4000, 9000))
+    assert TableMergeCells().execute_safe(tool_ctx, name=docx_tbl_name, cell_range="A1:D1")["status"] == "ok"
+    assert TableMergeCells().execute_safe(tool_ctx, name=docx_tbl_name, cell_range="B2:C2")["status"] == "ok"
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    fd, docx_path = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    reloaded = None
+    try:
+        docx_url = uno.systemPathToFileUrl(docx_path)
+        doc.storeToURL(docx_url, (create_property_value("FilterName", "MS Word 2007 XML"),))
+        reloaded = desktop.loadComponentFromURL(
+            docx_url, "_blank", 0, (create_property_value("Hidden", True),)
+        )
+        r_ctx = TestingFactory.create_context(doc=reloaded, ctx=ctx, env="native")
+        r_names = list(reloaded.getTextTables().getElementNames())
+        assert len(r_names) == 1, r_names
+        r_name = r_names[0]
+        assert reloaded.getTextTables().getByName(r_name).getCellByName("A1").getString() == "h1\nh2\nh3\nh4"
+        r_ref = ManageTableStructure().execute_safe(r_ctx, action="delete", axis="column", name=r_name, index=0)
+        assert r_ref["status"] == "error" and r_ref["code"] == "COLUMN_HAS_SPANNING_CELL", r_ref
+        assert "parts=" not in r_ref["message"], r_ref["message"]
+        assert "table_set_cell" in r_ref["message"], r_ref["message"]
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        if os.path.exists(docx_path):
+            os.remove(docx_path)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_nested_refusal_followed_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    outer = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a1", "b1"], ["a2", "b2"]])["table_name"]
+    inner = TableInsert().execute(tool_ctx, rows=1, columns=1, parent=outer, cell="B2", data=[["in"]])["table_name"]
+
+    # Untracked: delete nested table, then row delete succeeds
+    ref1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer, index=1)
+    assert ref1["status"] == "error" and "table_delete" in ref1["message"], ref1
+    assert TableDelete().execute_safe(tool_ctx, name=inner)["status"] == "ok"
+    ok1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer, index=1)
+    assert ok1["status"] == "ok", ok1
+
+    # Recording: tracked delete of nested table keeps refusal until user accepts
+    outer2 = TableInsert().execute(tool_ctx, rows=2, columns=2, data=[["a1", "b1"], ["a2", "b2"]])["table_name"]
+    inner2 = TableInsert().execute(tool_ctx, rows=1, columns=1, parent=outer2, cell="B2", data=[["in"]])["table_name"]
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ref2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ref2["status"] == "error" and "table_delete" in ref2["message"], ref2
+        del_inner = TableDelete().execute_safe(tool_ctx, name=inner2)
+        assert del_inner["status"] == "ok" and del_inner["pending_review"] is True, del_inner
+        ref2_after = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ref2_after["status"] == "error" and inner2 in ref2_after["message"], ref2_after
+        _accept_all_tables(doc, ctx)
+        ok2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=outer2, index=1)
+        assert ok2["status"] == "ok" and ok2["pending_review"] is True, ok2
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tall_cell_refusal_followed_while_recording_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx, rows=3, columns=2, data=[["tall", "b1"], ["", "b2"], ["a3", "b3"]]
+    )["table_name"]
+    assert TableMergeCells().execute_safe(tool_ctx, name=t_name, cell_range="A1:A2")["status"] == "ok"
+    assert TableSetCell().execute_safe(tool_ctx, name=t_name, cell="A1", text="keep")["status"] == "ok"
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ref = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=0)
+        assert ref["status"] == "error" and ref["code"] == "ROW_HAS_SPANNING_CELL", ref
+        assert "table_split_cell" in ref["message"] and "table_set_cell" in ref["message"]
+
+        split = TableSplitCell().execute_safe(tool_ctx, name=t_name, cell="A1", direction="rows", parts=2)
+        assert split["status"] == "ok", split
+        assert TableSetCell().execute_safe(tool_ctx, name=t_name, cell="A2", text="keep")["status"] == "ok"
+        del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=0)
+        assert del_res["status"] == "ok" and del_res["pending_review"] is True, del_res
+        _accept_all_tables(doc, ctx)
+        cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert cells == {"A1": "keep", "B1": "b2", "A2": "a3", "B2": "b3"}, cells
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_tracked_row_deletes_keep_indexes_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    t_name = TableInsert().execute(
+        tool_ctx,
+        rows=4,
+        columns=2,
+        data=[["r1", "b1"], ["r2", "b2"], ["r3", "b3"], ["r4", "b4"]],
+    )["table_name"]
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        d1 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=1)
+        assert d1["status"] == "ok" and d1["rows"] == 4 and d1["tracked"] is True and d1["pending_review"] is True, d1
+        assert "later indexes do not shift" in d1["message"], d1
+
+        d2 = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name=t_name, index=2)
+        assert d2["status"] == "ok" and d2["rows"] == 4 and d2["tracked"] is True and d2["pending_review"] is True, d2
+        assert "later indexes do not shift" in d2["message"], d2
+
+        cells = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert cells == {"A1": "r1", "B1": "b1", "A2": "", "B2": "", "A3": "", "B3": "", "A4": "r4", "B4": "b4"}, cells
+
+        _accept_all_tables(doc, ctx)
+        after_accept = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert after_accept == {"A1": "r1", "B1": "b1", "A2": "r4", "B2": "b4"}, after_accept
+
+        # Row insert while recording shifts indexes at once
+        ins = ManageTableStructure().execute_safe(tool_ctx, action="insert", axis="row", name=t_name, index=1)
+        assert ins["status"] == "ok" and ins["rows"] == 3, ins
+        after_ins = TableGetCells().execute(tool_ctx, name=t_name)["cells"]
+        assert after_ins["A3"] == "r4", after_ins
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_protected_section_refusal_while_recording_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    text = doc.getText()
+    text.insertString(text.getEnd(), "Before section\n", False)
+    sec = doc.createInstance("com.sun.star.text.TextSection")
+    sec.setName("ProtSec")
+    text.insertTextContent(text.getEnd(), sec, False)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    tbl.setName("SecTbl")
+    sec_anchor = sec.getAnchor()
+    sec_anchor.getText().insertTextContent(sec_anchor.getStart(), tbl, False)
+    tbl.getCellByName("A1").setString("s1")
+    tbl.getCellByName("A2").setString("s2")
+    sec.setPropertyValue("IsProtected", True)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        err_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)
+        assert err_row["status"] == "error" and err_row["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_row
+        assert "protected section" in err_row["message"] and "did not record" in err_row["message"], err_row
+        assert tbl.getRows().getCount() == 2
+        assert tbl.getCellByName("A2").getString() == "s2"
+
+        err_tbl = TableDelete().execute_safe(tool_ctx, name="SecTbl")
+        assert err_tbl["status"] == "error" and err_tbl["code"] == "TABLE_DELETE_NOT_TRACKABLE", err_tbl
+        assert "protected section" in err_tbl["message"] and "did not record" in err_tbl["message"], err_tbl
+        assert doc.getTextTables().hasByName("SecTbl")
+        assert tbl.getCellByName("A1").getString() == "s1"
+        assert tbl.getCellByName("A2").getString() == "s2"
+
+        sec.setPropertyValue("IsProtected", False)
+        ok_row = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="row", name="SecTbl", index=0)
+        assert ok_row["status"] == "ok" and ok_row["pending_review"] is True, ok_row
+    finally:
+        sec.setPropertyValue("IsProtected", False)
+        doc.setPropertyValue("RecordChanges", False)

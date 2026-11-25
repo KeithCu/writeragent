@@ -54,6 +54,9 @@ class _MockUndoManager:
     def getAllUndoActionTitles(self):
         return tuple(self.titles)
 
+    def isUndoPossible(self) -> bool:
+        return bool(self.titles)
+
     def undo(self) -> None:
         self.undone = True
         if self.titles:
