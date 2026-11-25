@@ -925,8 +925,10 @@ def test_py_spill_user_formula_in_rect_blocks_uno(ctx, doc):
         WorkbookState.forget_key(st.key)
 
 
+# A pooled workbook can keep a sheet modify listener from an earlier test,
+# whose orphan pass would drop this stored record because A1 holds no formula.
 @native_test
-@with_native_doc("calc")
+@with_native_doc("calc", reuse=False)
 def test_py_spill_old_registry_format_reloads_as_rect_uno(ctx, doc):
     """Old per-cell registry payloads load as bounding-box rectangles across ODS and XLSX and save as rows/cols."""
     import json

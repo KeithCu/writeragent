@@ -2174,6 +2174,46 @@ def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkey
             WorkbookState.forget_key(st.key)
 
 
+def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    doc = CalcDocStub(
+        sheets=[CalcSheetStub("Sheet1"), CalcSheetStub("Sheet2")],
+        url="file:///cleanup_loads.ods",
+        props={"RuntimeUID": "uid-cleanup-loads"},
+    )
+    sheet1 = doc.getSheets().getByName("Sheet1")
+    bag = doc.getDocumentProperties().UserDefinedProperties
+    bag.values["WriterAgentSpillRegistry"] = json.dumps({
+        "Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1},
+        "Sheet2:0,0": {"code": "y", "rows": 3, "cols": 1},
+    })
+
+    monkeypatch.setattr(main, "is_current", lambda: True)
+    reset_calc_workbook_states()
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    try:
+        assert not state.loaded
+        state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="x", rows=2, cols=1)
+
+        _spill.cleanup_orphans(state, sheet1, doc=doc, sheet_name="Sheet1")
+
+        assert state.loaded
+        assert ("Sheet1", 0, 0) not in state.spills
+        assert ("Sheet2", 0, 0) in state.spills
+        assert json.loads(bag.values["WriterAgentSpillRegistry"]) == {
+            "Sheet2:0,0": {"code": "y", "rows": 3, "cols": 1}
+        }
+
+        _spill.load_spill_registry_for_doc(doc, state)
+        assert ("Sheet1", 0, 0) not in state.spills
+        assert ("Sheet2", 0, 0) in state.spills
+    finally:
+        WorkbookState.forget_key(state.key)
+
+
 def test_load_spill_registry_unparsable_payload_marks_loaded_and_allows_recovery() -> None:
     import json
 
