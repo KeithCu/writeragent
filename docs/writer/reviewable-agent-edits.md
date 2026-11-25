@@ -160,9 +160,9 @@ made in `record_preserve_replace` in
   across all body write paths, while `insert_html_after_paragraph` owns only the trailing
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
-  undo group, so a failed table insert rolls the edit back. `full_document` refuses a hidden
-  any hidden section outside headers and footers (`HIDDEN_SECTION`) or any protected non-index section outside headers
-  and footers (`PROTECTED_SECTION`), and places new content outside a leading section or TOC
+  undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
+  section outside headers and footers (including tables and frames in them; `HIDDEN_SECTION`) or any protected non-index section outside headers
+  and footers (including tables and frames in them; `PROTECTED_SECTION`), and places new content outside a leading section or TOC
   (while recording, a paragraph is added untracked before a leading section and after a trailing
   one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
   refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a non-text
