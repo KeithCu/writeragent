@@ -1,6 +1,9 @@
 import os
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -345,23 +348,74 @@ def _make_calc_doc(sheet_names: tuple[str, ...], *, filter_name: str = "calc8"):
     return doc
 
 
-def test_multisheet_csv_refuses_save_and_export_without_sheet(tmp_path):
+def test_multisheet_csv_save_refuses_and_export_uses_active_sheet(tmp_path):
     doc = _make_calc_doc(("Summary", "_hidden", "Detail"))
+    active_sheet = MagicMock()
+    active_sheet.getName.return_value = "Detail"
+    active_sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=2)
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active_sheet
+
+    recorded_props: list[tuple[str, tuple[Any, ...]]] = []
+
+    def _fake_store_to_url(url: str, props: tuple[Any, ...]) -> None:
+        recorded_props.append((url, props))
+        temp_dir = Path(urlparse(url).path).parent
+        (temp_dir / "sheet-Detail.csv").write_text("col1,col2\n", encoding="utf-8")
+
+    doc.storeToURL.side_effect = _fake_store_to_url
+
     csv_path = tmp_path / "out.csv"
-    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC):
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)):
         res_save = DocumentSave().execute(_make_ctx(doc), path=str(csv_path))
         res_export = DocumentExport().execute(_make_ctx(doc), path=str(csv_path))
         res_empty_sheet = DocumentExport().execute(_make_ctx(doc), path=str(csv_path), sheet="  ")
 
-    for res in (res_save, res_export, res_empty_sheet):
-        assert res["status"] == "error"
-        assert res["code"] == "SHEET_REQUIRED"
-        assert "3" in res["message"]
-        assert "Summary" in res["message"]
-        assert "Detail" in res["message"]
-        assert "_hidden" not in res["message"]
+    assert res_save["status"] == "error"
+    assert res_save["code"] == "SHEET_REQUIRED"
+    assert "3" in res_save["message"]
+    assert "Summary" in res_save["message"]
+    assert "Detail" in res_save["message"]
+    assert "_hidden" not in res_save["message"]
     doc.storeAsURL.assert_not_called()
-    doc.storeToURL.assert_not_called()
+
+    assert len(recorded_props) == 2
+    for call_url, call_props in recorded_props:
+        assert call_url.endswith("/sheet.csv")
+        opts = next(p.Value for p in call_props if p.Name == "FilterOptions")
+        assert opts.endswith(",3")
+    for res in (res_export, res_empty_sheet):
+        assert res["status"] == "ok"
+        assert res["sheet"] == "Detail"
+        assert res["sheet_index"] == 2
+        assert res["message"] == f"Exported sheet 'Detail' to {csv_path}."
+    assert csv_path.read_text(encoding="utf-8") == "col1,col2\n"
+
+
+def test_single_sheet_csv_export_without_sheet_uses_store_to_url(tmp_path):
+    doc = _make_calc_doc(("Only",))
+    only_sheet = MagicMock()
+    only_sheet.getName.return_value = "Only"
+    only_sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=0)
+    doc.getCurrentController.return_value.getActiveSheet.return_value = only_sheet
+
+    csv_path = tmp_path / "single.csv"
+    with patch("plugin.doc.document_file_tools.get_document_type", return_value=DocumentType.CALC), \
+         patch("plugin.doc.document_file_tools.resolve_document_by_url", return_value=(None, None)), \
+         patch("plugin.doc.document_file_tools.create_property_value", side_effect=lambda n, v: SimpleNamespace(Name=n, Value=v)):
+        res = DocumentExport().execute(_make_ctx(doc), path=str(csv_path))
+
+    assert res["status"] == "ok"
+    assert res["sheet"] == "Only"
+    assert res["sheet_index"] == 0
+    assert res["message"] == f"Exported sheet 'Only' to {csv_path}."
+    doc.storeToURL.assert_called_once()
+    call_url, call_props = doc.storeToURL.call_args.args
+    assert call_url == csv_path.as_uri()
+    assert next(p.Value for p in call_props if p.Name == "FilterName") == "Text - txt - csv (StarCalc)"
+    assert any(p.Name == "InteractionHandler" for p in call_props)
+    assert not any(p.Name == "FilterOptions" for p in call_props)
 
 
 @pytest.mark.parametrize("filter_name", ["Text - txt - csv (StarCalc)", "DIF"])

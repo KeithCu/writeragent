@@ -145,13 +145,12 @@ def run_vision_insert(
     indiv_results = result.get("individual_results") or []
     outcomes: list[VisionInsertOutcome] = []
     if indiv_results:
-        graphics = dict(found)
         report(_("Inserting…"))
         for indiv_res in indiv_results:
             def _insert_one(res: dict[str, Any] = indiv_res) -> VisionInsertOutcome:
                 if is_cancelled(cancel):
                     raise SendCancelled("Vision run cancelled")
-                return insert_vision_item(ctx, doc, res, values, graphics)
+                return insert_vision_item(ctx, doc, res, values, found)
 
             outcomes.append(main.call(_insert_one))
 

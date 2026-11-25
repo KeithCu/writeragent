@@ -41,6 +41,14 @@ def _from_path(env: dict[str, str], *, is_windows: bool) -> Path | None:
     return None
 
 
+def install_dir(home: Path, *, is_windows: bool) -> Path:
+    """Return the managed Opengrep install directory for *home*."""
+    if is_windows:
+        # Windows v2.0.0+ ships opengrep.exe alongside DLLs; keep the directory together.
+        return home / ".opengrep" / "cli" / "latest"
+    return home / ".local" / "bin"
+
+
 def _home_candidates(env: dict[str, str], *, is_windows: bool) -> list[Path]:
     homes = []
     for key in ("USERPROFILE", "HOME"):
@@ -51,11 +59,15 @@ def _home_candidates(env: dict[str, str], *, is_windows: bool) -> list[Path]:
     candidates: list[Path] = []
     seen: set[Path] = set()
     for home in homes:
-        for name in _executable_names(is_windows):
-            candidate = home / ".opengrep" / "cli" / "latest" / name
-            if candidate not in seen:
-                seen.add(candidate)
-                candidates.append(candidate)
+        for directory in (
+            install_dir(home, is_windows=is_windows),
+            home / ".opengrep" / "cli" / "latest",
+        ):
+            for name in _executable_names(is_windows):
+                candidate = directory / name
+                if candidate not in seen:
+                    seen.add(candidate)
+                    candidates.append(candidate)
     return candidates
 
 

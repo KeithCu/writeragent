@@ -309,6 +309,24 @@ def test_cumipmt_and_cumprinc():
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 61, 0))  # end > nper
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 12, 2))  # type not in (0, 1)
 
+    # Type 1 (beginning-of-period) and huge nper (must not OOM via unbounded np.arange)
+    ipmt_t1 = calc.cumipmt(0.05 / 12, 60, 10000, 1, 12, 1)
+    princ_t1 = calc.cumprinc(0.05 / 12, 60, 10000, 1, 12, 1)
+    assert math.isclose(ipmt_t1, -415.59718585758776, rel_tol=1e-9)
+    assert math.isclose(princ_t1, -1839.5543865387463, rel_tol=1e-9)
+    huge_princ = calc.cumprinc(1e-12, 1e12, 1000.0, 1, 1e12, 0)
+    assert math.isclose(huge_princ, -1000.0, rel_tol=1e-4)
+
+    # Small per-period rates (1e-6 and 1e-9), starting at 1 and >1, for both types
+    assert math.isclose(calc.cumipmt(1e-6, 360, 250000, 1, 12, 0), -2.954174740504027, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-6, 360, 250000, 1, 12, 1), -2.7041720363319914, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-6, 360, 250000, 13, 24, 0), -2.8541915896151426, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-6, 360, 250000, 13, 24, 1), -2.854188735426408, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-9, 60, 10000, 1, 12, 0), -0.00010900000032566539, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-9, 60, 10000, 1, 12, 1), -9.900000022666539e-05, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-9, 60, 10000, 13, 24, 0), -8.500000074014862e-05, abs_tol=1e-11)
+    assert math.isclose(calc.cumipmt(1e-9, 60, 10000, 13, 24, 1), -8.50000006551486e-05, abs_tol=1e-11)
+
 
 def test_besselk_bessely_reject_negative_order():
     import scipy.special

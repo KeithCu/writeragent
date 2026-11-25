@@ -766,6 +766,80 @@ def test_iter_open_models_strict_false_probes_and_skips_broken():
     assert models == [good_model]
 
 
+def test_iter_open_models_skips_scratch_documents(monkeypatch):
+    import plugin.framework.scratch_writer as scratch_writer
+    from plugin.framework.uno_context import iter_open_models
+
+    user_model = MagicMock()
+    user_model.getURL.return_value = "file:///tmp/user.odt"
+    user_model.getRuntimeUID.return_value = "user-1"
+
+    scratch_model = MagicMock()
+    scratch_model.getURL.return_value = "private:factory/swriter"
+    scratch_model.getRuntimeUID.return_value = "scratch-1"
+
+    frame = MagicMock()
+    del frame.getURL
+    frame_model = MagicMock()
+    frame_model.getURL.return_value = "file:///tmp/research_copy.odt"
+    frame_model.getRuntimeUID.return_value = "scratch-2"
+    frame.getController.return_value.getModel.return_value = frame_model
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, True, False]
+    enum.nextElement.side_effect = [scratch_model, frame, user_model]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1", "scratch-2"})
+    assert list(iter_open_models(desktop)) == [user_model]
+
+
+def test_resolve_document_by_url_skips_scratch_document(monkeypatch):
+    import plugin.framework.scratch_writer as scratch_writer
+    from plugin.framework.thread_guard import unwrap_uno
+    from plugin.framework.uno_context import resolve_document_by_url
+
+    scratch_model = MagicMock()
+    scratch_model.getURL.return_value = "file:///tmp/shared.odt"
+    scratch_model.getRuntimeUID.return_value = "scratch-uid"
+
+    user_model = MagicMock()
+    user_model.getURL.return_value = "file:///tmp/shared.odt"
+    user_model.getRuntimeUID.return_value = "user-uid"
+
+    def _make_desktop(items):
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True] * len(items) + [False]
+        enum.nextElement.side_effect = list(items)
+        comps = MagicMock()
+        comps.createEnumeration.return_value = enum
+        desktop = MagicMock()
+        desktop.getComponents.return_value = comps
+        return desktop
+
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-uid"})
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt") == (None, None)
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        assert resolve_document_by_url(MagicMock(), "scratch-uid") == (None, None)
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model, user_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found, doc_type = resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt")
+        assert unwrap_uno(found) is user_model
+        assert doc_type == "writer"
+
+
 def test_document_id_for_frame():
     from plugin.framework.uno_context import document_id_for_frame
 

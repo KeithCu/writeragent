@@ -75,10 +75,6 @@ def test_convert_vectorized_columns_verify(ctx, doc):
         vectorize=True,
         verify=True,
     )
-    target_sheet = doc.getSheets().getByName("PythonImport")
-    c1_formula = target_sheet.getCellByPosition(2, 0).getFormula()
-    assert "A1:A3" in c1_formula, f"Expected vectorized A1:A3 in C1, got {c1_formula}"
-
     if res["failed_verifications"]:
         probe = sheet.getCellByPosition(9, 0)
         probe.setFormula('=PY("import numpy; result = 1")')
@@ -88,3 +84,7 @@ def test_convert_vectorized_columns_verify(ctx, doc):
 
             raise unittest.SkipTest("numpy unavailable in headless =PY() worker")
         assert res["failed_verifications"] == [], f"Verification mismatches: {res['failed_verifications']}"
+
+    target_sheet = doc.getSheets().getByName("PythonImport")
+    c1_formula = target_sheet.getCellByPosition(2, 0).getFormula()
+    assert "A1:A3" in c1_formula, f"Expected vectorized A1:A3 in C1, got {c1_formula}"

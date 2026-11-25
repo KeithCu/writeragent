@@ -761,24 +761,6 @@ def test_image_generate_export_failure_is_tool_execution_error():
     assert "export" in res.get("message", "")
 
 
-def test_image_delete_draw_ambiguous_name():
-    ctx = MagicMock()
-    graphic = MagicMock()
-    with (
-        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
-        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="draw"),
-        patch(
-            "plugin.doc.visual_helpers.remove_graphic_from_draw_pages",
-            side_effect=ValueError("Several shapes named 'Pic'; not deleted."),
-        ),
-    ):
-        res = ImageDelete().execute(ctx, name="Pic")
-
-    assert res["status"] == "error"
-    assert res["code"] == "AMBIGUOUS_NAME"
-    assert "Several shapes named 'Pic'" in res["message"]
-
-
 @pytest.mark.parametrize("tracked", [True, False])
 def test_image_delete_tracked_vs_untracked(tracked):
     ctx = MagicMock()

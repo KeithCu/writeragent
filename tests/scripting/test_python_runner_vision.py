@@ -75,12 +75,17 @@ def test_execute_and_insert_vision_venv_path(
     with patch("plugin.scripting.python_runner.is_writer", return_value=is_writer_doc), patch(
         "plugin.scripting.python_runner.is_calc", return_value=not is_writer_doc
     ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-        mock_orchestrator.return_value = {
-            "status": "ok",
-            "images_processed": 1,
-            "helper": helper,
-            "individual_results": [individual_result],
-        }
+        def _fake_orchestrator(*_a, on_discovered=None, **_kw):
+            if on_discovered is not None:
+                on_discovered([(individual_result.get("image_name", ""), None)])
+            return {
+                "status": "ok",
+                "images_processed": 1,
+                "helper": helper,
+                "individual_results": [{**individual_result, "discovered_index": 0}],
+            }
+
+        mock_orchestrator.side_effect = _fake_orchestrator
         code = get_vision_script_templates()[helper]
         outcome = execute_and_insert_result(ctx, doc, code)
 
@@ -106,7 +111,17 @@ def test_execute_and_insert_vision_forwards_image_name(mock_orchestrator):
     ), patch("plugin.scripting.python_runner.run_code_in_user_venv", return_value={"status": "ok", "result": None}), patch(
         "plugin.vision.vision_egress.insert_vision_result"
     ):
-        mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}}]}
+        def _fake_orchestrator(*_a, on_discovered=None, **_kw):
+            if on_discovered is not None:
+                on_discovered([("Photo1", None)])
+            return {
+                "status": "ok",
+                "images_processed": 1,
+                "helper": "extract_text",
+                "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}, "discovered_index": 0}],
+            }
+
+        mock_orchestrator.side_effect = _fake_orchestrator
         code = (
             'from writeragent.vision import run_vision\n'
             'result = run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image, {})\n'
@@ -173,7 +188,17 @@ def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchest
         with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
             "plugin.scripting.python_runner.is_calc", return_value=False
         ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
-            mock_orchestrator.return_value = {"status": "ok", "images_processed": 1, "helper": "extract_text", "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}}]}
+            def _fake_orchestrator(*_a, on_discovered=None, **_kw):
+                if on_discovered is not None:
+                    on_discovered([("", None)])
+                return {
+                    "status": "ok",
+                    "images_processed": 1,
+                    "helper": "extract_text",
+                    "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>line1</p>", "metrics": {"line_count": 1}, "discovered_index": 0}],
+                }
+
+            mock_orchestrator.side_effect = _fake_orchestrator
             code = get_vision_script_templates()["extract_text"]
             outcome = execute_and_insert_result(ctx, doc, code)
 
@@ -226,14 +251,19 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
     ctx = MagicMock()
     doc = MagicMock()
     mock_pairs.return_value = [("OnlyImg", MagicMock())]
-    mock_orchestrator.return_value = {
-        "status": "ok",
-        "helper": "extract_text",
-        "full_text": "one",
-        "images_processed": 1,
-        "inserted": True,
-        "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>mock</p>", "full_text": "one", "image_name": "OnlyImg"}],
-    }
+    def _fake_orchestrator(*_a, on_discovered=None, **_kw):
+        if on_discovered is not None:
+            on_discovered([("OnlyImg", None)])
+        return {
+            "status": "ok",
+            "helper": "extract_text",
+            "full_text": "one",
+            "images_processed": 1,
+            "inserted": True,
+            "individual_results": [{"status": "ok", "helper": "extract_text", "html": "<p>mock</p>", "full_text": "one", "image_name": "OnlyImg", "discovered_index": 0}],
+        }
+
+    mock_orchestrator.side_effect = _fake_orchestrator
     code = get_vision_script_templates()["extract_text"]
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
@@ -266,6 +296,11 @@ def test_execute_and_insert_vision_partial_failure_inserts_completed_results():
     doc = MagicMock()
     code = get_vision_script_templates()["extract_text"]
 
+    def _fake_partial(*_a, on_discovered=None, **_kw):
+        if on_discovered is not None:
+            on_discovered([("Img1", None)])
+        return partial_error
+
     partial_error = {
         "status": "error",
         "message": "Image 2 OCR failed",
@@ -279,6 +314,7 @@ def test_execute_and_insert_vision_partial_failure_inserts_completed_results():
                 "helper": "extract_text",
                 "html": "<p>Image 1 text</p>",
                 "image_name": "Img1",
+                "discovered_index": 0,
                 "context": {"image_name": "Img1"},
             }
         ],
@@ -288,7 +324,7 @@ def test_execute_and_insert_vision_partial_failure_inserts_completed_results():
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=False),
         patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=partial_error),
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=_fake_partial),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         outcome = execute_and_insert_result(ctx, doc, code)
@@ -325,6 +361,11 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
     ctx = MagicMock()
     doc = MagicMock()
     code = get_vision_script_templates()["extract_structure"]
+    def _fake_payload(*_a, on_discovered=None, **_kw):
+        if on_discovered is not None:
+            on_discovered([("A", None), ("B", None)])
+        return mock_payload
+
     mock_payload = {
         "status": "ok",
         "images_processed": 2,
@@ -335,12 +376,14 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
                 "helper": "extract_structure",
                 "html": "<p>A</p>",
                 "image_name": "A",
+                "discovered_index": 0,
                 "tables": [{"name": "t1"}],
             },
             {
                 "helper": "extract_structure",
                 "html": "<p>B</p>",
                 "image_name": "B",
+                "discovered_index": 1,
             },
         ],
     }
@@ -349,7 +392,7 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
         patch("plugin.scripting.python_runner.is_writer", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=False),
         patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=mock_payload),
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=_fake_payload),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
         outcome = execute_and_insert_result(ctx, doc, code)
@@ -381,7 +424,7 @@ def test_rps_finish_vision_skips_insert_on_draw():
             "images_processed": 1,
             "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>x</p>"}],
         },
-        "vision_graphics": {},
+        "vision_graphics": [],
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=True), patch(
         "plugin.vision.vision_egress.insert_vision_result"
@@ -432,10 +475,10 @@ def test_rps_finish_vision_all_empty_reports_no_text():
             "status": "ok",
             "images_processed": 1,
             "individual_results": [
-                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1", "discovered_index": 0}
             ],
         },
-        "vision_graphics": {},
+        "vision_graphics": [("Img1", None)],
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=False):
         out = _finish_vision_execution(prepared, response)
@@ -458,10 +501,10 @@ def test_rps_finish_vision_draw_blank_image_reports_no_text():
             "status": "ok",
             "images_processed": 1,
             "individual_results": [
-                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+                {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1", "discovered_index": 0}
             ],
         },
-        "vision_graphics": {},
+        "vision_graphics": [("Img1", None)],
     }
     with patch("plugin.scripting.python_runner.is_draw", return_value=True):
         out = _finish_vision_execution(prepared, response)
@@ -491,10 +534,10 @@ def test_rps_finish_vision_includes_source_image_note(outcome, expected_note):
             "status": "ok",
             "images_processed": 1,
             "individual_results": [
-                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
+                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1", "discovered_index": 0}
             ],
         },
-        "vision_graphics": {},
+        "vision_graphics": [("Img1", None)],
     }
     with (
         patch("plugin.scripting.python_runner.is_draw", return_value=False),
@@ -520,10 +563,10 @@ def test_rps_finish_vision_partial_error_includes_deleted_note():
             "status": "error",
             "message": "OCR failed for Img2 (boom); 1 of 2 images completed.",
             "individual_results": [
-                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1"}
+                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Img1", "discovered_index": 0}
             ],
         },
-        "vision_graphics": {},
+        "vision_graphics": [("Img1", None)],
     }
     with (
         patch("plugin.scripting.python_runner.is_draw", return_value=False),
@@ -554,7 +597,7 @@ def test_rps_prepared_and_finish_passes_discovered_unnamed_shape():
             "status": "ok",
             "images_processed": 1,
             "full_text": "hi",
-            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": ""}],
+            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "", "discovered_index": 0}],
         }
 
     def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
@@ -573,5 +616,49 @@ def test_rps_prepared_and_finish_passes_discovered_unnamed_shape():
 
     assert out["ok"] is True
     assert inserted_graphics == [shape_a]
+
+
+def test_rps_prepared_and_finish_keeps_distinct_same_name_shapes():
+    from plugin.scripting.python_runner import _finish_vision_execution, _run_prepared_rps
+
+    shape_a = MagicMock()
+    shape_b = MagicMock()
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
+    inserted_graphics: list[object] = []
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Pic", shape_a), ("Pic", shape_b)])
+        return {
+            "status": "ok",
+            "images_processed": 1,
+            "full_text": "hi",
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "Pic", "discovered_index": 1},
+            ],
+        }
+
+    def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
+        del params
+        inserted_graphics.append(graphic)
+        return "inserted"
+
+    with patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", side_effect=fake_selection):
+        response = _run_prepared_rps(prepared)
+
+    with (
+        patch("plugin.scripting.python_runner.is_draw", return_value=False),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert),
+    ):
+        out = _finish_vision_execution(prepared, response)
+
+    assert out["ok"] is True
+    assert inserted_graphics == [shape_b]
 
 

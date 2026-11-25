@@ -94,3 +94,81 @@ def test_selection_range_address():
     non_cell = SimpleNamespace()
     with pytest.raises(ValueError, match="not a shape or object"):
         selection_range_address(non_cell)
+
+
+def test_run_sheet_conversion_restores_formula_on_verification_failure(monkeypatch):
+    # A1=10.0, B1="=ABS(A1)" (cached 999.0 -> fails), C1="=ABS(A1)" (cached 10.0 -> passes).
+    sheet1 = CalcSheetStub("Sheet1", data=[[10.0, 999.0, 10.0]])
+    sheet1.getCellByPosition(1, 0).setFormula("=ABS(A1)")
+    sheet1.getCellByPosition(2, 0).setFormula("=ABS(A1)")
+    orig_range = sheet1.getCellRangeByPosition(0, 0, 2, 0)
+    monkeypatch.setattr(
+        sheet1,
+        "getCellRangeByPosition",
+        lambda *_args: SimpleNamespace(
+            getDataArray=lambda: ((10.0, 999.0, 10.0),),
+            getFormulaArray=orig_range.getFormulaArray,
+            getRangeAddress=orig_range.getRangeAddress,
+        ),
+    )
+    doc = CalcDocStub(sheets=[sheet1], active_sheet="Sheet1", selection="A1:C1")
+    doc.calculateAll = MagicMock()
+    monkeypatch.setattr(
+        "plugin.calc.spreadsheet_import.pipeline.fetch_actual_values",
+        lambda _sheet, addrs: {a: 10.0 for a in addrs},
+    )
+
+    res = run_sheet_conversion(doc, sheet1, scope="selection", output_mode="new_sheet", vectorize=False, verify=True)
+
+    assert res["status"] == "partial"
+    assert len(res["failed_verifications"]) == 1
+    assert res["failed_verifications"][0]["address"] == "B1"
+    target_sheet = doc.getSheets().getByName("PythonImport")
+    assert target_sheet.getCellByPosition(1, 0).getFormula() == "=ABS(A1)"
+    assert target_sheet.getCellByPosition(2, 0).getFormula().startswith("=PY(")
+    assert res["report"]["converted"] == ["C1"]
+    assert "B1" in res["report"]["pass_through"]
+    assert {"address": "B1", "reason": "VERIFY_MISMATCH"} in res["report"]["skipped"]
+    assert res["report"]["conversion_rate"] == 0.5
+    assert "1 / 2" in res["summary"]
+    assert doc.calculateAll.call_count == 2
+
+
+def test_run_sheet_conversion_re_verifies_after_restore(monkeypatch):
+    # Pass 1: B1 mismatches and is restored; C1 passes on pass 1 (10.0) but mismatches on pass 2 (20.0)
+    # after B1's restore triggers recalculation, so C1 is also restored.
+    sheet1 = CalcSheetStub("Sheet1", data=[[10.0, 999.0, 10.0]])
+    sheet1.getCellByPosition(1, 0).setFormula("=ABS(A1)")
+    sheet1.getCellByPosition(2, 0).setFormula("=ABS(B1)")
+    orig_range = sheet1.getCellRangeByPosition(0, 0, 2, 0)
+    monkeypatch.setattr(
+        sheet1,
+        "getCellRangeByPosition",
+        lambda *_args: SimpleNamespace(
+            getDataArray=lambda: ((10.0, 999.0, 10.0),),
+            getFormulaArray=orig_range.getFormulaArray,
+            getRangeAddress=orig_range.getRangeAddress,
+        ),
+    )
+    doc = CalcDocStub(sheets=[sheet1], active_sheet="Sheet1", selection="A1:C1")
+    doc.calculateAll = MagicMock()
+    pass_num = 0
+
+    def _fetch(_sheet, addrs):
+        nonlocal pass_num
+        pass_num += 1
+        val_c1 = 10.0 if pass_num == 1 else 20.0
+        return {a: (10.0 if a == "B1" else val_c1) for a in addrs}
+
+    monkeypatch.setattr("plugin.calc.spreadsheet_import.pipeline.fetch_actual_values", _fetch)
+
+    res = run_sheet_conversion(doc, sheet1, scope="selection", output_mode="new_sheet", vectorize=False, verify=True)
+
+    assert res["status"] == "partial"
+    assert [m["address"] for m in res["failed_verifications"]] == ["B1", "C1"]
+    target_sheet = doc.getSheets().getByName("PythonImport")
+    assert target_sheet.getCellByPosition(1, 0).getFormula() == "=ABS(A1)"
+    assert target_sheet.getCellByPosition(2, 0).getFormula() == "=ABS(B1)"
+    assert res["report"]["converted"] == []
+    assert res["report"]["conversion_rate"] == 0.0
+    assert doc.calculateAll.call_count == 3

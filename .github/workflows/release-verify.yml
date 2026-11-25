@@ -40,22 +40,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install LibreOffice and system tools (Ubuntu)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
-                     /etc/apt/sources.list.d/google-chrome.sources \
-                     /etc/apt/sources.list.d/google.list
-          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "20";
-          Acquire::https::Timeout "20";
-          Acquire::ftp::Timeout "20";
-          EOF
-
       - name: Install LibreOffice (Ubuntu apt cache)
         if: runner.os == 'Linux'
         timeout-minutes: 10

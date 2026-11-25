@@ -607,6 +607,15 @@ def test_xor_propagates_err_code():
     assert calc.xor(["Err:502", True]) == "Err:502"
 
 
+def test_xor_accepts_calc_range():
+    from plugin.scripting.calc_range import CalcRange
+
+    assert calc.xor(CalcRange([[True], [False]])) is True
+    assert calc.xor(CalcRange([[True], [True]])) is False
+    assert calc.xor(CalcRange([["text"], [True]])) is True
+    assert calc.xor(CalcRange([["Err:502", True]])) == "Err:502"
+
+
 def test_text_and_trend_shared_helpers_unchanged():
     assert calc.text(-0.001, "0.00") == "0.00"
     assert calc.text(-2.5, "0") == "-3"

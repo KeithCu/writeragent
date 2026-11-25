@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Sequence
 
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
@@ -436,12 +436,17 @@ def insert_vision_item(
     doc: Any,
     result: dict[str, Any],
     params: dict[str, Any] | None,
-    graphics: dict[str, Any | None],
+    graphics: Sequence[tuple[str, Any | None]],
 ) -> VisionInsertOutcome:
-    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, or by the shape kept in *graphics*."""
+    """Insert one OCR result item by its ``image_name``, so a collapsed selection never replaces text, and its kept shape in *graphics*.
+
+    Uses ``discovered_index`` because names may be empty or repeat, and failed
+    images are skipped, so position in ``individual_results`` is not position
+    in *graphics*.
+    """
     insert_params = dict(params or {})
     img_name = result.get("image_name")
     if img_name:
         insert_params["image_name"] = img_name
-    graphic = graphics.get(img_name) if isinstance(img_name, str) else None
+    graphic = graphics[result["discovered_index"]][1]
     return insert_vision_result(ctx, doc, result, params=insert_params, graphic=graphic)

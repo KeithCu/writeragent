@@ -396,7 +396,7 @@ def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
             on_discovered=found.extend,
         )
 
-        return {"status": "ok", "vision_selection_result": result, "vision_graphics": dict(found)}
+        return {"status": "ok", "vision_selection_result": result, "vision_graphics": found}
 
     return run_code_in_user_venv(
         prepared.code,

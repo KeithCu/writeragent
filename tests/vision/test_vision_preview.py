@@ -139,11 +139,12 @@ def test_run_vision_insert_inserts_all_images_and_warms_models_once():
     cancel = SendCancellation()
     reports: list[str] = []
 
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1"}
-    res2 = {"status": "ok", "helper": "extract_structure", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1", "discovered_index": 0}
+    res2 = {"status": "ok", "helper": "extract_structure", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2", "discovered_index": 1}
 
     def fake_selection(c, d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
         assert insert_into_document is False
+        on_discovered([("Img1", None), ("Img2", None)])
         on_exported({**(params or {}), "image_name": "Img1"}, b"\x89PNG\r\n\x1a\n")
         on_exported({**(params or {}), "image_name": "Img2"}, b"\x89PNG\r\n\x1a\n")
         return {
@@ -240,8 +241,18 @@ def test_run_vision_insert_cancelled_between_images_stops_after_first():
             cancel.cancel()
         return fn(*a, **kw)
 
-    res1 = {"status": "ok", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1"}
-    res2 = {"status": "ok", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2"}
+    res1 = {"status": "ok", "html": "<p>one</p>", "full_text": "one", "image_name": "Img1", "discovered_index": 0}
+    res2 = {"status": "ok", "html": "<p>two</p>", "full_text": "two", "image_name": "Img2", "discovered_index": 1}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None), ("Img2", None)])
+        return {
+            "status": "ok",
+            "images_processed": 2,
+            "full_text": "one\n\ntwo",
+            "individual_results": [res1, res2],
+        }
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=main_call_cancels_before_second),
@@ -250,12 +261,7 @@ def test_run_vision_insert_cancelled_between_images_stops_after_first():
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
         patch(
             "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={
-                "status": "ok",
-                "images_processed": 2,
-                "full_text": "one\n\ntwo",
-                "individual_results": [res1, res2],
-            },
+            side_effect=fake_selection,
         ),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
@@ -270,7 +276,17 @@ def test_run_vision_insert_partial_failure_inserts_succeeded_and_raises():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>1</p>", "full_text": "1", "image_name": "Img1"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>1</p>", "full_text": "1", "image_name": "Img1", "discovered_index": 0}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None)])
+        return {
+            "status": "error",
+            "code": "VISION_ERROR",
+            "message": "OCR failed for Img2 (boom); 1 of 2 images completed.",
+            "individual_results": [res1],
+        }
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
@@ -279,12 +295,7 @@ def test_run_vision_insert_partial_failure_inserts_succeeded_and_raises():
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
         patch(
             "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={
-                "status": "error",
-                "code": "VISION_ERROR",
-                "message": "OCR failed for Img2 (boom); 1 of 2 images completed.",
-                "individual_results": [res1],
-            },
+            side_effect=fake_selection,
         ),
         patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
     ):
@@ -347,7 +358,12 @@ def test_run_vision_insert_empty_ocr_inserts_nothing():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    no_text = {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1"}
+    no_text = {"status": "ok", "helper": "extract_structure", "html": "<h1>img</h1><p></p>", "full_text": "", "tables": [], "image_name": "Img1", "discovered_index": 0}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None)])
+        return {"status": "ok", "images_processed": 1, "full_text": "", "individual_results": [no_text]}
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
@@ -355,10 +371,7 @@ def test_run_vision_insert_empty_ocr_inserts_nothing():
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
         patch("plugin.framework.doc_type.is_writer", return_value=True),
-        patch(
-            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={"status": "ok", "images_processed": 1, "full_text": "", "individual_results": [no_text]},
-        ),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.writer.html_import.insert_html_at_cursor") as mock_html_insert,
         patch("plugin.vision.vision_egress.prepare_vision_writer_insert") as mock_prepare,
         patch("plugin.doc.visual_helpers.delete_graphic") as mock_delete,
@@ -375,17 +388,19 @@ def test_run_vision_insert_reports_image_kept():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1", "discovered_index": 0}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None)])
+        return {"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]}
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
-        patch(
-            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]},
-        ),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_kept"),
     ):
         status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
@@ -397,17 +412,19 @@ def test_run_vision_insert_reports_image_deleted():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1", "discovered_index": 0}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None)])
+        return {"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]}
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
-        patch(
-            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={"status": "ok", "images_processed": 1, "full_text": "abc", "individual_results": [res1]},
-        ),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
     ):
         status = run_vision_insert(ctx, {"delete_image_after_insert": True}, cancel, lambda _t: None)
@@ -421,22 +438,24 @@ def test_run_vision_insert_partial_error_includes_deleted_note():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1", "discovered_index": 0}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None)])
+        return {
+            "status": "error",
+            "code": "IMAGE_NOT_FOUND",
+            "message": "OCR failed for Img2 (missing); 1 of 2 images completed.",
+            "individual_results": [res1],
+        }
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
-        patch(
-            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={
-                "status": "error",
-                "code": "IMAGE_NOT_FOUND",
-                "message": "OCR failed for Img2 (missing); 1 of 2 images completed.",
-                "individual_results": [res1],
-            },
-        ),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.vision.vision_egress.insert_vision_result", return_value="image_deleted"),
     ):
         with pytest.raises(ToolExecutionError) as exc_info:
@@ -449,18 +468,20 @@ def test_run_vision_insert_counts_only_images_with_text():
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
-    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1"}
-    res2 = {"status": "ok", "helper": "extract_structure", "html": "<p></p>", "full_text": "", "tables": [], "image_name": "Img2"}
+    res1 = {"status": "ok", "helper": "extract_structure", "html": "<p>abc</p>", "full_text": "abc", "image_name": "Img1", "discovered_index": 0}
+    res2 = {"status": "ok", "helper": "extract_structure", "html": "<p></p>", "full_text": "", "tables": [], "image_name": "Img2", "discovered_index": 1}
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Img1", None), ("Img2", None)])
+        return {"status": "ok", "images_processed": 2, "full_text": "abc", "individual_results": [res1, res2]}
 
     with (
         patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
         patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
         patch("plugin.vision.vision_preview.is_draw", return_value=False),
-        patch(
-            "plugin.vision.vision_preview.run_and_insert_vision_for_selection",
-            return_value={"status": "ok", "images_processed": 2, "full_text": "abc", "individual_results": [res1, res2]},
-        ),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
         patch("plugin.vision.vision_egress.insert_vision_result", side_effect=["inserted", "empty"]),
     ):
         status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
@@ -540,7 +561,7 @@ def test_run_vision_insert_passes_discovered_unnamed_shape_to_insert():
             "status": "ok",
             "images_processed": 1,
             "full_text": "hi",
-            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": ""}],
+            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi", "image_name": "", "discovered_index": 0}],
         }
 
     def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
@@ -560,4 +581,44 @@ def test_run_vision_insert_passes_discovered_unnamed_shape_to_insert():
 
     assert status == "Inserted: 2 characters."
     assert inserted_graphics == [shape_a]
+
+
+def test_run_vision_insert_keeps_distinct_same_name_shapes():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    shape_a = MagicMock()
+    shape_b = MagicMock()
+    inserted_graphics: list[object] = []
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Pic", shape_a), ("Pic", shape_b)])
+        return {
+            "status": "ok",
+            "images_processed": 2,
+            "full_text": "ab",
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<p>a</p>", "full_text": "a", "image_name": "Pic", "discovered_index": 0},
+                {"status": "ok", "helper": "extract_structure", "html": "<p>b</p>", "full_text": "b", "image_name": "Pic", "discovered_index": 1},
+            ],
+        }
+
+    def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
+        del params
+        inserted_graphics.append(graphic)
+        return "inserted"
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert),
+    ):
+        status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
+
+    assert status == "Inserted 2 images."
+    assert inserted_graphics == [shape_a, shape_b]
 

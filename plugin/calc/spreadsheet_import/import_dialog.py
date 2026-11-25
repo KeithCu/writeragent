@@ -32,7 +32,7 @@ def result_message(outcome: dict[str, Any]) -> tuple[str, str]:
         first = failed[0]
         return (
             _("Conversion finished with mismatches"),
-            _("{0} cell(s) did not verify.\nFirst: {1}: {2}\n\n{3}").format(
+            _("{0} cell(s) did not verify (original formula kept).\nFirst: {1}: {2}\n\n{3}").format(
                 len(failed),
                 first.get("address"),
                 first.get("message"),

@@ -68,6 +68,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/logging.py",
     "plugin/framework/process_global.py",
     "plugin/framework/uno_context.py",
+    # uno_context.iter_open_models imports is_scratch_document at call time.
+    "plugin/framework/scratch_writer.py",
     "plugin/framework/vcl_pumping.py",
     "plugin/framework/worker_pool.py",
     # harper.py and grammar_work_queue.py register their quit hooks at import;

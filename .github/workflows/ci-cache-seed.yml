@@ -1,0 +1,30 @@
+name: Seed CI Cache
+
+on:
+  schedule:
+    # Weekly because GitHub evicts caches unused for 7 days and PRs no longer save.
+    - cron: "0 6 * * 1"
+  push:
+    branches: [master]
+    paths:
+      - ".github/actions/ubuntu-libreoffice-apt/**"
+      - ".github/workflows/ci-cache-seed.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seed-ubuntu-libreoffice-apt:
+    name: Seed Ubuntu LibreOffice apt cache
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install LibreOffice (Ubuntu apt cache)
+        timeout-minutes: 10
+        uses: ./.github/actions/ubuntu-libreoffice-apt

@@ -314,9 +314,9 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     # Text (P2)
     "CONCATENATE": lambda a: f'"".join(calc.py_str(x) for x in [{", ".join(a)}])',
     "CONCAT": lambda a: f'"".join(calc.py_str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
-    "LEFT": _arity("LEFT", 1, 2, lambda a: f"calc.py_str({a[0]})[:np.int64({a[1]})]" if len(a) > 1 else f"calc.py_str({a[0]})[:1]"),
+    "LEFT": _calc("left", 1, 2),
     "RIGHT": _arity("RIGHT", 1, 2, lambda a: f"calc.py_str({a[0]})[-np.int64({a[1]}):]" if len(a) > 1 else f"calc.py_str({a[0]})[-1:]"),
-    "MID": _exact("MID", 3, "calc.py_str({0})[max(0, np.int64({1})-1) : max(0, np.int64({1})-1) + np.int64({2})]"),
+    "MID": _calc("mid", 3, 3),
     "LEN": _exact("LEN", 1, "np.float64(len(calc.py_str({0})))"),
     "LOWER": _exact("LOWER", 1, "calc.py_str({0}).lower()"),
     "UPPER": _exact("UPPER", 1, "calc.py_str({0}).upper()"),
@@ -383,7 +383,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "BESSELI": _calc("besseli", 2, 2),
     "BESSELJ": _calc("besselj", 2, 2),
     # Date & Time (P2)
-    "DATE": _exact("DATE", 3, "np.float64(dt.date(np.int64({0}), np.int64({1}), np.int64({2})).toordinal() - 693594)"),
+    "DATE": _calc("date", 3, 3),
     "HOUR": _exact("HOUR", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).hour)"),
     "MINUTE": _exact("MINUTE", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).minute)"),
     "SECOND": _exact("SECOND", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).second)"),

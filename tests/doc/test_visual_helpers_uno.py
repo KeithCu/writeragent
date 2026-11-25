@@ -64,9 +64,12 @@ def test_calc_list_active_page_and_remove_uno(ctx: Any, doc: Any) -> None:
     page = sheet.getDrawPage()
     count_before = page.getCount()
     shape = doc.createInstance(DRAW_GRAPHIC_SERVICE)
+    other = doc.createInstance(DRAW_GRAPHIC_SERVICE)
     page.add(shape)
+    page.add(other)
     try:
         shape.setName("Logo")
+        other.setName("Logo")
 
         items = list_graphic_objects(doc)
         assert any(
@@ -78,12 +81,17 @@ def test_calc_list_active_page_and_remove_uno(ctx: Any, doc: Any) -> None:
         assert get_active_draw_page(doc) == page
 
         # page.getByIndex returns a fresh wrapper distinct in Python identity from shape;
-        # remove_graphic_from_draw_pages matches it via UNO identity (PyUNO_cmp).
-        assert remove_graphic_from_draw_pages(doc, page.getByIndex(page.getCount() - 1)) is True
-        assert page.getCount() == count_before
+        # remove_graphic_from_draw_pages matches it via UNO identity (PyUNO_cmp), and
+        # leaves the same-name sibling untouched when called again with the removed shape.
+        removed_wrapper = page.getByIndex(count_before)
+        assert remove_graphic_from_draw_pages(doc, removed_wrapper) is True
+        assert page.getCount() == count_before + 1
+        assert remove_graphic_from_draw_pages(doc, removed_wrapper) is False
+        assert page.getCount() == count_before + 1
+        assert page.getByIndex(count_before) == other
     finally:
-        if page.getCount() > count_before:
-            page.remove(shape)
+        while page.getCount() > count_before:
+            page.remove(page.getByIndex(page.getCount() - 1))
 
 
 @native_test

@@ -124,6 +124,46 @@ class WorkbookState:
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
     debounce: Debounce = field(default_factory=Debounce)
     prior_keys: set[str] = field(default_factory=set)
+    # Pending spill generations keyed by (sheet, row, col) so an already-posted write
+    # cannot overwrite a newer result; off-main codes track pending posts before locate.
+    pending_spills: dict[tuple[str, int, int], int] = field(default_factory=dict)
+    pending_off_main_codes: set[str] = field(default_factory=set)
+    _spill_seq: int = 0
+
+    def queue_pending_spill(self, reg_key: tuple[str, int, int]) -> int:
+        with _LOCK:
+            self._spill_seq += 1
+            gen = self._spill_seq
+            self.pending_spills[reg_key] = gen
+            return gen
+
+    def finish_pending_spill(self, reg_key: tuple[str, int, int], gen: int) -> bool:
+        with _LOCK:
+            if self.pending_spills.get(reg_key) != gen:
+                return False
+            del self.pending_spills[reg_key]
+            return True
+
+    def supersede_pending_spill(self, reg_key: tuple[str, int, int]) -> None:
+        with _LOCK:
+            self._spill_seq += 1
+            self.pending_spills.pop(reg_key, None)
+
+    def has_pending_spill(self, reg_key: tuple[str, int, int]) -> bool:
+        with _LOCK:
+            return reg_key in self.pending_spills
+
+    def mark_off_main_spill(self, code: str) -> None:
+        with _LOCK:
+            self.pending_off_main_codes.add(code)
+
+    def clear_off_main_spill(self, code: str) -> None:
+        with _LOCK:
+            self.pending_off_main_codes.discard(code)
+
+    def has_spill_activity(self) -> bool:
+        with _LOCK:
+            return bool(self.spills or self.pending_spills or self.pending_off_main_codes)
 
     def scheduled_key_matches(self, scheduled: str) -> bool:
         """True when *scheduled* is this workbook's current or superseded lifecycle id."""
@@ -141,6 +181,9 @@ class WorkbookState:
         self.used_ends.clear()
         self.listeners.clear()
         self.debounce.cancel_all()
+        with _LOCK:
+            self.pending_spills.clear()
+            self.pending_off_main_codes.clear()
         self.loaded = False
 
     @classmethod

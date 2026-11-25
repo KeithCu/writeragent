@@ -873,6 +873,32 @@ def test_ensure_persistence_bound_binds_each_of_several_unbound_writers() -> Non
         gp.grammar_registry.clear_all()
 
 
+def test_ensure_persistence_bound_ignores_scratch_writer_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Registered scratch Writers do not interfere with binding a user Writer by document id."""
+    import plugin.framework.scratch_writer as scratch_writer
+    from plugin.writer.locale import grammar_persistence as gp
+
+    scratch = _writer_model()
+    scratch.getRuntimeUID.return_value = "scratch-grammar-1"
+    writer = _writer_model()
+    writer.getRuntimeUID.return_value = "user-grammar-1"
+    ctx, desktop = _proofread_ctx_and_desktop([scratch, writer], ids=[(scratch, "9"), (writer, "2")])
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-grammar-1"})
+    gp.grammar_registry.clear_all()
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("plugin.doc.udprops.get_document_property", return_value=None),
+        ):
+            proofreader._ensure_persistence_bound(ctx, "2", MagicMock())
+        bound = gp.get_persistence("2")
+        assert bound is not None
+        assert bound.model is writer
+    finally:
+        gp.grammar_registry.clear_all()
+
+
 def test_ensure_persistence_bound_never_probes_a_non_writer() -> None:
     """Non-Writer models are skipped without calling checkSentenceAtPosition or binding."""
     from plugin.writer.locale import grammar_persistence as gp

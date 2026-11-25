@@ -13,6 +13,7 @@ from plugin.calc.address_utils import parse_address, parse_range_string
 from plugin.calc.bridge import used_range_address
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
+from plugin.calc.spreadsheet_import.models import TodoCell
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 from plugin.framework.errors import best_effort
@@ -109,9 +110,24 @@ def run_sheet_conversion(
     # Verify Recalc
     failed_verifications = []
     if verify:
-        doc.calculateAll()
-        actual_values = fetch_actual_values(target_sheet, report.converted)
-        failed_verifications = [asdict(item) for item in verify_converted_cells(model, output, report, actual_values=actual_values)]
+        # A conversion that does not reproduce the cell's value must not replace
+        # the user's formula. Restoring one cell can change downstream =PY()
+        # results, so re-verify remaining converted cells until no new mismatch.
+        while report.converted:
+            doc.calculateAll()
+            actual_values = fetch_actual_values(target_sheet, report.converted)
+            mismatches = verify_converted_cells(model, output, report, actual_values=actual_values)
+            if not mismatches:
+                break
+            for item in mismatches:
+                col, row = parse_address(item.address)
+                target_sheet.getCellByPosition(col, row).setFormula(model.cells[item.address].formula)
+                report.converted.remove(item.address)
+                report.pass_through.append(item.address)
+                report.skipped.append(TodoCell(address=item.address, reason="VERIFY_MISMATCH"))
+                failed_verifications.append(asdict(item))
+        else:
+            doc.calculateAll()
 
     return {
         "status": "partial" if failed_verifications else "ok",

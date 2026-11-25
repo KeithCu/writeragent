@@ -705,7 +705,6 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     """Remove a GraphicObjectShape from Calc/Draw/Impress pages. Returns True if removed."""
     if graphic is None or doc is None:
         return False
-    target_name = uno_read(lambda: str(graphic.getName() or ""), "")
 
     inside = get_visual_doc_type(doc)
     pages_list: list[Any] = []
@@ -734,21 +733,17 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                 return False
             pages_list = [page]
 
-    name_hits: list[tuple[Any, Any]] = []
     try:
         for page in pages_list:
             for j in range(page.getCount()):
                 shape = page.getByIndex(j)
-                # Identity match first: == on PyUNO wrappers is UNO identity (pyuno.cxx
-                # PyUNO_cmp), so a shape read fresh from the page matches the graphic
-                # resolved earlier by name; the dev thread-guard proxy's __eq__ unwraps its
-                # right operand so proxied pairs match too.
+                # Match only by UNO identity (== on PyUNO wrappers, pyuno.cxx PyUNO_cmp;
+                # the dev thread-guard proxy unwraps its right operand). Names are not
+                # unique, so a same-name shape may be an unrelated picture; a shape on
+                # no page removes nothing.
                 if shape == graphic:
                     page.remove(graphic)
                     return True
-                # Without an identity match, collect same-name hits and delete only when unique on the page.
-                if target_name and uno_read(lambda: str(shape.getName() or "") == target_name, False):
-                    name_hits.append((page, shape))
     except Exception as ex:
         # Re-raise disposal; other errors return False (IMAGE_NOT_FOUND on live docs).
         if is_disposal(ex):
@@ -756,14 +751,6 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
         log.debug("remove_graphic_from_draw_pages failed: %s", ex)
         return False
 
-    if len(name_hits) > 1:
-        # More than one shape shares this name and none of them was the object
-        # itself. Do not guess. image_delete reports AMBIGUOUS_NAME.
-        raise ValueError("Several shapes named '%s'; not deleted." % target_name)
-    if len(name_hits) == 1:
-        hit_page, hit_shape = name_hits[0]
-        hit_page.remove(hit_shape)
-        return True
     return False
 
 
@@ -812,11 +799,7 @@ def delete_graphic(ctx: Any, doc: Any, graphic: Any) -> bool:
     """
     doc_type = get_visual_doc_type(doc)
     if not is_writer_like(doc_type):
-        try:
-            removed = remove_graphic_from_draw_pages(doc, graphic)
-        except ValueError as exc:
-            raise ToolExecutionError(str(exc), code="AMBIGUOUS_NAME") from exc
-        if not removed:
+        if not remove_graphic_from_draw_pages(doc, graphic):
             raise ToolExecutionError(_("Image not found."), code="IMAGE_NOT_FOUND")
         return False
     # Call time: plugin.writer's package init imports modules (styles.py) that import this one.

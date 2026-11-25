@@ -324,6 +324,7 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
     assert [c.kwargs["params"]["image_name"] for c in mock_run.call_args_list] == ["Img1", "Img2", "Img3"]
     assert [c.kwargs["params"]["image_name"] for c in insert.call_args_list] == ["Img1", "Img3"]
     assert [r["image_name"] for r in result["individual_results"]] == ["Img1", "Img3"]
+    assert [r["discovered_index"] for r in result["individual_results"]] == [0, 2]
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
