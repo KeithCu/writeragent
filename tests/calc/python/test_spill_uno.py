@@ -1012,8 +1012,6 @@ def test_scalar_result_protected_sheet_keeps_record_uno(ctx, doc):
         if sheet.isProtected():
             sheet.unprotect("")
         WorkbookState.forget_key(key)
-
-
 @native_test
 @with_native_doc("calc")
 def test_code_in_cell_ref_auto_spills_uno(ctx, doc):
