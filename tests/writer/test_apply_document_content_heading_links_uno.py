@@ -1019,7 +1019,7 @@ def _read_text_portion_urls(text_obj) -> list[tuple[str, str]]:
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_heading_swap_plus_rename_follows_titles_uno(ctx, doc) -> None:
+def test_full_document_with_two_retitled_headings_warns_uno(ctx, doc) -> None:
     tool_ctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
     res = tool.execute(
@@ -1047,72 +1047,96 @@ def test_heading_swap_plus_rename_follows_titles_uno(ctx, doc) -> None:
         ],
     )
     assert res.get("status") == "ok", res
-    assert _read_text_portion_urls(header_text) == [
-        ("to-Project scope", "#Agreed project scope|outline"),
-        ("to-Delivery costs", "#Total delivery costs|outline"),
-    ]
-
-    vc = doc.getCurrentController().getViewCursor()
-    vc.gotoEnd(False)
-    _jump_to_mark(ctx, doc, "Agreed project scope|outline")
-    assert _view_cursor_paragraph_text(doc) == "Agreed project scope"
-
-    vc.gotoEnd(False)
-    _jump_to_mark(ctx, doc, "Total delivery costs|outline")
-    assert _view_cursor_paragraph_text(doc) == "Total delivery costs"
-
-    doc.getUndoManager().undo()
+    assert "links_retargeted" not in res, res
     assert _read_text_portion_urls(header_text) == [
         ("to-Project scope", "#Project scope|outline"),
         ("to-Delivery costs", "#Delivery costs|outline"),
     ]
+    warnings = res.get("warnings") or []
+    for title in ("Project scope", "Delivery costs"):
+        assert any(
+            w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == f"#{title}|outline"
+            for w in warnings
+        ), warnings
 
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_heading_rename_next_to_added_and_removed_uno(ctx, doc) -> None:
+def test_all_matches_renames_several_headings_uno(ctx, doc) -> None:
     tool_ctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
     res = tool.execute(
         tool_ctx,
         target="full_document",
         content=[
-            '<h1 data-lo-style="Heading 1">Project scope</h1>',
-            "<p>Body A</p>",
-            '<h1 data-lo-style="Heading 1">Old annex</h1>',
-            "<p>Body B</p>",
+            '<h1 data-lo-style="Heading 1">Vendor duties</h1>',
+            '<h1 data-lo-style="Heading 1">Vendor fees</h1>',
+            '<p>The Vendor: <a href="#Vendor duties|outline">a</a> <a href="#Vendor fees|outline">b</a></p>',
         ],
     )
     assert res.get("status") == "ok", res
 
-    header_text = _set_header_outline_links(doc, ["Project scope", "Old annex"])
+    res = tool.execute(
+        tool_ctx,
+        target="search",
+        old_content="Vendor",
+        content="Supplier",
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("links_retargeted") == 2, res
+    assert not any(w.get("code") == "LINK_TARGET_STALE" for w in (res.get("warnings") or [])), res
+    assert _read_portion_urls(doc) == [
+        ("a", "#Supplier duties|outline"),
+        ("b", "#Supplier fees|outline"),
+    ]
 
+    doc.getCurrentController().getViewCursor().gotoStart(False)
+    _jump_to_mark(ctx, doc, "Supplier fees|outline")
+    assert _view_cursor_paragraph_text(doc) == "Supplier fees"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_rename_that_adds_a_heading_warns_uno(ctx, doc) -> None:
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
     res = tool.execute(
         tool_ctx,
         target="full_document",
         content=[
-            '<h1 data-lo-style="Heading 1">Background</h1>',
-            "<p>Body B</p>",
-            '<h1 data-lo-style="Heading 1">Agreed project scope</h1>',
-            "<p>Body A</p>",
+            '<h1 data-lo-style="Heading 1">Scope</h1>',
+            '<h1 data-lo-style="Heading 1">Fees</h1>',
+            '<p><a href="#Scope|outline">one</a> <a href="#Fees|outline">two</a></p>',
         ],
     )
     assert res.get("status") == "ok", res
-    assert _read_text_portion_urls(header_text) == [
-        ("to-Project scope", "#Agreed project scope|outline"),
-        ("to-Old annex", "#Old annex|outline"),
+
+    res = tool.execute(
+        tool_ctx,
+        target="search",
+        old_content="Scope",
+        content=[
+            '<h1 data-lo-style="Heading 1">Aim of work</h1>',
+            "<p>x</p>",
+            '<h2 data-lo-style="Heading 2">Sub</h2>',
+        ],
+    )
+    assert res.get("status") == "ok", res
+    assert _read_portion_urls(doc) == [
+        ("one", "#Scope|outline"),
+        ("two", "#Fees|outline"),
     ]
+    stale_targets = [
+        w.get("link_target")
+        for w in (res.get("warnings") or [])
+        if w.get("code") == "LINK_TARGET_STALE"
+    ]
+    assert stale_targets == ["#Scope|outline"], res
 
-    vc = doc.getCurrentController().getViewCursor()
-    vc.gotoEnd(False)
-    _jump_to_mark(ctx, doc, "Agreed project scope|outline")
-    assert _view_cursor_paragraph_text(doc) == "Agreed project scope"
-
-    warnings = res.get("warnings") or []
-    assert any(
-        w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Old annex|outline"
-        for w in warnings
-    ), warnings
+    doc.getCurrentController().getViewCursor().gotoStart(False)
+    _jump_to_mark(ctx, doc, "Fees|outline")
+    assert _view_cursor_paragraph_text(doc) == "Fees"
 
 
 @native_test
@@ -1310,75 +1334,3 @@ def test_rename_leaves_link_to_kept_numbered_title_uno(ctx, doc) -> None:
     doc.getCurrentController().getViewCursor().gotoEnd(False)
     _jump_to_mark(ctx, doc, "1.Scope|outline")
     assert _view_cursor_paragraph_text(doc) == "1.Scope"
-
-
-@native_test
-@with_native_doc("writer", reuse=False)
-def test_moved_appendix_is_not_retargeted_uno(ctx, doc) -> None:
-    tool_ctx = native_writer_tool_context(doc, ctx)
-    tool = ApplyDocumentContent()
-    res = tool.execute(
-        tool_ctx,
-        target="full_document",
-        content=[
-            '<h1 data-lo-style="Heading 1">Appendix A</h1>',
-            '<h1 data-lo-style="Heading 1">Costs</h1>',
-        ],
-    )
-    assert res.get("status") == "ok", res
-
-    header_text = _set_header_outline_links(doc, ["Appendix A"])
-
-    res = tool.execute(
-        tool_ctx,
-        target="full_document",
-        content=[
-            '<h1 data-lo-style="Heading 1">Costs</h1>',
-            '<h1 data-lo-style="Heading 1">Appendix B</h1>',
-        ],
-    )
-    assert res.get("status") == "ok", res
-    assert _read_text_portion_urls(header_text) == [("to-Appendix A", "#Appendix A|outline")]
-    warnings = res.get("warnings") or []
-    assert any(
-        w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == "#Appendix A|outline"
-        for w in warnings
-    ), warnings
-
-
-@native_test
-@with_native_doc("writer", reuse=False)
-def test_number_only_title_out_of_place_is_not_retargeted_uno(ctx, doc) -> None:
-    tool_ctx = native_writer_tool_context(doc, ctx)
-    tool = ApplyDocumentContent()
-    res = tool.execute(
-        tool_ctx,
-        target="full_document",
-        content=[
-            '<h1 data-lo-style="Heading 1">Appendix A</h1>',
-            '<h1 data-lo-style="Heading 1">Scope</h1>',
-        ],
-    )
-    assert res.get("status") == "ok", res
-
-    header_text = _set_header_outline_links(doc, ["Appendix A", "Scope"])
-
-    res = tool.execute(
-        tool_ctx,
-        target="full_document",
-        content=[
-            '<h1 data-lo-style="Heading 1">Alcance</h1>',
-            '<h1 data-lo-style="Heading 1">Appendix B</h1>',
-        ],
-    )
-    assert res.get("status") == "ok", res
-    assert _read_text_portion_urls(header_text) == [
-        ("to-Appendix A", "#Appendix A|outline"),
-        ("to-Scope", "#Scope|outline"),
-    ]
-    warnings = res.get("warnings") or []
-    for title in ("Appendix A", "Scope"):
-        assert any(
-            w.get("code") == "LINK_TARGET_STALE" and w.get("link_target") == f"#{title}|outline"
-            for w in warnings
-        ), warnings

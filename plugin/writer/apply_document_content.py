@@ -1508,7 +1508,10 @@ class ApplyDocumentContent(ToolBase):
                     count += 1
                 if doomed:
                     tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
-                report.links_retargeted, report.stale_links = retarget_renamed_links(session, doc, headings)
+                # The same content goes into every match, so a match cannot reorder headings without repeating their titles.
+                report.links_retargeted, report.stale_links = retarget_renamed_links(
+                    session, doc, headings, edits=len(ranges),
+                )
 
         try:
             outcome = commit_or_rollback(
