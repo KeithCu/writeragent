@@ -27,7 +27,7 @@ from plugin.chatbot.dialogs import (
 from plugin.chatbot.settings_fields import read_secret_in_background
 from plugin.framework import config, keystore
 from plugin.framework.config import entry_secret_field_text, get_config, resolve_entry_secret
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.uno_listeners import BaseActionListener, BaseFocusListener, BaseItemListener
@@ -36,6 +36,8 @@ from plugin.mcp_client.client import McpClientError, McpServerConnection, SERVER
 from plugin.mcp_client.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, sanitize_error, server_enabled, server_trusted
 
 log = logging.getLogger("writeragent.mcp_client.settings_ui")
+
+_RENAME_LOCKED_MSG = N_("Unlock the keyring or clear the Token field before renaming this server.")
 
 _CONTROL_KEYS = (
     "server",
@@ -146,7 +148,7 @@ class McpServersEditor:
             return
         set_control_text(self._controls["token"], token_text)
         self._snapshot[name] = (self._snapshot[name][0], token_text.strip())
-        if self._status.get(name) == _("Unlock the keyring or clear the Token field before renaming this server."):
+        if self._status.get(name) == _(_RENAME_LOCKED_MSG):
             self._status.pop(name, None)
             set_control_text(self._controls["status"], "")
 
@@ -244,7 +246,7 @@ class McpServersEditor:
                 return
             if keystore.is_ref(entry.get("token")):
                 self._servers[old] = entry
-                msg = _("Unlock the keyring or clear the Token field before renaming this server.")
+                msg = _(_RENAME_LOCKED_MSG)
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return

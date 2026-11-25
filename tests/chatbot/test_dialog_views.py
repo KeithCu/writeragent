@@ -455,14 +455,14 @@ class TestSettingsEnhancements:
         status_ctrl.setText.assert_called_with("✓ Connected (25ms)")
 
     @patch("plugin.chatbot.dialog_views.open_system_url")
-    @patch("plugin.chatbot.dialog_views.api_key_field_text", return_value="sk-saved-together-key")
-    def test_provider_starter_listener_action(self, mock_get_key, mock_open_url):
+    def test_provider_starter_listener_action(self, mock_open_url):
         from plugin.chatbot.dialog_views import ProviderStarterListener
 
         ctx = MagicMock()
         dlg = MagicMock()
         endpoint_ctrl = MagicMock()
         api_key_ctrl = MagicMock()
+        ep_listener = MagicMock()
 
         def get_control_side_effect(name):
             return {
@@ -473,13 +473,12 @@ class TestSettingsEnhancements:
         dlg.getControl.side_effect = get_control_side_effect
 
         listener = ProviderStarterListener(
-            ctx, dlg, "https://api.together.xyz", "https://api.together.ai/settings/api-keys"
+            ctx, dlg, "https://api.together.xyz", "https://api.together.ai/settings/api-keys", lambda: ep_listener,
         )
         listener.on_action_performed(MagicMock())
 
         endpoint_ctrl.setText.assert_called_with("https://api.together.xyz")
-        mock_get_key.assert_called_once_with("https://api.together.xyz")
-        api_key_ctrl.setText.assert_called_with("sk-saved-together-key")
+        ep_listener._sync_api_key.assert_called_once_with(force=True)
         api_key_ctrl.setFocus.assert_called_once()
         mock_open_url.assert_called_once_with(ctx, "https://api.together.ai/settings/api-keys")
 
@@ -2556,16 +2555,14 @@ def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) ->
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
         patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
     ):
-        view._populate_fields(
-            [
-                {"name": "endpoint", "value": endpoint},
-                {"name": "api_key", "value": ref},
-            ],
-            endpoint,
-        )
+        specs = [
+            {"name": "endpoint", "value": endpoint},
+            {"name": "api_key", "value": ref},
+        ]
+        view._populate_fields(specs, endpoint)
         assert view._endpoint_listener is not None
         with patch.object(view._endpoint_listener, "_start_bg_fetch") as mock_bg:
-            view._endpoint_listener.start_key_read(endpoint)
+            view._start_secret_reads(specs, endpoint)
             view._schedule_initial_models_fetch(endpoint)
             assert fake_keystore.get_calls == 0
             assert ak_ctrl.getText() == ref
@@ -2593,14 +2590,20 @@ def test_provider_starter_different_endpoint_syncs_and_starts_read(fake_keystore
     ep_state = {"val": "https://openrouter.ai/api"}
     ak_state = {"val": ""}
     ep_ctrl = MagicMock()
-    ep_ctrl.getText.side_effect = lambda: ep_state["val"]
-    ep_ctrl.setText.side_effect = lambda v: ep_state.__setitem__("val", v)
     ak_ctrl = MagicMock()
     ak_ctrl.getText.side_effect = lambda: ak_state["val"]
     ak_ctrl.setText.side_effect = lambda v: ak_state.__setitem__("val", v)
     ctrls = {"endpoint": ep_ctrl, "api_key": ak_ctrl}
 
+    ep_ctrl.getText.side_effect = lambda: ep_state["val"]
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), ep_ctrl)
+
+    def _set_ep(v: str) -> None:
+        ep_state["val"] = v
+        # Real UnoEditControl::setText fires textChanged synchronously.
+        listener.textChanged(MagicMock())
+
+    ep_ctrl.setText.side_effect = _set_ep
     # Simulate user typing a new key for endpoint A before clicking Together.
     ak_state["val"] = "sk-typed-for-a"
     listener._user_edited_key = True
@@ -2614,17 +2617,14 @@ def test_provider_starter_different_endpoint_syncs_and_starts_read(fake_keystore
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
         patch("plugin.chatbot.dialog_views.open_system_url"),
+        patch("plugin.chatbot.dialog_views.threading.Timer"),
         patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
         patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
     ):
         starter.on_action_performed(MagicMock())
-        # Emulate textChanged firing when endpoint text changed.
-        listener.textChanged(MagicMock())
-        listener.close()
         assert ak_state["val"] == ref
         assert len(workers) == 1
-        listener._closed = False
         workers[0]()
 
     assert ak_state["val"] == "sk-tog-secret"
@@ -2758,27 +2758,103 @@ def test_settings_show_starts_config_secret_read(fake_keystore) -> None:
     from plugin.framework import keystore
     from plugin.framework.config import get_config, save
 
-    save({"mcp.tunnel_provider_token": "tok-tunnel-secret"})
-    ref = get_config("mcp.tunnel_provider_token")
+    endpoint = "https://openrouter.ai/api"
+    save({
+        "endpoint": endpoint,
+        "api_keys_by_endpoint": {endpoint: "sk-show-secret"},
+        "mcp.tunnel_provider_token": "tok-tunnel-secret",
+    })
+    api_ref = get_config("api_keys_by_endpoint")[endpoint]
+    tok_ref = get_config("mcp.tunnel_provider_token")
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.get_calls = 0
 
-    ctrl = MagicMock()
-    ctrl.getText.return_value = ref
+    class _Ctrl:
+        def __init__(self, text: str = "") -> None:
+            self._text = text
+
+        def getText(self) -> str:
+            return self._text
+
+        def setText(self, val: str) -> None:
+            self._text = val
+
+        def getModel(self) -> Any:
+            return MagicMock()
+
+        def setFocus(self) -> None:
+            pass
+
+        def addItemListener(self, _lst: Any) -> None:
+            pass
+
+        def removeItemListener(self, _lst: Any) -> None:
+            pass
+
+        def addTextListener(self, _lst: Any) -> None:
+            pass
+
+        def removeTextListener(self, _lst: Any) -> None:
+            pass
+
+    ep_ctrl = _Ctrl(endpoint)
+    ak_ctrl = _Ctrl("")
+    tok_ctrl = _Ctrl("")
+    ctrls = {
+        "endpoint": ep_ctrl,
+        "api_key": ak_ctrl,
+        "mcp__tunnel_provider_token": tok_ctrl,
+    }
+    specs = [
+        {"name": "endpoint", "value": endpoint},
+        {"name": "api_key", "value": api_ref},
+        {"name": "mcp__tunnel_provider_token", "config_key": "mcp.tunnel_provider_token", "value": tok_ref},
+    ]
+
     workers: list[Any] = []
     view = SettingsDialog(MagicMock())
+    fake_dlg = MagicMock()
+    fake_dlg.getControl.side_effect = lambda n: ctrls.get(n, _Ctrl())
+
+    def _create_dlg() -> None:
+        view._dlg = fake_dlg
+
+    def _exec() -> int:
+        assert fake_keystore.get_calls == 0
+        assert ak_ctrl.getText() == api_ref
+        assert tok_ctrl.getText() == tok_ref
+        assert len(workers) == 2
+        for w in workers:
+            w()
+        return 0
+
+    fake_dlg.execute.side_effect = _exec
+
     with (
+        patch.object(view, "_create_dialog", side_effect=_create_dlg),
+        patch.object(view, "_setup_tabs"),
+        patch.object(view, "_setup_audio_listeners"),
+        patch.object(view, "_apply_sqlite_restrictions"),
+        patch("plugin.chatbot.dialog_views.set_active_settings_dialog"),
+        patch("plugin.chatbot.dialog_views.clear_active_settings_dialog"),
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
+        patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value=endpoint),
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
+        patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
+        patch("plugin.chatbot.config_ui_helpers.populate_endpoint_selector"),
+        patch("plugin.chatbot.dialog_views.populate_settings_control", side_effect=lambda c, f: c.setText(f["value"])),
+        patch("plugin.chatbot.dialog_views.sync_mcp_config_snippet"),
+        patch("plugin.mcp_client.settings_ui.McpServersEditor.attach", return_value=None),
+        patch("plugin.chatbot.dialog_views.threading.Timer"),
         patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
         patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),
     ):
-        view._start_config_secret_read(ctrl, ref, "mcp.tunnel_provider_token")
-        assert fake_keystore.get_calls == 0
-        assert len(workers) == 1
-        workers[0]()
+        view.show()
 
-    ctrl.setText.assert_called_once_with("tok-tunnel-secret")
+    assert ak_ctrl.getText() == "sk-show-secret"
+    assert tok_ctrl.getText() == "tok-tunnel-secret"
 
 
 def test_selecting_endpoint_while_key_loading_starts_no_keyless_fetch(fake_keystore) -> None:

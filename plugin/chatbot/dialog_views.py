@@ -258,17 +258,7 @@ class SettingsDialog:
                 test_conn_btn.addActionListener(
                     TestConnectionListener(self._ctx, self._dlg, self._endpoint_listener)
                 )
-            if self._endpoint_listener:
-                self._endpoint_listener.start_key_read(current_endpoint)
-            for spec in field_specs:
-                config_key = spec.get("config_key")
-                val = str(spec.get("value") or "")
-                if not config_key or not keystore.is_ref(val):
-                    continue
-                ctrl = get_optional(self._dlg, spec["name"])
-                if ctrl is None:
-                    continue
-                self._start_config_secret_read(ctrl, val, str(config_key))
+            self._start_secret_reads(field_specs, current_endpoint)
             self._schedule_initial_models_fetch(current_endpoint)
             self._apply_sqlite_restrictions()
 
@@ -298,6 +288,19 @@ class SettingsDialog:
             return {}
         finally:
             self._cleanup()
+
+    def _start_secret_reads(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
+        if self._endpoint_listener:
+            self._endpoint_listener.start_key_read(current_endpoint)
+        for spec in field_specs:
+            config_key = spec.get("config_key")
+            val = str(spec.get("value") or "")
+            if not config_key or not keystore.is_ref(val):
+                continue
+            ctrl = get_optional(self._dlg, spec["name"])
+            if ctrl is None:
+                continue
+            self._start_config_secret_read(ctrl, val, str(config_key))
 
     def _start_config_secret_read(self, ctrl: Any, ref: str, config_key: str) -> None:
         read_secret_in_background(
@@ -568,7 +571,7 @@ class ProviderStarterListener(BaseActionListener):
     _dlg: Any
     _endpoint_url: str
     _signup_url: str
-    _get_listener: Callable[[], Any] | None
+    _get_listener: Callable[[], Any]
 
     def __init__(
         self,
@@ -576,7 +579,7 @@ class ProviderStarterListener(BaseActionListener):
         dlg: Any,
         endpoint_url: str,
         signup_url: str,
-        get_listener: Callable[[], Any] | None = None,
+        get_listener: Callable[[], Any],
     ) -> None:
         self._ctx = ctx
         self._dlg = dlg
@@ -588,13 +591,11 @@ class ProviderStarterListener(BaseActionListener):
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
         if endpoint_ctrl:
             set_control_text(endpoint_ctrl, self._endpoint_url)
-            listener = self._get_listener() if self._get_listener is not None else None
+            listener = self._get_listener()
             if listener is not None:
                 listener._sync_api_key(force=True)
             ak_ctrl = get_optional(self._dlg, "api_key")
             if ak_ctrl:
-                if listener is None:
-                    set_control_text(ak_ctrl, api_key_field_text(self._endpoint_url))
                 ak_ctrl.setFocus()
         open_system_url(self._ctx, self._signup_url)
 
