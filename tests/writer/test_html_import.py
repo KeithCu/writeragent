@@ -172,7 +172,7 @@ def test_replace_xtext_with_html_preserves_tex_backslashes_and_expands_prose():
     assert len(imported) == 1
     assert r"$\nu$" in imported[0]
     assert r"\(\tau\)" in imported[0]
-    assert "a\nb" in imported[0] or "a<br" in imported[0]
+    assert "a\nb" in imported[0]
 
 
 def test_replace_xtext_with_html_plain_html_skips_style_walk():

@@ -765,10 +765,10 @@ def attach_write_report(
     at least one formula conversion. Empty attempts or error results are returned unchanged
     because a failed or rolled-back edit left none of these objects in the document. ``ok``
     means a Math object was inserted into the document, not accepted in review; the review
-    outcome is reported separately under ``review``. If any formula was not converted or not placed, a
-    ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while preserving the overall
-    ``ok`` status, so review workflows and surrounding edit metadata (counts, edited context)
-    remain intact.
+    outcome is reported separately under ``review``. If any formula was not converted or
+    not placed, a ``MATH_IMPORT_FAILED`` diagnostic is added to ``warnings`` while
+    preserving the overall ``ok`` status, so review workflows and surrounding edit metadata
+    (counts, edited context) remain intact.
     """
     if result.get("status") != "ok":
         return result

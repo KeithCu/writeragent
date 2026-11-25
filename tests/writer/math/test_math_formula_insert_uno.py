@@ -555,14 +555,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
             ptype = p.getPropertyValue("TextPortionType")
             if ptype == "Redline":
                 continue
-            if ptype == "Frame":
-                out.append("Frame")
-            else:
-                s = p.getString()
-                if out and out[-1] != "Frame":
-                    out[-1] += s
-                else:
-                    out.append(s)
+            out.append("Frame" if ptype == "Frame" else p.getString())
         return out
 
     def _paras() -> list[Any]:
@@ -739,6 +732,7 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
         doc.getUndoManager().clear()
 
     def _para_portions(para: Any) -> list[str]:
+        # Reject All can leave a paragraph's text split across adjacent portions at a former redline boundary.
         out: list[str] = []
         pe = para.createEnumeration()
         while enum_has_more(pe):
@@ -756,19 +750,6 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                     out.append(s)
         return out
 
-    def _snapshot() -> list[tuple[str, int, list[str]]]:
-        out: list[tuple[str, int, list[str]]] = []
-        pe = text.createEnumeration()
-        while enum_has_more(pe):
-            el = pe.nextElement()
-            if el.supportsService("com.sun.star.text.Paragraph"):
-                out.append((
-                    str(el.getPropertyValue("ParaStyleName")),
-                    int(el.getPropertyValue("OutlineLevel")),
-                    _para_portions(el),
-                ))
-        return out
-
     def _paras() -> list[Any]:
         out: list[Any] = []
         pe = text.createEnumeration()
@@ -777,6 +758,16 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             if el.supportsService("com.sun.star.text.Paragraph"):
                 out.append(el)
         return out
+
+    def _snapshot() -> list[tuple[str, int, list[str]]]:
+        return [
+            (
+                str(el.getPropertyValue("ParaStyleName")),
+                int(el.getPropertyValue("OutlineLevel")),
+                _para_portions(el),
+            )
+            for el in _paras()
+        ]
 
     def _assert_redlines_only_insert_delete() -> None:
         re_enum = doc.getRedlines().createEnumeration()
