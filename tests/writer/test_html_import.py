@@ -1574,7 +1574,7 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
 
     from plugin.writer.html_import_styles import WriteReport
 
-    with patch("plugin.writer.html_import.live_selection_range", return_value=rng), \
+    with patch("plugin.writer.html_import.live_insert_range", return_value=(rng, False)), \
          patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
          patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
@@ -2108,7 +2108,7 @@ def test_insert_content_at_position_caret_routing(content, at_start, at_end, exp
     model.getCurrentController.return_value = MagicMock()
 
     with (
-        patch("plugin.writer.html_import.live_selection_range", return_value=rng),
+        patch("plugin.writer.html_import.live_insert_range", return_value=(rng, False)),
         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"),
         patch("plugin.writer.html_import.insert_inline_at_cursor") as mock_inline,
         patch("plugin.writer.html_import.insert_html_after_paragraph", return_value=WriteReport()) as mock_after,

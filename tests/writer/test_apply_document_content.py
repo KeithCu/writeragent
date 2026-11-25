@@ -700,7 +700,7 @@ def test_suggested_call_omitted_for_selection_target():
     fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
 
-    with patch("plugin.writer.apply_document_content.request_selection_range", return_value=None), \
+    with patch("plugin.writer.apply_document_content.request_insert_range", return_value=(None, False)), \
          patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
@@ -1621,7 +1621,7 @@ def test_all_matches_disposed_undo_manager_reraises():
             "selection",
             {},
             [
-                ("plugin.writer.apply_document_content.request_selection_range", {"return_value": None}),
+                ("plugin.writer.apply_document_content.request_insert_range", {"return_value": (None, False)}),
                 ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport(tables_added=0)}),
             ],
             id="selection",
@@ -1711,7 +1711,7 @@ def test_apply_document_content_selection_failure_not_silent():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.apply_document_content.request_selection_range", return_value=MagicMock()), \
+    with patch("plugin.writer.apply_document_content.request_insert_range", return_value=(MagicMock(), False)), \
          patch.object(html_import, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
@@ -1732,7 +1732,7 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
     with (
-        patch("plugin.writer.apply_document_content.request_selection_range", return_value=None),
+        patch("plugin.writer.apply_document_content.request_insert_range", return_value=(None, False)),
         patch.object(
             html_import,
             "insert_content_at_position",
@@ -1744,7 +1744,7 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
     assert res_snapped["snapped_to_paragraph"] is True
 
     with (
-        patch("plugin.writer.apply_document_content.request_selection_range", return_value=None),
+        patch("plugin.writer.apply_document_content.request_insert_range", return_value=(None, False)),
         patch.object(
             html_import,
             "insert_content_at_position",

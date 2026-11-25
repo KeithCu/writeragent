@@ -43,7 +43,7 @@ from plugin.writer.edit_review import (
     attach_edited_context,
     next_agent_edit_undo_title,
 )
-from plugin.writer.target_resolver import request_selection_range
+from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
@@ -1425,7 +1425,7 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
         # collapsed position (not the selection range itself) survives the replace.
-        rng = request_selection_range(ctx)
+        rng, after_object = request_insert_range(ctx)
         anchor = collapsed_anchor(rng) if rng is not None else None
         headings = headings_if_touched(ctx.doc, [rng]) if rng is not None else None
         with (UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
@@ -1448,6 +1448,12 @@ class ApplyDocumentContent(ToolBase):
                 "(block content cannot go mid-paragraph without splitting it)."
             )
             res["snapped_to_paragraph"] = True
+        if after_object:
+            res["message"] = (
+                "An object is selected, not text: inserted the content after the paragraph that holds it; the object was not changed."
+                if report.snapped_to_paragraph
+                else "An object is selected, not text: inserted the content after it; the object was not changed."
+            )
         res = attach_edited_context(res, anchor)
         return html_import_styles.attach_write_report(
             res, report,

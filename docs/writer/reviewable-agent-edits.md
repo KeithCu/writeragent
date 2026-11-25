@@ -166,11 +166,11 @@ made in `record_preserve_replace` in
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
   or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
-  and footers and the tables and frames in them, and places new content outside a leading section
+  and footers and the tables and frames in them (a read-then-write would reveal hidden text or drop section protection), and places new content outside a leading section
   or TOC (while recording, a paragraph is added untracked before a leading section and after a
   trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
-  refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a non-text
-  selection, or a view with no caret such as Print Preview (`SELECTION_NOT_TEXT`).
+  refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a floating object, several objects, a cell block,
+  or a view with no caret such as Print Preview (`SELECTION_NOT_TEXT`); one selected as-character object inserts right after it.
 
 Optional internal configuration keys (set in `writeragent.json`, no Settings UI; read on every replace, out-of-range values are repaired to the default on load):
 

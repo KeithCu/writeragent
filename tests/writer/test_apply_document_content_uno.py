@@ -1031,7 +1031,10 @@ def test_selection_object_and_cell_block_refuse_uno(ctx, doc):
     assert res_cells.get("code") == "SELECTION_NOT_TEXT", res_cells
 
     _clear_body(doc)
+    from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+
     line = doc.createInstance("com.sun.star.drawing.LineShape")
+    line.setPropertyValue("AnchorType", AT_PARAGRAPH)
     line.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 1000, 0))
     text.insertTextContent(text.getStart(), line, False)
     controller.select(line)
@@ -2131,3 +2134,250 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
         )
         assert res_occ["status"] == "ok", res_occ
         assert visible_range_text(case_doc, case_doc.getText()) == "Word there and Second"
+
+
+def _write_tiny_png():
+    import base64
+    import os
+    import tempfile
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    with open(path, "wb") as f:
+        f.write(png)
+    return path
+
+
+def _visible_paras(doc):
+    from plugin.doc.text_helpers import visible_range_text
+    from plugin.framework.uno_context import enum_has_more
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum_has_more(enum):
+        p = enum.nextElement()
+        if p.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(visible_range_text(doc, p))
+    return paras
+
+
+@native_test
+def test_selection_as_character_object_inserts_after_it_uno(ctx):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.framework.uno_context import execute_dispatch
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.html_import import insert_content_at_position
+
+    img_path = _write_tiny_png()
+    try:
+        for recording in (False, True):
+            for kind in ("graphic", "frame", "shape", "ole"):
+                for content, expected_paras in (
+                    ("Cap", ["IntroCap"]),
+                    ("<p>Cap</p>", ["Intro", "Cap"]),
+                ):
+                    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+                        doc.setPropertyValue("RecordChanges", False)
+                        text = doc.getText()
+                        text.setString("Intro")
+                        if kind == "graphic":
+                            obj = doc.createInstance("com.sun.star.text.TextGraphicObject")
+                            obj.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+                            obj.setPropertyValue("AnchorType", AS_CHARACTER)
+                            obj.setPropertyValue("Width", 400)
+                            obj.setPropertyValue("Height", 400)
+                            collection = doc.getGraphicObjects()
+                        elif kind == "frame":
+                            obj = doc.createInstance("com.sun.star.text.TextFrame")
+                            obj.setName("AsCharFrame")
+                            obj.setPropertyValue("AnchorType", AS_CHARACTER)
+                            obj.setPropertyValue("Width", 800)
+                            obj.setPropertyValue("Height", 400)
+                            collection = doc.getTextFrames()
+                        elif kind == "shape":
+                            obj = doc.createInstance("com.sun.star.drawing.RectangleShape")
+                            obj.setPropertyValue("AnchorType", AS_CHARACTER)
+                            obj.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 800, 400))
+                            collection = doc.getDrawPage()
+                        else:
+                            obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+                            obj.setPropertyValue("CLSID", "078B7ABA-54FC-457F-8551-6147e776a997")
+                            obj.setPropertyValue("AnchorType", AS_CHARACTER)
+                            collection = doc.getEmbeddedObjects()
+
+                        text.insertTextContent(text.getEnd(), obj, False)
+                        assert collection.getCount() == 1
+                        controller = doc.getCurrentController()
+                        controller.select(obj)
+                        doc.setPropertyValue("RecordChanges", recording)
+
+                        tctx = native_writer_tool_context(doc, ctx)
+                        res = ApplyDocumentContent().execute(tctx, target="selection", content=content)
+                        assert res.get("status") == "ok", (recording, kind, content, res)
+                        assert "not changed" in res.get("message", ""), res
+                        assert _visible_paras(doc) == expected_paras, (recording, kind, content)
+                        assert collection.getCount() == 1
+                        sel = controller.getSelection()
+                        assert sel is not None and not sel.supportsService("com.sun.star.text.TextRanges")
+
+                        if recording:
+                            execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
+                        else:
+                            doc.getUndoManager().undo()
+                        assert _visible_paras(doc) == ["Intro"], (recording, kind, content)
+                        assert collection.getCount() == 1
+
+        # Direct insert_content_at_position caller with an as-character graphic selected.
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+            text = doc.getText()
+            text.setString("Body")
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AS_CHARACTER)
+            g.setPropertyValue("Width", 400)
+            g.setPropertyValue("Height", 400)
+            text.insertTextContent(text.getEnd(), g, False)
+            doc.getCurrentController().select(g)
+            insert_content_at_position(doc, ctx, "RESULT", "selection")
+            assert _visible_paras(doc) == ["BodyRESULT"]
+            assert doc.getGraphicObjects().getCount() == 1
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+def test_selection_floating_or_several_objects_refuse_uno(ctx):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AT_CHARACTER, AT_PARAGRAPH
+    from plugin.tests.testing_utils import TestingFactory
+
+    img_path = _write_tiny_png()
+    try:
+        # Floating (at-character) picture alone in an empty paragraph while recording.
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+            text = doc.getText()
+            text.setString("")
+            g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+            g.setPropertyValue("AnchorType", AT_CHARACTER)
+            g.setPropertyValue("Width", 400)
+            g.setPropertyValue("Height", 400)
+            text.insertTextContent(text.getStart(), g, False)
+            doc.setPropertyValue("RecordChanges", True)
+            doc.getCurrentController().select(g)
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx), target="selection", content="x"
+            )
+            assert res.get("status") == "error", res
+            assert res.get("code") == "SELECTION_NOT_TEXT", res
+            assert _visible_paras(doc) == [""]
+            assert doc.getGraphicObjects().getCount() == 1
+
+        # Two selected shapes.
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+            text = doc.getText()
+            text.setString("Keep")
+            s1 = doc.createInstance("com.sun.star.drawing.RectangleShape")
+            s1.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            s1.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 500, 500))
+            s2 = doc.createInstance("com.sun.star.drawing.RectangleShape")
+            s2.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            s2.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 500, 500))
+            text.insertTextContent(text.getStart(), s1, False)
+            text.insertTextContent(text.getStart(), s2, False)
+            shapes = ctx.ServiceManager.createInstanceWithContext(
+                "com.sun.star.drawing.ShapeCollection", ctx
+            )
+            shapes.add(s1)
+            shapes.add(s2)
+            doc.getCurrentController().select(shapes)
+            res = ApplyDocumentContent().execute(
+                native_writer_tool_context(doc, ctx), target="selection", content="x"
+            )
+            assert res.get("status") == "error", res
+            assert res.get("code") == "SELECTION_NOT_TEXT", res
+            assert _visible_paras(doc) == ["Keep"]
+            assert doc.getDrawPage().getCount() == 2
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+def test_image_insert_then_selection_insert_lands_after_image_uno(ctx):
+    import os
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.images.images import ImageInsert
+
+    img_path = _write_tiny_png()
+    try:
+        for recording in (False, True):
+            for content, expected_paras in (
+                ("Caption", ["StartCaption"]),
+                ("<p>Caption</p>", ["Start", "Caption"]),
+            ):
+                with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+                    doc.setPropertyValue("RecordChanges", recording)
+                    text = doc.getText()
+                    text.setString("Start")
+                    vc = doc.getCurrentController().getViewCursor()
+                    vc.gotoEnd(False)
+                    tctx = native_writer_tool_context(doc, ctx)
+                    img_res = ImageInsert().execute(
+                        tctx, path=img_path, target="body", style="Standard", auto_height=True
+                    )
+                    assert img_res.get("status") == "ok", img_res
+                    res = ApplyDocumentContent().execute(tctx, target="selection", content=content)
+                    assert res.get("status") == "ok", (recording, content, res)
+                    assert _visible_paras(doc) == expected_paras, (recording, content)
+                    assert doc.getGraphicObjects().getCount() == 1
+    finally:
+        os.unlink(img_path)
+
+
+@native_test
+def test_full_document_protected_section_advice_works_uno(ctx):
+    from plugin.doc.text_helpers import iter_elements
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.specialized.sections import SectionSetProtection
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+        text = doc.getText()
+        cur = text.createTextCursor()
+        for idx, word in enumerate(("Head", "Middle locked", "Tail")):
+            if idx:
+                text.insertControlCharacter(cur, 0, False)
+            text.insertString(cur, word, False)
+        els = list(iter_elements(text.createEnumeration()))
+        sec_cur = text.createTextCursorByRange(els[1].getStart())
+        sec_cur.gotoRange(els[1].getEnd(), True)
+        sec = doc.createInstance("com.sun.star.text.TextSection")
+        sec.setName("Boiler")
+        sec.setPropertyValue("IsProtected", True)
+        text.insertTextContent(sec_cur, sec, True)
+
+        tctx = native_writer_tool_context(doc, ctx)
+        tool = ApplyDocumentContent()
+
+        res_refused = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+        assert res_refused.get("status") == "error", res_refused
+        assert res_refused.get("code") == "PROTECTED_SECTION", res_refused
+        assert "Boiler" in res_refused.get("message", "")
+        assert "nothing was changed" in res_refused.get("message", ""), res_refused
+        assert _visible_paras(doc) == ["Head", "Middle locked", "Tail"], _visible_paras(doc)
+
+        # Advice 1: target='search' on outside text succeeds and keeps section protected.
+        res_search = tool.execute(tctx, target="search", old_content="Tail", content="TAIL2")
+        assert res_search.get("status") == "ok", res_search
+        assert _visible_paras(doc) == ["Head", "Middle locked", "TAIL2"], _visible_paras(doc)
+        assert doc.getTextSections().getByName("Boiler").getPropertyValue("IsProtected") is True
+
+        # Advice 2: unprotect with section_set_protection, then full_document succeeds.
+        res_unprot = SectionSetProtection().execute(tctx, name="Boiler", protected=False)
+        assert res_unprot.get("status") == "ok", res_unprot
+        res_full = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
+        assert res_full.get("status") == "ok", res_full
+        assert _visible_paras(doc) == ["Replaced"], _visible_paras(doc)

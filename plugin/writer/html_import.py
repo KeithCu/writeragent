@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import (
     go_right,
     iter_elements,
     language_at_start,
-    live_selection_range,
+    live_insert_range,
     normalize_linebreaks as _normalize,
     reset_direct_char_formatting,
     reset_properties_to_default,
@@ -456,8 +456,9 @@ def raise_if_hidden_section(model: Any) -> None:
     if hidden_names:
         names = ", ".join(repr(n) for n in hidden_names)
         raise ToolExecutionError(
-            f"Document has hidden or conditional sections ({names}) that target='full_document' would delete or skip over; "
-            "nothing was changed. Make them unconditionally visible first with section_set_visibility (visible=true), or edit with another target.",
+            f"Document has hidden or conditional sections ({names}) that target='full_document' would delete, reveal or skip over; "
+            "nothing was changed. Edit the text outside them with target='search' (old_content, or anchors that do not span a hidden section). "
+            "Only if the user wants them replaced, make them unconditionally visible first with section_set_visibility (visible=true).",
             code="HIDDEN_SECTION",
         )
 
@@ -466,7 +467,9 @@ def raise_if_protected_sections(model: Any) -> None:
     """Refuse full_document when it would delete a protected body section.
 
     Index sections (such as TOCs) are protected by default; refusing them would
-    block ``full_document`` on every document with a TOC.
+    block ``full_document`` on every document with a TOC. A read-then-write
+    brings the section back unprotected, and Writer refuses the same edit by
+    hand (``SwPaM::HasReadonlySel``, ``sw/source/core/crsr/pam.cxx``).
     """
     names = [
         name for name, section in _iter_body_sections(model)
@@ -474,8 +477,9 @@ def raise_if_protected_sections(model: Any) -> None:
     ]
     if names:
         raise ToolExecutionError(
-            "Document has protected section(s) %s and target='full_document' replaces the whole document; "
-            "nothing was changed. Unprotect them first with section_set_protection, or edit with another target."
+            "Document has protected section(s) %s and target='full_document' would replace them without their protection; "
+            "nothing was changed. Edit the text outside them with target='search' (old_content, or anchors that do not span a protected section). "
+            "Only if the user wants the protected text replaced, unprotect it first with section_set_protection."
             % ", ".join(repr(n) for n in names),
             code="PROTECTED_SECTION",
         )
@@ -1252,7 +1256,8 @@ def insert_content_at_position(
 
     The whole insert runs as one undo step and is rolled back on failure, unless an outer
     undo group is open, which then owns the rollback.
-    When ``position == 'selection'`` and the insert point is a collapsed caret, inline
+    When ``position == 'selection'`` and the insert point is a collapsed caret (or a single
+    selected as-character object, which counts as a caret just after it), inline
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
@@ -1296,15 +1301,16 @@ def insert_content_at_position(
                 rng = selection
             else:
                 controller = uno_read(lambda: model.getCurrentController(), None)
-                rng = live_selection_range(controller)
+                rng = live_insert_range(controller)[0]
             # None: the view has no caret (Print Preview). SwXTextViewCursor::getText
             # (sw/source/uibase/uno/unotxvw.cxx) raises when an object is selected.
             rng_text = uno_read(lambda: rng.getText(), None) if rng is not None else None
             if rng is None or rng_text is None:
                 raise ToolExecutionError(
-                    "The selection is not text: an image, shape, frame, object or block of cells is "
-                    "selected, or the view has no caret (Print Preview). Nothing was changed. Put the "
-                    "caret in the text (set_selection), or use target='search' with old_content.",
+                    "The selection is not text: a floating image, shape, frame or object, several objects, "
+                    "or a block of cells is selected, or the view has no caret (Print Preview). Nothing was "
+                    "changed. Select text with set_selection, use target='search' with old_content "
+                    "(position='after' inserts next to it), or use table_set_cell for cells.",
                     code="SELECTION_NOT_TEXT",
                 )
             cursor = rng_text.createTextCursorByRange(rng.getStart())
