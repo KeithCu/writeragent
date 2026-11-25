@@ -208,6 +208,9 @@ def test_redacting_formatter_masks_urls_on_arbitrary_loggers() -> None:
         ('{"url":"https://h/a?x=1","n":1,"text":"lost words","k":2}', "x=1", '{"url":"https://h/a","n":1,"text":"lost words","k":2}'),
         ("OPEN file:///home/k/Contract2026FinalVersion.odt", "<redacted>", "file:///home/k/Contract2026FinalVersion.odt"),
         (r'{"msg": "see https://h/a?b=1\n\nHello there"}', "b=1", r'see https://h/a\n\nHello there'),
+        (r'"\nhttps://u:hunter2@h/s/123e4567-e89b-12d3-a456-426614174000/x?k=1"', "123e4567-e89b-12d3-a456-426614174000", r'"\nhttps://h/s/<redacted>/x"'),
+        (r'"\nhttps://u:hunter2@h/s/123e4567-e89b-12d3-a456-426614174000/x?k=1"', "k=1", r'"\nhttps://h/s/<redacted>/x"'),
+        ("GET %20https://u:pw123456@h/x", "pw123456", "https://h/x"),
     ],
 )
 def test_redacting_formatter_url_and_userinfo_spellings(raw_line: str, hidden: str, kept: str) -> None:

@@ -224,11 +224,13 @@ def without_userinfo(rest: str, tail: str) -> str:
 
 
 # Userinfo is stripped for any scheme up to whitespace, `\`, `/`, `?`, or `#` (raw spaces
-# or `\` inside a password are not spanned). Path/query masking runs only on http(s)/ws(s)
-# URLs up to whitespace, `"`, `\`, `<`, or `>`, leaving file:// and vnd.sun.star.* paths intact.
-# Apostrophes and closing parens stay allowed; over-masking a log line is acceptable, under-masking is not.
-_SCHEME_USERINFO_RE = re.compile(r"(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*://)([^\s\\/?#]+)@", re.IGNORECASE)
-_SCHEME_URL_RE = re.compile(r"(?<![a-z0-9+.-])(?:https?|wss?)://[^\s\"\\<>]+", re.IGNORECASE)
+# or `\` inside a password are not spanned). Without the lookbehind, each character of a
+# long unbroken run starts a new scan (quadratic time). Path/query masking runs only on
+# http(s)/ws(s) URLs up to whitespace, `"`, `\`, `<`, or `>`, leaving file:// and
+# vnd.sun.star.* paths intact. Apostrophes and closing parens stay allowed; over-masking
+# a log line is acceptable, under-masking is not.
+_SCHEME_USERINFO_RE = re.compile(r"(?<![a-z0-9+.-])([a-z0-9+.-]+://)([^\s\\/?#]+)@", re.IGNORECASE)
+_SCHEME_URL_RE = re.compile(r"(?:https?|wss?)://[^\s\"\\<>]+", re.IGNORECASE)
 _QUERY_CREDENTIAL_RE = re.compile(r"([?&])([a-zA-Z0-9_.-]+)=([^&\s\"\\<>#]+)")
 
 
