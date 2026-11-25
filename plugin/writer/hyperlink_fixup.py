@@ -94,10 +94,26 @@ log = logging.getLogger("writeragent.writer.hyperlink")
 _OUTLINE_SUFFIX = "|outline"
 # Lowest SequenceMatcher ratio that counts as "the same title, reworded".
 _SIMILAR_TITLE = 0.6
-# Shared numbering is not evidence of the same title; strip "word + short number" labels before comparing.
-_LEADING_LABEL_RE = re.compile(r"^\w+\s+\w{1,4}\s*[:.\-\u2013\u2014]\s+(?=\w)")
-# A number, Roman numeral or single letter that can number a heading ("2.1", "iv", "a"), in casefolded text.
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)*|\b(?:[ivxlcdm]+|[^\W\d_])\b")
+_UNIT_WORD = "one|two|three|four|five|six|seven|eight|nine"
+# English number words up to ninety-nine, in casefolded text.
+_NUMBER_WORD = (
+    rf"(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\s](?:{_UNIT_WORD}))?|{_UNIT_WORD}"
+    "|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
+)
+_CJK_NUMERAL = "[〇零一二三四五六七八九十百千]+"
+# "第一章", "第12条", "第三部分": the section counter is part of the number, not title text.
+_CJK_LABEL = rf"第\s*(?:\d+|{_CJK_NUMERAL})\s*(?:部分|[章節节條条款項项回篇編编卷部課课話话講讲])"
+# Shared numbering is not evidence of the same title; strip "Chapter 1: ", "Chapter One: ", "第一章 ",
+# "一、" and "（一）" labels before comparing. A title that is only a label is kept whole.
+_LEADING_LABEL_RE = re.compile(
+    rf"^(?:\w+\s+(?:\w{{1,4}}|{_NUMBER_WORD})\s*[:.\-\u2013\u2014]\s+"
+    rf"|{_CJK_LABEL}[\s:：、.．]*"
+    rf"|(?:{_CJK_NUMERAL}[、.．]|[（(]{_CJK_NUMERAL}[）)])\s*)(?=\w)"
+)
+# A number, number word, CJK numeral, Roman numeral or single letter that can number a heading, in casefolded text.
+_NUMBER_RE = re.compile(
+    rf"{_CJK_LABEL}|\d+(?:\.\d+)*|{_CJK_NUMERAL}|\b(?:{_NUMBER_WORD}|[ivxlcdm]+|[^\W\d_])\b"
+)
 # Why a link still names an old heading title.
 StaleReason = Literal["field", "no_heading"]
 _URL = "HyperLinkURL"
@@ -813,6 +829,16 @@ def _number_label(title: str) -> str:
     return folded[: match.end()] if match else ""
 
 
+def _differ_only_in_number(old: str, new: str) -> bool:
+    was, now = old.casefold(), new.casefold()
+    return was != now and _NUMBER_RE.sub("#", was) == _NUMBER_RE.sub("#", now)
+
+
+def _is_number_only_pair(old: str, new: str) -> bool:
+    """True when the titles differ only in number and no text follows it ("Appendix A", "Appendix B")."""
+    return _differ_only_in_number(old, new) and not re.search(r"\w", old.casefold()[len(_number_label(old)):])
+
+
 def _number_passed_on(
     old: str,
     new: str,
@@ -824,14 +850,12 @@ def _number_passed_on(
 
     In a renumbering another heading takes over the old number or gave up the new one, or its
     chapter was renumbered the same way. A label several headings share ("Sales 2023: Europe",
-    "Sales 2023: Asia") is not such a number, and a title that is only a number ("Appendix A")
-    has no text to recognise it by.
+    "Sales 2023: Asia") is not such a number.
     """
-    was, now = old.casefold(), new.casefold()
-    if was == now or _NUMBER_RE.sub("#", was) != _NUMBER_RE.sub("#", now):
+    if not _differ_only_in_number(old, new):
         return True
     a, b = _number_label(old), _number_label(new)
-    if a == b or not re.search(r"\w", was[len(a):]):
+    if a == b:
         return False
     if (old_labels[a] == 1 and new_labels[a] > 0) or (new_labels[b] == 1 and old_labels[b] > 0):
         return True
@@ -852,18 +876,22 @@ def heading_renames(
     """Return ``(renames, lost)``: old title to new title, and old titles with no successor.
 
     A rename joins two headings of one level whose titles are each unique on their own side
-    and absent from the other. Titles are paired by similarity first; after a move, titles
-    that differ only in a number pair only when the number was passed on. Headings with no
-    similar title (a translation, say) are paired by position inside a ``replace`` stretch
-    whose levels match, but only when no known heading changed place: after a move, position
-    says nothing.
+    and absent from the other. Titles are paired by similarity first; a title that is only a
+    number pairs only where position agrees, and after a move, titles that differ only in a
+    number pair only when the number was passed on. Headings with no similar title (a
+    translation, say) are paired by position inside a ``replace`` stretch whose levels match,
+    but only when no known heading changed place and every number-only pair is in place: after
+    a move, position says nothing.
     """
     old_titles = [text for _level, text in before]
     new_titles = [text for _level, text in after]
     old_counts, new_counts = Counter(old_titles), Counter(new_titles)
     old_free = {t for t, n in old_counts.items() if n == 1 and t not in new_counts}
     new_free = {t for t, n in new_counts.items() if n == 1 and t not in old_counts}
-    renames = _similar_titles(before, after, old_free, new_free)
+    similar = _similar_titles(before, after, old_free, new_free)
+    # A number alone does not identify a heading, so these pairs need position to confirm them.
+    number_only = {old: new for old, new in similar.items() if _is_number_only_pair(old, new)}
+    renames = {old: new for old, new in similar.items() if old not in number_only}
 
     # Align with each similar title counted as unchanged.
     old_of = {new: old for old, new in renames.items()}
@@ -882,12 +910,13 @@ def heading_renames(
                 for old, new in zip(old_titles[i1:i2], new_titles[j1:j2])
                 if old in old_free and new in new_free
             )
-    if not removed & added:  # a title on both sides is a heading that moved
+    # A title on both sides is a heading that moved, and a number-only pair out of place may be one.
+    if not removed & added and number_only.items() <= by_position.items():
         renames.update(by_position)
     else:
         old_labels = Counter(map(_number_label, old_titles))
         new_labels = Counter(map(_number_label, new_titles))
-        relabelled = {(_number_label(o), _number_label(n)) for o, n in renames.items()}
+        relabelled = {(_number_label(o), _number_label(n)) for o, n in similar.items()}
         renames = {
             o: n
             for o, n in renames.items()

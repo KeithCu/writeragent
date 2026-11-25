@@ -802,6 +802,111 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {},
             ["1.1 Summary"],
         ),
+        # Number-only pairs need position to confirm them
+        (
+            [(1, "Appendix A"), (1, "Scope")],
+            [(1, "Alcance"), (1, "Appendix B")],
+            {},
+            ["Appendix A", "Scope"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Glossary"), (1, "Appendix B"), (1, "Costs")],
+            {},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Scope")],
+            [(1, "Appendix B"), (1, "Alcance")],
+            {"Appendix A": "Appendix B", "Scope": "Alcance"},
+            [],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Appendix B"), (1, "Costs"), (1, "Glossary")],
+            {"Appendix A": "Appendix B"},
+            [],
+        ),
+        (
+            [(1, "Section 1"), (2, "Section 1.1 History"), (1, "Costs")],
+            [(1, "Costs"), (1, "Section 2"), (2, "Section 2.1 History")],
+            {"Section 1.1 History": "Section 2.1 History"},
+            ["Section 1"],
+        ),
+        # CJK numerals and counters
+        (
+            [(1, "第一章"), (1, "Costs")],
+            [(1, "Costs"), (1, "第二章")],
+            {},
+            ["第一章"],
+        ),
+        (
+            [(1, "第一章"), (1, "费用")],
+            [(1, "第二章"), (1, "费用")],
+            {"第一章": "第二章"},
+            [],
+        ),
+        (
+            [(1, "第1章"), (1, "费用")],
+            [(1, "价格"), (1, "第2章")],
+            {},
+            ["第1章", "费用"],
+        ),
+        (
+            [(1, "第一条 定义"), (1, "费用")],
+            [(1, "费用"), (1, "第二条 定义")],
+            {},
+            ["第一条 定义"],
+        ),
+        (
+            [(1, "第一章 绪论"), (1, "费用")],
+            [(1, "费用"), (1, "第一章 背景")],
+            {},
+            ["第一章 绪论"],
+        ),
+        (
+            [(1, "十一、总则"), (1, "十二、附则")],
+            [(1, "十一、附则"), (1, "十二、总则")],
+            {"十一、总则": "十二、总则", "十二、附则": "十一、附则"},
+            [],
+        ),
+        (
+            [(1, "（一）总则"), (1, "（二）附则")],
+            [(1, "（一）附则"), (1, "（二）总则")],
+            {"（一）总则": "（二）总则", "（二）附则": "（一）附则"},
+            [],
+        ),
+        # English number words
+        (
+            [(1, "Chapter One"), (1, "Scope")],
+            [(1, "Alcance"), (1, "Chapter Two")],
+            {},
+            ["Chapter One", "Scope"],
+        ),
+        (
+            [(1, "Chapter Twenty-One"), (1, "Costs")],
+            [(1, "Costs"), (1, "Chapter Twenty-Two")],
+            {},
+            ["Chapter Twenty-One"],
+        ),
+        (
+            [(1, "Chapter One"), (1, "Costs")],
+            [(1, "Chapter Two"), (1, "Costs")],
+            {"Chapter One": "Chapter Two"},
+            [],
+        ),
+        (
+            [(1, "Chapter Seventeen: Costs"), (1, "Risks")],
+            [(1, "Risks"), (1, "Chapter Seventeen: Scope")],
+            {},
+            ["Chapter Seventeen: Costs"],
+        ),
+        (
+            [(1, "Step One: Install"), (1, "Step Two: Configure")],
+            [(1, "Step One: Configure"), (1, "Step Two: Download"), (1, "Step Three: Install")],
+            {"Step One: Install": "Step Three: Install", "Step Two: Configure": "Step One: Configure"},
+            [],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):
