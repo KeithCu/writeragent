@@ -7,9 +7,8 @@
 Per-document persistence stores sentence results in user-defined document properties
 and keeps a process-local map keyed by LibreOffice ``aDocumentIdentifier`` (often a
 small integer per open doc, not ``RuntimeUID``). The first ``doProofreading`` resolves
-the Writer model on the main thread (the current Writer on a UI-thread call, or
-the unique unbound model reported by ``XProofreadingIterator.isProofreading`` on a
-grammar-thread call) and passes it to ``get_persistence(doc_id, model=...)``. The model
+the Writer model on the main thread (the open Writer whose LibreOffice document id
+equals it) and passes it to ``get_persistence(doc_id, model=...)``. The model
 is not read back from this map. A later call does not replace a bound model or reload
 udprops over live edits. ``OnUnload`` / dispose removes map entries so instances can
 be garbage-collected.

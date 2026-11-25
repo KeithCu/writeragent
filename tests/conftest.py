@@ -323,6 +323,8 @@ class MockBase:
 
 # Unique mock classes for UNO interfaces to avoid TypeError during multiple inheritance
 class MockXProofreader: pass
+class MockXFlatParagraph: pass
+class MockXPropertySet: pass
 class MockXLinguServiceEventBroadcaster: pass
 class MockXSupportedLocales: pass
 class MockXServiceDisplayName: pass
@@ -531,6 +533,7 @@ setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_FRAME", Mock
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_PAGE", MockBase)
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_PARAGRAPH", MockBase)
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_CHARACTER", MockBase)
+setattr(text, "XFlatParagraph", MockXFlatParagraph)
 
 linguistic = _create_mock_module("com.sun.star.linguistic2")
 setattr(linguistic, "XProofreader", MockXProofreader)
@@ -540,6 +543,7 @@ setattr(linguistic, "XLinguServiceEventBroadcaster", MockXLinguServiceEventBroad
 beans = _create_mock_module("com.sun.star.beans")
 setattr(beans, "PropertyValue", MockPropertyValue)
 setattr(beans, "NamedValue", MockPropertyValue)
+setattr(beans, "XPropertySet", MockXPropertySet)
 
 sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
