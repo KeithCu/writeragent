@@ -50,15 +50,14 @@ PARALLEL_WEB_FETCH = True
 # of the context window at ~4 chars/token. Part size is budget // 2.
 MIN_PAGE_BUDGET_CHARS = 2_000
 MAX_PAGE_BUDGET_CHARS = 48_000
-# Unknown-window defaults: Ollama omits num_ctx from /api/show unless set in a Modelfile
-# (treat as its 4,096 default); other endpoints fall back to 24,000 tokens (12k budget / 6k parts).
-OLLAMA_DEFAULT_CONTEXT_TOKENS = 4_096
+# Window assumed when a non-Ollama endpoint reports none (12k budget / 6k parts).
 FALLBACK_CONTEXT_TOKENS = 24_000
-# System prompt + WEB_RESEARCH_EXAMPLES (~1,370-1,450 rough tokens) plus wire tool schemas
-# (~565 rough tokens) consume ~2,000 tokens before any query, history, or observation, and
-# Ollama's output reservation (chat_max_tokens) also comes out of num_ctx. A 4,096 window
-# overflows within 2-3 steps, so web research requires at least 8,192 tokens.
-MIN_WEB_RESEARCH_CONTEXT_TOKENS = 8_192
+# Web research warns below this reported window, and assumes it when Ollama reports none.
+# The system prompt, WEB_RESEARCH_EXAMPLES and wire tool schemas use about 2,000 tokens.
+# Ollama's /api/show omits num_ctx unless the Modelfile sets it, and its real default is
+# 4,096, 32,768 or 262,144 by VRAM (Ollama server/routes.go, Serve), so the assumed value
+# keeps page parts small enough for the smallest of those.
+RECOMMENDED_CONTEXT_TOKENS = 8_192
 _MAX_PAGES = 100
 _FIND_MAX_MATCHES = 10
 _FIND_CONTEXT_CHARS = 120
@@ -161,20 +160,12 @@ def is_page_text(text: str) -> bool:
     return bool(body) and not body.startswith(("Error", "Failed"))
 
 
-def effective_context_window(window_tokens: int | None, *, is_ollama: bool = False) -> int:
-    """Resolve an unknown context window to its provider default (4,096 for Ollama, 24,000 otherwise)."""
-    if window_tokens is not None:
-        return window_tokens
-    return OLLAMA_DEFAULT_CONTEXT_TOKENS if is_ollama else FALLBACK_CONTEXT_TOKENS
-
-
-def page_budget_chars(window_tokens: int | None, *, is_ollama: bool = False) -> int:
+def page_budget_chars(window_tokens: int) -> int:
     """Per-tool-result character budget derived from the model's context window."""
-    resolved = effective_context_window(window_tokens, is_ollama=is_ollama)
-    return max(MIN_PAGE_BUDGET_CHARS, min(MAX_PAGE_BUDGET_CHARS, resolved // 2))
+    return max(MIN_PAGE_BUDGET_CHARS, min(MAX_PAGE_BUDGET_CHARS, window_tokens // 2))
 
 
-DEFAULT_PAGE_BUDGET_CHARS = page_budget_chars(None)
+DEFAULT_PAGE_BUDGET_CHARS = page_budget_chars(FALLBACK_CONTEXT_TOKENS)
 # Split into char parts rather than lines because HTML TextExtractor emits 7-14-char fragments.
 DEFAULT_PART_CHARS = DEFAULT_PAGE_BUDGET_CHARS // 2
 

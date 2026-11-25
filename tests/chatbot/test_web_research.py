@@ -1626,6 +1626,7 @@ def _execute_web_research_with_window(
     *,
     deep: bool = False,
     browser: str = "off",
+    chat_append_callback: Any = None,
 ):
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.tests.testing_utils import MockContext
@@ -1637,7 +1638,7 @@ def _execute_web_research_with_window(
     ctx.status_callback = None
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
-    ctx.chat_append_callback = None
+    ctx.chat_append_callback = chat_append_callback
     ctx.send_cancellation = None
 
     captured: dict[str, Any] = {}
@@ -1678,52 +1679,102 @@ def _execute_web_research_with_window(
     "api_config, resolved_window, expected_budget, expected_part",
     [
         pytest.param({"endpoint": "http://localhost:11434", "model": "gemma4"}, 8_192, 4_096, 2_048, id="ollama-8k"),
+        pytest.param({"endpoint": "http://localhost:11434", "model": "gemma4"}, None, 4_096, 2_048, id="ollama-unreported"),
         pytest.param({"endpoint": "https://openrouter.ai/api", "model": "anthropic/claude-opus-4"}, 200_000, 48_000, 24_000, id="opus-200k"),
         pytest.param({"endpoint": "https://custom.example/v1", "model": "custom-model"}, None, 12_000, 6_000, id="custom-unknown"),
         pytest.param({"endpoint": "http://localhost:11434", "model": "x", "is_openrouter": True}, None, 12_000, 6_000, id="explicit-openrouter-proxy"),
     ],
 )
 def test_web_research_sizes_page_store_from_context_window(api_config, resolved_window, expected_budget, expected_part):
-    res, captured, mock_resolve, _cdp, _shallow, _deep = _execute_web_research_with_window(api_config, resolved_window)
+    chat_lines: list[str] = []
+    res, captured, mock_resolve, _cdp, _shallow, _deep = _execute_web_research_with_window(
+        api_config, resolved_window, chat_append_callback=chat_lines.append
+    )
     assert res["status"] == "ok"
     mock_resolve.assert_called_once_with(captured["api"])
     assert captured["pages"].budget_chars == expected_budget
     assert captured["pages"].part_chars == expected_part
+    assert chat_lines == []
 
 
 @pytest.mark.parametrize("deep", [False, True])
 @pytest.mark.parametrize(
-    "resolved_window, expected_label, expect_assumed",
+    "resolved_window, expected_budget",
     [
-        pytest.param(2_048, "2K", False, id="known-2k"),
-        pytest.param(4_096, "4K", False, id="known-4k"),
-        pytest.param(None, "4K", True, id="ollama-unknown"),
+        pytest.param(2_048, 2_000, id="known-2k"),
+        pytest.param(4_096, 2_048, id="known-4k"),
     ],
 )
-def test_web_research_rejects_too_small_context_window(deep, resolved_window, expected_label, expect_assumed):
-    res, _captured, mock_resolve, mock_cdp, mock_shallow, mock_deep = _execute_web_research_with_window(
+def test_web_research_runs_with_small_reported_window(deep, resolved_window, expected_budget):
+    chat_lines: list[str] = []
+    res, captured, mock_resolve, _mock_cdp, mock_shallow, mock_deep = _execute_web_research_with_window(
         {"endpoint": "http://localhost:11434", "model": "gemma4"},
         resolved_window,
         deep=deep,
-        browser="chrome",
+        chat_append_callback=chat_lines.append,
     )
-    assert res["status"] == "error"
-    assert res["code"] == "WEB_RESEARCH_CONTEXT_TOO_SMALL"
-    assert "num_ctx" in res["message"]
-    assert expected_label in res["message"]
-    assert "8K" in res["message"]
-    if expect_assumed:
-        assert "assumed" in res["message"]
-        assert "PARAMETER num_ctx 8192" in res["message"]
-        assert "ollama create" in res["message"]
-        assert "Test Connection" in res["message"]
-        assert "OLLAMA_CONTEXT_LENGTH" not in res["message"]
-    else:
-        assert "assumed" not in res["message"]
+    assert res["status"] == "ok"
     mock_resolve.assert_called_once()
-    mock_cdp.assert_not_called()
-    mock_shallow.assert_not_called()
-    mock_deep.assert_not_called()
+    if deep:
+        mock_deep.assert_called_once()
+        mock_shallow.assert_not_called()
+    else:
+        mock_shallow.assert_called_once()
+        mock_deep.assert_not_called()
+    assert captured["pages"].budget_chars == expected_budget
+    assert len(chat_lines) == 1
+    assert str(resolved_window) in chat_lines[0]
+
+
+@pytest.mark.parametrize(
+    "resolved_window, expect_cached",
+    [
+        pytest.param(4_096, False, id="small-not-cached"),
+        pytest.param(8_192, True, id="recommended-cached"),
+    ],
+)
+def test_web_research_small_window_result_is_not_cached(tmp_path, resolved_window, expect_cached):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.send_cancellation = None
+
+    def _cfg(key: str):
+        if key == "chatbot.web_research_cache_enabled":
+            return True
+        if key == "chatbot.web_cache_max_mb":
+            return 50
+        if key == "chatbot.web_cache_validity_days":
+            return 30
+        if key == "chatbot.max_tool_rounds":
+            return 5
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_browser":
+            return "off"
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={"endpoint": "http://localhost:11434", "model": "gemma4"}),
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window),
+        patch("plugin.chatbot.web_research._run_web_agent", return_value="ok"),
+        patch("plugin.chatbot.web_research._write_research_cache", return_value={}) as mock_write,
+    ):
+        res = WebResearchTool().execute(ctx, query="test small window cache")
+
+    assert res["status"] == "ok"
+    assert mock_write.called is expect_cached
 
 
 def test_deep_web_research_uses_sized_page_store():
@@ -1738,9 +1789,9 @@ def test_deep_web_research_uses_sized_page_store():
     assert captured["pages"].part_chars == 8_192
 
 
-def test_web_research_prompt_overhead_fits_within_minimum_window():
-    """Keep the measured prompt + examples + wire tool-schema overhead well below MIN_WEB_RESEARCH_CONTEXT_TOKENS."""
-    from plugin.chatbot.web_pages import MIN_WEB_RESEARCH_CONTEXT_TOKENS
+def test_web_research_prompt_overhead_fits_within_recommended_window():
+    """Keep the measured prompt + examples + wire tool-schema overhead well below RECOMMENDED_CONTEXT_TOKENS."""
+    from plugin.chatbot.web_pages import RECOMMENDED_CONTEXT_TOKENS
     from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
     from plugin.contrib.smolagents.models import get_tool_json_schema
 
@@ -1771,7 +1822,7 @@ def test_web_research_prompt_overhead_fits_within_minimum_window():
     agent = captured_agent[0]
     wire_tools = json.dumps([get_tool_json_schema(t) for t in agent.tools.values()])
     overhead_tokens = (len(agent.system_prompt) + len(wire_tools)) // 4
-    assert 1_000 < overhead_tokens < MIN_WEB_RESEARCH_CONTEXT_TOKENS // 3
+    assert 1_000 < overhead_tokens < RECOMMENDED_CONTEXT_TOKENS // 3
 
 
 def test_run_web_agent_prints_nothing(capsys):
