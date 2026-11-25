@@ -1,6 +1,6 @@
 # Writer prompt optimization with DSPy
 
-This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMPT` for WriterAgent (see plan in repo). String harness: live `ToolRegistry.get_schemas` + `get_chat_system_prompt_for_document` plus eval note — [`docs/eval/string-harness-upgrade.md`](../../docs/eval/string-harness-upgrade.md). Phase F `=PY()` dest rows are in the dataset.
+This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMPT` for WriterAgent (see plan in repo). String harness: live `ToolRegistry.get_schemas` + `get_chat_system_prompt_for_document` plus eval note — [`docs/eval/string-harness-upgrade.md`](../../docs/eval/string-harness-upgrade.md). `eval_worlds.py` is frozen; the rule is in its module docstring. Phase F `=PY()` dest rows are in the dataset.
 
 ## Benchmarks from repo root
 
