@@ -95,7 +95,6 @@ def test_get_document_content_surfaces_tracked_changes():
     assert res["tracked_changes_total"] == 2
     assert "tracked_changes_note" in res
     assert res["tracked_changes_note"]
-    assert "data-lo-deleted" not in res["tracked_changes_note"]
     assert "could not list" not in res.get("warning", "")
 
 

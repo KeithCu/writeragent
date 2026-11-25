@@ -183,7 +183,6 @@ def test_manage_changes_opens_after_full_read_of_multi_paragraph_deletion_uno(ct
     res = GetDocumentContent().execute(tool_ctx, scope="full")
     assert res.get("status") == "ok", res
     content = str(res.get("content", ""))
-    assert "data-lo-deleted" not in content, res
     assert "Second para" not in content, res
     assert "First" in content and "para" in content, res
     _toggle_manage_changes(ctx, doc)

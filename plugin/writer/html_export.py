@@ -745,6 +745,7 @@ def _range_to_content_via_temp_doc(
             # A closed document must not start a second export.
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
+            # Degraded path: strips the mark and leaves a blank paragraph rather than omitting it.
             content = _export_starwriter_html(temp_doc).replace(xhtml_post.DELETED_MARK, "")
         content = _restore_anchor_hrefs(
             content, _body_hyperlink_urls(temp_doc), _ANCHOR_HREF_RE, _picture_urls(temp_doc)

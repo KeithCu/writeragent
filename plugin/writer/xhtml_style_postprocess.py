@@ -262,6 +262,15 @@ class HtmlPassthroughParser(HTMLParser):
         self._out.append("<!--%s-->" % data)
 
 
+@dataclass
+class _OpenBlock:
+    tag: str
+    start: int
+    is_block: bool = True
+    deleted: bool = False
+    lost_child: bool = False
+
+
 @final
 class _SemanticTransformer(HtmlPassthroughParser):
     """Rewrite LO XHTML body into the agent-facing semantic HTML.
@@ -281,7 +290,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
     _norm: dict[str, str]
     _open: list[str]
     _box_next: bool
-    _block_stack: list[list[Any]]
+    _block_stack: list[_OpenBlock]
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -406,9 +415,11 @@ class _SemanticTransformer(HtmlPassthroughParser):
         if self._in_frame_after_box():
             return
         if DELETED_MARK in data:
+            # DELETED_MARK is a Unicode noncharacter (U+FDD0), assumed absent from live user text.
+            # Skip ul/ol containers so the mark only drops the struck item/paragraph, not the whole list.
             for entry in reversed(self._block_stack):
-                if entry[0] not in ("ul", "ol"):
-                    entry[2] = True
+                if entry.is_block and entry.tag not in ("ul", "ol"):
+                    entry.deleted = True
                     break
             data = data.replace(DELETED_MARK, "")
             if not data:
@@ -441,10 +452,14 @@ class _SemanticTransformer(HtmlPassthroughParser):
             # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
             # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
             # write side's positional styles skipped that paragraph and the next ones shifted.
-            self._block_stack.append([t, len(self._out), False, False])
+            self._block_stack.append(_OpenBlock(t, len(self._out)))
             self._out.append(self._rewrite_block(raw, attrs))
         elif t in ("ul", "ol"):
-            self._block_stack.append([t, len(self._out), False, False])
+            self._block_stack.append(_OpenBlock(t, len(self._out)))
+            self._out.append(raw)
+        elif t == "div":
+            # Track every div so an inner </div> cannot pop an outer <div class="paragraph-X"> early.
+            self._block_stack.append(_OpenBlock(t, len(self._out), is_block=False))
             self._out.append(raw)
         elif t == "span":
             self._out.append(self._rewrite_span(raw, attrs))
@@ -468,12 +483,16 @@ class _SemanticTransformer(HtmlPassthroughParser):
                 self._open[-1] = "after_box"
         if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
-        if self._block_stack and self._block_stack[-1][0] == t:
-            _tag, start_at, is_deleted, had_deleted_child = self._block_stack.pop()
-            if is_deleted or (had_deleted_child and not "".join(self._out[start_at + 1:]).strip()):
-                del self._out[start_at:]
+        if self._block_stack and self._block_stack[-1].tag == t:
+            entry = self._block_stack.pop()
+            # Drop the block only at its end tag so inner spans and list labels go with it.
+            # Propagating lost_child collapses an emptied <li>/<ul>/<ol> while keeping live empty lists.
+            if entry.is_block and (
+                entry.deleted or (entry.lost_child and not "".join(self._out[entry.start + 1:]).strip())
+            ):
+                del self._out[entry.start:]
                 if self._block_stack:
-                    self._block_stack[-1][3] = True
+                    self._block_stack[-1].lost_child = True
                 return
         self._out.append("</%s>" % tag)
 
@@ -620,10 +639,9 @@ def expand_tracked_deletions(fodt: str) -> str | None:
     ``body.xsl`` has no ``text:change`` rule, so XHTML export otherwise joins
     paragraphs across a multi-paragraph deletion. A deletion of *n* top-level
     blocks produces *n* - 1 breaks, each taking the deleted block's tag and style.
-    Also puts ``DELETED_MARK`` in wholly struck paragraphs: otherwise ``body.xsl``
-    (``match="text:h"``) drops a heading without text, an empty ``text:p`` comes
-    out as ``<p class=…/>`` without ``data-lo-style``, and
-    ``_drop_trailing_empty_paragraphs`` removes a trailing one.
+    Also puts ``DELETED_MARK`` in wholly struck paragraphs: an empty struck
+    block cannot otherwise be told from a live blank one, so the transformer
+    needs the mark to omit only the former.
     """
     # crosshair: off
     regions: dict[str, list[_DeletedBlock]] = {}
@@ -664,7 +682,12 @@ def expand_tracked_deletions(fodt: str) -> str | None:
             for t in stack:
                 t.live = True
         if close:
-            finish(stack.pop())
+            closed = stack.pop()
+            finish(closed)
+            # When a deletion crosses between text:h and text:p, the split block's tag name differs.
+            if closed.name != name:
+                out.append(fodt[pos:m.start()] + "</%s>" % closed.name)
+                pos = m.end()
             continue
         if not empty:
             if name in ("text:p", "text:h"):

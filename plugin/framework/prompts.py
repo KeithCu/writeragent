@@ -406,7 +406,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - apply_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field) — trust the latest result, since the user can switch modes mid-session. No pending_review means the call left no new tracked change (nothing changed, or the text joined a change that is already pending), not that review is off.
 - In record and wait, NEVER accept or reject changes yourself, including through the tracking sub-agent — resolving redlines is the user's decision.
 - get_content lists pending changes under tracked_changes — they are pending review, not errors to fix.
-- [tracked deletion] in the document text marks a paragraph a pending deletion already covers. It is not an empty paragraph: do not tidy, fill or delete it, and leave it out of content you write. The marker text is not in the document."""
+- [tracked deletion] in the document text marks a paragraph a pending deletion already covers. get_content leaves such paragraphs out; offsets and document_length still count one break for each. It is not an empty paragraph: do not tidy, fill or delete it, and leave it out of content you write. The marker text is not in the document."""
 
 
 # apply_content rules its parameter schema cannot carry: quote/dash folding (the one home for every
