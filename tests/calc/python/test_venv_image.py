@@ -1757,7 +1757,8 @@ def test_new_shape_anchor_failure_chains_graphic_exception():
     assert exc_info.value.__cause__ is graphic_error
 
 
-def test_slot0_failure_still_sweeps_extra_slots():
+@pytest.mark.parametrize("code", ["plt.show()", None])
+def test_slot0_failure_still_sweeps_extra_slots(code):
     """When slot 0 raises ImageEgressError, extra slots >= image_count are still swept via finally."""
     cell = CalcCellStub(col=0, row=0)
     slot1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
@@ -1765,18 +1766,54 @@ def test_slot0_failure_still_sweeps_extra_slots():
     sheet = _SheetStub(page)
     doc = MagicMock(name="doc")
     doc.createInstance.return_value = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+    doc.getCurrentController.return_value = SimpleNamespace(
+        getActiveSheet=lambda: sheet,
+        getSelection=lambda: cell,
+    )
+
+    events: list[Any] = []
+    locked = False
+    orig_remove = page.remove
+
+    def _remove(shape) -> None:
+        events.append(("remove", shape))
+        orig_remove(shape)
+
+    page.remove = _remove
+
+    def _lock() -> None:
+        nonlocal locked
+        locked = True
+        events.append("lock")
+
+    def _unlock() -> None:
+        nonlocal locked
+        locked = False
+        events.append("unlock")
+
+    um = SimpleNamespace(
+        isLocked=lambda: locked,
+        lock=_lock,
+        unlock=_unlock,
+    )
+    doc.getUndoManager.return_value = um
 
     with (
         # Slot 0 fails while it is being anchored.
         _sheet_insert_ctx(sheet, cell, temp_path="/tmp/test.png", geometry=RuntimeError("geom boom")),
+        patch("plugin.calc.python.image_egress.selection_top_left_cell", return_value=cell),
         pytest.raises(ImageEgressError),
     ):
         insert_image_result_on_sheet(
-            _IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0, image_count=1
+            _IMAGE_PAYLOAD, code=code, doc=doc, image_index=0, image_count=1
         )
 
     # Revert target: _drop_extra_plot_slots running in finally block of _insert_image_result_on_sheet_impl
     assert slot1 not in page.shapes
+    if code:
+        assert events.index(("remove", slot1)) < events.index("unlock")
+    else:
+        assert events.index("unlock") < events.index(("remove", slot1))
 
 
 def test_reused_shape_skips_tag_write_when_tag_unchanged():
@@ -2096,37 +2133,57 @@ def test_rtl_name_tag_ignores_column_shift():
 
 @pytest.mark.parametrize("code", ["plt.show()", None])
 def test_insert_image_result_uses_single_undo_lock(code):
-    """Plot placement and refresh each enter undo_lock once, never nested."""
-    from plugin.calc.python import image_egress as _image_egress
-
+    """Plot placement and refresh each enter undo_lock once."""
     cell = CalcCellStub(col=1, row=2)
     page = _DrawPage([])
     sheet = _SheetStub(page)
     doc = MagicMock(name="doc")
     doc.createInstance.return_value = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
-    um = MagicMock(name="um")
-    um.isLocked.return_value = False
-    doc.getUndoManager.return_value = um
     doc.getCurrentController.return_value = SimpleNamespace(
         getActiveSheet=lambda: sheet,
         getSelection=lambda: cell,
     )
 
-    lock_calls: list[bool] = []
-    real_undo_lock = _image_egress.undo_lock
+    events: list[str] = []
+    locked = False
 
-    def _counting_lock(target_doc, *, hide=True):
-        lock_calls.append(hide)
-        return real_undo_lock(target_doc, hide=hide)
+    def _lock() -> None:
+        nonlocal locked
+        locked = True
+        events.append("lock")
+
+    def _unlock() -> None:
+        nonlocal locked
+        locked = False
+        events.append("unlock")
+
+    um = SimpleNamespace(
+        isLocked=lambda: locked,
+        isUndoPossible=lambda: True,
+        isRedoPossible=lambda: False,
+        lock=_lock,
+        unlock=_unlock,
+        enterHiddenUndoContext=lambda: events.append("enterHiddenUndoContext"),
+        leaveUndoContext=lambda: events.append("leaveUndoContext"),
+        addUndoAction=lambda _action: events.append("addUndoAction"),
+    )
+    doc.getUndoManager.return_value = um
 
     with (
         _sheet_insert_ctx(sheet, cell, geometry=(Point(0, 0), Size(2000, 500))),
-        patch.object(_image_egress, "undo_lock", side_effect=_counting_lock),
-        patch.object(_image_egress, "add_undo_action"),
-        patch.object(_image_egress, "attach_to_newest_undo"),
+        patch("plugin.calc.python.image_egress.selection_top_left_cell", return_value=cell),
+        patch("plugin.calc.python.undo._undo_action", return_value="undo-action"),
     ):
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code=code, doc=doc, image_index=0, image_count=1)
-        assert lock_calls == [False]
-        lock_calls.clear()
+        expected_place = (
+            ["lock", "unlock", "enterHiddenUndoContext", "addUndoAction", "leaveUndoContext"]
+            if code
+            else ["lock", "unlock", "addUndoAction"]
+        )
+        assert events == expected_place
+        assert len(page.added) == 1
+
+        events.clear()
         insert_image_result_on_sheet(_IMAGE_PAYLOAD, code=code, doc=doc, image_index=0, image_count=1)
-        assert lock_calls == [False]
+        assert len(page.added) == 1
+        assert events == ["lock", "unlock"]

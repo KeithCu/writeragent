@@ -934,13 +934,22 @@ def _insert_image_result_on_sheet_impl(
         shape = _resolve_slot(slots, image_index)
         rtl = sheet_is_rtl(sheet)
 
+        # Only a caller that passes image_count owns the slot family. =PY() and
+        # insert_plots_and_report (python_run_script, plot_data) pass it and
+        # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
+        # >= image_count and duplicate shapes for one slot are swept even when slot 0
+        # raises, so they do not linger. Omitting image_count (the viz domain's
+        # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
+        # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
+        sweep_count = image_count if image_index == 0 and target_cell is not None else None
         placed = None
-        sweep_target = image_index == 0 and target_cell is not None
         try:
-            # SvxDrawPage::add records no undo, but naming or refreshing a shape does
-            # (SdrObject::SetName in svx/source/svdraw/svdobj.cxx:753). Place and refresh
-            # unrecorded; a formula's sweep is also unrecorded, while a tool plot's sweep
-            # runs unlocked in the outer finally so Undo restores swept slots.
+            # A formula's plots are redrawn from it, so they get no undo entries of their own.
+            # SvxDrawPage::add records no undo, but naming the shape does, and undoing that
+            # would leave the picture without its slot name; refreshing a dragged plot also
+            # rewrites Name with the new anchor (SdrObject::SetName in
+            # svx/source/svdraw/svdobj.cxx:753). Place and refresh unrecorded; a plot without
+            # a formula then gets its own insert/remove entry after the lock exits.
             with undo_lock(doc, hide=False) as um:
                 try:
                     if shape is None:
@@ -950,15 +959,8 @@ def _insert_image_result_on_sheet_impl(
                     else:
                         _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
                 finally:
-                    # Only a caller that passes image_count owns the slot family. =PY() and
-                    # insert_plots_and_report (python_run_script, plot_data) pass it and
-                    # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
-                    # >= image_count and duplicate shapes for one slot are swept even when slot 0
-                    # raises, so they do not linger. Omitting image_count (the viz domain's
-                    # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
-                    # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
-                    if code and image_count is not None and sweep_target:
-                        _drop_extra_plot_slots(draw_page, slots, image_count)
+                    if code and sweep_count is not None:
+                        _drop_extra_plot_slots(draw_page, slots, sweep_count)
             if um is not None and shape is None:
                 if code:
                     best_effort(
@@ -977,8 +979,10 @@ def _insert_image_result_on_sheet_impl(
                         "could not record the plot insert for undo",
                     )
         finally:
-            if not code and image_count is not None and sweep_target:
-                _drop_extra_plot_slots(draw_page, slots, image_count)
+            # Tool-plot sweep runs unlocked so Undo restores swept slots
+            # (SvxDrawPage::remove records a delete entry when undo is enabled).
+            if not code and sweep_count is not None:
+                _drop_extra_plot_slots(draw_page, slots, sweep_count)
     except ImageEgressError:
         raise
     except Exception as exc:
