@@ -106,38 +106,13 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: sudo apt-get install -y xvfb dbus-x11
 
-      - name: Install opengrep (Ubuntu)
-        if: runner.os == 'Linux'
-        timeout-minutes: 5
-        env:
-          # Change both together: the sha256 is of this release's opengrep_linux_x86 asset.
-          OPENGREP_VERSION: "v2.0.0"
-          OPENGREP_SHA256: "37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0"
-        run: |
-          # Fatal here (unlike macOS/Windows): typecheck runs opengrep-lint. Upstream
-          # install.sh looks up "latest" without retries, so fetch the pinned static binary
-          # directly with curl's retry. Write with -o rather than piping so retries restart the
-          # file instead of duplicating bytes; the 1 MB/s speed floor drops slow connections so
-          # the ~160 MB asset finishes inside the 5-minute step.
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
-            --connect-timeout 20 --speed-limit 1000000 --speed-time 20 \
-            -o "$HOME/.local/bin/opengrep" \
-            "https://github.com/opengrep/opengrep/releases/download/${OPENGREP_VERSION}/opengrep_linux_x86"
-          echo "${OPENGREP_SHA256}  $HOME/.local/bin/opengrep" | sha256sum -c -
-          chmod +x "$HOME/.local/bin/opengrep"
-          "$HOME/.local/bin/opengrep" --version
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Install LibreOffice and system tools (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install --cask libreoffice || true
           brew install gettext || true
-          curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash || true
           echo "/Applications/LibreOffice.app/Contents/MacOS" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/gettext/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
           # officehelper.py is in Contents/Resources (not the framework python3).
           # Dump the brew-cask layout so a future UNO bootstrap miss is diagnosable.
           APP="/Applications/LibreOffice.app"
@@ -167,11 +142,6 @@ jobs:
           echo "C:\\Program Files\\LibreOffice\\program" >> $GITHUB_PATH
           # choco gettext does not add itself to PATH; extract_strings.py needs xgettext/msgmerge.
           echo "C:\\Program Files\\gettext-iconv\\bin" >> $GITHUB_PATH
-          # typecheck runs opengrep-lint; Linux/macOS install this, Windows did not.
-          powershell -NoProfile -ExecutionPolicy Bypass -Command \
-            "irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex" || true
-          echo "$USERPROFILE/.opengrep/cli/latest" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.3
@@ -183,6 +153,25 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      - name: Resolve pinned opengrep metadata
+        id: opengrep_meta
+        run: python scripts/install_opengrep.py --github-output
+
+      - name: Cache opengrep binary
+        id: opengrep_cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.opengrep_meta.outputs.cache-path }}
+          key: opengrep-${{ runner.os }}-${{ runner.arch }}-${{ steps.opengrep_meta.outputs.sha256 }}
+
+      - name: Install opengrep
+        if: steps.opengrep_cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        run: python scripts/install_opengrep.py
+
+      - name: Verify opengrep
+        run: opengrep --version
 
       - name: Install Python dependencies
         run: |

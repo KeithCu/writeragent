@@ -1,0 +1,45 @@
+name: Seed CI Cache
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  push:
+    branches: [master]
+    paths:
+      - ".github/actions/ubuntu-libreoffice-apt/**"
+      - ".github/workflows/ci-cache-seed.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seed-ubuntu-libreoffice-apt:
+    name: Seed Ubuntu LibreOffice apt cache
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure apt (Ubuntu)
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources \
+                     /etc/apt/sources.list.d/google.list
+          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          Acquire::ftp::Timeout "20";
+          EOF
+
+      - name: Install LibreOffice (Ubuntu apt cache)
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        uses: ./.github/actions/ubuntu-libreoffice-apt

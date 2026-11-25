@@ -20,7 +20,8 @@ runs:
         echo "LibreOffice apt cache key: ${cache_key}"
 
     - name: Restore LibreOffice .deb cache
-      uses: actions/cache@v4
+      id: lo_cache
+      uses: actions/cache/restore@v6
       with:
         path: ~/apt-lo-debs
         key: ${{ steps.lo_cache_key.outputs.key }}
@@ -91,3 +92,11 @@ runs:
           exit 1
         fi
         soffice --version
+
+    # Seed the shared cache only on master/scheduled runs so PRs do not each upload ~287 MB.
+    - name: Save LibreOffice .deb cache
+      if: steps.lo_cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/master' || github.event_name == 'schedule')
+      uses: actions/cache/save@v6
+      with:
+        path: ~/apt-lo-debs
+        key: ${{ steps.lo_cache_key.outputs.key }}

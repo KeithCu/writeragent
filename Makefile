@@ -866,11 +866,7 @@ opengrep-rules-audit:
 	$(OPENGREP_ENV) "$(OPENGREP)" scan --config p/python $(OPENGREP_EXCLUDES) plugin
 
 opengrep-install:
-ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -ExecutionPolicy Bypass -Command 'if (-not (Get-Command New-TemporaryFile -ErrorAction SilentlyContinue)) { function New-TemporaryFile { $$p = [System.IO.Path]::GetTempFileName(); Get-Item -LiteralPath $$p } }; irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex'
-else
-	curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
-endif
+	"$(PYTHON)" "$(SCRIPTS)/install_opengrep.py"
 
 # Excel Python-in-Excel sample round-trip (Excel → DAG → Excel).
 # Skips cleanly when PythonExcelSamples/ has no .xlsx (nested demos checkout optional).
