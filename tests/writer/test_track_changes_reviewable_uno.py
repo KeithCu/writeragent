@@ -1290,6 +1290,19 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
 
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
+    def _assert_agent_insert_redline() -> None:
+        redlines = doc.getRedlines()
+        # Hold every SwXRedline wrapper until reads finish: ~SwXRedline removes its
+        # SvtListener without SolarMutex (unoredlines.cxx, listener.cxx), so dropping
+        # one over URP while fetching the next can race.
+        reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
+        assert any(
+            r.getPropertyValue("RedlineType") == "Insert"
+            and r.getPropertyValue("RedlineAuthor") == "WriterAgent"
+            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
+            for r in reds
+        )
+
     try:
         _reset(doc, ctx, "First words here.")
         tool_ctx = _tool_ctx(doc, ctx)
@@ -1311,12 +1324,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
         )
         assert fmt_res["status"] == "ok", fmt_res
 
-        assert any(
-            r["type"] == "Insert"
-            and r["RedlineAuthor"] == "WriterAgent"
-            and r["RedlineComment"].startswith("wa-review:")
-            for r in _redlines(doc)
-        )
+        _assert_agent_insert_redline()
 
         _reject_all(doc, ctx)
         assert doc.getText().getString() == "First words here."
@@ -1344,17 +1352,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
-        redlines2 = doc.getRedlines()
-        inserts2 = [
-            redlines2.getByIndex(i)
-            for i in range(redlines2.getCount())
-            if redlines2.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
-        ]
-        assert any(
-            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
-            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
-            for r in inserts2
-        )
+        _assert_agent_insert_redline()
 
         _reject_all(doc, ctx)
         assert doc.getText().getString() == "First words here."

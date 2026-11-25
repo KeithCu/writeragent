@@ -823,9 +823,12 @@ def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
             try:
                 reloaded_page = reloaded.getSheets().getByIndex(0).getDrawPage()
                 assert reloaded_page.getCount() == 4
+                # Bind each shape once (docs/framework/uno-test-lifecycle.md): a late release
+                # of a dropped proxy can detach the next one.
                 before_shapes = [reloaded_page.getByIndex(i) for i in range(4)]
                 before_xs = [s.getPosition().X for s in before_shapes]
                 before_owners = [_read_plot_tag(s).owner for s in before_shapes]
+                del before_shapes
                 assert before_owners.count((1, 2)) == 2
                 assert before_owners.count((2, 2)) == 2
                 _insert_both(reloaded)
@@ -833,6 +836,7 @@ def test_rtl_side_by_side_plots_survive_xlsx_reload_uno(ctx, doc):
                 after_shapes = [reloaded_page.getByIndex(i) for i in range(4)]
                 after_xs = [s.getPosition().X for s in after_shapes]
                 after_owners = [_read_plot_tag(s).owner for s in after_shapes]
+                del after_shapes
                 assert after_xs == before_xs
                 assert after_owners == before_owners
             finally:

@@ -2593,10 +2593,12 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                     )
                 assert res.get("status") == "ok", (mode, target, res)
                 if mode == "accept":
-                    types = set()
-                    enum = doc.getRedlines().createEnumeration()
-                    while enum.hasMoreElements():
-                        types.add(enum.nextElement().getPropertyValue("RedlineType"))
+                    redlines = doc.getRedlines()
+                    # Hold every SwXRedline wrapper until reads finish: ~SwXRedline removes its
+                    # SvtListener without SolarMutex (unoredlines.cxx, listener.cxx), so dropping
+                    # one over URP while fetching the next can race.
+                    reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
+                    types = {r.getPropertyValue("RedlineType") for r in reds}
                     assert types == {"Insert", "Delete"}, (target, types)
                     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
                 elif mode == "reject":
