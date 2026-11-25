@@ -527,7 +527,12 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
+
+    Trailing content outside a block (``<table>...</table>tail``) takes over the
+    paragraph at the insert point and leaves *leftover* at its end. That paragraph
+    is not empty, so merging it forward would join the next paragraph onto it.
     """
+    at_paragraph_start = leftover.isStartOfParagraph()
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() != "":
         return
@@ -541,7 +546,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # Join the leftover onto the last imported block by deleting that block's break.
     # While recording, the break belongs to our own tracked insertion, so deleting it
     # removes it rather than adding a Delete redline.
-    if _delete_preceding_break(leftover) or not merge_forward_after_table:
+    if _delete_preceding_break(leftover) or not merge_forward_after_table or not at_paragraph_start:
         return
     if leftover.goRight(1, True):
         if leftover.getString() in _PARAGRAPH_BREAKS:
