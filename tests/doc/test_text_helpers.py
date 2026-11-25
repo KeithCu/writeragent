@@ -1204,6 +1204,27 @@ def test_live_selection_range_and_snapshot():
     model.getCurrentController.assert_not_called()
 
 
+def test_live_insert_range_fallback_and_disposal():
+    from plugin.doc.text_helpers import live_insert_range
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    sel_rng = MagicMock()
+    controller = MagicMock()
+    controller.getSelection.return_value = sel_rng
+    sel_rng.supportsService.return_value = True
+    with patch("plugin.doc.text_helpers.live_selection_range", return_value=sel_rng) as mock_live:
+        assert live_insert_range(controller) == (sel_rng, False)
+        mock_live.assert_called_once_with(controller)
+
+    disposed_ctrl = MagicMock()
+    disposed_ctrl.getSelection.side_effect = DisposedException("gone")
+    with pytest.raises(DocumentDisposedError):
+        live_insert_range(disposed_ctrl)
+
+
 class _FakePageViewCursor:
     def __init__(self, page_count: int) -> None:
         self.page_count = page_count

@@ -406,3 +406,15 @@ def test_selection_pin_scoped_to_its_document():
     update_selection_pin(ctx, MagicMock())
     assert ctx.selection_pin.range is foreign_rng
 
+
+def test_request_insert_range_uses_pinned_range_without_reading_controller():
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.target_resolver import request_insert_range
+
+    ctx, _ = _ctx()
+    pinned_rng = MagicMock()
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
+
+    assert request_insert_range(ctx) == (pinned_rng, False)
+    ctx.doc.getCurrentController.assert_not_called()
+

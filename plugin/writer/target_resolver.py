@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import clone_text_range, live_selection_range
+from plugin.doc.text_helpers import clone_text_range, live_insert_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
@@ -28,13 +28,28 @@ def _span_cursor(rng: Any, fail: str) -> Any:
         raise ValueError(fail % e)
 
 
-def request_selection_range(ctx: ToolContext) -> Any | None:
-    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set for ctx.doc, else live_selection_range(doc controller)."""
+def _pinned_range(ctx: ToolContext) -> Any | None:
     pin = ctx.selection_pin
     if pin is not None and pin.range is not None and pin.applies_to(ctx.doc):
         return pin.range
+    return None
+
+
+def request_selection_range(ctx: ToolContext) -> Any | None:
+    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set for ctx.doc, else live_selection_range(doc controller)."""
+    pinned = _pinned_range(ctx)
+    if pinned is not None:
+        return pinned
     controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
     return live_selection_range(controller)
+
+
+def request_insert_range(ctx: ToolContext) -> tuple[Any | None, bool]:
+    """(range, after_object) to insert at: the pinned selection, else live_insert_range."""
+    pinned = _pinned_range(ctx)
+    if pinned is not None:
+        return pinned, False
+    return live_insert_range(uno_read(lambda: ctx.doc.getCurrentController(), None))
 
 
 def require_selection_range(ctx: ToolContext) -> Any:

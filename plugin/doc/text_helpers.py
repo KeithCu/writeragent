@@ -250,6 +250,42 @@ def live_selection_range(controller: Any) -> Any | None:
     return rng
 
 
+def _caret_after_selected_object(controller: Any) -> Any | None:
+    """Model cursor just after the one selected as-character object, else None.
+
+    Only as-character objects have an unambiguous place in the text. Text inserted at a
+    floating object's anchor can land before it, and while recording Reject can delete the object.
+    Editing text inside a drawing shape (``ShellMode::DrawText``) also reports a one-element
+    ``ShapeCollection`` (``SwXTextView::getSelection``, ``unotxvw.cxx``), so it reaches this
+    path and inserts after the shape.
+    """
+    selection = controller.getSelection()
+    if selection is None or selection.supportsService(_TEXT_RANGES_SERVICE):
+        return None
+    # Writer returns drawing shapes as a collection (SwXTextView::getSelection, unotxvw.cxx).
+    if selection.supportsService("com.sun.star.drawing.ShapeCollection"):
+        if selection.getCount() != 1:
+            return None
+        selection = selection.getByIndex(0)
+    if selection.getPropertyValue("AnchorType").value != "AS_CHARACTER":
+        return None
+    # The anchor is collapsed before the object's character (SwXFrame::getSwAnchor,
+    # unoframe.cxx; SwXShape::getAnchor, unodraw.cxx).
+    anchor = selection.getAnchor()
+    cursor = anchor.getText().createTextCursorByRange(anchor.getStart())
+    return cursor if cursor.goRight(1, False) else None
+
+
+def live_insert_range(controller: Any) -> tuple[Any | None, bool]:
+    """(range to insert at, True when it is the caret after a selected as-character object)."""
+    if controller is not None:
+        # A cell-block selection has no AnchorType and Print Preview has no getSelection.
+        caret = uno_read(lambda: _caret_after_selected_object(controller), None)
+        if caret is not None:
+            return caret, True
+    return live_selection_range(controller), False
+
+
 def selection_cursor_snapshot(doc: Any) -> Any | None:
     """Return a model cursor cloned from the live selection/caret, or None.
 
