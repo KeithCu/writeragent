@@ -501,11 +501,10 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   Search/replace and selection clear raise if the range lives in a cell that hosts a nested
   table. Use `table_set_cell` / `table_*`. `target='full_document'` is not policed for
   nested tables (a full rewrite is supposed to replace the document), but it refuses when the
-  document has any hidden section outside headers and footers (including tables and frames in them; `HIDDEN_SECTION`) because a full
-  read returns hidden text and re-importing it would make the section visible or delete it, or
-  when it has any protected non-index section outside headers and footers (including tables and frames in them;
-  `PROTECTED_SECTION`). A visible leading section or TOC is replaced with new content placed
-  outside it. `target='selection'`
+  document has any hidden section (`HIDDEN_SECTION`; a full read returns hidden text and
+  re-importing it would make the section visible or delete it) or protected non-index section
+  (`PROTECTED_SECTION`) outside headers and footers and the tables and frames in them. A visible
+  leading section or TOC is replaced with new content placed outside it. `target='selection'`
   refuses when the range starts in a table and ends outside it (`SELECTION_SPANS_TABLE`) or
   when an image, shape, frame, OLE object, or cell block is selected, or the view has no caret
   (Print Preview) (`SELECTION_NOT_TEXT`). Body

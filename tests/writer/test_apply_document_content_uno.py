@@ -1526,6 +1526,8 @@ def test_full_document_refuses_protected_section_in_body_frame_uno(ctx, doc):
 
     for at_page in (False, True):
         frame = _setup_frame(at_page=at_page)
+        assert (frame.getPropertyValue("ParentText") is None) == at_page
+        assert doc.getTextFrames().getCount() == 1
         res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
         assert res.get("status") == "error", res
         assert res.get("code") == "PROTECTED_SECTION", res
