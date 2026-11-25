@@ -21,8 +21,8 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
     OutlineSnapshot,
-    _paragraph_portions,
     _paint,
+    _paragraph_portions,
     _renamed_url,
     capture_outline_hyperlinks,
     heading_renames,

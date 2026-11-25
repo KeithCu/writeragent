@@ -69,6 +69,8 @@ def _read_prop(portion, name):
 
 def _paragraph_rows(doc):
     """Per paragraph: (text, HyperLinkURL, HyperLinkName, HyperLinkTarget)."""
+    from plugin.doc.text_helpers import iter_portions
+
     text = doc.getText()
     enum = text.createEnumeration()
     paragraphs = []
@@ -82,8 +84,9 @@ def _paragraph_rows(doc):
         except Exception:
             continue
         rows = []
-        while portions.hasMoreElements():
-            portion = portions.nextElement()
+        for portion, _kind in iter_portions(portions):
+            if portion is None:
+                continue
             try:
                 chunk = portion.getString() or ""
             except Exception:
@@ -1348,6 +1351,17 @@ def test_outline_hyperlink_in_and_after_content_control_uno(ctx, doc):
         try:
             res = _apply(doc, ctx, old_content="Intro", content="Overview")
             assert res.get("status") == "ok", (rec, res)
+            urls = _portion_urls(doc)
+            para = next(iter(text.createEnumeration()))
+            has_cc = any(
+                p.getPropertyValue("TextPortionType") == "ContentControl"
+                for p in para.createEnumeration()
+            )
+            assert has_cc, "ContentControl was dropped"
+            if not rec:
+                assert urls == [("xx ", ""), ("Overview", "#Overview|outline")], urls
+            else:
+                assert ("Overview", "#Intro|outline") in urls, urls
         finally:
             doc.setPropertyValue("RecordChanges", False)
 
@@ -1367,5 +1381,16 @@ def test_outline_hyperlink_in_and_after_content_control_uno(ctx, doc):
         try:
             res2 = _apply(doc, ctx, old_content="Intro", content="Overview")
             assert res2.get("status") == "ok", (rec, res2)
+            urls2 = _portion_urls(doc)
+            para2 = next(iter(text.createEnumeration()))
+            has_cc2 = any(
+                p.getPropertyValue("TextPortionType") == "ContentControl"
+                for p in para2.createEnumeration()
+            )
+            assert has_cc2, "ContentControl was dropped"
+            if not rec:
+                assert urls2 == [("xx", ""), (" ", ""), ("Overview", "#Overview|outline")], urls2
+            else:
+                assert ("Overview", "#Intro|outline") in urls2, urls2
         finally:
             doc.setPropertyValue("RecordChanges", False)

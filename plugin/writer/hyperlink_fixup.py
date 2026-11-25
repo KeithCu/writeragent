@@ -448,9 +448,11 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
 
     A cursor saved at the match start does not stay there: replace_preserving_format
     inserts and deletes text around it, pushing other cursors at the same position
-    forward. Stepping through ``_paragraph_portions`` instead of raw ``go_right`` from
+    forward. Painting from that drifted cursor writes the URL onto the following
+    bookmark. Stepping through ``_paragraph_portions`` instead of raw ``go_right`` from
     paragraph start skips dummy characters on preceding controls or metadata.
     """
+    # goRight counts code points, as len() does (breakiterator_unicode.cxx: nextCharacters).
     if not snapshot.single_paragraph:
         return None
     target_start = len(snapshot.prefix)

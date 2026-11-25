@@ -433,7 +433,7 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     props: tuple[str, ...] = ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format")
     if svc == "com.sun.star.text.textfield.Input":
         # Input fields store displayed text in Content and prompt in Hint; other services
-        # (such as TableFormula) use Content for formulas that must not be copied here.
+        # (such as TableFormula) use Content for formulas that are left alone.
         props += ("Content", "Hint")
     for prop in props:
         try:
