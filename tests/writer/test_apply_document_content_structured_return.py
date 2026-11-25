@@ -38,6 +38,7 @@ def _ctx():
         services=types.SimpleNamespace(get=lambda key, default=None: None),
         status_callback=None,
         send_cancellation=None,
+        selection_pin=None,
     )
 
 
@@ -1337,7 +1338,7 @@ def test_replace_all_rollback_failed_code(monkeypatch):
     monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([r1], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.commit_or_rollback",
-        lambda doc, title, mutate, session=None: UndoOutcome(
+        lambda doc, title, mutate, session=None, selection_pin=None: UndoOutcome(
             error={"code": "ROLLBACK_FAILED", "message": "undo broke"}
         ),
     )
@@ -1359,7 +1360,7 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     # Case 1: nothing_landed is False -> rollback could not be completed, so partial changes may remain.
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.commit_or_rollback",
-        lambda doc, title, mutate, session=None: UndoOutcome(
+        lambda doc, title, mutate, session=None, selection_pin=None: UndoOutcome(
             mutate_error=RuntimeError("boom"), nothing_landed=False
         ),
     )
@@ -1374,7 +1375,7 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     # Case 2: nothing_landed is True -> document rolled back cleanly.
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.commit_or_rollback",
-        lambda doc, title, mutate, session=None: UndoOutcome(
+        lambda doc, title, mutate, session=None, selection_pin=None: UndoOutcome(
             mutate_error=RuntimeError("boom"), nothing_landed=True
         ),
     )

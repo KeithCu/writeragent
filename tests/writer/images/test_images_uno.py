@@ -305,3 +305,76 @@ def test_insert_frame_while_recording_accept_and_reject_uno(ctx, doc):
         assert doc.getGraphicObjects().getCount() == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_image_insert_uses_pinned_selection_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+
+    text = doc.getText()
+    text.setString("First paragraph\nSecond paragraph")
+    first_end = text.createTextCursor()
+    first_end.gotoStart(False)
+    first_end.gotoEndOfParagraph(False)
+    controller = doc.getCurrentController()
+    controller.select(first_end)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc=doc)
+
+    # Move the live caret to the end of the second paragraph; image_insert must
+    # still land at the pinned selection in the first paragraph.
+    vc = controller.getViewCursor()
+    vc.gotoEnd(False)
+
+    res = ImageInsert().execute(
+        tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+    )
+    assert res["status"] == "ok", res
+    graphic = doc.getGraphicObjects().getByName(res["image_name"])
+    anchor = graphic.getAnchor()
+    para = text.createTextCursorByRange(anchor.getStart())
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    assert "First paragraph" in para.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_image_generate_uses_pinned_selection_after_slow_generate_uno(ctx, doc):
+    from unittest.mock import patch
+    from plugin.writer.images.images import ImageGenerate
+
+    text = doc.getText()
+    text.setString("First paragraph\nSecond paragraph")
+    first_end = text.createTextCursor()
+    first_end.gotoStart(False)
+    first_end.gotoEndOfParagraph(False)
+    controller = doc.getCurrentController()
+    controller.select(first_end)
+
+    def _slow_generate(*args, **kwargs):
+        # Simulate user moving the caret while image generation is in flight.
+        controller.getViewCursor().gotoEnd(False)
+        return ([_logo_path()], None)
+
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    with (
+        patch("plugin.writer.images.images.ImageService") as svc_cls,
+        patch("plugin.writer.images.images.unlink_temp_paths"),
+        patch("plugin.writer.images.images.get_config", side_effect=lambda k: 60 if k == "request_timeout" else (512 if k == "image_base_size" else ("square" if k == "image_default_aspect" else False))),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        svc_cls.return_value.generate_image.side_effect = _slow_generate
+        res = ImageGenerate().execute(tctx, prompt="test diagram")
+
+    assert res["status"] == "ok", res
+    assert doc.getGraphicObjects().getCount() == 1
+    graphic = doc.getGraphicObjects().getByIndex(0)
+    anchor = graphic.getAnchor()
+    para = text.createTextCursorByRange(anchor.getStart())
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    assert "First paragraph" in para.getString()

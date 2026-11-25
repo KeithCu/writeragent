@@ -1827,7 +1827,7 @@ def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() 
              side_effect=ToolExecutionError("Table insert produced no table in document.", code="TABLE_INSERT_FAILED"),
          ), \
          patch("plugin.writer.apply_document_content.commit_or_rollback") as mock_cor:
-        def run_mutate(_doc, _title, mutate, session=None):
+        def run_mutate(_doc, _title, mutate, session=None, selection_pin=None):
             try:
                 mutate()
                 return SimpleNamespace(

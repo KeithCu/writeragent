@@ -193,7 +193,7 @@ def _insert_ctx():
     undo_mgr.enterUndoContext.side_effect = lambda title: entered.setdefault("title", title)
     undo_mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),) if "title" in entered else ()
     doc.getUndoManager.return_value = undo_mgr
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock())
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock(), selection_pin=None)
     return ctx, undo_mgr
 
 
@@ -386,4 +386,41 @@ def test_require_selection_range_without_caret_raises():
     ctx.selection_pin = SelectionPin(pinned_rng)
     assert require_selection_range(ctx) is pinned_rng
     ctx.doc.getCurrentController.assert_not_called()
+
+
+def test_selection_pin_scoped_to_its_document():
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.target_resolver import request_selection_range, update_selection_pin
+
+    ctx, _ = _ctx()
+    other_doc = MagicMock()
+    foreign_rng = MagicMock()
+    ctx.selection_pin = SelectionPin(foreign_rng, doc=other_doc)
+
+    controller = MagicMock()
+    ctx.doc.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
+    live_rng = controller.getViewCursor.return_value
+
+    assert request_selection_range(ctx) is live_rng
+    update_selection_pin(ctx, MagicMock())
+    assert ctx.selection_pin.range is foreign_rng
+
+
+def test_insert_at_target_restores_selection_pin_on_rollback(monkeypatch):
+    from plugin.framework.tool import SelectionPin
+
+    ctx, undo_mgr = _insert_ctx()
+    pin = MagicMock(spec=SelectionPin)
+    snap = ("text_obj", (0, 6), (0, 11))
+    pin.snapshot.return_value = snap
+    ctx.selection_pin = pin
+    tool = _DummyTool()
+    monkeypatch.setattr("plugin.writer.target_resolver.resolve_target_cursor", lambda *a, **k: MagicMock())
+
+    res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: {"status": "error", "message": "fail"}, what="item")
+    assert res["status"] == "error"
+    undo_mgr.undo.assert_called_once()
+    pin.snapshot.assert_called_once()
+    pin.restore.assert_called_once_with(snap)
 

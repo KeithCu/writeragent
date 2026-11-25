@@ -34,3 +34,31 @@ def test_undo_step_or_rollback_restores_calc_cells_uno(ctx, doc):
     assert a1.getString() == "keep"
     assert b1.getType() == EMPTY
     assert undo_titles(doc) == before
+
+
+@native_test
+@with_native_doc("writer")
+def test_commit_or_rollback_restores_selection_pin_uno(ctx, doc):
+    from plugin.doc.compound_undo import commit_or_rollback
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.target_resolver import cursor_spanning_range
+
+    text = doc.getText()
+    text.setString("hello world!")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    cur.goRight(5, True)
+    doc.getCurrentController().select(cur)
+    pin = SelectionPin(selection_cursor_snapshot(doc), doc=doc)
+    assert pin.range.getString() == "world"
+
+    def mutate():
+        cursor_spanning_range(pin.range).setString("")
+        raise RuntimeError("boom")
+
+    outcome = commit_or_rollback(doc, "WriterAgent: Probe pin rollback", mutate, selection_pin=pin)
+    assert outcome.rolled_back is True
+    assert text.getString() == "hello world!"
+    assert pin.range.getString() == "world"

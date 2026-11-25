@@ -2436,3 +2436,47 @@ def test_image_download_logs_hide_signed_query(tmp_path, monkeypatch, caplog):
     assert "Hunter2pw" not in caplog.text
     assert "SignedSecret123" not in caplog.text
 
+
+def test_image_generate_passes_pinned_selection_cursor_to_insert():
+    from plugin.framework.tool import SelectionPin
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    pinned_rng = MagicMock()
+    pinned_cursor = MagicMock()
+    pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
+    ctx.selection_pin = SelectionPin(pinned_rng, doc=ctx.doc)
+
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/gen.png"], None)
+    with _patch_image_generate(svc, selected=None) as (_replace, insert):
+        res = ImageGenerate().execute(ctx, prompt="a cat")
+
+    assert res["status"] == "ok"
+    insert.assert_called_once()
+    assert insert.call_args.kwargs["text_cursor"] is pinned_cursor
+
+
+def test_image_insert_passes_pinned_selection_cursor_to_locator():
+    from plugin.framework.tool import SelectionPin
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    pinned_rng = MagicMock()
+    pinned_cursor = MagicMock()
+    pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
+    ctx.selection_pin = SelectionPin(pinned_rng, doc=ctx.doc)
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_run),
+        patch("plugin.writer.images.image_tools.graphic_pixel_size_from_path", return_value=(100, 100)),
+        patch("plugin.writer.images.images.insert_image_at_locator", return_value=MagicMock()) as mock_insert,
+    ):
+        res = ImageInsert().execute(ctx, path="/tmp/test.png", target="body", style="Standard", auto_height=True)
+
+    assert res["status"] == "ok"
+    assert mock_insert.call_args.kwargs["text_cursor"] is pinned_cursor
+

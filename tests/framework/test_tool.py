@@ -71,7 +71,13 @@ def test_tool_context_derive():
     assert child.python_tool_domain == sentinels["python_tool_domain"]
     assert child.send_cancellation is sentinels["send_cancellation"]
     assert child.uno_services_supported is sentinels["uno_services_supported"]
-    assert child.selection_pin is sentinels["selection_pin"]
+    assert child.selection_pin is None
+
+    same_doc_child = parent.derive(read_only_target=True)
+    assert same_doc_child.selection_pin is sentinels["selection_pin"]
+
+    explicit_pin = SelectionPin(object(), doc=other)
+    assert parent.derive(doc=other, selection_pin=explicit_pin).selection_pin is explicit_pin
 
 # ── Tool Base Tests ──────────────────────────────────────────────────
 

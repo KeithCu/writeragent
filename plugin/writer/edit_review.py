@@ -961,6 +961,7 @@ def record_html_atomically(
     mutate: Callable[[], Any],
     *,
     clear_first: Callable[[], None] | None = None,
+    selection_pin: Any | None = None,
     **record_kwargs: Any,
 ) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts.
@@ -983,6 +984,7 @@ def record_html_atomically(
             undo_title,
             do_mutate,
             session=session,
+            selection_pin=selection_pin,
         )
     except UndoUnavailable:
         raise ToolExecutionError(

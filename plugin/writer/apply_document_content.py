@@ -607,7 +607,9 @@ class ApplyDocumentContent(ToolBase):
             raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
         return hyperlink_fields(reports)
 
-    def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> list[dict[str, Any]]:
+    def _outline_undo(
+        self, doc: Any, session: EditReviewSession, run: Any, *, selection_pin: Any | None = None,
+    ) -> list[dict[str, Any]]:
         """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
 
         The HTML path and a surgical review replace each close their own undo context
@@ -627,6 +629,7 @@ class ApplyDocumentContent(ToolBase):
                 next_agent_edit_undo_title(),
                 mutate,
                 session=session,
+                selection_pin=selection_pin,
             )
         except UndoUnavailable as exc:
             raise ToolExecutionError(
@@ -782,6 +785,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, doc,
                     replace_single,
+                    selection_pin=ctx.selection_pin,
                     original_preview=original, proposed_preview=plain)
             reports = (
                 restore_links(doc, anchor, snapshot, plain, override)
@@ -807,7 +811,7 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 return run()
 
-        return self._outline_undo(doc, session, once)
+        return self._outline_undo(doc, session, once, selection_pin=ctx.selection_pin)
 
     def _occurrence_oor(self, occurrence: int, count: int, **details: Any) -> dict[str, Any]:
         # LLMs guess 1-based; say the valid 0-based range like apply_style.
@@ -1368,6 +1372,7 @@ class ApplyDocumentContent(ToolBase):
                 ctx.doc,
                 mutate,
                 clear_first=lambda: delete_leading_tables(session, ctx.doc, ctx.ctx),
+                selection_pin=ctx.selection_pin,
                 proposed_preview=plain,
             )
             report.links_retargeted, report.stale_links = retarget_renamed_links(session, ctx.doc, headings)
@@ -1399,7 +1404,7 @@ class ApplyDocumentContent(ToolBase):
                 return rep
 
             report = record_html_atomically(
-                session, ctx.doc, mutate, proposed_preview=plain)
+                session, ctx.doc, mutate, selection_pin=ctx.selection_pin, proposed_preview=plain)
         if target == "end":
             msg = "Inserted content at end."
             anchor = collapsed_anchor(ctx.doc.getText().getEnd())
@@ -1432,7 +1437,7 @@ class ApplyDocumentContent(ToolBase):
                 return rep
 
             report = record_html_atomically(
-                session, ctx.doc, mutate, proposed_preview=plain)
+                session, ctx.doc, mutate, selection_pin=ctx.selection_pin, proposed_preview=plain)
             report.links_retargeted, report.stale_links = retarget_renamed_links(session, ctx.doc, headings)
         res: dict[str, Any] = {"status": "ok", "message": "Inserted content at selection."}
         if report.snapped_to_paragraph:
@@ -1498,6 +1503,7 @@ class ApplyDocumentContent(ToolBase):
                 next_agent_edit_undo_title(),
                 mutate,
                 session=session,
+                selection_pin=ctx.selection_pin,
             )
         except UndoUnavailable:
             return self._tool_error(
@@ -1723,6 +1729,7 @@ class ApplyDocumentContent(ToolBase):
         with KeepViewSelection(uno_read(lambda: doc.getCurrentController(), None)), session:
             record_html_atomically(
                 session, doc, _insert_next_to_match,
+                selection_pin=ctx.selection_pin,
                 proposed_preview=plain)
         where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
                  "without splitting it)" % position) if snapped else "%s the old_content match" % position
