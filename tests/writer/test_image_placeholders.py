@@ -487,7 +487,7 @@ def test_restore_image_placeholders_updates_surviving_picture_links():
         kept = _KeptImage("wa1img0", "Pic1", orig, MagicMock(), MagicMock(), MagicMock(), dict(orig_props), linked=linked)
         with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=False):
             _restore_image_placeholders(model, [kept])
-        return dict(orig.setPropertyValue.call_args_list[i].args for i in range(orig.setPropertyValue.call_count))
+        return dict(c.args for c in orig.setPropertyValue.call_args_list)
 
     # Linked survivor: updates URL and keeps target.
     assert _run(
@@ -546,3 +546,40 @@ def test_capture_placeholder_images_refuses_embedded_object_with_helpful_message
         capture_placeholder_images(model, '<span id="Object1"><img src=""/></span>')
     assert "'Object1'" in str(exc_info.value)
     assert "target='search'" in str(exc_info.value)
+
+    with pytest.raises(ToolExecutionError) as mixed_exc:
+        capture_placeholder_images(
+            model, '<span id="Object1"><img src=""/></span><span id="MissingPic"><img src=""/></span>'
+        )
+    msg = str(mixed_exc.value)
+    assert "'Object1'" in msg and "'MissingPic'" in msg
+    assert "target='search'" in msg and "include_images=true" in msg
+
+
+def test_region_unlinked_picture_inside_text_link_keeps_link_untouched():
+    from plugin.writer.image_placeholders import capture_region_images, restore_region_images
+
+    orig_props = {"HyperLinkURL": "", "HyperLinkName": "", "HyperLinkTarget": ""}
+    orig = _prop_obj(orig_props)
+    orig.getPropertyValue.side_effect = lambda name: {
+        "Graphic": MagicMock(),
+        "AnchorType": MagicMock(value="AT_CHARACTER"),
+        **orig_props,
+    }[name]
+    model = _graphics_doc("Pic1")
+    graphics = model.getGraphicObjects.return_value
+    graphics.getByName.return_value = orig
+    text_obj = MagicMock()
+
+    with patch("plugin.writer.image_placeholders.uno_same", return_value=True):
+        swapped, images = capture_region_images(
+            model, text_obj, '<p><a href="https://text/l">before <span id="Pic1"><img src=""/></span> after</a></p>'
+        )
+    assert images[0].linked is False
+
+    imported = _prop_obj({"HyperLinkURL": "https://text/l", "HyperLinkName": "", "HyperLinkTarget": ""})
+    graphics.hasByName.side_effect = lambda name: name == images[0].marker
+    graphics.getByName.side_effect = lambda name: imported if name == images[0].marker else orig
+    with patch("plugin.writer.image_placeholders._deleted_by_the_edit", return_value=False):
+        restore_region_images(model, images)
+    orig.setPropertyValue.assert_not_called()

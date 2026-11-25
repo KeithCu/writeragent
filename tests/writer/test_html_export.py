@@ -1132,3 +1132,33 @@ def test_full_export_with_hidden_section_and_no_redlines_exports_scratch_copy():
     assert written == ['<office:document><text:section text:name="H"/></office:document>']
     assert sem.call_args.args[0] is copy_doc
 
+
+def test_export_full_simplifies_drawings_before_expanding_tracked_deletions():
+    from plugin.writer import html_export as hx
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK
+
+    struck_shape_fodt = (
+        '<office:body><office:text>'
+        '<text:tracked-changes><text:changed-region text:id="ct1"><text:deletion><text:p/></text:deletion></text:changed-region></text:tracked-changes>'
+        '<text:p><text:change text:change-id="ct1"/><draw:rect draw:name="R2"><text:p> </text:p></draw:rect></text:p>'
+        '</office:text></office:body>'
+    )
+    source_doc = MagicMock()
+    source_doc.getTextTables.return_value.getElementNames.return_value = []
+    written = []
+
+    def fake_write(content, ext=""):
+        written.append(content)
+        return MagicMock(__enter__=lambda s: ("/tmp/x.fodt", "file:///tmp/x.fodt"), __exit__=lambda *a: None)
+
+    with patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export._read_filter_text", return_value=struck_shape_fodt), \
+         patch("plugin.writer.html_export.with_temp_buffer", side_effect=fake_write), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=MagicMock()), \
+         patch("plugin.writer.html_export.close_scratch_document"), \
+         patch("plugin.writer.html_export._export_semantic", return_value=("<p>ok</p>", False)):
+        hx._export_full(source_doc, MagicMock())
+
+    assert len(written) == 1
+    assert DELETED_MARK in written[0]
+

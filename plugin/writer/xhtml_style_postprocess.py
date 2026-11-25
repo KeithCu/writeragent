@@ -715,7 +715,13 @@ def _exportable_drawing(name: str, attrs: str, body: str) -> str:
 
 
 def simplify_drawings(fodt: str) -> str:
-    """Rewrite bare shapes with text as text-box frames and drop empty shapes and non-math OLE objects."""
+    """Rewrite bare shapes with text as text-box frames and drop empty shapes and non-math OLE objects.
+
+    Non-math ``draw:object`` elements are dropped whole (keeping any sibling ``draw:image``
+    preview) because the reloaded copy holds a real OLE object and LibreOffice writes its
+    metadata again on export, so trimming only metadata cannot work. Nesting depth is
+    counted because an embedded Writer document can hold its own ``draw:object``.
+    """
     # crosshair: off
     out: list[str] = []
     pos = 0

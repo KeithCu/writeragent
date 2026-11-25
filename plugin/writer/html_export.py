@@ -245,7 +245,9 @@ def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
     two copies of the same URL with plain text between them stay two anchors.
     A picture in the scratch copy ends the link run and the filter writes two
     anchors: an empty ``Frame`` portion resets *previous* when its URL differs
-    from the surrounding link.
+    from the surrounding link. The source document reports the text link's URL on
+    the ``Frame``, whereas the scratch copy reports ``''``, and that difference
+    tells one anchor from two.
     """
     urls = []
     previous = None
@@ -268,6 +270,11 @@ def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
 
 
 def _picture_urls(doc: Any) -> dict[str, str]:
+    """Map graphic object names to non-empty ``HyperLinkURL`` values for name-based lookup.
+
+    ``create-href`` (``common/body.xsl``) builds ``#a_`` from all descendant text including
+    base64 image data, so picture links cannot be paired by count.
+    """
     graphics = doc.getGraphicObjects()
     urls: dict[str, str] = {}
     for name in graphics.getElementNames():
@@ -278,6 +285,7 @@ def _picture_urls(doc: Any) -> dict[str, str]:
 
 
 def _picture_url(match: re.Match[str], picture_urls: dict[str, str]) -> str | None:
+    """Return the picture's own ``HyperLinkURL`` when *match* immediately precedes a linked picture wrapper."""
     name = match["picture"]
     return picture_urls.get(html_unescape(name)) if name else None
 
@@ -768,9 +776,11 @@ def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
     ``SwXMLExport::exportDoc`` hides deletions by joining paragraphs across a
     multi-paragraph deletion and ``odf2xhtml`` drops empty headings/blocks and
     ``text:section[@text:display='none']``, emits bare shape titles/text
-    without wrappers, and leaks non-math OLE metadata. Rewrite the flat-ODF
-    sidecar and export a hidden copy when needed. Tables Accept All removes
-    are left out of the copy.
+    without wrappers, and leaks non-math OLE metadata. When tracked deletions
+    cross a paragraph break or empty a paragraph, any section has ``IsVisible``
+    false, or bare shapes/non-math OLE objects are present, rewrite the flat-ODF
+    sidecar and export a hidden copy instead. Tables Accept All removes are left
+    out of the copy.
     """
     deletions = bool(TrackedDeletions(model))
     struck: list[str] = []
@@ -782,6 +792,8 @@ def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
             if range_copy.table_is_struck(model, tables.getByName(name), DeletionState())
         ]
     fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+    # simplify_drawings must run before expand_tracked_deletions: any draw: tag marks a
+    # paragraph live, so a struck paragraph holding only an empty shape would lose its style token.
     readable = xhtml_post.show_hidden_sections(xhtml_post.simplify_drawings(fodt))
     if deletions:
         readable = xhtml_post.expand_tracked_deletions(readable) or readable

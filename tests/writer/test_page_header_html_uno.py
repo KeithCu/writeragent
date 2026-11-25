@@ -1601,13 +1601,18 @@ def test_header_write_keeps_picture_link_target_uno(ctx, doc):
             doc.getGraphicObjects().getByIndex(i).dispose()
         header.setString("only")
         _insert_header_logo(doc, header, img_path, AT_PARAGRAPH, name="HdrAtPara", link_url="https://example.com/old")
-        doc.getGraphicObjects().getByName("HdrAtPara").setPropertyValue("HyperLinkTarget", "_blank")
+        orig_pic = doc.getGraphicObjects().getByName("HdrAtPara")
+        orig_pic.setPropertyValue("HyperLinkTarget", "_blank")
         html_p = _get(doc, ctx, "header")["content"].replace("https://example.com/old", "https://example.com/new")
         doc.setPropertyValue("RecordChanges", True)
         try:
+            from plugin.framework.uno_context import uno_same
+
             res_p = _set(doc, ctx, "header", html_p)
             assert res_p["status"] == "ok", res_p
+            assert doc.getGraphicObjects().getCount() == 1
             pic3 = doc.getGraphicObjects().getByName("HdrAtPara")
+            assert uno_same(pic3, orig_pic)
             assert pic3.getPropertyValue("HyperLinkURL") == "https://example.com/new"
             assert pic3.getPropertyValue("HyperLinkTarget") == "_blank"
         finally:

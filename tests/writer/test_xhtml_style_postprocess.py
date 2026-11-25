@@ -730,6 +730,7 @@ def test_simplify_drawings_rewrites_shapes_and_drops_empty_or_ole():
         '<draw:object><office:document><office:body><draw:object/></office:body></office:document></draw:object>'
         '<draw:image xlink:href="data:;base64,AAA"/></draw:frame>'
         '<draw:frame draw:name="Math1"><draw:object><math xmlns="http://www.w3.org/1998/Math/MathML"/></draw:object></draw:frame>'
+        '<draw:frame draw:name="Link1"><draw:object xlink:href="https://obj.example"/></draw:frame>'
         '</text:p>'
         '</office:text></office:body>'
     )
@@ -740,6 +741,7 @@ def test_simplify_drawings_rewrites_shapes_and_drops_empty_or_ole():
     assert "office:document" not in out
     assert '<draw:image xlink:href="data:;base64,AAA"/>' in out
     assert '<math xmlns="http://www.w3.org/1998/Math/MathML"/>' in out
+    assert '<draw:object xlink:href="https://obj.example"/>' in out
 
     # A struck paragraph holding only an empty shape gets DELETED_MARK when simplify_drawings runs first.
     struck = (

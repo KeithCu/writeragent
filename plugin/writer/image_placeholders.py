@@ -43,7 +43,8 @@ log = logging.getLogger("writeragent.writer")
 # newlines add a space mid-word. A picture inside a heading comes back with a <p> between
 # the wrapper and the <img> (<span id="Name"><p><img src=""/></p></span>); the optional <p>
 # in the pattern catches it, so the edit is not refused as "an image without its data".
-# _FRAME_IMAGE_RE and html_export._FRAME_IMG_AHEAD share FRAME_HEAD.
+# _FRAME_IMAGE_RE shares FRAME_HEAD for header/footer writes (data-less or with data),
+# and html_export._FRAME_IMG_AHEAD shares it to match picture frames on export.
 FRAME_HEAD = (
     r"(?:\n<!--Next 'div' is emulating the top height of a draw:frame\.-->\s*"
     r'(?:<div style="height:[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?)?'
@@ -102,6 +103,13 @@ class _RegionImage(NamedTuple):
     kept: _KeptImage | None
     no_data: bool
     in_region: bool
+    linked: bool = False
+
+
+_LINKED_REGION_IMGS_RE = re.compile(
+    r'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="wa[0-9a-f]{8}img\d+"[^>]*>)+\s*</a>',
+    re.IGNORECASE,
+)
 
 
 def _read_picture(obj: Any, marker: str, name: str) -> _KeptImage:
@@ -130,36 +138,31 @@ def _refuse_lost_images(model: Any, missing: list[str]) -> NoReturn:
         for name in missing:
             is_embedded = bool(objects is not None and uno_read(lambda: objects.hasByName(name), False))
             (embedded if is_embedded else unknown).append(name)
-    if embedded and not unknown:
-        raise ToolExecutionError(
-            "The content has an image without its data (src=\"\"), so it would be lost. "
+    parts = ['The content has an image without its data (src=""), so it would be lost.']
+    if embedded:
+        parts.append(
             "It names %s, an embedded object (chart, spreadsheet, …) that a write cannot put back. "
             "Edit around it (target='search'), or leave its wrapper out to delete it."
             % ", ".join(repr(n) for n in embedded)
         )
-    named = (
-        " It names %s, which this document does not have." % ", ".join(repr(n) for n in unknown)
-        if unknown
-        else ""
-    )
-    embedded_note = (
-        " It also names %s, an embedded object (chart, spreadsheet, …) that a write cannot put back."
-        % ", ".join(repr(n) for n in embedded)
-        if embedded
-        else ""
-    )
-    raise ToolExecutionError(
-        "The content has an image without its data (src=\"\"), so it would be lost.%s%s Keep the "
-        "image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
-        "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
-        "delete it, or read with include_images=true to copy it from another document. "
-        "To link the picture, put the <a> around that wrapper." % (named, embedded_note)
-    )
+    if unknown or not embedded:
+        if unknown:
+            parts.append("It names %s, which this document does not have." % ", ".join(repr(n) for n in unknown))
+        parts.append(
+            "Keep the image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
+            "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
+            "delete it, or read with include_images=true to copy it from another document. "
+            "To link the picture, put the <a> around that wrapper."
+        )
+    raise ToolExecutionError(" ".join(parts))
 
 
 def _merged_link(source: Any, kept: dict[str, Any]) -> dict[str, str]:
-    """Merge imported link properties from *source* with *kept* fallback name and target."""
-    link = {prop: uno_read(lambda: str(source.getPropertyValue(prop) or ""), "") for prop in _LINK_PROPS}
+    """Merge imported link properties from *source* with *kept* fallback name and target.
+
+    The imported marker's link wins: it is what the agent wrote, with relative URLs resolved.
+    """
+    link = {prop: str(source.getPropertyValue(prop) or "") for prop in _LINK_PROPS}
     if not link["HyperLinkURL"]:
         return {prop: "" for prop in _LINK_PROPS}
     # The XHTML export writes only the URL, so a missing name or target means "unchanged".
@@ -167,14 +170,14 @@ def _merged_link(source: Any, kept: dict[str, Any]) -> dict[str, str]:
 
 
 def _set_link(picture: Any, link: dict[str, str]) -> None:
-    """Write only changed link properties onto *picture*."""
+    """Write only changed link properties onto *picture*.
+
+    Applied untracked because LibreOffice does not track frame attributes; Undo reverts it
+    and Reject All does not.
+    """
     for prop, value in link.items():
-        if uno_read(lambda: str(picture.getPropertyValue(prop) or ""), "") != value:
-            try:
-                picture.setPropertyValue(prop, value)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.debug("kept image: could not set %s", prop, exc_info=True)
+        if str(picture.getPropertyValue(prop) or "") != value:
+            picture.setPropertyValue(prop, value)
 
 
 def _insert_copy(
@@ -300,7 +303,10 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
     swapped = _FRAME_IMAGE_RE.sub(_swap, html)
     if missing or _EMPTY_IMG_RE.search(swapped):
         _refuse_lost_images(model, missing)
-    return swapped, images
+    linked: set[str] = set()
+    for m in _LINKED_REGION_IMGS_RE.finditer(swapped):
+        linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", m.group(0)))
+    return swapped, [img._replace(linked=img.marker in linked) for img in images]
 
 
 def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
@@ -324,7 +330,8 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
         # Only a graphic anchored directly in text_obj can survive the clear; a cell
         # original's _deleted_by_the_edit answers False even though Accept removes the table.
         if image.in_region and not _deleted_by_the_edit(model, kept.original, image.name):
-            _set_link(kept.original, _merged_link(imported, kept.props))
+            if image.linked or kept.props.get("HyperLinkURL"):
+                _set_link(kept.original, _merged_link(imported, kept.props))
             imported.dispose()
             continue
         anchor = imported.getAnchor()
@@ -336,7 +343,8 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
             props["Title"] = imported.getPropertyValue("Title")
         except Exception as exc:
             reraise_if_disposed(exc)
-        props.update(_merged_link(imported, kept.props))
+        if image.linked or props.get("HyperLinkURL"):
+            props.update(_merged_link(imported, kept.props))
         graphic = kept.graphic if image.no_data else imported.getPropertyValue("Graphic")
         imported.dispose()
         # Insert a new TextGraphicObject instead of setting AnchorType on the imported one:

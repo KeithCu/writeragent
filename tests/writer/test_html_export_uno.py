@@ -2184,6 +2184,7 @@ def test_range_export_keeps_ruby_after_content_control_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_full_export_rewrites_bare_shapes_and_drops_empty_or_controls_uno(ctx, doc):
+    import re
     from com.sun.star.awt import Point, Size
     from plugin.writer.html_export import document_to_content
 
@@ -2211,8 +2212,8 @@ def test_full_export_rewrites_bare_shapes_and_drops_empty_or_controls_uno(ctx, d
     assert "RectEmpty" not in html
     assert "ConnEmpty" not in html
     assert "Ctrl1" not in html
-    assert 'id="RectText"' in html
-    assert "TEXT-R1" in html
+    assert re.search(r'id="RectText"[^>]*>.*?TEXT-R1', html, re.DOTALL), html
+    assert html.count("<p") == 1, html
 
 
 @native_test
@@ -2238,6 +2239,8 @@ def test_full_export_drops_ole_metadata_and_keeps_preview_and_math_uno(ctx, doc)
 
     html = document_to_content(doc, ctx, scope="full", include_images=False)
     assert "LibreOffice/" not in html
+    assert "config:" not in html
+    assert "background-image:url()" not in html
     assert "base64" not in html
     assert 'id="Object1"' in html
     assert 'id="Object2"' in html
@@ -2279,6 +2282,27 @@ def test_range_export_keeps_picture_and_surrounding_text_links_uno(ctx, doc):
             assert _hrefs(html) == expected, (anchor_type, html)
         finally:
             os.unlink(img_path)
+
+    # Unlinked AS_CHARACTER picture inside a text link followed by a different link.
+    for i in range(doc.getGraphicObjects().getCount() - 1, -1, -1):
+        doc.getGraphicObjects().getByIndex(i).dispose()
+    text.setString("before after other")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(12, True)
+    cur.setPropertyValue("HyperLinkURL", "https://text/l")
+    cur.collapseToStart()
+    cur.goRight(7, False)
+    img_path = _insert_tiny_png(doc, text, cur, AS_CHARACTER, "UnlinkedInside")
+    try:
+        ocur = text.createTextCursor()
+        ocur.gotoEnd(False)
+        ocur.goLeft(5, True)
+        ocur.setPropertyValue("HyperLinkURL", "https://other/o")
+        html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+        assert _hrefs(html) == ["https://text/l", "https://text/l", "https://other/o"], html
+    finally:
+        os.unlink(img_path)
 
 
 @native_test
