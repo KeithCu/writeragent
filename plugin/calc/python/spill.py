@@ -246,7 +246,10 @@ def cleanup_orphans(
 
 
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
-    """Load the document's spill registry from its UserDefinedProperties."""
+    """Load once per workbook state; later calls do nothing."""
+    if state.loaded:
+        return
+    state.loaded = True
     try:
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
@@ -379,6 +382,106 @@ def _apply_spill_temporal_formats(
         log.exception("Error applying temporal number formats during deferred spill")
 
 
+def _spill_token(sheet_name: str, row: int, col: int) -> str:
+    return f"spill:{sheet_name}:{row}:{col}"
+
+
+def _live_origin_sheet(
+    doc: Any,
+    sheet: Any,
+    sheet_name: str,
+    formula_row: int,
+    formula_col: int,
+    code: str,
+) -> tuple[Any, str] | None:
+    """Resolve the current sheet (following renames) and verify the origin still matches ``code``."""
+    resolved_sheet = sheet
+    try:
+        named = doc.getSheets().getByName(sheet_name)
+        if named is not None:
+            resolved_sheet = named
+    except Exception:  # noqa: S110
+        pass
+    sheet = resolved_sheet
+    live_sheet_name = ""
+    try:
+        if hasattr(sheet, "getName"):
+            live_sheet_name = str(sheet.getName() or "")
+    except Exception:
+        return None
+    if live_sheet_name and live_sheet_name != sheet_name:
+        try:
+            migrate_sheet_rename(doc, sheet_name, live_sheet_name)
+        except Exception:
+            log.debug("_live_origin_sheet: rename migration failed", exc_info=True)
+        sheet_name = live_sheet_name
+
+    try:
+        origin_cell = sheet.getCellByPosition(formula_col, formula_row)
+        if not is_matching_py_formula(origin_cell.getFormula(), code):
+            return None
+    except Exception:
+        log.debug("_live_origin_sheet: origin formula check failed", exc_info=True)
+        return None
+    return (sheet, sheet_name)
+
+
+def _clear_blocked_spill(
+    state: WorkbookState,
+    doc: Any,
+    sheet: Any,
+    sheet_name: str,
+    row: int,
+    col: int,
+) -> None:
+    """Clear owned neighbor cells when a spill is blocked and shrink its record to 1 x 1.
+
+    Excel empties a blocked spill's range; a user formula inside keeps the cells and the record.
+    Caller must hold ``undo_lock`` and ``sheet_modify_scope``.
+    """
+    key = (sheet_name, row, col)
+    rec = state.spills.get(key)
+    if rec is None or rec.rows * rec.cols <= 1:
+        return
+    if _user_formula_in_rect(sheet, row, col, rec.rows, rec.cols) is not None:
+        return
+    before = _used_end(sheet)
+    _clear_rect(sheet, row, col, rec.rows, rec.cols)
+    state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
+    save_spill_registry_for_doc(doc, state)
+    _advance_used_end(state, sheet, sheet_name, before)
+
+
+def _release_blocked_spill(
+    sheet_name: str,
+    formula_row: int,
+    formula_col: int,
+    *,
+    doc: Any,
+    sheet: Any,
+    code: str,
+    key: str,
+) -> None:
+    """Deferred UI-thread release for a spill that was blocked during interpretation."""
+    try:
+        if not main.is_current():
+            return
+        state = WorkbookState.for_doc(doc)
+        if state is None:
+            return
+        with undo_lock(doc):
+            if not state.scheduled_key_matches(key):
+                return
+            live = _live_origin_sheet(doc, sheet, sheet_name, formula_row, formula_col, code)
+            if live is None:
+                return
+            live_sheet, live_name = live
+            with sheet_modify_scope():
+                _clear_blocked_spill(state, doc, live_sheet, live_name, formula_row, formula_col)
+    except Exception:
+        log.exception("Error in _release_blocked_spill")
+
+
 def perform_deferred_spill(
     sheet_name: str,
     formula_row: int,
@@ -394,7 +497,8 @@ def perform_deferred_spill(
 
     After rechecking that targets are still free, this clears old cells, classifies the grid into ``SpillValue`` records,
     writes neighbour values/errors and updates the spill registry, then applies
-    standard temporal number formats across coalesced blocks.
+    standard temporal number formats across coalesced blocks. If the recheck finds a
+    collision, owned neighbor cells are cleared and the record shrinks to 1 x 1.
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
     The state key, the sheet looked up by name, the origin formula, and target collisions are
@@ -413,34 +517,10 @@ def perform_deferred_spill(
             if not state.scheduled_key_matches(key):
                 return
 
-            resolved_sheet = sheet
-            try:
-                named = doc.getSheets().getByName(sheet_name)
-                if named is not None:
-                    resolved_sheet = named
-            except Exception:  # noqa: S110
-                pass
-            sheet = resolved_sheet
-            live_sheet_name = ""
-            try:
-                if hasattr(sheet, "getName"):
-                    live_sheet_name = str(sheet.getName() or "")
-            except Exception:
+            live = _live_origin_sheet(doc, sheet, sheet_name, formula_row, formula_col, code)
+            if live is None:
                 return
-            if live_sheet_name and live_sheet_name != sheet_name:
-                try:
-                    migrate_sheet_rename(doc, sheet_name, live_sheet_name)
-                except Exception:
-                    log.debug("perform_deferred_spill: rename migration failed", exc_info=True)
-                sheet_name = live_sheet_name
-
-            try:
-                origin_cell = sheet.getCellByPosition(formula_col, formula_row)
-                if not is_matching_py_formula(origin_cell.getFormula(), code):
-                    return
-            except Exception:
-                log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
-                return
+            sheet, sheet_name = live
 
             reg_key = (sheet_name, formula_row, formula_col)
 
@@ -451,6 +531,7 @@ def perform_deferred_spill(
                 num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
                 owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
                 if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+                    _clear_blocked_spill(state, doc, sheet, sheet_name, formula_row, formula_col)
                     return
                 if previous_record is not None:
                     _clear_rect(sheet, formula_row, formula_col, previous_record.rows, previous_record.cols)
@@ -629,9 +710,7 @@ def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord
 
 def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
     """Load the document's spill registry and arm modify listeners on sheets with records (UI thread)."""
-    if not state.loaded:
-        load_spill_registry_for_doc(doc, state)
-        state.loaded = True
+    load_spill_registry_for_doc(doc, state)
     if not state.spills:
         return
     sheets = doc.getSheets()
@@ -662,9 +741,9 @@ def prepare_auto_spill(
     Called with the origin already located and known not to be an array block
     (``CellContext.is_matrix`` on the main path, ``cell_is_matrix`` in the off-main
     callback). Returns ``"#SPILL!"`` on collision (recording the reason in the
-    diagnostics store, which the LibrePy sidebar and ``write_range`` read),
-    ``PreparedSpill`` when the neighbor write should proceed, or ``None`` when
-    ``state.key`` is empty.
+    diagnostics store, which the LibrePy sidebar and ``write_range`` read, and
+    scheduling a deferred clear of owned neighbor cells), ``PreparedSpill`` when
+    the neighbor write should proceed, or ``None`` when ``state.key`` is empty.
     """
     if not state.key:
         return None
@@ -674,9 +753,7 @@ def prepare_auto_spill(
     sheet_name = origin.sheet_name
     log.debug("Spill: checking formula cell at %r on sheet %r for code %r", (formula_row, formula_col), sheet_name, code)
 
-    if not state.loaded:
-        load_spill_registry_for_doc(doc, state)
-        state.loaded = True
+    load_spill_registry_for_doc(doc, state)
 
     try:
         _arm_sheet(ctx, doc, state, sheet, sheet_name)
@@ -694,13 +771,29 @@ def prepare_auto_spill(
     log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
 
     if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+        # Cells cannot be written during interpretation, and the shared token lets a later
+        # recalculation of this origin replace the job.
+        key = state.key
+        state.debounce.schedule(
+            _spill_token(sheet_name, formula_row, formula_col),
+            0.1,
+            lambda: _release_blocked_spill(
+                sheet_name,
+                formula_row,
+                formula_col,
+                doc=doc,
+                sheet=sheet,
+                code=code,
+                key=key,
+            ),
+        )
         return "#SPILL!"
     return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
 
 def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: PreparedSpill, grid_to_spill: list[list[Any]]) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
-    token = f"spill:{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
+    token = _spill_token(prepared.sheet_name, prepared.formula_row, prepared.formula_col)
 
     def _write() -> None:
         perform_deferred_spill(

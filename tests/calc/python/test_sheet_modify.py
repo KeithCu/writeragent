@@ -200,6 +200,31 @@ def test_rename_without_identity_does_not_touch_other_workbooks():
     assert ("uid-other", "Sheet2", 0, 0) not in SPILL_REGISTRY
 
 
+def test_rename_keeps_spill_registry_when_memory_is_not_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    stored = {"WriterAgentSpillRegistry": json.dumps({"Sheet1:0,0": {"code": "x", "rows": 3, "cols": 1}})}
+
+    def mock_get(_doc, name, default=None):
+        return stored.get(name, default)
+
+    def mock_set(_doc, name, value):
+        stored[name] = value
+
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", mock_get)
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set)
+
+    doc = CalcDocStub(url="file:///unloaded-rename.ods", props={"RuntimeUID": "uid-unloaded-rename"})
+    state = WorkbookState.for_doc(doc)
+    assert state is not None and state.loaded is False
+
+    migrate_sheet_rename(doc, "Sheet1", "New")
+
+    assert json.loads(stored["WriterAgentSpillRegistry"]) == {"New:0,0": {"code": "x", "rows": 3, "cols": 1}}
+    assert ("New", 0, 0) in state.spills
+    assert state.loaded is True
+
+
 def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     """While perform_deferred_spill runs, sheet-modify dispatch depth is non-zero, so no modify pass is scheduled."""
     doc = CalcDocStub(url="file:///spill_dispatch.ods", props={"RuntimeUID": "uid-spill-dispatch"})
