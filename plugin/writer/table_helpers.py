@@ -87,7 +87,10 @@ def check_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
         if idx >= count:
             raise ValueError("index %d out of range (table has %d %s; use 0..%d)." % (idx, count, axis, count - 1))
         if count <= 1:
-            raise ValueError("Cannot remove the last %s of a table." % axis[:-1])
+            raise ValueError(
+                "Cannot remove the last %s of a table; to remove the whole table, use table_delete."
+                % axis[:-1]
+            )
 
 
 def edit_table_band(band: Any, action: str, idx: int, axis_label: str) -> None:
