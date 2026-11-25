@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable, cast
 
-from plugin.chatbot.partial_turn_agent import PartialTurnToolCallingAgent
-from plugin.contrib.smolagents.agents import ToolOutput
+from plugin.contrib.smolagents.agents import ToolCallingAgent, ToolOutput
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
@@ -228,12 +227,12 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
-    # Pass system_prompt_examples. PartialTurnToolCallingAgent otherwise fills in the
+    # Pass system_prompt_examples. ToolCallingAgent otherwise fills in the
     # web-research demo (web_search / final_answer). This agent finishes with
     # ppt_master_finished.
     # stdout is dup'd onto stderr here and the host quotes the stderr tail in errors,
     # so the agent console stays off.
-    agent = PartialTurnToolCallingAgent(
+    agent = ToolCallingAgent(
         tools=tools,
         model=smol_model,
         max_steps=max_steps,
