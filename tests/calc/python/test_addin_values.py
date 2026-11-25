@@ -732,7 +732,7 @@ def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
 
     class _RejectingCtx:
         def getValueByName(self, _name: Any) -> Any:
-            raise addin_values.RuntimeException("uno.Any instance not accepted during method call")
+            raise addin_values.RuntimeException("uno.Any instance not accepted during method call", None)
 
     assert addin_values.accepts_returned_any(_RejectingCtx()) is False
     assert addin_values.accepts_returned_any(MagicMock()) is True

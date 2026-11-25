@@ -1196,7 +1196,9 @@ def teardown(func: Any) -> Any:
 
 
 def _is_uno_bridge_disposed(exc: BaseException) -> bool:
-    return type(exc).__name__ == "DisposedException" or "Binary URP bridge" in str(exc)
+    # A closed document raises the same DisposedException class on a healthy office, so only
+    # the bridge's own message (binaryurp/source/bridge.cxx makeCall and checkDisposed) means URP is dead.
+    return "Binary URP bridge" in str(exc)
 
 
 def _mark_urp_dead(exc: BaseException, where: str) -> None:
@@ -1569,11 +1571,8 @@ def run_all_tests(ctx: Any) -> str:
                 )
 
     # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
-    # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
-    # …); if the first suite only pulled in a partial UNO graph, a later suite's
-    # first ``get_tools()`` could otherwise see an empty registry or hit import
-    # edge cases. Extension startup already calls ``mark_initialized``; this is a
-    # no-op then.
+    # UNO test file, so every suite's get_tools() sees the full registry.
+    # Extension startup already calls mark_initialized; this is a no-op then.
     try:
         _rebootstrap_ctx(ctx)
     except Exception as e:
@@ -1604,10 +1603,6 @@ def run_all_tests(ctx: Any) -> str:
 
     if os.path.isdir(tests_root):
         # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
-        from tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
-
-        _MISSING = object()
-
         # Gather all candidates
         test_candidates = []
         has_scripts = os.path.isdir(os.path.join(os.path.dirname(tests_root), "scripts"))
@@ -1669,7 +1664,6 @@ def run_all_tests(ctx: Any) -> str:
                 rel_path = os.path.relpath(module_path, tests_root)
                 sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
 
-                restore_snapshot: Dict[str, Any] = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                 try:
                     spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
                     assert spec is not None and spec.loader is not None
@@ -1721,13 +1715,6 @@ def run_all_tests(ctx: Any) -> str:
                         }
                     )
                     total_failed += 1
-                finally:
-                    # Prevent sys.modules mocking from polluting later native tests.
-                    for k, v in restore_snapshot.items():
-                        if v is _MISSING:
-                            sys.modules.pop(k, None)
-                        else:
-                            sys.modules[k] = v
 
         if skip_keeper_close:
             # Leftover peer docs / Impress: do not close(True). Kill soffice.

@@ -29,6 +29,8 @@ its last hidden Draw doc.
 `getServiceManager()` already fails. Inside a suite, the next
 `@with_native_doc` open is the first place a dead bridge is noticed.
 
+Only a "Binary URP bridge" message counts as a dead bridge. A closed document raises the same `com.sun.star.lang.DisposedException` class on a healthy office, so it fails its own test and the run continues.
+
 `close_doc` still swallows most errors (a failed close must not hide the
 test body). Dispose during close is now **logged** (`LIFECYCLE close_doc dispose`).
 After a non-pooled close, the harness probes `desktop.getComponents()` and
