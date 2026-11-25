@@ -503,7 +503,7 @@ def test_expand_tracked_deletions_deleted_heading_keeps_start_value():
         '<text:p>d1</text:p><text:h text:style-name="H1" text:start-value="5" xml:id="h5">d2</text:h>'
         '</text:deletion></text:changed-region>'
         '</text:tracked-changes>'
-        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:h>'
+        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:p>'
         '</office:text></office:body>'
     )
     out = expand_tracked_deletions(fodt)

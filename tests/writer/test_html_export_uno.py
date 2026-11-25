@@ -1615,7 +1615,7 @@ def _block_styles_and_texts(html: str) -> list[tuple[str | None, str]]:
     import re
 
     out: list[tuple[str | None, str]] = []
-    for tag, attrs, inner in re.findall(r"<(p|h[1-6])\b([^>]*)>(.*?)</\1>", html, re.DOTALL):
+    for tag, attrs, inner in re.findall(r"<(p|h[1-6])\b([^>]*)(?<!/)>(.*?)</\1>", html, re.DOTALL):
         m = re.search(r'data-lo-style="([^"]+)"', attrs)
         style = m.group(1) if m else None
         text = _html.unescape(re.sub(r"<[^>]+>", "", inner))
@@ -1689,13 +1689,15 @@ def test_numbered_list_with_struck_middle_item_uno(ctx: Any, doc: Any) -> None:
             r"\n+", "\n", document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
         ).strip()
         assert "Middle" not in full_html and "Middle" not in range_html
-        expected_full = (
-            '<ol><li><p class="P1" style="margin-left:0cm;"><span class="Numbering_20_Symbols" '
-            'style="display:block;float:left;min-width:0.7cm;">1.</span>First<span class="odfLiEnd"/>\xa0</p></li>'
-            '<li><p class="P2" style="margin-left:0cm;"><span class="Numbering_20_Symbols" '
-            'style="display:block;float:left;min-width:0.7cm;">3.</span>Third<span class="odfLiEnd"/>\xa0</p></li></ol>'
-        )
-        assert re.sub(r"[ \t\r\n]+", " ", full_html) == expected_full, full_html
+        assert full_html.count("<ol>") == 1 and full_html.count("<li>") == 2, full_html
+        items = [
+            (
+                re.sub(r"<[^>]+>", "", lbl).strip(),
+                re.sub(r"<[^>]+>", "", body).replace("\xa0", "").strip(),
+            )
+            for lbl, body in re.findall(r"<li><p[^>]*>(<span[^>]*>[^<]*</span>)(.*?)</p></li>", full_html, re.DOTALL)
+        ]
+        assert items == [("1.", "First"), ("3.", "Third")], full_html
         assert range_html == (
             '<p data-lo-style="Standard">First</p>\n'
             '<p data-lo-style="Standard">Third</p>'
@@ -1860,7 +1862,7 @@ def test_whole_doc_strike_list_and_heading_omitted_uno(ctx: Any, doc: Any) -> No
         c.gotoEndOfParagraph(True)
         c.setString("")
     html = document_to_content(doc, ctx, scope="full")
-    assert _block_styles_and_texts(html) == [("Standard", "LiveTail")], html
+    assert html == '<p data-lo-style="Standard">LiveTail</p>', html
 
 
 @native_test

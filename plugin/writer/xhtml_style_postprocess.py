@@ -684,7 +684,8 @@ def expand_tracked_deletions(fodt: str) -> str | None:
         if close:
             closed = stack.pop()
             finish(closed)
-            # When a deletion crosses between text:h and text:p, the split block's tag name differs.
+            # When a deletion crosses between text:h and text:p, the split block's tag name differs;
+            # otherwise the copy is malformed, fails to load, and the fallback shows struck text.
             if closed.name != name:
                 out.append(fodt[pos:m.start()] + "</%s>" % closed.name)
                 pos = m.end()
