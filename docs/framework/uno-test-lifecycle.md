@@ -803,7 +803,7 @@ terminal. `TEST end … OK` also prints `exit=` (`-` while the child lives).
 
 ### Patches reach only the test process
 
-`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, use `patch_profile_config` (then `settle_soffice_config`, because soffice caches config for 2 s) or `repo_venv_in_profile` from `tests/harness/uno_profile_config.py`, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
+`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, use `patch_profile_config` (then `settle_soffice_config`, because soffice caches config for 2 s) or `repo_venv_in_profile` from `tests/harness/uno_profile_config.py`, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). Client `save()` also reaches the live profile, including after a recycle, and needs the same `settle_soffice_config` wait. A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
 
 ### Use only the standard library and LibreOffice
 
@@ -997,7 +997,7 @@ zero failures, `python -m plugin.testing_runner` calls `os._exit(0)`
 instead of a normal `SystemExit(0)`. Interpreter teardown of pyuno /
 LibreOffice proxies can SIGABRT (`FATAL: exception not rethrown`) and
 turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
-`lo-kill` still reaps soffice. A failing summary still raises
+`os._exit(0)` skips atexit and GC of UNO proxies. A clean headless pass stops its own soffice and deletes every throwaway profile it created; a failing run keeps both and prints `OFFICE PROFILE kept for debugging`, and `--user-profile` is left untouched. `lo-kill` reaps whatever is left. A failing summary still raises
 `SystemExit(1)` so real test failures stay visible. Unit test:
 `test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.
 
