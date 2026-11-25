@@ -523,6 +523,7 @@ def perform_deferred_spill(
     writes neighbour values/errors and updates the spill registry, then applies
     standard temporal number formats across coalesced blocks. If the recheck finds a
     collision, owned neighbor cells are cleared and the record shrinks to 1 x 1.
+    A pending remap is applied first.
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
     The state key, the sheet looked up by name, the origin formula, and target collisions are
@@ -549,6 +550,9 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
+                # The modify pass may still be waiting; remap now so this write owns its old rectangle.
+                if _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
+                    cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
                 num_rows = len(grid)
@@ -685,51 +689,63 @@ def _spill_is_blocked(
             )
             return True
 
-    max_cols = int(sheet.getColumns().getCount())
-    max_rows = int(sheet.getRows().getCount())
+    if num_rows * num_cols <= 1:
+        return False
 
-    for r_idx in range(num_rows):
-        for c_idx in range(num_cols):
-            if r_idx == 0 and c_idx == 0:
-                continue
-            target_r = row + r_idx
-            target_c = col + c_idx
-            if target_r >= max_rows or target_c >= max_cols:
-                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
-                _record_spill_blocked(
-                    doc=doc,
-                    code=code,
-                    sheet_name=sheet_name,
-                    row=row,
-                    col=col,
-                    num_rows=num_rows,
-                    num_cols=num_cols,
-                    blocker=None,
-                )
-                return True
-            if r_idx < owned_rows and c_idx < owned_cols:
-                continue
-            cell = sheet.getCellByPosition(target_c, target_r)
-            cell_type = cell.getType()
-            if cell_type != EMPTY:
-                log.debug("Spill: collision: cell at %r (type=%s, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getFormula())
-                _record_spill_blocked(
-                    doc=doc,
-                    code=code,
-                    sheet_name=sheet_name,
-                    row=row,
-                    col=col,
-                    num_rows=num_rows,
-                    num_cols=num_cols,
-                    blocker=(target_c, target_r),
-                )
-                return True
+    if row + num_rows > int(sheet.getRows().getCount()) or col + num_cols > int(sheet.getColumns().getCount()):
+        _record_spill_blocked(doc, code, sheet_name, row, col, num_rows, num_cols, None)
+        return True
+
+    # The growth is two strips around the part already owned (at least the formula cell): right of
+    # it, then below it. They follow row-major order, so the first strip with content holds the
+    # first blocker. queryContentCells reads cell types only (ScCellRangesBase::queryContentCells,
+    # sc/source/ui/unoobj/cellsuno.cxx); reading values here would interpret formulas that may
+    # depend on the =PY() cell being recalculated.
+    kept_rows = min(max(owned_rows, 1), num_rows)
+    kept_cols = min(max(owned_cols, 1), num_cols)
+    strips: list[tuple[int, int, int, int]] = []
+    if kept_cols < num_cols:
+        strips.append((col + kept_cols, row, col + num_cols - 1, row + kept_rows - 1))
+    if kept_rows < num_rows:
+        strips.append((col, row + kept_rows, col + num_cols - 1, row + num_rows - 1))
+    for strip in strips:
+        occupied = sheet.getCellRangeByPosition(*strip).queryContentCells(SPILL_CONTENT_FLAGS).getRangeAddresses()
+        if occupied:
+            blocker_row, blocker_col = min((int(a.StartRow), int(a.StartColumn)) for a in occupied)
+            log.debug("Spill: collision at %r", (blocker_row, blocker_col))
+            _record_spill_blocked(doc, code, sheet_name, row, col, num_rows, num_cols, (blocker_col, blocker_row))
+            return True
     return False
 
 
 def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord) -> bool:
     formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
     return is_matching_py_formula(formula, record.code) if record.code else is_py_formula_text(formula)
+
+
+def _moved_record(state: WorkbookState, sheet: Any, sheet_name: str, row: int, col: int) -> SpillRecord | None:
+    """Return this cell's record when rows or columns before it were inserted or deleted and
+    cleanup_orphans has not remapped it yet; None when the cell already has its own record.
+
+    Inserting a row inside a data range recalculates =PY() at once, 0.1 s before the modify pass
+    remaps. The record is the one the used-area delta back from this cell (the witness
+    _classify_orphan_record uses). Reads only, because it also runs during interpretation.
+    """
+    record = state.spills.get((sheet_name, row, col))
+    if record is not None and _origin_matches_record(sheet, row, col, record):
+        return None
+    prev = state.used_ends.get(sheet_name)
+    if prev is None:
+        return None
+    cur = _used_end(sheet)
+    delta = (cur[0] - prev[0], cur[1] - prev[1])
+    if delta == (0, 0):
+        return None
+    moved = state.spills.get((sheet_name, row - delta[0], col - delta[1]))
+    # cleanup_orphans never remaps a record without code.
+    if moved is None or not moved.code or not _origin_matches_record(sheet, row, col, moved):
+        return None
+    return moved
 
 
 def arm_spill_registry(ctx: Any, doc: Any, state: WorkbookState) -> None:
@@ -768,6 +784,8 @@ def prepare_auto_spill(
     diagnostics store, which the LibrePy sidebar and ``write_range`` read, and
     scheduling a deferred clear of owned neighbor cells), ``PreparedSpill`` when
     the neighbor write should proceed, or ``None`` when ``state.key`` is empty.
+    A formula moved by an insert or delete before it uses its unmoved record's
+    rectangle; the deferred write remaps and saves.
     """
     if not state.key:
         return None
@@ -787,7 +805,7 @@ def prepare_auto_spill(
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
-    previous_record = state.spills.get(reg_key)
+    previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
     if previous_record is not None:
         previous_record.seen = True
     owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)

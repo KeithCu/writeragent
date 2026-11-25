@@ -198,6 +198,7 @@ _CELL_EMPTY = 0
 _CELL_VALUE = 1
 _CELL_TEXT = 2
 _CELL_FORMULA = 3
+_CONTENT_FLAGS = {_CELL_VALUE: 1 | 2, _CELL_TEXT: 4, _CELL_FORMULA: 16}
 
 
 class _RangeAddress:
@@ -357,11 +358,10 @@ class CalcRangeStub:
 
     def queryContentCells(self, flags):
         addrs = []
-        if flags & 16:
-            for r in range(self._start_row, self._end_row + 1):
-                for c in range(self._start_col, self._end_col + 1):
-                    if self._sheet.getCellByPosition(c, r).getType() == _CELL_FORMULA:
-                        addrs.append(_RangeAddress(c, r, c, r))
+        for r in range(self._start_row, self._end_row + 1):
+            for c in range(self._start_col, self._end_col + 1):
+                if flags & _CONTENT_FLAGS.get(self._sheet.getCellByPosition(c, r).getType(), 0):
+                    addrs.append(_RangeAddress(c, r, c, r))
         return SimpleNamespace(getRangeAddresses=lambda: tuple(addrs))
 
     def setDataArray(self, data):
