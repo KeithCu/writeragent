@@ -2593,8 +2593,10 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                     )
                 assert res.get("status") == "ok", (mode, target, res)
                 if mode == "accept":
-                    redlines = doc.getRedlines()
-                    types = {redlines.getByIndex(i).getPropertyValue("RedlineType") for i in range(redlines.getCount())}
+                    types = set()
+                    enum = doc.getRedlines().createEnumeration()
+                    while enum.hasMoreElements():
+                        types.add(enum.nextElement().getPropertyValue("RedlineType"))
                     assert types == {"Insert", "Delete"}, (target, types)
                     _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
                 elif mode == "reject":

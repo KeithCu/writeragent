@@ -1311,16 +1311,11 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
         )
         assert fmt_res["status"] == "ok", fmt_res
 
-        redlines = doc.getRedlines()
-        inserts = [
-            redlines.getByIndex(i)
-            for i in range(redlines.getCount())
-            if redlines.getByIndex(i).getPropertyValue("RedlineType") == "Insert"
-        ]
         assert any(
-            r.getPropertyValue("RedlineAuthor") == "WriterAgent"
-            and str(r.getPropertyValue("RedlineComment")).startswith("wa-review:")
-            for r in inserts
+            r["type"] == "Insert"
+            and r["RedlineAuthor"] == "WriterAgent"
+            and r["RedlineComment"].startswith("wa-review:")
+            for r in _redlines(doc)
         )
 
         _reject_all(doc, ctx)

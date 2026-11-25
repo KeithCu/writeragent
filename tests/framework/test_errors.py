@@ -1157,3 +1157,150 @@ def test_calc_tool_success_results_use_make_tool_ok():
                         offenders.append(f"{rel}:{node.lineno}")
 
     assert offenders == [], f"Found raw status='ok' dicts in Calc modules: {offenders}"
+
+
+_UNO_EXCEPTION_ARITIES: dict[tuple[str, str], int] = {
+    ("com.sun.star.uno", "Exception"): 2,
+    ("com.sun.star.uno", "RuntimeException"): 2,
+    ("com.sun.star.lang", "DisposedException"): 2,
+    ("com.sun.star.lang", "IndexOutOfBoundsException"): 2,
+    ("com.sun.star.container", "NoSuchElementException"): 2,
+    ("com.sun.star.lang", "IllegalArgumentException"): 3,
+    ("com.sun.star.util", "MalformedNumberFormatException"): 3,
+}
+
+
+def _find_partial_uno_exception_calls(
+    source: str,
+    filename: str,
+    mod_uno_excs: dict[str, dict[str, int]],
+) -> list[str]:
+    """Return 'filename:lineno: ...' for UNO exception calls with partial positional args."""
+    import ast
+
+    tree = ast.parse(source, filename=filename)
+    offenders: list[str] = []
+
+    def _visit_block(stmts: list[ast.stmt], env: dict[str, int | tuple[str, dict[str, int]] | None]) -> None:
+        env = dict(env)
+        for stmt in stmts:
+            if isinstance(stmt, ast.ImportFrom) and stmt.module:
+                if stmt.module.startswith("com.sun.star"):
+                    for alias in stmt.names:
+                        arity = _UNO_EXCEPTION_ARITIES.get((stmt.module, alias.name))
+                        if arity is not None:
+                            env[alias.asname or alias.name] = arity
+                else:
+                    for alias in stmt.names:
+                        full = f"{stmt.module}.{alias.name}"
+                        if full in mod_uno_excs:
+                            env[alias.asname or alias.name] = ("mod", mod_uno_excs[full])
+            elif isinstance(stmt, ast.Import):
+                for alias in stmt.names:
+                    if alias.name in mod_uno_excs:
+                        env[alias.asname or alias.name.split(".")[0]] = ("mod", mod_uno_excs[alias.name])
+            elif isinstance(stmt, ast.ClassDef):
+                env[stmt.name] = None
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                sub_env = dict(env)
+                for arg in stmt.args.posonlyargs + stmt.args.args + stmt.args.kwonlyargs:
+                    sub_env[arg.arg] = None
+                if stmt.args.vararg:
+                    sub_env[stmt.args.vararg.arg] = None
+                if stmt.args.kwarg:
+                    sub_env[stmt.args.kwarg.arg] = None
+                _visit_block(stmt.body, sub_env)
+                continue
+            elif isinstance(stmt, ast.Assign):
+                if isinstance(stmt.value, ast.Attribute) and isinstance(stmt.value.value, ast.Subscript):
+                    sub = stmt.value.value
+                    if (
+                        isinstance(sub.value, ast.Attribute)
+                        and sub.value.attr == "modules"
+                        and isinstance(sub.slice, ast.Constant)
+                        and isinstance(sub.slice.value, str)
+                    ):
+                        arity = _UNO_EXCEPTION_ARITIES.get((sub.slice.value, stmt.value.attr))
+                        if arity is not None:
+                            for tgt in stmt.targets:
+                                if isinstance(tgt, ast.Name):
+                                    env[tgt.id] = arity
+
+            for node in ast.walk(stmt):
+                if node is not stmt and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                if not isinstance(node, ast.Call):
+                    continue
+                arity = None
+                name = None
+                if isinstance(node.func, ast.Name):
+                    val = env.get(node.func.id)
+                    if isinstance(val, int):
+                        arity = val
+                        name = node.func.id
+                elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                    val = env.get(node.func.value.id)
+                    if isinstance(val, tuple) and val[0] == "mod" and node.func.attr in val[1]:
+                        arity = val[1][node.func.attr]
+                        name = f"{node.func.value.id}.{node.func.attr}"
+                if arity is not None and not node.keywords and not any(isinstance(a, ast.Starred) for a in node.args):
+                    if len(node.args) not in (0, arity):
+                        offenders.append(f"{filename}:{node.lineno}: {name}({len(node.args)} args, expected 0 or {arity})")
+
+            for field in ("body", "orelse", "finalbody"):
+                sub = getattr(stmt, field, None)
+                if isinstance(sub, list):
+                    _visit_block(sub, env)
+            if isinstance(stmt, ast.Try):
+                for handler in stmt.handlers:
+                    _visit_block(handler.body, env)
+
+    _visit_block(tree.body, {})
+    return offenders
+
+
+def test_no_partial_uno_exception_calls():
+    """UNO exception stubs take 0 or all positional args; partial calls hide behind broad excepts."""
+    import ast
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    mod_uno_excs: dict[str, dict[str, int]] = {}
+    for py_file in sorted((repo_root / "plugin").rglob("*.py")):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        excs: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("com.sun.star"):
+                for alias in node.names:
+                    arity = _UNO_EXCEPTION_ARITIES.get((node.module, alias.name))
+                    if arity is not None:
+                        excs[alias.asname or alias.name] = arity
+        if excs:
+            mod_name = ".".join(py_file.relative_to(repo_root).with_suffix("").parts)
+            mod_uno_excs[mod_name] = excs
+
+    # Verify detection on synthetic cases (direct import, module attribute, and local shadow).
+    sample = (
+        "from com.sun.star.uno import RuntimeException\n"
+        "from com.sun.star.lang import IllegalArgumentException\n"
+        "from plugin.calc.python import addin_values\n"
+        "def bad():\n"
+        "    RuntimeException('msg')\n"
+        "    IllegalArgumentException('msg', None)\n"
+        "    addin_values.RuntimeException('msg')\n"
+        "def ok():\n"
+        "    RuntimeException('msg', None)\n"
+        "    IllegalArgumentException('msg', None, 0)\n"
+        "    class RuntimeException(Exception): pass\n"
+        "    RuntimeException('local')\n"
+    )
+    hits = _find_partial_uno_exception_calls(sample, "<sample>", mod_uno_excs)
+    assert len(hits) == 3, hits
+
+    offenders: list[str] = []
+    for root_name in ("plugin", "tests"):
+        for py_file in sorted((repo_root / root_name).rglob("*.py")):
+            rel = py_file.relative_to(repo_root).as_posix()
+            offenders.extend(_find_partial_uno_exception_calls(py_file.read_text(encoding="utf-8"), rel, mod_uno_excs))
+
+    assert offenders == [], f"Partial UNO exception calls (invisible when caught by broad except): {offenders}"
