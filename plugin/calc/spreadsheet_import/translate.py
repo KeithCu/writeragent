@@ -20,8 +20,8 @@ class TranslationError(ValueError):
     """Formula translation failure. ``reason`` is a ``models.ReportCode``.
 
     Translation raises ``UNSUPPORTED_FUNCTION`` for unsupported functions and
-    references, ``UNSUPPORTED_ARITY`` for a wrong argument count, and
-    ``PARSE_ERROR`` for formulas the parser or codegen cannot read.
+    references, ``UNSUPPORTED_ARITY`` for a wrong argument count or an omitted
+    argument, and ``PARSE_ERROR`` for formulas the parser or codegen cannot read.
     """
 
     def __init__(self, reason: ReportCode, message: str) -> None:
@@ -61,6 +61,8 @@ def _emit_operand(node: OperandNode) -> str:
     upper = text.upper()
     if node.tsubtype == "text":
         return repr(text)
+    if node.tsubtype == "none":
+        raise TranslationError("UNSUPPORTED_ARITY", "omitted argument")
     if node.tsubtype == "error":
         raise TranslationError("PARSE_ERROR", "error literal")
     # Logical tokens are TRUE/FALSE. Any other logical value stays False.
@@ -339,9 +341,9 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VARP": _at_least_one("VARP", "np.var({0}, ddof=0)"),
     "TRANSPOSE": _exact("TRANSPOSE", 1, "np.asarray({0}).T.tolist()"),
     # Lookup & Reference (P2)
-    "VLOOKUP": _arity("VLOOKUP", 3, 4, lambda a: f"next((r[np.int64({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), calc.na())"),
-    "HLOOKUP": _arity("HLOOKUP", 3, 4, lambda a: f"next((np.asarray({a[1]})[np.int64({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), calc.na())"),
-    "INDEX": _arity("INDEX", 2, 4, lambda a: f"np.asarray({a[0]})[np.int64({a[1]})-1, np.int64({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[np.int64({a[1]})-1]"),
+    "VLOOKUP": _calc("vlookup", 3, 4),
+    "HLOOKUP": _calc("hlookup", 3, 4),
+    "INDEX": _calc("index", 2, 3),
     "MATCH": _arity("MATCH", 2, 3, _emit_match),
     # Logical (P2)
     "IFERROR": _exact("IFERROR", 2, "calc.iferror(lambda: {0}, {1})"),

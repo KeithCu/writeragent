@@ -2071,3 +2071,19 @@ def test_on_keystore_unlocked_posts_refresh_unless_released():
         el._released = True
         el._on_keystore_unlocked()
         assert len(posted) == 1
+
+
+def test_create_ui_element_refusals_raise_the_declared_exceptions():
+    from com.sun.star.container import NoSuchElementException
+    from com.sun.star.lang import IllegalArgumentException
+    from plugin.chatbot.panel_factory import ChatPanelFactory
+
+    factory = ChatPanelFactory(None)
+    with pytest.raises(NoSuchElementException) as unknown:
+        factory.createUIElement("private:resource/toolpanel/Other", ())
+    assert unknown.value.Context is factory
+
+    with pytest.raises(IllegalArgumentException) as no_parent:
+        factory.createUIElement("private:resource/toolpanel/ChatPanel", ())
+    assert no_parent.value.Context is factory
+    assert no_parent.value.ArgumentPosition == 1

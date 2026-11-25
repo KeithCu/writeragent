@@ -3,7 +3,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 from plugin.writer.specialized.mail_merge import (
@@ -580,3 +582,29 @@ def test_database_context_and_mail_merge_are_not_document_factory_services(tmp_p
     assert merged["status"] == "ok", merged
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.text.MailMerge", comp_ctx)
     doc.createInstance.assert_not_called()
+
+
+@pytest.mark.parametrize("recording", [True, False])
+def test_insert_field_flags_tracked_only_when_recorded(recording: bool):
+    ctx, doc, _comp_ctx, _smgr = _create_mock_ctx()
+    cursor = MagicMock()
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.specialized.mail_merge.is_recording_changes", return_value=recording),
+        patch("plugin.writer.specialized.mail_merge.insert_recorded_content"),
+    ):
+        res = InsertField().execute(
+            ctx,
+            column_name="First",
+            data_source_name="Bib",
+            table_name="biblio",
+            target="selection",
+        )
+
+    assert res["status"] == "ok"
+    if recording:
+        assert res["tracked"] is True
+        assert res["pending_review"] is True
+    else:
+        assert "tracked" not in res
+        assert "pending_review" not in res

@@ -2209,7 +2209,7 @@ def test_style_format_text_maps_para_adjust_start_end_to_left_right_when_enum_mi
     cursor.setPropertyValues.side_effect = _set_values
     cursor.getPropertyValue.side_effect = lambda n: written.get(n)
     with (
-        patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")),
+        patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown", None)),
         patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
     ):
@@ -2230,7 +2230,7 @@ def test_style_update_maps_para_adjust_start_to_left_when_enum_missing():
     style.setPropertyValue.side_effect = lambda n, v: props.__setitem__(n, v)
     family = _style_family({"MyStyle": style})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
-    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown")):
+    with patch.object(sys.modules["uno"], "Enum", side_effect=runtime_exc("unknown", None)):
         res = StyleUpdate().execute(
             mock_ctx,
             style="MyStyle",

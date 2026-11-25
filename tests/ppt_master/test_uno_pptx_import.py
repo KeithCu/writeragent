@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 from plugin.draw.shape_clone import ClonedShape
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
-from tests.draw.shape_fakes import FakePage as ShapeFakePage, FakeShape
+from tests.draw.shape_fakes import FailingPosShape, FakePage as ShapeFakePage, FakeShape
 from tests.harness.strip_bundle import skip_if_release_build
 
 _NOTES = "com.sun.star.presentation.NotesShape"
@@ -118,7 +118,6 @@ def test_failed_copy_keeps_existing_shapes_and_size(monkeypatch):
         del source_page, target_doc
         seen["page"] = target_page
         seen["ctx"] = uno_ctx
-        target_page.add("LEAK")
         return 0
 
     _patch_copy(monkeypatch, fake_copy)
@@ -181,7 +180,6 @@ def test_later_slide_failure_keeps_that_slide(monkeypatch):
     def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
         del target_doc, uno_ctx
         if source_page is source_pages[1]:
-            target_page.add("LEAK")
             return 0
         target_page.add("NEW-0")
         return 1
@@ -204,7 +202,6 @@ def test_failed_copy_drops_a_slide_this_call_created(monkeypatch):
     def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
         del target_doc, uno_ctx
         if source_page is source_pages[1]:
-            target_page.add("LEAK")
             return 0
         target_page.add("NEW-0")
         return 1
@@ -583,15 +580,28 @@ def test_copy_that_lands_before_previous_shapes_is_kept(monkeypatch):
     assert target_pages[0].shapes == ["NEW"]
 
 
-def test_failed_copy_trims_a_shape_that_landed_first(monkeypatch):
-    target, source, target_pages, _source_pages = _deck([["USER-A", "USER-B"]], 1)
+def test_copy_shapes_to_page_removes_a_partial_clone_and_keeps_the_rest():
+    src1 = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
+    src2 = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (3, 4)})
+    clone1 = FailingPosShape("com.sun.star.drawing.RectangleShape")
+    clone2 = FakeShape("com.sun.star.drawing.RectangleShape")
+    created = [clone1, clone2]
+    doc = MagicMock()
+    doc.createInstance.side_effect = lambda _t: created.pop(0)
+    target_page = ShapeFakePage()
 
-    def fake_copy(source_page, target_doc, target_page, uno_ctx=None):
-        del source_page, target_doc, uno_ctx
-        target_page.shapes.insert(0, "LEAK")
-        return 0
+    copied = copy_shapes_to_page(ShapeFakePage([src1, src2]), doc, target_page)
+    assert copied == 1
+    assert target_page.shapes == [clone2]
 
-    _patch_copy(monkeypatch, fake_copy)
+
+def test_failed_import_with_real_copy_shapes_leaves_previous_shapes_unchanged(monkeypatch):
+    target, source, target_pages, source_pages = _deck([["USER-A", "USER-B"]], 1)
+    src_shape = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
+    source_pages[0].shapes = [src_shape]
+    target.createInstance = lambda _t: FailingPosShape("com.sun.star.drawing.RectangleShape")
+
+    monkeypatch.setattr(uno_pptx_import, "DrawBridge", FakeBridge)
     result = _import_slides_from_source(object(), target, source, clear_existing=True)
 
     assert result["status"] == "error"

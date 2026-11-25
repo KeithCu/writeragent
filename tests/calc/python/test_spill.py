@@ -981,12 +981,12 @@ def test_perform_deferred_spill_allows_owned_spill_overwrite(monkeypatch: pytest
         WorkbookState.forget_key(doc_id)
 
 
-def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_perform_deferred_spill_late_collision_clears_old_spill(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
     from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    doc = CalcDocStub(url="file:///spill-late-keep.ods", props={"RuntimeUID": "uid-spill-late-keep"})
+    doc = CalcDocStub(url="file:///spill-late-clear.ods", props={"RuntimeUID": "uid-spill-late-clear"})
     sheet = doc.getSheets().getByIndex(0)
     origin_cell = sheet.getCellByPosition(0, 0)
     origin_cell.setFormula('=PY("code_grow")')
@@ -994,13 +994,12 @@ def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: 
 
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    old_record = _spill.SpillRecord(
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(
         code="code_grow",
         rows=1,
         cols=2,
     )
-    state.spills[("Sheet1", 0, 0)] = old_record
-    doc_id = "uid-spill-late-keep"
+    doc_id = "uid-spill-late-clear"
     try:
         prep = _spill.prepare_auto_spill(
             MagicMock(),
@@ -1025,9 +1024,150 @@ def test_perform_deferred_spill_late_collision_preserves_old_spill(monkeypatch: 
             key=prep.key,
         )
 
-        assert sheet.getCellByPosition(1, 0).getValue() == 10
+        assert sheet.getCellByPosition(1, 0).getType() == _spill.EMPTY
         assert sheet.getCellByPosition(1, 1).getValue() == 99
-        assert state.spills[("Sheet1", 0, 0)] is old_record
+        rec = state.spills[("Sheet1", 0, 0)]
+        assert (rec.rows, rec.cols) == (1, 1)
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_prepare_auto_spill_blocked_clears_owned_cells_after_settle(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    saved: list[str] = []
+
+    def mock_set_prop(_model: Any, name: str, value: Any) -> None:
+        if name == "WriterAgentSpillRegistry":
+            saved.append(value)
+
+    monkeypatch.setattr("plugin.calc.python.spill.set_document_property", mock_set_prop)
+
+    doc = CalcDocStub(url="file:///spill-prep-clear.ods", props={"RuntimeUID": "uid-spill-prep-clear"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("c")')
+    sheet.getCellByPosition(0, 1).setValue(10)
+    sheet.getCellByPosition(0, 2).setValue(5)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="c", rows=2, cols=1)
+    doc_id = "uid-spill-prep-clear"
+    try:
+        res = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "c",
+            [[1], [2], [3]],
+        )
+        assert res == "#SPILL!"
+        # Nothing is written during formula interpretation.
+        assert sheet.getCellByPosition(0, 1).getValue() == 10
+
+        state.debounce.flush_for_tests("spill:Sheet1:0:0")
+
+        assert sheet.getCellByPosition(0, 1).getType() == _spill.EMPTY
+        assert sheet.getCellByPosition(0, 2).getValue() == 5
+        rec = state.spills[("Sheet1", 0, 0)]
+        assert (rec.rows, rec.cols) == (1, 1)
+        assert saved
+        assert json.loads(saved[-1])["Sheet1:0,0"] == {"code": "c", "rows": 1, "cols": 1}
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_blocked_spill_skips_clear_when_record_belongs_to_different_formula(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-mismatch-rec.ods", props={"RuntimeUID": "uid-spill-mismatch"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("q")')
+    sheet.getCellByPosition(0, 1).setValue(10)
+    sheet.getCellByPosition(0, 2).setValue(20)
+    sheet.getCellByPosition(0, 3).setValue(99)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="p", rows=3, cols=1)
+    doc_id = "uid-spill-mismatch"
+    try:
+        res = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "q",
+            [[1], [2], [3], [4]],
+        )
+        assert res == "#SPILL!"
+        state.debounce.flush_for_tests("spill:Sheet1:0:0")
+
+        assert sheet.getCellByPosition(0, 1).getValue() == 10
+        assert sheet.getCellByPosition(0, 2).getValue() == 20
+        rec = state.spills[("Sheet1", 0, 0)]
+        assert rec.code == "p"
+        assert (rec.rows, rec.cols) == (3, 1)
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+        WorkbookState.forget_key(doc_id)
+
+
+def test_off_main_fitting_spill_cancels_pending_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    doc = CalcDocStub(url="file:///spill-offmain-cancel.ods", props={"RuntimeUID": "uid-offmain-cancel"})
+    sheet = doc.getSheets().getByIndex(0)
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("c_fit")')
+    sheet.getCellByPosition(0, 1).setValue(10)
+    sheet.getCellByPosition(0, 2).setValue(99)
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="c_fit", rows=2, cols=1)
+    doc_id = "uid-offmain-cancel"
+    try:
+        res = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "c_fit",
+            [[1], [2], [3]],
+        )
+        assert res == "#SPILL!"
+        assert "spill:Sheet1:0:0" in state.debounce.pending_for_tests()
+
+        # Blocker is removed and an off-main recalculation fits and writes.
+        sheet.getCellByPosition(0, 2).clearContents()
+        _spill.queue_off_main_auto_spill(MagicMock(), "c_fit", [[1], [20], [30]], doc)
+        state.debounce.flush_for_tests("code:c_fit")
+        assert "spill:Sheet1:0:0" not in state.debounce.pending_for_tests()
+
+        # Flushing the token must not wipe the fresh spill.
+        state.debounce.flush_for_tests("spill:Sheet1:0:0")
+        assert sheet.getCellByPosition(0, 1).getValue() == 20
+        assert sheet.getCellByPosition(0, 2).getValue() == 30
+        rec = state.spills[("Sheet1", 0, 0)]
+        assert (rec.rows, rec.cols) == (3, 1)
     finally:
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
             SPILL_REGISTRY.pop(key, None)
@@ -1188,20 +1328,21 @@ def test_spill_sort_moves_formula_without_clearing(monkeypatch: pytest.MonkeyPat
     assert sheet.getCellByPosition(0, 3).getValue() == 20.0
 
 
-def test_prepare_auto_spill_blocks_on_user_formula_in_rect() -> None:
+def test_prepare_auto_spill_blocks_on_user_formula_in_rect(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.tests.testing_utils import CalcSheetStub
 
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///user-formula-block.ods", props={"RuntimeUID": "uid-uf-block"})
-    sheet = CalcSheetStub("Sheet1")
+    sheet = doc.getSheets().getByIndex(0)
     origin_cell = sheet.getCellByPosition(0, 0)
     origin_cell.setFormula('=PY("uf_code")')
     sheet.getCellByPosition(1, 0).setFormula("=SUM(1)")
+    sheet.getCellByPosition(0, 1).setValue(42)
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    st.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="uf_code", rows=1, cols=2)
+    st.spills[("Sheet1", 0, 0)] = _spill.SpillRecord(code="uf_code", rows=2, cols=2)
     try:
         res = _spill.prepare_auto_spill(
             MagicMock(),
@@ -1209,11 +1350,16 @@ def test_prepare_auto_spill_blocks_on_user_formula_in_rect() -> None:
             st,
             FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
             "uf_code",
-            [[1, 2]],
+            [[1, 2], [3, 4]],
         )
         assert res == "#SPILL!"
         entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), "uf_code")
         assert entry is not None and "B1" in entry.message and "previous spill" in entry.message
+
+        st.debounce.flush_for_tests("spill:Sheet1:0:0")
+        assert sheet.getCellByPosition(1, 0).getFormula() == "=SUM(1)"
+        assert sheet.getCellByPosition(0, 1).getValue() == 42
+        assert (st.spills[("Sheet1", 0, 0)].rows, st.spills[("Sheet1", 0, 0)].cols) == (2, 2)
 
         # User error formula =1/0 also blocks (text-only guard).
         sheet.getCellByPosition(1, 0).setFormula("=1/0")

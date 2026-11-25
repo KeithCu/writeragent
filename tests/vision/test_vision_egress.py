@@ -821,3 +821,51 @@ def test_empty_html_without_text_is_empty_not_error():
 
     paddle_empty = {"status": "ok", "helper": "extract_structure", "html": "", "full_text": ""}
     assert insert_vision_result(MagicMock(), MagicMock(), paddle_empty) == "empty"
+
+
+@pytest.mark.parametrize("mode", ["html", "structured"])
+@pytest.mark.parametrize("img_name", ["", "Img1"])
+@patch("plugin.calc.vision_egress.insert_vision_structure_into_calc", return_value=2)
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_calc_delete_kept_graphic_ignores_name_lookup(_mock_html, _mock_struct, mode, img_name):
+    from plugin.doc.visual_helpers import AmbiguousGraphicNameError
+    from plugin.vision.vision_egress import insert_vision_result
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    kept_shape = MagicMock()
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>", "tables": [{"name": "t1"}]}
+
+    stack, mock_delete = _calc_egress_patches(doc, kept_shape, mode=mode)
+    with stack, patch(
+        "plugin.doc.visual_helpers.get_graphic_object_by_name",
+        side_effect=AmbiguousGraphicNameError("Several shapes named 'Img1'"),
+    ):
+        outcome = insert_vision_result(
+            ctx,
+            doc,
+            result,
+            params={"image_name": img_name, "delete_image_after_insert": True},
+            graphic=kept_shape,
+        )
+
+    assert outcome == "image_deleted"
+    mock_delete.assert_called_once_with(ctx, doc, kept_shape)
+
+
+@pytest.mark.parametrize("mode", ["html", "structured"])
+@patch("plugin.calc.vision_egress.insert_vision_structure_into_calc", return_value=2)
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_calc_delete_unnamed_without_kept_graphic_still_refuses(_mock_html, _mock_struct, mode):
+    from plugin.vision.vision_egress import insert_vision_result
+
+    doc = MagicMock()
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>ocr</p>", "tables": [{"name": "t1"}]}
+
+    stack, mock_delete = _calc_egress_patches(doc, MagicMock(), mode=mode)
+    with stack:
+        with pytest.raises(ToolExecutionError) as exc:
+            insert_vision_result(MagicMock(), doc, result, params={"delete_image_after_insert": True})
+
+    assert exc.value.code == "VISION_ERROR"
+    mock_delete.assert_not_called()

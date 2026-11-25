@@ -20,6 +20,9 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
 
 _NAN = object()
 _INF = float("inf")
@@ -232,13 +235,13 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("large-blank", "large", ([None, ""], 1), _NAN),
     ("large-zero-k", "large", ([1, 2, 3], 0), _NAN),
     ("large-oor-k", "large", ([1, 2, 3], 9), _NAN),
-    ("linest-text", "linest", (["text", "b"],), "#VALUE!"),
-    ("linest-blank", "linest", ([None, None],), "#VALUE!"),
+    ("linest-text", "linest", (["text", "b"],), "Err:502"),
+    ("linest-blank", "linest", ([None, None],), "Err:502"),
     ("linest-zero", "linest", ([0, 0],), [0.0, 0.0]),
     ("linest-inf", "linest", ([_INF, 1],), [_NAN, _NAN]),
     ("linest-scalar-x", "linest", (5, 3), "Err:504"),
     ("linest-one-sample", "linest", ([5], [3]), "Err:504"),
-    ("logest-blank", "logest", ([None, None],), "#VALUE!"),
+    ("logest-blank", "logest", ([None, None],), "Err:502"),
     ("logest-inf", "logest", ([_INF, 1],), [_NAN, _NAN]),
     ("logest-scalar-x", "logest", (5, 3), "Err:504"),
     ("loginv-zero", "loginv", (0, 0, 1), _NAN),
@@ -391,9 +394,10 @@ def test_ifna_only_na() -> None:
     assert calc.ifna(lambda: calc.prob([1, 2], [0.5], 1), "alt") == "alt"
     assert calc.ifna(lambda: calc.textjoin(",", 1, calc.na()), "alt") == "alt"
     assert calc.ifna(lambda: calc.rank(calc.na(), [1]), "alt") == "alt"
-    # Exceptions stay trapped because np.int64(NA_NAN) raises ValueError in translated INDEX/MATCH.
-    assert calc.ifna(lambda: np.asarray([1, 2])[np.int64(calc.xmatch(99, [1, 2], 0)) - 1], "alt") == "alt"
-    assert calc.ifna(lambda: [1][5], "alt") == "alt"
+    # #N/A from xmatch reaches index as NA_NAN and returns alt; IndexError is not swallowed.
+    assert calc.ifna(lambda: calc.index([1, 2], calc.xmatch(99, [1, 2], 0)), "alt") == "alt"
+    with pytest.raises(IndexError):
+        calc.ifna(lambda: [1][5], "alt")
     assert calc.ifna(lambda: int(float("inf")), "alt") == "alt"
     assert calc.ifna(lambda: int(None), "alt") == "alt"  # type: ignore[arg-type]
     with pytest.raises(ZeroDivisionError):
@@ -559,7 +563,7 @@ def test_linest_const_text_and_blank_known_x():
     assert isinstance(through_origin, list)
     assert through_origin[-1] == pytest.approx(1.0)
     # A present blank known_x is not the omitted argument.
-    assert calc.linest(y, None) == "#VALUE!"
+    assert calc.linest(y, None) == "Err:502"
     omitted = calc.linest([1, 2, 3])
     assert isinstance(omitted, list)
     assert np.allclose(omitted, [1.0, 0.0], atol=1e-9)
@@ -663,4 +667,41 @@ def test_isoweeknum_date_matches_serial():
 def test_linest_scalar_through_origin():
     assert np.allclose(calc.linest(5, 3, False), [5 / 3, 0.0])
     assert np.allclose(calc.logest(5, 3, 0), [1.7099759466766968, 1.0])
+
+
+def test_index_and_ifna_sandbox_interpreter_error():
+    table = CalcRange([[1, 2], [3, 4], [5, 6]])
+    assert calc.index(table, 2, 1) == 3
+    assert calc.index(table, CalcRange([[2]]), CalcRange([[1]])) == 3
+    assert calc.index(table, 9, 1) == "#REF!"
+    assert calc.index(table, -1, 1) == "Err:502"
+    assert calc.index(table, 0, 2) == [[2], [4], [6]]
+    assert calc.index(table, 2, 0) == [[3, 4]]
+    assert calc.index([[10, 20, 30]], 2) == 20
+    assert calc.index(table, "#N/A", "#DIV/0!") == "#DIV/0!"
+    assert calc.index([[1, "#DIV/0!"], [3, 4]], 1, 1) == 1
+    assert math.isnan(calc.index([1, 2], float("nan")))
+    assert math.isnan(calc.index([1, 2], np.float64("nan")))
+    assert calc.ifna(lambda: calc.index([1, 2], 9), "x") == "#REF!"
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_variables({"calc": calc})
+    with pytest.raises(InterpreterError):
+        executor("calc.ifna(lambda: getattr(1, '__cl' + 'ass__'), 'alt')")
+
+
+def test_regression_and_lookup_error_codes():
+    assert calc.linest([1, "#DIV/0!", 3], [1, 2, 3]) == "#DIV/0!"
+    assert calc.linest([1, "#DIV/0!", 3], [1, "#N/A", 3]) == "#N/A"
+    res = calc.logest([1, DIV0_NAN, 4], [1, 2, 3])
+    assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
+    assert calc.linest([[1], [2], [3]], [[1, 2, 3], [4, 5, 6]]) == "Err:502"
+    assert calc.linest([[1, 2, 3]], [[1], [2], [3]]) == "Err:502"
+    assert calc.linest([[1], [2], [3]], [[1, 2, 3]]) == "Err:502"
+    assert calc.linest([[1, 2], [3, 4]], [[1], [2], [3], [4]]) == "Err:502"
+    assert calc.linest([[1, 2], [3, 4]], [[1, 2], [3, 4]]) == pytest.approx([1.0, 0.0])
+    assert calc.linest([1, 2, 3], [7, 7, 7]) == "#VALUE!"
+    assert calc.linest([1, 2, 3], [0, 0, 0], False) == "#VALUE!"
+    assert calc.lookup("#DIV/0!", [1, 2, 3]) == "#DIV/0!"
+    assert calc.lookup(CalcRange([[2]]), [1, 2, 3]) == 2
 

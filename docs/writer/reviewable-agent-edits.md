@@ -33,18 +33,16 @@ What is implemented today (not every Writer mutation tool):
 | `apply_content` (chat/MCP worker thread) | Yes | Yes, when wait enabled | Yes |
 | `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
-| Vision / `python_runner` Writer insert | Yes | No | No |
+| Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
 | `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked row/column deletes refuse protected cells; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets) | No | No |
 | `image_insert`, `image_generate`, `image_delete`, `shape_delete` (Writer `TextGraphicObject`), OCR `delete_image_after_insert` | Yes (both while the document is recording and in Record/Wait via `run_writer_mutation_with_optional_review`; embedded `image_insert` and `AS_CHARACTER` frames while recording use `insert_recorded_content` with frame content unrecorded; `image_insert target=header/footer` flags `style_unreviewed` when it turns the region on or changes `auto_height`; `image_generate` inserts and tracked deletes return `pending_review`) | No | No |
-| `chart_upsert` (Writer), `frame_insert` (`AS_CHARACTER`), `embedded_insert` (Writer), `field_insert`, `index_add_mark`, `mail_merge_insert_field`, `form_create`, `form_create_control`, `form_generate` (Writer), math formula insert | Yes while recording and in Record/Wait (for `frame_insert`, inline records in Record/Wait and its search-match deletion is recorded for every anchor type; `insert_recorded_content` wraps inline objects and Input fields in recorded placeholders) | No | No |
+| `chart_upsert` (Writer), `frame_insert` (`AS_CHARACTER`), `embedded_insert` (Writer), `field_insert`, `index_add_mark`, `mail_merge_insert_field`, `form_create`, `form_create_control`, `form_generate` (Writer), math formula insert | Yes while recording and in Record/Wait (for `frame_insert`, inline records in Record/Wait and its search-match deletion is recorded for every anchor type; `insert_recorded_content` wraps inline objects and Input fields in recorded placeholders; `field_insert`, `index_add_mark` and `mail_merge_insert_field` return `tracked: true` and `pending_review: true` when LibreOffice recorded the insert, the same as `frame_insert` inline and `embedded_insert`) | No | No |
 | Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text-only writes, character `apply_style`, and paragraph `apply_style`; turning a header/footer on or changing `auto_height` is flagged; `page_insert_break` is not in this set) | No | No |
 | `section_create` | No (inserted untracked so `SwDoc::InsertSwSection` does not mark the wrapped text as a tracked insertion; flags `style_unreviewed: true`; refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline spans past both ends) | No | No |
-| `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
-| `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and in Record/Wait its `target='search'` deletion is recorded while the index itself is not; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
-| `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
+| `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and while the document is recording or in Record/Wait its `target='search'` deletion is recorded — tagged as an agent change only in Record/Wait — and the result carries `pending_review: true` while the index itself is not tracked; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, …) | No | No | No |
 
 Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
@@ -160,11 +158,11 @@ made in `record_preserve_replace` in
   across all body write paths, while `insert_html_after_paragraph` owns only the trailing
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
-  undo group, so a failed table insert rolls the edit back. `full_document` refuses a hidden
-  any hidden section outside headers and footers (`HIDDEN_SECTION`) or any protected non-index section outside headers
-  and footers (`PROTECTED_SECTION`), and places new content outside a leading section or TOC
-  (while recording, a paragraph is added untracked before a leading section and after a trailing
-  one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
+  undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
+  section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
+  and footers and the tables and frames in them, and places new content outside a leading section
+  or TOC (while recording, a paragraph is added untracked before a leading section and after a
+  trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
   refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a non-text
   selection, or a view with no caret such as Print Preview (`SELECTION_NOT_TEXT`).
 
@@ -216,6 +214,14 @@ returns this schema:
 
 On timeout: `"complete": false, "timed_out": true`, pending entries report `outcome: "pending"`,
 and the tool message asks the agent to have the user finish reviewing before continuing.
+
+Outside a blocking wait, `apply_content` adds `review_mode`, `pending_review: true`, and the
+do-not-resolve note only when the call left a tracked change (`EditReviewSession.left_tracked_changes`).
+A change counts even when it is untagged — for example, a deletion stacked on the user's pending
+insertion. A replacement equal to the match gets no review fields. Text that LibreOffice merges
+into an earlier pending agent insertion also leaves no new key, and the call that made that
+insertion already reported it. In Wait mode, a call that
+registered no change returns at once and carries the same fields only if it left an untagged redline.
 
 ## MCP vs sidebar
 
@@ -301,7 +307,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **Character and paragraph resets (`style_format_text` `reset`):** `SwDoc::ResetAttrs` (`docfmt.cxx`) has no redline branch, so `style_format_text` writes each recordable `Char*` property's pool default (`_recordable_reset_values`, or `"Standard"` for `CharStyleName`) before resetting it; `lcl_SetRedline` (`DocumentContentOperationsManager.cxx`) records the old attributes in a Format redline, and the reset drops the temporary value. Recordable `Para*` and `NumberingStyleName` changes (set or reset) record a `ParagraphFormat` redline via `makeRedline` after the character write; headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets cannot be recorded this way and set `style_unreviewed`.
 * **Picture deletes (`image_delete`, OCR `delete_image_after_insert`):** `SwXFrame::dispose` leaves no redline, so `delete_graphic` selects a `TextGraphicObject` and dispatches `.uno:Delete` (`SwWrtShell::DelRight`, Graphic case). Pictures Writer cannot record (drawing-shape `GraphicObjectShape`s, `ContentProtected` pictures, or documents with no view) fail closed: `image_delete` raises `IMAGE_DELETE_NOT_TRACKABLE` and OCR keeps the image (`"image_kept"`, listed in `kept_images_delete_not_trackable` on the agent result). Rejecting a non-as-character picture delete leaves a U+200D anchor pair (`delete.cxx`) where Writer moved the anchor to the character.
 * **Paragraph `apply_style` (`SwUnoCursorHelper::makeRedline`):** Applying a paragraph style while `RecordChanges` is on or in Record/Wait temporarily turns recording off so the `Char*` restore does not create `Format` redlines whose Reject drops the run's formatting, then records one `ParagraphFormat` redline per changed non-empty paragraph (authored `WriterAgent` in Record/Wait, or the current office user when review is Off) carrying `ParaStyleName`, direct paragraph properties, and `NumberingRules`. If the paragraph already has a `ParagraphFormat` redline, no second one is added so Reject restores the state before both changes.
-* **Known paths that still bypass recording:** `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, non-inline `frame_insert`, picture replace (`image_replace` and in-place `image_generate`), and `index_update_all` (these return `tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` when any index holds pending insertions or deletions; `index_delete_toc_entry` is recorded), picture properties, table formatting/merge/split, page break, hyperlink on existing text, and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
+* **Known paths that still bypass recording:** `frame_delete`, `chart_delete`, `shape_delete` (non-picture; a group member's delete also has no undo step and always warns), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, non-inline `frame_insert`, picture replace (`image_replace` and in-place `image_generate`), and `index_update_all` (these return `tracked: false` with a `warning` when recording or review is on; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` when any index holds pending insertions or deletions; `index_delete_toc_entry` is recorded), picture properties, table formatting/merge/split, page break, hyperlink on existing text, and `_finish_collapse` failure fallback (`WriterStreamedAppendSession.abort_and_restore` now collapses the partial continuation via `finish()`).
 
 ### Limitations
 
@@ -337,6 +343,12 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   a change with bounds in another text object is visited in redline-table order.
 * **Second window, same document:** toolbar visibility is per-window; a rare stale toolbar can appear
   in a secondary window (documented in `review_view_attachment.refresh_review_toolbar`).
+* **`frame_insert target="search"` whole-body match (anchor 0 or 4):** when a recorded match spans
+  an entire text (body, cell, or frame), Accept also removes the frame (`undobj.cxx`:
+  `IsSelectFrameAnchoredAtPara` / `IsDestroyFrameAnchoredAtChar`).
+* **Undo then Redo of a review-session edit:** Redo brings the redline back untagged, splits an
+  `Unknown Author` Insert piece, and restores the `wa_review_*` anchor bookmark (`RedlineComment`
+  is not an undoable action, while the bookmark lives inside the edit's undo group).
 
 ## Ways to improve
 
@@ -348,7 +360,8 @@ If "Wait for Edit Review" should mean the agent pauses until the user resolves *
 edit, not just sidebar/MCP `apply_content`:
 
 * Wire `EditReviewSession.wait_for_review()` (or equivalent) into extend/edit selection, vision
-  insert, and `python_runner` Writer insert — today those paths record but return immediately.
+  insert, `python_runner` Writer insert, and the units / text-analytics / symbolic-math Writer
+  inserts — today those paths record but return immediately.
 * Decide whether other mutation tools (comments, images, page ops, clone heading, …) should go
   through `record_mutation` or stay direct with explicit flags like styles. `table_delete` already
   goes through it (`run_writer_mutation_with_optional_review`).

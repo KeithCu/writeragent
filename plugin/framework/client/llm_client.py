@@ -74,7 +74,7 @@ from .errors import (
     stream_error_is_overload,
     stream_error_message,
 )
-from .http_security import public_target, redact_secrets, secrets_from_target
+from .http_security import log_target, public_target, redact_secrets, secrets_from_target
 from .http_transport import LlmHttpTransport, parse_strict_json
 from .request_controls import (
     RetryBudget,
@@ -712,7 +712,7 @@ class LlmClient:
     ) -> Any:
         """Common low-level streaming engine."""
         log.info("=== Starting streaming loop (persistent) ===")
-        log.debug("Request Path: %s" % path)
+        log.debug("Request Path: %s", log_target(path))
 
         # Do not clear cancellation here — that races with stop() on another thread
         # (B13). UI clears via ``clear_stop()`` at the start of a new send.

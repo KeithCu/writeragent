@@ -1356,7 +1356,7 @@ def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
     assert paragraph_deletion_flags(rl_model, [p1, p2, p3]) == [False, True, True]
 
 
-def test_tracked_deletions_state_at_and_covers():
+def test_tracked_deletions_state_at_and_overlaps():
     from plugin.doc.text_helpers import TrackedDeletions
     from tests.testing_utils import FakeUnoEnum
 
@@ -1454,11 +1454,14 @@ def test_tracked_deletions_state_at_and_covers():
     # Not comparable -> not inside.
     assert td.state_at(MagicMock(getStart=lambda: "bad", createEnumeration=lambda: FakeUnoEnum([]))).in_delete is False
 
-    # covers: [2, 5] inclusive.
-    assert td.covers(_Range(2, 5)) is True
-    assert td.covers(_Range(3, 4)) is True
-    assert td.covers(_Range(1, 3)) is False
-    assert td.covers(_Range(4, 6)) is False
+    # overlaps: [2, 5) half-open.
+    assert td.overlaps(_Range(2, 5)) is True
+    assert td.overlaps(_Range(3, 4)) is True
+    assert td.overlaps(_Range(1, 3)) is True
+    assert td.overlaps(_Range(4, 6)) is True
+    assert td.overlaps(_Range(0, 2)) is False
+    assert td.overlaps(_Range(5, 7)) is False
+    assert td.overlaps(MagicMock()) is False
 
 
 def test_bounds_cover():

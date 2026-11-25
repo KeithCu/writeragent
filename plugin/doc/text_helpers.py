@@ -811,9 +811,64 @@ class TrackedDeletions:
                 return DeletionState(in_delete=True)
         return DeletionState()
 
-    def covers(self, text_range: Any) -> bool:
-        """True when *text_range* lies wholly inside one pending Delete redline."""
-        return any(bounds_cover(b, text_range) for b in self._bounds)
+    def visible_text(self, text_range: Any) -> str:
+        """Visible text of *text_range*: a whole ``XText`` or any range inside one.
+
+        Cursors come from the range's own text because a search hit in a cell enumerates the
+        whole table (``SwXTextDocument::findFirst``, unotxdoc.cxx). Ranges spanning a table edge
+        (Ctrl+A in a leading table, or a body range with an end in a cell) cannot be spanned on
+        their own ``XText`` and fall back to enumerating *text_range*. When raw text before the
+        range start contains an astral code point (U+10000+), the range is read from its
+        paragraph start and the lead dropped because ``lcl_CreatePortions`` (unoportenum.cxx)
+        skips UTF-16 units as code points.
+        """
+        text = text_range.getText()
+        if uno_same(text, text_range):
+            return get_string_without_tracked_deletions(text, self.state_at(text))
+
+        def _span_cursor() -> Any | None:
+            start_cur = text.createTextCursorByRange(text_range.getStart())
+            end_cur = text.createTextCursorByRange(text_range.getEnd())
+            if start_cur is None or end_cur is None:
+                return None
+            start_cur.gotoRange(end_cur, True)
+            return start_cur
+
+        span = uno_read(_span_cursor, None, object_type="TextRange")
+        if span is None:
+            return get_string_without_tracked_deletions(text_range, self.state_at(text_range))
+
+        lead = text.createTextCursorByRange(span.getStart())
+        lead.gotoStartOfParagraph(False)
+        lead.gotoRange(span.getStart(), True)
+        # Only use the lead-drop walk when raw lead text has an astral code point (U+10000+);
+        # otherwise read span directly so selections starting inside Input/Metadata fields work.
+        if any(ord(ch) > 0xFFFF for ch in lead.getString()):
+            wide = text.createTextCursorByRange(lead.getStart())
+            wide.gotoRange(span.getEnd(), True)
+            skip = len(get_string_without_tracked_deletions(lead, self.state_at(lead)))
+            return get_string_without_tracked_deletions(wide, self.state_at(wide))[skip:]
+        return get_string_without_tracked_deletions(span, self.state_at(span))
+
+    def overlaps(self, text_range: Any) -> bool:
+        """True when a pending Delete redline strikes part of *text_range*."""
+        return any(
+            uno_read(
+                lambda: text.compareRegionStarts(start, text_range.getEnd()) == 1
+                and text.compareRegionStarts(text_range, end) == 1,
+                False,
+                object_type="TextRange",
+            )
+            for text, start, end in self._bounds
+        )
+
+    def strikes(self, text_range: Any) -> bool:
+        """True when pending deletions, one or several together, leave nothing visible of *text_range*.
+
+        Judged by portion-readable text: a hit of struck text plus only a live ``MetadataField``
+        reads ``""`` and is treated as struck.
+        """
+        return self.overlaps(text_range) and not self.visible_text(text_range)
 
     def keeps_frame(self, portion: Any) -> bool:
         """True when *portion* is a Frame whose anchored object Accept All keeps."""
@@ -990,8 +1045,8 @@ def get_string_without_tracked_deletions(text_range: Any, state: DeletionState |
 
 @main_thread_only
 def visible_range_text(doc: Any, text_range: Any) -> str:
-    """Return *text_range* visible text, seeded from *doc*'s pending tracked deletions."""
-    return get_string_without_tracked_deletions(text_range, TrackedDeletions(doc).state_at(text_range))
+    """Return visible text of *text_range* (any range or whole ``XText`` of *doc*)."""
+    return TrackedDeletions(doc).visible_text(text_range)
 
 
 @main_thread_only

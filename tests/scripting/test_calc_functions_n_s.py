@@ -22,6 +22,8 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import nan_error_code
 
 _INF = float("inf")
 
@@ -73,7 +75,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("npv", ("", 100, 200), ValueError, "npv-blank"),
     ("npv", (None, 100, 200), TypeError, "npv-blank-none"),
     ("numbervalue", ("text",), "nan", "numbervalue-text"),
-    ("numbervalue", ("",), 0.0, "numbervalue-blank"),
+    ("numbervalue", ("",), "nan", "numbervalue-blank"),
     ("numbervalue", (0,), 0.0, "numbervalue-zero"),
     ("numbervalue", ("1.2.3",), "nan", "numbervalue-out-of-range"),
     ("odd", ("",), ValueError, "odd-blank"),
@@ -372,15 +374,15 @@ def test_regex_occurrence_and_whole_match():
     # Search returns the whole match even when an optional group did not participate.
     assert calc.regex("b", "(a)?b") == "b"
     assert calc.regex("abc-123", "([a-z]+)-([0-9]+)") == "abc-123"
-    assert calc.regex("ababa", "a", None, 2) == "a"
-    assert calc.regex("a1b2", r"[a-z]\d", None, 2) == "b2"
+    assert calc.regex("ababa", "a", flags=2) == "a"
+    assert calc.regex("a1b2", r"[a-z]\d", flags=2) == "b2"
     assert calc.regex("ababa", "a", "X", 2) == "abXba"
     assert calc.regex("abc", "z") == "#N/A"
     # Occurrence 0 is the original text, before the pattern is compiled.
-    assert calc.regex("abc", "[", None, 0) == "abc"
-    assert calc.regex("aba", "a", None, "g") == "a"
-    assert math.isnan(calc.regex("abc", "b", None, "x"))
-    assert math.isnan(calc.regex("abc", "b", None, -1))
+    assert calc.regex("abc", "[", flags=0) == "abc"
+    assert calc.regex("aba", "a", flags="g") == "a"
+    assert math.isnan(calc.regex("abc", "b", flags="x"))
+    assert math.isnan(calc.regex("abc", "b", flags=-1))
 
 
 def test_rept_length_cap_and_bad_count():
@@ -676,4 +678,17 @@ def test_npv_booleans_and_text():
     assert math.isclose(calc.npv(0.1, [1, True]), 1.0 / 1.1 + 1.0 / 1.21)
     assert math.isclose(calc.npv(0.1, [True, False], 10), 1.0 / 1.1 + 10.0 / 1.331)
     assert math.isclose(calc.npv(0.1, ["1"], 10), 10.0 / 1.1)
+
+
+def test_numbervalue_empty_text_is_value_error():
+    res = calc.numbervalue("")
+    assert math.isnan(res) and nan_error_code(res) == 519
+
+
+def test_blank_one_cell_args_in_prob_regex_and_numbervalue():
+    blank = CalcRange([[None]])
+    assert calc.prob([-1, 0, 1], [0.2, 0.5, 0.3], -1, blank) == pytest.approx(0.7)
+    assert calc.regex("abc", "b", blank) == "ac"
+    assert calc.regex("None here", blank) == ""
+    assert calc.numbervalue("1e3", ".", blank) == 1000.0
 

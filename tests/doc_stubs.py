@@ -19,47 +19,6 @@ def _register_doc_stubs_aliases() -> None:
 
 _register_doc_stubs_aliases()
 
-# `com.sun.*` sys.modules keys snapshotted by the native runner.
-_COM_SUN_STAR_MOCK_MODULE_KEYS = [
-    "com",
-    "com.sun",
-    "com.sun.star",
-    "com.sun.star.text",
-    "com.sun.star.util",
-    "com.sun.star.document",
-    "com.sun.star.frame",
-    "com.sun.star.beans",
-    "com.sun.star.awt",
-    "com.sun.star.task",
-    "com.sun.star.lang",
-    "com.sun.star.style",
-    "com.sun.star.style.BreakType",
-    "com.sun.star.ui",
-    "com.sun.star.ui.UIElementType",
-    "com.sun.star.container",
-    "com.sun.star.uno",
-    "com.sun.star.datatransfer",
-    "com.sun.star.datatransfer.clipboard",
-]
-
-# UNO and core.* sys.modules keys that plugin.testing_runner.run_all_tests
-# snapshots and restores between native suites. A suite that replaces one of
-# these at import must not leave its stub for the next suite.
-NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS = (
-    "uno",
-    "unohelper",
-    "unohelper.Base",
-    *_COM_SUN_STAR_MOCK_MODULE_KEYS,
-    "core",
-    "core.logging",
-    "core.async_stream",
-    "core.config",
-    "core.api",
-    "core.document",
-    "core.document_tools",
-    "core.constants",
-)
-
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):
@@ -183,6 +142,7 @@ class MockTextCursor:
 
     def getStart(self): return self
     def getEnd(self): return self
+    def getText(self): return self
     def getString(self): return ""
     def setString(self, val): pass
     def gotoStart(self, expand): pass

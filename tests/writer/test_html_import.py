@@ -158,6 +158,23 @@ def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
     assert failed.unapplied_para == ["margin-top", "font-weight"]
 
 
+def test_replace_xtext_with_html_preserves_tex_backslashes_and_expands_prose():
+    """Header/footer writes expand prose escapes outside TeX while keeping TeX backslashes."""
+    text = MagicMock()
+    imported: list[str] = []
+    html = r"<p>Rate $\nu$ \(\tau\) a\nb</p>"
+    with patch(
+        "plugin.writer.html_import.insert_html_fragment_at_cursor",
+        side_effect=lambda cursor, prepared, **kw: imported.append(prepared),
+    ):
+        replace_xtext_with_html(text, html, model=_undo_model())
+
+    assert len(imported) == 1
+    assert r"$\nu$" in imported[0]
+    assert r"\(\tau\)" in imported[0]
+    assert "a\nb" in imported[0]
+
+
 def test_replace_xtext_with_html_plain_html_skips_style_walk():
     text = MagicMock()
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
@@ -2111,6 +2128,7 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     cur.setString.assert_called_once_with("")
 
     leftover = MagicMock()
+    leftover.isStartOfParagraph.return_value = True
     leftover.getString.side_effect = ["", brk, brk]
     leftover.goLeft.return_value = False
     leftover.goRight.return_value = True
@@ -2128,6 +2146,23 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     end.getString.return_value = brk
     text.createTextCursorByRange.side_effect = [start, end]
     assert _without_trailing_break(rng) is start
+
+
+def test_drop_leftover_paragraph_keeps_break_of_trailing_bare_content():
+    from plugin.writer.html_import import _drop_leftover_paragraph
+
+    leftover_enum = MagicMock()
+    leftover_enum.hasMoreElements.return_value = False
+
+    leftover = MagicMock()
+    leftover.isStartOfParagraph.return_value = False
+    leftover.getString.side_effect = ["", "l"]
+    leftover.goLeft.return_value = True
+    leftover.createEnumeration.return_value = leftover_enum
+
+    _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
+    leftover.setString.assert_not_called()
+    leftover.goRight.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -2320,21 +2355,32 @@ def test_raise_if_protected_sections_lists_names():
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
 
-    def _make_section(*, protected: bool, doc_index: Any = None, impl_name: str = "SwXBodyText"):
+    def _make_section(*, protected: bool, doc_index: Any = None, impl_chain: str | list[str] = "SwXBodyText"):
+        chain = [impl_chain] if isinstance(impl_chain, str) else list(impl_chain)
         sec = MagicMock()
         sec.getPropertyValue.side_effect = lambda prop: {
             "IsProtected": protected,
             "DocumentIndex": doc_index,
         }[prop]
-        sec.getAnchor.return_value.getText.return_value.getImplementationName.return_value = impl_name
+        node: Any = None
+        for name in reversed(chain):
+            cur = MagicMock()
+            cur.getImplementationName.return_value = name
+            cur.getPropertyValue.side_effect = lambda prop, parent=node: parent if prop == "ParentText" else None
+            node = cur
+        sec.getAnchor.return_value.getText.return_value = node
         return sec
 
     sections = {
         "IndexSec": _make_section(protected=True, doc_index=MagicMock()),
-        "HeaderSec": _make_section(protected=True, impl_name="SwXHeadFootText"),
+        "HeaderSec": _make_section(protected=True, impl_chain="SwXHeadFootText"),
+        "HeaderCellSec": _make_section(protected=True, impl_chain=["SwXCell", "SwXHeadFootText"]),
+        "HeaderFrameSec": _make_section(protected=True, impl_chain=["SwXTextFrame", "SwXHeadFootText"]),
         "UnprotSec": _make_section(protected=False),
         "BodyProtA": _make_section(protected=True),
         "BodyProtB": _make_section(protected=True),
+        "BodyCellProt": _make_section(protected=True, impl_chain=["SwXCell", "SwXBodyText"]),
+        "PageFrameProt": _make_section(protected=True, impl_chain=["SwXTextFrame"]),
     }
     model = MagicMock()
     model.getTextSections.return_value.getElementNames.return_value = list(sections.keys())
@@ -2346,6 +2392,10 @@ def test_raise_if_protected_sections_lists_names():
     msg = str(exc_info.value)
     assert "'BodyProtA'" in msg
     assert "'BodyProtB'" in msg
+    assert "'BodyCellProt'" in msg
+    assert "'PageFrameProt'" in msg
     assert "IndexSec" not in msg
     assert "HeaderSec" not in msg
+    assert "HeaderCellSec" not in msg
+    assert "HeaderFrameSec" not in msg
     assert "UnprotSec" not in msg

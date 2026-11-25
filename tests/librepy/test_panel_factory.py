@@ -259,3 +259,19 @@ def test_window_on_disposing_nulls_toolpanel_and_rebuilds():
         assert el.toolpanel is not None
         assert el.controller is controller2
         assert panel2 is not panel1
+
+
+def test_create_ui_element_refusals_raise_the_declared_exceptions():
+    from com.sun.star.container import NoSuchElementException
+    from com.sun.star.lang import IllegalArgumentException
+    from plugin.librepy.panel_factory import PythonPanelFactory
+
+    factory = PythonPanelFactory(None)
+    with pytest.raises(NoSuchElementException) as unknown:
+        factory.createUIElement("private:resource/toolpanel/Other", ())
+    assert unknown.value.Context is factory
+
+    with pytest.raises(IllegalArgumentException) as no_parent:
+        factory.createUIElement("private:resource/toolpanel/PythonPanel", ())
+    assert no_parent.value.Context is factory
+    assert no_parent.value.ArgumentPosition == 1

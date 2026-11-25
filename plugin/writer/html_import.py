@@ -220,13 +220,16 @@ def _place_formulas(
     prefix = f"[[WA-MATH:{nonce}:"
     hits = field_restore.find_tokens(text_obj, prefix, _MATH_TOKEN_RE)
     by_idx = {int(m.group(2)): cur for cur, m in hits}
+    # Read before any split, because splitting for one display formula can leave
+    # the next one alone in what was a heading.
+    alone = {idx for idx, cur in by_idx.items() if _range_covers_whole_paragraphs(cur)}
     attempts: list[dict[str, Any]] = []
     for idx, seg in enumerate(formulas):
         cursor = by_idx.get(idx)
         if cursor is None:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             attempts.append(
-                _math_attempt_entry(seg, snippet, ok=False, error="formula position lost in the HTML import")
+                _math_attempt_entry(seg, snippet, ok=False, error=html_import_styles.MATH_POSITION_LOST)
             )
             continue
         if seg.kind == "tex":
@@ -251,6 +254,11 @@ def _place_formulas(
                 cursor.gotoEndOfParagraph(False)
             if not cursor.isStartOfParagraph():
                 text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            # A split keeps the heading style on a formula at the heading's start (and everywhere in a
+            # style that follows itself), which would add an empty-looking entry to the outline. A formula
+            # that was the whole heading keeps the style its author chose.
+            if idx not in alone and cursor.getPropertyValue("OutlineLevel") > 0:
+                cursor.setPropertyValue("ParaStyleName", "Text body")
             cursor.setPropertyValue("ParaAdjust", PARA_CENTER)
         insert_writer_math_formula(model, cursor, res.starmath, display_block=False)
         attempts.append(_math_attempt_entry(seg, snippet, ok=True))
@@ -336,17 +344,32 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
+def _in_index(element: Any) -> bool:
+    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+    # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
+    # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
+    sections = _sections_at(element)
+    return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
+
+
 def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
     """Yield ``(name, section)`` for each text section outside headers and footers.
 
-    Checking the anchor text's implementation name (``SwXHeadFootText``) rather
-    than ``TextSection`` handles table-only body sections whose anchor text is
-    ``SwXBodyText``.
+    A section in a table cell or text frame belongs to the text that holds the
+    table or frame anchor (``ParentText`` via ``SwXCell::getPropertyValue`` in
+    ``sw/source/core/unocore/unotbl.cxx`` and ``SwXFrame::getPropertyValue``
+    in ``sw/source/core/unocore/unoframe.cxx``). A frame anchored to a page
+    number has no parent text, so its sections count as body sections. Checking
+    the implementation name rather than ``TextSection`` handles table-only body
+    sections whose anchor text is ``SwXBodyText``.
     """
     sections = model.getTextSections()
     for name in sections.getElementNames():
         section = sections.getByName(name)
-        if section.getAnchor().getText().getImplementationName() != "SwXHeadFootText":
+        text = section.getAnchor().getText()
+        while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
+            text = text.getPropertyValue("ParentText")
+        if text is None or text.getImplementationName() != "SwXHeadFootText":
             yield name, section
 
 
@@ -528,7 +551,12 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     tracked-deleted paragraph; Accept empties it, so the result matches the
     untracked path. At the end of the text the paragraph stays because a Writer text
     cannot end with a table.
+
+    Trailing content outside a block (``<table>...</table>tail``) takes over the
+    paragraph at the insert point and leaves *leftover* at its end. That paragraph
+    is not empty, so merging it forward would join the next paragraph onto it.
     """
+    at_paragraph_start = leftover.isStartOfParagraph()
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() != "":
         return
@@ -542,7 +570,7 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     # Join the leftover onto the last imported block by deleting that block's break.
     # While recording, the break belongs to our own tracked insertion, so deleting it
     # removes it rather than adding a Delete redline.
-    if _delete_preceding_break(leftover) or not merge_forward_after_table:
+    if _delete_preceding_break(leftover) or not merge_forward_after_table or not at_paragraph_start:
         return
     if leftover.goRight(1, True):
         if leftover.getString() in _PARAGRAPH_BREAKS:
@@ -1219,8 +1247,18 @@ def replace_full_document(
         recording = record_changes.is_recording_changes(model)
         cursor.gotoStart(False)
         # Read before the delete: without recording, setString("") leaves one paragraph with the
-        # last old paragraph's character formatting.
-        language = language_at_start(cursor)
+        # last old paragraph's character formatting. An index's own text is usually in the
+        # document default language, so the first paragraph outside any index decides; a body
+        # that is only an index has none, and its start is used.
+        language = language_at_start(
+            next(
+                (
+                    el for el in iter_elements(text.createEnumeration())
+                    if not _uno_service_true(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                ),
+                cursor,
+            )
+        )
         # Leading tables outside sections are already deleted or struck (delete_leading_tables).
         # A table inside a section counts as the start: gotoStart would step past that section.
         first = next(
@@ -1505,7 +1543,7 @@ def replace_xtext_with_html(
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
     expanded = html_import_styles.normalize_character_references(expanded)
-    expanded = html_import_styles.expand_escapes(expanded)
+    expanded = html_import_styles.expand_prose_escapes(expanded)
     expanded, ruby_spans = html_ruby.ruby_placeholders(expanded, nonce)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)

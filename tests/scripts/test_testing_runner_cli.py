@@ -275,6 +275,14 @@ def test_is_uno_bridge_disposed() -> None:
     assert not tr._is_uno_bridge_disposed(RuntimeError("no desktop"))
 
 
+def test_closed_document_is_not_a_dead_bridge() -> None:
+    from com.sun.star.lang import DisposedException
+
+    assert tr._is_uno_bridge_disposed(DisposedException("Binary URP bridge already disposed", None))
+    assert not tr._is_uno_bridge_disposed(DisposedException("SwXTextDocument not valid", None))
+    assert not tr._is_uno_bridge_disposed(DisposedException("", None))
+
+
 def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr.current_office().options, "show_window", False)

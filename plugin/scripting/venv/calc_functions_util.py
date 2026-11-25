@@ -19,7 +19,8 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
    NA_NAN shows #N/A (na, xmatch miss, textsplit padding, textafter/textbefore miss or empty text, prob size
    mismatch), NESTED_ARRAY_NAN shows Err:533 (filter with no match and no if_empty),
-   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1), ILLEGAL_PARAMETER_NAN
+   VALUE_NAN shows #VALUE! (textafter/textbefore bad flag or instance, encodeurl and numbervalue empty text),
+   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1, averageif/averageifs no match), ILLEGAL_PARAMETER_NAN
    shows Err:504 (xmatch bad mode), and ILLEGAL_ARGUMENT_NAN shows Err:502 (the domain checks
    of negbinomdist, hypgeomdist, combina, fact, the bit functions, decimal radix, db,
    cumipmt/cumprinc, ttest, tdist, tinv, fdist, finv, percentrank significance, trimmean percent).
@@ -28,9 +29,10 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
    and regression helpers), and the first error of a range (@propagate_errors, criteria_reduce,
    first_error: npv, sumsq, sumproduct, subtotal, aggregate; first_coded_error: D*). "Err:502" /
-   "Err:504" come from base, filter shape, xlookup bad mode or return size, growth, trend,
+   "Err:504" come from base, filter shape, index, vlookup/hlookup, xlookup bad mode or return size, growth, trend,
    linest and logest. "#VALUE!" also from mode with no repeat and fact above 170.
-   @propagate_errors returns an argument's own error (token or coded NaN) before the helper runs.
+   @propagate_errors returns an argument's own error (token or coded NaN) before the helper runs,
+   and unwraps one-cell ranges.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -49,6 +51,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
+from plugin.scripting.calc_range import CalcRange
+
 from .coerce import is_blank_value, is_error_token, is_missing_value
 
 def formula_error_nan(code: int) -> float:
@@ -57,12 +61,13 @@ def formula_error_nan(code: int) -> float:
 
 
 # 0x7FFF is FormulaError::NotAvailable, 502 is FormulaError::IllegalArgument,
-# 504 is FormulaError::IllegalParameter, 532 is FormulaError::DivisionByZero,
-# 533 is FormulaError::NestedArray.
+# 504 is FormulaError::IllegalParameter, 519 is FormulaError::NoValue,
+# 532 is FormulaError::DivisionByZero, 533 is FormulaError::NestedArray.
 # They are ordinary NaNs in Python; the worker does not import plugin.calc.
 NA_NAN: float = formula_error_nan(0x7FFF)
 ILLEGAL_ARGUMENT_NAN: float = formula_error_nan(502)
 ILLEGAL_PARAMETER_NAN: float = formula_error_nan(504)
+VALUE_NAN: float = formula_error_nan(519)
 NESTED_ARRAY_NAN: float = formula_error_nan(533)
 DIV0_NAN: float = formula_error_nan(532)
 
@@ -73,7 +78,7 @@ def nan_error_code(val: float) -> int:
 
 
 class RegressionError(Exception):
-    """A regression input Calc rejects. str(exc) is the error token the cell shows."""
+    """A regression input Calc rejects. ``exc.args[0]`` is the error the cell shows (a token or a coded NaN)."""
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
@@ -87,6 +92,8 @@ def require_samples(n: int, k: int, const: bool) -> None:
 
 
 _SERIAL_OFFSET: int = 693594
+# Sentinel for an omitted optional argument: a present None is a blank cell, so it cannot mean "omitted".
+OMITTED: Any = object()
 
 _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
     1: (5, 6),
@@ -118,18 +125,44 @@ def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+def cell_value(val: Any) -> Any:
+    """The cell of a one-cell CalcRange; any other value unchanged."""
+    return val.values[0][0] if isinstance(val, CalcRange) and val.shape == (1, 1) else val
+
+
+def argument_error(arg: Any) -> float | str | None:
+    """The error of one argument: any error of a scalar, the first coded error of a range."""
+    cells = np.asarray(arg, dtype=object)
+    return first_error(cells.ravel()) if cells.ndim == 0 else first_coded_error(cells.ravel())
+
+
+def py_str(val: Any) -> str:
+    """Text of a value, "" for a blank cell. Inline =PY() code calls it to avoid the str( token."""
+    val = cell_value(val)
+    return "" if val is None else str(val)
+
+
+def whole_number(val: Any) -> int:
+    """An index argument as GetInt32 reads it (interpr4.cxx): approxFloor toward zero, a blank cell is 0."""
+    val = cell_value(val)
+    number = 0.0 if val is None else float(val)
+    return approx_floor(number) if number >= 0 else -approx_floor(-number)
+
+
 def propagate_errors(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Return the error of an argument instead of calling fn.
 
-    A scalar error, including a plain NaN, always propagates. In a range only an
-    error with a code does. The last argument wins, because the interpreter pops
-    arguments from the last (EDATE(A1;B1) shows B1's error).
+    A one-cell range is unwrapped to its cell. A scalar error, including a plain
+    NaN, always propagates; in a range only an error with a code does. The last
+    argument wins, because the interpreter pops arguments from the last (EDATE(A1;B1)
+    shows B1's error).
     """
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        args = tuple(cell_value(a) for a in args)
+        kwargs = {k: cell_value(v) for k, v in kwargs.items()}
         for arg in reversed((*args, *kwargs.values())):
-            cells = np.asarray(arg, dtype=object)
-            err = first_error(cells.ravel()) if cells.ndim == 0 else first_coded_error(cells.ravel())
+            err = argument_error(arg)
             if err is not None:
                 return err
         return fn(*args, **kwargs)
@@ -494,74 +527,124 @@ def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray]
     return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
 
 
-def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
+def orient_columns(arr: np.ndarray, known_y: np.ndarray, size: int, axis: int) -> np.ndarray:
     """A regression range with one variable per column.
 
     A scalar (0-d, which GetMatrix in interpr5.cxx stores as a 1×1 matrix) or a
-    1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
-    while its other axis is ``size`` is transposed: known_x uses axis 0 and the
-    number of known_y values, new_x uses axis 1 and the number of x variables.
-    Any other shape is returned unchanged for the caller's shape check
-    (CheckMatrix in sc/source/core/tool/interpr5.cxx accepts both orientations).
+    1-D range is one column. When known_y is 2-D, it fixes the orientation
+    (CheckMatrix in sc/source/core/tool/interpr5.cxx): a column y keeps arr, a
+    row y transposes it. When known_y is 1-D, a 2-D block whose ``axis`` length
+    is not ``size`` while its other axis is ``size`` is transposed.
     """
     if arr.ndim <= 1:
         return arr.reshape(-1, 1)
-    if arr.ndim == 2 and arr.shape[axis] != size and arr.shape[1 - axis] == size:
+    if arr.ndim > 2:
+        return arr
+    if known_y.ndim == 2:
+        return arr if known_y.shape[1] == 1 else arr.T
+    if arr.shape[axis] != size and arr.shape[1 - axis] == size:
         return arr.T
     return arr
 
 
-def regression_x(known_y: np.ndarray, known_x: Any) -> np.ndarray:
-    """known_x with one variable per column; omitted (None) is 1..n (CheckMatrix, interpr5.cxx).
+def numeric_cells(arg: Any) -> tuple[np.ndarray, float | str | None]:
+    """Floats of a regression range and its first error; error cells are NaN in the array.
 
-    The same shape as known_y is one x variable (nCase 1). A wrong sample count raises Err:502.
+    A text or blank cell raises Err:502 (CheckMatrix, interpr5.cxx). A plain NaN in a range is a
+    blank, because a blank cell of a numeric range can arrive as one.
     """
-    n = known_y.size
+    cells = np.asarray(arg, dtype=object)
+    find = first_error if cells.ndim == 0 else first_coded_error
+    err = find(cells.ravel())
+    if err is not None and cells.size == 1:  # GetMatrix of one error cell sets the error itself
+        raise RegressionError(err)
+    values = []
+    for v in cells.ravel():
+        if find([v]) is not None:
+            values.append(float("nan"))
+        elif v is None or isinstance(v, str) or math.isnan(v):
+            raise RegressionError("Err:502")
+        else:
+            values.append(float(v))
+    return np.asarray(values, dtype=float).reshape(cells.shape), err
+
+
+def regression_inputs(
+    known_y: Any, known_x: Any, const: Any, *, log: bool
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Parse and validate known_y, known_x and const for LINEST, LOGEST, TREND and GROWTH.
+
+    Checks y <= 0 (for LOGEST, Err:502), then shape (Err:502), then sample count
+    (Err:504): CheckMatrix and CalculateRGPRKP (interpr5.cxx). Same-shaped known_x
+    and known_y are one x variable (CheckMatrix nCase 1), a 2-D block y accepts only
+    an x of its own shape, and omitted known_x (None) is 1..n. Input cell errors are
+    raised after shape and sample checks so Err:502 / Err:504 take precedence.
+    """
+    y, y_err = numeric_cells(known_y)
+    if log:
+        if np.any(y <= 0):
+            raise RegressionError("Err:502")
+        y = np.log(y)
+    n = y.size
     if known_x is None:
-        return np.arange(1, n + 1, dtype=float).reshape(-1, 1)
-    x = np.asarray(known_x, dtype=float)
-    x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
-    # CheckMatrix refuses a scalar x against a vector y, which numpy would otherwise broadcast.
-    if x.ndim != 2 or x.shape[0] != n:
-        raise RegressionError("Err:502")
-    return x
-
-
-def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.ndarray:
-    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
-
-    Same-shaped known_y and known_x are one x variable (CheckMatrix nCase 1); with one variable
-    new_x may have any shape. Shape and sample rejections raise RegressionError with Calc's token,
-    other rejections raise ValueError.
-    """
-    n = known_y.size
-    y = known_y.ravel()
-    x = regression_x(known_y, known_x)
-    if np.any(np.isnan(x)) or np.any(np.isnan(y)):
-        raise ValueError
-    k = x.shape[1]
-    with_intercept = as_nonzero(const)
-    require_samples(n, k, with_intercept)
-    if new_x is None:
-        at = x
+        x, x_err = np.arange(1, n + 1, dtype=float).reshape(-1, 1), None
     else:
-        at = np.asarray(new_x, dtype=float)
-        at = at.reshape(-1, 1) if k == 1 else orient_columns(at, k, axis=1)
-    # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
-    if at.ndim != 2 or at.shape[1] != k:
-        raise RegressionError("Err:502")
-    if np.any(np.isnan(at)):
-        raise ValueError
+        x, x_err = numeric_cells(known_x)
+        same_shape = x.shape == y.shape
+        if y.ndim == 2 and min(y.shape) > 1 and not same_shape:
+            raise RegressionError("Err:502")
+        # CheckMatrix refuses a scalar x against a vector y, which numpy would otherwise broadcast.
+        x = x.reshape(-1, 1) if same_shape else orient_columns(x, y, n, axis=0)
+        if x.ndim != 2 or x.shape[0] != n:
+            raise RegressionError("Err:502")
+    with_intercept = as_nonzero(const)
+    require_samples(n, x.shape[1], with_intercept)
+    err = y_err if x_err is None else x_err
+    if err is not None:
+        raise RegressionError(err)
+    return y, x, with_intercept
+
+
+def least_squares(
+    y: np.ndarray, x: np.ndarray, with_intercept: bool
+) -> tuple[np.ndarray, float, np.ndarray]:
+    """(center, base, slopes) of the fit base + (x - center) @ slopes."""
     # Calc fits x - mean and y - mean. Uncentred values near 1e8 make the x column and the
     # intercept column indistinguishable to lstsq.
-    center = x.mean(axis=0) if with_intercept else np.zeros(k)
-    base = y.mean() if with_intercept else 0.0
+    center = x.mean(axis=0) if with_intercept else np.zeros(x.shape[1])
+    base = float(y.mean()) if with_intercept else 0.0
     # A constant column (or an all-zero one without intercept) has no slope: PushNoValue.
     spread = np.ptp(x, axis=0) if with_intercept else np.abs(x).max(axis=0)
     if np.any(spread == 0):
-        raise ValueError
-    slopes = np.linalg.lstsq((x - center) / spread, y - base, rcond=None)[0]
-    return (at - center) / spread @ slopes + base
+        raise RegressionError("#VALUE!")
+    slopes = np.linalg.lstsq((x - center) / spread, y.ravel() - base, rcond=None)[0] / spread
+    return center, base, slopes
+
+
+def trend_fit(known_y: Any, known_x: Any, new_x: Any, const: Any, *, log: bool = False) -> list[Any]:
+    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
+
+    With one x variable, new_x may have any shape. Shape and sample rejections raise
+    RegressionError with Calc's token; other rejections raise ValueError. const is
+    checked here only (LINEST ignores a const error), and a new_x error affects only
+    its own result element.
+    """
+    const_err = argument_error(const)
+    if const_err is not None:
+        raise RegressionError(const_err)
+    y, x, with_intercept = regression_inputs(known_y, known_x, const, log=log)
+    k = x.shape[1]
+    cells = x if new_x is None else np.asarray(new_x, dtype=object)
+    at = numeric_cells(cells)[0]
+    if new_x is not None:
+        # An (m, 1) new_x would broadcast against a k-wide center instead of failing.
+        cells, at = (a.reshape(-1, 1) if k == 1 else orient_columns(a, y, k, axis=1) for a in (cells, at))
+    if at.ndim != 2 or at.shape[1] != k:
+        raise RegressionError("Err:502")
+    center, base, slopes = least_squares(y, x, with_intercept)
+    fitted = (at - center) @ slopes + base
+    errors = [first_error(row) for row in cells]
+    return [f if e is None else e for f, e in zip((np.exp(fitted) if log else fitted).tolist(), errors)]
 
 
 def scipy_stats() -> Any | None:
@@ -664,31 +747,65 @@ def is_criteria_blank(value: Any) -> bool:
     return is_blank_value(value) if isinstance(value, str) else is_missing_value(value)
 
 
+def criterion_error(crits: Iterable[Any]) -> float | str | None:
+    """Error of COUNTIF-style criteria: a NaN, or a one-cell range that holds an error. The last one wins.
+
+    A Python string is text, because COUNTIF(A1:A5;"#N/A") counts cells in Calc.
+    """
+    return first_error(reversed([cell_value(c) for c in crits if not isinstance(c, str)]))
+
+
+def _lookup_number(val: Any) -> float | None:
+    """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
+    if isinstance(val, (bool, np.bool_, int, float, np.integer, np.floating)):
+        try:
+            number = float(val)
+        except (ValueError, TypeError, OverflowError):
+            return None
+        # a NaN key compares false and is already a miss (#N/A)
+        return number
+    return None
+
+
+def sorted_match(lookup_val: Any, keys: Iterable[Any]) -> int | None:
+    """Position of the last key <= lookup_val of the same type (ScLookup, interpr1.cxx). Text compares case-insensitively."""
+    query_num = _lookup_number(lookup_val)
+
+    def _matches(value: Any) -> bool:
+        if query_num is not None:
+            cell = _lookup_number(value)
+            return cell is not None and cell <= query_num
+        if isinstance(lookup_val, str) and lookup_val != "" and isinstance(value, str) and value != "":
+            return value.casefold() <= lookup_val.casefold()
+        return False
+
+    return max((i for i, value in enumerate(keys) if _matches(value)), default=None)
+
+
 def _parse_criterion(crit: Any) -> Callable[[Any], bool]:
     """Parse an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=') into a matcher callable."""
+    crit = cell_value(crit)
     if is_criteria_blank(crit):
         return is_criteria_blank
 
     if isinstance(crit, str):
         m = re.match(r"^(<=|>=|<>|<|>|==|=)(?![<>=])(.*)$", crit)
         if m:
-            op = "=" if m.group(1) == "==" else m.group(1)
-            val_str: str | None = m.group(2)
-        else:
-            op = "="
-            val_str = crit
-    else:
-        op = "="
-        val_str = None
+            return value_matcher("=" if m.group(1) == "==" else m.group(1), m.group(2))
+    return value_matcher("=", crit)
 
+
+def value_matcher(op: str, operand: Any) -> Callable[[Any], bool]:
+    """Matcher for an operator and an already-separated operand."""
+    val_str = operand if isinstance(operand, str) else None
     c_num: float | None = None
     if val_str is not None:
         logical = _LOGICAL_TEXT.get(val_str.strip().upper())
         c_num = _to_float_or_none(val_str) if logical is None else logical
-    elif isinstance(crit, _NUMERIC_TYPES):
-        c_num = _to_float_or_none(crit)
+    elif isinstance(operand, _NUMERIC_TYPES):
+        c_num = _to_float_or_none(operand)
     # Only a text criterion matches text cells; COUNTIF(A1;1) and COUNTIF(A1;TRUE()) do not match the text "1" or "TRUE".
-    c_pattern = val_str if val_str is not None else str(crit)
+    c_pattern = val_str if val_str is not None else str(operand)
 
     def matcher(val: Any) -> bool:
         val_is_blank = is_criteria_blank(val)
@@ -767,6 +884,9 @@ def criteria_reduce(
     reduce: Callable[[list[float]], float],
 ) -> float | str | None:
     """First matched error, else ``reduce`` of the matched numbers; booleans are 1 or 0, text is skipped; None on a shape mismatch."""
+    err = criterion_error(c for _r, c in pairs)
+    if err is not None:
+        return err
     v_arr = np.asarray(values, dtype=object)
     mask = multi_criteria_mask(pairs, base_shape=v_arr.shape)
     if mask is None:

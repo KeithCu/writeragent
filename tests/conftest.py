@@ -516,23 +516,35 @@ uno_mod = _create_mock_module("com.sun.star.uno")
 container = _create_mock_module("com.sun.star.container")
 
 
-# Same names and bases as the classes pyuno builds (createClass in
-# pyuno/source/module/pyuno_except.cxx): __name__ is the full UNO name, and the bases
-# follow the IDL, so a narrow except catches here what it catches in LibreOffice.
-# Constructor rules are not modelled.
-def _uno_exception(module: types.ModuleType, name: str, base: type[Exception]) -> type[Exception]:
-    cls = type(f"{module.__name__}.{name}", (base,), {})
+# Same names, bases and initialiser rule as the classes pyuno builds. __name__ is the full UNO
+# name and the bases follow the IDL (createClass in pyuno/source/module/pyuno_except.cxx), so a
+# narrow except catches here what it catches in LibreOffice. Positional arguments are all or
+# none (fillStruct in pyuno_module.cxx). Keyword and copy construction are not modelled.
+def _uno_exception(module: types.ModuleType, name: str, base: type[Exception], **members: Any) -> type[Exception]:
+    defaults = {**getattr(base, "_uno_members", {}), **members}
+
+    def __init__(self, *args):
+        if args and len(args) != len(defaults):
+            raise _UnoRuntimeException(f"{type(self).__name__} takes 0 or {len(defaults)} arguments, got {len(args)}", None)
+        Exception.__init__(self, *args)
+        for member, value in zip(defaults, args or defaults.values(), strict=True):
+            setattr(self, member, value)
+
+    def __str__(self):
+        return self.Message
+
+    cls = type(f"{module.__name__}.{name}", (base,), {"_uno_members": defaults, "__init__": __init__, "__str__": __str__})
     setattr(module, name, cls)
     return cls
 
 
-_UnoException = _uno_exception(uno_mod, "Exception", Exception)
+_UnoException = _uno_exception(uno_mod, "Exception", Exception, Message="", Context=None)
 _UnoRuntimeException = _uno_exception(uno_mod, "RuntimeException", _UnoException)
 _uno_exception(lang, "DisposedException", _UnoRuntimeException)
-_uno_exception(lang, "IllegalArgumentException", _UnoRuntimeException)
+_uno_exception(lang, "IllegalArgumentException", _UnoRuntimeException, ArgumentPosition=0)
 _uno_exception(lang, "IndexOutOfBoundsException", _UnoException)
 _uno_exception(container, "NoSuchElementException", _UnoException)
-_uno_exception(util, "MalformedNumberFormatException", _UnoException)
+_uno_exception(util, "MalformedNumberFormatException", _UnoException, CheckPos=0)
 
 class MockXSidebarPanel: pass
 class MockXToolPanel: pass
