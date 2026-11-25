@@ -2333,3 +2333,36 @@ def test_scan_region_content_excludes_struck_logo_but_keeps_has_struck():
     assert scan["images"] == []
     assert scan["has_struck"] is True
     assert _region_holds_content(doc, text_obj) is True
+
+
+def test_scan_region_content_sees_nested_fields_and_redlines_in_content_control():
+    from plugin.writer.page import _scan_region_content
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    field = MagicMock()
+    field.getPresentation.side_effect = lambda show_cmd: "Page" if show_cmd else "1"
+    nested_field = MagicMock()
+    nested_field.getPropertyValue.side_effect = lambda name: field if name == "TextField" else ("TextField" if name == "TextPortionType" else None)
+    cc_field = FakeUnoPortion("ContentControl", inner=[nested_field])
+
+    struck_field = MagicMock()
+    struck_field.getPropertyValue.side_effect = lambda name: field if name == "TextField" else ("TextField" if name == "TextPortionType" else None)
+    cc_struck = FakeUnoPortion(
+        "ContentControl",
+        inner=[
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+            struck_field,
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+        ],
+    )
+
+    para = FakeUnoPara([cc_field, cc_struck])
+    para.supportsService = lambda svc: svc == "com.sun.star.text.Paragraph"  # type: ignore[attr-defined]
+    text_obj = MagicMock()
+    text_obj.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
+    doc = MagicMock()
+    doc.getDrawPage.return_value.getCount.return_value = 0
+
+    scan = _scan_region_content(doc, text_obj)
+    assert scan["fields"] == [{"presentation": "1", "content": "Page"}]
+    assert scan["has_struck"] is True

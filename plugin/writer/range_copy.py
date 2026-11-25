@@ -430,7 +430,7 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
     # in this tuple: without it a NEXT page-number field with Offset 1 is cloned
     # as Offset 0. Properties the service does not have fail the try/except below
     # and are skipped.
-    for prop in ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format"):
+    for prop in ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format", "Content", "Hint"):
         try:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
         except Exception as e:

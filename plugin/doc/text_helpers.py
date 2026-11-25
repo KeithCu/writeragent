@@ -673,6 +673,8 @@ def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
     ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
     enumeration is unreadable.
     """
+    if portion_enum is None:
+        return
     while enum_has_more(portion_enum):
         try:
             portion = portion_enum.nextElement()
@@ -1333,12 +1335,29 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
 
     Measured per paragraph rather than from the document start because a range from the
     document start to a paragraph after a table drops that paragraph and its break.
-    *opened* carries whether the paragraph began inside a deletion whose start marker was
-    in an earlier paragraph.
+    Walks ``visible_portions`` and slices inside a spanning portion (such as an ``Input``
+    field or ``Text`` run) so positions inside an ``Input`` field are not snapped to the
+    field's end. *opened* carries whether the paragraph began inside a deletion whose
+    start marker was in an earlier paragraph.
     """
-    lead = body.createTextCursorByRange(para.getStart())
-    lead.gotoRange(position, True)
-    return len(normalize_linebreaks(get_string_without_tracked_deletions(lead, DeletionState(opened))))
+    total = 0
+    for portion, chunk in visible_portions(para, state=DeletionState(opened)):
+        p_start = portion.getStart()
+        if body.compareRegionStarts(p_start, position) <= 0:
+            break
+        norm = normalize_linebreaks(chunk)
+        p_end = portion.getEnd()
+        if body.compareRegionStarts(p_end, position) >= 0:
+            total += len(norm)
+            continue
+        # *position* falls strictly inside this portion (Text run or Input field).
+        # Measure [position, p_end] rather than [p_start, position]: a cursor starting at
+        # an Input field's outer start expands to the whole field in SwPaM.
+        sub = body.createTextCursorByRange(position)
+        sub.gotoRange(p_end, True)
+        total += max(0, len(norm) - len(normalize_linebreaks(sub.getString())))
+        break
+    return total
 
 
 class VisibleBlock(NamedTuple):

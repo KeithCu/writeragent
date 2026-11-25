@@ -696,7 +696,7 @@ def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
 
     assert find_text_ranges(doc, "CTRL") == [{"start": 3, "end": 7, "text": "CTRL"}]
 
-    # Input field "yy" before body "yy": limit=1 skips the unmeasurable field hit and returns the body row.
+    # Input field "yy" before body "yy": both the Input-field hit and the body hit are measured.
     text.setString("")
     cur = text.createTextCursor()
     text.insertString(cur, "aa ", False)
@@ -705,8 +705,29 @@ def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
     text.insertTextContent(cur, inp, False)
     text.insertString(cur, " yy", False)
 
-    rows = find_text_ranges(doc, "yy", limit=1)
-    assert rows == [{"start": 6, "end": 8, "text": "yy"}]
+    got1 = find_text_ranges(doc, "yy", limit=1)
+    assert got1 == [{"start": 3, "end": 5, "text": "yy"}], got1
+    assert find_text_ranges(doc, "yy") == [
+        {"start": 3, "end": 5, "text": "yy"},
+        {"start": 6, "end": 8, "text": "yy"},
+    ]
+
+    # Substring match inside an Input field nested in a ContentControl.
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "xx ", False)
+    cc_start = cur.getStart()
+    inp2 = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp2.setPropertyValue("Content", "hello world")
+    text.insertTextContent(cur, inp2, False)
+    cc_cur = text.createTextCursorByRange(cc_start)
+    cc_cur.gotoRange(cur.getEnd(), True)
+    cc = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cc_cur, cc, True)
+    cur.gotoEnd(False)
+    text.insertString(cur, " zz", False)
+
+    assert find_text_ranges(doc, "world") == [{"start": 9, "end": 14, "text": "world"}]
 
 
 def _strike_substring(doc, xtext, needle: str, *, ctx=None, author: str | None = None) -> None:

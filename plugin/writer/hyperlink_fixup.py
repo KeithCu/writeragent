@@ -85,7 +85,7 @@ from urllib.parse import quote, unquote
 
 import uno
 
-from plugin.doc.text_helpers import TrackedDeletions, go_right, iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, go_right, iter_elements, iter_portions
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
 from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering, redline_spans
 
@@ -331,12 +331,11 @@ def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False
                 "com.sun.star.text.Paragraph"):
             continue
         portion_enum = para.createEnumeration()
-        for portion in iter_elements(portion_enum):
+        for portion, kind in iter_portions(portion_enum):
+            if portion is None:
+                continue
             # Skip tracked-change redline markers; they do not hold text or link properties.
-            if (
-                not include_redlines
-                and uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline"
-            ):
+            if not include_redlines and kind == "Redline":
                 continue
             yield portion
 

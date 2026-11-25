@@ -31,7 +31,7 @@ from typing import Any, Callable, cast
 
 import uno
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
@@ -599,7 +599,9 @@ def _paragraph_hyperlink(para: Any) -> str:
     other = ""
     portions = uno_read(lambda: para.createEnumeration(), None)
     if portions is not None:
-        for portion in iter_elements(portions):
+        for portion, _kind in iter_portions(portions):
+            if portion is None:
+                continue
             # Some portion types have no HyperLinkURL. Disposal is not that case.
             url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
             if not isinstance(url, str) or not url:
@@ -691,9 +693,11 @@ def _char_props(para: Any, with_link: bool) -> dict[str, Any]:
     """
     props: dict[str, Any] = {}
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
-    for portion in iter_elements(portions):
+    for portion, kind in iter_portions(portions):
+        if portion is None:
+            continue
         # A non-Text portion and an unreadable one both read as "" and are skipped.
-        chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
+        chunk = uno_read(lambda: (portion.getString() or "") if kind == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
             continue
         props = read_link_look(portion, _CLONED_CHAR_PROPS)

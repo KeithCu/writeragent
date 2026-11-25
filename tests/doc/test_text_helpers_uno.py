@@ -874,6 +874,31 @@ def test_visible_range_text_table_edge_and_field_selections_uno(ctx, doc):
     tail_cur.gotoEnd(True)
     assert visible_range_text(doc, tail_cur) == "ner yy"
 
+    # Read text and search offsets for an Input field nested inside a ContentControl.
+    from plugin.doc.text_helpers import read_visible_body
+
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "aa ", False)
+    cc_start = cur.getStart()
+    inp_nested = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp_nested.setPropertyValue("Content", "hello world")
+    text.insertTextContent(cur, inp_nested, False)
+    cc_cur = text.createTextCursorByRange(cc_start)
+    cc_cur.gotoRange(cur.getEnd(), True)
+    cc = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cc_cur, cc, True)
+    cur.gotoEnd(False)
+    text.insertString(cur, " zz", False)
+
+    sd = doc.createSearchDescriptor()
+    sd.setSearchString("world")
+    hit = doc.findFirst(sd)
+    assert hit is not None
+    body_text, offsets, _ = read_visible_body(doc, [hit.getStart(), hit.getEnd()])
+    assert body_text == "aa hello world zz", body_text
+    assert offsets == [9, 14], offsets
+
 
 def _insert_and_strike_last_gone(doc, xtext):
     doc.setPropertyValue("RecordChanges", False)
