@@ -1451,6 +1451,10 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     ret_corner3 = _function.finalize_python_return(_cell(ctx3, "one_cell_test", doc3), [["#NULL!"]])
     assert isinstance(ret_corner3, float)
     assert struct.unpack("Q", struct.pack("d", ret_corner3))[0] & 0xFFFF == 521
+    state3 = WorkbookState.for_doc(doc3)
+    assert state3 is not None
+    assert state3.debounce.pending_for_tests() == {"spill:Sheet1:0:0"}
+    state3.debounce.flush_for_tests("spill:Sheet1:0:0")
     assert sheet3.getCellByPosition(1, 0).getFormula() == ""
     assert sheet3.getCellByPosition(0, 1).getFormula() == ""
 

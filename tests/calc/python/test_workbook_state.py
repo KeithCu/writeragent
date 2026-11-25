@@ -6,7 +6,8 @@ from __future__ import annotations
 import threading
 from unittest.mock import patch
 
-from plugin.calc.python.workbook_state import Debounce
+from plugin.calc.python.workbook_state import Debounce, WorkbookState
+from tests.calc.python.calc_workbook_test_access import ensure_workbook_state
 
 
 def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
@@ -60,3 +61,15 @@ def test_debounce_posts_due_callback_to_main() -> None:
             assert "k" not in debounce.pending_for_tests()
     finally:
         debounce.cancel_all()
+
+
+def test_reset_for_tests_cancels_armed_debounce() -> None:
+    """A forgotten workbook must not post a late spill write into the next test's ``main.post`` stub."""
+    state = ensure_workbook_state("uid-reset-debounce")
+    state.debounce.schedule("spill:Sheet1:0:0", 60.0, lambda: None)
+    try:
+        WorkbookState.reset_for_tests()
+        assert state.debounce.pending_for_tests() == frozenset()
+        assert WorkbookState.all_states() == []
+    finally:
+        state.debounce.cancel_all()
