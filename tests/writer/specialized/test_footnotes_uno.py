@@ -7,11 +7,10 @@ mechanism under change recording.
 
 from types import SimpleNamespace
 
-from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.specialized.footnotes import FootnotesDelete
-from tests.writer.doc_builders import reject_all_changes
+from tests.writer.doc_builders import list_redline_types, reject_all_changes
 
 
 def _insert_note(doc, note_type, text):
@@ -110,10 +109,7 @@ def test_anchor_delete_records_redline_when_recording_on(ctx, doc):
     # The footnote is still there, only marked for deletion.
     assert _supplier(doc, "footnote").getCount() == 1, "note must survive as a tracked deletion"
 
-    redlines = []
-    e = doc.getRedlines().createEnumeration()
-    while enum_has_more(e):
-        redlines.append(str(e.nextElement().getPropertyValue("RedlineType")))
+    redlines = list_redline_types(doc)
     assert "Delete" in redlines, f"anchor-clear under RecordChanges must record a Delete redline, got {redlines}"
 
     # Reject the tracked deletion: the note (and its mark) come back.
@@ -135,6 +131,8 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
 
     assert res["status"] == "ok"
     assert res.get("tracked") is True
+    assert "marked for deletion" in res["message"]
+    assert list_redline_types(doc) == ["Delete"]
     assert _supplier(doc, "footnote").getCount() == 1
 
 

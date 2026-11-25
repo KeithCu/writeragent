@@ -816,6 +816,8 @@ CI runs `*_uno.py` with LibreOffice's Python, which has no `pytest` and may lack
 
 Do not drop a shape proxy and immediately fetch the same shape again (for example `page.getByIndex(i).getShapeType()` followed by `shape = page.getByIndex(i)`). UNO tests talk to soffice over URP, where `release` runs on its own thread (`binaryurp/source/bridge.cxx`, `Bridge::makeReleaseCall`). If the old wrapper's destructor (`svx/source/unodraw/unoshape.cxx`, `SvxShape::~SvxShape`) runs after the second lookup has created a new wrapper, it calls `SdrObject::setUnoShape(nullptr)` (`svx/source/svdraw/svdobj.cxx`), which detaches the new wrapper. The detached proxy still answers `getShapeType()`, but `getParent()` is `None`, `getSize()` reports a default (100), and `GraphicExportFilter.setSourceDocument` raises `IllegalArgumentException`. Bind the shape to a variable once and reuse it.
 
+### Share Writer builders; prove a mock twin before deleting
+
 Writer UNO suites build bodies and tables and resolve redlines through `tests/writer/doc_builders.py`. Document lifecycle and tool contexts stay in `tests/testing_utils.py`.
 A mock test may be deleted as a duplicate only when breaking the production line makes the UNO twin fail.
 
