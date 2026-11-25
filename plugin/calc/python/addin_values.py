@@ -254,8 +254,7 @@ def accepts_returned_any(ctx: Any) -> bool:
     than the version number because Collabora Office 26.04 has the change too.
     """
     try:
-        # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
-        ctx.getValueByName(getattr(uno, "Any")("string", ""))
+        ctx.getValueByName(cast("Any", uno).Any("string", ""))
     except RuntimeException:
         return False
     return True
@@ -286,12 +285,10 @@ def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
     corner = rows[0][0] if rows[0] else ""
     if (len(rows) == 1 and len(rows[0]) == 1) or not accepts_returned_any(ctx):
         return corner
-    # uno.Any is a runtime PyUNO helper that type stubs do not declare as a module attribute.
-    uno_any = getattr(uno, "Any")
     all_str = all(isinstance(cell, str) for row in rows for cell in row)
     uno_type = "[][]string" if all_str else "[][]any"
     log.debug("PYTHON matrix_result: type=%s rows=%d", uno_type, len(rows))
-    return uno_any(uno_type, rows)
+    return cast("Any", uno).Any(uno_type, rows)
 
 
 def _venv_not_found_text() -> str:

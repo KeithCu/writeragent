@@ -1304,6 +1304,37 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
         assert len(mock_ctx.doc._load_styles_calls) == 0
 
 
+@pytest.mark.parametrize("overwrite", [True, False])
+@patch("os.path.isfile", return_value=True)
+def test_import_styles_rejects_all_categories_false(mock_isfile, mock_ctx, overwrite):
+    res = StyleImport().execute(
+        mock_ctx,
+        path=os.path.abspath("/path/to/doc.ott"),
+        overwrite=overwrite,
+        load_paragraph_styles=False,
+        load_page_styles=False,
+        load_frame_styles=False,
+        load_numbering_styles=False,
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert "at least one style type" in res["message"]
+    assert len(mock_ctx.doc._load_styles_calls) == 0
+
+
+@pytest.mark.parametrize("ext", [".txt", ".doc", ".fodt", ".DOCX"])
+@patch("os.path.isfile", return_value=True)
+def test_import_styles_rejects_unsupported_extension(mock_isfile, mock_ctx, ext):
+    res = StyleImport().execute(
+        mock_ctx,
+        path=os.path.abspath(f"/path/to/template{ext}"),
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert ".odt and .ott" in res["message"]
+    assert len(mock_ctx.doc._load_styles_calls) == 0
+
+
 def test_apply_style_unknown_family_is_validation_error():
     ok, err = ApplyStyle().validate(style="Heading 1", family="PageStyles")
     assert ok is False
@@ -2068,6 +2099,47 @@ def test_style_format_text_sets_converted_values_in_one_call():
         ("CharWeight", "CharColor", "ParaAdjust"),
         (150, 0xFF0000, 3),
     )
+
+
+def test_style_format_text_para_back_color_sets_paragraph_fill_and_reads_from_para():
+    import uno
+
+    cursor = _noncollapsed_cursor()
+    para = MagicMock()
+    para.getPropertyValue.side_effect = lambda n: 0xFFE4C4 if n == "ParaBackColor" else None
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.styles._touched_paragraphs", side_effect=lambda _c: iter([para])), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
+        res = StyleFormatText().execute(
+            _font_ctx(),
+            properties={"ParaBackColor": "#FFE4C4", "CharWeight": 150},
+        )
+    assert res["status"] == "ok"
+    assert res["after"] == {"ParaBackColor": 0xFFE4C4, "CharWeight": cursor.getPropertyValue.return_value}
+    cursor.setPropertyValues.assert_called_once_with(("CharWeight",), (150,))
+    para.setPropertyValue.assert_any_call("FillColor", 0xFFE4C4)
+    para.setPropertyValue.assert_any_call("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+
+
+def test_style_format_text_para_back_color_rolls_back_on_unreadable_table_cell():
+    cursor = _noncollapsed_cursor()
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ["A1"]
+    table.getCellByName.side_effect = RuntimeError("unreadable cell")
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = table
+    span = MagicMock()
+    span.createEnumeration.return_value = enum
+    cursor.getText.return_value.createTextCursorByRange.return_value = span
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"):
+        res = StyleFormatText().execute(_font_ctx(), properties={"ParaBackColor": "#FFE4C4"})
+    assert res["status"] == "error"
+    assert "Nothing was changed" in res["message"]
 
 
 def test_style_format_text_unknown_name_changes_nothing():

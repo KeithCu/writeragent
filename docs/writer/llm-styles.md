@@ -151,7 +151,7 @@ Paragraph and character clones share the source parent and copy only properties 
 
 ### The `style_import` Tool
 
-If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency.
+If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency. Styles load through the document's style families (`XStyleLoader` on `SwXStyleFamilies`): `overwrite=false` adds only missing styles, and `overwrite=true` replaces same-named styles. Only `.odt` and `.ott` files are accepted, and at least one style category must be enabled.
 
 **Tool Parameters:**
 * `path`: Absolute filesystem path to an existing template file.
@@ -161,7 +161,7 @@ If the user has a preferred template file (.ott or .odt), the agent can import a
 
 ### Setting Colors and Properties
 
-When updating styles, the LLM sets underlying **LibreOffice UNO API properties**. The `style_update` and `style_create` tools support hex colors (like `#FF0000` or `FF0000`) and the values `-1`, `"automatic"`, or `"transparent"` for automatic or no fill (which are kept distinct from 24-bit RGB and not passed through `parse_color_to_uno_int`). Border `Color` fields accept the same forms. `ParaBackColor` is written as the UNO property `ParaBackColor` (hex, integer, or `-1` / `automatic` / `transparent`). `ParaAdjust` is `left` / `center` / `right` / `justify` — not `0/1/2/3` (those integers are hostile: `1` is right, `2` is justify). Reads may return `start` / `end` on LibreOffice 26.2+, and those words are accepted back on write (mapped to `left` / `right` on older LibreOffice). A misspelled style name gets a close-name hint. `before` / `after` echo the keys that were set. If `CharFontName` is not installed, the result warns that LibreOffice will substitute.
+When updating styles, the LLM sets underlying **LibreOffice UNO API properties**. The `style_update` and `style_create` tools support hex colors (like `#FF0000` or `FF0000`) and the values `-1`, `"automatic"`, or `"transparent"` for automatic or no fill (which are kept distinct from 24-bit RGB and not passed through `parse_color_to_uno_int`). Border `Color` fields accept the same forms. `ParaBackColor` is written as the UNO property `ParaBackColor` (hex, integer, or `-1` / `automatic` / `transparent`); on `style_format_text`, `ParaBackColor` sets each touched paragraph's `FillColor` and `FillStyle` directly so it persists on save and beats a style fill, and `transparent` / `-1` / `automatic` sets `FillStyle=NONE` to hide a style fill. `ParaAdjust` is `left` / `center` / `right` / `justify` — not `0/1/2/3` (those integers are hostile: `1` is right, `2` is justify). Reads may return `start` / `end` on LibreOffice 26.2+, and those words are accepted back on write (mapped to `left` / `right` on older LibreOffice). A misspelled style name gets a close-name hint. `before` / `after` echo the keys that were set. If `CharFontName` is not installed, the result warns that LibreOffice will substitute.
 
 **Key Color Properties (CharacterStyles and ParagraphStyles):**
 * `CharColor`: The main text color.

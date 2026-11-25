@@ -1799,3 +1799,75 @@ def test_full_html_struck_run_keeps_direct_formatting_uno(ctx, doc):
     keep_open = keep_block.split(">", 1)[0]
     assert "data-lo-para=" in bold_open and "font-weight:bold" in bold_open, bold_block
     assert "data-lo-para=" not in keep_open, keep_block
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_export_includes_hidden_and_conditional_sections_uno(ctx, doc):
+    from plugin.framework.html_stripper import html_to_search_text
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "aaa", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "hid", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "cond", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "ccc", False)
+
+    p_cur = text.createTextCursor()
+    p_cur.gotoStart(False)
+    p_cur.gotoNextParagraph(False)
+    p_cur.gotoEndOfParagraph(True)
+    sec_plain = doc.createInstance("com.sun.star.text.TextSection")
+    sec_plain.setName("PlainHid")
+    sec_plain.setPropertyValue("IsVisible", False)
+    text.insertTextContent(p_cur, sec_plain, True)
+
+    p_cur.gotoNextParagraph(False)
+    p_cur.gotoStartOfParagraph(False)
+    p_cur.gotoEndOfParagraph(True)
+    sec_cond = doc.createInstance("com.sun.star.text.TextSection")
+    sec_cond.setName("CondHid")
+    sec_cond.setPropertyValue("Condition", "1 == 1")
+    sec_cond.setPropertyValue("IsVisible", False)
+    text.insertTextContent(p_cur, sec_cond, True)
+
+    doc.setModified(False)
+    full_html = document_to_content(doc, ctx, scope="full")
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+    assert "display:condition" not in full_html
+    assert html_to_search_text(full_html).strip() == html_to_search_text(range_html).strip()
+    assert "hid" in full_html and "cond" in full_html
+    assert doc.getTextSections().getByName("PlainHid").getPropertyValue("IsVisible") is False
+    assert doc.getTextSections().getByName("CondHid").getPropertyValue("IsVisible") is False
+    assert doc.isModified() is False
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_export_keeps_ruby_after_content_control_uno(ctx, doc):
+    from plugin.doc.text_helpers import visible_body_range
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    text.setString("CTRL 漢字")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(4, True)
+    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cur, ctrl, True)
+
+    ruby_rng = visible_body_range(doc, 5, 7)
+    assert ruby_rng is not None
+    ruby_cur = ruby_rng.cursor
+    assert ruby_cur.getString() == "漢字"
+    ruby_cur.setPropertyValue("RubyText", "かんじ")
+    ruby_cur.setPropertyValue("RubyIsAbove", True)
+    ruby_cur.setPropertyValue("RubyAdjust", 0)
+
+    range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=7)
+    assert "<ruby>漢字<rt>かんじ</rt></ruby>" in range_html

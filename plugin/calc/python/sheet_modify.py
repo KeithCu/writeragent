@@ -179,15 +179,14 @@ def migrate_sheet_rename(
         )
 
         if doc is not None:
-            # The save below writes every in-memory record, and the maps are empty after File > Reload:
-            # the old document's unload clears the key the new document shares.
-            workbook_key = load_geometric_registry_for_doc(doc)
-            if workbook_key:
-                old_records = records_for_sheet(workbook_key, old_sheet_name)
-                if old_records:
-                    replace_records_for_sheet(workbook_key, new_sheet_name, old_records)
-                    replace_records_for_sheet(workbook_key, old_sheet_name, {})
-                save_geometric_registry_for_doc(doc, workbook_key)
+            # The save below writes every in-memory record, so load the stored ones first
+            # for a workbook whose open event did not load them.
+            load_geometric_registry_for_doc(doc, state.key)
+            old_records = records_for_sheet(state.key, old_sheet_name)
+            if old_records:
+                replace_records_for_sheet(state.key, new_sheet_name, old_records)
+                replace_records_for_sheet(state.key, old_sheet_name, {})
+            save_geometric_registry_for_doc(doc, state.key)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate geometric records")
 

@@ -141,15 +141,18 @@ class WriterDocStub:
 
     def getStyleFamilies(self):
         class FamiliesStub:
-            def __init__(self, items):
+            def __init__(self, items, load_calls):
                 self.items = items
+                self._load_calls = load_calls
             def hasByName(self, name):
                 return name in self.items
             def getByName(self, name):
                 return self.items[name]
             def getElementNames(self):
                 return tuple(self.items.keys())
-        return FamiliesStub(self._items)
+            def loadStylesFromURL(self, url, props):
+                self._load_calls.append((url, props))
+        return FamiliesStub(self._items, self._load_styles_calls)
 
     def getMyItems(self):
         return self.getStyleFamilies()
@@ -160,9 +163,6 @@ class WriterDocStub:
             inst = MagicMock(name=name)
             self._created[name] = inst
         return inst
-
-    def loadStylesFromURL(self, url, props):
-        self._load_styles_calls.append((url, props))
 
     def lockControllers(self):
         pass

@@ -2408,3 +2408,71 @@ def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, d
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, doc):
+    import uno
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "Background tracked.")
+    p0 = _paragraphs(doc)[0]
+    p0.setPropertyValue("FillColor", 0x112233)
+    p0.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+
+        _reject_all(doc, ctx)
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0x112233
+
+        res2 = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+        )
+        assert res2["status"] == "ok", res2
+        _accept_all(doc, ctx)
+        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx, doc):
+    from plugin.tests.testing_utils import libreoffice_version
+    from plugin.writer.styles import StyleFormatText
+
+    _reset(doc, ctx, "WritingModeAutomatic check.")
+    p0 = _paragraphs(doc)[0]
+    if not p0.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic"):
+        return
+    prev = get_config(_FLAG)
+    save({_FLAG: "record"})
+    try:
+        res = StyleFormatText().execute(
+            _tool_ctx(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document"
+        )
+        assert res["status"] == "ok", res
+        assert res["tracked"] is True
+        assert "style_unreviewed" not in res
+        assert _paragraphs(doc)[0].getPropertyValue("WritingModeAutomatic") is False
+
+        _reject_all(doc, ctx)
+        # Before LibreOffice 26.8, lcl_RstAttr (sw/source/core/doc/docfmt.cxx) preserves
+        # RES_PARATR_AUTOFRAMEDIR when false across ResetAttrs.
+        if libreoffice_version(ctx) >= (26, 8):
+            p_after = _paragraphs(doc)[0]
+            assert p_after.getPropertyValue("WritingModeAutomatic") is True
+            assert p_after.getPropertyState("WritingModeAutomatic").value == "DEFAULT_VALUE"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({_FLAG: prev})

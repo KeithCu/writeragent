@@ -12,6 +12,8 @@
 import hashlib
 from typing import Any
 
+import uno
+
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.udprops import (
     get_document_property,
@@ -294,8 +296,6 @@ class FieldsInsert(ToolWriterFieldBase):
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
             properties.setdefault("NumberingType", 4)
             if "SubType" not in properties:
-                # Lazy: uno is looked up when this runs; unit tests swap sys.modules["uno"] for mocks, and a module-level binding would keep a stale one.
-                import uno
                 properties["SubType"] = uno.Enum("com.sun.star.text.PageNumberType", "CURRENT")
 
         full_service_name = f"com.sun.star.text.textfield.{field_type}"

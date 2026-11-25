@@ -645,3 +645,39 @@ def test_calc_menu_suite_names_dispatch_to_calc_fallbacks(monkeypatch, suite_nam
     assert seen == [expected]
     assert passed == len(expected) > 0
     assert failed == 0
+
+
+def test_rebootstrap_follows_the_new_office_profile(monkeypatch, tmp_path: Path) -> None:
+    import plugin.app as app_mod
+    import plugin.framework.queue_executor as qe_mod
+    import plugin.framework.uno_context as uno_ctx_mod
+
+    def _fake_ctx(user_config: Path) -> Any:
+        user_config.mkdir(parents=True, exist_ok=True)
+        path_settings = types.SimpleNamespace(UserConfig=str(user_config))
+        sm = types.SimpleNamespace(createInstanceWithContext=lambda _name, _ctx: path_settings)
+        return types.SimpleNamespace(getServiceManager=lambda: sm)
+
+    ctx_a = _fake_ctx(tmp_path / "profile_a" / "user" / "config")
+    ctx_b = _fake_ctx(tmp_path / "profile_b" / "user" / "config")
+
+    monkeypatch.setattr(uno_ctx_mod, "set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr(qe_mod.main, "set_context", lambda _ctx: None)
+    monkeypatch.setattr(tr, "_ensure_writeragent_bind", lambda: None)
+    monkeypatch.setattr(app_mod, "bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    config_mod.reset_config_for_tests()
+
+    tr._rebootstrap_ctx(ctx_a)
+    config_mod.save({"scripting.python_session_mode": "shared"})
+    assert config_mod.get_config("scripting.python_session_mode") == "shared"
+
+    tr._rebootstrap_ctx(ctx_b)
+    assert config_mod.get_config("scripting.python_session_mode") == "isolated"
+
+    config_mod.save({"scripting.python_session_mode": "shared"})
+    cfg_b = tmp_path / "profile_b" / "user" / "config" / "writeragent.json"
+    assert cfg_b.is_file()
+    assert config_mod.parse_config_json_text(cfg_b.read_text(encoding="utf-8")) == {
+        "scripting.python_session_mode": "shared"
+    }

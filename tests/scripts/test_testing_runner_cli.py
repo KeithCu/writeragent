@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -16,11 +17,13 @@ import plugin.testing_runner as tr
 
 
 @pytest.fixture(autouse=True)
-def _reset_office_test_state():
+def _reset_office_test_state(monkeypatch, tmp_path: Path):
     office = tr.current_office()
     prev_filters = list(office.options.filters)
     prev_exact = list(office.options.exact_function_names)
     prev_dead = office.urp_bridge_dead
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(office, "throwaway_profile_dirs", [])
     office.options.filters = []
     office.options.exact_function_names = []
     office.urp_bridge_dead = False
@@ -704,3 +707,97 @@ def test_run_module_suite_fails_test_that_imports_a_missing_module() -> None:
     passed, failed, suite_log = tr.run_module_suite(object(), module, "writer.missing")
     assert (passed, failed) == (0, 1)
     assert any("FAIL (ModuleNotFoundError" in line for line in suite_log), suite_log
+
+
+def test_clean_exit_stops_office_and_removes_every_profile(
+    monkeypatch, tmp_path: Path, _fake_officehelper
+) -> None:
+    office = tr.current_office()
+    monkeypatch.setattr(office.options, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    _touch_soffice_next_to_helper(tmp_path)
+
+    tr._soffice_bootstrap_command()
+    tr._soffice_bootstrap_command()
+    profiles = list(office.throwaway_profile_dirs)
+    assert len(profiles) == 2
+    assert all(p.is_dir() for p in profiles)
+
+    terminated: list[int] = []
+
+    class _FakeProc:
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            assert all(p.is_dir() for p in profiles)
+            terminated.append(1)
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(office, "soffice_proc", _FakeProc())
+    monkeypatch.setattr(tr.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as exc:
+        tr._exit_after_summary(0)
+
+    assert exc.value.code == 0
+    assert len(terminated) == 1
+    assert all(not p.exists() for p in profiles)
+    assert office.throwaway_profile_dir is None
+
+
+def test_failed_exit_keeps_profile_and_names_it(
+    monkeypatch, tmp_path: Path, _fake_officehelper, capsys
+) -> None:
+    office = tr.current_office()
+    monkeypatch.setattr(office.options, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    _touch_soffice_next_to_helper(tmp_path)
+
+    tr._soffice_bootstrap_command()
+    profile = office.throwaway_profile_dir
+    assert profile is not None and profile.is_dir()
+
+    terminated: list[int] = []
+
+    class _FakeProc:
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            terminated.append(1)
+
+    monkeypatch.setattr(office, "soffice_proc", _FakeProc())
+
+    with pytest.raises(SystemExit) as exc:
+        tr._exit_after_summary(1)
+
+    assert exc.value.code == 1
+    assert terminated == []
+    assert profile.is_dir()
+    captured = capsys.readouterr()
+    assert str(profile) in captured.err
+
+
+def test_clean_exit_leaves_user_profile_office_running(monkeypatch) -> None:
+    office = tr.current_office()
+    assert office.throwaway_profile_dirs == []
+    terminated: list[int] = []
+
+    class _FakeProc:
+        def poll(self):
+            return None
+
+        def terminate(self) -> None:
+            terminated.append(1)
+
+    monkeypatch.setattr(office, "soffice_proc", _FakeProc())
+    monkeypatch.setattr(tr.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as exc:
+        tr._exit_after_summary(0)
+
+    assert exc.value.code == 0
+    assert terminated == []

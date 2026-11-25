@@ -31,6 +31,8 @@
   // then while a Yes save is in flight.
   var pendingSwitchName = null;
   var switchAfterSave = false;
+  // New in flight; key is the list key being created, and from/text are the script and text shown when Create was clicked.
+  var pendingNew = null;
 
   function uiApi() {
     return window.waEditorUi || null;
@@ -188,8 +190,10 @@
       pendingSavedCode = null;
       pendingSwitchName = null;
       switchAfterSave = false;
+      pendingNew = null;
       return;
     }
+    var shown = currentSelectedName;
     var savedCode = pendingSavedCode;
     pendingSavedCode = null;
     var switchTo = switchAfterSave ? pendingSwitchName : null;
@@ -243,6 +247,18 @@
       }
       if (window.pywebview && window.pywebview.api && window.pywebview.api.select_script) {
         window.pywebview.api.select_script(newName || "");
+      }
+    }
+    // Show the new script only once the host lists it, so the text always belongs to currentSelectedName.
+    // An edit or a script switch made while New was in flight stays.
+    if (msg.status_error_text) {
+      pendingNew = null;
+    } else if (pendingNew && select && scriptIndex[pendingNew.key] && scriptIndex[pendingNew.key].code === NEW_SCRIPT_TEMPLATE) {
+      var created = pendingNew;
+      pendingNew = null;
+      if (shown === created.from && window.editor && window.editor.getValue() === created.text) {
+        select.value = created.key;
+        switchToSelected();
       }
     }
     if (msg.status_ok_text) {
@@ -306,6 +322,7 @@
     if (!msg) return;
 
     if (msg.type === "load") {
+      pendingNew = null;
       if (window.waEditorUi && window.waEditorUi.applyUiFromLoad) {
         window.waEditorUi.applyUiFromLoad(msg);
       }
@@ -605,19 +622,19 @@
       }
     }
 
-    var code = (currentModalAction === "new")
-      ? NEW_SCRIPT_TEMPLATE
-      : (window.editor ? window.editor.getValue() : "");
-
-    if (window.editor && currentModalAction === "new") {
-      window.editor.setValue(code);
-    }
     // The list key, not the typed name: a My Scripts entry can have the same typed name.
-    currentSelectedName = origin === "document" ? documentScriptListKey(name) : name;
-    currentOrigin = origin;
-
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
+    var key = origin === "document" ? documentScriptListKey(name) : name;
+    var text = window.editor ? window.editor.getValue() : "";
+    var code = text;
+    if (currentModalAction === "new") {
+      code = NEW_SCRIPT_TEMPLATE;
+      pendingNew = { key: key, from: currentSelectedName, text: text };
+    } else {
+      currentSelectedName = key;
+      currentOrigin = origin;
       pendingSavedCode = code;
+    }
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_script) {
       window.pywebview.api.save_script(name, code, origin);
       setStatus(fmt("saving_script", name), "ok");
     }
@@ -771,7 +788,7 @@
         if (!isRunScriptActive) {
           return;
         }
-        // After load or New, the dropdown still shows the previous script until scripts_list arrives.
+        // After load or Save As, the dropdown still shows the previous script until scripts_list arrives.
         // While a delete is in flight currentSelectedName is empty, and the plain Save path would write
         // this text over whichever script the host selects next.
         var activeScript = currentSelectedName || deletedScriptName;

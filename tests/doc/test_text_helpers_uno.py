@@ -686,3 +686,51 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
     finally:
         if os.path.exists(img_path):
             os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_content_control_and_in_content_metadata_visible_reads_uno(ctx, doc):
+    from plugin.doc.text_helpers import get_document_length, read_visible_body, visible_body_range
+    from plugin.framework.html_stripper import html_to_search_text
+    from plugin.writer.html_export import document_to_content
+
+    for service in ("com.sun.star.text.ContentControl", "com.sun.star.text.InContentMetadata"):
+        text = doc.getText()
+        text.setString("xx CTRL yy")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(3, False)
+        cur.goRight(4, True)
+        ctrl = doc.createInstance(service)
+        text.insertTextContent(cur, ctrl, True)
+
+        body = read_visible_body(doc)[0]
+        assert body == "xx CTRL yy"
+        assert get_document_length(doc) == 10
+        rng = visible_body_range(doc, 3, 7)
+        assert rng is not None
+        assert rng.cursor.getString() == "CTRL"
+
+    # Tracked deletion inside ContentControl: range HTML text matches full HTML text.
+    text = doc.getText()
+    text.setString("xx CTRL yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cur, ctrl, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        del_rng = visible_body_range(doc, 4, 6)
+        assert del_rng is not None
+        del_rng.cursor.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert read_visible_body(doc)[0] == "xx CL yy"
+    full_txt = html_to_search_text(document_to_content(doc, ctx, scope="full")).strip()
+    range_txt = html_to_search_text(document_to_content(doc, ctx, scope="range", range_start=0, range_end=8)).strip()
+    assert full_txt == "xx CL yy"
+    assert range_txt == full_txt
