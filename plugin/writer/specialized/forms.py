@@ -43,6 +43,7 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
 from plugin.framework.config import get_api_config
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import format_error_payload, make_tool_error, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import main
@@ -347,7 +348,7 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
     return t
 
 
-_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (the user's page 2 is page=1; active page if omitted). Ignored in Writer/Calc."}
+_PAGE_PROPERTY: dict[str, Any] = page_index_param("Draw/Impress only; the active page if omitted. Ignored in Writer/Calc.")
 _PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
 
 _CONTROL_PROPERTIES: dict[str, Any] = {

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Registry-wide validation of JSON Schema ``default`` values on shipped tools."""
+"""Registry-wide validation of shipped tool schemas."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from eval_catalog import headless_registry  # noqa: E402
-from plugin.framework.tool_schema import call_properties, required_keys, value_matches_type  # noqa: E402
+from plugin.framework.tool_schema import call_properties, page_index_param, required_keys, value_matches_type  # noqa: E402
 
 
 def _minimal_value(spec: dict[str, Any]) -> Any:
@@ -85,6 +85,49 @@ def test_every_registered_schema_default_validates() -> None:
                 assert ok, f"{tool.name} ({dt}): defaults failed validate(): {err}"
 
     assert checked > 0
+
+
+def _iter_property_specs(props: dict[str, Any]) -> Any:
+    for key, spec in props.items():
+        if not isinstance(spec, dict):
+            continue
+        yield key, spec
+        nested = spec.get("properties")
+        if isinstance(nested, dict):
+            yield from _iter_property_specs(nested)
+        items = spec.get("items")
+        if isinstance(items, dict) and isinstance(items.get("properties"), dict):
+            yield from _iter_property_specs(items["properties"])
+
+
+def test_page_index_params_come_from_the_factory() -> None:
+    """Every integer ``page`` / ``*_page`` parameter must use ``page_index_param``."""
+    tools = headless_registry().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
+    seen: set[tuple[str | None, str]] = set()
+    for tool in tools:
+        for dt in (None, "writer", "calc", "draw", "impress"):
+            schema = tool.get_parameters(dt) or {}
+            props = call_properties(schema) or {}
+            for key, spec in _iter_property_specs(props):
+                if spec.get("type") != "integer":
+                    continue
+                if key != "page" and not key.endswith("_page"):
+                    continue
+                expected_prefix = page_index_param(name=key)["description"]
+                desc = spec.get("description", "")
+                assert desc.startswith(expected_prefix), (
+                    f"{tool.name} ({dt}) {key!r}: description {desc!r} does not start with {expected_prefix!r}"
+                )
+                seen.add((tool.name, key))
+
+    expected_pairs = {
+        ("slide_move", "to_page"),
+        ("image_get", "page"),
+        ("chart_upsert", "page"),
+        ("form_create", "page"),
+        ("nav_goto_page", "page"),
+    }
+    assert expected_pairs <= seen
 
 
 def test_prompt_optimization_dir_uses_project_root_env(monkeypatch: Any, tmp_path: Path) -> None:

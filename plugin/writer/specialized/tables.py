@@ -22,6 +22,7 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
 from plugin.writer.html_import import non_text_portion_type, run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
@@ -43,7 +44,7 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 _EMPTY_ROW_ANCHOR = "\u200d"
 # LibreOffice relative column-separator total (sw/inc/fmtclds.hxx / TableColumnSeparators).
 _UNO_TABLE_COLUMN_SUM = 10000
-_PAGE_PROPERTY: dict[str, Any] = {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1)."}
+_PAGE_PROPERTY: dict[str, Any] = page_index_param("Draw/Impress only.")
 
 
 def _tables(doc: Any) -> Any:
@@ -1230,7 +1231,7 @@ class TableInsert(ToolWriterTableBase):
                 "type": "string",
                 "description": "Writer: A1-style host cell (requires parent).",
             },
-            "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (the user's page 2 is page=1; active if omitted)"},
+            "page": page_index_param("Draw/Impress only; the active page if omitted."),
             "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
             "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
             "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},

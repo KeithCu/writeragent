@@ -43,6 +43,7 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
@@ -455,7 +456,7 @@ _LEGEND_POSITION_MEMBER = {
 # Shared parameters for Create and Edit
 CHART_PROPERTIES: dict[str, Any] = {
     "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
-    "page": {"type": "integer", "description": "0-based page/slide index, Draw/Impress only (the user's page 2 is page=1; omitted page means the current page, otherwise page 0)."},
+    "page": page_index_param("Draw/Impress only; omitted page means the current page, otherwise page 0."),
     "data_range": {"type": "string", "description": "Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData')."},
     "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
     "headers": {"type": "array", "items": {"type": ["string", "number"]}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
@@ -484,10 +485,7 @@ _CHART_LOOKUP_SHEET: dict[str, Any] = {
     "type": "string",
     "description": "Sheet to search for the chart (Calc only; omit to search all sheets).",
 }
-_CHART_LOOKUP_PAGE: dict[str, Any] = {
-    "type": "integer",
-    "description": "0-based slide/page index to search, Draw/Impress only (the user's page 2 is page=1).",
-}
+_CHART_LOOKUP_PAGE: dict[str, Any] = page_index_param("The page to search. Draw/Impress only.")
 
 
 def _create_requirements_error(kwargs: dict[str, Any], *, is_calc: bool) -> str | None:

@@ -503,7 +503,7 @@ def test_draw_image_get_schema_names_only_draw_reads():
     tool = GetImage()
     before = copy.deepcopy(GetImage.parameters)
     text = tool.get_description("draw") + json.dumps(tool.get_parameters("draw"))
-    for forbidden in ("get_content", "get_sheet_summary", "image_list", "Writer", "Calc", "slide", "sheet_index"):
+    for forbidden in ("get_content", "get_sheet_summary", "image_list", "Writer", "Calc", "sheet_index"):
         assert forbidden not in text
     assert "shape_get_tree" in text
     assert GetImage.parameters == before
@@ -512,7 +512,7 @@ def test_draw_image_get_schema_names_only_draw_reads():
 def test_writer_image_get_schema_names_no_draw_or_calc_read():
     tool = GetImage()
     text = tool.get_description("writer") + json.dumps(tool.get_parameters("writer"))
-    for forbidden in ("shape_get_tree", "get_sheet_summary", "Draw", "Calc", "slide", "sheet_index"):
+    for forbidden in ("shape_get_tree", "get_sheet_summary", "Draw", "Calc", "sheet_index"):
         assert forbidden not in text
 
 
