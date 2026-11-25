@@ -1,5 +1,4 @@
 
-from contextlib import contextmanager
 import io
 import json
 import logging
@@ -39,7 +38,6 @@ class TestInitLogging:
         import plugin.framework.logging as logging_mod
 
         self._saved_config_path = config_mod._resolved_config_path
-        self._saved_debug_path = logging_mod._shared()["debug_log_path"]
         self._saved_hooks = getattr(sys, "_writeragent_excepthook", None)
         self._saved_excepthook = sys.excepthook
         import threading
@@ -59,7 +57,7 @@ class TestInitLogging:
             log.removeHandler(h)
 
     def _release_debug_handlers(self) -> None:
-
+        # Close debug file handlers before a test's own TemporaryDirectory exits.
         import plugin.framework.logging as logging_mod
 
         for logger, saved in (
@@ -82,11 +80,8 @@ class TestInitLogging:
         import sys
 
         import plugin.framework.config as config_mod
-        import plugin.framework.logging as logging_mod
 
         config_mod._resolved_config_path = self._saved_config_path
-        logging_mod._shared()["debug_log_path"] = self._saved_debug_path
-        logging_mod._debug_slot()["handler"] = None
         if self._saved_hooks is not None:
             setattr(sys, "_writeragent_excepthook", self._saved_hooks)
         else:
@@ -97,7 +92,6 @@ class TestInitLogging:
         if self._saved_threading_excepthook is not None:
             threading.excepthook = self._saved_threading_excepthook
         logging.lastResort = self._saved_last_resort
-        self._release_debug_handlers()
 
     def test_init_logging_skips_missing_config_dir(self):
         mock_ctx = MagicMock()
@@ -177,8 +171,8 @@ class TestInitLogging:
                 assert ("writeragent-console-probe") not in (root_buf.getvalue())
                 assert ("module-console-probe") in (root_buf.getvalue())
                 assert ("module-console-probe") in (module_stderr_buf.getvalue())
-                self._release_debug_handlers()
             finally:
+                self._release_debug_handlers()
                 module_logger.removeHandler(module_handler)
                 module_handler.close()
 
@@ -1639,27 +1633,12 @@ class _FormatHandler(logging.Handler):
         self.messages.append(self.format(record))
 
 
-def _drop_test_logger(name: str) -> None:
-    logger_dict = logging.Logger.manager.loggerDict
-    logger_dict.pop(name, None)
-    parent_prefix = "writeragent.test"
-    if not any(k == parent_prefix or k.startswith(parent_prefix + ".") for k in logger_dict if k != parent_prefix):
-        logger_dict.pop(parent_prefix, None)
-
-
-@contextmanager
-def _isolated_logger(name: str):
-    logger = logging.getLogger(name)
-    logger.handlers.clear()
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+def _isolated_logger(name: str) -> tuple[logging.Logger, _FormatHandler]:
+    # Unregistered Logger so tests do not leave entries in logging.Logger.manager.loggerDict.
+    logger = logging.Logger(name, logging.DEBUG)
     handler = _FormatHandler()
     logger.addHandler(handler)
-    try:
-        yield logger, handler
-    finally:
-        logger.handlers.clear()
-        _drop_test_logger(name)
+    return logger, handler
 
 
 def test_log_emit_does_not_stringify_pyuno() -> None:
@@ -1675,11 +1654,11 @@ def test_log_emit_does_not_stringify_pyuno() -> None:
             return "from-repr"
 
     proxy = pyuno()
-    with _isolated_logger("writeragent.test.pyuno-emit") as (logger, handler):
-        logger.debug("v=%s", proxy)
-        logger.debug(proxy)  # type: ignore[arg-type]
-        logger.debug("v=%s", {"d": proxy})
-        logger.debug("v=%s", [proxy])
+    logger, handler = _isolated_logger("writeragent.test.pyuno-emit")
+    logger.debug("v=%s", proxy)
+    logger.debug(proxy)  # type: ignore[arg-type]
+    logger.debug("v=%s", {"d": proxy})
+    logger.debug("v=%s", [proxy])
     assert calls == []
     assert handler.messages == ["v=<pyuno>", "<pyuno>", "v={'d': '<pyuno>'}", "v=['<pyuno>']"]
 
@@ -1703,15 +1682,15 @@ def test_log_does_not_deep_str_uno_struct() -> None:
             raise AssertionError("deep repr called")
 
     obj = UnoStruct()
-    with _isolated_logger("writeragent.test.uno-struct-emit") as (logger, handler):
-        logger.warning("v=%s", obj)
-        logger.warning("%r", obj)
-        logger.warning("v=%s", [obj])
-        logger.warning("v=%s", {obj: 1})
-        try:
-            raise obj
-        except Exception:
-            logger.exception("failed")
+    logger, handler = _isolated_logger("writeragent.test.uno-struct-emit")
+    logger.warning("v=%s", obj)
+    logger.warning("%r", obj)
+    logger.warning("v=%s", [obj])
+    logger.warning("v=%s", {obj: 1})
+    try:
+        raise obj
+    except Exception:
+        logger.exception("failed")
 
     assert calls == []
     assert len(handler.messages) == 5
@@ -1738,14 +1717,14 @@ def test_log_exception_chained_uno_struct_does_not_deep_str() -> None:
             calls.append("repr")
             raise AssertionError("deep repr called")
 
-    with _isolated_logger("writeragent.test.uno-chain-emit") as (logger, handler):
+    logger, handler = _isolated_logger("writeragent.test.uno-chain-emit")
+    try:
         try:
-            try:
-                raise UnoStruct()
-            except UnoStruct as uno_err:
-                raise ValueError("wrapper error") from uno_err
-        except ValueError:
-            logger.exception("failed")
+            raise UnoStruct()
+        except UnoStruct as uno_err:
+            raise ValueError("wrapper error") from uno_err
+    except ValueError:
+        logger.exception("failed")
 
     assert calls == []
     assert len(handler.messages) == 1
@@ -1775,8 +1754,8 @@ def test_logged_uno_label_non_str_or_missing_message(has_message: bool, message_
             raise AssertionError("deep repr called")
 
     obj = UnoStruct()
-    with _isolated_logger("writeragent.test.uno-edge-emit") as (logger, handler):
-        logger.warning("v=%s", obj)
+    logger, handler = _isolated_logger("writeragent.test.uno-edge-emit")
+    logger.warning("v=%s", obj)
 
     assert calls == []
     assert len(handler.messages) == 1
@@ -1792,21 +1771,21 @@ def test_exception_text_is_formatted_before_handler_emit() -> None:
             calls.append(phase["emit"])
             return "boom"
 
-    with _isolated_logger("writeragent.test.exc-text") as (logger, handler):
-        orig_emit = handler.emit
+    logger, handler = _isolated_logger("writeragent.test.exc-text")
+    orig_emit = handler.emit
 
-        def tracked_emit(record: logging.LogRecord) -> None:
-            phase["emit"] = True
-            try:
-                orig_emit(record)
-            finally:
-                phase["emit"] = False
-
-        handler.emit = tracked_emit  # type: ignore[method-assign]
+    def tracked_emit(record: logging.LogRecord) -> None:
+        phase["emit"] = True
         try:
-            raise Boom()
-        except Boom:
-            logger.exception("failed")
+            orig_emit(record)
+        finally:
+            phase["emit"] = False
+
+    handler.emit = tracked_emit  # type: ignore[method-assign]
+    try:
+        raise Boom()
+    except Boom:
+        logger.exception("failed")
     assert calls
     assert all(flag is False for flag in calls)
     assert handler.exc_text_at_emit
@@ -1905,8 +1884,7 @@ def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
         logging_mod._debug_slot()["handler"] = None
         handler = logging_mod._shared_debug_file_handler()
 
-        test_logger = logging.getLogger("writeragent.test_mask")
-        test_logger.setLevel(logging.DEBUG)
+        test_logger = logging.Logger("writeragent.test_mask", logging.DEBUG)
         test_logger.addHandler(handler)
         try:
             test_logger.debug("%s", debug_texts[0])
@@ -1917,7 +1895,6 @@ def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
                 test_logger.exception("tool failed")
         finally:
             test_logger.removeHandler(handler)
-            _drop_test_logger("writeragent.test_mask")
         handler.close()
         handler = None
 

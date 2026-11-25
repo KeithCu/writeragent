@@ -357,11 +357,17 @@ def _cleanup_history_keepers():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_logging_state():
-    """Own and restore all logger and debug-log state around every test.
+def _isolate_logging_state(_setup_grammar_persistence_test_env):
+    """Own and restore logging state around every test.
 
-    Also enables propagation on ``writeragent`` so pytest's ``caplog`` fixture
-    captures its records, while closing any handlers a test adds.
+    Owns handlers, levels, and ``propagate`` on ``writeragent``, ``plugin``, and
+    the root logger, plus ``debug_log_path``, ``enable_agent_log``, and the
+    debug handler slot. Enables propagation on ``writeragent`` so pytest's
+    ``caplog`` fixture captures its records.
+
+    Requests ``_setup_grammar_persistence_test_env`` so this fixture tears down
+    first: ``init_logging`` attaches the debug file handler to ``plugin`` (not
+    root), so handlers must be closed before the temp config dir is removed.
     """
     import logging
 
@@ -391,6 +397,7 @@ def _isolate_logging_state():
         shared = logging_mod._shared()
         shared["debug_log_path"] = old_debug_log_path
         shared["enable_agent_log"] = old_enable_agent_log
+        # Reset rather than restore: any previous handler may already be closed.
         logging_mod._debug_slot()["handler"] = None
 
         for logger, saved_handlers in (
@@ -405,6 +412,9 @@ def _isolate_logging_state():
                         h.close()
                     except Exception:
                         pass
+            for h in saved_handlers:
+                if h not in logger.handlers:
+                    logger.addHandler(h)
 
         wa_logger.propagate = old_wa_propagate
         wa_logger.setLevel(old_wa_level)
