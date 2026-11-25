@@ -1906,3 +1906,71 @@ def test_respill_after_code_edit_takes_over_unchanged_rect(monkeypatch: pytest.M
     assert sheet.getCellByPosition(0, 1).getValue() == 20.0
     assert sheet.getCellByPosition(0, 2).getValue() == 0.0
     assert sheet.getCellByPosition(0, 2).getString() == ""
+
+
+@pytest.mark.parametrize(
+    ("rows", "cols", "origin_formula", "neighbour_formula", "delta", "changed_val", "require_origin", "expected"),
+    [
+        (1, 1, '=PY("x")', "", (0, 0), None, True, False),
+        (2, 1, '=PY("other")', "", (0, 0), None, True, False),
+        (2, 1, '=PY("other")', "", (0, 0), None, False, True),
+        (2, 1, '=PY("x")', "=SUM(1)", (0, 0), None, True, False),
+        (2, 1, '=PY("x")', "=#ERR519!", (0, 0), None, True, True),
+        (2, 1, '=PY("x")', "", (-1, 0), 99.0, True, False),
+        (2, 1, '=PY("x")', "", (0, -1), 99.0, True, False),
+        (2, 1, '=PY("x")', "", (-1, 0), None, True, True),
+        (2, 1, '=PY("x")', "", (0, 0), 99.0, True, True),
+    ],
+)
+def test_owns_spill_rect_rules(
+    rows: int,
+    cols: int,
+    origin_formula: str,
+    neighbour_formula: str,
+    delta: tuple[int, int],
+    changed_val: float | None,
+    require_origin: bool,
+    expected: bool,
+) -> None:
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula(origin_formula)
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    rec = _seen_record(sheet, 0, 0, "x", rows, cols) if rows * cols > 1 else _spill.SpillRecord(code="x", rows=1, cols=1)
+    if neighbour_formula:
+        sheet.getCellByPosition(0, 1).setFormula(neighbour_formula)
+        rec = _spill.SpillRecord(code="x", rows=rows, cols=cols, values=(((2.0,),),))
+    elif changed_val is not None:
+        sheet.getCellByPosition(0, 1).setValue(changed_val)
+
+    assert _spill._owns_spill_rect(sheet, 0, 0, rec, delta, require_origin_match=require_origin) is expected
+
+
+def test_cleanup_orphans_shrinks_record_on_negative_delta_with_changed_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda _d, _st: None)
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///neg-delta-shrink.ods")
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    sheet.getCellByPosition(0, 2).setValue(3.0)
+    SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)] = _seen_record(sheet, 0, 0, "x", 3, 1)
+    st.used_ends["Sheet1"] = (3, 0)
+
+    # Simulate a row delete shifting user value 99 into A3 (used_end 3 -> 2).
+    sheet.getCellByPosition(0, 1).setValue(3.0)
+    sheet.getCellByPosition(0, 2).setValue(99.0)
+    _fire_sheet_modify(MagicMock(), doc, sheet)
+
+    rec = SPILL_REGISTRY[(st.key, "Sheet1", 0, 0)]
+    assert (rec.rows, rec.cols) == (1, 1)
+    assert sheet.getCellByPosition(0, 1).getValue() == 3.0
+    assert sheet.getCellByPosition(0, 2).getValue() == 99.0

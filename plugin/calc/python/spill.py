@@ -171,6 +171,45 @@ def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool
     )
 
 
+def _shrunk_by_delete(
+    sheet: Any,
+    row: int,
+    col: int,
+    record: SpillRecord | None,
+    delta: tuple[int, int] | None,
+) -> bool:
+    """True when a negative used-area delta (row/column delete) changed remembered values inside ``record``."""
+    return (
+        record is not None
+        and record.values is not None
+        and record.rows * record.cols > 1
+        and delta is not None
+        and (delta[0] < 0 or delta[1] < 0)
+        and not _rect_unchanged(sheet, row, col, record)
+    )
+
+
+def _owns_spill_rect(
+    sheet: Any,
+    row: int,
+    col: int,
+    record: SpillRecord | None,
+    delta: tuple[int, int] | None,
+    *,
+    require_origin_match: bool = True,
+) -> bool:
+    """Return True when ``record`` owns its neighbour rectangle at ``(row, col)`` and may clear or overwrite it."""
+    if record is None or record.rows * record.cols <= 1:
+        return False
+    if require_origin_match and not _origin_matches_record(sheet, row, col, record):
+        return False
+    if _user_formula_in_rect(sheet, row, col, record.rows, record.cols) is not None:
+        return False
+    if _shrunk_by_delete(sheet, row, col, record, delta):
+        return False
+    return True
+
+
 def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
     """Clear spilled cells in the rectangle, leaving the origin formula cell untouched.
 
@@ -257,12 +296,16 @@ def cleanup_orphans(
             delta = _used_end_delta(state, sheet, sheet_name)
             to_remove: list[tuple[tuple[str, int, int], bool]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int]]] = []
+            to_shrink: list[tuple[str, int, int]] = []
             for (s_name, frow, fcol), record in list(state.spills.items()):
                 if s_name != sheet_name:
                     continue
                 try:
                     if _origin_matches_record(sheet, frow, fcol, record):
-                        record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
+                        if _shrunk_by_delete(sheet, frow, fcol, record, delta):
+                            to_shrink.append((sheet_name, frow, fcol))
+                        else:
+                            record.values = _rect_values(sheet, frow, fcol, record.rows, record.cols)
                         continue
 
                     cell = sheet.getCellByPosition(fcol, frow)
@@ -285,13 +328,19 @@ def cleanup_orphans(
                 except Exception:
                     log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
-            if to_remove or to_remap:
+            if to_remove or to_remap or to_shrink:
                 with undo_lock(doc):
                     for key, clear in to_remove:
                         removed_rec = state.spills.pop(key, None)
-                        if removed_rec is not None and clear:
-                            if _user_formula_in_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols) is None:
-                                _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
+                        if clear and _owns_spill_rect(
+                            sheet, key[1], key[2], removed_rec, delta, require_origin_match=False
+                        ):
+                            assert removed_rec is not None
+                            _clear_rect(sheet, key[1], key[2], removed_rec.rows, removed_rec.cols)
+                    for shrink_key in to_shrink:
+                        shrink_rec = state.spills.get(shrink_key)
+                        if shrink_rec is not None:
+                            state.spills[shrink_key] = SpillRecord(code=shrink_rec.code, rows=1, cols=1)
                     moved = [
                         (new_k, state.spills.pop(old_k))
                         for old_k, new_k in to_remap
@@ -507,14 +556,10 @@ def _clear_blocked_spill(
     """
     key = (sheet_name, row, col)
     rec = state.spills.get(key)
-    if rec is None or rec.rows * rec.cols <= 1:
+    delta = _used_end_delta(state, sheet, sheet_name)
+    if not _owns_spill_rect(sheet, row, col, rec, delta):
         return
-    # A shifted-in =PY formula must not clear shifted user data under another formula's old record
-    # before cleanup_orphans runs.
-    if not _origin_matches_record(sheet, row, col, rec):
-        return
-    if _user_formula_in_rect(sheet, row, col, rec.rows, rec.cols) is not None:
-        return
+    assert rec is not None
     before = _used_end(sheet)
     if _clear_rect(sheet, row, col, rec.rows, rec.cols):
         state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
@@ -597,23 +642,32 @@ def perform_deferred_spill(
             reg_key = (sheet_name, formula_row, formula_col)
 
             with sheet_modify_scope():
-                # The modify pass may still be waiting: remap any moved record and clear or drop any
-                # record whose formula is no longer at this origin before this write decides what it owns.
+                # The modify pass may still be waiting: remap any moved record, shrink any record
+                # whose snapshot changed after a row/column delete, and clear or drop any foreign
+                # record before this write decides what it owns.
                 previous_record = state.spills.get(reg_key)
+                delta = _used_end_delta(state, sheet, sheet_name)
                 foreign = previous_record is not None and not _origin_matches_record(
                     sheet, formula_row, formula_col, previous_record
                 )
-                if foreign or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None:
+                if (
+                    foreign
+                    or _shrunk_by_delete(sheet, formula_row, formula_col, previous_record, delta)
+                    or _moved_record(state, sheet, sheet_name, formula_row, formula_col) is not None
+                ):
                     cleanup_orphans(state, sheet, doc=doc, sheet_name=sheet_name)
                 before = _used_end(sheet)
                 previous_record = state.spills.get(reg_key)
+                delta = _used_end_delta(state, sheet, sheet_name)
                 num_rows = len(grid)
                 num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
-                owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
-                if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+                if _spill_is_blocked(
+                    doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, previous_record, delta
+                ):
                     _clear_blocked_spill(state, doc, sheet, sheet_name, formula_row, formula_col)
                     return
-                if previous_record is not None:
+                if _owns_spill_rect(sheet, formula_row, formula_col, previous_record, delta):
+                    assert previous_record is not None
                     _clear_rect(sheet, formula_row, formula_col, previous_record.rows, previous_record.cols)
 
                 if num_rows == 0 or num_cols == 0:
@@ -726,25 +780,35 @@ def _spill_is_blocked(
     col: int,
     num_rows: int,
     num_cols: int,
-    owned: tuple[int, int],
+    previous_record: SpillRecord | None,
+    delta: tuple[int, int] | None,
 ) -> bool:
-    """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``owned``, or holds a user formula."""
-    owned_rows, owned_cols = owned
-    if owned_rows * owned_cols > 1:
-        blocker = _user_formula_in_rect(sheet, row, col, owned_rows, owned_cols)
-        if blocker is not None:
-            _record_spill_blocked(
-                doc=doc,
-                code=code,
-                sheet_name=sheet_name,
-                row=row,
-                col=col,
-                num_rows=num_rows,
-                num_cols=num_cols,
-                blocker=blocker,
-                in_previous_rect=True,
-            )
-            return True
+    """Return True and record diagnostics if any target cell is out of bounds, occupied outside ``previous_record``, or holds a user formula."""
+    if _owns_spill_rect(sheet, row, col, previous_record, delta):
+        assert previous_record is not None
+        owned_rows, owned_cols = previous_record.rows, previous_record.cols
+    else:
+        owned_rows, owned_cols = 0, 0
+        if (
+            previous_record is not None
+            and previous_record.rows * previous_record.cols > 1
+            and _origin_matches_record(sheet, row, col, previous_record)
+            and not _shrunk_by_delete(sheet, row, col, previous_record, delta)
+        ):
+            blocker = _user_formula_in_rect(sheet, row, col, previous_record.rows, previous_record.cols)
+            if blocker is not None:
+                _record_spill_blocked(
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=row,
+                    col=col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=blocker,
+                    in_previous_rect=True,
+                )
+                return True
 
     if num_rows * num_cols <= 1:
         return False
@@ -858,11 +922,13 @@ def prepare_auto_spill(
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
     reg_key = (sheet_name, formula_row, formula_col)
     previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
-    owned = (previous_record.rows, previous_record.cols) if previous_record is not None else (0, 0)
+    delta = _used_end_delta(state, sheet, sheet_name)
 
-    log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
+    log.debug("Spill: previous record for cell %r: %r", reg_key, previous_record)
 
-    if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
+    if _spill_is_blocked(
+        doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, previous_record, delta
+    ):
         # Cells cannot be written during interpretation; scheduling on the shared token
         # replaces any pending write for this origin (even when no record exists yet) and
         # lets a later fitting recalculation replace or cancel the release.

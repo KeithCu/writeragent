@@ -708,3 +708,90 @@ def test_emptied_or_edited_formula_still_clears_block_uno(ctx, doc):
         assert sheet.getCellByPosition(0, 6).getType() == EMPTY
     finally:
         WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_row_delete_through_spill_body_keeps_shifted_user_data_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3]"
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
+        sheet.getCellByPosition(0, 3).setValue(999.0)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        # Delete row 2 through the spill body: A4 (999.0) shifts up into A3.
+        sheet.getRows().removeByIndex(1, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+
+        # Recalc before the modify pass must block and preserve shifted user data.
+        res = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, origin_cell, sheet_name, 0, 0),
+            code,
+            [[1], [2], [3]],
+        )
+        assert res == "#SPILL!"
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        assert sheet.getCellByPosition(0, 1).getValue() == 3.0
+        assert sheet.getCellByPosition(0, 2).getValue() == 999.0
+
+        # Modify pass shrinks the record to 1x1 without clearing shifted cells.
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
+        assert sheet.getCellByPosition(0, 2).getValue() == 999.0
+
+        # Late deferred spill also sees the collision and preserves A3.
+        perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
+        assert sheet.getCellByPosition(0, 2).getValue() == 999.0
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_col_delete_through_spill_body_keeps_shifted_user_data_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [[1, 2, 3]]"
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        perform_deferred_spill(sheet_name, 0, 0, [[1, 2, 3]], doc=doc, sheet=sheet, code=code, key=key)
+        sheet.getCellByPosition(3, 0).setValue(888.0)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        # Delete column B through the spill body: D1 (888.0) shifts left into C1.
+        sheet.getColumns().removeByIndex(1, 1)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
+        assert sheet.getCellByPosition(1, 0).getValue() == 3.0
+        assert sheet.getCellByPosition(2, 0).getValue() == 888.0
+        res = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, origin_cell, sheet_name, 0, 0),
+            code,
+            [[1, 2, 3]],
+        )
+        assert res == "#SPILL!"
+        assert sheet.getCellByPosition(2, 0).getValue() == 888.0
+    finally:
+        WorkbookState.forget_key(key)
