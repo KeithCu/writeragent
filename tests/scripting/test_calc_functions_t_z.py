@@ -24,6 +24,8 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 _INF = float("inf")
 
@@ -695,11 +697,9 @@ def test_text_before_after_empty_delimiter_and_text():
 
 
 def test_vlookup_xmatch_xlookup_text_and_trend_errors():
-    from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
-
     table = CalcRange([[1, 10], [2, 20], [3, 30]])
     assert calc.vlookup(2.5, table, 2) == 20
+    assert calc.vlookup(CalcRange([[2]]), table, CalcRange([[2]]), False) == 20
     assert calc.vlookup("#DIV/0!", table, 3, False) == "Err:502"
     assert calc.vlookup(2, table, "#DIV/0!", False) == "#DIV/0!"
     assert calc.vlookup(2, table, "x", False) == "#VALUE!"
@@ -713,23 +713,34 @@ def test_vlookup_xmatch_xlookup_text_and_trend_errors():
     assert nan_error_code(calc.vlookup(5, [["5", "no"]], 2, False)) == 0x7FFF
     assert calc.vlookup("b*", [["Alpha", 1], ["Banana", 2]], 2, False) == 2
 
+    assert calc.xmatch(CalcRange([[2]]), [1, 2, 3]) == 2.0
     assert calc.xmatch("#DIV/0!", [1, 2]) == "#DIV/0!"
+    assert nan_error_code(calc.xmatch("#DIV/0!", [1, 2], 9)) == 504
+    assert calc.xlookup(CalcRange([[2]]), [1, 2, 3], [10, 20, 30]) == 20
     assert calc.xlookup("#DIV/0!", [1, 2], [10, 20]) == "#DIV/0!"
     assert calc.xlookup("#DIV/0!", [1, 2], [10, 20], "nf") == "nf"
+    assert calc.ifna(lambda: calc.xlookup("#N/A", [1, 2], [10, 20]), "nf") == "nf"
+    assert calc.ifna(lambda: calc.xlookup("#DIV/0!", [1, 2], [10, 20]), "nf") == "#DIV/0!"
 
     assert calc.textafter("A-B", "-", 1, 2) == "B"
     assert calc.textafter("A-B", "-", 1, "1") == "B"
+    assert calc.textbefore("A-B", "-", 1, 2) == "A"
+    assert calc.textbefore("A-B", "-", 1, "1") == "A"
     assert nan_error_code(calc.textafter("a-b", "-", 1, "q")) == 519
+    assert nan_error_code(calc.textbefore("a-b", "-", 1, "q")) == 519
     assert calc.textafter("a-b-c", "-", 1.9) == "b-c"
     assert calc.textbefore("a-b-c", "-", -1.9) == "a-b"
     assert nan_error_code(calc.textafter("a-b", "-", 0.5)) == 0x7FFF
     assert nan_error_code(calc.textafter("a-b", "-", -0.5)) == 0x7FFF
     assert nan_error_code(calc.textafter("a-b", "-", None)) == 0x7FFF
     assert nan_error_code(calc.textafter("a-b", "-", "x")) == 519
+    assert nan_error_code(calc.textbefore("a-b", "-", "x")) == 519
     assert calc.textafter("a-b", "-", 1, 0, 0, "#DIV/0!") == "#DIV/0!"
     assert calc.textsplit("a-b", "-", None, False, 0, "#DIV/0!") == [["a", "b"]]
 
     trend_res = calc.trend([2, 4, 6], [1, 2, 3], [4, "#DIV/0!", 5])
     assert math.isclose(trend_res[0], 8.0) and trend_res[1] == "#DIV/0!" and math.isclose(trend_res[2], 10.0)
+    assert calc.trend([1, 2, 3], [1, 2, 3], 4, "#DIV/0!") == "#DIV/0!"
     growth_res = calc.growth([1, 2, 4], [1, 2, 3], [4, "#N/A"])
     assert math.isclose(growth_res[0], 8.0, rel_tol=1e-9) and growth_res[1] == "#N/A"
+    assert math.isnan(calc.ztest([1, 2, 3, 4], 2, CalcRange([[None]])))

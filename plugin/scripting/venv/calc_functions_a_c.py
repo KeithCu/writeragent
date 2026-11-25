@@ -765,6 +765,7 @@ def chiinv(p: Any, df: Any) -> float:
 
 
 def choose(index: Any, *args: Any) -> Any:
+    # Undecorated because an unpicked option's error must not propagate.
     # Out-of-range stays NaN (#NUM! in the cell) so a negative index does not wrap.
     # non-numeric indexes are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
     err = argument_error(index)

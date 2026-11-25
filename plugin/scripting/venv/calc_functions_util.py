@@ -92,6 +92,7 @@ def require_samples(n: int, k: int, const: bool) -> None:
 
 
 _SERIAL_OFFSET: int = 693594
+_OMITTED: Any = object()
 
 _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
     1: (5, 6),
@@ -570,7 +571,14 @@ def numeric_cells(arg: Any) -> tuple[np.ndarray, float | str | None]:
 def regression_inputs(
     known_y: Any, known_x: Any, const: Any, *, log: bool
 ) -> tuple[np.ndarray, np.ndarray, bool]:
-    """Parse and validate known_y, known_x and const for LINEST, LOGEST, TREND and GROWTH."""
+    """Parse and validate known_y, known_x and const for LINEST, LOGEST, TREND and GROWTH.
+
+    Checks y <= 0 (for LOGEST, Err:502), then shape (Err:502), then sample count
+    (Err:504): CheckMatrix and CalculateRGPRKP (interpr5.cxx). Same-shaped known_x
+    and known_y are one x variable (CheckMatrix nCase 1), a 2-D block y accepts only
+    an x of its own shape, and omitted known_x (None) is 1..n. Input cell errors are
+    raised after shape and sample checks so Err:502 / Err:504 take precedence.
+    """
     y, y_err = numeric_cells(known_y)
     if log:
         if np.any(y <= 0):
@@ -613,7 +621,13 @@ def least_squares(
 
 
 def trend_fit(known_y: Any, known_x: Any, new_x: Any, const: Any, *, log: bool = False) -> list[Any]:
-    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx)."""
+    """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
+
+    With one x variable, new_x may have any shape. Shape and sample rejections raise
+    RegressionError with Calc's token; other rejections raise ValueError. const is
+    checked here only (LINEST ignores a const error), and a new_x error affects only
+    its own result element.
+    """
     const_err = argument_error(const)
     if const_err is not None:
         raise RegressionError(const_err)

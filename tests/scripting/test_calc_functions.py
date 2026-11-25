@@ -13,8 +13,9 @@ import time
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.sandbox import build_sandbox_policy
-from plugin.scripting.venv.calc_functions_util import nan_error_code
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
 
 
 def test_conditional_aggregates():
@@ -1752,8 +1753,6 @@ def test_input_error_code_is_kept(err_kind: str):
     ],
 )
 def test_decorated_scalar_helpers_propagate_error_code(name: str, tail: tuple[object, ...]):
-    from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
-
     fn = getattr(calc, name)
     assert fn("#DIV/0!", *tail) == "#DIV/0!"
     na_res = fn(NA_NAN, *tail)
@@ -1761,25 +1760,23 @@ def test_decorated_scalar_helpers_propagate_error_code(name: str, tail: tuple[ob
 
 
 def test_last_argument_error_wins_and_blank_text_range():
-    from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
-
     assert calc.bitand("#DIV/0!", "#N/A") == "#N/A"
     res = calc.normdist(DIV0_NAN, NA_NAN, 1, 1)
     assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 0x7FFF
 
     blank = CalcRange([[None]])
-    for text_res in (
-        calc.clean(blank),
-        calc.asc(blank),
-        calc.jis(blank),
-        calc.rept(blank, 3),
-        calc.regex(blank, "x"),
-        calc.text(blank, "0.00"),
-        calc.textjoin(",", True, blank),
-        calc.py_str(blank),
-    ):
-        assert "None" not in str(text_res)
+    assert calc.clean(blank) == ""
+    assert calc.asc(blank) == ""
+    assert calc.jis(blank) == ""
+    assert calc.rept(blank, 3) == ""
+    assert calc.py_str(blank) == ""
+    assert calc.regex(blank, "x") == "#N/A"
+    assert calc.text(blank, "0.00") == "0.00"
+    assert calc.code(blank) == 0.0
+    assert calc.textjoin(",", True, blank) == ""
+    assert nan_error_code(calc.encodeurl(blank)) == 519
+    assert nan_error_code(calc.encodeurl("")) == 519
+    assert nan_error_code(calc.numbervalue(blank)) == 519
     assert calc.t(CalcRange([["hi"]])) == "hi"
 
 

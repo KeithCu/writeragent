@@ -24,6 +24,7 @@ from .calc_functions_util import (
     NA_NAN,
     RegressionError,
     VALUE_NAN,
+    _OMITTED,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -50,8 +51,6 @@ from .calc_functions_util import (
     yearfrac,
 )
 from .coerce import is_blank_value, is_error_token
-
-_OMITTED: Any = object()
 
 
 __all__ = [
@@ -167,6 +166,7 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
 def text(val: Any, fmt: Any) -> str | float:
     val = cell_value(val)
     fmt_str = py_str(fmt).strip('"').strip("'")
+    # TEXT(blank;"0.00") is "0.00" in Calc; an empty format gives "".
     if val is None:
         val = 0.0 if fmt_str else ""
     try:
@@ -1113,7 +1113,7 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
 
 
 @propagate_errors
-def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
+def ztest(data: Any, x: Any, sigma: Any = _OMITTED) -> float:
     # ScZTest counts numeric cells, including TRUE as 1, and skips text and blanks.
     # A plain NaN propagates via propagate_nan=True; coded errors and tokens propagate
     # via @propagate_errors. Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
@@ -1123,8 +1123,10 @@ def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     val = float(x)
     n = len(d)
     m = np.mean(d)
-    if sigma is None:
+    if sigma is _OMITTED:
         s = np.std(d, ddof=1)
+    elif sigma is None:
+        s = 0.0
     else:
         s = float(sigma)
 

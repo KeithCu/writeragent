@@ -18,6 +18,8 @@ import pytest
 import numpy as np
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 
 def _serial(year: int, month: int, day: int) -> int:
@@ -752,11 +754,9 @@ def test_d_matched_error_is_result():
 
 
 def test_hlookup_semantics():
-    from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
-
     table = CalcRange([[1, 2, 3], [10, 20, 30]])
     assert calc.hlookup(2.5, table, 2) == 20
+    assert calc.hlookup(CalcRange([[2]]), table, CalcRange([[2]]), False) == 20
     assert calc.hlookup(2, table, 2, False) == 20
     assert calc.hlookup("#DIV/0!", table, 3, False) == "Err:502"
     assert calc.hlookup(2, table, "#DIV/0!", False) == "#DIV/0!"

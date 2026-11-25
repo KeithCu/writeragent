@@ -15,6 +15,7 @@ import numpy as np
 
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
 
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import FUNCTION_EMITTERS, TranslationError, translate_formula
@@ -1069,8 +1070,6 @@ def test_translate_lookup_ifs_switch_miss_is_na():
 
 
 def test_translate_omitted_args_and_lookup_helpers():
-    from plugin.scripting.calc_range import CalcRange
-
     for formula in ("=LINEST(A1:A3;;0)", "=IF(A1;;3)", "=FV(0.1;3;;5)", "=ROUND(2.5;)"):
         res = translate_formula(formula, "C1")
         assert res.ok is False and res.reason == "UNSUPPORTED_ARITY"

@@ -131,7 +131,10 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
-    # Only #N/A values and parse/type/overflow errors from an #N/A operand; sandbox InterpreterError and IndexError propagate.
+    # Catches #N/A values and ValueError/TypeError/OverflowError from an #N/A operand
+    # (e.g. np.int64 of a NaN or token, text + number, INT_MIN on x86 or date).
+    # InterpreterError subclasses ValueError and must re-raise so sandbox refusals are not
+    # hidden; IndexError is not caught because translated INDEX and lookups use helpers.
     try:
         val = f()
         return alt if isna(val) else val
@@ -585,13 +588,21 @@ def large(r: Any, k: Any) -> float:
 
 
 def _regression_line(args: tuple[Any, ...], kwargs: dict[str, Any], *, log: bool) -> list[float]:
-    """Shared fit for LINEST and LOGEST: coefficients in ``[mk, …, m1, b]`` order."""
+    """Shared fit for LINEST and LOGEST: coefficients in ``[mk, …, m1, b]`` order.
+
+    ``const=False`` forces ``b = 0``. Omitted ``known_x`` (the one-argument call) is ``1..n``;
+    a present ``None`` is a blank cell, not an omission (``ScLinest`` uses ``1..n`` only for
+    ``IsMissing``). The fourth argument, ``stats``, is ignored because the 5-row statistics
+    matrix is not ported.
+    """
     if not args:
         raise ValueError
-    y_arg = args[0]
-    known_x = None if len(args) <= 1 else np.asarray(args[1], dtype=object)
-    const = kwargs.get("const", args[2] if len(args) > 2 else True)
-    y, x, with_intercept = regression_inputs(y_arg, known_x, const, log=log)
+    y, x, with_intercept = regression_inputs(
+        args[0],
+        None if len(args) <= 1 else np.asarray(args[1], dtype=object),
+        kwargs.get("const", args[2] if len(args) > 2 else True),
+        log=log,
+    )
     center, base, slopes = least_squares(y, x, with_intercept)
     return [float(v) for v in slopes[::-1]] + [float(base - center @ slopes)]
 

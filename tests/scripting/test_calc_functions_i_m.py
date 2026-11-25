@@ -20,6 +20,9 @@ import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
 
 _NAN = object()
 _INF = float("inf")
@@ -667,11 +670,9 @@ def test_linest_scalar_through_origin():
 
 
 def test_index_and_ifna_sandbox_interpreter_error():
-    from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
-    from plugin.scripting.calc_range import CalcRange
-
     table = CalcRange([[1, 2], [3, 4], [5, 6]])
     assert calc.index(table, 2, 1) == 3
+    assert calc.index(table, CalcRange([[2]]), CalcRange([[1]])) == 3
     assert calc.index(table, 9, 1) == "#REF!"
     assert calc.index(table, -1, 1) == "Err:502"
     assert calc.index(table, 0, 2) == [[2], [4], [6]]
@@ -690,14 +691,17 @@ def test_index_and_ifna_sandbox_interpreter_error():
 
 
 def test_regression_and_lookup_error_codes():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
-
     assert calc.linest([1, "#DIV/0!", 3], [1, 2, 3]) == "#DIV/0!"
     assert calc.linest([1, "#DIV/0!", 3], [1, "#N/A", 3]) == "#N/A"
     res = calc.logest([1, DIV0_NAN, 4], [1, 2, 3])
     assert isinstance(res, float) and math.isnan(res) and nan_error_code(res) == 532
     assert calc.linest([[1], [2], [3]], [[1, 2, 3], [4, 5, 6]]) == "Err:502"
+    assert calc.linest([[1, 2, 3]], [[1], [2], [3]]) == "Err:502"
+    assert calc.linest([[1], [2], [3]], [[1, 2, 3]]) == "Err:502"
+    assert calc.linest([[1, 2], [3, 4]], [[1], [2], [3], [4]]) == "Err:502"
+    assert calc.linest([[1, 2], [3, 4]], [[1, 2], [3, 4]]) == pytest.approx([1.0, 0.0])
     assert calc.linest([1, 2, 3], [7, 7, 7]) == "#VALUE!"
     assert calc.linest([1, 2, 3], [0, 0, 0], False) == "#VALUE!"
     assert calc.lookup("#DIV/0!", [1, 2, 3]) == "#DIV/0!"
+    assert calc.lookup(CalcRange([[2]]), [1, 2, 3]) == 2
 

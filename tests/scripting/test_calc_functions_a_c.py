@@ -11,6 +11,8 @@ import math
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
 
 
 def test_address():
@@ -474,10 +476,6 @@ def test_aggregate_error_codes_and_count_modes():
 
 
 def test_criteria_errors_averageif_no_match_and_choose_index_error():
-    from plugin.scripting.calc_range import CalcRange
-    from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
-
-    assert calc.countif([1, 2, 3], NA_NAN) != 0
     assert nan_error_code(calc.countif([1, 2, 3], NA_NAN)) == 0x7FFF
     assert calc.countif([1, 2, 3], CalcRange([["#DIV/0!"]])) == "#DIV/0!"
     assert calc.sumif([1, 2, 3], CalcRange([["#DIV/0!"]])) == "#DIV/0!"

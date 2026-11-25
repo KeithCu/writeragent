@@ -23,6 +23,7 @@ from .calc_functions_util import (
     ILLEGAL_ARGUMENT_NAN,
     NA_NAN,
     VALUE_NAN,
+    _OMITTED,
     approx_floor,
     as_nonzero,
     build_holiday_set,
@@ -283,8 +284,8 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     # When the group separator equals the decimal separator, do not strip it.
     # numbervalue("1,5", ",") is 1.5, not 15.
     s = py_str(text)
-    dec = str(dec_sep)
-    grp = str(grp_sep)
+    dec = py_str(dec_sep)
+    grp = py_str(grp_sep)
     # ScNumberValue requires a one-character decimal separator.
     if len(dec) != 1:
         return float("nan")
@@ -552,7 +553,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
 
 @propagate_errors
 @calc_function
-def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
+def prob(data: Any, probs: Any, x_start: Any, x_end: Any = _OMITTED) -> float:
     # ScProbability (interpr3.cxx) compares both dimensions and returns #N/A on
     # empty or mismatched ranges.
     d = np.asarray(data, dtype=float)
@@ -565,7 +566,7 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
     if not np.isclose(np.sum(p), 1.0) or np.any(p < 0) or np.any(p > 1):
         return float("nan")
     start = float(x_start)
-    end = float(x_end) if x_end is not None else start
+    end = start if x_end is _OMITTED else (0.0 if x_end is None else float(x_end))
     mask = (d >= start) & (d <= end)
     return float(np.sum(p[mask]))
 
@@ -630,14 +631,14 @@ def _translate_calc_replacement(rep: str) -> str:
 
 
 @propagate_errors
-def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "") -> str | float:
+def regex(text: Any, expr: Any, replacement: Any = _OMITTED, flags: Any = "") -> str | float:
     # Calc replacements are $1, $&, and $$. re.sub wants \g<n>, \g<0>, and a literal $.
     # ScRegex (interpr1.cxx): the 4th argument is an occurrence or a flag
     # string. Search returns the whole match. m.group(1) is None when an
     # optional group does not participate, so REGEX("b", "(a)?b") returned None.
     try:
         text_str = py_str(text)
-        expr_str = str(expr)
+        expr_str = py_str(expr)
         occurrence = 1
         re_flags = 0
         global_replace = False
@@ -650,7 +651,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
             if occurrence < 0:
                 return float("nan")
         else:
-            flag_text = str(flags).lower()
+            flag_text = py_str(flags).lower()
             if any(ch not in "gi" for ch in flag_text):
                 return float("nan")
             if "i" in flag_text:
@@ -659,7 +660,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         # Occurrence 0 is the original text, even when the pattern is invalid.
         if occurrence == 0:
             return text_str
-        if replacement is None:
+        if replacement is _OMITTED:
             # "g" with no replacement does not comma-join every match.
             match = next(
                 islice(re.finditer(expr_str, text_str, flags=re_flags), occurrence - 1, None),
@@ -668,7 +669,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
             if match is None:
                 return "#N/A"
             return match.group(0)
-        rep_str = _translate_calc_replacement(str(replacement))
+        rep_str = _translate_calc_replacement(py_str(replacement))
         seen = 0
 
         def _replace_nth(match: re.Match[str]) -> str:
