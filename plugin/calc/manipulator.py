@@ -740,7 +740,7 @@ def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) ->
     """Return the =PY run's new error text from diagnostics, or empty string."""
     # The cell itself can only show Err:519 or #SPILL!. The add-in records a
     # new entry in the diagnostics store on every failed run; comparing
-    # identity against the entry present before setFormula ignores older runs
+    # identity against the entry present before the write ignores older runs
     # without relying on wall-clock timestamps.
     latest = _latest_py_diagnostic(doc, parts)
     if latest is None or latest is prior or not latest.is_error:
@@ -2010,9 +2010,12 @@ class CellManipulator:
     def _array_probe_origin(used: Any, target: CellRect, refs: Sequence[CellRect]) -> tuple[int, int]:
         """``(column, first_row)`` for the two-cell ``ROWS``/``COLUMNS`` probe.
 
-        Places the 1x2 scratch block outside the used area, the write target,
-        and the formula's direct references on *target*'s sheet; falls back to
-        ignoring *refs* when the formula covers the whole sheet.
+        Places the two-row, one-column scratch block outside the used area (so
+        it never erases user cells), the write target, and the formula's direct
+        references on *target*'s sheet. A scratch cell inside a referenced area
+        makes the measured formula circular (Err:522 native, Err:504 for ``=PY``),
+        e.g. ``1:3`` covers row 0 in every column. Falls back to ignoring *refs*
+        when the formula covers the whole sheet.
         """
         col0 = min(max(used.EndColumn, target.right) + 2, MAX_COL)
         cols = [col0, *sorted(r.right + 1 for r in refs if col0 <= r.right < MAX_COL)]
@@ -2024,7 +2027,7 @@ class CellManipulator:
         for taken in ([*own, *refs], own):
             for row in rows:
                 for col in cols:
-                    if row < MAX_ROW and not any(
+                    if row + 1 <= MAX_ROW and not any(
                         b.left <= col <= b.right and b.top <= row + 1 and row <= b.bottom for b in taken
                     ):
                         return col, row
@@ -2035,7 +2038,9 @@ class CellManipulator:
 
         ``=ROWS(expr)`` and ``=COLUMNS(expr)`` are entered as array formulas
         in two scratch cells outside the used area, *target*, and *formula*'s
-        own references, read, then cleared.
+        own references (otherwise a scratch cell inside a referenced area makes
+        the formula circular and one inside the used area would erase user cells),
+        read, then cleared.
         A single value measures 1 x 1; raises ``CalcError`` when the formula itself fails or ``=PY`` returns failure text.
         """
         cursor = sheet.createCursor()

@@ -325,7 +325,7 @@ def is_failed_run_text(text: str) -> bool:
 
 
 def has_setup_failure_text(text: str) -> bool:
-    """True when *text* contains the fixed venv-not-found or timeout message."""
+    """True when *text* contains the fixed venv-not-found or timeout message anywhere, because ``"x"&PY(..)`` puts text before it."""
     return any(t and t in text for t in (_venv_not_found_text(), _timed_out_text()))
 
 

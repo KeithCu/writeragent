@@ -142,7 +142,10 @@ def _call_end(formula: str, open_idx: int) -> int | None:
 
 
 def py_calls(formula: str) -> list[PyFormula]:
-    """Return every ``=PY`` / ``=PYTHON`` call in *formula* at any depth."""
+    """Return every ``=PY`` / ``=PYTHON`` call in *formula* at any depth.
+
+    Text inside quotes is ignored, and an unclosed call is skipped.
+    """
     if "PY" not in formula.upper():
         return []
     calls: list[PyFormula] = []

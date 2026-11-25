@@ -190,7 +190,7 @@ class FormulaDialects:
         return text
 
     def references(self, text: str, sheet: int) -> list[CellRect]:
-        """Areas on *sheet* that *text* names directly; defined names and INDIRECT/OFFSET results are not seen.
+        """Areas on *sheet* that *text* names directly; defined names, table references, and INDIRECT/OFFSET results are not seen.
 
         Parsed at A1, so a relative part's offset is its index (lcl_SingleRefToApi, sc/source/ui/unoobj/tokenuno.cxx:
         a relative part fills only RelativeX, an absolute one only X).
