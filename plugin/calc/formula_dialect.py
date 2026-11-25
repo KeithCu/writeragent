@@ -46,6 +46,8 @@ from typing import TYPE_CHECKING, Any
 
 import uno
 
+from plugin.calc.array_formula import CellRect
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -59,6 +61,7 @@ GROUP_SPECIAL = 0  # com.sun.star.sheet.FormulaMapGroup.SPECIAL
 GROUP_ARRAY_SEPARATORS = 2  # com.sun.star.sheet.FormulaMapGroup.ARRAY_SEPARATORS
 GROUP_ALL = 0x7FFFFFFF  # com.sun.star.sheet.FormulaMapGroup.ALL_EXCEPT_SPECIAL
 SPECIAL_BAD = 7  # com.sun.star.sheet.FormulaMapGroupSpecialOffset.BAD
+_SHEET_RELATIVE = 16  # com.sun.star.sheet.ReferenceFlags.SHEET_RELATIVE
 
 _XLFN_RE = re.compile(r"_xlfn\.(?:_xlws\.)?|_xlws\.", re.IGNORECASE)
 
@@ -185,6 +188,29 @@ class FormulaDialects:
                 log.debug("Translated formula dialect: %r -> %r", text, out)
                 return out
         return text
+
+    def references(self, text: str, sheet: int) -> list[CellRect]:
+        """Areas on *sheet* that *text* names directly; defined names and INDIRECT/OFFSET results are not seen.
+
+        Parsed at A1, so a relative part's offset is its index (lcl_SingleRefToApi, sc/source/ui/unoobj/tokenuno.cxx:
+        a relative part fills only RelativeX, an absolute one only X).
+        """
+        self._ensure_parsers()
+        areas: list[CellRect] = []
+        for token in self._api.parseFormula(text, make_cell_address(sheet)):
+            data = token.Data
+            if hasattr(data, "Reference1"):  # ComplexReference
+                ends = (data.Reference1, data.Reference2)
+            elif hasattr(data, "RelativeRow"):  # SingleReference
+                ends = (data, data)
+            else:
+                continue
+            cols = sorted(r.Column + r.RelativeColumn for r in ends)
+            rows = sorted(r.Row + r.RelativeRow for r in ends)
+            sheets = sorted(r.Sheet + r.RelativeSheet + (sheet if r.Flags & _SHEET_RELATIVE else 0) for r in ends)
+            if sheets[0] <= sheet <= sheets[1]:
+                areas.append(CellRect(cols[0], rows[0], cols[1], rows[1]))
+        return areas
 
 
 def to_api(doc: Any, text: str, pos: Any = None) -> str:
