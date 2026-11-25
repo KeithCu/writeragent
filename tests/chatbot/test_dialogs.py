@@ -561,6 +561,46 @@ def test_copy_to_clipboard_log_does_not_include_payload(caplog, monkeypatch):
     assert "SECRET_PAYLOAD" not in caplog.text
 
 
+@pytest.mark.parametrize("case", ["no_ctx", "no_frame", "exception", "report_no_ctx"])
+def test_msgbox_fallback_logs_redact_urls(caplog, case):
+    import logging
+    from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+
+    message = "Public URL: https://xyz.trycloudflare.com/mcp"
+    with caplog.at_level(logging.INFO, logger="plugin.chatbot.dialogs"):
+        if case == "no_ctx":
+            msgbox(None, "MCP Status", message)
+        elif case == "no_frame":
+            ctx = MagicMock()
+            with patch("plugin.chatbot.dialogs.get_desktop") as mock_desktop:
+                mock_desktop.return_value.getCurrentFrame.return_value = None
+                msgbox(ctx, "MCP Status", message)
+        elif case == "exception":
+            ctx = MagicMock()
+            toolkit = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+            toolkit.createMessageBox.side_effect = RuntimeError("boom")
+            msgbox(ctx, "MCP Status", message, parent_window=MagicMock())
+        else:
+            msgbox_with_report(None, "MCP Status", message, reportable=True)
+
+    assert caplog.records
+    assert "xyz.trycloudflare.com" not in caplog.text
+    assert "Public" in caplog.text
+
+
+def test_msgbox_shows_unmasked_url_in_dialog():
+    from plugin.chatbot.dialogs import msgbox
+
+    ctx = MagicMock()
+    toolkit = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+    message = "Public URL: https://xyz.trycloudflare.com/mcp"
+    with patch("plugin.chatbot.dialogs.get_desktop") as mock_desktop:
+        mock_desktop.return_value = MagicMock()
+        msgbox(ctx, "MCP Status", message)
+
+    assert toolkit.createMessageBox.call_args[0][4] == message
+
+
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None)
 @patch("plugin.chatbot.dialogs.msgbox")
 def test_msgbox_with_report_falls_back_without_dialog(mock_msgbox, mock_load):
