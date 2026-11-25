@@ -11,7 +11,8 @@ import json
 from com.sun.star.table.CellContentType import EMPTY
 
 from plugin.calc.python.formula_locator_cache import FormulaOrigin
-from plugin.calc.python.spill import perform_deferred_spill, prepare_auto_spill
+from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, flush_sheet_modify_pass_for_tests
+from plugin.calc.python.spill import PreparedSpill, perform_deferred_spill, prepare_auto_spill, queue_deferred_spill_write
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.doc.udprops import get_document_property
 from plugin.testing_runner import native_test
@@ -157,4 +158,276 @@ def test_blocked_respill_protected_sheet_keeps_record_uno(ctx, doc):
         assert data[f"{sheet_name}:0,0"]["rows"] == 4
     finally:
         sheet.unprotect("")
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_row_insert_then_immediate_recalc_respills_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3]"
+    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            [[1], [2], [3]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=key,
+        )
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        saved_before = get_document_property(doc, "WriterAgentSpillRegistry", "")
+
+        sheet.getRows().insertByIndex(0, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        origin_cell = sheet.getCellByPosition(0, 1)
+        grid4 = [[10], [20], [30], [40]]
+        prepared = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, origin_cell, sheet_name, 1, 0),
+            code,
+            grid4,
+        )
+        assert isinstance(prepared, PreparedSpill)
+        assert get_document_property(doc, "WriterAgentSpillRegistry", "") == saved_before
+
+        queue_deferred_spill_write(st, doc, prepared, grid4)
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:1:0")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        assert sheet.getCellByPosition(0, 0).getType() == EMPTY
+        assert [sheet.getCellByPosition(0, r).getValue() for r in (2, 3, 4)] == [20.0, 30.0, 40.0]
+        data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
+        assert list(data.keys()) == [f"{sheet_name}:1,0"]
+        assert data[f"{sheet_name}:1,0"]["rows"] == 4
+
+        # Two inserts in one debounce window with a prepare and queued write after each.
+        sheet.getRows().insertByIndex(0, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        grid_a = [[100], [200], [300], [400]]
+        prep_a = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, sheet.getCellByPosition(0, 2), sheet_name, 2, 0),
+            code,
+            grid_a,
+        )
+        assert isinstance(prep_a, PreparedSpill)
+        queue_deferred_spill_write(st, doc, prep_a, grid_a)
+        sheet.getRows().insertByIndex(0, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        grid_two = [[101], [202], [303], [404]]
+        prep_b = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, sheet.getCellByPosition(0, 3), sheet_name, 3, 0),
+            code,
+            grid_two,
+        )
+        assert isinstance(prep_b, PreparedSpill)
+        queue_deferred_spill_write(st, doc, prep_b, grid_two)
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:2:0")
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:3:0")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert [sheet.getCellByPosition(0, r).getValue() for r in (4, 5, 6)] == [202.0, 303.0, 404.0]
+
+        # Delete rows above: still respills and clears the shrunk tail (A5).
+        sheet.getRows().removeByIndex(0, 2)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        grid_del = [[7], [8], [9]]
+        prep_del = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, sheet.getCellByPosition(0, 1), sheet_name, 1, 0),
+            code,
+            grid_del,
+        )
+        assert isinstance(prep_del, PreparedSpill)
+        queue_deferred_spill_write(st, doc, prep_del, grid_del)
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:1:0")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert [sheet.getCellByPosition(0, r).getValue() for r in (2, 3)] == [8.0, 9.0]
+        assert sheet.getCellByPosition(0, 4).getType() == EMPTY
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_row_insert_pass_first_then_recalc_write_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3]"
+    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            [[1], [2], [3]],
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=key,
+        )
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        saved_before = get_document_property(doc, "WriterAgentSpillRegistry", "")
+
+        sheet.getRows().insertByIndex(0, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        origin_cell = sheet.getCellByPosition(0, 1)
+        grid4 = [[10], [20], [30], [40]]
+        prepared = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, origin_cell, sheet_name, 1, 0),
+            code,
+            grid4,
+        )
+        assert isinstance(prepared, PreparedSpill)
+        assert get_document_property(doc, "WriterAgentSpillRegistry", "") == saved_before
+
+        queue_deferred_spill_write(st, doc, prepared, grid4)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert (sheet_name, 0, 0) not in st.spills
+        assert st.spills[(sheet_name, 1, 0)].rows == 3
+
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:1:0")
+        assert sheet.getCellByPosition(0, 0).getType() == EMPTY
+        assert [sheet.getCellByPosition(0, r).getValue() for r in (2, 3, 4)] == [20.0, 30.0, 40.0]
+        data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
+        assert list(data.keys()) == [f"{sheet_name}:1,0"]
+        assert data[f"{sheet_name}:1,0"]["rows"] == 4
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_adjacent_spills_survive_row_insert_recalc_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code_a = "result = [[1, 2]]"
+    code_b = "result = [[3, 4, 5]]"
+    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code_a}")')
+    sheet.getCellByPosition(0, 1).setFormula(f'=PY("{code_b}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        perform_deferred_spill(sheet_name, 0, 0, [[1, 2]], doc=doc, sheet=sheet, code=code_a, key=key)
+        perform_deferred_spill(sheet_name, 1, 0, [[3, 4, 5]], doc=doc, sheet=sheet, code=code_b, key=key)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        sheet.getRows().insertByIndex(0, 1)
+        st.debounce.cancel(f"sheet:{sheet_name}")
+        prep_a = prepare_auto_spill(
+            ctx, doc, st, FormulaOrigin(sheet, sheet.getCellByPosition(0, 1), sheet_name, 1, 0), code_a, [[10, 20]]
+        )
+        prep_b = prepare_auto_spill(
+            ctx, doc, st, FormulaOrigin(sheet, sheet.getCellByPosition(0, 2), sheet_name, 2, 0), code_b, [[30, 40, 50]]
+        )
+        assert isinstance(prep_a, PreparedSpill)
+        assert isinstance(prep_b, PreparedSpill)
+        queue_deferred_spill_write(st, doc, prep_a, [[10, 20]])
+        queue_deferred_spill_write(st, doc, prep_b, [[30, 40, 50]])
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:1:0")
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:2:0")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        assert sheet.getCellByPosition(1, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(2, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(1, 1).getValue() == 20.0
+        assert sheet.getCellByPosition(1, 2).getValue() == 40.0
+        assert sheet.getCellByPosition(2, 2).getValue() == 50.0
+        data = json.loads(get_document_property(doc, "WriterAgentSpillRegistry", ""))
+        assert set(data.keys()) == {f"{sheet_name}:1,0", f"{sheet_name}:2,0"}
+        assert data[f"{sheet_name}:1,0"]["cols"] == 2
+        assert data[f"{sheet_name}:2,0"]["cols"] == 3
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_cut_formula_does_not_take_over_user_cells_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3]"
+    sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        perform_deferred_spill(sheet_name, 4, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+        sheet.getCellByPosition(5, 9).setValue(1.0)  # F10
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+        assert st.used_ends[sheet_name] == (9, 5)
+
+        sheet.getCellByPosition(3, 5).setValue(500.0)  # D6
+        sheet.moveRange(
+            sheet.getCellByPosition(3, 4).getCellAddress(),
+            sheet.getCellRangeByPosition(0, 4, 0, 4).getRangeAddress(),
+        )
+        res = prepare_auto_spill(
+            ctx,
+            doc,
+            st,
+            FormulaOrigin(sheet, sheet.getCellByPosition(3, 4), sheet_name, 4, 3),
+            code,
+            [[1], [2], [3]],
+        )
+        assert res == "#SPILL!"
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:4:3")
+        assert sheet.getCellByPosition(0, 5).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 6).getValue() == 3.0
+        assert sheet.getCellByPosition(3, 5).getValue() == 500.0
+    finally:
+        WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_growth_check_matches_cell_types_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = [1, 2, 3, 4]"
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        sheet.getAnnotations().insertNew(sheet.getCellByPosition(0, 1).getCellAddress(), "note")
+        sheet.getCellByPosition(0, 2).setPropertyValue("CellBackColor", 0xFF0000)
+
+        origin = FormulaOrigin(sheet, origin_cell, sheet_name, 0, 0)
+        assert isinstance(prepare_auto_spill(ctx, doc, st, origin, code, [[1], [2], [3]]), PreparedSpill)
+
+        sheet.getCellByPosition(0, 3).setFormula('=""')
+        assert prepare_auto_spill(ctx, doc, st, origin, code, [[1], [2], [3], [4]]) == "#SPILL!"
+    finally:
         WorkbookState.forget_key(key)
