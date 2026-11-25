@@ -175,6 +175,23 @@ def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
     return grid if grid[0] else None
 
 
+def _maybe_clear_stale_spill(cell: CellContext) -> str | None:
+    """Clear an existing multi-cell spill when a non-matrix formula returns a scalar or empty result."""
+    if cell.is_matrix or not get_config("scripting.python_auto_spill"):
+        return None
+    if not cell.on_main:
+        if cell.doc is not None and cell.state is not None and cell.state.spills:
+            queue_off_main_auto_spill(cell.ctx, cell.code, [], cell.doc)
+        return None
+    if cell.origin is not None and cell.state is not None and (not cell.state.loaded or cell.state.spills):
+        prepared = prepare_auto_spill(cell.ctx, cell.doc, cell.state, cell.origin, cell.code, [])
+        if prepared == "#SPILL!":
+            return "#SPILL!"
+        if isinstance(prepared, PreparedSpill):
+            queue_deferred_spill_write(cell.state, cell.doc, prepared, [])
+    return None
+
+
 def finalize_python_return(
     cell: CellContext,
     result: Any,
@@ -199,6 +216,12 @@ def finalize_python_return(
                     return py_addin_cell_value(grid_to_spill[0][0])
         except Exception:
             log.exception("Error checking spill collision")
+    else:
+        try:
+            if _maybe_clear_stale_spill(cell) == "#SPILL!":
+                return "#SPILL!"
+        except Exception:
+            log.exception("Error clearing stale spill")
 
     if isinstance(result, (list, tuple)):
         return matrix_result(cell.ctx, result)
@@ -305,6 +328,10 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 if first_error is not None:
                     raise first_error
                 if cells is None:
+                    try:
+                        _maybe_clear_stale_spill(cell_ctx)
+                    except Exception:
+                        log.exception("Error clearing stale spill")
                     return _("Image inserted") if len(images) == 1 else _("Images inserted")
                 return finalize_python_return(cell_ctx, cells)
             return finalize_python_return(cell_ctx, result)

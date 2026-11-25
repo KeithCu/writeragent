@@ -905,3 +905,60 @@ def test_col_delete_through_spill_body_keeps_shifted_user_data_uno(ctx, doc):
         assert sheet.getCellByPosition(2, 0).getValue() == 888.0
     finally:
         WorkbookState.forget_key(key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_scalar_or_empty_result_clears_stale_spill_uno(ctx, doc):
+    from plugin.calc.python.function import build_cell_context, finalize_python_return
+
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    code = "result = get_val()"
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula(f'=PY("{code}")')
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    key = st.key
+    try:
+        ensure_sheet_modify_listener(ctx, doc, sheet)
+
+        # 1. Multi-cell spill -> scalar result clears old spilled tail.
+        perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
+        assert sheet.getCellByPosition(0, 1).getValue() == 2.0
+        assert sheet.getCellByPosition(0, 2).getValue() == 3.0
+
+        cell_ctx = build_cell_context(ctx, doc, code, on_main=True)
+        assert finalize_python_return(cell_ctx, 42) == 42.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        assert sheet.getCellByPosition(0, 1).getType() == EMPTY
+        assert sheet.getCellByPosition(0, 2).getType() == EMPTY
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
+
+        # 2. 2D multi-cell spill -> empty list result clears all spilled neighbours.
+        perform_deferred_spill(sheet_name, 0, 0, [[10, 20], [30, 40]], doc=doc, sheet=sheet, code=code, key=key)
+        assert sheet.getCellByPosition(1, 0).getValue() == 20.0
+        assert sheet.getCellByPosition(1, 1).getValue() == 40.0
+
+        cell_ctx = build_cell_context(ctx, doc, code, on_main=True)
+        assert finalize_python_return(cell_ctx, []) == ""
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        assert sheet.getCellByPosition(1, 0).getType() == EMPTY
+        assert sheet.getCellByPosition(0, 1).getType() == EMPTY
+        assert sheet.getCellByPosition(1, 1).getType() == EMPTY
+        assert (st.spills[(sheet_name, 0, 0)].rows, st.spills[(sheet_name, 0, 0)].cols) == (1, 1)
+
+        # 3. Scalar result respects _owned_rect after a row delete shifts user data into the old tail.
+        perform_deferred_spill(sheet_name, 0, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key)
+        sheet.getCellByPosition(0, 3).setValue(999.0)
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
+
+        sheet.getRows().removeByIndex(1, 1)
+        cell_ctx = build_cell_context(ctx, doc, code, on_main=True)
+        assert finalize_python_return(cell_ctx, 7) == 7.0
+        st.debounce.flush_for_tests(f"spill:{sheet_name}:0:0")
+        assert sheet.getCellByPosition(0, 1).getType() == EMPTY
+        assert sheet.getCellByPosition(0, 2).getValue() == 999.0
+    finally:
+        WorkbookState.forget_key(key)

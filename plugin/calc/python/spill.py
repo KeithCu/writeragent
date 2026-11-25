@@ -763,8 +763,9 @@ def perform_deferred_spill(
                     _clear_rect(sheet, formula_row, formula_col, owned_r, owned_c)
 
                 if num_rows == 0 or num_cols == 0:
-                    state.spills[reg_key] = SpillRecord(code=code, rows=1, cols=1)
-                    save_spill_registry_for_doc(doc, state)
+                    if previous_record is not None:
+                        state.spills[reg_key] = SpillRecord(code=code, rows=1, cols=1)
+                        save_spill_registry_for_doc(doc, state)
                     _advance_used_end(state, sheet, sheet_name, before)
                     return
 
@@ -996,15 +997,18 @@ def prepare_auto_spill(
 
     load_spill_registry_for_doc(doc, state)
 
+    num_rows = len(grid_to_spill)
+    num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
+    reg_key = (sheet_name, formula_row, formula_col)
+    previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
+    if (num_rows == 0 or num_cols == 0) and (previous_record is None or previous_record.rows * previous_record.cols <= 1):
+        return None
+
     try:
         _arm_sheet(ctx, doc, state, sheet, sheet_name)
     except Exception:
         log.exception("Failed to register modify listener on sheet")
 
-    num_rows = len(grid_to_spill)
-    num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
-    reg_key = (sheet_name, formula_row, formula_col)
-    previous_record = _moved_record(state, sheet, sheet_name, formula_row, formula_col) or state.spills.get(reg_key)
     delta = _used_end_delta(state, sheet, sheet_name)
 
     log.debug("Spill: previous record for cell %r: %r", reg_key, previous_record)

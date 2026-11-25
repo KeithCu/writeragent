@@ -1664,3 +1664,78 @@ def test_failed_init_read_names_no_init_session(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(_function, "workbook_session_id", lambda _d: "calc:doc-1")
     cell = build_cell_context(MagicMock(), doc, "x", on_main=True)
     assert cell.init_kwargs == {}
+
+
+@pytest.mark.parametrize("new_result", [42, []], ids=["scalar", "empty_list"])
+def test_finalize_python_return_clears_stale_spill_on_scalar_and_empty(
+    monkeypatch: pytest.MonkeyPatch, new_result: Any
+) -> None:
+    doc = CalcDocStub(url="file:///stale-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("stale_code")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    assert finalize_python_return(_cell(ctx, "stale_code", doc), [10, 20, 30]) == 10.0
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    assert sheet.getCellByPosition(1, 2).getValue() == 20.0
+    assert sheet.getCellByPosition(1, 3).getValue() == 30.0
+
+    val = finalize_python_return(_cell(ctx, "stale_code", doc), new_result)
+    assert val == (42.0 if new_result == 42 else "")
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    from plugin.calc.calc_utils import EMPTY
+
+    assert sheet.getCellByPosition(1, 2).getType() == EMPTY
+    assert sheet.getCellByPosition(1, 3).getType() == EMPTY
+    rec = st.spills[("Sheet1", 1, 1)]
+    assert (rec.rows, rec.cols) == (1, 1)
+
+
+def test_finalize_python_return_off_main_clears_stale_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///stale-spill-off.ods", selection="B2")
+    ctx = _ctx_with_doc(doc)
+    reset_calc_workbook_states()
+    from plugin.calc.python.spill import SpillRecord
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.spills[("Sheet1", 1, 1)] = SpillRecord(code="off_stale", rows=3, cols=1)
+
+    queue_mock = MagicMock()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.calc.python.function.queue_off_main_auto_spill", queue_mock)
+    val = finalize_python_return(_cell(ctx, "off_stale", doc), 42)
+    assert val == 42.0
+    queue_mock.assert_called_once_with(ctx, "off_stale", [], doc)
+
+
+def test_finalize_python_return_scalar_with_user_formula_in_old_spill_returns_spill_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    doc = CalcDocStub(url="file:///stale-spill-formula.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PY("stale_uf")')
+    ctx = _ctx_with_doc(doc)
+
+    reset_calc_workbook_states()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    st.debounce.cancel_all()
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+
+    finalize_python_return(_cell(ctx, "stale_uf", doc), [10, 20, 30])
+    st.debounce.flush_for_tests("spill:Sheet1:1:1")
+    sheet.getCellByPosition(1, 2).setFormula("=1+1")
+
+    assert finalize_python_return(_cell(ctx, "stale_uf", doc), 42) == "#SPILL!"
