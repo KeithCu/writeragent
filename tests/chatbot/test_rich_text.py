@@ -11,6 +11,8 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
+import plugin.chatbot.rich_text  # noqa: F401
+
 
 class MockTextCursor:
     """Minimal mock for XTextCursor used by _append_rich_text_with_span."""

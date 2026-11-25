@@ -238,14 +238,13 @@ def get_document_context_for_chat(
                 return "[Document content unavailable]"
 
             total = len(text)
-            sel_start, sel_end = (0, 0)
+            # None: no selection in the body, so neither end is marked. (0, 0) is a caret at the start.
+            sel_start: int | None = None
+            sel_end: int | None = None
             if len(offsets) == 2 and offsets[0] is not None and offsets[1] is not None:
-                sel_start, sel_end = offsets[0], offsets[1]
-                if sel_start > sel_end:
-                    sel_start, sel_end = sel_end, sel_start
+                low, high = sorted((offsets[0], offsets[1]))
                 max_selection_span = 2000
-                if sel_end - sel_start > max_selection_span:
-                    sel_end = sel_start + max_selection_span
+                sel_start, sel_end = low, min(high, low + max_selection_span)
 
             # Split into non-overlapping head and tail windows only when the visible body exceeds max_context.
             if include_end and total > max_context:
@@ -253,7 +252,9 @@ def get_document_context_for_chat(
                 end_chars = max_context - start_chars
                 tail_start = total - end_chars
                 # A selection across the omitted middle opens in the head and closes in the tail.
-                spans_gap = sel_start < start_chars and sel_end > tail_start
+                spans_gap = (
+                    sel_start is not None and sel_end is not None and sel_start < start_chars and sel_end > tail_start
+                )
                 start_excerpt = _inject_markers(
                     text[:start_chars], 0, sel_start, None if spans_gap else sel_end, "[DOCUMENT START]\n", "\n[DOCUMENT END]", struck
                 )
@@ -300,17 +301,18 @@ def _inject_markers(
 ) -> str:
     """Insert selection and tracked-deletion markers at visible offsets in *excerpt_text*.
 
-    None means that selection end is marked in another window.
+    A None end is not marked here: it is in another window, or there is no selection.
     """
     visible_len = len(excerpt_text)
     markers: list[tuple[int, str]] = []
-    s = 0 if sel_start is None else max(0, min(sel_start - excerpt_start, visible_len))
-    e = visible_len if sel_end is None else max(0, min(sel_end - excerpt_start, visible_len))
-    if not (s >= visible_len or e <= 0):
+    s = 0 if sel_start is None else sel_start - excerpt_start
+    e = visible_len if sel_end is None else sel_end - excerpt_start
+    # A caret counts at either edge of the window; a range has to overlap it.
+    if (0 <= s <= visible_len) if s == e else (s < visible_len and e > 0):
         if sel_start is not None:
-            markers.append((s, "[SELECTION_START]"))
+            markers.append((max(0, s), "[SELECTION_START]"))
         if sel_end is not None:
-            markers.append((e, "[SELECTION_END]"))
+            markers.append((min(e, visible_len), "[SELECTION_END]"))
 
     in_window = [p - excerpt_start for p in struck if excerpt_start <= p <= excerpt_start + visible_len]
     if in_window:

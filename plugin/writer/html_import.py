@@ -631,21 +631,21 @@ def _uno_service_true(obj: Any, service: str) -> bool:
     return val is True or (type(val) is int and val == 1)
 
 
-def paragraph_has_non_text_portion(
+def non_text_portion_type(
     para: Any,
     *,
     ignore_markers: bool = False,
     ignore_bookmarks: bool = False,
-) -> bool:
-    """True when *para* holds an image, field, frame, or other non-text portion.
+) -> str | None:
+    """First non-text ``TextPortionType`` in *para*, ``"unreadable"`` on read failure, or ``None``.
 
-    ``getString()`` is empty for those, so a paragraph holding only a picture
-    would look empty and the import would merge its first block into it. When
-    *ignore_markers* is True, ``Redline`` and ``SoftPageBreak`` markers are
-    ignored; *ignore_bookmarks* also ignores ``Bookmark`` portions
-    (``_drop_leftover_paragraph`` joins the paragraph, which keeps its
-    bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes the
-    paragraph and must keep user bookmarks). ``ReferenceMark`` and
+    ``getString()`` is empty for images, fields, frames, and comments, so a paragraph
+    holding only one of those would look empty and the import would merge its first block
+    into it. When *ignore_markers* is True,
+    ``Redline`` and ``SoftPageBreak`` markers are ignored; *ignore_bookmarks* also
+    ignores ``Bookmark`` portions (``_drop_leftover_paragraph`` joins the paragraph,
+    which keeps its bookmarks, whereas ``_drop_empty_paragraph_before_table`` disposes
+    the paragraph and must keep user bookmarks). ``ReferenceMark`` and
     ``DocumentIndexMark`` always count as content.
     """
     ignored: tuple[str, ...] = ("Text",)
@@ -656,14 +656,29 @@ def paragraph_has_non_text_portion(
     try:
         portions = para.createEnumeration()
         for portion in iter_elements(portions):
-            if portion.getPropertyValue("TextPortionType") not in ignored:
-                return True
+            kind = portion.getPropertyValue("TextPortionType")
+            if kind not in ignored:
+                return str(kind)
     except Exception as exc:
         # Fail safe: an unreadable portion may be a frame, field, or image.
         reraise_if_disposed(exc)
         log.debug("Failed to inspect paragraph portions: %s", exc)
-        return True
-    return False
+        return "unreadable"
+    return None
+
+
+def paragraph_has_non_text_portion(
+    para: Any,
+    *,
+    ignore_markers: bool = False,
+    ignore_bookmarks: bool = False,
+) -> bool:
+    """True when *para* holds an image, field, frame, or other non-text portion."""
+    return non_text_portion_type(
+        para,
+        ignore_markers=ignore_markers,
+        ignore_bookmarks=ignore_bookmarks,
+    ) is not None
 
 
 
@@ -1237,7 +1252,16 @@ def replace_full_document(
             if trailing:
                 text.insertTextContentAfter(model.createInstance("com.sun.star.text.Paragraph"), trailing[-1])
         cursor.gotoStart(False)
+        one_paragraph = not text.createTextCursorByRange(cursor).gotoNextParagraph(False)
         cursor.gotoEnd(True)
+        # A reset on an emptied paragraph cannot be undone exactly (SwUndoResetAttr::UndoImpl,
+        # sw/source/core/undo/unattr.cxx, calls DontExpandFormat, which turns paragraph attributes
+        # into text attributes via FormatToTextAttr), so Undo would bring a lone paragraph back
+        # without its font, size and language. Undo restores several paragraphs with their own
+        # formatting, and resetting a long document first doubles the delete time.
+        reset_first = one_paragraph and not recording
+        if reset_first:
+            reset_direct_char_formatting(cursor, language)
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
@@ -1257,7 +1281,8 @@ def replace_full_document(
         # paragraph would become direct formatting on every imported paragraph.
         with record_changes.record_changes(model, False):
             _drop_absorb_paragraph_props(cursor)
-            reset_direct_char_formatting(cursor, language)
+            if not reset_first:
+                reset_direct_char_formatting(cursor, language)
         return _import_and_drop_leftover(model, ctx, cursor, content)
 
 

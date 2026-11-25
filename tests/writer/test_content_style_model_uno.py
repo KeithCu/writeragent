@@ -820,3 +820,27 @@ def test_full_document_write_with_marked_deleted_nbsp_keeps_following_styles_uno
     )
     assert res["status"] == "ok", res
     assert _para_style_names(doc) == ["Standard", "Standard", "Quotations", "Standard"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_write_with_empty_block_keeps_following_styles_uno(ctx, doc):
+    html = (
+        '<p data-lo-style="Standard">A</p>'
+        '<p data-lo-style="Textbody"></p>'
+        '<h1 data-lo-style="Heading1">H</h1>'
+        '<p data-lo-style="Quotations">Q</p>'
+        '<p data-lo-style="Standard">Z</p>'
+    )
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        content=html,
+        target="full_document",
+    )
+    assert res["status"] == "ok", res
+    assert _para_pairs(doc) == [
+        ("Standard", "A"),
+        ("Heading 1", "H"),
+        ("Quotations", "Q"),
+        ("Standard", "Z"),
+    ]

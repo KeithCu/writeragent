@@ -29,6 +29,7 @@ from plugin.writer.search import (
     explicit_case_sensitive,
     occurrence_range_or_error,
 )
+from plugin.writer.target_resolver import require_selection_range
 
 
 NOTE_TYPES: list[str] = ["footnote", "endnote"]
@@ -112,16 +113,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
             if rng is None:
                 return self._tool_error("Failed to find insertion point.")
         else:
-            # View cursor: active insertion point in the UI.
-            ctrl = doc.getCurrentController()
-            if not ctrl:
-                return self._tool_error("Cannot access current document controller to find cursor position.")
-
-            v_cursor = ctrl.getViewCursor()
-            if not v_cursor:
-                return self._tool_error("Cannot access view cursor.")
-
-            rng = v_cursor
+            rng = require_selection_range(ctx)
 
         t_cursor = rng.getText().createTextCursorByRange(rng)
         t_cursor.collapseToEnd()

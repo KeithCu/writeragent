@@ -442,6 +442,23 @@ def reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
     return cleared
 
 
+def set_paragraph_background(para: Any, color: int) -> None:
+    """Set the direct background of paragraph *para* (``SwXParagraph``); -1 means no fill."""
+    # Setting ParaBackColor on a cursor or paragraph writes only RES_BACKGROUND without
+    # converting to fill attributes (only SwXStyle::SetPropertyValue in
+    # sw/source/core/unocore/unostyle.cxx converts it), so it is lost on save and a style
+    # fill wins over it. Fill properties exist only on SwXParagraph (FILL_PROPERTIES_SW in
+    # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap), and ParaBackColor reads
+    # derive from them via getSvxBrushItemFromSourceSet
+    # (svx/source/unodraw/unobrushitemhelper.cxx), returning COL_AUTO (-1) when FillStyle
+    # is missing or NONE.
+    if color == -1:
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "NONE"))
+    else:
+        para.setPropertyValue("FillColor", color)
+        para.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+
+
 def writable_char_names(rng: Any) -> list[str] | None:
     """Return writable Char* property names on *rng*, or None when property info is missing."""
     info = rng.getPropertySetInfo()
@@ -556,8 +573,10 @@ class DeletionState:
     markers are skipped too. A table reached while ``in_delete`` is true is struck whole:
     its cells carry no markers. ``saw_delete`` records that a Delete marker was read, for
     callers that must tell struck text from text they cannot read. ``visible_portions``
-    resets ``para_live`` and ``para_opens`` for each paragraph, and ``lead_live`` says
-    whether the paragraph where the open deletion starts has visible content before it.
+    resets ``para_live``, ``para_opens``, and ``para_frame`` for each paragraph, and ``lead_live``
+    says whether the paragraph where the open deletion starts has visible content before it.
+    ``para_frame`` says that the paragraph holds a struck inline frame or image, which
+    ``getString()`` does not show.
     """
 
     in_delete: bool = False
@@ -565,6 +584,7 @@ class DeletionState:
     para_live: bool = False
     para_opens: bool = False
     lead_live: bool = False
+    para_frame: bool = False
 
     def apply_marker(self, portion: Any) -> None:
         """Update the state from one ``Redline`` portion."""
@@ -584,7 +604,7 @@ class DeletionState:
         if self.para_live:
             return False
         return self.para_opens or (
-            opened and (self.in_delete or self.lead_live or bool(para.getString().strip()))
+            opened and (self.in_delete or self.lead_live or self.para_frame or bool(para.getString().strip()))
         )
 
     def strikes_paragraph(self, para: Any, opened: bool) -> bool:
@@ -685,7 +705,7 @@ def visible_portions(
     """
     if state is None:
         state = DeletionState()
-    state.para_live = state.para_opens = False
+    state.para_live = state.para_opens = state.para_frame = False
     try:
         portion_enum = para.createEnumeration()
     except Exception:
@@ -711,6 +731,8 @@ def visible_portions(
             state.apply_marker(portion)
             continue
         if state.in_delete:
+            if portion_type == "Frame":
+                state.para_frame = True
             continue
         try:
             chunk = portion.getString()

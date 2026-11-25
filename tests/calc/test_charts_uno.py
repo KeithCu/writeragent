@@ -339,3 +339,39 @@ def test_chart_delete_writer_anchors_uno(ctx, doc):
             res2 = ChartDelete().execute_safe(tool_ctx, name=name)
             assert res2.get("status") == "ok", res2
             assert not doc.getEmbeddedObjects().hasByName(name)
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_chart_position_cursor_uses_pinned_caret_uno(ctx, doc):
+    from plugin.calc.charts import ChartUpsert
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    text.insertString(cur, "Alpha beta gamma", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para", False)
+    cur.gotoStart(False)
+    cur.goRight(6, False)
+    pinned_point = cur.getStart()
+    controller = doc.getCurrentController()
+    controller.select(cur)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    tool_ctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    controller.getViewCursor().gotoEnd(False)
+
+    res = ChartUpsert().execute_safe(
+        tool_ctx,
+        headers=["A", "B"],
+        rows=[["X", 1], ["Y", 2]],
+        chart_type="bar",
+        position="cursor",
+    )
+    assert res.get("status") == "ok", res
+    embeds = doc.getEmbeddedObjects()
+    assert embeds.getCount() == 1
+    embed = embeds.getByIndex(0)
+    assert text.compareRegionStarts(embed.getAnchor().getStart(), pinned_point) == 0

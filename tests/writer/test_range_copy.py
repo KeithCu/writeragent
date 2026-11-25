@@ -52,7 +52,7 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     dest_cell.createTextCursor.return_value = dest_cursor
     dest_cell.createTextCursorByRange.return_value = run
 
-    rc._copy_cell_xtext(src_cell, dest_doc, dest_cell)
+    rc._copy_cell_xtext(MagicMock(), src_cell, dest_doc, dest_cell)
 
     dest_cell.insertString.assert_any_call(dest_cursor, "Bold", False)
     run.setPropertyValue.assert_any_call("CharWeight", 150.0)
@@ -673,7 +673,7 @@ def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
         patch.object(rc, "_copy_math_or_text", return_value=""),
         patch.object(rc, "clone_graphics", return_value=1) as clone,
     ):
-        rc._copy_cell_xtext(src_cell, MagicMock(), dest_cell)
+        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell)
         assert clone.call_count == 2
         assert clone.call_args_list[0].args[0] is frame_portion
         assert clone.call_args_list[1].args[0] is para
@@ -799,3 +799,95 @@ def test_clone_graphics_keeps_automatic_name_when_taken():
 
     clone_graphics(host, dest_doc, MagicMock(), MagicMock())
     clone.setName.assert_not_called()
+
+
+def test_copy_cell_xtext_marks_struck_only_when_requested():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import range_copy as rc
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK
+
+    def _run(*, mark_struck: bool):
+        para = MagicMock()
+        para.supportsService.return_value = False
+        para.getString.return_value = "gone"
+        redline_start = MagicMock()
+        redline_start.getPropertyValue.side_effect = lambda k: (
+            "Redline" if k == "TextPortionType" else ("Delete" if k == "RedlineType" else True)
+        )
+        redline_end = MagicMock()
+        redline_end.getPropertyValue.side_effect = lambda k: (
+            "Redline" if k == "TextPortionType" else ("Delete" if k == "RedlineType" else False)
+        )
+        text_portion = MagicMock()
+        text_portion.getPropertyValue.side_effect = lambda k: "Text" if k == "TextPortionType" else None
+        text_portion.getString.return_value = "gone"
+        p_enum = MagicMock()
+        p_enum.hasMoreElements.side_effect = [True, True, True, False]
+        p_enum.nextElement.side_effect = [redline_start, text_portion, redline_end]
+        para.createEnumeration.return_value = p_enum
+        para.createContentEnumeration.return_value.hasMoreElements.return_value = False
+
+        cell_enum = MagicMock()
+        cell_enum.hasMoreElements.side_effect = [True, False]
+        cell_enum.nextElement.return_value = para
+        src_cell = MagicMock()
+        src_cell.createEnumeration.return_value = cell_enum
+
+        dest_cell = MagicMock()
+        dest_cursor = MagicMock()
+        dest_cell.createTextCursor.return_value = dest_cursor
+
+        with patch.object(rc, "clone_graphics", return_value=0):
+            rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, mark_struck=mark_struck)
+        return dest_cell
+
+    marked = _run(mark_struck=True)
+    marked.insertString.assert_any_call(marked.createTextCursor.return_value, DELETED_MARK, False)
+
+    unmarked = _run(mark_struck=False)
+    unmarked.insertString.assert_not_called()
+
+
+def test_copy_cell_xtext_skips_struck_nested_table():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import range_copy as rc
+
+    nested_tbl = MagicMock()
+    nested_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    cell_enum = MagicMock()
+    cell_enum.hasMoreElements.side_effect = [True, False]
+    cell_enum.nextElement.return_value = nested_tbl
+    src_cell = MagicMock()
+    src_cell.createEnumeration.return_value = cell_enum
+
+    with (
+        patch.object(rc, "table_is_struck", return_value=True),
+        patch.object(rc, "copy_table") as mock_copy_table,
+    ):
+        rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), MagicMock(), mark_struck=True)
+    mock_copy_table.assert_not_called()
+
+
+def test_cells_all_tracked_deleted_accepts_struck_marker_without_raw_text():
+    from unittest.mock import MagicMock, patch
+    from plugin.doc.text_helpers import DeletionState
+    from plugin.writer.range_copy import cells_all_tracked_deleted
+
+    cell = MagicMock()
+    cell.getString.return_value = ""
+
+    def _state_with_delete(_c):
+        return DeletionState(saw_delete=True)
+
+    def _state_blank(_c):
+        return DeletionState(saw_delete=False)
+
+    with (
+        patch("plugin.writer.range_copy.TrackedDeletions") as td_cls,
+        patch("plugin.writer.range_copy.get_string_without_tracked_deletions", return_value=""),
+    ):
+        td_cls.return_value.state_at.side_effect = _state_with_delete
+        assert cells_all_tracked_deleted([cell], MagicMock()) is True
+
+        td_cls.return_value.state_at.side_effect = _state_blank
+        assert cells_all_tracked_deleted([cell], MagicMock()) is False

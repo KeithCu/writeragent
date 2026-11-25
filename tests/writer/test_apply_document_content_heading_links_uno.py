@@ -1232,6 +1232,39 @@ def test_failed_edit_rolls_back_in_review_mode_uno(ctx, doc) -> None:
 
 @native_test
 @with_native_doc("writer", reuse=False)
+def test_two_links_in_one_paragraph_while_recording_uno(ctx, doc) -> None:
+    from plugin.writer.hyperlink_fixup import retarget_outline_links
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    for idx, (label, sep) in enumerate([("go0", " . "), ("go1", " . ")]):
+        if idx:
+            text.insertString(cur, sep, False)
+        text.insertString(cur, label, True)
+        cur.setPropertyValue("HyperLinkURL", "#Old|outline")
+        cur.collapseToEnd()
+    text.insertString(cur, " . ", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "go2", True)
+    cur.setPropertyValue("HyperLinkURL", "#Old|outline")
+    cur.collapseToEnd()
+
+    original_text = text.getString()
+    doc.setPropertyValue("RecordChanges", True)
+
+    assert retarget_outline_links(doc, {"Old": "New"}) == (3, {})
+    assert retarget_outline_links(doc, {"Old": "New"}) == (0, {})
+
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+    assert text.getString() == original_text
+    urls = _read_portion_urls(doc)
+    assert urls == [("go0", "#New|outline"), ("go1", "#New|outline"), ("go2", "#New|outline")]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
 def test_rename_leaves_link_to_kept_numbered_title_uno(ctx, doc) -> None:
     tool_ctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()

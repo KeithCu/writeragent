@@ -58,6 +58,7 @@ from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
 from plugin.writer.specialized_base import ToolWriterChartBase
+from plugin.writer.target_resolver import request_selection_range
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000
@@ -1140,10 +1141,9 @@ class WriterEmbeds:
             pos = kwargs.get("position", "end")
             cursor = None
             if pos == "cursor":
-                controller = doc.getCurrentController()
-                if hasattr(controller, "getViewCursor"):
-                    vc = controller.getViewCursor()
-                    cursor = text.createTextCursorByRange(vc.getStart())
+                rng = request_selection_range(ctx)
+                if rng is not None:
+                    cursor = text.createTextCursorByRange(rng.getStart())
             if cursor is None:
                 cursor = text.createTextCursorByRange(text.getEnd())
         except Exception as exc:

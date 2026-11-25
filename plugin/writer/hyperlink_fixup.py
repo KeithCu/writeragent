@@ -85,9 +85,9 @@ from urllib.parse import quote, unquote
 
 import uno
 
-from plugin.doc.text_helpers import DeletionState, go_right, iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
-from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering
+from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering, redline_spans
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -241,7 +241,7 @@ def hyperlink_fields(reports: list[dict[str, Any]]) -> dict[str, Any]:
     return {"hyperlinks": reports} if reports else {}
 
 
-def _final_reports(text: Any, anchor: Any, plans: list[dict[str, Any]],
+def _final_reports(doc: Any, text: Any, anchor: Any, plans: list[dict[str, Any]],
                    written: set[str], measured: bool) -> list[dict[str, Any]]:
     """Reports for what the document holds after the edit.
 
@@ -250,14 +250,13 @@ def _final_reports(text: Any, anchor: Any, plans: list[dict[str, Any]],
     a tracked deletion are ignored). *measured* is False when the replacement broke the
     paragraph, so the rest of the link may be in a later one and the old URL is reported.
     """
-    left: set[str] = set()
-    state = DeletionState()
-    for p in _iter_portions(text, anchor.getStart(), include_redlines=True):
-        if _prop(p, "TextPortionType") == "Redline":
-            state.apply_marker(p)
-            continue
-        if not state.in_delete and p.getString():
-            left.add(_prop(p, _URL))
+    if not plans:
+        return []
+    left = {
+        _prop(p, _URL)
+        for p, live in _portions_with_live(doc, text, anchor.getStart())
+        if live and p.getString()
+    }
     reports = []
     for plan in plans:
         url = plan["url"]
@@ -323,6 +322,20 @@ def _iter_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False
             ):
                 continue
             yield portion
+
+
+def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bool]]:
+    """Portions of the paragraph at *pos* without redline markers, and whether each is outside a tracked deletion.
+
+    The state starts from the document's redlines: a deletion opened in an earlier
+    paragraph has no start marker in this one.
+    """
+    state = TrackedDeletions(doc).state_at(_paragraph_cursor(text, pos))
+    for portion in _iter_portions(text, pos, include_redlines=True):
+        if _prop(portion, "TextPortionType") == "Redline":
+            state.apply_marker(portion)
+        else:
+            yield portion, not state.in_delete
 
 
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
@@ -574,7 +587,7 @@ def _put_back_url(snapshot: OutlineSnapshot) -> str:
     return ""
 
 
-def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
+def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
                                fallback_plain: str | None,
                                override: str | None) -> list[dict[str, Any]]:
     """Write the planned outline URL onto the whole span, using *anchor* (the match start).
@@ -649,7 +662,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                     restored = True
             if not restored:
                 _paint(text, anchor, snapshot, new_plain, put_back, snapshot.props, required=False)
-        return _final_reports(text, anchor, plans, set(), measured)
+        return _final_reports(doc, text, anchor, plans, set(), measured)
 
     by_url = {plan["url"]: plan for plan in writable}
 
@@ -693,7 +706,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                _plan_props(paint, title_props), required=True)
         written.add(paint["url"])
 
-    reports = _final_reports(text, anchor, plans, written, measured)
+    reports = _final_reports(doc, text, anchor, plans, written, measured)
     log.debug("outline hyperlink updated: %s", reports)
     return reports
 
@@ -719,14 +732,10 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
         # Collected before writing: setPropertyValue can split a portion mid-enumeration.
         offset, stop = -len(snapshot.prefix), len(raw)
         unlinked = []
-        state = DeletionState()
-        for portion in _iter_portions(text, anchor.getStart(), include_redlines=True):
-            if _prop(portion, "TextPortionType") == "Redline":
-                state.apply_marker(portion)
-                continue
+        for portion, live in _portions_with_live(doc, text, anchor.getStart()):
             chunk = str(portion.getString() or "")
             if (
-                not state.in_delete
+                live
                 and chunk
                 and offset >= 0
                 and offset + len(chunk) <= stop
@@ -740,7 +749,7 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
                 cursor.gotoRange(end, True)
                 write_link(cursor, url, snapshot.props)
     plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
-    reports = _final_reports(anchor.getText(), anchor, plans, set(), raw is not None)
+    reports = _final_reports(doc, anchor.getText(), anchor, plans, set(), raw is not None)
     for plan, report in zip(plans, reports):
         if plan["new_url"] is not None and report["hyperlink_url_after"]:
             report["hyperlink_note"] = _RECORDING_NOTE
@@ -752,7 +761,7 @@ def restore_links(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     """Fix the links of a replaced match: rename outline targets, or only keep them while recording."""
     if is_recording_changes(doc):
         return _keep_links_while_recording(doc, anchor, snapshot, plain, override)
-    return restore_outline_hyperlinks(anchor, snapshot, plain, override)
+    return restore_outline_hyperlinks(doc, anchor, snapshot, plain, override)
 
 
 def _similar_titles(
@@ -951,19 +960,28 @@ def retarget_outline_links(
     """
     recording = is_recording_changes(doc)
     stale: dict[str, StaleReason] = {}
-    count = 0
+    spans = redline_spans(doc)
+    edits: list[tuple[Any, Any, str, bool]] = []
+    prev_para: Any = None
+    # Every run is chosen before the first write: the writes add tracked changes that *spans* does not have.
     for linked in _linked_ranges(doc):
         text = linked.getText()
+        # findAll returns one range per link, in document order, and the walk below covers the whole
+        # paragraph. Walking a paragraph twice would retype its runs twice.
+        para_start = _paragraph_cursor(text, linked.getStart()).getStart()
+        if prev_para is not None and _same_point(text, prev_para, para_start):
+            continue
+        prev_para = para_start
         runs: list[tuple[Any, str, str, bool]] = []
-        blocked: set[str] = set()  # per paragraph: one field link must not block the others
-        for portion in _iter_portions(text, linked.getStart()):
+        blocked: dict[str, StaleReason] = {}  # per paragraph: one field link must not block the others
+        for portion in _iter_portions(text, para_start):
             url = _prop(portion, _URL)
             if not url or not portion.getString():
                 continue
             new_url = _renamed_url(url, successors)
             if new_url == url:
                 continue
-            kinds = redline_kinds_covering(doc, portion)
+            kinds = redline_kinds_covering(spans, portion)
             if "Delete" in kinds:
                 continue
             if new_url is None:
@@ -971,27 +989,25 @@ def retarget_outline_links(
                 continue
             tracked = recording and "Insert" not in kinds
             if tracked and _prop(portion, "TextPortionType") != "Text":
-                blocked.add(url)
+                blocked[url] = "field"
             runs.append((portion, url, new_url, tracked))
-        # Last run first: retyping a run moves the text after it.
-        for portion, url, new_url, tracked in reversed(runs):
-            if url in blocked:
-                stale[url] = "field"
-                continue
-            props = read_link_props(portion)
-            target = text.createTextCursorByRange(portion)
-            if not tracked:
-                with record_changes(doc, False):
-                    write_link(target, new_url, props)
-            else:
-                start = text.createTextCursorByRange(target.getStart())
-                retyped = text.createTextCursorByRange(target.getEnd())
-                # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
-                text.insertString(retyped, target.getString(), True)
-                with record_changes(doc, False):
-                    write_link(retyped, new_url, props)
-                # The insertion stretched the run's own range, so delete up to the new text.
-                start.gotoRange(retyped.getStart(), True)
-                start.setString("")
-            count += 1
-    return count, stale
+        stale.update(blocked)
+        edits += [(text, portion, new_url, tracked) for portion, url, new_url, tracked in runs if url not in blocked]
+    # Last run first: retyping a run moves the text after it.
+    for text, portion, new_url, tracked in reversed(edits):
+        props = read_link_props(portion)
+        target = text.createTextCursorByRange(portion)
+        if not tracked:
+            with record_changes(doc, False):
+                write_link(target, new_url, props)
+        else:
+            start = text.createTextCursorByRange(target.getStart())
+            retyped = text.createTextCursorByRange(target.getEnd())
+            # bAbsorb: the cursor covers the inserted text, which takes the run's formatting.
+            text.insertString(retyped, target.getString(), True)
+            with record_changes(doc, False):
+                write_link(retyped, new_url, props)
+            # The insertion stretched the run's own range, so delete up to the new text.
+            start.gotoRange(retyped.getStart(), True)
+            start.setString("")
+    return len(edits), stale

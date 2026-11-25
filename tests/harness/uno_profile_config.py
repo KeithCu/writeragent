@@ -28,14 +28,29 @@ _VENV_KEY = "scripting.python_venv_path"
 def profile_config_path() -> Path:
     """This run's writeragent.json. Raises instead of touching a real profile.
 
-    A real profile holds API keys, and ``_leftover_shared_diag`` prints the
-    file body on failure. Do not fall back to ``get_config_file_path()``: it
-    keeps the first profile's path after an office recycle.
+    A real profile holds the user's settings and API keys.
+    ``get_config_file_path()`` would return it under ``--user-profile``.
     """
     path = throwaway_writeragent_json()
     if path is None:
         raise AssertionError("no throwaway test profile; refusing to edit a real writeragent.json")
     return path
+
+
+def _read_profile_config(path: Path) -> dict[str, Any]:
+    """Read and parse *path*, returning ``{}`` when absent or raising on corrupt JSON."""
+    if not path.exists():
+        return {}
+    parsed = parse_config_json_text(path.read_text(encoding="utf-8"))
+    if parsed is None:
+        raise AssertionError(f"unreadable test profile config: {path}")
+    return parsed
+
+
+def profile_config_values(*keys: str) -> dict[str, Any]:
+    """Return only the named keys from the active throwaway profile's config."""
+    data = _read_profile_config(profile_config_path())
+    return {k: data[k] for k in keys if k in data}
 
 
 def patch_profile_config(mutate: Callable[[dict[str, Any]], None]) -> None:
@@ -44,12 +59,7 @@ def patch_profile_config(mutate: Callable[[dict[str, Any]], None]) -> None:
     The file may start with the ``//`` schema header, which plain json.load rejects.
     """
     path = profile_config_path()
-    data: dict[str, Any] = {}
-    if path.exists():
-        parsed = parse_config_json_text(path.read_text(encoding="utf-8"))
-        if parsed is None:
-            raise AssertionError(f"unreadable test profile config: {path}")
-        data = parsed
+    data = _read_profile_config(path)
     mutate(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(str(path), json.dumps(data, indent=2) + "\n")
@@ -59,7 +69,7 @@ def patch_profile_config(mutate: Callable[[dict[str, Any]], None]) -> None:
 def settle_soffice_config() -> None:
     """Wait out the 2 s get_config cache in soffice (plugin/framework/config.py:_load).
 
-    ``patch_profile_config`` drops only this process's cache.
+    A client ``save()`` or ``patch_profile_config`` drops only this process's cache.
     """
     time.sleep(2.1)
 

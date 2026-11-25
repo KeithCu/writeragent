@@ -897,6 +897,10 @@ def test_styled_insert_epilogue_cursor_move():
         ("<ruby>漢字<rt>かんじ</rt></ruby>", 1, []),
         # Normalized HTML tags in prose stay text, not a heading block.
         ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 1, []),
+        # Escapes inside TeX math keep their backslash while prose escapes expand.
+        (r"<h1>Angle \(\theta + \nu\) x</h1>", 1, [{"level": 1, "text": r"Angle \(\theta + \nu\) x"}]),
+        (r"<h1>A $\tau$ z</h1>", 1, [{"level": 1, "text": r"A $\tau$ z"}]),
+        (r"<h1>Line\nTwo</h1>", 1, [{"level": 1, "text": "Line Two"}]),
     ],
 )
 def test_summarize_written_blocks_fixtures(html: str, expected_count: int, expected_headings: list[dict[str, Any]]) -> None:

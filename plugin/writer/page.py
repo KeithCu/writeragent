@@ -59,6 +59,7 @@ from .search import (
     resolve_case_sensitive,
 )
 from .specialized_base import ToolWriterPageBase, enum_param
+from .target_resolver import require_selection_range
 
 log = logging.getLogger("writeragent.writer")
 
@@ -1625,7 +1626,7 @@ def _page_break_ok(message: str, page_style: str | None, restart: int | None) ->
 
 
 class PageInsertBreak(ToolWriterPageBase):
-    """Insert a page break at a text anchor (before_text/after_text) or at the view cursor.
+    """Insert a page break at a text anchor (before_text/after_text) or at the request's selection.
 
     Optional page_style applies that existing page style from the new page
     (PageDescName). Optional restart_page_number (with page_style) restarts
@@ -1689,7 +1690,7 @@ class PageInsertBreak(ToolWriterPageBase):
             res.setdefault("matched_case_sensitive", resolve_case_sensitive(raw_cs))
             return res
 
-        return self._insert_view_cursor_break(doc, page_style, restart)
+        return self._insert_selection_break(ctx, page_style, restart)
 
     def _break_at_match(
         self,
@@ -1747,24 +1748,19 @@ class PageInsertBreak(ToolWriterPageBase):
         res.update(mode.result_fields())
         return res
 
-    def _insert_view_cursor_break(
+    def _insert_selection_break(
         self,
-        doc: Any,
+        ctx: ToolContext,
         page_style: str | None,
         restart: int | None,
     ) -> dict[str, Any]:
-        view_cursor = doc.getCurrentController().getViewCursor()
-        if not view_cursor:
-            return self._tool_error("Could not obtain view cursor.")
+        rng = require_selection_range(ctx)
 
         # BreakType is a paragraph property. A collapsed model cursor at the
-        # view start applies it to the paragraph that contains the selection.
-        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-        # and this path must not move that selection. insertControlCharacter
-        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-        # text; do not put that back.
-        text = view_cursor.getText()
-        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        # selection start applies it to the paragraph that contains the selection
+        # without moving that selection; do not use insertControlCharacter
+        # (PARAGRAPH_BREAK), which splits the paragraph and destroys selected text.
+        cursor = rng.getText().createTextCursorByRange(rng.getStart())
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)

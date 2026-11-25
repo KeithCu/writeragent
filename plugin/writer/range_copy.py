@@ -26,6 +26,7 @@ from plugin.writer.math.math_mml_export import (
     portion_math_embed,
     read_starmath,
 )
+from .xhtml_style_postprocess import DELETED_MARK
 
 log = logging.getLogger("writeragent.writer")
 
@@ -490,8 +491,12 @@ def clone_window_graphics(
     dest_text: Any,
     trim_start: int,
     trim_end: int,
+    deletions: TrackedDeletions,
 ) -> None:
-    """Clone graphics anchored in *para* whose offset falls within ``[trim_start, trim_end]``."""
+    """Clone graphics anchored in *para* whose offset falls within ``[trim_start, trim_end]``.
+
+    Graphics that Accept All would remove are skipped.
+    """
     frames: list[tuple[int, Any]] = []
     offset = 0
     for portion, chunk in portions:
@@ -506,12 +511,12 @@ def clone_window_graphics(
         cursor.gotoStartOfParagraph(False)
         if frame_offset > trim_start:
             go_right(cursor, frame_offset - trim_start, False)
-        clone_graphics(portion, dest_doc, dest_text, cursor)
+        clone_graphics(portion, dest_doc, dest_text, cursor, deletions)
     if trim_start == 0:
         cursor = dest_text.createTextCursor()
         cursor.gotoEnd(False)
         cursor.gotoStartOfParagraph(False)
-        clone_graphics(para, dest_doc, dest_text, cursor)
+        clone_graphics(para, dest_doc, dest_text, cursor, deletions)
 
 
 def iter_nested_texts(doc: Any, text_obj: Any, state: DeletionState) -> Iterator[Any]:
@@ -579,12 +584,19 @@ def _copy_visible_portions(
 
 
 def _copy_cell_xtext(
+    src_doc: Any,
     src_cell: Any,
     dest_doc: Any,
     dest_cell: Any,
     math_records: list[tuple[str, str, bool]] | None = None,
+    *,
+    mark_struck: bool = False,
 ) -> None:
-    """Copy one table cell: text, fields, and graphics."""
+    """Copy one table cell: text, fields, and graphics.
+
+    Only the HTML export scratch copy sets *mark_struck*: page-style clones use
+    this function to write into live documents, where the marker would stay as text.
+    """
     # Fresh cell; setString cannot fail here.
     dest_cell.setString("")
     dest_cursor = dest_cell.createTextCursor()
@@ -597,21 +609,23 @@ def _copy_cell_xtext(
     state = DeletionState()
     fresh = True
     for para in iter_elements(para_enum):
-        # A table inside an open deletion is struck whole. Covers spanning deletions only,
-        # so a nested table struck by its own rows is still copied.
-        if state.in_delete and supports_service(para, "com.sun.star.text.TextTable"):
+        is_table = supports_service(para, "com.sun.star.text.TextTable")
+        if is_table and table_is_struck(src_doc, para, state):
             continue
         if not fresh:
             begin_next_paragraph(dest_cell, dest_cursor)
-        fresh = supports_service(para, "com.sun.star.text.TextTable")
+        fresh = is_table
         if fresh:
             # Recreate the nested table inside dest_cell (same walk as body copy_table).
-            copy_table(para, dest_doc, dest_cell, dest_cursor, math_records)
+            copy_table(src_doc, para, dest_doc, dest_cell, dest_cursor, math_records, mark_struck=mark_struck)
             continue
+        opened = state.in_delete
         _copy_visible_portions(
             para, dest_doc, dest_cell, dest_cursor, math_records, in_cell=True, state=state
         )
         dest_cursor.gotoEnd(False)
+        if mark_struck and state.strikes_paragraph(para, opened):
+            dest_cell.insertString(dest_cursor, DELETED_MARK, False)
         clone_graphics(para, dest_doc, dest_cell, dest_cursor)
 
 
@@ -689,11 +703,14 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
 
 
 def copy_table(
+    src_doc: Any,
     src_table: Any,
     dest_doc: Any,
     dest_text: Any,
     dest_cursor: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    *,
+    mark_struck: bool = False,
 ) -> None:
     """Recreate *src_table* before *dest_cursor* in *dest_text*.
 
@@ -725,7 +742,7 @@ def copy_table(
             except Exception as exc:
                 log.debug("copy_table: cell %s unreadable: %s", cell_name, exc)
                 continue
-            _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+            _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records, mark_struck=mark_struck)
     else:
         # No name list: last-resort position walk (same first-row bound as before).
         for row in range(dest_rows):
@@ -736,7 +753,7 @@ def copy_table(
                 except Exception as exc:
                     log.debug("copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
-                _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
+                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell, math_records=math_records, mark_struck=mark_struck)
 
 
 def begin_next_paragraph(dest_text: Any, cursor: Any) -> None:
@@ -815,7 +832,7 @@ def _copy_xtext_by_portions(
             begin_next_paragraph(dest_text, dest_cursor)
         fresh = is_table
         if fresh:
-            copy_table(el, dest_doc, dest_text, dest_cursor, math_records)
+            copy_table(src_doc, el, dest_doc, dest_text, dest_cursor, math_records)
             continue
         style = None
         style_name = uno_read(lambda: el.getPropertyValue("ParaStyleName"), "")
@@ -879,7 +896,7 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
         fresh = is_table
         if fresh:
             # copy_table also clones cell graphics.
-            copy_table(el, doc, dest_text, cursor, None)
+            copy_table(doc, el, doc, dest_text, cursor, None)
             continue
         for portion, chunk in visible_portions(el, abort_on_portion_error=True, state=state):
             kind = portion.getPropertyValue("TextPortionType")
@@ -904,19 +921,21 @@ def copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:
 
 
 def cells_all_tracked_deleted(cells: list[Any], doc: Any) -> bool:
-    """True when *cells* have some raw text and no cell has visible text left."""
+    """True when *cells* hold something struck and no cell has visible text left."""
     deletions = TrackedDeletions(doc)
-    has_raw = False
+    struck = False
     for cell in cells:
-        if uno_read(cell.getString, ""):
-            has_raw = True
-        if uno_read(lambda: get_string_without_tracked_deletions(cell, deletions.state_at(cell)).strip("\n"), True):
+        state = deletions.state_at(cell)
+        if uno_read(lambda: get_string_without_tracked_deletions(cell, state).strip("\n"), True):
             return False
-    return has_raw
+        # A struck image has no raw text, only its Delete marker. Nested cell text is raw text here.
+        if state.saw_delete or uno_read(cell.getString, ""):
+            struck = True
+    return struck
 
 
 def table_is_all_deleted(doc: Any, table: Any) -> bool:
-    """True when every cell of *table* has lost all visible text (with some raw text)."""
+    """True when every cell of *table* has lost all visible text (with something struck in it)."""
     names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), list[str]())
     if not names:
         return False
