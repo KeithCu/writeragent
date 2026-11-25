@@ -290,12 +290,15 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                             else:
                                 rows = int(value.get("rows") or 1)
                                 cols = int(value.get("cols") or 1)
-                            state.spills[(sheet_name, frow, fcol)] = SpillRecord(
-                                code=code,
-                                rows=max(rows, 1),
-                                cols=max(cols, 1),
-                                seen=False,
-                            )
+                            reg_key = (sheet_name, frow, fcol)
+                            if reg_key not in state.spills:
+                                # Keep any in-memory record written this session (it is newer and has seen=True).
+                                state.spills[reg_key] = SpillRecord(
+                                    code=code,
+                                    rows=max(rows, 1),
+                                    cols=max(cols, 1),
+                                    seen=False,
+                                )
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
                 continue
