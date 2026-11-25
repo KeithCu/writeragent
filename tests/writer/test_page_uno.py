@@ -1266,7 +1266,7 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
     controller.select(cur)
 
     tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
     controller.getViewCursor().gotoEnd(False)
 
     res = PageInsertBreak().execute(tctx)

@@ -329,7 +329,7 @@ def test_selection_uses_pinned_range_not_live_view():
     pinned_rng = MagicMock()
     pinned_cursor = MagicMock()
     pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
 
     res = resolve_target_cursor(ctx, "selection", None)
     assert res is pinned_cursor
@@ -339,8 +339,8 @@ def test_selection_uses_pinned_range_not_live_view():
 def test_selection_without_pin_reads_live_view():
     from plugin.framework.tool import SelectionPin
 
-    for pin in (None, SelectionPin(None)):
-        ctx, _ = _ctx()
+    ctx, _ = _ctx()
+    for pin in (None, SelectionPin(None, ctx.doc)):
         ctx.selection_pin = pin
         controller = MagicMock()
         ctx.doc.getCurrentController.return_value = controller
@@ -383,7 +383,26 @@ def test_require_selection_range_without_caret_raises():
 
     ctx.doc.getCurrentController.reset_mock()
     pinned_rng = MagicMock()
-    ctx.selection_pin = SelectionPin(pinned_rng)
+    ctx.selection_pin = SelectionPin(pinned_rng, ctx.doc)
     assert require_selection_range(ctx) is pinned_rng
     ctx.doc.getCurrentController.assert_not_called()
+
+
+def test_selection_pin_scoped_to_its_document():
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.target_resolver import request_selection_range, update_selection_pin
+
+    ctx, _ = _ctx()
+    other_doc = MagicMock()
+    foreign_rng = MagicMock()
+    ctx.selection_pin = SelectionPin(foreign_rng, doc=other_doc)
+
+    controller = MagicMock()
+    ctx.doc.getCurrentController.return_value = controller
+    controller.getSelection.return_value = None
+    live_rng = controller.getViewCursor.return_value
+
+    assert request_selection_range(ctx) is live_rng
+    update_selection_pin(ctx, MagicMock())
+    assert ctx.selection_pin.range is foreign_rng
 
