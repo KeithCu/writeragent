@@ -38,17 +38,14 @@ _scratch_loads = 0
 _after_loads: list[Callable[[], object]] = []
 
 
-def page_preview_view_prop() -> Any:
-    """Load property that gives a hidden Writer document a page-preview view (SwPagePreview).
-
-    Closing a normal SwView clears Writer's active-view pointer (view.cxx
-    ~SwViewGlueDocShell), and the Manage Changes dialog dereferences that pointer
-    (redlndlg.cxx, SwRedlineAcceptDlg constructor), so LibreOffice would abort. A page
-    preview never sets the pointer and still has a layout. Its controller has no view
-    cursor. 7 is the id from sw/source/uibase/app/swmodule.cxx; Calc, Draw, Impress and
-    Math have no view 7 and use their default view (docfac.cxx GetViewNo_Impl).
-    """
-    return create_property_value("ViewId", 7)
+# View id of Writer's page preview (SwPagePreview, sw/source/uibase/app/swmodule.cxx).
+# Closing a normal SwView clears Writer's active-view pointer (view.cxx
+# ~SwViewGlueDocShell), and the Manage Changes dialog dereferences that pointer
+# (redlndlg.cxx, SwRedlineAcceptDlg constructor), so LibreOffice would abort. A page
+# preview never sets the pointer and still has a layout. Its controller has no view
+# cursor. Calc, Draw, Impress and Math have no view 7 and use their default view
+# (docfac.cxx GetViewNo_Impl).
+_PAGE_PREVIEW_VIEW_ID = 7
 
 
 def load_scratch_document(
@@ -56,19 +53,23 @@ def load_scratch_document(
     url: str,
     *,
     props: tuple[Any, ...] = (),
+    normal_view: bool = False,
 ) -> Any:
     """Load *url* hidden as a WriterAgent scratch document and register its RuntimeUID.
 
     Used for both blank scratch Writers and user files opened hidden and
-    read-only for document research. Returns what ``loadComponentFromURL``
-    returned (``None`` included).
+    read-only for document research. A Writer document gets a page-preview
+    view by default; pass ``normal_view=True`` only for a Writer that needs
+    a normal view's controller and is never closed. Returns what
+    ``loadComponentFromURL`` returned (``None`` included).
     """
     global _scratch_loads, _after_loads
     with _scratch_lock:
         _scratch_loads += 1
     try:
+        view = () if normal_view else (create_property_value("ViewId", _PAGE_PREVIEW_VIEW_ID),)
         doc = desktop.loadComponentFromURL(
-            url, "_blank", 0, (create_property_value("Hidden", True), *props)
+            url, "_blank", 0, (create_property_value("Hidden", True), *view, *props)
         )
         uid = get_runtime_uid(doc) if doc is not None else ""
         if uid:
@@ -232,7 +233,7 @@ def new_blank_writer(ctx: Any = None) -> Any:
     if desktop is None:
         return None
 
-    doc = load_scratch_document(desktop, "private:factory/swriter", props=(page_preview_view_prop(),))
+    doc = load_scratch_document(desktop, "private:factory/swriter")
     if doc is None:
         return None
     if not clear_writer_body(doc):
