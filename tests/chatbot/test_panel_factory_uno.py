@@ -26,9 +26,11 @@ def test_create_ui_element_declared_exceptions_uno(ctx: Any) -> None:
     with TestCase().assertRaises(NoSuchElementException) as unknown:
         remote.createUIElement("private:resource/toolpanel/Other", ())
     assert unknown.exception.Message == "Unknown resource: private:resource/toolpanel/Other"
-    assert unknown.exception.Context == factory
+    assert unknown.exception.Context is not None
+    # Older pyuno (before LO 26.8 PyUNO_cmp) returns False comparing a URP proxy to a Python unohelper.Base.
+    assert any(t.typeName == "com.sun.star.ui.XUIElementFactory" for t in unknown.exception.Context.getTypes())
     with TestCase().assertRaises(IllegalArgumentException) as no_parent:
         remote.createUIElement("private:resource/toolpanel/ChatPanel", ())
     assert no_parent.exception.Message == "ParentWindow is required"
-    assert no_parent.exception.Context == factory
+    assert no_parent.exception.Context == unknown.exception.Context
     assert no_parent.exception.ArgumentPosition == 1
