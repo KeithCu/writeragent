@@ -56,7 +56,7 @@ FALLBACK_CONTEXT_TOKENS = 24_000
 # The system prompt, WEB_RESEARCH_EXAMPLES and wire tool schemas use about 2,000 tokens.
 # Ollama's /api/show omits num_ctx unless the Modelfile sets it, and its real default is
 # 4,096, 32,768 or 262,144 by VRAM (Ollama server/routes.go, Serve), so the assumed value
-# keeps page parts small enough for the smallest of those.
+# keeps page parts small enough for the smallest of those; otherwise Ollama silently truncates the prompt.
 RECOMMENDED_CONTEXT_TOKENS = 8_192
 _MAX_PAGES = 100
 _FIND_MAX_MATCHES = 10
