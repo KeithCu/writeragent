@@ -30,7 +30,8 @@ def _is_undo_locked(um: Any) -> bool:
 class UndoLock:
     """Keep bookkeeping writes off the document's undo stack: ``with UndoLock(doc):``.
 
-    Does nothing when undo is already off. ``unlock()`` turns recording back on
+    Without this, the first Ctrl+Z presses undo invisible bookkeeping instead of the
+    visible edit. Does nothing when undo is already off. ``unlock()`` turns recording back on
     (UndoManagerHelper_Impl::unlock, framework/source/fwe/helper/undomanagerhelper.cxx),
     which would enable undo in a document where it is disabled (Undo/Steps 0, no view);
     with Undo/Steps 0 the next undo group crashes LibreOffice. Best-effort: a manager that
@@ -60,6 +61,7 @@ class UndoLock:
         try:
             self._manager.unlock()
         except Exception:
+            # A stuck lock can make a later rollback's undo() throw and silently degrade atomicity.
             log.warning("UndoLock: unlock failed; the undo manager may be left locked", exc_info=True)
 
 

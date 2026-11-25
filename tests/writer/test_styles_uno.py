@@ -1130,12 +1130,16 @@ def _para_portion_snapshot(para):
     return portions
 
 
-def _redline_types(doc):
-    types = []
+def _redline_records(doc):
+    records = []
     r_enum = doc.getRedlines().createEnumeration()
     while enum_has_more(r_enum):
-        types.append(str(r_enum.nextElement().getPropertyValue("RedlineType")))
-    return types
+        rl = r_enum.nextElement()
+        records.append((
+            str(rl.getPropertyValue("RedlineType")),
+            str(rl.getPropertyValue("RedlineIdentifier")),
+        ))
+    return records
 
 
 def _body_paras(doc):
@@ -1146,6 +1150,17 @@ def _body_paras(doc):
         if el.supportsService("com.sun.star.text.Paragraph"):
             paras.append(el)
     return paras
+
+
+def _para_format_snapshot(doc):
+    return [
+        (
+            _para_portion_snapshot(p),
+            str(p.getPropertyValue("ParaStyleName")),
+            int(p.getPropertyValue("ParaAdjust")),
+        )
+        for p in _body_paras(doc)
+    ]
 
 
 @native_test
@@ -1182,11 +1197,8 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
                     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
                     um = doc.getUndoManager()
 
-                    p0 = _body_paras(doc)[0]
-                    snap_portions = _para_portion_snapshot(p0)
-                    snap_style = str(p0.getPropertyValue("ParaStyleName"))
-                    snap_adjust = int(p0.getPropertyValue("ParaAdjust"))
-                    snap_redlines = _redline_types(doc)
+                    snap_paras = _para_format_snapshot(doc)
+                    snap_redlines = _redline_records(doc)
                     snap_titles = tuple(um.getAllUndoActionTitles() or ())
                     snap_rec = bool(doc.getPropertyValue("RecordChanges"))
 
@@ -1198,11 +1210,8 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
                     assert res_locked["status"] == "error", (recording, kind, res_locked)
                     assert res_locked["code"] == "UNDO_UNAVAILABLE", (recording, kind, res_locked)
 
-                    p0 = _body_paras(doc)[0]
-                    assert _para_portion_snapshot(p0) == snap_portions
-                    assert str(p0.getPropertyValue("ParaStyleName")) == snap_style
-                    assert int(p0.getPropertyValue("ParaAdjust")) == snap_adjust
-                    assert _redline_types(doc) == snap_redlines
+                    assert _para_format_snapshot(doc) == snap_paras
+                    assert _redline_records(doc) == snap_redlines
                     assert tuple(um.getAllUndoActionTitles() or ()) == snap_titles
                     assert bool(doc.getPropertyValue("RecordChanges")) == snap_rec
 
@@ -1213,6 +1222,7 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
                     p0 = _body_paras(doc)[0]
                     if kind == "apply_para":
                         assert str(p0.getPropertyValue("ParaStyleName")) == "Heading 2"
+                        assert _para_portion_snapshot(p0) != snap_paras[0][0]
                     elif kind == "apply_char":
                         assert any(cs == "Source Text" for _, _, _, cs in _para_portion_snapshot(p0))
                     else:
@@ -1221,15 +1231,12 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
                         assert doc.getRedlines().getCount() == 1
 
                     um.undo()
-                    p0 = _body_paras(doc)[0]
-                    assert _para_portion_snapshot(p0) == snap_portions, (
+                    assert _para_format_snapshot(doc) == snap_paras, (
                         recording,
                         kind,
-                        _para_portion_snapshot(p0),
-                        snap_portions,
+                        _para_format_snapshot(doc),
+                        snap_paras,
                     )
-                    assert str(p0.getPropertyValue("ParaStyleName")) == snap_style
-                    assert int(p0.getPropertyValue("ParaAdjust")) == snap_adjust
 
                     um.undo()
                     assert "TYPED" not in doc.getText().getString()
@@ -1299,8 +1306,9 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                         )
                         for p in paras_before
                     ]
-                    redlines_before = _redline_types(doc)
-                    assert "Insert" in redlines_before and "Delete" in redlines_before
+                    redlines_before = _redline_records(doc)
+                    before_types = [t for t, _ in redlines_before]
+                    assert before_types.count("Insert") == 2 and before_types.count("Delete") == 1
                     titles_before = tuple(um.getAllUndoActionTitles() or ())
 
                     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -1314,11 +1322,15 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                     assert str(p1_after.getPropertyValue("ParaStyleName")) == "Heading 1"
                     assert _para_portion_snapshot(p1_after) != snap[1][3]
                     assert int(p1_after.getPropertyValue("ParaAdjust")) != snap[1][1]
+                    redlines_after = _redline_records(doc)
+                    for orig in redlines_before:
+                        assert orig in redlines_after, (recording, orig, redlines_after)
                     if recording:
-                        assert "ParagraphFormat" in _redline_types(doc)
+                        assert any(t == "ParagraphFormat" for t, _ in redlines_after)
 
                     um.undo()
                     paras_undone = _body_paras(doc)
+                    assert len(paras_undone) == len(snap)
                     for idx, p in enumerate(paras_undone):
                         got = (
                             str(p.getPropertyValue("ListLabelString")),
@@ -1327,8 +1339,9 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                             _para_portion_snapshot(p),
                         )
                         assert got == snap[idx], (recording, idx, got, snap[idx])
-                    redlines_undone = _redline_types(doc)
-                    assert "Insert" in redlines_undone and "Delete" in redlines_undone
+                    redlines_undone = _redline_records(doc)
+                    for orig in redlines_before:
+                        assert orig in redlines_undone, (recording, orig, redlines_undone)
                 finally:
                     doc.close(True)
     finally:
