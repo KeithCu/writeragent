@@ -1573,7 +1573,13 @@ def test_titled_frame_omits_title_from_content_uno(ctx, doc):
     assert "SecretFrameTitle" not in html
 
 
-def _setup_struck_doc(doc: Any, paragraphs: list[str], del_start: tuple[int, int], del_end: tuple[int, int]) -> None:
+def _setup_struck_doc(
+    doc: Any,
+    paragraphs: list[str],
+    del_start: tuple[int, int],
+    del_end: tuple[int, int],
+    styles: list[str] | None = None,
+) -> None:
     """Populate *doc* with *paragraphs* and record a deletion from (p, off) to (p, off)."""
     doc.setPropertyValue("RecordChanges", False)
     text = doc.getText()
@@ -1582,6 +1588,8 @@ def _setup_struck_doc(doc: Any, paragraphs: list[str], del_start: tuple[int, int
     for idx, p in enumerate(paragraphs):
         if idx:
             text.insertControlCharacter(cur, 0, False)
+        if styles:
+            cur.setPropertyValue("ParaStyleName", styles[idx])
         if p:
             text.insertString(cur, p, False)
 
@@ -1602,46 +1610,126 @@ def _setup_struck_doc(doc: Any, paragraphs: list[str], del_start: tuple[int, int
     sel.setString("")
 
 
-def _deleted_flags_from_html(html: str) -> list[bool]:
+def _block_styles_and_texts(html: str) -> list[tuple[str | None, str]]:
+    import html as _html
     import re
 
-    return ['data-lo-deleted="true"' in tag for tag in re.findall(r"<(?:p|h[1-6]|li)\b[^>]*>", html)]
+    out: list[tuple[str | None, str]] = []
+    for tag, attrs, inner in re.findall(r"<(p|h[1-6])\b([^>]*)(?<!/)>(.*?)</\1>", html, re.DOTALL):
+        m = re.search(r'data-lo-style="([^"]+)"', attrs)
+        style = m.group(1) if m else None
+        text = _html.unescape(re.sub(r"<[^>]+>", "", inner))
+        out.append((style, text))
+    return out
 
 
 @native_test
 @with_native_doc("writer")
-def test_struck_paragraph_flags_full_and_range_uno(ctx: Any, doc: Any) -> None:
+def test_struck_paragraphs_omitted_full_and_range_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import read_visible_body
     from plugin.writer.html_export import document_to_content
 
+    four_styles = ["Heading 1", "Standard", "Quotations", "Text body"]
+    two_styles = ["Heading 1", "Text body"]
     cases = [
-        (["AA", "BB", "", "CC"], (1, 0), (1, 2), [False, True, False, False]),
-        (["AA", "BB", "", "CC"], (1, 0), (2, 0), [False, True, False, False]),
-        (["AA", "BB", "", "CC"], (0, 2), (1, 2), [False, True, False, False]),
-        (["AA", "BB", "", "CC"], (1, 2), (2, 0), [False, False, True, False]),
-        (["AA", "BB", "", "CC"], (2, 0), (3, 0), [False, False, True, False]),
-        (["AA", "BB", "", "CC"], (0, 0), (3, 0), [True, True, True, False]),
-        (["AA", "BB", "", "CC"], (0, 2), (2, 0), [False, True, True, False]),
-        (["AA", "CC"], (0, 2), (1, 2), [False, True]),
-        (["AA", "CC"], (0, 0), (1, 2), [True, True]),
+        (["AA", "BB", "", "CC"], four_styles, (1, 0), (1, 2), [("Heading1", "AA"), ("Quotations", "\xa0"), ("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (1, 0), (2, 0), [("Heading1", "AA"), ("Quotations", "\xa0"), ("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (0, 2), (1, 2), [("Heading1", "AA"), ("Quotations", "\xa0"), ("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (1, 2), (2, 0), [("Heading1", "AA"), ("Standard", "BB"), ("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (2, 0), (3, 0), [("Heading1", "AA"), ("Standard", "BB"), ("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (0, 0), (3, 0), [("Textbody", "CC")]),
+        (["AA", "BB", "", "CC"], four_styles, (0, 2), (2, 0), [("Heading1", "AA"), ("Textbody", "CC")]),
+        (["AA", "CC"], two_styles, (0, 2), (1, 2), [("Heading1", "AA")]),
+        (["AA", "CC"], two_styles, (0, 0), (1, 2), []),
     ]
     desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-    for paragraphs, d_start, d_end, expected in cases:
-        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+    for paragraphs, styles, d_start, d_end, expected in cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end, styles=styles)
         redlines_before = doc.getRedlines().getCount()
         frames_before = desktop.getFrames().getCount()
         full_html = document_to_content(doc, ctx, scope="full")
-        assert _deleted_flags_from_html(full_html) == expected, (paragraphs, d_start, d_end, full_html)
+        assert _block_styles_and_texts(full_html) == expected, (paragraphs, d_start, d_end, full_html)
         doc_len = len(read_visible_body(doc)[0])
         range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
-        assert _deleted_flags_from_html(range_html) == expected, (paragraphs, d_start, d_end, range_html)
+        assert _block_styles_and_texts(range_html) == expected, (paragraphs, d_start, d_end, range_html)
         assert doc.getRedlines().getCount() == redlines_before
         assert desktop.getFrames().getCount() == frames_before
 
 
 @native_test
 @with_native_doc("writer")
-def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, doc: Any) -> None:
+def test_numbered_list_with_struck_middle_item_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_export import document_to_content
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.setPropertyValue("NumberingStyleName", "Numbering 123")
+    for idx, label in enumerate(("First", "Middle", "Third")):
+        if idx:
+            text.insertControlCharacter(cur, 0, False)
+        text.insertString(cur, label, False)
+
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        sel = text.createTextCursorByRange(paras[1].getStart())
+        sel.gotoRange(paras[2].getStart(), True)
+        sel.setString("")
+        full_html = re.sub(r"\n+", "\n", document_to_content(doc, ctx, scope="full")).strip()
+        doc_len = len(read_visible_body(doc)[0])
+        range_html = re.sub(
+            r"\n+", "\n", document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+        ).strip()
+        assert "Middle" not in full_html and "Middle" not in range_html
+        assert full_html.count("<ol>") == 1 and full_html.count("<li>") == 2, full_html
+        items = [
+            (
+                re.sub(r"<[^>]+>", "", lbl).strip(),
+                re.sub(r"<[^>]+>", "", body).replace("\xa0", "").strip(),
+            )
+            for lbl, body in re.findall(r"<li><p[^>]*>(<span[^>]*>[^<]*</span>)(.*?)</p></li>", full_html, re.DOTALL)
+        ]
+        assert items == [("1.", "First"), ("3.", "Third")], full_html
+        assert range_html == (
+            '<p data-lo-style="Standard">First</p>\n'
+            '<p data-lo-style="Standard">Third</p>'
+        ), range_html
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_multi_paragraph_deletion_exact_output_uno(ctx: Any, doc: Any) -> None:
+    import re
+    from plugin.doc.text_helpers import read_visible_body
+    from plugin.writer.html_export import document_to_content
+
+    _setup_struck_doc(doc, ["Keep before", "Deleted 1", "Deleted 2", "Deleted 3", "Keep after"], (1, 0), (4, 0))
+    expected = (
+        '<p data-lo-style="Standard">Keep before</p>\n'
+        '<p data-lo-style="Standard">Keep after</p>'
+    )
+    full_html = re.sub(r"\n+", "\n", document_to_content(doc, ctx, scope="full")).strip()
+    doc_len = len(read_visible_body(doc)[0])
+    range_html = re.sub(
+        r"\n+", "\n", document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
+    ).strip()
+    assert full_html == expected, full_html
+    assert range_html == expected, range_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_struck_text_with_live_paragraph_anchored_image_kept_uno(ctx: Any, doc: Any) -> None:
     import base64
     import os
     import tempfile
@@ -1680,12 +1768,14 @@ def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, d
         doc.setPropertyValue("RecordChanges", True)
         sel.setString("")
 
-        full_html = document_to_content(doc, ctx, scope="full")
+        full_html = document_to_content(doc, ctx, scope="full", include_images=True)
         doc_len = len(read_visible_body(doc)[0])
-        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=doc_len + 1)
-        assert 'data-lo-deleted="true"' not in full_html
-        assert 'data-lo-deleted="true"' not in range_html
-        assert "<img" in range_html
+        range_html = document_to_content(
+            doc, ctx, scope="range", range_start=0, range_end=doc_len + 1, include_images=True
+        )
+        assert "<img" in full_html, full_html
+        assert "<img" in range_html, range_html
+        assert "BB" not in full_html and "BB" not in range_html
         assert read_visible_body(doc)[2] == []
     finally:
         os.unlink(img_path)
@@ -1693,7 +1783,7 @@ def test_struck_text_with_live_paragraph_anchored_image_unmarked_uno(ctx: Any, d
 
 @native_test
 @with_native_doc("writer")
-def test_unmarked_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) -> None:
+def test_exported_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_export import document_to_content
 
@@ -1708,30 +1798,44 @@ def test_unmarked_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) 
     dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     for paragraphs, d_start, d_end in cases:
         _setup_struck_doc(doc, paragraphs, d_start, d_end)
-        flags = _deleted_flags_from_html(document_to_content(doc, ctx, scope="full"))
-        unmarked = sum(1 for f in flags if not f)
+        blocks = _block_styles_and_texts(document_to_content(doc, ctx, scope="full"))
         dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
         enum = doc.getText().createEnumeration()
         accepted_count = 0
         while enum_has_more(enum):
             enum.nextElement()
             accepted_count += 1
-        assert unmarked == accepted_count, (paragraphs, d_start, d_end, flags, accepted_count)
+        assert len(blocks) == accepted_count, (paragraphs, d_start, d_end, blocks, accepted_count)
+
+    # Text struck without its paragraph break is also omitted, though Accept All leaves an empty paragraph.
+    text_only_cases = [
+        (["AA", "BB", "", "CC"], (1, 0), (1, 2), 3, 4),
+        (["AA", "CC"], (0, 0), (1, 2), 0, 1),
+    ]
+    for paragraphs, d_start, d_end, expected_exported, expected_accepted in text_only_cases:
+        _setup_struck_doc(doc, paragraphs, d_start, d_end)
+        blocks = _block_styles_and_texts(document_to_content(doc, ctx, scope="full"))
+        assert len(blocks) == expected_exported, (paragraphs, d_start, d_end, blocks)
+        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        enum = doc.getText().createEnumeration()
+        accepted_count = 0
+        while enum_has_more(enum):
+            enum.nextElement()
+            accepted_count += 1
+        assert accepted_count == expected_accepted, (paragraphs, d_start, d_end, accepted_count)
 
 
 @native_test
 @with_native_doc("writer")
-def test_whole_doc_strike_list_and_heading_marked_uno(ctx: Any, doc: Any) -> None:
+def test_whole_doc_strike_list_and_heading_omitted_uno(ctx: Any, doc: Any) -> None:
     from plugin.writer.html_export import document_to_content
 
     # Whole-document strike of two paragraphs must not leak struck text via StarWriter fallback.
     _setup_struck_doc(doc, ["FirstGone", "SecondGone"], (0, 0), (1, 10))
     whole_html = document_to_content(doc, ctx, scope="full")
-    assert "FirstGone" not in whole_html
-    assert "SecondGone" not in whole_html
-    assert _deleted_flags_from_html(whole_html) == [True, True]
+    assert whole_html == "", whole_html
 
-    # Struck numbered list item and struck Heading 1 are marked.
+    # Struck numbered list item and struck Heading 1 are omitted.
     doc.setPropertyValue("RecordChanges", False)
     text = doc.getText()
     text.setString("")
@@ -1758,10 +1862,7 @@ def test_whole_doc_strike_list_and_heading_marked_uno(ctx: Any, doc: Any) -> Non
         c.gotoEndOfParagraph(True)
         c.setString("")
     html = document_to_content(doc, ctx, scope="full")
-    assert "StruckH1" not in html
-    assert "StruckItem" not in html
-    assert "LiveTail" in html
-    assert html.count('data-lo-deleted="true"') == 2
+    assert html == '<p data-lo-style="Standard">LiveTail</p>', html
 
 
 @native_test
@@ -1935,7 +2036,7 @@ def test_nested_delete_table_omitted_from_full_and_range_reads_uno(ctx: Any, doc
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_delete_row_and_struck_cell_para_marks_agree_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
+def test_delete_row_and_struck_cell_para_omission_agrees_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
     from plugin.doc.text_helpers import get_document_length
     from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.html_export import document_to_content
@@ -1973,9 +2074,8 @@ def test_delete_row_and_struck_cell_para_marks_agree_in_full_and_range_uno(ctx: 
         range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc))
         assert "Row2Gone" not in full_html and "Row2Gone" not in range_html
         assert full_html.count("<tr") == 2 and range_html.count("<tr") == 2
-        expected_flags = [False, True, False, True]
-        assert _deleted_flags_from_html(full_html) == expected_flags, full_html
-        assert _deleted_flags_from_html(range_html) == expected_flags, range_html
+        assert _block_styles_and_texts(full_html) == [(None, "Top"), (None, "Bot")], full_html
+        assert _block_styles_and_texts(range_html) == [(None, "Top"), (None, "Bot")], range_html
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -2021,7 +2121,7 @@ def test_struck_as_character_image_only_table_omitted_uno(ctx: Any, doc: Any) ->
 
 @native_test
 @with_native_doc("writer", reuse=False)
-def test_deletion_ending_on_inline_image_marked_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
+def test_deletion_ending_on_inline_image_omitted_in_full_and_range_uno(ctx: Any, doc: Any) -> None:
     import os
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
     from plugin.doc.text_helpers import get_document_length
@@ -2050,8 +2150,9 @@ def test_deletion_ending_on_inline_image_marked_in_full_and_range_uno(ctx: Any, 
         range_html = document_to_content(
             doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc), include_images=True
         )
-        assert _deleted_flags_from_html(full_html) == [False, True, True, False], full_html
-        assert _deleted_flags_from_html(range_html) == [False, True, True, False], range_html
+        assert "<img" not in full_html and "<img" not in range_html
+        assert _block_styles_and_texts(full_html) == [("Standard", "AA"), ("Standard", "CC")], full_html
+        assert _block_styles_and_texts(range_html) == [("Standard", "AA"), ("Standard", "CC")], range_html
     finally:
         doc.setPropertyValue("RecordChanges", False)
         if os.path.exists(img_path):
@@ -2098,8 +2199,12 @@ def test_deletion_spanning_at_paragraph_image_omits_image_in_range_and_accept_un
         range_html = document_to_content(
             doc, ctx, scope="range", range_start=0, range_end=get_document_length(doc), include_images=True
         )
-        assert _deleted_flags_from_html(full_html) == [False, True, False, False], full_html
-        assert _deleted_flags_from_html(range_html) == [False, True, False, False], range_html
+        assert _block_styles_and_texts(full_html) == [
+            ("Standard", "A"), ("Standard", "C"), ("Standard", "DD")
+        ], full_html
+        assert _block_styles_and_texts(range_html) == [
+            ("Standard", "A"), ("Standard", "C"), ("Standard", "DD")
+        ], range_html
         assert "<img" not in full_html and "<img" not in range_html
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         assert doc.getGraphicObjects().getCount() == 0

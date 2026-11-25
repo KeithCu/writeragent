@@ -52,7 +52,7 @@ _PARA_CLASS_RE = re.compile(r"\bparagraph-[A-Za-z0-9_\-]+")
 # Unicode noncharacter carried as text through the scratch copy, outside the math placeholder range (U+E000+).
 DELETED_MARK = "\ufdd0"
 _TRAILING_EMPTY_P_RE = re.compile(
-    r"\s*<p\b(?![^>]*\bdata-lo-deleted)[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
+    r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
 _BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
 
@@ -262,6 +262,15 @@ class HtmlPassthroughParser(HTMLParser):
         self._out.append("<!--%s-->" % data)
 
 
+@dataclass
+class _OpenBlock:
+    tag: str
+    start: int
+    is_block: bool = True
+    deleted: bool = False
+    lost_child: bool = False
+
+
 @final
 class _SemanticTransformer(HtmlPassthroughParser):
     """Rewrite LO XHTML body into the agent-facing semantic HTML.
@@ -281,7 +290,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
     _norm: dict[str, str]
     _open: list[str]
     _box_next: bool
-    _block_at: int
+    _block_stack: list[_OpenBlock]
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -291,7 +300,7 @@ class _SemanticTransformer(HtmlPassthroughParser):
         self._autostyle_overrides = autostyle_overrides or {}
         self._open = []
         self._box_next = False
-        self._block_at = 0
+        self._block_stack = []
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
         self._named_fingerprint: dict[str, list[str]] = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
@@ -406,10 +415,15 @@ class _SemanticTransformer(HtmlPassthroughParser):
         if self._in_frame_after_box():
             return
         if DELETED_MARK in data:
-            self._out[self._block_at] = inject_attr(self._out[self._block_at], ' data-lo-deleted="true"')
-            # A non-breaking space, as in a live blank block: StarWriter import drops an empty <p>,
-            # and every later data-lo-style would land one paragraph late.
-            data = data.replace(DELETED_MARK, "\xa0")
+            # DELETED_MARK is a Unicode noncharacter (U+FDD0), assumed absent from live user text.
+            # Skip ul/ol containers so the mark only drops the struck item/paragraph, not the whole list.
+            for entry in reversed(self._block_stack):
+                if entry.is_block and entry.tag not in ("ul", "ol"):
+                    entry.deleted = True
+                    break
+            data = data.replace(DELETED_MARK, "")
+            if not data:
+                return
         super().handle_data(data)
 
     def handle_entityref(self, name: str) -> None:
@@ -438,8 +452,15 @@ class _SemanticTransformer(HtmlPassthroughParser):
             # A paragraph that holds a frame (an image) is exported as <div class="paragraph-X">:
             # it is one Writer paragraph, so it gets its data-lo-style like a <p>. Without it the
             # write side's positional styles skipped that paragraph and the next ones shifted.
-            self._block_at = len(self._out)
+            self._block_stack.append(_OpenBlock(t, len(self._out)))
             self._out.append(self._rewrite_block(raw, attrs))
+        elif t in ("ul", "ol"):
+            self._block_stack.append(_OpenBlock(t, len(self._out)))
+            self._out.append(raw)
+        elif t == "div":
+            # Track every div so an inner </div> cannot pop an outer <div class="paragraph-X"> early.
+            self._block_stack.append(_OpenBlock(t, len(self._out), is_block=False))
+            self._out.append(raw)
         elif t == "span":
             self._out.append(self._rewrite_span(raw, attrs))
         else:
@@ -462,6 +483,17 @@ class _SemanticTransformer(HtmlPassthroughParser):
                 self._open[-1] = "after_box"
         if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
+        if self._block_stack and self._block_stack[-1].tag == t:
+            entry = self._block_stack.pop()
+            # Drop the block only at its end tag so inner spans and list labels go with it.
+            # Propagating lost_child collapses an emptied <li>/<ul>/<ol> while keeping live empty lists.
+            if entry.is_block and (
+                entry.deleted or (entry.lost_child and not "".join(self._out[entry.start + 1:]).strip())
+            ):
+                del self._out[entry.start:]
+                if self._block_stack:
+                    self._block_stack[-1].lost_child = True
+                return
         self._out.append("</%s>" % tag)
 
     def result(self) -> str:
@@ -607,10 +639,9 @@ def expand_tracked_deletions(fodt: str) -> str | None:
     ``body.xsl`` has no ``text:change`` rule, so XHTML export otherwise joins
     paragraphs across a multi-paragraph deletion. A deletion of *n* top-level
     blocks produces *n* - 1 breaks, each taking the deleted block's tag and style.
-    Also puts ``DELETED_MARK`` in wholly struck paragraphs: otherwise ``body.xsl``
-    (``match="text:h"``) drops a heading without text, an empty ``text:p`` comes
-    out as ``<p class=…/>`` without ``data-lo-style``, and
-    ``_drop_trailing_empty_paragraphs`` removes a trailing one.
+    Also puts ``DELETED_MARK`` in wholly struck paragraphs: an empty struck
+    block cannot otherwise be told from a live blank one, so the transformer
+    needs the mark to omit only the former.
     """
     # crosshair: off
     regions: dict[str, list[_DeletedBlock]] = {}
@@ -651,7 +682,13 @@ def expand_tracked_deletions(fodt: str) -> str | None:
             for t in stack:
                 t.live = True
         if close:
-            finish(stack.pop())
+            closed = stack.pop()
+            finish(closed)
+            # When a deletion crosses between text:h and text:p, the split block's tag name differs;
+            # otherwise the copy is malformed, fails to load, and the fallback shows struck text.
+            if closed.name != name:
+                out.append(fodt[pos:m.start()] + "</%s>" % closed.name)
+                pos = m.end()
             continue
         if not empty:
             if name in ("text:p", "text:h"):

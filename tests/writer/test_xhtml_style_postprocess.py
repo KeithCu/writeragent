@@ -503,7 +503,7 @@ def test_expand_tracked_deletions_deleted_heading_keeps_start_value():
         '<text:p>d1</text:p><text:h text:style-name="H1" text:start-value="5" xml:id="h5">d2</text:h>'
         '</text:deletion></text:changed-region>'
         '</text:tracked-changes>'
-        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:h>'
+        '<text:p>Start <text:change text:change-id="ct1"/>Heading</text:p>'
         '</office:text></office:body>'
     )
     out = expand_tracked_deletions(fodt)
@@ -627,9 +627,11 @@ def test_xhtml_to_semantic_html_deleted_mark():
 
     raw_xhtml = (
         "<html><body>"
+        '<p class="paragraph-Standard">Live</p>'
         f'<p class="paragraph-Standard">{DELETED_MARK}</p>'
         f'<h1 class="paragraph-Heading_20_1">{DELETED_MARK}</h1>'
         f'<ul><li><p class="paragraph-Standard">{DELETED_MARK}</p></li></ul>'
+        f'<ul><li><p class="paragraph-Standard">KeptItem</p></li><li><p class="paragraph-Standard">{DELETED_MARK}</p></li></ul>'
         f'<table><tr><td><p class="paragraph-Standard">{DELETED_MARK}</p></td></tr></table>'
         f'<p class="paragraph-Standard">{DELETED_MARK}</p>'
         '<p class="paragraph-Standard">\xa0</p>'
@@ -637,12 +639,12 @@ def test_xhtml_to_semantic_html_deleted_mark():
     )
     out = xhtml_to_semantic_html(raw_xhtml)
     assert DELETED_MARK not in out
-    assert '<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>' in out
-    assert '<h1 data-lo-style="Heading1" data-lo-deleted="true">\xa0</h1>' in out
-    assert '<li><p data-lo-style="Standard" data-lo-deleted="true">\xa0</p></li>' in out
-    assert '<td><p data-lo-deleted="true">\xa0</p></td>' in out
-    # Trailing unmarked blank is dropped, leaving the trailing marked paragraph at the end.
-    assert out.endswith('<p data-lo-style="Standard" data-lo-deleted="true">\xa0</p>')
+    assert "data-lo-deleted" not in out
+    assert out == (
+        '<p data-lo-style="Standard">Live</p>'
+        '<ul><li><p data-lo-style="Standard">KeptItem</p></li></ul>'
+        '<table><tr><td></td></tr></table>'
+    )
 
 
 def test_xhtml_to_semantic_html_drops_frame_titles_and_keeps_following_text():
