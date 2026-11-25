@@ -1571,3 +1571,46 @@ def test_header_table_omits_nested_struck_table_uno(ctx, doc):
         assert html.count("<table") == 1, html
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_write_keeps_picture_link_target_uno(ctx, doc):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+
+    # Unrecorded AS_CHARACTER: target kept on re-insert.
+    img_path = _write_temp_png_file()
+    try:
+        _insert_header_logo(doc, header, img_path, AS_CHARACTER, name="HdrAsChar", link_url="https://example.com/old")
+        pic = doc.getGraphicObjects().getByName("HdrAsChar")
+        pic.setPropertyValue("HyperLinkTarget", "_blank")
+        html = _get(doc, ctx, "header")["content"].replace("https://example.com/old", "https://example.com/new")
+        res = _set(doc, ctx, "header", html)
+        assert res["status"] == "ok", res
+        pic2 = doc.getGraphicObjects().getByName("HdrAsChar")
+        assert pic2.getPropertyValue("HyperLinkURL") == "https://example.com/new"
+        assert pic2.getPropertyValue("HyperLinkTarget") == "_blank"
+
+        # Recorded AT_PARAGRAPH: survivor gets new URL and keeps target.
+        for i in range(doc.getGraphicObjects().getCount() - 1, -1, -1):
+            doc.getGraphicObjects().getByIndex(i).dispose()
+        header.setString("only")
+        _insert_header_logo(doc, header, img_path, AT_PARAGRAPH, name="HdrAtPara", link_url="https://example.com/old")
+        doc.getGraphicObjects().getByName("HdrAtPara").setPropertyValue("HyperLinkTarget", "_blank")
+        html_p = _get(doc, ctx, "header")["content"].replace("https://example.com/old", "https://example.com/new")
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res_p = _set(doc, ctx, "header", html_p)
+            assert res_p["status"] == "ok", res_p
+            pic3 = doc.getGraphicObjects().getByName("HdrAtPara")
+            assert pic3.getPropertyValue("HyperLinkURL") == "https://example.com/new"
+            assert pic3.getPropertyValue("HyperLinkTarget") == "_blank"
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+    finally:
+        os.unlink(img_path)

@@ -141,6 +141,42 @@ def _parked_cursor(cursor: Any) -> Any:
 
 
 
+_LINK_TAG_RE = re.compile(r"<(/?)a\b([^>]*)>", re.IGNORECASE)
+
+
+def _split_nested_links(html: str) -> str:
+    """End a link before each link nested in it and reopen it after.
+
+    SwHTMLParser::NewAnchor (sw/source/filter/html/htmlgrin.cxx) ends the open link at the next
+    <a>, so the text after a linked picture inside a text link would lose its link.
+    """
+    cuts: list[tuple[int, str]] = []
+    stack: list[tuple[re.Match[str], list[tuple[int, str]]]] = []
+    for m in _LINK_TAG_RE.finditer(html):
+        if m.group(2).endswith("/"):
+            continue
+        if not m.group(1):
+            stack.append((m, []))
+            continue
+        if not stack:
+            continue
+        tag, inner = stack.pop()
+        cuts.extend(inner)
+        if stack and re.search(r"\shref\s*=", stack[-1][0].group(2), re.IGNORECASE):
+            stack[-1][1].extend([(tag.start(), "</a>"), (m.end(), stack[-1][0].group(0))])
+    if not cuts:
+        return html
+    cuts.sort(key=lambda item: item[0])
+    out: list[str] = []
+    pos = 0
+    for idx, piece in cuts:
+        out.append(html[pos:idx])
+        out.append(piece)
+        pos = idx
+    out.append(html[pos:])
+    return "".join(out)
+
+
 def insert_html_fragment_at_cursor(
     cursor: Any,
     html_fragment: str,
@@ -155,7 +191,7 @@ def insert_html_fragment_at_cursor(
     *extra_css* is injected into ``<head>`` (e.g. sidebar list margins).
     When *advance* is True, moves *cursor* past the imported content.
     """
-    html_fragment = escape_prose_angle_brackets(html_fragment)
+    html_fragment = _split_nested_links(escape_prose_angle_brackets(html_fragment))
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if advance else None
     with with_temp_buffer(prepared) as (_path, file_url):

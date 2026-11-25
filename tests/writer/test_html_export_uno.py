@@ -2179,3 +2179,131 @@ def test_range_export_keeps_ruby_after_content_control_uno(ctx, doc):
 
     range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=7)
     assert "<ruby>漢字<rt>かんじ</rt></ruby>" in range_html
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_export_rewrites_bare_shapes_and_drops_empty_or_controls_uno(ctx, doc):
+    from com.sun.star.awt import Point, Size
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    text.setString("Host")
+
+    def _add_shape(service: str, name: str, title: str, label: str = ""):
+        shape = doc.createInstance(service)
+        shape.setPosition(Point(1000, 1000))
+        shape.setSize(Size(3000, 1000))
+        text.insertTextContent(text.getEnd(), shape, False)
+        shape.setName(name)
+        shape.setPropertyValue("Title", title)
+        if label:
+            shape.setString(label)
+        return shape
+
+    _add_shape("com.sun.star.drawing.RectangleShape", "RectText", "TITLE-R1", "TEXT-R1")
+    _add_shape("com.sun.star.drawing.RectangleShape", "RectEmpty", "TITLE-R2")
+    _add_shape("com.sun.star.drawing.ConnectorShape", "ConnEmpty", "TITLE-C1")
+    _add_shape("com.sun.star.drawing.ControlShape", "Ctrl1", "TITLE-CTRL")
+
+    html = document_to_content(doc, ctx, scope="full")
+    assert "TITLE-" not in html
+    assert "RectEmpty" not in html
+    assert "ConnEmpty" not in html
+    assert "Ctrl1" not in html
+    assert 'id="RectText"' in html
+    assert "TEXT-R1" in html
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_export_drops_ole_metadata_and_keeps_preview_and_math_uno(ctx, doc):
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    text.setString("Before\n")
+
+    for clsid in (
+        "12DCAE26-281F-416F-a234-c3086127382e",  # Chart
+        "47BBB4CB-CE4C-4E80-a591-42d9ae74950f",  # Calc
+    ):
+        ole = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        ole.setPropertyValue("CLSID", clsid)
+        text.insertTextContent(text.getEnd(), ole, False)
+
+    formula = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    formula.setPropertyValue("CLSID", "078B7ABA-54FC-457F-8551-6147e776a997")
+    text.insertTextContent(text.getEnd(), formula, False)
+    formula.getEmbeddedObject().setPropertyValue("Formula", "a over b")
+
+    html = document_to_content(doc, ctx, scope="full", include_images=False)
+    assert "LibreOffice/" not in html
+    assert "base64" not in html
+    assert 'id="Object1"' in html
+    assert 'id="Object2"' in html
+    assert r"\frac{a}{b}" in html
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_export_keeps_picture_and_surrounding_text_links_uno(ctx, doc):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    for anchor_type in (AS_CHARACTER, AT_CHARACTER, AT_PARAGRAPH):
+        for i in range(doc.getGraphicObjects().getCount() - 1, -1, -1):
+            doc.getGraphicObjects().getByIndex(i).dispose()
+        text.setString("first ")
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(5, True)
+        cur.setPropertyValue("HyperLinkURL", "https://text/l")
+        cur.collapseToEnd()
+        cur.goRight(1, False)
+        img_path = _insert_tiny_png(doc, text, cur, anchor_type, "PicLink")
+        try:
+            doc.getGraphicObjects().getByIndex(0).setPropertyValue("HyperLinkURL", "https://pic/l")
+            text.insertString(text.getEnd(), " other", False)
+            ocur = text.createTextCursor()
+            ocur.gotoEnd(False)
+            ocur.goLeft(5, True)
+            ocur.setPropertyValue("HyperLinkURL", "https://other/o")
+            html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+            expected = (
+                ["https://pic/l", "https://text/l", "https://other/o"]
+                if anchor_type == AT_PARAGRAPH
+                else ["https://text/l", "https://pic/l", "https://other/o"]
+            )
+            assert _hrefs(html) == expected, (anchor_type, html)
+        finally:
+            os.unlink(img_path)
+
+
+@native_test
+@with_native_doc("writer")
+def test_outline_picture_link_and_text_outline_link_restore_uno(ctx, doc):
+    import os
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    from plugin.writer.html_export import document_to_content
+
+    text = doc.getText()
+    text.setString("Heading Target\nGo ")
+    hcur = text.createTextCursor()
+    hcur.gotoStart(False)
+    hcur.setPropertyValue("ParaStyleName", "Heading 1")
+    ecur = text.createTextCursor()
+    ecur.gotoEnd(False)
+    ecur.goLeft(2, True)
+    ecur.setPropertyValue("HyperLinkURL", "#1.Heading%20Target|outline")
+    ecur.collapseToEnd()
+    img_path = _insert_tiny_png(doc, text, ecur, AS_CHARACTER, "PicOutline")
+    try:
+        doc.getGraphicObjects().getByIndex(0).setPropertyValue("HyperLinkURL", "#1.Heading%20Target|outline")
+        full_html = document_to_content(doc, ctx, scope="full")
+        range_html = document_to_content(doc, ctx, scope="range", range_start=0, range_end=len(text.getString()))
+        assert _hrefs(full_html) == ["#1.Heading%20Target|outline", "#1.Heading%20Target|outline"], full_html
+        assert _hrefs(range_html) == ["#1.Heading%20Target|outline", "#1.Heading%20Target|outline"], range_html
+    finally:
+        os.unlink(img_path)

@@ -2346,3 +2346,27 @@ def test_raise_if_protected_sections_lists_names():
     assert "IndexSec" not in msg
     assert "HeaderSec" not in msg
     assert "UnprotSec" not in msg
+
+
+def test_split_nested_links_handles_inner_links_and_leaves_malformed_or_bookmarks():
+    from plugin.writer.html_import import _split_nested_links
+
+    one = '<p><a href="https://outer">before <a href="https://inner"><img src="x"/></a> after</a></p>'
+    assert _split_nested_links(one) == (
+        '<p><a href="https://outer">before </a><a href="https://inner"><img src="x"/></a><a href="https://outer"> after</a></p>'
+    )
+
+    two = '<p><a href="https://o">a <a href="https://i1">1</a> b <a href="https://i2">2</a> c</a></p>'
+    assert _split_nested_links(two) == (
+        '<p><a href="https://o">a </a><a href="https://i1">1</a><a href="https://o"> b </a>'
+        '<a href="https://i2">2</a><a href="https://o"> c</a></p>'
+    )
+
+    unclosed = '<p><a href="https://o">before <a href="https://i">in</a> after</p>'
+    assert _split_nested_links(unclosed) == unclosed
+
+    bookmark = '<p><a name="bm">before <a href="https://i">in</a> after</a></p>'
+    assert _split_nested_links(bookmark) == bookmark
+
+    self_closed = '<p><a name="bm"/><a href="https://o">ok</a></p>'
+    assert _split_nested_links(self_closed) == self_closed
