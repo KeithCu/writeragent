@@ -3103,3 +3103,98 @@ def test_ruby_after_8190_chars_and_table_or_in_cell_uno(ctx: Any, doc: Any) -> N
     assert "とうきょう" not in cell_text
     assert "WA-RUBY" not in cell_text
     assert "WA-RUBY" not in html
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any) -> None:
+    """Trailing bare text or inline math after a table must not merge with the next paragraph."""
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
+
+    tctx = native_writer_tool_context(doc, ctx)
+    text = doc.getText()
+
+    def _seed(empty_first: bool = False) -> list[tuple[str, str]]:
+        doc.setPropertyValue("RecordChanges", False)
+        if len(doc.getRedlines()):
+            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        tables = doc.getTextTables()
+        for idx in range(tables.getCount() - 1, -1, -1):
+            tables.getByIndex(idx).dispose()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        cur.gotoEnd(True)
+        cur.setString("")
+        cur.gotoStart(False)
+        if empty_first:
+            cur.setPropertyValue("ParaStyleName", "Heading 2")
+        else:
+            cur.setPropertyValue("ParaStyleName", "Standard")
+            text.insertString(cur, "Alpha", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Heading 3")
+        text.insertString(cur, "Omega", False)
+        text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, "End", False)
+        return _body_style_and_text(doc)
+
+    def _select_target(target_kind: str) -> None:
+        controller = doc.getCurrentController()
+        cur = text.createTextCursor()
+        cur.gotoStart(False)
+        if target_kind == "whole":
+            cur.gotoEndOfParagraph(True)
+        elif target_kind == "mid_caret":
+            cur.goRight(2, False)
+        controller.select(cur)
+
+    contents = [
+        "<table><tr><td>C</td></tr></table><p>x $y$</p>",
+        r"<table><tr><td>C</td></tr></table>\(y\)",
+        "<table><tr><td>C</td></tr></table>tail",
+    ]
+    targets = [("whole", False), ("mid_caret", False), ("empty_caret", True)]
+
+    try:
+        for html in contents:
+            for target_kind, empty_first in targets:
+                _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                assert doc.getTextTables().getCount() == 1, (html, target_kind)
+
+                _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                doc.setPropertyValue("RecordChanges", True)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                assert doc.getTextTables().getCount() == 1, (html, target_kind)
+
+                expected_seed = _seed(empty_first=empty_first)
+                _select_target(target_kind)
+                doc.setPropertyValue("RecordChanges", True)
+                res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
+                assert res.get("status") == "ok", (html, target_kind, res)
+                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                assert _body_style_and_text(doc) == expected_seed, (html, target_kind)
+                assert len(doc.getRedlines()) == 0, (html, target_kind)
+
+        expected_seed = _seed(empty_first=False)
+        doc.setPropertyValue("RecordChanges", True)
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="full_document",
+            content="<table><tr><td>C</td></tr></table>tail",
+        )
+        assert res.get("status") == "ok", res
+        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        assert _body_style_and_text(doc) == expected_seed
+        assert len(doc.getRedlines()) == 0
+    finally:
+        doc.setPropertyValue("RecordChanges", False)

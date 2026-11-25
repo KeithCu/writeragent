@@ -64,6 +64,7 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
         )
 
     # host only: not in the compute bundle
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
     from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
 
     conv = convert_latex_to_starmath(ctx, latex, display_block=display_block)
@@ -75,11 +76,17 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
             details={"latex": latex},
         )
 
+    starmath = conv.starmath
+
     controller = doc.getCurrentController()
     if controller is None:
         raise ToolExecutionError(_("No active document view."), code="SYMBOLIC_ERROR")
     view_cursor = controller.getViewCursor()
-    insert_writer_math_formula(doc, view_cursor, conv.starmath, display_block=display_block)
+    run_writer_mutation_with_optional_review(
+        doc,
+        ctx,
+        lambda: insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block),
+    )
 
 
 def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], *, display_block: bool = False) -> int:

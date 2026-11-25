@@ -325,7 +325,8 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    from plugin.writer.html_import import insert_content_at_position  # weight: the Writer HTML import stack is only needed on Insert
+    # weight: the Writer HTML import stack is only needed on Insert
+    from plugin.writer.html_import import insert_content_at_position, run_writer_mutation_with_optional_review
 
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics insert requires a Writer document.", code="TEXT_ANALYTICS_ERROR")
@@ -357,6 +358,10 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
     except Exception:
         log.debug("text analytics: could not move caret to selection end", exc_info=True)
 
-    insert_content_at_position(doc, ctx, html, "selection")
+    run_writer_mutation_with_optional_review(
+        doc,
+        ctx,
+        lambda: insert_content_at_position(doc, ctx, html, "selection"),
+    )
     return 1
 

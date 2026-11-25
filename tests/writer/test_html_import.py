@@ -2108,6 +2108,7 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     cur.setString.assert_called_once_with("")
 
     leftover = MagicMock()
+    leftover.isStartOfParagraph.return_value = True
     leftover.getString.side_effect = ["", brk, brk]
     leftover.goLeft.return_value = False
     leftover.goRight.return_value = True
@@ -2125,6 +2126,23 @@ def test_paragraph_break_helpers_handle_crlf(brk):
     end.getString.return_value = brk
     text.createTextCursorByRange.side_effect = [start, end]
     assert _without_trailing_break(rng) is start
+
+
+def test_drop_leftover_paragraph_keeps_break_of_trailing_bare_content():
+    from plugin.writer.html_import import _drop_leftover_paragraph
+
+    leftover_enum = MagicMock()
+    leftover_enum.hasMoreElements.return_value = False
+
+    leftover = MagicMock()
+    leftover.isStartOfParagraph.return_value = False
+    leftover.getString.side_effect = ["", "l"]
+    leftover.goLeft.return_value = True
+    leftover.createEnumeration.return_value = leftover_enum
+
+    _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
+    leftover.setString.assert_not_called()
+    leftover.goRight.assert_not_called()
 
 
 @pytest.mark.parametrize(
