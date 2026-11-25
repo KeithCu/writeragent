@@ -1157,3 +1157,278 @@ def test_calc_tool_success_results_use_make_tool_ok():
                         offenders.append(f"{rel}:{node.lineno}")
 
     assert offenders == [], f"Found raw status='ok' dicts in Calc modules: {offenders}"
+
+
+def _uno_exception_arities() -> dict[tuple[str, str], int]:
+    """Derive { (uno_module, class_name): member_count } from conftest's UNO exception stubs."""
+    import sys
+
+    arities: dict[tuple[str, str], int] = {}
+    for mod_name, mod in list(sys.modules.items()):
+        if not mod_name.startswith("com.sun.star.") or mod is None:
+            continue
+        for attr_name, obj in vars(mod).items():
+            members = getattr(obj, "_uno_members", None)
+            if isinstance(members, dict):
+                arities[(mod_name, attr_name)] = len(members)
+    return arities
+
+
+def _sys_modules_uno_exc(node: object, arities: dict[tuple[str, str], int]) -> int | None:
+    import ast
+
+    if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Subscript):
+        return None
+    sub = node.value
+    if (
+        isinstance(sub.value, ast.Attribute)
+        and sub.value.attr == "modules"
+        and isinstance(sub.slice, ast.Constant)
+        and isinstance(sub.slice.value, str)
+    ):
+        return arities.get((sub.slice.value, node.attr))
+    return None
+
+
+def _find_partial_uno_exception_calls(
+    source: str,
+    filename: str,
+    arities: dict[tuple[str, str], int],
+    mod_uno_excs: dict[str, dict[str, int]],
+) -> list[str]:
+    """Return 'filename:lineno: ...' for UNO exception calls with partial positional args."""
+    import ast
+
+    uno_mod_prefixes = {m for m, _ in arities}
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            # Each entry is (bindings_dict, is_class_scope). Class scopes do not enclose methods.
+            self.scopes: list[tuple[dict[str, object], bool]] = [({}, False)]
+            self.offenders: list[str] = []
+
+        def _bind(self, name: str, val: object) -> None:
+            self.scopes[-1][0][name] = val
+
+        def _resolve(self, name: str) -> object:
+            for idx in range(len(self.scopes) - 1, -1, -1):
+                scope, is_class = self.scopes[idx]
+                if is_class and idx != len(self.scopes) - 1:
+                    continue
+                if name in scope:
+                    return scope[name]
+            return None
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Store):
+                self._bind(node.id, None)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            mod = node.module or ""
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if mod.startswith("com.sun.star"):
+                    if (mod, alias.name) in arities:
+                        self._bind(local, arities[(mod, alias.name)])
+                    elif f"{mod}.{alias.name}" in uno_mod_prefixes:
+                        self._bind(local, ("uno_mod", f"{mod}.{alias.name}"))
+                    else:
+                        self._bind(local, None)
+                elif mod in mod_uno_excs and alias.name in mod_uno_excs[mod]:
+                    self._bind(local, mod_uno_excs[mod][alias.name])
+                elif f"{mod}.{alias.name}" in mod_uno_excs:
+                    self._bind(local, ("py_mod", mod_uno_excs[f"{mod}.{alias.name}"]))
+                else:
+                    self._bind(local, None)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".")[0]
+                if alias.asname and alias.name in mod_uno_excs:
+                    self._bind(local, ("py_mod", mod_uno_excs[alias.name]))
+                elif alias.asname and alias.name in uno_mod_prefixes:
+                    self._bind(local, ("uno_mod", alias.name))
+                else:
+                    self._bind(local, None)
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            self.visit(node.value)
+            uno_arity = _sys_modules_uno_exc(node.value, arities)
+            if uno_arity is not None:
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name):
+                        self._bind(tgt.id, uno_arity)
+                        continue
+                    self.visit(tgt)
+            else:
+                for tgt in node.targets:
+                    self.visit(tgt)
+
+        def visit_Try(self, node: ast.Try) -> None:
+            for stmt in (*node.body, *node.orelse):
+                self.visit(stmt)
+            # Keep UNO imports from the try body if an except handler only clears/fallbacks them.
+            before_handlers = dict(self.scopes[-1][0])
+            for handler in node.handlers:
+                self.visit(handler)
+            for name, val in before_handlers.items():
+                if val is not None and self.scopes[-1][0].get(name) is None:
+                    self.scopes[-1][0][name] = val
+            for stmt in node.finalbody:
+                self.visit(stmt)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            for item in (*node.decorator_list, *node.bases, *node.keywords):
+                self.visit(item)
+            self._bind(node.name, None)
+            self.scopes.append(({}, True))
+            for stmt in node.body:
+                self.visit(stmt)
+            self.scopes.pop()
+
+        def _visit_func(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            for item in (*node.decorator_list, *node.args.defaults, *(d for d in node.args.kw_defaults if d is not None)):
+                self.visit(item)
+            self._bind(node.name, None)
+            new_scope: dict[str, object] = {}
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                new_scope[arg.arg] = None
+            if node.args.vararg:
+                new_scope[node.args.vararg.arg] = None
+            if node.args.kwarg:
+                new_scope[node.args.kwarg.arg] = None
+            self.scopes.append((new_scope, False))
+            for stmt in node.body:
+                self.visit(stmt)
+            self.scopes.pop()
+
+        visit_FunctionDef = _visit_func
+        visit_AsyncFunctionDef = _visit_func
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            for item in (*node.args.defaults, *(d for d in node.args.kw_defaults if d is not None)):
+                self.visit(item)
+            new_scope: dict[str, object] = {}
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                new_scope[arg.arg] = None
+            if node.args.vararg:
+                new_scope[node.args.vararg.arg] = None
+            if node.args.kwarg:
+                new_scope[node.args.kwarg.arg] = None
+            self.scopes.append((new_scope, False))
+            self.visit(node.body)
+            self.scopes.pop()
+
+        def visit_Call(self, node: ast.Call) -> None:
+            arity: int | None = None
+            name = ""
+            if isinstance(node.func, ast.Name):
+                val = self._resolve(node.func.id)
+                if isinstance(val, int):
+                    arity = val
+                    name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                direct = _sys_modules_uno_exc(node.func, arities)
+                if direct is not None:
+                    arity = direct
+                    name = node.func.attr
+                elif isinstance(node.func.value, ast.Name):
+                    val = self._resolve(node.func.value.id)
+                    if isinstance(val, tuple) and val[0] == "uno_mod":
+                        arity = arities.get((val[1], node.func.attr))
+                        name = f"{node.func.value.id}.{node.func.attr}"
+                    elif isinstance(val, tuple) and val[0] == "py_mod":
+                        arity = val[1].get(node.func.attr)
+                        name = f"{node.func.value.id}.{node.func.attr}"
+            if arity is not None and not node.keywords and not any(isinstance(a, ast.Starred) for a in node.args):
+                if len(node.args) not in (0, arity):
+                    self.offenders.append(f"{filename}:{node.lineno}: {name}({len(node.args)} args, expected 0 or {arity})")
+            self.generic_visit(node)
+
+    visitor = _Visitor()
+    visitor.visit(ast.parse(source, filename=filename))
+    return visitor.offenders
+
+
+def test_no_partial_uno_exception_calls():
+    """UNO exception stubs take 0 or all positional args; partial calls hide behind broad excepts."""
+    import ast
+    from pathlib import Path
+
+    arities = _uno_exception_arities()
+    assert ("com.sun.star.uno", "RuntimeException") in arities
+    repo_root = Path(__file__).resolve().parents[2]
+    mod_uno_excs: dict[str, dict[str, int]] = {}
+    for py_file in sorted((repo_root / "plugin").rglob("*.py")):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        excs: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("com.sun.star"):
+                for alias in node.names:
+                    arity = arities.get((node.module, alias.name))
+                    if arity is not None:
+                        excs[alias.asname or alias.name] = arity
+        if excs:
+            mod_name = ".".join(py_file.relative_to(repo_root).with_suffix("").parts)
+            mod_uno_excs[mod_name] = excs
+
+    # Verify detection and local-shadowing rules on synthetic cases.
+    sample = (
+        "import sys\n"
+        "from com.sun.star import lang\n"
+        "from com.sun.star.uno import RuntimeException\n"
+        "from com.sun.star.lang import IllegalArgumentException\n"
+        "from plugin.calc.python import addin_values\n"
+        "from plugin.calc.python.addin_values import RuntimeException as AVRuntime\n"
+        "def bad():\n"
+        "    RuntimeException('msg')\n"
+        "    IllegalArgumentException('msg', None)\n"
+        "    addin_values.RuntimeException('msg')\n"
+        "    AVRuntime('msg')\n"
+        "    lang.DisposedException('msg')\n"
+        "    sys.modules['com.sun.star.uno'].RuntimeException('msg')\n"
+        "def block_import():\n"
+        "    try:\n"
+        "        from com.sun.star.uno import RuntimeException as RE\n"
+        "    except ImportError:\n"
+        "        RE = None\n"
+        "    RE('msg')\n"
+        "@deco(RuntimeException('msg'))\n"
+        "def decorated(): pass\n"
+        "class Suite:\n"
+        "    from com.sun.star.container import NoSuchElementException\n"
+        "    def ok_shadow_class(self):\n"
+        "        class RuntimeException(Exception): pass\n"
+        "        RuntimeException('local')\n"
+        "        NoSuchElementException('class_body_not_in_method')\n"
+        "    def ok_shadow_param(self, RuntimeException):\n"
+        "        RuntimeException('param')\n"
+        "def ok_rebind():\n"
+        "    RuntimeException = ValueError\n"
+        "    RuntimeException('rebound')\n"
+        "    a, IllegalArgumentException = 1, ValueError\n"
+        "    IllegalArgumentException('tuple')\n"
+        "    for RuntimeException in [ValueError]:\n"
+        "        RuntimeException('loop')\n"
+        "    with ctx() as RuntimeException:\n"
+        "        RuntimeException('with')\n"
+        "    fn = lambda RuntimeException: RuntimeException('lam')\n"
+        "    from foo import RuntimeException as OtherRE\n"
+        "    OtherRE('other')\n"
+        "    if True:\n"
+        "        def inner(RuntimeException):\n"
+        "            RuntimeException('inner_param')\n"
+        "def ok_valid():\n"
+        "    RuntimeException('msg', None)\n"
+        "    IllegalArgumentException('msg', None, 0)\n"
+    )
+    hits = _find_partial_uno_exception_calls(sample, "<sample>", arities, mod_uno_excs)
+    assert [int(h.split(":")[1]) for h in hits] == [8, 9, 10, 11, 12, 13, 19, 20], hits
+
+    offenders: list[str] = []
+    for root_name in ("plugin", "tests"):
+        for py_file in sorted((repo_root / root_name).rglob("*.py")):
+            rel = py_file.relative_to(repo_root).as_posix()
+            offenders.extend(_find_partial_uno_exception_calls(py_file.read_text(encoding="utf-8"), rel, arities, mod_uno_excs))
+
+    assert offenders == [], f"Partial UNO exception calls (invisible when caught by broad except): {offenders}"
