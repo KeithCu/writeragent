@@ -364,7 +364,7 @@ def test_collect_open_file_urls_skips_geturl_failure():
         assert out == {budget_norm: budget_url}
 
 
-def test_collect_open_file_urls_skips_scratch_document():
+def test_collect_open_file_urls_skips_scratch_document(monkeypatch):
     import plugin.framework.scratch_writer as scratch_writer
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -392,25 +392,18 @@ def test_collect_open_file_urls_skips_scratch_document():
         desktop = MagicMock()
         desktop.getComponents.return_value.createEnumeration.return_value = enum
 
-        with scratch_writer._scratch_lock:
-            saved = set(scratch_writer._scratch_uids)
-            scratch_writer._scratch_uids.add("scratch-research-1")
-        try:
-            with (
-                patch("plugin.doc.document_research.get_desktop", return_value=desktop),
-                patch(
-                    "plugin.doc.document_research.system_path_from_url",
-                    side_effect=lambda url: real_norm if url == real_url else (scratch_norm if url == scratch_url else None),
-                ),
-            ):
-                out = _collect_open_file_urls(
-                    object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
-                )
-            assert out == {real_norm: real_url}
-        finally:
-            with scratch_writer._scratch_lock:
-                scratch_writer._scratch_uids.clear()
-                scratch_writer._scratch_uids.update(saved)
+        monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-research-1"})
+        with (
+            patch("plugin.doc.document_research.get_desktop", return_value=desktop),
+            patch(
+                "plugin.doc.document_research.system_path_from_url",
+                side_effect=lambda url: real_norm if url == real_url else (scratch_norm if url == scratch_url else None),
+            ),
+        ):
+            out = _collect_open_file_urls(
+                object(), exclude_path=None, extensions=ALL_INDEXABLE_EXTENSIONS
+            )
+        assert out == {real_norm: real_url}
 
 
 def test_close_document_research_document_skips_reused_open():

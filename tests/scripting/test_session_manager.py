@@ -1113,7 +1113,6 @@ def test_document_for_script_session_ignores_scratch_copy(monkeypatch: pytest.Mo
 
 
 def test_enumerated_matching_models_skips_model_whose_predicate_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.thread_guard import unwrap_uno
 
     broken = MagicMock()
@@ -1127,7 +1126,6 @@ def test_enumerated_matching_models_skips_model_whose_predicate_raises(monkeypat
         return model is valid
 
     monkeypatch.setattr(session_manager, "get_desktop", lambda _ctx: desktop)
-    monkeypatch.setattr(scratch_writer, "is_scratch_document", lambda _m: False)
 
     results = session_manager._enumerated_matching_models(MagicMock(), _pred)
     assert [unwrap_uno(m) for m in results] == [valid]

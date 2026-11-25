@@ -569,13 +569,7 @@ def enum_has_more(enum: Any) -> bool:
     return enum.hasMoreElements() is True
 
 
-def iter_open_models(
-    desktop: Any,
-    *,
-    strict: bool = True,
-    label: str = "iter_open_models",
-    include_scratch: bool = False,
-) -> Generator[Any, None, None]:
+def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
     LibreOffice's desktop enumeration is a finite snapshot
@@ -585,19 +579,17 @@ def iter_open_models(
 
     Handles frame controller unwrapping and guards against truthy mock loops.
     Registered scratch documents (see ``plugin.framework.scratch_writer``) are
-    skipped by default; pass ``include_scratch=True`` to include them.
+    skipped: the user did not open them, so they must not be a lookup target,
+    count as an open file, or make a single match ambiguous.
     An element that fails to resolve is skipped; an enumeration failure ends
     the walk. With *strict* a real disposal is re-raised; without it the walk
     also skips models whose ``getCurrentController`` raises.
     """
     if desktop is None:
         return
-    is_scratch = None
-    if not include_scratch:
-        # Breaks uno_context <-> scratch_writer import cycle.
-        from plugin.framework.scratch_writer import is_scratch_document
+    # Breaks uno_context <-> scratch_writer import cycle.
+    from plugin.framework.scratch_writer import is_scratch_document
 
-        is_scratch = is_scratch_document
     try:
         comps = desktop.getComponents()
         if comps is None:
@@ -617,7 +609,7 @@ def iter_open_models(
                     controller = elem.getController()
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
-                if model is not None and is_scratch is not None and is_scratch(model):
+                if model is not None and is_scratch_document(model):
                     continue
                 if model is not None and not strict:
                     getattr(model, "getCurrentController", lambda: None)()
@@ -634,7 +626,7 @@ def iter_open_models(
 
 @main_thread_only
 def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
-    """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
+    """Resolve an open document by URL or RuntimeUID (registered scratch documents excluded). Must be called on the UNO main thread.
 
     ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
     ``document_list_open``); the RuntimeUID also matches unsaved/untitled

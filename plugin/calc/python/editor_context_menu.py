@@ -15,7 +15,7 @@ import unohelper
 
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
-from plugin.framework.scratch_writer import is_scratch_document
+from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, resolve_package_extension_id, uno_same
 from plugin.framework.uno_listeners import controller_alive, install_view_doc_listener
@@ -142,13 +142,22 @@ def _register_controller(controller: Any) -> None:
         log.warning("python_editor_context_menu: register failed", exc_info=True)
 
 
+def _register_after_scratch_loads(controller: Any) -> None:
+    """Defer controller registration until any in-flight scratch load registers its RuntimeUID.
+
+    ``OnViewCreated`` arrives inside ``loadComponentFromURL`` before ``load_scratch_document``
+    registers the scratch id.
+    """
+    run_after_scratch_loads(lambda: _register_controller(controller))
+
+
 def _install_doc_event_listener(ctx: Any) -> None:
     """Attach a global listener so Calc views opened AFTER OnStartApp bootstrap get the menu too."""
     global _doc_listener
     with _lock:
         if _doc_listener is not None:
             return
-        listener = install_view_doc_listener(ctx, _register_controller, "python_editor_context_menu")
+        listener = install_view_doc_listener(ctx, _register_after_scratch_loads, "python_editor_context_menu")
         if listener is not None:
             _doc_listener = listener
 

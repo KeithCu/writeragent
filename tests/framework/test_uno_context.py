@@ -766,7 +766,7 @@ def test_iter_open_models_strict_false_probes_and_skips_broken():
     assert models == [good_model]
 
 
-def test_iter_open_models_skips_scratch_by_default_and_includes_when_opted_in():
+def test_iter_open_models_skips_scratch_documents(monkeypatch):
     import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.uno_context import iter_open_models
 
@@ -785,33 +785,19 @@ def test_iter_open_models_skips_scratch_by_default_and_includes_when_opted_in():
     frame_model.getRuntimeUID.return_value = "scratch-2"
     frame.getController.return_value.getModel.return_value = frame_model
 
-    def _make_desktop():
-        enum = MagicMock()
-        enum.hasMoreElements.side_effect = [True, True, True, False]
-        enum.nextElement.side_effect = [scratch_model, frame, user_model]
-        comps = MagicMock()
-        comps.createEnumeration.return_value = enum
-        desktop = MagicMock()
-        desktop.getComponents.return_value = comps
-        return desktop
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, True, False]
+    enum.nextElement.side_effect = [scratch_model, frame, user_model]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
 
-    with scratch_writer._scratch_lock:
-        saved = set(scratch_writer._scratch_uids)
-        scratch_writer._scratch_uids.update({"scratch-1", "scratch-2"})
-    try:
-        assert list(iter_open_models(_make_desktop())) == [user_model]
-        assert list(iter_open_models(_make_desktop(), include_scratch=True)) == [
-            scratch_model,
-            frame_model,
-            user_model,
-        ]
-    finally:
-        with scratch_writer._scratch_lock:
-            scratch_writer._scratch_uids.clear()
-            scratch_writer._scratch_uids.update(saved)
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1", "scratch-2"})
+    assert list(iter_open_models(desktop)) == [user_model]
 
 
-def test_resolve_document_by_url_skips_scratch_document():
+def test_resolve_document_by_url_skips_scratch_document(monkeypatch):
     import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.thread_guard import unwrap_uno
     from plugin.framework.uno_context import resolve_document_by_url
@@ -834,31 +820,24 @@ def test_resolve_document_by_url_skips_scratch_document():
         desktop.getComponents.return_value = comps
         return desktop
 
-    with scratch_writer._scratch_lock:
-        saved = set(scratch_writer._scratch_uids)
-        scratch_writer._scratch_uids.add("scratch-uid")
-    try:
-        with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
-            patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
-        ):
-            assert resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt") == (None, None)
-        with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
-            patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
-        ):
-            assert resolve_document_by_url(MagicMock(), "scratch-uid") == (None, None)
-        with (
-            patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model, user_model])),
-            patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
-        ):
-            found, doc_type = resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt")
-            assert unwrap_uno(found) is user_model
-            assert doc_type == "writer"
-    finally:
-        with scratch_writer._scratch_lock:
-            scratch_writer._scratch_uids.clear()
-            scratch_writer._scratch_uids.update(saved)
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-uid"})
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt") == (None, None)
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        assert resolve_document_by_url(MagicMock(), "scratch-uid") == (None, None)
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=_make_desktop([scratch_model, user_model])),
+        patch("plugin.framework.doc_type.doc_type_family_label", return_value="writer"),
+    ):
+        found, doc_type = resolve_document_by_url(MagicMock(), "file:///tmp/shared.odt")
+        assert unwrap_uno(found) is user_model
+        assert doc_type == "writer"
 
 
 def test_document_id_for_frame():
