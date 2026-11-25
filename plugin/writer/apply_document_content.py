@@ -1789,8 +1789,8 @@ class ApplyDocumentContent(ToolBase):
         # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
         # deletes-then-imports). edited_context uses this collapsed start.
         # replace_preserving_format pushes a cursor saved here forward, so the
-        # outline URL is painted from the paragraph start (_select_replacement), not from
-        # this anchor. Outline capture happens inside _replace_found, also before that delete.
+        # outline URL is located through the paragraph's portions (_select_replacement),
+        # not from this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
         # An empty replacement that is the last text in a table deletes
         # the table. Clearing only that text and returning success leaves

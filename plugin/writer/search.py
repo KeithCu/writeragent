@@ -508,7 +508,8 @@ def find_text_ranges(
         for start, end in zip(offsets[::2], offsets[1::2], strict=True):
             if start is None or end is None:
                 raise ToolExecutionError("Could not measure the offsets of a match.")
-            if start < end:  # a match inside an Input field is part of one opaque field portion
+            # Skip zero-length visible spans (e.g. collapsed fields or anchors).
+            if start < end:
                 matches.append({"start": start, "end": end, "text": text[start:end]})
     return matches[:limit]
 

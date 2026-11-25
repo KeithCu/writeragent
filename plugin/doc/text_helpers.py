@@ -696,7 +696,7 @@ def _nested_portions(portion: Any, kind: str | None) -> Any | None:
     return None
 
 
-def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
+def iter_portions(portion_enum: Any, *, include_metadata_fields: bool = False) -> Iterator[tuple[Any, str | None]]:
     """Yield ``(portion, type)`` flattening ``ContentControl``, ``InContentMetadata``, and ``MetadataField``.
 
     ``lcl_ExportHints`` and ``lcl_CreateMetaPortion`` (``sw/source/core/unocore/unoportenum.cxx``)
@@ -705,10 +705,13 @@ def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
     ``getString()`` empty. ``SwXContentControl::CreateXContentControl``
     (``unocontentcontrol.cxx``) and ``SwXMeta::CreateXMeta`` (``unorefmk.cxx``) refresh that
     list for each enumeration, including nested controls, so one recursive call flattens
-    arbitrary nesting. Yields ``(None, None)`` when ``nextElement()`` fails (after
-    ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
+    arbitrary nesting. When *include_metadata_fields* is True, a ``MetadataField`` is also
+    yielded before its inner portions. Yields ``(None, None)`` when ``nextElement()`` fails
+    (after ``reraise_if_disposed``), and ``(portion, None)`` when a portion's type or child
     enumeration is unreadable.
     """
+    if portion_enum is None:
+        return
     while enum_has_more(portion_enum):
         try:
             portion = portion_enum.nextElement()
@@ -726,7 +729,9 @@ def iter_portions(portion_enum: Any) -> Iterator[tuple[Any, str | None]]:
         if inner is None:
             yield portion, kind
         else:
-            yield from iter_portions(inner)
+            if include_metadata_fields and kind == "TextField":
+                yield portion, kind
+            yield from iter_portions(inner, include_metadata_fields=include_metadata_fields)
 
 
 def visible_portions(
@@ -1369,12 +1374,30 @@ def _visible_lead(body: Any, para: Any, position: Any, opened: bool) -> int:
 
     Measured per paragraph rather than from the document start because a range from the
     document start to a paragraph after a table drops that paragraph and its break.
-    *opened* carries whether the paragraph began inside a deletion whose start marker was
-    in an earlier paragraph.
+    Walks ``visible_portions`` and slices inside a spanning portion (such as an ``Input``
+    field or ``Text`` run) so positions inside an ``Input`` field are not snapped to the
+    field's end. *opened* carries whether the paragraph began inside a deletion whose
+    start marker was in an earlier paragraph.
     """
-    lead = body.createTextCursorByRange(para.getStart())
-    lead.gotoRange(position, True)
-    return len(normalize_linebreaks(get_string_without_tracked_deletions(lead, DeletionState(opened))))
+    total = 0
+    for portion, chunk in visible_portions(para, state=DeletionState(opened)):
+        p_start = portion.getStart()
+        if body.compareRegionStarts(p_start, position) <= 0:
+            break
+        norm = normalize_linebreaks(chunk)
+        p_end = portion.getEnd()
+        if body.compareRegionStarts(p_end, position) >= 0:
+            total += len(norm)
+            continue
+        # *position* falls strictly inside this portion (Text run or Input field).
+        # Measure [position, p_end] rather than [p_start, position]: SwASC_AttrIter::OutAttr
+        # (sw/source/filter/ascii/ascatr.cxx:114-135) writes the field's full ExpandField
+        # text whenever getString()'s range starts at the attribute start.
+        sub = body.createTextCursorByRange(position)
+        sub.gotoRange(p_end, True)
+        total += max(0, len(norm) - len(normalize_linebreaks(sub.getString())))
+        break
+    return total
 
 
 class VisibleBlock(NamedTuple):

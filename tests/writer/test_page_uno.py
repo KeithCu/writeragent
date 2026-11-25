@@ -1437,3 +1437,37 @@ def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
         assert cloned_paras == accept_paras, (cloned_paras, accept_paras)
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_scan_region_content_sees_nested_input_field_in_content_control_uno(ctx, doc):
+    from plugin.writer.page import _scan_region_content
+
+    style, _ = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("")
+    cur = header.createTextCursor()
+    cc_start = cur.getStart()
+    inp = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp.setPropertyValue("Content", "hdr-val")
+    header.insertTextContent(cur, inp, False)
+    cc_cur = header.createTextCursorByRange(cc_start)
+    cc_cur.gotoRange(cur.getEnd(), True)
+    cc = doc.createInstance("com.sun.star.text.ContentControl")
+    header.insertTextContent(cc_cur, cc, True)
+
+    scan = _scan_region_content(doc, header)
+    assert any(f["presentation"] == "hdr-val" for f in scan["fields"]), scan
+
+    # MetadataField at top level is still listed in scan["fields"].
+    header.setString("meta-val")
+    mcur = header.createTextCursor()
+    mcur.gotoStart(False)
+    mcur.gotoEnd(True)
+    meta = doc.createInstance("com.sun.star.text.textfield.MetadataField")
+    header.insertTextContent(mcur, meta, True)
+
+    scan_meta = _scan_region_content(doc, header)
+    assert any(f["presentation"] == "meta-val" for f in scan_meta["fields"]), scan_meta

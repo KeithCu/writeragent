@@ -17,6 +17,7 @@ from plugin.doc.text_helpers import (
     DeletionState,
     get_string_without_tracked_deletions,
     iter_elements,
+    iter_portions,
 )
 from plugin.framework.errors import ToolExecutionError, uno_read
 
@@ -59,7 +60,9 @@ def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
     Probed: a frame in a cell is not an XEnumeration sibling — the cell enum
     is only Paragraph; the frame hangs off a portion.
     """
-    for portion in iter_elements(uno_read(lambda: para.createEnumeration(), None)):
+    for portion, _kind in iter_portions(uno_read(lambda: para.createEnumeration(), None)):
+        if portion is None:
+            continue
         frame = uno_read(lambda: portion.getPropertyValue("TextFrame"), None)
         if frame is not None:
             yield frame

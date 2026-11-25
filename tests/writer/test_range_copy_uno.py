@@ -196,3 +196,33 @@ def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
 
     res = copy_page_style(doc, "Standard", "CloneStruckLogoTable")
     assert res["skipped_shapes"] == [], res
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_preserves_input_field_in_cell_uno(ctx: Any, doc: Any) -> None:
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    standard = page_styles.getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    header = standard.getPropertyValue("HeaderText")
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    header.insertTextContent(header.getStart(), tbl, False)
+    a1 = tbl.getCellByName("A1")
+    inp = doc.createInstance("com.sun.star.text.TextField.Input")
+    inp.setPropertyValue("Content", "CellInput")
+    inp.setPropertyValue("Hint", "Prompt")
+    a1.insertTextContent(a1.createTextCursor(), inp, False)
+
+    copy_page_style(doc, "Standard", "CloneInputCell")
+    cloned_header = page_styles.getByName("CloneInputCell").getPropertyValue("HeaderText")
+    enum = cloned_header.createEnumeration()
+    cloned_tbl = None
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.TextTable"):
+            cloned_tbl = el
+            break
+    assert cloned_tbl is not None
+    assert cloned_tbl.getCellByName("A1").getString() == "CellInput"

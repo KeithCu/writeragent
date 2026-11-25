@@ -19,7 +19,7 @@ import re
 import uuid
 from typing import Any
 
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 from .html_export import (
@@ -331,9 +331,8 @@ def find_tokens(
                 offsets: list[int] = []
                 para_portions: list[Any] = []
                 pos = 0
-                for portion in iter_elements(portions):
-                    kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), FAILED)
-                    if kind is FAILED:
+                for portion, kind in iter_portions(portions):
+                    if kind is None:
                         break
                     if kind == "TextField":
                         chunk = "\x00"

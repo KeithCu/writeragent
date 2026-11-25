@@ -376,9 +376,18 @@ def _scan_xtext(doc: Any, xtext: Any, state: DeletionState, out: dict[str, Any],
             live += 1
         portions = para.createEnumeration()
         seen_portions = 0
-        for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
+        for portion, kind in iter_portions(portions, include_metadata_fields=True):
+            if seen_portions >= _SCAN_PORTION_LIMIT:
+                msg = walk_cap_warning("text portions", seen_portions, _SCAN_PORTION_LIMIT)
+                log.warning("%s", msg)
+                notes.append(msg)
+                # The end marker was not read, and an open state would hide the rest of the region.
+                state.in_delete = False
+                break
             seen_portions += 1
-            kind = portion.getPropertyValue("TextPortionType")
+            if kind is None:
+                # Fail closed: an unreadable region must not pass for an empty one.
+                raise RuntimeError("Unreadable text portion in region")
             if kind == "Redline":
                 state.apply_marker(portion)
                 continue
@@ -400,9 +409,6 @@ def _scan_xtext(doc: Any, xtext: Any, state: DeletionState, out: dict[str, Any],
                     {"presentation": "", "content": ""},
                 )
             )
-        if record_walk_cap(portions, seen_portions, _SCAN_PORTION_LIMIT, "text portions", notes):
-            # The end marker was not read, and an open state would hide the rest of the region.
-            state.in_delete = False
     record_walk_cap(para_enum, seen, _SCAN_PARA_LIMIT, "paragraphs", notes)
     return live
 

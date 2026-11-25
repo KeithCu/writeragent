@@ -21,8 +21,8 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
     OutlineSnapshot,
-    _iter_portions,
     _paint,
+    _paragraph_portions,
     _renamed_url,
     capture_outline_hyperlinks,
     heading_renames,
@@ -590,9 +590,9 @@ def test_restore_without_anchor_raises_hyperlink_update_failed():
     assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"
 
 
-def test_iter_portions_skips_redline_markers():
+def test_paragraph_portions_skips_redline_markers():
     doc = _Doc([_Slice("Old title", _OUTLINE), _Slice("", text_type="Redline")])
-    assert "Redline" not in [p.getPropertyValue("TextPortionType") for p in _iter_portions(doc, _Pos(0))]
+    assert "Redline" not in [p.getPropertyValue("TextPortionType") for p in _paragraph_portions(doc, _Pos(0))]
 
 
 def test_restore_ignores_a_marker_without_link_properties():

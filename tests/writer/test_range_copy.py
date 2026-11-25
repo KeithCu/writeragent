@@ -386,6 +386,22 @@ def test_copy_field_into_sets_offset():
     new_field.setPropertyValue.assert_any_call("SubType", 0)
     new_field.setPropertyValue.assert_any_call("NumberingType", 2)
 
+    # Input fields copy Content and Hint; other services (e.g. TableFormula) do not.
+    for svc, expect_content in (
+        ("com.sun.star.text.textfield.Input", True),
+        ("com.sun.star.text.textfield.TableFormula", False),
+    ):
+        fld = MagicMock()
+        fld.getSupportedServiceNames.return_value = [svc]
+        fld.getPropertyValue.side_effect = lambda name: {"Content": "val", "Hint": "hint"}.get(name)
+        dest_doc2 = MagicMock()
+        copied_fld = MagicMock()
+        dest_doc2.createInstance.return_value = copied_fld
+        assert _copy_field_into(dest_doc2, dest_text, dest_cursor, fld) is True
+        copied_props = [c.args[0] for c in copied_fld.setPropertyValue.call_args_list]
+        assert ("Content" in copied_props) is expect_content
+        assert ("Hint" in copied_props) is expect_content
+
 
 def test_copy_flow_into_xtext_one_paragraph_text_then_field():
     from plugin.writer.range_copy import (
