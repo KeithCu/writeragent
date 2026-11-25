@@ -869,3 +869,42 @@ def test_calc_delete_unnamed_without_kept_graphic_still_refuses(_mock_html, _moc
 
     assert exc.value.code == "VISION_ERROR"
     mock_delete.assert_not_called()
+
+
+def test_insert_vision_item_resolves_duplicate_names_by_image_index():
+    from plugin.vision.vision_egress import insert_vision_item
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    shape_a = MagicMock()
+    shape_b = MagicMock()
+    graphics = [("Pic", shape_a), ("Pic", shape_b)]
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>b</p>", "full_text": "b", "image_name": "Pic", "image_index": 1}
+
+    with patch("plugin.vision.vision_egress.insert_vision_result", return_value="inserted") as mock_insert:
+        outcome = insert_vision_item(ctx, doc, result, {"delete_image_after_insert": True}, graphics)
+
+    assert outcome == "inserted"
+    mock_insert.assert_called_once_with(
+        ctx,
+        doc,
+        result,
+        params={"delete_image_after_insert": True, "image_name": "Pic"},
+        graphic=shape_b,
+    )
+
+
+def test_insert_vision_item_falls_back_to_name_without_image_index():
+    from plugin.vision.vision_egress import insert_vision_item
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    shape_a = MagicMock()
+    graphics = [("", shape_a)]
+    result = {"status": "ok", "helper": "extract_structure", "html": "<p>a</p>", "full_text": "a", "image_name": ""}
+
+    with patch("plugin.vision.vision_egress.insert_vision_result", return_value="inserted") as mock_insert:
+        outcome = insert_vision_item(ctx, doc, result, {}, graphics)
+
+    assert outcome == "inserted"
+    mock_insert.assert_called_once_with(ctx, doc, result, params={}, graphic=shape_a)

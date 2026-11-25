@@ -561,3 +561,43 @@ def test_run_vision_insert_passes_discovered_unnamed_shape_to_insert():
     assert status == "Inserted: 2 characters."
     assert inserted_graphics == [shape_a]
 
+
+def test_run_vision_insert_keeps_distinct_same_name_shapes():
+    ctx = MagicMock()
+    doc = MagicMock()
+    cancel = SendCancellation()
+    shape_a = MagicMock()
+    shape_b = MagicMock()
+    inserted_graphics: list[object] = []
+
+    def fake_selection(_c, _d, *, helper, params=None, insert_into_document=True, cancel=None, on_exported=None, on_discovered=None):
+        del helper, params, insert_into_document, cancel, on_exported
+        on_discovered([("Pic", shape_a), ("Pic", shape_b)])
+        return {
+            "status": "ok",
+            "images_processed": 2,
+            "full_text": "ab",
+            "individual_results": [
+                {"status": "ok", "helper": "extract_structure", "html": "<p>a</p>", "full_text": "a", "image_name": "Pic", "image_index": 0},
+                {"status": "ok", "helper": "extract_structure", "html": "<p>b</p>", "full_text": "b", "image_name": "Pic", "image_index": 1},
+            ],
+        }
+
+    def fake_insert(_ctx, _doc, _res, *, params=None, graphic=None):
+        del params
+        inserted_graphics.append(graphic)
+        return "inserted"
+
+    with (
+        patch("plugin.vision.vision_preview.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.vision.vision_preview.get_active_document", return_value=doc),
+        patch("plugin.vision.vision_preview.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_preview.is_draw", return_value=False),
+        patch("plugin.vision.vision_preview.run_and_insert_vision_for_selection", side_effect=fake_selection),
+        patch("plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert),
+    ):
+        status = run_vision_insert(ctx, {}, cancel, lambda _t: None)
+
+    assert status == "Inserted 2 images."
+    assert inserted_graphics == [shape_a, shape_b]
+
