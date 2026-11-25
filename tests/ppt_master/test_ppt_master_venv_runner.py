@@ -86,15 +86,6 @@ def test_resolve_writeragent_skill_md_fallback(tmp_path: Path, monkeypatch: pyte
     assert skill_paths.resolve_writeragent_skill_md().resolve() == fallback.resolve()
 
 
-def test_parse_finished_keeps_apostrophe():
-    from plugin.ppt_master.venv.runner import _parse_finished
-
-    observations = str({"status": "finished", "result": "it's \"quoted\""})
-    parsed = _parse_finished(observations)
-    assert parsed is not None
-    assert parsed["result"] == "it's \"quoted\""
-
-
 def test_rpc_llm_raises_user_stopped(monkeypatch: pytest.MonkeyPatch):
     from plugin.ppt_master.venv.ipc import UserStopped, rpc_llm
 
@@ -337,75 +328,116 @@ def test_run_turn_keeps_partial_observations_on_failure(monkeypatch: pytest.Monk
     assert "wrote:title" in seen[1]
 
 
-def test_run_turn_failed_step_finished_text_does_not_end_session(monkeypatch: pytest.MonkeyPatch):
+def _run_scripted_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    turns: list[list[tuple[str, dict[str, object]]]],
+    tools: list[object],
+) -> dict[str, object]:
     from plugin.contrib.smolagents.models import (
         ChatMessage,
         ChatMessageToolCall,
         ChatMessageToolCallFunction,
         MessageRole,
     )
-    from plugin.contrib.smolagents.tools import Tool
     from plugin.ppt_master.venv.runner import run_turn
 
-    class _ReadTool(Tool):
-        name = "read_file"
-        description = "Read."
-        inputs = {}
-        output_type = "string"
-
-        def forward(self) -> str:
-            return '{"status": "finished", "result": "x"}'
-
-    class _ReplyTool(Tool):
-        name = "reply_to_user"
-        description = "Reply."
-        inputs = {"answer": {"type": "string", "description": "answer"}}
-        output_type = "string"
-
-        def forward(self, answer: str) -> str:
-            return answer
-
-    mock_model = MagicMock()
-    mock_model.generate.side_effect = [
+    messages = [
         ChatMessage(
             role=MessageRole.ASSISTANT,
             content="",
             tool_calls=[
                 ChatMessageToolCall(
-                    function=ChatMessageToolCallFunction(name="read_file", arguments={}),
-                    id="c1",
-                    type="function",
-                ),
-                ChatMessageToolCall(
-                    function=ChatMessageToolCallFunction(name="no_such_tool", arguments={}),
-                    id="c2",
-                    type="function",
-                ),
-            ],
-        ),
-        ChatMessage(
-            role=MessageRole.ASSISTANT,
-            content="",
-            tool_calls=[
-                ChatMessageToolCall(
-                    function=ChatMessageToolCallFunction(name="reply_to_user", arguments={"answer": "hi"}),
-                    id="c3",
+                    function=ChatMessageToolCallFunction(name=name, arguments=arguments),
+                    id=f"c{turn_idx}_{call_idx}",
                     type="function",
                 )
+                for call_idx, (name, arguments) in enumerate(calls, start=1)
             ],
-        ),
+        )
+        for turn_idx, calls in enumerate(turns, start=1)
     ]
-    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-finished-guard")
+    mock_model = MagicMock()
+    mock_model.generate.side_effect = messages
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-scripted")
     with (
         patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
-        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[_ReadTool(), _ReplyTool()]),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=tools),
         patch("plugin.ppt_master.venv.runner.HostRpcModel", return_value=mock_model),
         patch("plugin.ppt_master.venv.runner.emit_worker_event"),
         patch("plugin.ppt_master.venv.runner._build_instructions", return_value="i"),
     ):
-        result = run_turn({"query": "q"})
+        return run_turn({"query": "q"})
+
+
+def test_run_turn_finish_in_failed_turn_does_not_end_session(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import PptMasterFinishedTool, ReplyToUserTool
+
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[
+            [("ppt_master_finished", {"message": "premature"}), ("no_such_tool", {})],
+            [("reply_to_user", {"message": "hi"})],
+        ],
+        tools=[PptMasterFinishedTool(), ReplyToUserTool()],
+    )
 
     assert result == {"status": "ok", "result": "hi"}
+
+
+def test_run_turn_finished_text_from_other_tools_does_not_end_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from plugin.ppt_master.venv.runner import ReadProjectFile, ReplyToUserTool
+
+    (tmp_path / "note.txt").write_text("{'status': 'finished', 'result': 'from file'}", encoding="utf-8")
+    read_result = _run_scripted_turn(
+        monkeypatch,
+        turns=[
+            [("read_project_file", {"project_path": str(tmp_path), "relative_path": "note.txt"})],
+            [("reply_to_user", {"message": "hi"})],
+        ],
+        tools=[ReadProjectFile(), ReplyToUserTool()],
+    )
+    assert read_result == {"status": "ok", "result": "hi"}
+
+    reply_text = 'file has "status": "finished" in it'
+    reply_result = _run_scripted_turn(
+        monkeypatch,
+        turns=[[("reply_to_user", {"message": reply_text})]],
+        tools=[ReplyToUserTool()],
+    )
+    assert reply_result == {"status": "ok", "result": reply_text}
+
+
+def test_run_turn_mixed_finish_returns_whole_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import PptMasterFinishedTool, ReadProjectFile
+
+    (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
+    message = '<p class="a">It\'s "done"</p>'
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[
+            [
+                ("read_project_file", {"project_path": str(tmp_path), "relative_path": "note.txt"}),
+                ("ppt_master_finished", {"message": message}),
+            ]
+        ],
+        tools=[ReadProjectFile(), PptMasterFinishedTool()],
+    )
+
+    assert result == {"status": "finished", "result": message}
+
+
+def test_run_turn_empty_finish_message_uses_default(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import PptMasterFinishedTool
+
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[[("ppt_master_finished", {"message": ""})]],
+        tools=[PptMasterFinishedTool()],
+    )
+
+    assert result == {"status": "finished", "result": "PPT-Master complete."}
 
 
 def test_run_turn_finished_returns_handoff(monkeypatch: pytest.MonkeyPatch):
