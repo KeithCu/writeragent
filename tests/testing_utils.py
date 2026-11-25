@@ -1904,7 +1904,12 @@ class FakeUnoEnum:
 
 
 class FakeUnoPortion:
-    """Minimal UNO TextPortion fake; ``Redline`` markers may span multiple paragraphs."""
+    """Minimal UNO TextPortion fake.
+
+    Place ``Redline`` markers only in the start and end paragraphs of a tracked
+    change; LibreOffice emits no marker in intermediate paragraphs
+    (``lcl_FillRedlineArray`` in ``sw/source/core/unocore/unoportenum.cxx``).
+    """
 
     def __init__(
         self,
@@ -1924,11 +1929,11 @@ class FakeUnoPortion:
     def getPropertyValue(self, name: str) -> Any:
         if name == "TextPortionType":
             return self._ptype
-        if self._ptype == "Redline":
-            if name == "RedlineType":
-                return self._redline_type
-            if name == "IsStart":
-                return self._is_start
+        if name == "IsStart":
+            # IsStart is MAYBEVOID in GetTextPortionExtensionPropertyMap (unomap1.cxx); void -> None off Redline portions.
+            return self._is_start if self._ptype == "Redline" else None
+        if name == "RedlineType" and self._ptype == "Redline":
+            return self._redline_type
         if name == self._ptype and self._inner is not None:
             inner = self._inner
 
@@ -1947,7 +1952,7 @@ class FakeUnoPortion:
 
 
 class FakeUnoPara:
-    """Minimal UNO Paragraph fake; intermediate struck paragraphs omit Redline portions."""
+    """Minimal UNO Paragraph fake; see ``FakeUnoPortion`` for cross-paragraph redline placement."""
 
     def __init__(self, portions: list[Any], **props: Any) -> None:
         self._portions = list(portions)

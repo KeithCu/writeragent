@@ -1697,13 +1697,13 @@ def test_build_heading_tree_drops_heading_inside_multi_paragraph_deletion():
         FakeUnoPortion("Text", "Keep "),
         FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
         FakeUnoPortion("Text", "struck start"),
-    ])
+    ], OutlineLevel=0)
     h_mid = FakeUnoPara([FakeUnoPortion("Text", "Struck Heading")], OutlineLevel=2)
     p_end = FakeUnoPara([
         FakeUnoPortion("Text", "struck end "),
         FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
         FakeUnoPortion("Text", "tail"),
-    ])
+    ], OutlineLevel=0)
     h_after = FakeUnoPara([FakeUnoPortion("Text", "Live 2")], OutlineLevel=1)
 
     body = MagicMock()
@@ -1718,6 +1718,19 @@ def test_build_heading_tree_drops_heading_inside_multi_paragraph_deletion():
     assert tree["children"][0]["body_paragraphs"] == 3
     assert tree["children"][0]["children"] == []
     assert tree["children"][1]["para_index"] == 4
+
+
+def test_fake_uno_portion_redline_property_gates():
+    from tests.testing_utils import FakeUnoPortion
+
+    text_portion = FakeUnoPortion("Text", "hi")
+    assert text_portion.getPropertyValue("IsStart") is None
+    with pytest.raises(KeyError):
+        text_portion.getPropertyValue("RedlineType")
+
+    redline_portion = FakeUnoPortion("Redline", redline_type="Delete", is_start=True)
+    assert redline_portion.getPropertyValue("IsStart") is True
+    assert redline_portion.getPropertyValue("RedlineType") == "Delete"
 
 
 def test_build_heading_tree_keeps_unseen_live_headings():

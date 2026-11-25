@@ -365,7 +365,8 @@ def test_iter_writer_math_objects_skips_formula_between_delete_markers() -> None
     body.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
     model = MagicMock()
     model.getText.return_value = body
-    model.getRedlines.return_value.hasElements.return_value = False
+    model.getRedlines.return_value.hasElements.return_value = True
+    model.getRedlines.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
 
     hits = list(iter_writer_math_objects(model))
     assert [h.starmath for h in hits] == ["x + 1"]
@@ -405,7 +406,8 @@ def test_iter_writer_math_objects_skips_math_in_multi_paragraph_deletion() -> No
     body.createEnumeration.side_effect = lambda: FakeUnoEnum([p1, p2, p3])
     model = MagicMock()
     model.getText.return_value = body
-    model.getRedlines.return_value.hasElements.return_value = False
+    model.getRedlines.return_value.hasElements.return_value = True
+    model.getRedlines.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
 
     hits = list(iter_writer_math_objects(model))
     assert [h.starmath for h in hits] == ["x + 1"]
