@@ -272,13 +272,15 @@ def test_paste_formatting_does_not_reach_the_next_paste_uno(ctx, doc):
 def test_manage_changes_survives_unclearable_paste_writer_uno(ctx):
     from unittest.mock import patch
 
+    from com.sun.star.frame.DispatchResultState import SUCCESS
+
     from plugin.calc import rich_html
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.uno_context import get_service_manager
     from plugin.tests.testing_utils import TestingFactory
 
     with (
-        TestingFactory.native_doc(ctx, "writer", reuse=False) as writer_doc,
+        TestingFactory.native_doc(ctx, "writer", hidden=False, reuse=False) as writer_doc,
         TestingFactory.native_doc(ctx, "calc") as calc_doc,
     ):
         writer_doc.getText().setString("keep")
@@ -296,8 +298,9 @@ def test_manage_changes_survives_unclearable_paste_writer_uno(ctx):
             "com.sun.star.frame.DispatchHelper", ctx
         )
         frame = writer_doc.getCurrentController().getFrame()
-        dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
-        dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+        for _idx in range(2):
+            result = dispatcher.executeDispatch(frame, ".uno:AcceptTrackedChanges", "", 0, ())
+            assert result.State == SUCCESS, result
         assert writer_doc.getText().getString() == "keep"
 
 

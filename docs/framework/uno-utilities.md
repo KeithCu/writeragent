@@ -383,7 +383,7 @@ LibrePy and WriterAgent both use those helpers (`main_core.py` and `main.py`). W
 | `file:` / `file:///` | Documents, XDL, images, config | Document/path cluster only. |
 | `vnd.sun.star.extension://<id>` | Package URL fallback | `get_extension_url` already. |
 | `org.extension.librepy:` / `org.extension.writeragent:` | Menu dispatch | Product protocol handlers. |
-| `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank`, `Hidden=True`, `clear_writer_body`); Calc rich HTML uses `load_scratch_document` directly so a non-emptiable template is left open rather than closed. |
+| `private:factory/swriter` | Hidden Writer for HTML import/export, rich-text paste, Calc rich HTML | **Shared (`new_blank_writer`).** Product sites use `new_blank_writer` (`_blank`, `Hidden=True`, `clear_writer_body`); Calc rich HTML uses `load_scratch_document(..., normal_view=True)` directly so a non-emptiable template is left open rather than closed. |
 | `private:factory/scalc` | Excel auto-open comment (OnNew vs OnLoadFinished) | Domain. |
 | `private:factory/simpress` | PPT-Master import | Domain (loaded via `load_scratch_document`). |
 | `private:factory/smath` | Math embed (`math_mml_export._MATH_FACTORY_URL`) | Domain. |
