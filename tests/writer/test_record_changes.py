@@ -14,6 +14,7 @@ from plugin.writer.record_changes import (
     overlaps_foreign_insertion,
     record_changes,
     redline_kinds_covering,
+    redline_spans,
 )
 
 
@@ -201,7 +202,7 @@ def test_redline_kinds_covering():
         _FakeRL("Format", _FakePoint(6, 6, text=text), _FakePoint(12, 12, text=text)),   # starts after target
         _FakeRL("Format", _FakePoint(0, 0, text=bad_text), _FakePoint(15, 15, text=bad_text)),  # compare raises -> skipped
     ])
-    assert redline_kinds_covering(doc, target) == {"Delete", "Insert"}
+    assert redline_kinds_covering(redline_spans(doc), target) == {"Delete", "Insert"}
 
     class _DisposedRL:
         def getPropertyValue(self, name):
@@ -210,7 +211,7 @@ def test_redline_kinds_covering():
             return _FakePoint(0, 0, text=text)
 
     with pytest.raises(DocumentDisposedError):
-        redline_kinds_covering(_FakeRedlineDoc([_DisposedRL()]), target)
+        redline_spans(_FakeRedlineDoc([_DisposedRL()]))
 
 
 @pytest.mark.parametrize(
@@ -298,7 +299,7 @@ def test_redline_kinds_covering_table_start():
     )
     doc = MagicMock()
     doc.getRedlines.return_value = redlines
-    assert redline_kinds_covering(doc, MagicMock()) == {"Delete"}
+    assert redline_kinds_covering(redline_spans(doc), MagicMock()) == {"Delete"}
     text.compareRegionStarts.assert_called_once()
     assert text.compareRegionStarts.call_args[0][0] is anchor
 
