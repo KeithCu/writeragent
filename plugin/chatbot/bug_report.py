@@ -32,6 +32,7 @@ import sys
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from plugin.framework.client.http_security import collect_secrets, log_target, redact_secrets, secrets_from_target
 from plugin.framework.errors import best_effort
 
 log = logging.getLogger(__name__)
@@ -220,7 +221,6 @@ def _compose_issue_body(header: str, rest: str, extra_body: str, *, title: str =
 
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:
     """Build a GitHub new-issue URL with title and pre-filled body."""
-    from plugin.framework.client.http_security import collect_secrets, redact_secrets, secrets_from_target
     from plugin.framework.config import api_key_needs_keystore_read, get_api_key_for_endpoint, get_current_endpoint
 
     header, rest = _issue_sections(ctx)
@@ -245,6 +245,7 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
     """Open *url* in the system browser (SystemShellExecute, then webbrowser)."""
     if not url:
         return False
+    shown = log_target(url)
 
     if ctx:
         def _open_shell() -> bool:
@@ -255,7 +256,7 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
             shell.execute(url, "", SystemShellExecuteFlags.URIS_ONLY)
             return True
 
-        if best_effort(_open_shell, f"bug_report: SystemShellExecute failed for {url}"):
+        if best_effort(_open_shell, f"bug_report: SystemShellExecute failed for {shown}"):
             return True
 
     def _open_browser() -> bool:
@@ -263,10 +264,10 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
 
         return bool(webbrowser.open(url))
 
-    if best_effort(_open_browser, f"bug_report: webbrowser.open failed for {url}"):
+    if best_effort(_open_browser, f"bug_report: webbrowser.open failed for {shown}"):
         return True
 
-    log.warning("bug_report: could not open URL in browser: %s", url)
+    log.warning("bug_report: could not open URL in browser: %s", shown)
     return False
 
 

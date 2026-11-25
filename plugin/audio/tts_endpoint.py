@@ -19,7 +19,8 @@ from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
-from plugin.framework.client.http_security import public_target
+from plugin.framework.client.http_security import log_target, origin_and_path
+from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -187,14 +188,11 @@ def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
 def _tts_format_key(endpoint_url: str, model: str) -> str:
     """Cache key for response_format, scoped to origin and model."""
     ep = (endpoint_url or "").strip()
-    try:
-        parsed = urllib.parse.urlsplit(ep)
-        host = (parsed.hostname or "").lower()
-        if host:
-            port = f":{parsed.port}" if parsed.port is not None else ""
-            ep = f"{(parsed.scheme or '').lower()}://{host}{port}"
-    except ValueError:
-        pass
+    parsed = urllib.parse.urlsplit(ep)
+    host = (parsed.hostname or "").lower()
+    if host:
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        ep = f"{(parsed.scheme or '').lower()}://{host}{port}"
     return f"{ep}\n{(model or '').strip()}"
 
 
@@ -224,7 +222,6 @@ def _post_audio_speech(
 
     from plugin.framework.config import get_config
     from plugin.framework.client.requests import sync_request
-    from plugin.framework.errors import NetworkError
 
     # Read budget only. Connect stays on the shared short timeout inside sync_request.
     timeout = int(get_config("request_timeout") or 0)
@@ -247,9 +244,9 @@ def _post_audio_speech(
         code = exc.details.get("status") or 0
         if exc.code == "STOPPED":
             # Stop is code="STOPPED"; the transport logs it at debug, and a warning here reads as a failed POST.
-            log.debug("TTS POST %s aborted by Stop", public_target(url))
+            log.debug("TTS POST %s aborted by Stop", log_target(url))
         else:
-            log.warning("TTS POST %s failed (%s): %s", public_target(url), code, exc)
+            log.warning("TTS POST %s failed (%s): %s", log_target(url), code, exc)
         return None, "", code, str(exc)
 
 
@@ -313,6 +310,13 @@ def download_endpoint_speech(
     if is_cancelled(cancel):
         return None
 
+    try:
+        origin_and_path(endpoint_url)
+    except NetworkError as exc:
+        log.warning("TTS endpoint %s: %s", log_target(endpoint_url), exc)
+        notify_tts_status(_speech_failure_message(0, str(exc)), on_status)
+        return None
+
     is_or = _explicit_openrouter(endpoint_url)
     from plugin.framework.client.provider_detection import is_openrouter_endpoint
 
@@ -346,7 +350,7 @@ def download_endpoint_speech(
             payload["voice"] = eff_voice
         log.info(
             "Requesting TTS from %s (model=%s, voice=%s, format=%s, speed=%s, text_len=%d)",
-            public_target(url), payload["model"], payload.get("voice", ""), response_format,
+            log_target(url), payload["model"], payload.get("voice", ""), response_format,
             payload.get("speed", "local"), len(text),
         )
         audio_bytes, content_type, code, err_body = _post_audio_speech(
@@ -370,7 +374,7 @@ def download_endpoint_speech(
         return None
 
     if not audio_bytes:
-        log.warning("TTS endpoint %s returned empty audio body", public_target(url))
+        log.warning("TTS endpoint %s returned empty audio body", log_target(url))
         notify_tts_status(_("Speech endpoint returned no audio."), on_status)
         return None
 
@@ -383,7 +387,7 @@ def download_endpoint_speech(
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     log.info(
         "TTS audio received from %s (model=%s, format=%s, bytes=%d, elapsed_ms=%d)",
-        public_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
+        log_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
     )
     if is_cancelled(cancel):
         log.info("TTS playback cancelled after download")

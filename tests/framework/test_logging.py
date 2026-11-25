@@ -47,6 +47,7 @@ class TestInitLogging:
         self._saved_root_handlers = list(logging.getLogger().handlers)
         self._saved_last_resort = logging.lastResort
         self._saved_propagate = log.propagate
+        self._saved_level = log.level
         plugin_logger = logging.getLogger("plugin")
         self._saved_plugin_propagate = plugin_logger.propagate
         self._saved_plugin_level = plugin_logger.level
@@ -95,6 +96,7 @@ class TestInitLogging:
             threading.excepthook = self._saved_threading_excepthook
         logging.lastResort = self._saved_last_resort
         log.propagate = self._saved_propagate
+        log.setLevel(self._saved_level)
         plugin_logger = logging.getLogger("plugin")
         plugin_logger.propagate = self._saved_plugin_propagate
         plugin_logger.setLevel(self._saved_plugin_level)

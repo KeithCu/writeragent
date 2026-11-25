@@ -73,18 +73,6 @@ FLAG_HARNESS_NOTE = (
 )
 
 
-def get_writer_eval_chat_system_prompt() -> str:
-    return _prompt_for_kind("writer")
-
-
-def get_calc_eval_chat_system_prompt() -> str:
-    return _prompt_for_kind("calc")
-
-
-def get_draw_eval_chat_system_prompt() -> str:
-    return _prompt_for_kind("draw")
-
-
 def get_eval_system_prompt(task_id: str = "") -> str:
     # Callers like tests/scripts/test_eval_prompts.py import this module as
     # scripts.prompt_optimization.eval_prompts when scripts/prompt_optimization is not on sys.path.

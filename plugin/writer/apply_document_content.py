@@ -1345,7 +1345,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        html_import.raise_if_hidden_start(ctx.doc)
+        html_import.raise_if_hidden_section(ctx.doc)
         html_import.raise_if_protected_sections(ctx.doc)
         content = params.content
         plain = params.plain
@@ -1647,9 +1647,14 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
     ) -> dict[str, Any]:
         doc = ctx.doc
-        content = params.content
         plain = params.plain
         use_preserve = params.use_preserve
+        # Plain content was normalized in _parse_edit_params. Markup is normalized here, before the
+        # math guard and the block test, because the inserts below do not decode HTML5-only names.
+        content = (
+            params.content if use_preserve
+            else html_import_styles.normalize_character_references(params.content)
+        )
         has_table = params.has_table
         occurrence = params.occurrence
         position = params.position

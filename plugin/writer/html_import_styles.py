@@ -503,7 +503,7 @@ def normalize_character_references(text: str) -> str:
 def expand_escapes(text: str) -> str:
     """Turn the two-character sequences \\n and \\t that models often send literally into a real newline and tab.
 
-    Every write entry point runs this once, before measuring ruby offsets or importing.
+    Every write entry point runs this once, before importing.
     """
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
@@ -534,7 +534,7 @@ def _prepare_import_html(content: str) -> str:
 
     content = normalize_character_references(content)
     content = expand_prose_escapes(content)
-    content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
+    content = html_ruby.strip_ruby(content)
     content = escape_prose_angle_brackets(normalize_linebreaks(content))
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = html_export.strip_html_boilerplate(content)

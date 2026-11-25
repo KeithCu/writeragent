@@ -363,9 +363,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
         restored = restore_field_placeholders(model, text, nonce=nonce)
 
     assert restored == 1
-    # goRight is portion-local: m.start() (0) then len(needle)
-    assert go_right_calls[0] == (0, False)
-    assert go_right_calls[1] == (len(needle), True)
+    assert go_right_calls == [(len(needle), True)]
 
 
 def test_restore_fields_by_cursor_skips_unreadable_reads():

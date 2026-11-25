@@ -736,6 +736,72 @@ def test_restore_keeps_inherited_look_without_direct_color():
             {"Step 1: Install": "Step 2: Install", "Step 2: Configure": "Step 3: Configure"},
             [],
         ),
+        # Number-only changes after a move are left unpaired unless the number was passed on
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Costs"), (1, "Appendix B")],
+            {},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Sales 2023: Europe"), (1, "Costs")],
+            [(1, "Costs"), (1, "Sales 2024: Europe")],
+            {},
+            ["Sales 2023: Europe"],
+        ),
+        (
+            [(1, "Sales 2023: Europe"), (1, "Sales 2023: Asia"), (1, "Costs")],
+            [(1, "Costs"), (1, "Sales 2023: Asia"), (1, "Sales 2024: Europe")],
+            {},
+            ["Sales 2023: Europe"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Final costs"), (1, "Appendix B")],
+            {"Costs": "Final costs"},
+            ["Appendix A"],
+        ),
+        (
+            [(1, "Appendix A"), (1, "Costs")],
+            [(1, "Appendix B"), (1, "Costs")],
+            {"Appendix A": "Appendix B"},
+            [],
+        ),
+        (
+            [(1, "1. Scope"), (1, "2. Costs")],
+            [(1, "1. Costs"), (1, "2. Scope")],
+            {"1. Scope": "2. Scope", "2. Costs": "1. Costs"},
+            [],
+        ),
+        (
+            [(1, "Step 1: Install"), (1, "Step 2: Configure")],
+            [(1, "Step 1: Configure"), (1, "Step 2: Download"), (1, "Step 3: Install")],
+            {"Step 1: Install": "Step 3: Install", "Step 2: Configure": "Step 1: Configure"},
+            [],
+        ),
+        (
+            [(1, "1 Background"), (2, "1.1 History"), (2, "1.2 Prior work"), (1, "2 Costs")],
+            [(1, "1 Costs"), (1, "2 Background"), (2, "2.1 History"), (2, "2.2 Prior work")],
+            {
+                "1 Background": "2 Background",
+                "1.1 History": "2.1 History",
+                "1.2 Prior work": "2.2 Prior work",
+                "2 Costs": "1 Costs",
+            },
+            [],
+        ),
+        (
+            [(1, "Release 2.1: Notes"), (1, "Costs")],
+            [(1, "Costs"), (1, "Release 3.1: Notes")],
+            {},
+            ["Release 2.1: Notes"],
+        ),
+        (
+            [(1, "1 First quarter"), (2, "1.1 Summary"), (1, "2 Second quarter")],
+            [(1, "1 First quarter"), (1, "2 Second quarter"), (2, "2.1 Summary")],
+            {},
+            ["1.1 Summary"],
+        ),
     ],
 )
 def test_heading_renames(before, after, expected_renames, expected_lost):
@@ -743,7 +809,7 @@ def test_heading_renames(before, after, expected_renames, expected_lost):
 
 
 @pytest.mark.parametrize(
-    ("url", "renames", "expected"),
+    ("url", "successors", "expected"),
     [
         ("#Old title|outline", {"Old title": "New title"}, "#New title|outline"),
         ("#1.Old title|outline", {"Old title": "New title"}, "#1.New title|outline"),
@@ -754,12 +820,17 @@ def test_heading_renames(before, after, expected_renames, expected_lost):
         ("#2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#2027. Plan|outline"),
         ("#1.2026. Plan|outline", {"2026. Plan": "2027. Plan"}, "#1.2027. Plan|outline"),
         ("#50% off|outline", {"50% off": "40% off"}, "#40% off|outline"),
-        ("#Other|outline", {"Old title": "New title"}, None),
-        ("#__RefHeading___Toc123", {"Old title": "New title"}, None),
+        ("#Other|outline", {"Old title": "New title"}, "#Other|outline"),
+        ("#__RefHeading___Toc123", {"Old title": "New title"}, "#__RefHeading___Toc123"),
+        ("#2.1 Scope|outline", {"1 Scope": "1 Aim", "2.1 Scope": "2.1 Scope"}, "#2.1 Scope|outline"),
+        ("#1.Scope|outline", {"Scope": "1.Scope", "1.Scope": "1.Scope"}, "#1.Scope|outline"),
+        ("#1.1.Plan|outline", {"Plan": None, "1.Plan": "1.Plan"}, "#1.1.Plan|outline"),
+        ("#1.Plan|outline", {"Plan": None}, None),
+        ("#caf%c3%a9|outline", {"café": "café"}, "#caf%c3%a9|outline"),
     ],
 )
-def test_renamed_url(url, renames, expected):
-    assert _renamed_url(url, renames) == expected
+def test_renamed_url(url, successors, expected):
+    assert _renamed_url(url, successors) == expected
 
 
 def test_restore_partly_linked_does_not_paint_outline_url():

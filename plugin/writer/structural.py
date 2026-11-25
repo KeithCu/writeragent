@@ -38,7 +38,7 @@ from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.writer.target_resolver import update_selection_pin
 
-from .search import text_box_frame
+from .search import shape_text_boxes
 from .specialized_base import ToolWriterStructuralBase
 
 if TYPE_CHECKING:
@@ -280,11 +280,11 @@ class GetPageObjects(ToolBase):
                     log.warning("Failed to read geometry for draw shape '%s': %s", shape_name, exc)
                 shapes.append(shape_info)
                 # getTextFrames().getElementNames() omits the hidden frame of a Word text box, so it is
-                # listed here, on the page of the shape that owns it. A failed read skips only this entry.
+                # listed here (including boxes inside groups), on the page of the shape that owns it.
+                # A failed read skips the rest of this shape's boxes.
                 try:
-                    box = text_box_frame(shape)
-                    if box is not None:
-                        frames.append({**frame_entry(box.getName(), box), "shape_index": i, "shape_name": shape.getName()})
+                    for address, box_shape, box in shape_text_boxes(i, shape):
+                        frames.append({**frame_entry(box.getName(), box), "shape_index": address, "shape_name": box_shape.getName()})
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.warning("Failed to read text box frame of draw shape '%s': %s", shape_name, exc)

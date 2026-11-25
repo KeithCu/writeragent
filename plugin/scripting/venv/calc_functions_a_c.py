@@ -19,12 +19,14 @@ import numpy as np
 
 from .calc_functions_i_m import mode
 from .calc_functions_util import (
+    ILLEGAL_ARGUMENT_NAN,
     approx_floor,
     as_nonzero,
     collect_a_values,
     coupon_schedule,
     criteria_reduce,
     extract_numeric_array,
+    finite_or_nan,
     first_error,
     from_complex,
     is_calc_error,
@@ -274,8 +276,8 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float | str:
     if fn == 13:
         # ScModalValue on the numbers already kept above. mode() would
         # count True as 1 if given the raw args. Tie-break is the lowest
-        # value. No repeat is #VALUE! in Calc (ScModalValue); mode() returns a plain NaN.
-        return float(mode(arr.tolist()))
+        # value. No repeat is #VALUE! in Calc (ScModalValue).
+        return mode(arr.tolist())
     return float("nan")
 
 
@@ -534,18 +536,20 @@ def averageifs(ar: Any, *args: Any) -> float | str:
 
 def base(number: Any, radix: Any, min_length: Any = 0) -> str:
     try:
-        n = int(float(number))
-        r = int(float(radix))
-        m = int(float(min_length))
-        # Literal "NaN" is not a Calc error token, so bad BASE input showed up as
-        # text. Excel/Calc BASE returns #NUM! for a bad number, radix, or length.
-        # zfill(1e9) allocates a gigabyte string and hangs the worker.
-        # Excel cells hold 32767 characters.
-        if n < 0 or r < 2 or r > 36 or m < 0 or m > 32767:
-            return "#NUM!"
+        n = approx_floor(float(number))
+        r = approx_floor(float(radix))
+        m = approx_floor(float(min_length))
+        # Literal "NaN" is not a Calc error token, so bad BASE input would show up
+        # as text; returning token strings avoids that. ScBase (interpr2.cxx)
+        # floors with approxFloor, caps min_length at 65534 (zfill(1e9) would hang
+        # the worker), and returns Err:502 on domain failure.
+        if n < 0 or r < 2 or r > 36 or m < 0 or m > 65534:
+            return "Err:502"
         return np.base_repr(n, r).zfill(m)
-    except (ValueError, TypeError, OverflowError):
+    except OverflowError:
         return "#NUM!"
+    except (ValueError, TypeError):
+        return "#VALUE!"
 
 
 def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
@@ -646,35 +650,34 @@ _MAX_BIT_VALUE: int = (1 << 48) - 1
 
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
-    # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
-    # ValueError and TypeError propagate (#VALUE! on the worker). OverflowError is #NUM!.
-    # Convert n1 before n2.
+    # Non-negative integers below 2^48. ScBitAnd/Or/Xor (interpr1.cxx) floor with
+    # approxFloor and return Err:502 outside [0, 2^48 - 1]. ValueError and TypeError
+    # propagate (#VALUE! on the worker); OverflowError is #NUM!.
     try:
-        v1 = int(float(n1))
-        v2 = int(float(n2))
+        v1 = approx_floor(float(n1))
+        v2 = approx_floor(float(n2))
     except OverflowError:
         return float("nan")
     if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
-        return float("nan")
+        return ILLEGAL_ARGUMENT_NAN
     return float(op(v1, v2))
 
 
 def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
-    """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
-    # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
-    # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
-    # With those bounds the result is at most 101 bits, so MemoryError cannot happen.
+    """Integer bit shift for number in [0, 2^48 - 1] (ScBitLshift/ScBitRshift, interpr1.cxx)."""
+    # ScBitLshift multiplies by pow(2, shift) rather than capping at Excel's 53 bits,
+    # so only float64 overflow limits left shifts and large right shifts become 0.
     try:
-        n = int(float(number))
-        s = int(float(shift))
+        n = approx_floor(float(number))
+        s = approx_floor(float(shift))
+        if n < 0 or n > _MAX_BIT_VALUE:
+            return ILLEGAL_ARGUMENT_NAN
+        up = s if left else -s
+        if up <= 0:
+            return float(n >> min(-up, 64))
+        return finite_or_nan(n * 2.0**up)  # 2.0**1024 raises OverflowError
     except OverflowError:
         return float("nan")
-    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
-        return float("nan")
-    mag = abs(s)
-    if (s >= 0) == left:
-        return float(n << mag)
-    return float(n >> mag)
 
 
 def bitand(n1: Any, n2: Any) -> float:
@@ -794,17 +797,15 @@ def combin(n: Any, k: Any) -> float:
 
 
 def combina(n: Any, k: Any) -> float:
-    # ScCombinA also rejects k > n. Excel COMBINA(3, 5) is 21, so this
-    # helper still evaluates C(n+k-1, k) in that case. n < 0 has to be
-    # NaN: combina(-2, 6) is math.comb(3, 6), which is 0.
-    # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
+    # ScCombinA (interpr3.cxx) rejects k < 0 and k > n (Err:502), and evaluates
+    # BinomCoeff(n + k - 1, k). Non-numeric arguments propagate to the worker
+    # (#VALUE!); OverflowError (inf) is #NUM!.
     ni = approx_floor(float(n))
     ki = approx_floor(float(k))
-    if ni < 0 or ki < 0:
-        return float("nan")
-    # COMBINA(0, 0) is 1. COMBINA(0, k) for k > 0 is 0; C(k - 1, k) is k > n.
+    if ki < 0 or ki > ni:
+        return ILLEGAL_ARGUMENT_NAN
     if ni == 0:
-        return 1.0 if ki == 0 else 0.0
+        return 0.0  # BinomCoeff(-1, 0) is 0 in Calc
     return _binom_float(ni + ki - 1, ki)
 
 
@@ -951,22 +952,19 @@ def _cum_payment(
     type_val: Any,
 ) -> float:
     """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
-    # rate must be > 0. Zero is #NUM!, same as a negative rate.
+    # rate must be > 0. Zero is Err:502, same as a negative rate.
     r = float(rate)
-    # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
-    # as a float made numpy-financial price a different loan: nper 12.2
-    # is not the 12-period schedule. start and end were already truncated.
-    n = int(float(nper))
+    # ScCumIpmt/ScCumPrinc (interpr2.cxx) use nper unrounded, floor start and end
+    # with approxFloor, and require type to be exactly 0 or 1.
+    n = float(nper)
     p = float(pv)
-    s = int(float(start_period))
-    e = int(float(end_period))
-    t = int(float(type_val))
-    if t not in (0, 1):
-        return float("nan")
-    if r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
-        return float("nan")
+    s = approx_floor(float(start_period))
+    e = approx_floor(float(end_period))
+    t = float(type_val)
+    if t not in (0, 1) or r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return ILLEGAL_ARGUMENT_NAN
     pers = np.arange(s, e + 1)
-    return npf_result(kind, r, pers, n, p, 0, t)
+    return npf_result(kind, r, pers, n, p, 0, int(t))
 
 
 @propagate_errors

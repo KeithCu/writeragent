@@ -290,7 +290,7 @@ def test_html_to_search_text_quoted_attributes_and_entities():
 def test_html_to_search_text_ruby_left_for_caller():
     from plugin.framework.html_stripper import html_to_search_text
 
-    # Ruby stripping (<rt>/<rp>) is done by extract_and_strip_ruby in caller.
+    # Ruby stripping (<rt>/<rp>) is done by strip_ruby / ruby_placeholders in caller.
     assert html_to_search_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字かんじ"
 
 

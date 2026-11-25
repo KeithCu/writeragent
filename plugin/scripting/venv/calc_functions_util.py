@@ -17,17 +17,20 @@ How a helper reports a sheet error. Each function uses one of these, and its tes
    GetDoubleErrorValue). Used for arguments outside a function's domain and for results that
    are not finite (finite_or_nan). A few helpers return NaN where Excel shows #VALUE!, #DIV/0!
    or #N/A (e.g. days360 and euroconvert text flags); the comment at that return says which.
-   NA_NAN shows #N/A (na, xmatch miss, textsplit padding, textafter/textbefore miss, prob size
+   NA_NAN shows #N/A (na, xmatch miss, textsplit padding, textafter/textbefore miss or empty text, prob size
    mismatch), NESTED_ARRAY_NAN shows Err:533 (filter with no match and no if_empty),
-   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1), and ILLEGAL_PARAMETER_NAN
-   shows Err:504 (xmatch bad mode).
+   DIV0_NAN shows #DIV/0! (gammadist density at 0 with alpha < 1), ILLEGAL_PARAMETER_NAN
+   shows Err:504 (xmatch bad mode), and ILLEGAL_ARGUMENT_NAN shows Err:502 (the domain checks
+   of negbinomdist, hypgeomdist, combina, fact, the bit functions, decimal radix, db,
+   cumipmt/cumprinc, ttest, tdist, tinv, fdist, finv, percentrank significance, trimmean percent).
 3. Return an error token string ("#VALUE!", "#N/A", "#NUM!", "#DIV/0!", "Err:502", "Err:504",
    or a propagated Err:<n> token). The add-in shows that error. Used where the cell must show
    a token other than #NUM! and the helper catches its own parse errors (lookup, text, array
    and regression helpers), and the first error of a range (@propagate_errors, criteria_reduce,
-   first_error: npv, sumsq, sumproduct, subtotal, aggregate; first_coded_error: D*). "Err:502" / "Err:504" come from xlookup bad
-   mode, growth and trend. @propagate_errors returns an argument's own error (token or coded NaN)
-   before the helper runs.
+   first_error: npv, sumsq, sumproduct, subtotal, aggregate; first_coded_error: D*). "Err:502" /
+   "Err:504" come from base, filter shape, xlookup bad mode or return size, growth, trend,
+   linest and logest. "#VALUE!" also from mode with no repeat and fact above 170.
+   @propagate_errors returns an argument's own error (token or coded NaN) before the helper runs.
 4. @calc_function. A ValueError, TypeError or OverflowError inside the helper becomes NaN
    (#NUM!); any other exception still raises.
 """
@@ -53,10 +56,12 @@ def formula_error_nan(code: int) -> float:
     return struct.unpack("d", struct.pack("Q", 0x7FF8000000000000 | code))[0]
 
 
-# 0x7FFF is FormulaError::NotAvailable, 504 is FormulaError::IllegalParameter,
-# 532 is FormulaError::DivisionByZero, 533 is FormulaError::NestedArray.
+# 0x7FFF is FormulaError::NotAvailable, 502 is FormulaError::IllegalArgument,
+# 504 is FormulaError::IllegalParameter, 532 is FormulaError::DivisionByZero,
+# 533 is FormulaError::NestedArray.
 # They are ordinary NaNs in Python; the worker does not import plugin.calc.
 NA_NAN: float = formula_error_nan(0x7FFF)
+ILLEGAL_ARGUMENT_NAN: float = formula_error_nan(502)
 ILLEGAL_PARAMETER_NAN: float = formula_error_nan(504)
 NESTED_ARRAY_NAN: float = formula_error_nan(533)
 DIV0_NAN: float = formula_error_nan(532)
@@ -67,12 +72,8 @@ def nan_error_code(val: float) -> int:
     return struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF
 
 
-class RegressionError(ValueError):
-    """A regression input Calc rejects. str(exc) is the error token the cell shows.
-
-    Subclasses ValueError so linest/logest, which call require_samples and catch ValueError,
-    keep returning #VALUE!, and why growth/trend must catch RegressionError before ValueError.
-    """
+class RegressionError(Exception):
+    """A regression input Calc rejects. str(exc) is the error token the cell shows."""
 
 
 def require_samples(n: int, k: int, const: bool) -> None:
@@ -510,6 +511,22 @@ def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
     return arr
 
 
+def regression_x(known_y: np.ndarray, known_x: Any) -> np.ndarray:
+    """known_x with one variable per column; omitted (None) is 1..n (CheckMatrix, interpr5.cxx).
+
+    The same shape as known_y is one x variable (nCase 1). A wrong sample count raises Err:502.
+    """
+    n = known_y.size
+    if known_x is None:
+        return np.arange(1, n + 1, dtype=float).reshape(-1, 1)
+    x = np.asarray(known_x, dtype=float)
+    x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
+    # CheckMatrix refuses a scalar x against a vector y, which numpy would otherwise broadcast.
+    if x.ndim != 2 or x.shape[0] != n:
+        raise RegressionError("Err:502")
+    return x
+
+
 def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.ndarray:
     """Least-squares prediction of TREND, and of GROWTH on log y (ScInterpreter::CalculateTrendGrowth, interpr5.cxx).
 
@@ -519,14 +536,7 @@ def trend_fit(known_y: np.ndarray, known_x: Any, new_x: Any, const: Any) -> np.n
     """
     n = known_y.size
     y = known_y.ravel()
-    if known_x is None:
-        x = np.arange(1, n + 1, dtype=float).reshape(-1, 1)
-    else:
-        x = np.asarray(known_x, dtype=float)
-        x = x.reshape(-1, 1) if x.shape == known_y.shape else orient_columns(x, n, axis=0)
-    # CheckMatrix (interpr5.cxx) refuses a scalar x against a vector y, which numpy would otherwise broadcast.
-    if x.ndim != 2 or x.shape[0] != n:
-        raise RegressionError("Err:502")
+    x = regression_x(known_y, known_x)
     if np.any(np.isnan(x)) or np.any(np.isnan(y)):
         raise ValueError
     k = x.shape[1]

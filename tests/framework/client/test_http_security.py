@@ -251,3 +251,28 @@ def test_log_target():
         == "http://h.example/s/<redacted>/v1"
     )
     assert log_target("http://[::1]:1234/v1") == "http://[::1]:1234/v1"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", "/"),
+        ("/v1#S", "/v1"),
+        ("/v1?k=S#f", "/v1"),
+        ("/v1?r=https://a/b", "/v1"),
+        ("/v1/models/claude@2024:raw", "/v1/models/claude@2024:raw"),
+        ("//u:pw@h/v1", "h/v1"),
+        ("//h/v1", "//h/v1"),
+        ("u:pw@h/v1?x=1", "h/v1"),
+        ("u:p/w@h", "h"),
+        ("u:p?w@h", "/"),
+        ("https:user:pw@h", "h"),
+        ("u:pw@h/v1?n=https://x/y", "h/v1"),
+        ("localhost:1234", "localhost:1234"),
+        ("123e4567-e89b-12d3-a456-426614174000/v1", "<redacted>/v1"),
+    ],
+)
+def test_public_target_without_scheme(raw: str, expected: str):
+    from plugin.framework.client.http_security import public_target
+
+    assert public_target(raw) == expected

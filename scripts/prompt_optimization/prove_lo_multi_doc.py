@@ -86,7 +86,7 @@ def _tokens(slot: int) -> tuple[str, str]:
 
 
 def _writer_get_string(doc: Any) -> str:
-    """Same cursor read as ``tools_lo.get_content`` (Writer ``getString`` via a cursor)."""
+    """Read the Writer body text with a cursor."""
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.gotoStart(False)

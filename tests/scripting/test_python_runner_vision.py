@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import builtins
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -167,7 +166,6 @@ _REAL_IMPORT = builtins.__import__
 @patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection")
 def test_execute_and_insert_vision_venv_path_without_prompts_module(mock_orchestrator, mock_insert):
     """Run Python Script vision path must not require framework.prompts (LibrePy)."""
-    sys.modules.pop("plugin.framework.prompts", None)
     ctx = MagicMock()
     doc = MagicMock()
 

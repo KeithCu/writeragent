@@ -2,9 +2,8 @@
 """
 Run DSPy MIPROv2 to optimize a named prompt/tool slice (offline only).
 
-Default student is the live string harness (``llm_chat_eval`` / LlmClient
-tool loop — same as ``run_eval.py``). ``--student react-mock`` keeps the
-legacy DSPy ReAct + ``tools_lo`` path for comparison.
+Student is the live string harness (``llm_chat_eval`` / LlmClient
+tool loop — same as ``run_eval.py``).
 
 Instruction-only: max_bootstrapped_demos=0 / max_labeled_demos=0.
 Does not write into plugin/framework/prompts.py or cells.py.
@@ -14,7 +13,6 @@ Usage:
   export OPENROUTER_API_KEY="<your_api_key_here>"
   python run_optimize.py --auto light -j 1 -e data_sorting,tax_column --slice calc_core
   python run_optimize.py --auto light -j 1 -e table_from_mess,table_engineering --slice apply_html
-  python run_optimize.py --student react-mock
 """
 from __future__ import annotations
 
@@ -72,24 +70,15 @@ def _make_lm(model_id: str, api_base: str, api_key: str) -> dspy.LM:
 def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(
         description=(
-            "Optimize a named prompt/tool slice with DSPy MIPROv2. "
-            "Default student is the live llm_chat_eval harness."
+            "Optimize a named prompt/tool slice with DSPy MIPROv2 "
+            "using the live llm_chat_eval harness."
         )
-    )
-    p.add_argument(
-        "--student",
-        choices=("llm", "react-mock"),
-        default="llm",
-        help=(
-            "llm (default): live LlmClient tool loop. "
-            "react-mock: legacy DSPy ReAct + tools_lo mocks."
-        ),
     )
     p.add_argument(
         "--slice",
         default=DEFAULT_LLM_SLICE,
         help=(
-            f"Named slice to optimize (llm student). "
+            f"Named slice to optimize. "
             f"One of: {', '.join(list_slice_names())}. Default: {DEFAULT_LLM_SLICE}."
         ),
     )
@@ -121,8 +110,7 @@ def parse_args(argv: list[str] | None = None):
         default="string",
         help=(
             "Live-student document backend (default: string). "
-            "string drops backend=lo rows (the flag). auto honors each row. "
-            "Ignored for react-mock."
+            "string drops backend=lo rows (the flag). auto honors each row."
         ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Print live-student tool calls.")
@@ -134,33 +122,13 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument(
         "--out",
         default=None,
-        help="Output JSON path (default: optimized_slice.json or optimized_writer_prompt.json).",
+        help="Output JSON path (default: optimized_slice.json).",
     )
     add_eval_tool_sweep_arguments(p)
     return p.parse_args(argv)
 
 
-def _winning_instruction(program: Any) -> str:
-    getter = getattr(program, "get_slice_text", None)
-    if callable(getter):
-        return str(getter() or "")
-    try:
-        if hasattr(program, "react") and hasattr(program.react, "extended_signature"):
-            sig = program.react.extended_signature
-            if hasattr(sig, "instructions"):
-                return str(sig.instructions or "")
-        if hasattr(program, "propose") and hasattr(program.propose, "signature"):
-            return str(getattr(program.propose.signature, "instructions", "") or "")
-    except Exception:
-        return ""
-    return str(getattr(program, "instruction", "") or "")
-
-
 def _build_student(args: argparse.Namespace, api_base: str, api_key: str, model: str) -> Any:
-    if args.student == "react-mock":
-        from program import build_program
-
-        return build_program(instruction=None, tool_names=None)
     from program_llm import build_live_program
 
     prompt_task_id = ""
@@ -198,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         slice_length_penalty_lambda=length_weight,
     )
 
-    print(f"Student: {args.student}  slice={args.slice if args.student == 'llm' else 'react-instruction'}")
+    print(f"Student: llm  slice={args.slice}")
     print(f"Using model: {model} @ {api_base}")
     print(f"Judge: {args.judge}")
     dspy.configure(lm=lm)
@@ -280,21 +248,18 @@ def main(argv: list[str] | None = None) -> int:
             **compile_kw,
         )
 
-    default_name = (
-        "optimized_writer_prompt.json" if args.student == "react-mock" else "optimized_slice.json"
-    )
-    out_path = Path(args.out) if args.out else SCRIPT_DIR / default_name
+    out_path = Path(args.out) if args.out else SCRIPT_DIR / "optimized_slice.json"
     if not out_path.is_absolute():
         out_path = SCRIPT_DIR / out_path
     optimized.save(str(out_path))
     print(f"Saved optimized program to {out_path}")
 
-    winning = _winning_instruction(optimized)
+    winning = optimized.get_slice_text()
     sidecar = {
-        "student": args.student,
-        "slice": args.slice if args.student == "llm" else "react-instruction",
+        "student": "llm",
+        "slice": args.slice,
         "instruction": winning,
-        "baseline_len": len(getattr(program, "baseline_slice_text", "") or getattr(program, "instruction", "") or ""),
+        "baseline_len": len(program.baseline_slice_text or ""),
         "optimized_len": len(winning),
     }
     sidecar_path = out_path.with_name(out_path.stem + "_slice.json")
