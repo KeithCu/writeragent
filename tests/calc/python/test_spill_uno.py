@@ -13,7 +13,13 @@ from com.sun.star.table.CellContentType import EMPTY
 
 from plugin.calc.python.formula_locator_cache import FormulaOrigin, is_matching_py_formula
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, flush_sheet_modify_pass_for_tests
-from plugin.calc.python.spill import PreparedSpill, perform_deferred_spill, prepare_auto_spill, queue_deferred_spill_write
+from plugin.calc.python.spill import (
+    SPILL_CLEAR_FLAGS,
+    PreparedSpill,
+    perform_deferred_spill,
+    prepare_auto_spill,
+    queue_deferred_spill_write,
+)
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.doc.udprops import get_document_property
 from plugin.testing_runner import native_test
@@ -458,6 +464,7 @@ def test_paste_with_blank_corner_keeps_pasted_table_uno(ctx, doc):
             code=code,
             key=key,
         )
+        assert (sheet_name, 4, 0) in st.spills
         st.used_ends[sheet_name] = (30, 9)
 
         # Source table at D5:E7 with blank top-left D5.
@@ -503,6 +510,8 @@ def test_delete_cells_up_keeps_pulled_values_uno(ctx, doc):
         perform_deferred_spill(
             sheet_name, 4, 0, [[1, 2, 3]], doc=doc, sheet=sheet, code=code, key=key
         )
+        assert (sheet_name, 4, 0) in st.spills
+        assert sheet.getCellByPosition(1, 4).getValue() == 2.0
         sheet.getCellByPosition(1, 5).setValue(100.0)
         sheet.getCellByPosition(2, 5).setValue(200.0)
         st.used_ends[sheet_name] = (30, 9)
@@ -516,10 +525,13 @@ def test_delete_cells_up_keeps_pulled_values_uno(ctx, doc):
         assert sheet.getCellByPosition(2, 4).getValue() == 200.0
 
         # Case 2: Delete Cells UP pulls =PY("other") into A5 and user B6:C6=(300, 400) into row 5.
+        sheet.getCellRangeByPosition(0, 4, 2, 5).clearContents(SPILL_CLEAR_FLAGS)
         sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
         perform_deferred_spill(
             sheet_name, 4, 0, [[1, 2, 3]], doc=doc, sheet=sheet, code=code, key=key
         )
+        assert (sheet_name, 4, 0) in st.spills
+        assert sheet.getCellByPosition(1, 4).getValue() == 2.0
         sheet.getCellByPosition(0, 5).setFormula('=PY("other")')
         sheet.getCellByPosition(1, 5).setValue(300.0)
         sheet.getCellByPosition(2, 5).setValue(400.0)
@@ -553,6 +565,7 @@ def test_delete_cells_up_then_respill_keeps_pulled_values_uno(ctx, doc):
         perform_deferred_spill(
             sheet_name, 4, 0, [[1, 2, 3]], doc=doc, sheet=sheet, code=code, key=key
         )
+        assert (sheet_name, 4, 0) in st.spills
         sheet.getCellByPosition(0, 5).setFormula('=PY("other")')
         sheet.getCellByPosition(1, 5).setValue(100.0)
         sheet.getCellByPosition(2, 5).setValue(200.0)
@@ -587,6 +600,7 @@ def test_row_insert_respill_of_neighbour_formula_keeps_user_cells_uno(ctx, doc):
         perform_deferred_spill(
             sheet_name, 4, 0, [[1, 2, 3]], doc=doc, sheet=sheet, code="x", key=key
         )
+        assert (sheet_name, 4, 0) in st.spills
         sheet.getCellByPosition(0, 3).setFormula('=PY("y")')
         sheet.getCellByPosition(1, 3).setValue(100.0)
         sheet.getCellByPosition(2, 3).setValue(200.0)
@@ -620,11 +634,14 @@ def test_constant_or_formula_over_origin_leaves_block_uno(ctx, doc):
     try:
         ensure_sheet_modify_listener(ctx, doc, sheet)
         for replacement in ("42", "=SUM(1)"):
+            sheet.getCellRangeByPosition(0, 4, 0, 6).clearContents(SPILL_CLEAR_FLAGS)
             code = f"result = [1, 2, {replacement!r}]"
             sheet.getCellByPosition(0, 4).setFormula(f'=PY("{code}")')
             perform_deferred_spill(
                 sheet_name, 4, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code=code, key=key
             )
+            assert (sheet_name, 4, 0) in st.spills
+            assert sheet.getCellByPosition(0, 5).getValue() == 2.0
             st.used_ends[sheet_name] = (30, 9)
 
             if replacement == "42":
@@ -655,6 +672,7 @@ def test_emptied_or_edited_formula_still_clears_block_uno(ctx, doc):
         # 1. Empty origin after an earlier edited neighbour -> clears entire block.
         sheet.getCellByPosition(0, 4).setFormula('=PY("a")')
         perform_deferred_spill(sheet_name, 4, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code="a", key=key)
+        assert (sheet_name, 4, 0) in st.spills
         st.used_ends[sheet_name] = (30, 9)
         sheet.getCellByPosition(0, 5).setValue(50.0)
         flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
@@ -667,6 +685,7 @@ def test_emptied_or_edited_formula_still_clears_block_uno(ctx, doc):
         # 2. Code edit with pass first, after an earlier edited neighbour.
         sheet.getCellByPosition(0, 4).setFormula('=PY("b1")')
         perform_deferred_spill(sheet_name, 4, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code="b1", key=key)
+        assert (sheet_name, 4, 0) in st.spills
         sheet.getCellByPosition(0, 5).setValue(60.0)
         flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
         sheet.getCellByPosition(0, 4).setFormula('=PY("b2")')
@@ -679,6 +698,7 @@ def test_emptied_or_edited_formula_still_clears_block_uno(ctx, doc):
         # 3. Code edit with write first, after an earlier edited neighbour.
         sheet.getCellByPosition(0, 4).setFormula('=PY("c1")')
         perform_deferred_spill(sheet_name, 4, 0, [[1], [2], [3]], doc=doc, sheet=sheet, code="c1", key=key)
+        assert (sheet_name, 4, 0) in st.spills
         sheet.getCellByPosition(0, 5).setValue(70.0)
         flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name=sheet_name)
         sheet.getCellByPosition(0, 4).setFormula('=PY("c2")')

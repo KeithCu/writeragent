@@ -228,8 +228,6 @@ def test_rename_keeps_spill_registry_when_memory_is_not_loaded(monkeypatch: pyte
 
 def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
-    from plugin.calc.python.spill import perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     stored: dict[str, object] = {}
 
@@ -243,7 +241,7 @@ def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.
         lambda _doc, name, value: stored.__setitem__(name, value),
     )
 
-    doc = CalcDocStub(url="file:///unloaded-seen.ods", props={"RuntimeUID": "uid-unloaded-seen"})
+    doc = CalcDocStub(url="file:///unloaded-values.ods", props={"RuntimeUID": "uid-unloaded-values"})
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
     state = WorkbookState.for_doc(doc)
@@ -255,7 +253,7 @@ def test_rename_keeps_remembered_spill_values_when_unloaded(monkeypatch: pytest.
     assert json.loads(str(stored["WriterAgentSpillRegistry"]))["Sheet1:0,0"]["rows"] == 2
 
     migrate_sheet_rename(doc, "Sheet1", "New")
-    assert state.spills[("New", 0, 0)].values == remembered
+    assert state.spills[("New", 0, 0)].values is remembered
 
 
 def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):

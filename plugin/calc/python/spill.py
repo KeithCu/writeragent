@@ -142,7 +142,9 @@ def _neighbour_coords(row: int, col: int, rows: int, cols: int) -> list[tuple[in
 
 
 def _rect_values(sheet: Any, row: int, col: int, rows: int, cols: int) -> tuple[Any, ...] | None:
-    """Snapshot current cell values beside the origin. Call only outside =PY() interpretation."""
+    """Snapshot current cell values beside the origin. Call only outside =PY() interpretation,
+    because reading values can interpret a formula in the rectangle that depends on the =PY() cell.
+    """
     # The origin is excluded so reading it never triggers interpretation of the =PY() cell.
     coords = _neighbour_coords(row, col, rows, cols)
     return uno_read(
@@ -156,17 +158,17 @@ def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool
     if record.values is None:
         return False
     current = _rect_values(sheet, row, col, record.rows, record.cols)
-    if current is None or len(current) != len(record.values):
+    if current is None:
         return False
     # An emptied cell counts as unchanged so deleting the formula with part of its block still
     # clears the rest; a paste or Delete Cells that replaced the origin changes neighbours in the
     # same event (ScRangeToSequence::FillMixedArray returns "" for an empty cell).
-    for cur_sub, old_sub in zip(current, record.values, strict=True):
-        for cur_row, old_row in zip(cur_sub, old_sub, strict=True):
-            for new_val, old_val in zip(cur_row, old_row, strict=True):
-                if new_val != "" and new_val != old_val:
-                    return False
-    return True
+    return all(
+        new_val == "" or new_val == old_val
+        for cur_sub, old_sub in zip(current, record.values, strict=True)
+        for cur_row, old_row in zip(cur_sub, old_sub, strict=True)
+        for new_val, old_val in zip(cur_row, old_row, strict=True)
+    )
 
 
 def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
