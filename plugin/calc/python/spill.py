@@ -52,6 +52,7 @@ log = logging.getLogger(__name__)
 # Clears values, formulas, and direct hard cell formatting/number formats without removing
 # annotations, styles, or draw objects.
 SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
+SPILL_CONTENT_FLAGS = 1 | 2 | 4 | 16
 
 # A spilled error cell reads back as =#ERR504!, =#NUM! and so on, a void cell as #N/A, and any error
 # as =NA() after .xls. Any bare error literal counts as ours: it holds no user data, and XLSX turns
@@ -128,16 +129,27 @@ def _user_formula_in_rect(sheet: Any, row: int, col: int, rows: int, cols: int) 
     return None
 
 
-def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> None:
-    """Clear spilled cells in the rectangle, leaving the origin formula cell untouched."""
+def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
+    """Clear spilled cells in the rectangle, leaving the origin formula cell untouched.
+
+    Returns True only when every targeted sub-range is empty afterwards (a protected
+    sheet ignores ``clearContents`` without raising, ``cellsuno.cxx:1682-1693``).
+    """
     try:
+        targets = []
         if cols > 1:
-            sheet.getCellRangeByPosition(col + 1, row, col + cols - 1, row).clearContents(SPILL_CLEAR_FLAGS)
+            targets.append(sheet.getCellRangeByPosition(col + 1, row, col + cols - 1, row))
         if rows > 1:
-            sheet.getCellRangeByPosition(col, row + 1, col + cols - 1, row + rows - 1).clearContents(SPILL_CLEAR_FLAGS)
+            targets.append(sheet.getCellRangeByPosition(col, row + 1, col + cols - 1, row + rows - 1))
+        for target in targets:
+            target.clearContents(SPILL_CLEAR_FLAGS)
+            if target.queryContentCells(SPILL_CONTENT_FLAGS).getRangeAddresses():
+                return False
+        return True
     except Exception:
         # The record can name cells past the edge of a file saved with a smaller sheet.
         log.debug("_clear_rect: failed to clear spilled range", exc_info=True)
+        return False
 
 
 def _classify_orphan_record(
@@ -246,7 +258,7 @@ def cleanup_orphans(
 
 
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
-    """Load once per workbook state; later calls do nothing."""
+    """Load the registry from UserDefinedProperties once per workbook state; later calls do nothing."""
     if state.loaded:
         return
     state.loaded = True
@@ -436,17 +448,26 @@ def _clear_blocked_spill(
 ) -> None:
     """Clear owned neighbor cells when a spill is blocked and shrink its record to 1 x 1.
 
-    Excel empties a blocked spill's range; a user formula inside keeps the cells and the record.
+    Excel empties a blocked spill's range; a user formula inside keeps the cells and
+    the record. Owned cells skip the collision check, so shrinking prevents values typed
+    into the emptied cells later from being overwritten silently. Ownership is kept if
+    clearing fails or content remains (for example on a protected sheet).
     Caller must hold ``undo_lock`` and ``sheet_modify_scope``.
     """
     key = (sheet_name, row, col)
     rec = state.spills.get(key)
     if rec is None or rec.rows * rec.cols <= 1:
         return
+    # A shifted-in =PY formula must not clear shifted user data under another formula's old record
+    # before cleanup_orphans runs.
+    if not _origin_matches_record(sheet, row, col, rec):
+        return
     if _user_formula_in_rect(sheet, row, col, rec.rows, rec.cols) is not None:
         return
     before = _used_end(sheet)
-    _clear_rect(sheet, row, col, rec.rows, rec.cols)
+    # Give up ownership only when the neighbor cells are actually empty afterwards.
+    if not _clear_rect(sheet, row, col, rec.rows, rec.cols):
+        return
     state.spills[key] = SpillRecord(code=rec.code, rows=1, cols=1)
     save_spill_registry_for_doc(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
@@ -771,8 +792,9 @@ def prepare_auto_spill(
     log.debug("Spill: owned rect for cell %r: %r", reg_key, owned)
 
     if _spill_is_blocked(doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, owned):
-        # Cells cannot be written during interpretation, and the shared token lets a later
-        # recalculation of this origin replace the job.
+        # Cells cannot be written during interpretation; scheduling on the shared token
+        # replaces any pending write for this origin (even when no record exists yet) and
+        # lets a later fitting recalculation replace or cancel the release.
         key = state.key
         state.debounce.schedule(
             _spill_token(sheet_name, formula_row, formula_col),
@@ -815,7 +837,8 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
 
     Off-main finalize must not touch UNO: *doc* (the add-in caller) is
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
-    late to change the add-in return; the deferred path just skips the write.
+    late to change the add-in return; on collision, the cell keeps its own value
+    while ``prepare_auto_spill`` still schedules clearing old neighbor cells.
     """
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
@@ -835,6 +858,9 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
         if not isinstance(prepared, PreparedSpill):
             return
 
+        # Cancel any pending main-path release or older write for this origin before writing
+        # synchronously so an earlier release cannot fire later and wipe the fresh spill.
+        state.debounce.cancel(_spill_token(prepared.sheet_name, prepared.formula_row, prepared.formula_col))
         perform_deferred_spill(
             prepared.sheet_name,
             prepared.formula_row,
