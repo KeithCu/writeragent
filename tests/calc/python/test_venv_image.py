@@ -2092,3 +2092,41 @@ def test_rtl_name_tag_ignores_column_shift():
     rtl_row_sheet.TableLayout = 1
     assert _shape_matches_target_cell(rtl_row_sheet, moved_row_shape, cell_c4)
     assert not _shape_matches_target_cell(rtl_row_sheet, moved_row_shape, cell_c3)
+
+
+@pytest.mark.parametrize("code", ["plt.show()", None])
+def test_insert_image_result_uses_single_undo_lock(code):
+    """Plot placement and refresh each enter undo_lock once, never nested."""
+    from plugin.calc.python import image_egress as _image_egress
+
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.createInstance.return_value = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+    um = MagicMock(name="um")
+    um.isLocked.return_value = False
+    doc.getUndoManager.return_value = um
+    doc.getCurrentController.return_value = SimpleNamespace(
+        getActiveSheet=lambda: sheet,
+        getSelection=lambda: cell,
+    )
+
+    lock_calls: list[bool] = []
+    real_undo_lock = _image_egress.undo_lock
+
+    def _counting_lock(target_doc, *, hide=True):
+        lock_calls.append(hide)
+        return real_undo_lock(target_doc, hide=hide)
+
+    with (
+        _sheet_insert_ctx(sheet, cell, geometry=(Point(0, 0), Size(2000, 500))),
+        patch.object(_image_egress, "undo_lock", side_effect=_counting_lock),
+        patch.object(_image_egress, "add_undo_action"),
+        patch.object(_image_egress, "attach_to_newest_undo"),
+    ):
+        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code=code, doc=doc, image_index=0, image_count=1)
+        assert lock_calls == [False]
+        lock_calls.clear()
+        insert_image_result_on_sheet(_IMAGE_PAYLOAD, code=code, doc=doc, image_index=0, image_count=1)
+        assert lock_calls == [False]
