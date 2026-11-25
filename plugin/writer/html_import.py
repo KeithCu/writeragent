@@ -36,7 +36,6 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks as _normalize,
     reset_direct_char_formatting,
     reset_properties_to_default,
-    section_own_shown,
 )
 from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
@@ -164,6 +163,7 @@ def insert_html_fragment_at_cursor(
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
         except Exception as e:
+            reraise_if_disposed(e)
             # Log insertDocumentFromURL failures with filter and URL so mid-script
             # apply paths surface the underlying UNO error.
             log.error(
@@ -175,7 +175,20 @@ def insert_html_fragment_at_cursor(
                 file_url,
                 exc_info=e,
             )
-            raise
+            # Raise inside the with block so contextlib._GeneratorContextManager.__exit__
+            # does not assign __traceback__ on a PyUNO exception (which PyUNO rejects).
+            # InsertFile (sw/source/core/unocore/unocrsrhelper.cxx) rejects content inside
+            # content controls and input fields with "cannot insert file inside ...".
+            if str(e).startswith("cannot insert file inside"):
+                raise ToolExecutionError(
+                    "LibreOffice cannot insert formatted content here (%s). Use plain text without markup "
+                    "inside a content control or input field, or edit outside it." % e,
+                    code="MARKUP_IN_CONTROL",
+                ) from e
+            raise ToolExecutionError(
+                "LibreOffice could not import the content (%s)." % (str(e) or type(e).__name__),
+                code="HTML_IMPORT_FAILED",
+            ) from e
     if tail is not None:
         cursor.gotoRange(tail.getStart(), False)
 
@@ -351,22 +364,25 @@ def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
 
 
 def raise_if_hidden_section(model: Any) -> None:
-    """Refuse full_document when the document has any hidden body section.
+    """Refuse full_document when the document has any hidden or conditional body section.
 
     A full read returns hidden section text, and importing that HTML back
     creates a visible section instead. Also ``SwXTextCursor::gotoStart``
     (``sw/source/core/unocore/unoobj.cxx``) skips a leading hidden section,
-    leaving it in place while overwriting what follows.
+    leaving it in place while overwriting what follows. Also covers a section
+    whose condition currently shows it (``IsVisible=False``), because the
+    rewrite would drop the condition and LibreOffice aborts when such a
+    section starts the body and is deleted.
     """
     hidden_names = [
         name for name, sec in _iter_body_sections(model)
-        if not section_own_shown(sec)
+        if not sec.getPropertyValue("IsVisible")
     ]
     if hidden_names:
         names = ", ".join(repr(n) for n in hidden_names)
         raise ToolExecutionError(
-            f"Document has hidden sections ({names}) that target='full_document' would delete or skip over; "
-            "nothing was changed. Show them first with section_set_visibility, or edit with another target.",
+            f"Document has hidden or conditional sections ({names}) that target='full_document' would delete or skip over; "
+            "nothing was changed. Make them unconditionally visible first with section_set_visibility (visible=true), or edit with another target.",
             code="HIDDEN_SECTION",
         )
 
@@ -1384,6 +1400,8 @@ def replace_single_range_with_content(
                     )
             except Exception as e:
                 reraise_if_disposed(e)
+                if isinstance(e, ToolExecutionError) and e.code == "MARKUP_IN_CONTROL":
+                    raise
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
                 # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
                 # the opaque error; the atomic wrapper rolls back the partial edit either way.

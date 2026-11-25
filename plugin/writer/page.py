@@ -21,6 +21,7 @@ Page styles, margins, headers/footers, columns, and page breaks.
 
 from __future__ import annotations
 
+from itertools import islice
 import logging
 import math
 from typing import TYPE_CHECKING, Any
@@ -31,6 +32,7 @@ from plugin.doc.text_helpers import (
     DeletionState,
     TrackedDeletions,
     iter_elements_limited,
+    iter_portions,
     record_walk_cap,
     visible_range_text,
 )
@@ -1095,39 +1097,33 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
 
 
-# A field or a struck character is one cursor step in goRight, because getString() expands
-# a field to the digits the reader sees, so the search string uses \x01 per TextField and per
-# struck character rather than getString(). doc.findFirst is the wrong tool here too: it hits
-# the body first, and it cannot see a header on a page style no page uses.
+# A field shows digits the reader sees, and struck text must not match, so both become
+# \x01 per step. doc.findFirst is the wrong tool here too: it hits the body first, and it
+# cannot see a header on a page style no page uses.
 _OPAQUE_CURSOR_STEP = "\x01"
 
 
-def _portion_cursor_text(portion: Any) -> str:
-    """Text this portion contributes to a goRight index. A field is one step."""
-    kind = uno_read(lambda: portion.getPropertyValue("TextPortionType"), None)
-    if kind == "TextField":
-        return _OPAQUE_CURSOR_STEP
-    chunk = uno_read(portion.getString, None)
-    return chunk if isinstance(chunk, str) else ""
-
-
-def _paragraph_cursor_text(para: Any, state: DeletionState) -> str | None:
-    """Concatenate portion steps for one paragraph, masking struck text. None when unreadable."""
+def _paragraph_runs(para: Any, state: DeletionState) -> list[tuple[Any, str]] | None:
+    """Return ``(portion, text)`` runs for one paragraph, masking fields and struck text. None when unreadable."""
     portions = uno_read(para.createEnumeration, None)
     if portions is None:
         return None
-    parts: list[str] = []
+    runs: list[tuple[Any, str]] = []
     seen = 0
-    for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
+    for portion, kind in islice(iter_portions(portions), _SCAN_PORTION_LIMIT):
         seen += 1
-        if uno_read(lambda: portion.getPropertyValue("TextPortionType"), None) == "Redline":
+        if kind == "Redline":
             state.apply_marker(portion)
             continue
-        step = _portion_cursor_text(portion)
-        parts.append(_OPAQUE_CURSOR_STEP * len(step) if state.in_delete else step)
+        if kind in (None, "TextField"):
+            text = _OPAQUE_CURSOR_STEP
+        else:
+            chunk = uno_read(portion.getString, None)
+            text = chunk if isinstance(chunk, str) else ""
+        runs.append((portion, _OPAQUE_CURSOR_STEP * len(text) if state.in_delete else text))
     if record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None):
         state.in_delete = False
-    return "".join(parts)
+    return runs
 
 
 def _fold(a: str, b: str, case_sensitive: bool) -> tuple[str, str]:
@@ -1161,10 +1157,10 @@ def _match_offsets(hay: str, needle: str, case_sensitive: bool) -> list[int]:
 def _find_region_matches(
     doc: Any, text_obj: Any, needle: str, case_sensitive: bool
 ) -> tuple[list[tuple[Any, int]], list[str]]:
-    """Return (paragraph, offset) hits and any walk-cap notes.
+    """Return ``(portion, offset_in_portion)`` hits and any walk-cap notes.
 
-    The offset indexes the portion-walk string that goRight steps through. A match may span
-    portions (mixed bold). It does not span a paragraph break, and skips tables and struck text.
+    The offset counts inside the Text portion holding the match's first character. A match may
+    span portions (mixed bold). It does not span a paragraph break, and skips tables and struck text.
     """
     hits: list[tuple[Any, int]] = []
     notes: list[str] = []
@@ -1177,19 +1173,25 @@ def _find_region_matches(
         seen += 1
         if uno_read(lambda: para.supportsService("com.sun.star.text.TextTable") is True, False):
             continue
-        hay = _paragraph_cursor_text(para, state)
-        if hay is None:
+        runs = _paragraph_runs(para, state)
+        if runs is None:
             continue
+        hay = "".join(text for _p, text in runs)
         for offset in _match_offsets(hay, needle, case_sensitive):
-            hits.append((para, offset))
+            rem = offset
+            for portion, text in runs:
+                if rem < len(text):
+                    hits.append((portion, rem))
+                    break
+                rem -= len(text)
     record_walk_cap(enum, seen, _SCAN_PARA_LIMIT, "paragraphs", notes)
     return hits, notes
 
 
 def _grow_cursor(cursor: Any, offset: int, length: int) -> bool:
     """Advance and expand the cursor. False when either goRight cannot land."""
-    # _match_offsets indexes the same portion-walk string that goRight steps through.
-    # `is False`: a mock goRight() is truthy and must not abort the walk.
+    # goRight is counted from the portion start, so fields, images and control marks earlier in
+    # the paragraph do not shift it. `is False`: a mock goRight() is truthy and must not abort.
     if offset and cursor.goRight(offset, False) is False:
         return False
     if cursor.goRight(length, True) is False:
@@ -1197,9 +1199,9 @@ def _grow_cursor(cursor: Any, offset: int, length: int) -> bool:
     return True
 
 
-def _cursor_for_match(text_obj: Any, para: Any, offset: int, length: int) -> Any | None:
+def _cursor_for_match(text_obj: Any, portion: Any, offset: int, length: int) -> Any | None:
     """Collapsed cursor grown to the match. None when goRight cannot land there."""
-    cursor = uno_read(lambda: text_obj.createTextCursorByRange(para.getStart()), None)
+    cursor = uno_read(lambda: text_obj.createTextCursorByRange(portion.getStart()), None)
     if cursor is None or not uno_read(lambda: _grow_cursor(cursor, offset, length), False):
         return None
     return cursor
@@ -1437,8 +1439,8 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             chosen = [hits[occurrence]]
 
         cursors: list[Any] = []
-        for para, offset in chosen:
-            cursor = _cursor_for_match(text_obj, para, offset, len(old_content))
+        for portion, offset in chosen:
+            cursor = _cursor_for_match(text_obj, portion, offset, len(old_content))
             if cursor is None:
                 return self._tool_error(
                     "Could not select '%s' in the %s. Nothing was changed." % (old_content, region)

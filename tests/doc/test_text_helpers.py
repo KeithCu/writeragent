@@ -1574,7 +1574,11 @@ def test_build_heading_tree_keeps_unseen_live_headings():
         "Ctl Heading",
         OutlineLevel=1,
     )
-    h_meta = _RawTextPara([FakeUnoPortion("TextField", "")], "Meta Heading", OutlineLevel=1)
+    h_meta = _RawTextPara(
+        [FakeUnoPortion("TextField", inner=[FakeUnoPortion("Text", "Meta Heading")])],
+        "Meta Heading",
+        OutlineLevel=1,
+    )
     h_bad = _UnenumerablePara([], OutlineLevel=1)
     h_next = FakeUnoPara([FakeUnoPortion("Text", "After")], OutlineLevel=1)
 
@@ -1588,7 +1592,7 @@ def test_build_heading_tree_keeps_unseen_live_headings():
     assert [(c["text"], c["para_index"]) for c in tree["children"]] == [
         ("Ctl Heading", 0),
         ("Meta Heading", 1),
-        ("Unreadable", 2),
+        ("", 2),
         ("After", 3),
     ]
 
@@ -1675,14 +1679,18 @@ def test_visible_portions_unreadable_container_enum_respects_abort():
     skip_state = DeletionState()
     assert [c for _p, c in visible_portions(para, abort_on_portion_error=False, state=skip_state)] == ["before "]
     p_ok = FakeUnoPortion("Text", "a")
-    assert list(iter_portions(FakeUnoEnum([p_ok, _BadContainerPortion("ContentControl", ""), FakeUnoPortion("Text", "b")]))) == [
-        (p_ok, "Text")
+    bad = _BadContainerPortion("ContentControl", "")
+    p_b = FakeUnoPortion("Text", "b")
+    assert list(iter_portions(FakeUnoEnum([p_ok, bad, p_b]))) == [
+        (p_ok, "Text"),
+        (bad, None),
+        (p_b, "Text"),
     ]
 
 
-def test_flat_portions_next_element_error_and_disposal():
+def test_iter_portions_next_element_error_and_disposal():
     import pytest
-    from plugin.doc.text_helpers import _flat_portions
+    from plugin.doc.text_helpers import iter_portions
     from plugin.framework.errors import DocumentDisposedError
     from tests.testing_utils import FakeUnoPortion
 
@@ -1700,7 +1708,7 @@ def test_flat_portions_next_element_error_and_disposal():
                 raise self._fail_with
             return FakeUnoPortion("Text", "ok")
 
-    items = list(_flat_portions(_FlakyEnum(RuntimeError("transient"))))
+    items = list(iter_portions(_FlakyEnum(RuntimeError("transient"))))
     assert items[0] == (None, None)
     assert items[1][1] == "Text"
 
@@ -1709,7 +1717,48 @@ def test_flat_portions_next_element_error_and_disposal():
 
     _DisposedError.__name__ = "DisposedException"
     with pytest.raises(DocumentDisposedError):
-        list(_flat_portions(_FlakyEnum(_DisposedError("gone"))))
+        list(iter_portions(_FlakyEnum(_DisposedError("gone"))))
+
+
+def test_visible_portions_metadata_field_with_redline_and_nested():
+    from plugin.doc.text_helpers import DeletionState, visible_portions
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    nested_meta = FakeUnoPortion("TextField", inner=[FakeUnoPortion("Text", "R")])
+    outer_meta = FakeUnoPortion(
+        "TextField",
+        inner=[
+            FakeUnoPortion("Text", "C"),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+            FakeUnoPortion("Text", "T"),
+            FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+            nested_meta,
+            FakeUnoPortion("Text", "L"),
+        ],
+    )
+    para = FakeUnoPara([FakeUnoPortion("Text", "xx "), outer_meta, FakeUnoPortion("Text", " yy")])
+    assert [c for _p, c in visible_portions(para, state=DeletionState())] == ["xx ", "C", "R", "L", " yy"]
+
+
+def test_live_paragraph_text_returns_none_when_metadata_text_struck():
+    from plugin.doc.text_helpers import live_paragraph_text
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
+
+    class _RawPara(FakeUnoPara):
+        def getString(self) -> str:
+            return "CTRL"
+
+    para = _RawPara([
+        FakeUnoPortion(
+            "TextField",
+            inner=[
+                FakeUnoPortion("Redline", redline_type="Delete", is_start=True),
+                FakeUnoPortion("Text", "CTRL"),
+                FakeUnoPortion("Redline", redline_type="Delete", is_start=False),
+            ],
+        )
+    ])
+    assert live_paragraph_text(para, False) is None
 
 
 def test_visible_point_in_paragraph():

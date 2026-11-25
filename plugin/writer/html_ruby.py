@@ -173,6 +173,8 @@ def _iter_ruby_spans_in_paragraph(
     base_start = 0
     offset = 0
     for portion, kind in iter_portions(portion_enum):
+        if kind is None:
+            break
         if kind == "Redline":
             state.apply_marker(portion)
             continue

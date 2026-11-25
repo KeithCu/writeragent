@@ -2476,3 +2476,37 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
+
+
+@native_test
+@with_native_doc("writer")
+def test_string_skipping_redline_inside_content_control_uno(ctx, doc):
+    from plugin.writer.edit_review import _string_skipping_redline
+
+    _reset(doc, ctx, "xx CTRL yy")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    ctrl = doc.createInstance("com.sun.star.text.ContentControl")
+    text.insertTextContent(cur, ctrl, True)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        edit_cur = text.createTextCursor()
+        edit_cur.gotoStart(False)
+        edit_cur.goRight(4, False)  # past "xx " + control start mark
+        edit_cur.goRight(4, True)
+        edit_cur.setString("NEW")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    rng = text.createTextCursor()
+    rng.gotoStart(False)
+    rng.gotoEnd(True)
+    accepted = _string_skipping_redline(rng, "Delete")
+    rejected = _string_skipping_redline(rng, "Insert")
+    assert accepted != rejected
+    assert "NEW" in accepted
+    assert "CTRL" in rejected

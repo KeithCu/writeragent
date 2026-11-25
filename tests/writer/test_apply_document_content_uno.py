@@ -1684,3 +1684,103 @@ def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_markup_in_control_and_input_field_refused_uno(ctx, doc):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tool = ApplyDocumentContent()
+    text = doc.getText()
+
+    # ContentControl: <b>NEW</b> via search and selection raises MARKUP_IN_CONTROL; plain text works.
+    _clear_body(doc)
+    text.setString("xx CTRL yy")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(3, False)
+    cur.goRight(4, True)
+    text.insertTextContent(cur, doc.createInstance("com.sun.star.text.ContentControl"), True)
+
+    res_search = tool.execute_safe(tctx, target="search", old_content="CTRL", content="<b>NEW</b>")
+    assert res_search["status"] == "error" and res_search["code"] == "MARKUP_IN_CONTROL", res_search
+    assert text.getString() == "xx CTRL yy"
+
+    sel_cur = text.createTextCursor()
+    sel_cur.gotoStart(False)
+    sel_cur.goRight(4, False)  # past "xx " + control start mark
+    sel_cur.goRight(4, True)
+    doc.getCurrentController().select(sel_cur)
+    res_sel = tool.execute_safe(tctx, target="selection", content="<b>NEW</b>")
+    assert res_sel["status"] == "error" and res_sel["code"] == "MARKUP_IN_CONTROL", res_sel
+    assert text.getString() == "xx CTRL yy"
+
+    res_plain = tool.execute_safe(tctx, target="search", old_content="CTRL", content="PLAIN")
+    assert res_plain["status"] == "ok", res_plain
+    assert text.getString() == "xx PLAIN yy"
+
+    # Input field: <b>NEW</b> via search and selection raises MARKUP_IN_CONTROL; text unchanged.
+    _clear_body(doc)
+    cur = text.createTextCursor()
+    text.insertString(cur, "xx ", False)
+    fld = doc.createInstance("com.sun.star.text.TextField.Input")
+    fld.setPropertyValue("Content", "CTRL")
+    text.insertTextContent(cur, fld, False)
+    text.insertString(cur, " yy", False)
+
+    res_inp_search = tool.execute_safe(tctx, target="search", old_content="CTRL", content="<b>NEW</b>")
+    assert res_inp_search["status"] == "error" and res_inp_search["code"] == "MARKUP_IN_CONTROL", res_inp_search
+    assert text.getString() == "xx CTRL yy"
+
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = "TR"
+    inner_hit = doc.findFirst(sd)
+    assert inner_hit is not None
+    doc.getCurrentController().select(inner_hit)
+    res_inp_sel = tool.execute_safe(tctx, target="selection", content="<b>NEW</b>")
+    assert res_inp_sel["status"] == "error" and res_inp_sel["code"] == "MARKUP_IN_CONTROL", res_inp_sel
+    assert text.getString() == "xx CTRL yy"
+
+
+@native_test
+def test_full_document_refuses_shown_conditional_section_uno(ctx):
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tool = ApplyDocumentContent()
+
+    for leading in (True, False):
+        for record in (False, True):
+            with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+                tctx = native_writer_tool_context(case_doc, ctx)
+                text = case_doc.getText()
+                if leading:
+                    text.setString("CondBody\rAfter")
+                    cur = text.createTextCursor()
+                    cur.gotoStart(False)
+                    cur.goRight(len("CondBody"), True)
+                else:
+                    text.setString("Before\rCondBody\rAfter")
+                    cur = text.createTextCursor()
+                    cur.gotoStart(False)
+                    cur.goRight(len("Before\r"), False)
+                    cur.goRight(len("CondBody"), True)
+                sec = case_doc.createInstance("com.sun.star.text.TextSection")
+                sec.setName("ShownCondSec")
+                sec.setPropertyValue("IsVisible", False)
+                sec.setPropertyValue("Condition", "1 == 2")
+                text.insertTextContent(cur, sec, True)
+
+                before_text = text.getString()
+                case_doc.setPropertyValue("RecordChanges", record)
+                try:
+                    res = tool.execute_safe(tctx, target="full_document", content="<p>Replaced</p>")
+                finally:
+                    case_doc.setPropertyValue("RecordChanges", False)
+                assert res["status"] == "error" and res["code"] == "HIDDEN_SECTION", (leading, record, res)
+                assert text.getString() == before_text
+                kept = case_doc.getTextSections().getByName("ShownCondSec")
+                assert kept.getPropertyValue("IsVisible") is False
+                assert kept.getPropertyValue("Condition") == "1 == 2"

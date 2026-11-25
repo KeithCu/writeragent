@@ -537,7 +537,7 @@ def test_extract_page_number_fields_reads_properties():
     from plugin.writer.html_export import extract_page_number_fields
 
     field = MagicMock()
-    field.supportsService.return_value = True
+    field.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.textfield.PageNumber"
     field.getPropertyValue.side_effect = lambda name: {"SubType": 2, "Offset": 1, "NumberingType": 3}[name]
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
@@ -555,7 +555,7 @@ def test_extract_page_number_fields_reads_a_table_cell():
     from plugin.writer.html_export import extract_page_number_fields
 
     field = MagicMock()
-    field.supportsService.return_value = True
+    field.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.textfield.PageNumber"
     field.getPropertyValue.side_effect = lambda name: {"SubType": 1, "Offset": 2, "NumberingType": 4}[name]
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
