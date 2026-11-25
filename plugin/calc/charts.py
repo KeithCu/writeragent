@@ -43,7 +43,6 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.tool_schema import page_index_param
 from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
@@ -54,6 +53,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.i18n import _
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 from plugin.writer.edit_review import flag_untracked, flag_untracked_delete
 from plugin.writer.html_import import run_writer_mutation_with_optional_review

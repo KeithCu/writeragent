@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
 import sys
 from pathlib import Path
@@ -87,7 +88,7 @@ def test_every_registered_schema_default_validates() -> None:
     assert checked > 0
 
 
-def _iter_property_specs(props: dict[str, Any]) -> Any:
+def _iter_property_specs(props: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
     for key, spec in props.items():
         if not isinstance(spec, dict):
             continue
@@ -109,7 +110,9 @@ def test_page_index_params_come_from_the_factory() -> None:
             schema = tool.get_parameters(dt) or {}
             props = call_properties(schema) or {}
             for key, spec in _iter_property_specs(props):
-                if spec.get("type") != "integer":
+                spec_type = spec.get("type")
+                is_int_type = spec_type == "integer" or (isinstance(spec_type, list) and "integer" in spec_type)
+                if not is_int_type:
                     continue
                 if key != "page" and not key.endswith("_page"):
                     continue

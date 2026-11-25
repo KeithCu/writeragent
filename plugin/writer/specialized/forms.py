@@ -43,10 +43,10 @@ from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
 from plugin.framework.config import get_api_config
-from plugin.framework.tool_schema import page_index_param
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import format_error_payload, make_tool_error, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import main
+from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.writer.forms")

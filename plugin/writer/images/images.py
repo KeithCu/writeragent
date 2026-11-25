@@ -36,7 +36,6 @@ import urllib.parse
 from plugin.framework.client.http_security import log_target
 # Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.doc_type import is_writer as is_writer_doc
-from plugin.framework.tool_schema import page_index_param
 from plugin.framework.errors import (
     NetworkError,
     ToolExecutionError,
@@ -48,6 +47,7 @@ from plugin.framework.errors import (
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.tool_schema import page_index_param
 from ..specialized_base import ToolWriterImageBase, enum_param
 
 # Queue pickup bound for document mutations when bytes are already in hand.
