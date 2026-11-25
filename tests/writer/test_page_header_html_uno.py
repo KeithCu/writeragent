@@ -2019,3 +2019,46 @@ def test_page_set_header_preserves_tex_backslashes_uno(ctx, doc):
     visible = _region_text(doc, "header").getString()
     assert r"$\nu$" in visible, visible
     assert r"\(\tau\)" in visible, visible
+
+
+@native_test
+@with_native_doc("writer")
+def test_header_page_count_keeps_visible_numbering_uno(ctx, doc):
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+
+    body = doc.getText()
+    body.setString("Page 1")
+    cur = body.createTextCursor()
+    cur.gotoEnd(False)
+    for idx in (2, 3):
+        body.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+        cur.setPropertyValue("BreakType", PAGE_BEFORE)
+        body.insertString(cur, f"Page {idx}", False)
+
+    style, _name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    style.setPropertyValue("NumberingType", 3)
+
+    for nt, shown in ((4, "3"), (2, "III"), (7, "iii")):
+        header = style.getPropertyValue("HeaderText")
+        header.setString("of ")
+        hcur = header.createTextCursor()
+        hcur.gotoEnd(False)
+        field = doc.createInstance("com.sun.star.text.textfield.PageCount")
+        field.setPropertyValue("NumberingType", nt)
+        header.insertTextContent(hcur, field, False)
+        doc.getTextFields().refresh()
+        assert style.getPropertyValue("HeaderText").getString() == f"of {shown}"
+
+        got = _get(doc, ctx, "header")
+        assert got["status"] == "ok", got
+        res = _set(doc, ctx, "header", got["content"].replace("of ", "out of "))
+        assert res["status"] == "ok", res
+        doc.getTextFields().refresh()
+        assert style.getPropertyValue("HeaderText").getString() == f"out of {shown}"
+
+    res = _set(doc, ctx, "header", '<p>of <span title="page-count"/></p>')
+    assert res["status"] == "ok", res
+    doc.getTextFields().refresh()
+    assert style.getPropertyValue("HeaderText").getString() == "of 3"

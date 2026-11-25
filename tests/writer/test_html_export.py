@@ -7,7 +7,7 @@ import pytest
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.html_export import (
     _apply_image_export_options,
-    _inject_page_number_attributes,
+    _inject_page_field_attributes,
     _range_to_content_via_temp_doc,
     strip_embedded_image_data,
     xtext_to_content,
@@ -534,8 +534,8 @@ def test_document_to_content_max_chars_does_not_split_a_tag():
     assert "<" not in body or body.rfind("<") < body.rfind(">")
 
 
-def test_extract_page_number_fields_reads_properties():
-    from plugin.writer.html_export import extract_page_number_fields
+def test_extract_page_fields_reads_properties():
+    from plugin.writer.html_export import extract_page_fields
 
     field = MagicMock()
     field.supportsService.return_value = True
@@ -547,13 +547,13 @@ def test_extract_page_number_fields_reads_properties():
     para.createEnumeration.return_value = _Enum([portion])
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([para])
-    assert extract_page_number_fields(MagicMock(), text) == [
-        {"SubType": 2, "Offset": 1, "NumberingType": 3}
+    assert extract_page_fields(MagicMock(), text) == [
+        {"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3}
     ]
 
 
-def test_extract_page_number_fields_reads_a_table_cell():
-    from plugin.writer.html_export import extract_page_number_fields
+def test_extract_page_fields_reads_a_table_cell():
+    from plugin.writer.html_export import extract_page_fields
 
     field = MagicMock()
     field.supportsService.return_value = True
@@ -575,13 +575,13 @@ def test_extract_page_number_fields_reads_a_table_cell():
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([table])
 
-    assert extract_page_number_fields(MagicMock(), text) == [
-        {"SubType": 1, "Offset": 2, "NumberingType": 4}
+    assert extract_page_fields(MagicMock(), text) == [
+        {"title": "page-number", "SubType": 1, "Offset": 2, "NumberingType": 4}
     ]
 
 
-def test_extract_page_number_fields_no_field_returns_empty():
-    from plugin.writer.html_export import extract_page_number_fields
+def test_extract_page_fields_no_field_returns_empty():
+    from plugin.writer.html_export import extract_page_fields
 
     portion = MagicMock()
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
@@ -591,7 +591,7 @@ def test_extract_page_number_fields_no_field_returns_empty():
     text = MagicMock()
     text.createEnumeration.return_value = _Enum([para])
 
-    assert extract_page_number_fields(MagicMock(), text) == []
+    assert extract_page_fields(MagicMock(), text) == []
 
 
 def test_xtext_injects_nonzero_page_offset():
@@ -600,11 +600,11 @@ def test_xtext_injects_nonzero_page_offset():
     html = '<p><span title="page-number"></span></p>'
     temp = MagicMock()
     temp.getText.return_value = MagicMock()
-    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
+    fields = [{"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 4}]
     with (
         patch.object(html_export, "new_blank_writer", return_value=temp),
         patch.object(html_export.range_copy, "copy_xtext_into_doc"),
-        patch.object(html_export, "extract_page_number_fields", return_value=fields),
+        patch.object(html_export, "extract_page_fields", return_value=fields),
         patch.object(html_export, "document_to_content", return_value=html),
     ):
         out = html_export.xtext_to_content(MagicMock(), MagicMock(), MagicMock())
@@ -613,49 +613,60 @@ def test_xtext_injects_nonzero_page_offset():
     assert "data-numbering-type" not in out
 
 
-def test_inject_page_number_attributes_defaults_omitted():
+def test_inject_page_field_attributes_defaults_omitted():
     inp = '<p><span title="page-number"></span></p>'
-    fields = [{"SubType": 1, "Offset": 0, "NumberingType": 4}]
-    assert _inject_page_number_attributes(inp, fields) == inp
+    fields = [{"title": "page-number", "SubType": 1, "Offset": 0, "NumberingType": 4}]
+    assert _inject_page_field_attributes(inp, fields) == inp
 
 
-def test_inject_page_number_attributes_non_defaults_in_order():
+def test_inject_page_field_attributes_non_defaults_in_order():
     inp = '<p><span title="page-number"></span></p>'
-    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
-    out = _inject_page_number_attributes(inp, fields)
+    fields = [{"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_field_attributes(inp, fields)
     assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"></span>' in out
 
 
-def test_inject_page_number_attributes_self_closing_tag():
+def test_inject_page_field_attributes_self_closing_tag():
     inp = '<p><span title="page-number"/></p>'
-    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
-    out = _inject_page_number_attributes(inp, fields)
+    fields = [{"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3}]
+    out = _inject_page_field_attributes(inp, fields)
     assert '<span title="page-number" data-subtype="NEXT" data-offset="1" data-numbering-type="ROMAN_LOWER"/>' in out
 
 
-def test_inject_page_number_attributes_count_mismatch_returns_unchanged():
+def test_inject_page_field_attributes_page_count():
+    inp = '<p>Page <span title="page-number"/> of <span title="page-count"/></p>'
+    fields = [
+        {"title": "page-number", "SubType": 1, "Offset": 0, "NumberingType": 4},
+        {"title": "page-count", "NumberingType": 2},
+    ]
+    out = _inject_page_field_attributes(inp, fields)
+    assert out == '<p>Page <span title="page-number"/> of <span title="page-count" data-numbering-type="ROMAN_UPPER"/></p>'
+    assert _inject_page_field_attributes(inp, list(reversed(fields))) == inp
+
+
+def test_inject_page_field_attributes_count_mismatch_returns_unchanged():
     two_spans = '<p><span title="page-number"></span><span title="page-number"></span></p>'
-    one_field = [{"SubType": 2, "Offset": 1, "NumberingType": 3}]
-    assert _inject_page_number_attributes(two_spans, one_field) == two_spans
+    one_field = [{"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3}]
+    assert _inject_page_field_attributes(two_spans, one_field) == two_spans
 
     one_span = '<p><span title="page-number"></span></p>'
     two_fields = [
-        {"SubType": 2, "Offset": 1, "NumberingType": 3},
-        {"SubType": 1, "Offset": 0, "NumberingType": 4},
+        {"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3},
+        {"title": "page-number", "SubType": 1, "Offset": 0, "NumberingType": 4},
     ]
-    assert _inject_page_number_attributes(one_span, two_fields) == one_span
+    assert _inject_page_field_attributes(one_span, two_fields) == one_span
 
 
-def test_inject_page_number_attributes_empty_fields_returns_unchanged():
+def test_inject_page_field_attributes_empty_fields_returns_unchanged():
     inp = '<p><span title="page-number"></span></p>'
-    assert _inject_page_number_attributes(inp, []) == inp
+    assert _inject_page_field_attributes(inp, []) == inp
 
 
-def test_page_number_converters():
+def test_page_field_converters():
     from types import SimpleNamespace
 
     from plugin.writer.html_export import (
-        _page_number_numbering_type_to_name,
+        _numbering_type_to_name,
         _page_number_subtype_to_name,
     )
 
@@ -665,10 +676,10 @@ def test_page_number_converters():
     assert _page_number_subtype_to_name(SimpleNamespace(value="PREV")) == "PREV"
     assert _page_number_subtype_to_name(99) == "CURRENT"
 
-    assert _page_number_numbering_type_to_name(4) == "ARABIC"
-    assert _page_number_numbering_type_to_name("ARABIC") == "ARABIC"
-    assert _page_number_numbering_type_to_name("roman_upper") == "ROMAN_UPPER"
-    assert _page_number_numbering_type_to_name(99) == "ARABIC"
+    assert _numbering_type_to_name(4) == "ARABIC"
+    assert _numbering_type_to_name("ARABIC") == "ARABIC"
+    assert _numbering_type_to_name("roman_upper") == "ROMAN_UPPER"
+    assert _numbering_type_to_name(99) == "ARABIC"
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():

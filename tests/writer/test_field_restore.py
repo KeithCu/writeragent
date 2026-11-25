@@ -41,6 +41,22 @@ def test_rewrite_exported_field_spans_leaves_plain_html():
 
 
 @pytest.mark.parametrize(
+    "attrs, expected_body",
+    [
+        ("", "page-count"),
+        (' data-numbering-type="ARABIC"', "page-count"),
+        (' data-numbering-type="ROMAN_UPPER"', "page-count|numbering_type=ROMAN_UPPER"),
+        (' data-numbering-type="7"', "page-count|numbering_type=PAGE_DESCRIPTOR"),
+        (' data-numbering-type="bogus"', "page-count"),
+        (' data-subtype="NEXT" data-offset="2"', "page-count"),
+    ],
+)
+def test_rewrite_exported_field_spans_page_count_numbering_type(attrs: str, expected_body: str) -> None:
+    html = f'<p><span title="page-count"{attrs}/></p>'
+    assert rewrite_exported_field_spans(html, nonce="test1234") == f"<p>[[WA-FIELD:test1234:{expected_body}]]</p>"
+
+
+@pytest.mark.parametrize(
     "html, expected",
     [
         pytest.param(
