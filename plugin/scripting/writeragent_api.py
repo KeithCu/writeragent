@@ -2941,7 +2941,7 @@ class _TableProxy:
         return _result(call_host_tool("table_merge_cells", name=name, cell_range=cell_range))
 
     def set_cell(self, cell: str, text: str, *, name: str | None = None, page: int | None = None, index: int | None = None) -> _Item:
-        """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). A normal cell is replaced with setString (clears in-cell formatting). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs. Edit the nested table by its own name. Not a tracked change even when review mode is on.
+        """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Writer: the new text keeps the character formatting of the text it replaces, writing the cell's current text changes nothing, and the write is recorded as a tracked change while Track Changes or review mode is on. A cell holding a formula or a number value becomes plain text (the formula is removed). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs; edit the nested table by its own name. Refuses a protected cell (CELLS_PROTECTED) and, while Track Changes is off, a cell holding a pending tracked deletion (MATCH_CROSSES_DELETION).
 
         Args:
             cell (required): A1-style cell address, e.g. 'B2'.
