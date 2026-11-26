@@ -2007,9 +2007,9 @@ def replace_xtext_with_html(
     except UndoUnavailable:
         raise ToolExecutionError("Could not enter undo context for header/footer import.", code="UNDO_UNAVAILABLE")
 
-    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+    if (failed := outcome.rollback_failure) is not None:
         raise ToolExecutionError(
-            f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}",
+            f"the header/footer was written and could not be rolled back: {failed.get('message')}",
             code="ROLLBACK_FAILED",
         )
     outcome.raise_mutate_error()

@@ -1327,6 +1327,38 @@ def test_record_html_atomically_clear_first_runs_in_undo_group_and_rolls_back():
     undo_mgr.undo.assert_called_once()
 
 
+def test_record_html_atomically_failed_rollback_reports_rollback_failed():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.edit_review import record_html_atomically
+
+    undo_mgr = MagicMock()
+    undo_mgr.isLocked.return_value = False
+    undo_title = None
+
+    def enter_ctx(title):
+        nonlocal undo_title
+        undo_title = title
+
+    undo_mgr.enterUndoContext.side_effect = enter_ctx
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: [undo_title]
+    undo_mgr.undo.side_effect = RuntimeError("undo boom")
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+
+    session = MagicMock()
+    session.changes = []
+    session.record_mutation.side_effect = lambda fn, **_kw: fn()
+
+    def mutate_boom():
+        raise ValueError("mutate failed")
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        record_html_atomically(session, doc, mutate_boom)
+
+    assert exc_info.value.code == "ROLLBACK_FAILED"
+    assert "undo boom" in str(exc_info.value)
+
+
 @pytest.mark.parametrize(
     "review_on,recording,foreign",
     [

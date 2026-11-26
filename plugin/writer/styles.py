@@ -1793,7 +1793,7 @@ def apply_to_cursors(
                     % (label, len(reports), err.get("message")),
                     code="UNDO_CONTEXT_LEAK",
                 )
-            if err.get("code") == "ROLLBACK_FAILED":
+            if outcome.rollback_failure is not None:
                 return [], tool._tool_error(
                     "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                     % (len(reports), len(cursors), err.get("message")),

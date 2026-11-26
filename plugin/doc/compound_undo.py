@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.errors import is_disposal, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, reraise_if_disposed
 
 log = logging.getLogger(__name__)
 
@@ -226,7 +226,10 @@ class UndoStepOrRollback(WriterCompoundUndo):
     closed and then undone, but only while it is still the newest undo entry
     (``rollback_if_top``), so a user edit that landed on top is never undone in its place.
     The exception is always re-raised, and a disposed document is not rolled back.
-    ``rolled_back`` says whether the undo ran. With a missing or locked undo manager the
+    ``rolled_back`` says whether the undo ran; ``rollback_error`` holds the exception when the
+    undo raised; a caller that reports the body's failure must turn a set ``rollback_error`` into
+    ``rollback_failed_error``, or it reports a partial edit as a clean refusal. With a missing or
+    locked undo manager the
     body runs without a group (``entered`` is False) and nothing can be rolled back;
     callers that must refuse in that state should use ``commit_or_rollback``. Implemented
     as a class rather than ``@contextmanager`` because pyuno turns a re-raised exception
@@ -252,6 +255,18 @@ class UndoUnavailable(RuntimeError):
     """Raised when an undo manager cannot be entered or is locked."""
 
 
+def rollback_failed_error(rollback_error: BaseException, cause: object) -> ToolExecutionError:
+    """The ROLLBACK_FAILED error for an edit that failed and whose undo then raised.
+
+    The document may hold part of the edit. *cause* is the original failure (an exception
+    or an error message), kept in the text so the reason for the rollback is not lost.
+    """
+    return ToolExecutionError(
+        f"Rollback failed; the document may be only partly edited ({rollback_error}). Cause: {cause}",
+        code="ROLLBACK_FAILED",
+    )
+
+
 @dataclass(frozen=True)
 class UndoOutcome:
     """Result of :func:`commit_or_rollback`.
@@ -269,9 +284,9 @@ class UndoOutcome:
       open. A caller that checks only ``ROLLBACK_FAILED`` is therefore reporting "the edit
       landed; the undo group is still open". ``page.py`` and ``styles.py`` turn it into
       an error that says the text was written.
-    * ``code == "ROLLBACK_FAILED"``: mutate failed and the undo that should have
-      reverted it raised. The message carries the original cause; ``mutate_error`` is
-      None even if mutate raised.
+    * ``code == "ROLLBACK_FAILED"`` (checked via :attr:`rollback_failure`): mutate failed
+      and the undo that should have reverted it raised. The message carries the original
+      cause; ``mutate_error`` is None even if mutate raised.
     Document disposal still raises from :func:`commit_or_rollback`; it is never stored
     on ``mutate_error``.
     ``group_closed`` is False when ``leaveUndoContext`` failed: the undo group is still
@@ -284,6 +299,13 @@ class UndoOutcome:
     nothing_landed: bool = False
     mutate_error: Exception | None = None
     group_closed: bool = True
+
+    @property
+    def rollback_failure(self) -> dict[str, Any] | None:
+        """The ROLLBACK_FAILED error dict when the rollback itself raised, else None."""
+        if self.error is not None and self.error.get("code") == "ROLLBACK_FAILED":
+            return self.error
+        return None
 
     def raise_mutate_error(self) -> None:
         """Re-raise a failed ``mutate`` when the caller uses exception flow."""
@@ -356,11 +378,7 @@ def commit_or_rollback(
             if group.rollback_error is not None:
                 # Keep the original cause and use a code distinct from a clean rollback.
                 cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
-                error = {
-                    "status": "error",
-                    "code": "ROLLBACK_FAILED",
-                    "message": f"Rollback failed; the document may be only partly edited ({group.rollback_error}). Cause: {cause}",
-                }
+                error = format_error_payload(rollback_failed_error(group.rollback_error, cause))
                 exc_cause = None
 
     nothing_landed = rolled_back or group.left_no_entry
