@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.errors import DocumentDisposedError
+from plugin.writer import structural
 from plugin.writer.structural import GetPageObjects, _at_page_anchor_page, _with_left_body_locked
 
 
@@ -55,13 +56,11 @@ def test_scan_page_does_not_clone_via_body_text():
 
 
 def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     at_para = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", object())
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", at_para)
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", object())
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", at_para)
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
     doc = _make_doc()
@@ -101,13 +100,12 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
 
 def test_scan_page_reports_custom_shape_type(monkeypatch):
     from types import SimpleNamespace
-    import com.sun.star.text.TextContentAnchorType as anchor_types
 
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
     doc = _make_doc()
@@ -215,14 +213,13 @@ def test_scan_page_retries_getpage_zero_while_locked():
 
 def test_scan_page_skips_paragraph_shape_getpage_zero_without_unlock(monkeypatch):
     """Ordinary paragraph ranges: getPage()==0 is not-on-page, no unlock churn."""
-    import com.sun.star.text.TextContentAnchorType as anchor_types
 
     at_para = object()
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", at_para)
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", at_para)
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
     doc = _make_doc()
@@ -250,13 +247,12 @@ def test_scan_page_skips_paragraph_shape_getpage_zero_without_unlock(monkeypatch
 
 def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatch):
     """AT_PAGE shapes use AnchorPageNo — never _page_at_range / gotoRange."""
-    import com.sun.star.text.TextContentAnchorType as anchor_types
 
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
     doc = _make_doc()
@@ -300,13 +296,11 @@ def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
     """One shape whose position cannot be read must not abort the page (#2028), unless disposed."""
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
-    at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    at_page = SimpleNamespace(value="AT_PAGE")
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     def anchor_props(name, extra):
         if name == "AnchorType":
@@ -349,7 +343,7 @@ def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
         assert {k: geom[k] for k in ("x", "y", "width", "height", "position_relative_to")} == {
             "x": 10, "y": 20, "width": 30, "height": 40, "position_relative_to": "anchor",
         }
-        assert "anchor_type" in geom
+        assert geom["anchor_type"] == "AT_PAGE"
 
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
@@ -357,10 +351,9 @@ def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
 
 def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):
     """AT_PAGE frames use AnchorPageNo the same way shapes do."""
-    import com.sun.star.text.TextContentAnchorType as anchor_types
 
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
 
     frames = MagicMock()
     frames.getElementNames.return_value = ("PageFrame",)
@@ -384,9 +377,7 @@ def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):
 
 
 def test_at_page_anchor_page_ignores_paragraph_anchor(monkeypatch):
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
-    monkeypatch.setattr(anchor_types, "AT_PAGE", object())
+    monkeypatch.setattr(structural, "AT_PAGE", object())
     obj = MagicMock()
     obj.getPropertyValue.side_effect = lambda name: 0 if name == "AnchorPageNo" else object()
     assert _at_page_anchor_page(obj) is None
@@ -563,13 +554,11 @@ def test_scan_page_geometry_as_char_baseline_offset(monkeypatch):
     """AS_CHARACTER objects report anchor-relative x/y; y is the negative baseline offset."""
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     as_char = SimpleNamespace(value="AS_CHARACTER")
-    monkeypatch.setattr(anchor_types, "AT_PAGE", object())
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", as_char)
+    monkeypatch.setattr(structural, "AT_PAGE", object())
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", as_char)
     props = {"AnchorType": as_char, "HoriOrientPosition": 0, "VertOrientPosition": -2000}
 
     def _props(name):
@@ -600,13 +589,11 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
     """Without orient properties, x/y come from getPosition()."""
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     def _props(name):
         if name == "AnchorType":
@@ -633,10 +620,9 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
 
 def test_execute_page_zero_scans_first_page(monkeypatch):
     from types import SimpleNamespace
-    import com.sun.star.text.TextContentAnchorType as anchor_types
 
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
 
     graphic = MagicMock()
     graphic.getPropertyValue.side_effect = lambda name: (
@@ -718,13 +704,11 @@ def test_execute_paragraph_reports_zero_based_page():
 def test_scan_page_lists_text_box_frame(monkeypatch):
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     def _make_box_shape(page_no: int, shape_name: str, frame_name: str):
         frame = MagicMock()
@@ -765,13 +749,11 @@ def test_scan_page_lists_text_box_frame(monkeypatch):
 def test_scan_page_lists_grouped_text_box_frame(monkeypatch):
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     frame = MagicMock()
     frame.getName.return_value = "Frame1"
@@ -820,13 +802,11 @@ def test_scan_page_lists_grouped_text_box_frame(monkeypatch):
 def test_scan_page_text_box_frame_read_failure(monkeypatch, exc, expect_disposed):
     from types import SimpleNamespace
 
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
     at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
+    monkeypatch.setattr(structural, "AT_PAGE", at_page)
+    monkeypatch.setattr(structural, "AT_PARAGRAPH", object())
+    monkeypatch.setattr(structural, "AT_CHARACTER", object())
+    monkeypatch.setattr(structural, "AS_CHARACTER", object())
 
     def _props(p: str):
         if p == "AnchorType":

@@ -36,7 +36,11 @@ def _pinned_range(ctx: ToolContext) -> Any | None:
 
 
 def request_selection_range(ctx: ToolContext) -> Any | None:
-    """Range a Writer tool acts on for target='selection' or insert-at-caret: ctx.selection_pin.range when set for ctx.doc, else live_selection_range(doc controller)."""
+    """Range a Writer tool acts on for target='selection' or insert-at-caret.
+
+    That is ``ctx.selection_pin.range`` when the pin is set for ``ctx.doc``, else
+    ``live_selection_range`` of the document's controller.
+    """
     pinned = _pinned_range(ctx)
     if pinned is not None:
         return pinned

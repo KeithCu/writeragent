@@ -228,6 +228,7 @@ def sentence_identity_fp(sentence: str) -> str:
 
 def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
+    # Host boundary: the embeddings venv child imports this module through embeddings_split, where uno is absent.
     try:
         import uno
     except ImportError:

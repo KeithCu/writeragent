@@ -131,8 +131,8 @@ def _section_summary(name: str, section: Any) -> dict[str, Any]:
     column_count = max(1, int(cols.getColumnCount())) if cols is not None else 1
     return {
         "name": name,
-        "is_visible": getattr(section, "IsVisible", True),
-        "is_protected": getattr(section, "IsProtected", False),
+        "is_visible": section.IsVisible,
+        "is_protected": section.IsProtected,
         "is_index": is_index,
         "has_password": has_password,
         "column_count": column_count,
