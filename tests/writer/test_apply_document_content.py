@@ -1838,3 +1838,55 @@ def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:
 def test_replacement_plain_preserves_tex_escapes() -> None:
     assert ApplyDocumentContent._replacement_plain(r"$\nu$") == r"$\nu$"
     assert ApplyDocumentContent._replacement_plain(r"Line\nTwo") == "Line\nTwo"
+
+
+@pytest.mark.parametrize(
+    ("old_content", "content", "matched", "expected_url"),
+    [
+        ("Old title", "Old &amp; new", "Old title", "#1.Old & new|outline"),
+        (" title", " New", "title", "#1.Old New|outline"),
+    ],
+)
+def test_dry_run_outline_preview_uses_edit_replacement_text(
+    old_content: str, content: str, matched: str, expected_url: str,
+) -> None:
+    from plugin.writer.hyperlink_fixup import OutlineLink, OutlineSnapshot
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    snapshot = OutlineSnapshot(
+        links=[OutlineLink(url="#1.Old title|outline", name="1.Old title", target="")],
+        prefix="Old " if matched == "title" else "",
+        suffix="",
+        matched=matched,
+        single_paragraph=True,
+    )
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot):
+        res = ApplyDocumentContent().execute(
+            ctx,
+            content=content,
+            target="search",
+            old_content=old_content,
+            dry_run=True,
+        )
+    assert res["status"] == "ok", res
+    assert res["replaceable"][0]["hyperlinks"][0]["hyperlink_url_after"] == expected_url
+
+
+def test_dry_run_refuses_what_the_edit_refuses() -> None:
+    kwargs: dict[str, Any] = {
+        "target": "search",
+        "old_content": "x",
+        "content": "y",
+        "position": "before",
+        "all_matches": True,
+    }
+    res = ApplyDocumentContent().execute(_edit_ctx(), dry_run=True, **kwargs)
+    expected = ApplyDocumentContent()._parse_edit_params(MagicMock(), kwargs)
+    assert isinstance(expected, dict)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert res["message"] == expected["message"]

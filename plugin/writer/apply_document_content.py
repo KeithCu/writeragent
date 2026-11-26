@@ -582,13 +582,12 @@ class ApplyDocumentContent(ToolBase):
                 code="HYPERLINK_UPDATE_FAILED",
             ) from exc
 
-    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None) -> dict[str, Any]:
+    def _outline_match_fields(self, found: Any, plain: str, override: str | None) -> dict[str, Any]:
         """dry_run fields for one match. Empty fields when the match has no outline link.
 
         A failed outline read or a rejected override raises; the dry-run branch of `_execute`
-        turns it into the error payload. *plain_fn* is called only when a preview is
-        actually needed, so a markup dry_run that does not touch an outline link does not open
-        a hidden document. An override on a non-outline match is not previewed as a new link;
+        turns it into the error payload. *plain* is the visible replacement text the edit writes
+        (`EditParams.plain`). An override on a non-outline match is not previewed as a new link;
         the caller rejects it.
         """
         # Invariant: a failed outline read is HYPERLINK_UPDATE_FAILED (never "no link"); disposal propagates.
@@ -597,7 +596,6 @@ class ApplyDocumentContent(ToolBase):
             if override:
                 raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
             return {}
-        plain = plain_fn()
         plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
         reports = public_hyperlink_reports(plans)
         if not reports:
@@ -874,57 +872,29 @@ class ApplyDocumentContent(ToolBase):
             assert rejected is not None
             return rejected
         old_content = kwargs.get("old_content")
-        target = self._effective_target(
-            kwargs.get("target"),
-            old_content,
-            kwargs.get("start_anchor"),
-            kwargs.get("end_anchor"),
-        )
-        if target != "search" or old_content is None:
+        if self._effective_target(kwargs.get("target"), old_content) != "search" or old_content is None:
             return self._tool_error("dry_run only applies to target='search' with old_content.", code="INVALID_PARAM")
-        occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
-        if occurrence_error:
-            return self._tool_error(occurrence_error, code="INVALID_PARAM")
-        override, override_error = self._parse_hyperlink_url(kwargs)
-        if override_error:
-            return self._tool_error(override_error, code="INVALID_PARAM")
-        # Same position guard as execute. before/after insert beside the match and
-        # leave its outline URL alone, so a preview must not say the target will change.
-        position, pos_err = self._position_choice(kwargs)
-        if pos_err:
-            return self._tool_error(pos_err, code="INVALID_PARAM")
-        override_err = self._override_not_replace(override, position)
-        if override_err:
-            return self._tool_error(override_err, code="INVALID_PARAM")
-        content, content_err = self._content_text(kwargs.get("content", ""))
-        if content_err:
-            return self._tool_error(content_err, code="INVALID_PARAM")
+        # The preview validates and normalizes exactly as the edit does, so a call the edit refuses
+        # is refused here, and outline previews use the text the edit writes.
+        params = self._parse_edit_params(ctx, kwargs)
+        if isinstance(params, dict):
+            return params
         # Empty replacements delete the match without painting a put-back URL.
-        rewrites_outline = position == "replace" and content.strip() != ""
+        rewrites_outline = params.position == "replace" and params.content.strip() != ""
+        occurrence = params.occurrence
         edit_idx = 0 if occurrence is None else occurrence
 
-        old_stripped = str(old_content).strip() if old_content is not None else ""
-        s = search_mod.prepare_old_content(old_content)
-        if not s:
-            return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
-        regex, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, s)
-        if rex_err:
-            return self._invalid_regex(rex_err)
         try:
             ranges, mode = _find_ranges(
-                ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_REPLACEMENTS
+                ctx.doc, params.pattern, params.regex, params.case_sensitive, limit=search_mod.MAX_SEARCH_REPLACEMENTS
             )
         except Exception as e:
             log.exception("apply_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
         deletions = TrackedDeletions(ctx.doc)
-        refuse_crossing = position == "replace" and not regex and not edit_is_recorded(ctx.doc)
+        refuse_crossing = params.position == "replace" and not params.regex and not edit_is_recorded(ctx.doc)
         replaceable: list[dict[str, Any]] = []
-
-        @functools.cache
-        def _plain() -> str:
-            return self._replacement_plain(content)
 
         def _match_snippet(found: Any) -> tuple[str, str]:
             try:
@@ -948,19 +918,19 @@ class ApplyDocumentContent(ToolBase):
             if rewrites_outline:
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
-                row_override = override if idx == edit_idx else None
-                row.update(self._outline_match_fields(found, _plain, row_override))
+                row_override = params.override if idx == edit_idx else None
+                row.update(self._outline_match_fields(found, params.plain, row_override))
             replaceable.append(row)
-        shape_comment_warning = search_mod.shape_sweep_skip_reason(pattern, regex)
+        shape_comment_warning = search_mod.shape_sweep_skip_reason(params.pattern, params.regex)
         if shape_comment_warning is not None:
             shape_hits = []
             comment_hits = []
         else:
             shape_hits = search_mod.sweep_draw_shape_preview_matches(
-                ctx.doc, pattern, regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
+                ctx.doc, params.pattern, params.regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
             )
             comment_hits = search_mod.sweep_comment_preview_matches(
-                ctx.doc, pattern, regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
+                ctx.doc, params.pattern, params.regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
             )
         not_replaceable: list[dict[str, Any]] = []
         for item in shape_hits + comment_hits:
@@ -997,14 +967,14 @@ class ApplyDocumentContent(ToolBase):
         if not ranges:
             res = search_mod.build_search_not_found_response(
                 ctx.doc,
-                pattern,
+                params.pattern,
                 case_sensitive=mode.case_sensitive,
-                use_regex=regex,
-                lenient=not regex and cs is None,
+                use_regex=params.regex,
+                lenient=not params.regex and params.case_sensitive is None,
                 refuse_oversized=True,
             )
             result.update({k: res[k] for k in ("message", "closest_match", "diff_at") if k in res})
-        result["normalized_old_content"] = s
+        result["normalized_old_content"] = params.search_string
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
             selected_location, selected_text = _match_snippet(selected)
@@ -1016,7 +986,7 @@ class ApplyDocumentContent(ToolBase):
             if refuse_crossing and deletions.overlaps(selected):
                 selected_match["edit_refused"] = "MATCH_CROSSES_DELETION"
             if rewrites_outline:
-                selected_match.update(self._outline_match_fields(selected, _plain, override))
+                selected_match.update(self._outline_match_fields(selected, params.plain, params.override))
             result["selected_match"] = selected_match
         return result
 

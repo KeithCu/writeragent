@@ -981,7 +981,7 @@ no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern
 previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
 `occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
 is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
-and `not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
+and `not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check. The preview validates parameters exactly as the edit does, so a call the edit would refuse (for example `position='before'` with `all_matches=true`) is refused by the preview with the same error. `hyperlink_url_after` is computed from the same normalized replacement the edit writes (complete entities decoded, the edge spaces dropped from `old_content` also dropped from `content`).
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 
