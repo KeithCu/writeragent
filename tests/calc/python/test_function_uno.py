@@ -27,7 +27,7 @@ from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc
 from plugin.framework.uno_context import create_property_value
-from tests.harness.uno_profile_config import repo_venv_in_profile
+from tests.harness.uno_profile_config import profile_setting, repo_venv_in_profile
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 _XLSX = _FIXTURE_DIR / "python_showcase_demo.xlsx"
@@ -386,9 +386,11 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
     """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
     sheet = doc.getSheets().getByIndex(0)
     try:
-        cell = sheet.getCellByPosition(0, 0)
-        cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
-        doc.calculateAll()
+        # The schema minimum of 1 s keeps the wait short; the sleep still outlasts it.
+        with profile_setting("scripting.python_exec_timeout", 1):
+            cell = sheet.getCellByPosition(0, 0)
+            cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
+            doc.calculateAll()
         assert cell.getError() == 0, cell.getError()
         assert cell.getString().startswith("Error: Python timed out"), repr(cell.getString())
     finally:

@@ -14,7 +14,14 @@ from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.testing_runner import native_test
 from plugin.framework.uno_context import enum_has_more, execute_dispatch
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
-from tests.writer.doc_builders import accept_all_changes, body_paragraphs, body_shape, body_texts, reject_all_changes
+from tests.writer.doc_builders import (
+    accept_all_changes,
+    body_paragraphs,
+    body_shape,
+    body_texts,
+    reject_all_changes,
+    seed_styled_body,
+)
 
 
 def _ruby_portions(doc: Any) -> list[tuple[str, str, str | None]]:
@@ -1265,22 +1272,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
     prev = get_config(flag)
 
     def _seed_three() -> None:
-        doc.setPropertyValue("RecordChanges", False)
-        while doc.getTextTables().getCount() > 0:
-            doc.getTextTables().getByIndex(0).dispose()
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        cur.gotoEnd(True)
-        cur.setString("")
-        cur.gotoStart(False)
-        cur.setPropertyValue("ParaStyleName", "Standard")
-        text.insertString(cur, "Intro", False)
-        text.insertControlCharacter(cur, 0, False)
-        cur.setPropertyValue("ParaStyleName", "Heading 2")
-        text.insertString(cur, "Body", False)
-        text.insertControlCharacter(cur, 0, False)
-        cur.setPropertyValue("ParaStyleName", "Standard")
-        text.insertString(cur, "Outro", False)
+        seed_styled_body(doc, [("Standard", "Intro"), ("Heading 2", "Body"), ("Standard", "Outro")])
 
     tbl = "<table><tr><td>A</td><td>B</td></tr></table>"
     lead_tbl = f"<p>Lead</p>{tbl}"
@@ -1565,19 +1557,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
     seed = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", "Last")]
 
     def _seed() -> None:
-        doc.setPropertyValue("RecordChanges", False)
-        while doc.getTextTables().getCount() > 0:
-            doc.getTextTables().getByIndex(0).dispose()
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        cur.gotoEnd(True)
-        cur.setString("")
-        cur.gotoStart(False)
-        for idx, (style, body) in enumerate(seed):
-            if idx:
-                text.insertControlCharacter(cur, 0, False)
-            cur.setPropertyValue("ParaStyleName", style)
-            text.insertString(cur, body, False)
+        seed_styled_body(doc, seed)
 
     def _select_para(needle: str, *, shift_down: bool = False) -> None:
         vc = doc.getCurrentController().getViewCursor()
@@ -1669,17 +1649,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
         seed_blank = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", ""), ("Standard", "Last")]
 
         def _seed_blank() -> None:
-            doc.setPropertyValue("RecordChanges", False)
-            cur = text.createTextCursor()
-            cur.gotoStart(False)
-            cur.gotoEnd(True)
-            cur.setString("")
-            cur.gotoStart(False)
-            for idx, (style, body) in enumerate(seed_blank):
-                if idx:
-                    text.insertControlCharacter(cur, 0, False)
-                cur.setPropertyValue("ParaStyleName", style)
-                text.insertString(cur, body, False)
+            seed_styled_body(doc, seed_blank)
 
         save({flag: "off"})
         _seed_blank()
@@ -2164,15 +2134,7 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
     prev = get_config(flag)
 
     def _seed(paras: list[str]) -> None:
-        doc.setPropertyValue("RecordChanges", False)
-        text.setString("")
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        for i, p in enumerate(paras):
-            if i:
-                text.insertControlCharacter(cur, 0, False)
-            cur.setPropertyValue("ParaStyleName", "Standard")
-            text.insertString(cur, p, False)
+        seed_styled_body(doc, [("Standard", p) for p in paras])
 
     def _select_para(needle: str) -> None:
         sd = doc.createSearchDescriptor()
@@ -3165,25 +3127,8 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
         doc.setPropertyValue("RecordChanges", False)
         if len(doc.getRedlines()):
             accept_all_changes(doc, ctx)
-        tables = doc.getTextTables()
-        for idx in range(tables.getCount() - 1, -1, -1):
-            tables.getByIndex(idx).dispose()
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        cur.gotoEnd(True)
-        cur.setString("")
-        cur.gotoStart(False)
-        if empty_first:
-            cur.setPropertyValue("ParaStyleName", "Heading 2")
-        else:
-            cur.setPropertyValue("ParaStyleName", "Standard")
-            text.insertString(cur, "Alpha", False)
-        text.insertControlCharacter(cur, 0, False)
-        cur.setPropertyValue("ParaStyleName", "Heading 3")
-        text.insertString(cur, "Omega", False)
-        text.insertControlCharacter(cur, 0, False)
-        cur.setPropertyValue("ParaStyleName", "Standard")
-        text.insertString(cur, "End", False)
+        first = ("Heading 2", "") if empty_first else ("Standard", "Alpha")
+        seed_styled_body(doc, [first, ("Heading 3", "Omega"), ("Standard", "End")])
         return body_shape(doc.getText())
 
     def _select_target(target_kind: str) -> None:
@@ -3260,7 +3205,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
 
-    def _seed_and_reload_docx() -> Any:
+    def _seed_docx(url: str) -> None:
         doc.setPropertyValue("RecordChanges", False)
         text = doc.getText()
         text.setString("")
@@ -3292,17 +3237,10 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
         bcur.goRight(6, True)
         bcur.setPropertyValue("CharWeight", 150.0)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "clause.docx")
-            pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-            pv.Name = "FilterName"
-            pv.Value = "MS Word 2007 XML"
-            doc.storeToURL(uno.systemPathToFileUrl(path), (pv,))
-            h = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-            h.Name = "Hidden"
-            h.Value = True
-            desk = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-            return desk.loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (h,))
+        pv = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+        pv.Name = "FilterName"
+        pv.Value = "MS Word 2007 XML"
+        doc.storeToURL(url, (pv,))
 
     def _first_font(para: Any) -> tuple[str, float, float]:
         enum = para.createEnumeration()
@@ -3316,7 +3254,15 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                 )
         return ("", 0.0, 0.0)
 
+    # Every case loads its own copy of one stored DOCX, so each edit starts from the same reloaded clause.
+    tmpdir = tempfile.TemporaryDirectory()
+    docx_url = uno.systemPathToFileUrl(os.path.join(tmpdir.name, "clause.docx"))
+    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    hidden.Name = "Hidden"
+    hidden.Value = True
+    desk = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     try:
+        _seed_docx(docx_url)
         cases = (
             ("p", ["<p>Second clause revised</p>"]),
             ("p_same_style", ['<p data-lo-style="Standard">Second clause revised</p>']),
@@ -3333,7 +3279,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                 if mode == "reject" and kind not in ("p", "p_same_style", "p_same_style_para"):
                     continue
                 save({flag: "off" if mode == "off" else "record"})
-                d = _seed_and_reload_docx()
+                d = desk.loadComponentFromURL(docx_url, "_blank", 0, (hidden,))
                 try:
                     tctx = native_writer_tool_context(d, ctx)
                     res = ApplyDocumentContent().execute(
@@ -3394,6 +3340,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                 finally:
                     d.close(True)
     finally:
+        tmpdir.cleanup()
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
 

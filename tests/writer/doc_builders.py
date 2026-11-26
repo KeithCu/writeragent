@@ -10,6 +10,7 @@ pool, tool contexts and fakes live in ``tests/testing_utils.py``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from plugin.doc.text_helpers import iter_elements
@@ -36,6 +37,28 @@ def reset_body(doc: Any, ctx: Any, *paragraphs: str) -> None:
         text.insertString(cursor, paragraph, False)
     if doc.getRedlines().getCount():
         accept_all_changes(doc, ctx)
+
+
+def seed_styled_body(doc: Any, paragraphs: Sequence[tuple[str, str]]) -> None:
+    """Stop recording, drop body tables, and make the body one paragraph per ``(ParaStyleName, text)``.
+
+    One ``setString`` writes every paragraph, because Writer splits the string into paragraphs
+    at each ``\\r`` (``DocInsertStringSplitCR`` in sw/source/core/unocore/unocrsrhelper.cxx,
+    reached from ``SwXText::setString`` in sw/source/core/unocore/unotext.cxx). A matrix that
+    re-seeds per case then makes one bridge call instead of one insert per paragraph and break.
+    """
+    doc.setPropertyValue("RecordChanges", False)
+    tables = doc.getTextTables()
+    while tables.getCount() > 0:
+        tables.getByIndex(0).dispose()
+    text = doc.getText()
+    text.setString("\r".join(body for _style, body in paragraphs))
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    for idx, (style, _body) in enumerate(paragraphs):
+        if idx:
+            cursor.gotoNextParagraph(False)
+        cursor.setPropertyValue("ParaStyleName", style)
 
 
 def set_body_text(doc: Any, text_value: str) -> None:

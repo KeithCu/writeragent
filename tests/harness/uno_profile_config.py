@@ -99,31 +99,55 @@ def project_venv() -> str:
     raise AssertionError("project .venv not found (release tree needs WRITERAGENT_PROJECT_ROOT)")
 
 
-@contextlib.contextmanager
-def venv_in_profile(path: str) -> Iterator[None]:
-    """Run soffice's =PY() with *path* as the configured venv; the previous setting is restored on exit.
+def _override_profile_key(key: str, value: Any) -> Callable[[], None]:
+    """Set *key* in this run's config and return a function that puts back only that key.
 
-    Only this key is undone, so other saves made inside the block survive.
-    No wait on exit: soffice may keep the venv for up to 2 s.
+    Other saves made in between survive the restore.
     """
     previous: dict[str, Any] = {}
 
     def _set(data: dict[str, Any]) -> None:
-        if _VENV_KEY in data:
-            previous[_VENV_KEY] = data[_VENV_KEY]
-        data[_VENV_KEY] = path
+        if key in data:
+            previous[key] = data[key]
+        data[key] = value
 
     def _restore(data: dict[str, Any]) -> None:
-        data.pop(_VENV_KEY, None)
+        data.pop(key, None)
         data.update(previous)
 
     patch_profile_config(_set)
+    return lambda: patch_profile_config(_restore)
+
+
+@contextlib.contextmanager
+def profile_setting(key: str, value: Any) -> Iterator[None]:
+    """Run soffice with *key* set to *value*; the previous setting is restored on exit.
+
+    Waits out soffice's config cache on entry and on exit, so the value reaches soffice
+    and is gone again before the next test reads it.
+    """
+    restore = _override_profile_key(key, value)
+    try:
+        settle_soffice_config()
+        yield
+    finally:
+        restore()
+        settle_soffice_config()
+
+
+@contextlib.contextmanager
+def venv_in_profile(path: str) -> Iterator[None]:
+    """Run soffice's =PY() with *path* as the configured venv; the previous setting is restored on exit.
+
+    No wait on exit: soffice may keep the venv for up to 2 s.
+    """
+    restore = _override_profile_key(_VENV_KEY, path)
     try:
         shutdown_venv_workers_for_tests()
         settle_soffice_config()
         yield
     finally:
-        patch_profile_config(_restore)
+        restore()
         shutdown_venv_workers_for_tests()
 
 
