@@ -1027,6 +1027,36 @@ failures stay visible. Unit tests: `test_exit_after_summary_*` in
 
 A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.
 
+## CI shards
+
+PR CI runs the full UNO set as three parallel `UNO Shard N/3 (<os>)` jobs
+(`test-uno-shard` in `.github/workflows/pr-ci.yml`), each with its own
+soffice, through `make test-uno-full FILTER="--shard N"`. `--shard N` keeps
+only the suite files whose repo-relative path sorts at or after cut N-1 and
+before cut N in `_UNO_SHARD_CUTS` (`plugin/testing_runner.py`):
+
+| Shard | Files (sorted path) |
+|-------|---------------------|
+| 1 | everything before `tests/writer/test_` (all non-Writer suites plus `tests/writer/images`, `locale`, `math`, `specialized`) |
+| 2 | `tests/writer/test_` up to, not including, `tests/writer/test_hyperlink_fixup_uno` |
+| 3 | `tests/writer/test_hyperlink_fixup_uno` onward |
+
+A new suite file joins the shard its path sorts into; there is no file
+list to maintain. Each shard keeps the runner's crash handling, so an
+soffice death skips the rest of that shard only. Move a cut when one shard
+becomes the long pole (timings are in each job's log). Adding a cut also
+needs a new entry in the workflow's `shard` matrix and the `N/3` in the job
+name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the matrix
+matches, and `test_uno_shards_cover_every_suite_file_in_sorted_order`
+checks that every discovered file lands in exactly one non-empty shard.
+
+There is no aggregate `UNO Tests` job. The UNO checks are the three
+`UNO Shard N/3 (<os>)` jobs, alongside `Test & Typecheck (<os>)`. A failed,
+timed-out or cancelled shard is red under its own check name. On a
+pull_request those names are `UNO Shard 1/3 (ubuntu-26.04)`,
+`UNO Shard 2/3 (ubuntu-26.04)`, and `UNO Shard 3/3 (ubuntu-26.04)`.
+A workflow_dispatch to another OS uses the same pattern with that OS.
+
 ## 2026-11 Windows skip experiment (TSLOP-WIN)
 
 Stage 1 removed `_windows_should_reuse_writer` (redundant with default

@@ -45,6 +45,9 @@ def _linux_jobs_use_ubuntu_lo_composite(workflow_path: Path) -> None:
     jobs = data.get("jobs") or {}
     for job_id, job in jobs.items():
         steps = job.get("steps") or []
+        # Jobs that never check out the repo run no LibreOffice.
+        if not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in steps):
+            continue
         linux_lo_steps = [
             step
             for step in steps
