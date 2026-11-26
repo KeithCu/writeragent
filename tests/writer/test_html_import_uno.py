@@ -3949,3 +3949,57 @@ def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> Non
     finally:
         doc.setPropertyValue("RecordChanges", False)
         review_authors.end(ctx, prior)
+
+
+@native_test
+@with_native_doc("writer")
+def test_partial_range_block_replace_keeps_surrounding_text_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position, replace_single_range_with_content
+
+    _seed_three_paras(doc)
+    replace_single_range_with_content(doc, _find_first(doc, "place"), "<p>A</p><p>B</p>", ctx)
+    assert body_texts(doc.getText()) == ["Keep before", "ReA", "B", " me", "Keep after"]
+
+    _seed_three_paras(doc)
+    doc.getCurrentController().select(_find_first(doc, "place"))
+    insert_content_at_position(doc, ctx, "<p>A</p><p>B</p>", "selection")
+    assert body_texts(doc.getText()) == ["Keep before", "ReA", "B", " me", "Keep after"]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_partial_block_replace_authors_deletion_separately_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    try:
+        save({flag: "record"})
+        _seed_three_paras(doc)
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx),
+            content="<p>A</p><p>B</p>",
+            target="search",
+            old_content="place",
+        )
+        assert res.get("status") == "ok", res
+
+        redline_pairs: list[tuple[str, str]] = []
+        enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(enum):
+            rl = enum.nextElement()
+            redline_pairs.append(
+                (str(rl.getPropertyValue("RedlineType")), str(rl.getPropertyValue("RedlineAuthor")))
+            )
+        assert sorted(redline_pairs) == [
+            ("Delete", review_authors.DELETE_AUTHOR),
+            ("Insert", review_authors.INSERT_AUTHOR),
+        ]
+
+        accept_all_changes(doc, ctx)
+        assert body_texts(doc.getText()) == ["Keep before", "ReA", "B", " me", "Keep after"]
+    finally:
+        save({flag: prev})
+        doc.setPropertyValue("RecordChanges", False)

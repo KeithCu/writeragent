@@ -730,10 +730,11 @@ class ApplyDocumentContent(ToolBase):
                        has_table: bool = False) -> list[dict[str, Any]]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
-        *batch* is the all_matches loop, which already holds the undo context. A single
-        match opens one when a URL write is needed. *has_table* verifies that a table
-        import added a table inside the undo group. Returns the hyperlink reports;
-        failures raise ToolExecutionError with the code the caller publishes.
+        *batch* is the all_matches loop, which already holds the undo context and the
+        session. A single match enters the session here, inside an outer undo step when
+        an outline URL or a renamed heading needs a second write. *has_table* verifies
+        that a table import added a table inside the undo group. Returns the hyperlink
+        reports; failures raise ToolExecutionError with the code the caller publishes.
         """
         # Anchor spans skip this because their text never equals one link's title;
         # renamed headings are handled separately below.
@@ -758,32 +759,26 @@ class ApplyDocumentContent(ToolBase):
 
         def run() -> list[dict[str, Any]]:
             original = found.getString()
+
+            def replace_html() -> None:
+                rep = html_import.replace_single_range_with_content(
+                    doc, found, content, ctx.ctx)
+                if has_table:
+                    html_import.raise_if_no_table_added(rep.tables_added)
+                report.extend(rep)
+
             if use_preserve:
                 record_preserve_replace(session, doc, found, content, ctx.ctx, track_reviewable)
             elif batch:
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
-                def replace_one(f: Any = found) -> None:
-                    rep = html_import.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx)
-                    if has_table:
-                        html_import.raise_if_no_table_added(rep.tables_added)
-                    report.extend(rep)
-
                 session.record_mutation(
-                    replace_one,
+                    replace_html,
                     original_preview=original, proposed_preview=plain)
             else:
-                def replace_single() -> None:
-                    rep = html_import.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx)
-                    if has_table:
-                        html_import.raise_if_no_table_added(rep.tables_added)
-                    report.extend(rep)
-
                 record_html_atomically(
                     session, doc,
-                    replace_single,
+                    replace_html,
                     original_preview=original, proposed_preview=plain)
             reports = (
                 restore_links(doc, anchor, snapshot, plain, override)
@@ -795,21 +790,17 @@ class ApplyDocumentContent(ToolBase):
 
         if batch:
             return run()
-        # A single match has to enter the review session here, outline link or not
-        # (all_matches already entered it around the loop), or record mode would
-        # only track replaces that happen to sit in an outline URL.
-        if not needs_fix:
-            if headings is None:
+        if needs_fix:
+            def once() -> list[dict[str, Any]]:
                 with session:
                     return run()
-            with UndoStepOrRollback(doc, next_agent_edit_undo_title()), session:
-                return run()
 
-        def once() -> list[dict[str, Any]]:
-            with session:
-                return run()
-
-        return self._outline_undo(doc, session, once)
+            return self._outline_undo(doc, session, once)
+        # A single match enters the review session here (all_matches enters it around the loop),
+        # or record mode would track only replaces that sit in an outline URL. A renamed heading
+        # retargets links after the replace's own undo step, so one outer step joins the two.
+        with (UndoStepOrRollback(doc, next_agent_edit_undo_title()) if headings is not None else contextlib.nullcontext()), session:
+            return run()
 
     def _occurrence_oor(self, occurrence: int, count: int, **details: Any) -> dict[str, Any]:
         # LLMs guess 1-based; say the valid 0-based range like apply_style.
