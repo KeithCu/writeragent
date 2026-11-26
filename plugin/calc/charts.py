@@ -39,7 +39,7 @@ from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_and_name, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
@@ -54,7 +54,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
-from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, supports_service, uno_same
+from plugin.framework.uno_context import enum_has_more, get_desktop, process_events_to_idle, supports_service, uno_same
 from plugin.writer.edit_review import flag_tracked, flag_untracked, flag_untracked_delete, record_write
 from plugin.writer.record_changes import insert_recorded_content
 from plugin.writer.specialized_base import ToolWriterChartBase
@@ -72,12 +72,7 @@ class ChartRef(NamedTuple):
 
 
 def _is_draw_doc(doc: Any) -> bool:
-    """Draw or Impress. DrawingDocument is probed first, then PresentationDocument.
-
-    Both orders accept a live Draw doc and a live Impress doc (Impress supports
-    both services, so the OR is true). A disposed document raises on the first
-    call either way; either probe order is equivalent for live documents.
-    """
+    """True for a Draw or Impress document."""
     return supports_service(doc, "com.sun.star.drawing.DrawingDocument") or supports_service(
         doc, "com.sun.star.presentation.PresentationDocument"
     )
@@ -85,8 +80,7 @@ def _is_draw_doc(doc: Any) -> bool:
 
 log = logging.getLogger(__name__)
 
-# Chart CLSID: classic OLE chart (Calc sheet charts, Writer TextEmbeddedObject)
-# Uppercase is often more compatible with older OLE registries
+# CLSID that existing sheet charts and older embeds report; only recognized here, never written.
 CHART_CLSID = "12DCAE36-07DA-43C1-9C17-56A938C64445"
 # Draw/Impress OLE2Shape: add shape to page first, then set CLSID (OOo wiki sample)
 CHART_CLSID_DRAW_OLE = "12DCAE26-281F-416F-A234-C3086127382E"
@@ -123,18 +117,16 @@ def _normalize_clsid_value(clsid: Any) -> str:
         return clsid
     if isinstance(clsid, (bytes, bytearray)):
         return clsid.decode("ascii", errors="replace")
-    try:
-        return str(clsid)
-    except Exception:
-        return ""
+    return str(clsid)
+
+
+def _clsid_key(clsid: Any) -> str:
+    return _normalize_clsid_value(clsid).strip().lower().strip("{}")
 
 
 def is_chart_clsid(clsid: Any) -> bool:
-    s = _normalize_clsid_value(clsid).strip()
-    if not s:
-        return False
-    c = s.lower().strip("{}")
-    return c in RECOGNIZED_CHART_CLSIDS
+    key = _clsid_key(clsid)
+    return bool(key) and key in RECOGNIZED_CHART_CLSIDS
 
 
 def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
@@ -148,8 +140,9 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
             raise
         raw = None
 
-    if _normalize_clsid_value(raw).strip():
-        return is_chart_clsid(raw)
+    key = _clsid_key(raw)
+    if key:
+        return key in RECOGNIZED_CHART_CLSIDS
 
     # Missing CLSID: Writer embeds fall back to getDiagram() check
     if is_embed:
@@ -354,8 +347,7 @@ CHART_SERVICE_MAP = {
 def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
     """Read or write axis title text on a diagram title shape (ChartAxis*Supplier).
 
-    Return None unless the ``String`` property exists. ``hasattr`` failing
-    and still returning *value* logs a missing setter as a successful write.
+    Returns None when the shape has no ``String`` property, so the caller does not log a write that did not happen.
     """
     if shape is None or not hasattr(shape, "String"):
         return None
@@ -365,11 +357,11 @@ def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
     return shape.String
 
 
-def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
+def _process_events(ctx: Any, *, deadline: float | None = None) -> bool:
     """Pump UI events once so chart object names and models can settle.
 
     Returns True only when an idle pump finished. False means idle did not
-    arrive (testing, headless, no context, past *deadline*, or the pump did
+    arrive (testing, headless, past *deadline*, or the pump did
     not run). The test-harness case returns False because
     ``process_events_to_idle`` refuses to pump under ``Policy.test_inline``
     (``vcl_pumping.py``) and headless runs have no active frame. Callers must
@@ -378,15 +370,12 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
     if deadline is not None and time.monotonic() >= deadline:
         return False
     try:
-        uctx = ctx or get_ctx()
-        if not uctx:
-            return False
         # Bypass if running in headless mode (no active frame) to avoid event pump hangs during chart rendering
-        desktop = get_desktop(uctx)
+        desktop = get_desktop(ctx)
         if desktop and desktop.getActiveFrame() is None:
             return False
 
-        return bool(process_events_to_idle(uctx))
+        return bool(process_events_to_idle(ctx))
     except Exception:
         # Avoid letting UI event processing crash the tool
         log.debug("chart event pump failed", exc_info=True)
@@ -399,7 +388,7 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
 _WRITER_CHART_MODEL_WAIT_SEC = 0.5
 
 
-def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _WRITER_CHART_MODEL_WAIT_SEC) -> Any | None:
+def _await_writer_chart_document(chart_obj: Any, ctx: Any) -> Any | None:
     """Poll for an embedded Writer chart model without spinning the UI thread.
 
     Stop at a hard timeout, and stop immediately when a pump does not
@@ -407,7 +396,7 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
     keeps calling ``_process_events``, and ``processEventsToIdle`` does
     not return when idle never arrives, which freezes the UI thread.
     """
-    deadline = time.monotonic() + max(0.0, float(timeout))
+    deadline = time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC
     chart_doc = _chart_document_from_host(chart_obj)
     if chart_doc is not None:
         log.info("Obtained chart model")
@@ -425,11 +414,11 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
         # No sleep between pumps. time.sleep here holds SolarMutex, so
         # worker threads waiting on the mutex stall. The next pump's VCL
         # yield is where they get it, and the deadline above bounds the loop.
-    log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
+    log.debug("Writer chart model wait hit total timeout (%.2fs)", _WRITER_CHART_MODEL_WAIT_SEC)
     return None
 
 
-# com.sun.star.chart.ChartLegend.Alignment. Not ChartLegendAlignment.
+# ChartLegend.Alignment takes a ChartLegendPosition (offapi/com/sun/star/chart/ChartLegendPosition.idl); there is no ChartLegendAlignment type.
 _CHART_LEGEND_POSITION_ENUM = "com.sun.star.chart.ChartLegendPosition"
 _LEGEND_POSITION_MEMBER = {
     "top": "TOP",
@@ -575,8 +564,6 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
     _set_axis_title(diagram, "Y", kwargs.get("y_axis_title"), warnings)
 
     # 4. Legend
-    # offapi ChartLegend.Alignment is ChartLegendPosition (NONE/LEFT/TOP/RIGHT/BOTTOM).
-    # There is no ChartLegendAlignment type.
     has_legend = kwargs.get("has_legend")
     if has_legend is not None:
         _chart_step(warnings, "legend visibility", lambda: setattr(chart_doc, "HasLegend", has_legend))
@@ -595,7 +582,6 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                     # legend_position implies HasLegend=True (False HasLegend must not skip placement).
                     chart_doc.HasLegend = True
                     member = _LEGEND_POSITION_MEMBER[legend_pos]
-                    # Tip: Alignment takes ChartLegendPosition; ChartLegendAlignment is not in the API.
                     chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
                     log.debug("Set legend position: %s", legend_pos)
                 _chart_step(warnings, "legend position", _set_legend_pos)
@@ -693,11 +679,7 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
 
 
 def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
-    """Remove a chart inserted before a later create step failed.
-
-    A failed delete is logged and does not replace the original error.
-    Remove the chart when a post-insert configure step fails so the document does not keep a half-built chart.
-    """
+    """Remove a chart whose later create step failed, so the document keeps no half-built chart. A failed removal is logged and the original error still propagates."""
     try:
         remove()
     except Exception:
@@ -755,46 +737,35 @@ def _chart_list_failure(exc: Exception, errors: list[dict[str, Any]], **where: A
 def _get_all_calc_chart_names(doc: Any) -> set[str]:
     """Return a set of all chart names existing across all sheets in a Calc document."""
     names: set[str] = set()
-    try:
-        sheets = doc.getSheets()
-        for name in sheets.getElementNames():
-            names.update(sheets.getByName(name).getCharts().getElementNames())
-    except Exception as exc:
-        if is_disposal(exc):
-            raise
+    sheets = doc.getSheets()
+    for name in sheets.getElementNames():
+        names.update(sheets.getByName(name).getCharts().getElementNames())
     return names
 
 
 def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None = None) -> tuple[Any | None, Any | None]:
     """Find a chart object and its parent sheet across all sheets in a Calc document.
 
-    Note: Chart names in Calc are document-wide objects (e.g. Chart_0, Chart_1).
-    If sheet_name is omitted or mismatched, this function automatically falls back
-    to searching across all sheets in the document to locate and operate on the chart cleanly.
+    Chart names are unique across the document, so a missing or wrong sheet_name falls back to every sheet.
     """
-    try:
-        sheets = doc.getSheets()
-        if sheet_name and sheets.hasByName(sheet_name):
-            sheet = sheets.getByName(sheet_name)
-            charts = sheet.getCharts()
-            if charts.hasByName(chart_name):
-                return charts.getByName(chart_name), sheet
+    sheets = doc.getSheets()
+    if sheet_name and sheets.hasByName(sheet_name):
+        sheet = sheets.getByName(sheet_name)
+        charts = sheet.getCharts()
+        if charts.hasByName(chart_name):
+            return charts.getByName(chart_name), sheet
 
-        for name in sheets.getElementNames():
-            sheet = sheets.getByName(name)
-            charts = sheet.getCharts()
-            if charts.hasByName(chart_name):
-                return charts.getByName(chart_name), sheet
-    except Exception as exc:
-        if is_disposal(exc):
-            raise
+    for name in sheets.getElementNames():
+        sheet = sheets.getByName(name)
+        charts = sheet.getCharts()
+        if charts.hasByName(chart_name):
+            return charts.getByName(chart_name), sheet
     return None, None
 
 
 def _iter_page_shapes(
     container: Any,
     doc: Any,
-    parent: Any = None,
     on_probe_error: Callable[[int, Exception], None] | None = None,
 ) -> Iterator[tuple[Any, Any, str | None]]:
     """Yield (shape, parent, shape_type) for shapes in a draw page or group shape, descending into nested groups."""
@@ -811,8 +782,6 @@ def _iter_page_shapes(
                 raise
             return
         raise
-
-    current_parent = parent if parent is not None else container
 
     for i in range(count):
         try:
@@ -837,10 +806,10 @@ def _iter_page_shapes(
                 on_probe_error(i, exc)
             shape_type = None
 
-        yield shape, current_parent, shape_type
+        yield shape, container, shape_type
 
-        if shape_type and "GroupShape" in str(shape_type):
-            yield from _iter_page_shapes(shape, doc, parent=shape, on_probe_error=on_probe_error)
+        if shape_type and "GroupShape" in shape_type:
+            yield from _iter_page_shapes(shape, doc, on_probe_error=on_probe_error)
 
 
 def _collect_page_shape_names(page: Any, doc: Any, existing: set[str], skip: Any = None) -> None:
@@ -983,13 +952,15 @@ class SheetCharts:
 
         pos_str = kwargs.get("position")
         if pos_str:
-            pos_prefix, bare_pos = split_sheet_prefix(pos_str)
             target_name = target_sheet_name or sheet.getName()
-            if pos_prefix is not None and pos_prefix != target_name:
+            try:
+                bare_pos, _unused = split_sheet_and_name(pos_str, target_name)
+            except ValueError as exc:
+                pos_prefix = split_sheet_prefix(pos_str)[0]
                 raise ToolExecutionError(
                     f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.",
                     code="INVALID_PARAM",
-                )
+                ) from exc
             try:
                 parse_address(bare_pos)
                 cell_obj = sheet.getCellRangeByName(bare_pos)
@@ -1041,15 +1012,11 @@ class WriterEmbeds:
         self.doc: Any = doc
 
     def find(self, name: str, *, sheet: str | None = None, page: int | None = None) -> ChartRef | None:
-        try:
-            objects = self.doc.getEmbeddedObjects()
-            if objects.hasByName(name):
-                obj = objects.getByName(name)
-                if _is_chart_host(obj, is_embed=True):
-                    return ChartRef(obj, objects, "writer_embed", None)
-        except Exception as exc:
-            if is_disposal(exc):
-                raise
+        objects = self.doc.getEmbeddedObjects()
+        if objects.hasByName(name):
+            obj = objects.getByName(name)
+            if _is_chart_host(obj, is_embed=True):
+                return ChartRef(obj, objects, "writer_embed", None)
         page_obj = self.doc.getDrawPage()
         for shape, parent, shape_type in _iter_page_shapes(page_obj, self.doc):
             ref = _named_ole_chart_ref(shape, parent, shape_type, name)
@@ -1059,12 +1026,8 @@ class WriterEmbeds:
 
     def names(self, *, skip: Any = None) -> set[str]:
         existing_names: set[str] = set()
-        try:
-            embeds = self.doc.getEmbeddedObjects()
-            existing_names.update(embeds.getElementNames())
-        except Exception as exc:
-            if is_disposal(exc):
-                raise
+        embeds = self.doc.getEmbeddedObjects()
+        existing_names.update(embeds.getElementNames())
         page = self.doc.getDrawPage()
         _collect_page_shape_names(page, self.doc, existing_names, skip=skip)
         return existing_names
@@ -1144,13 +1107,12 @@ class WriterEmbeds:
         # 2. Collect existing names across embeds and draw page
         name = _pick_chart_name(self.names(), kwargs)
 
-        # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
         chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
         if not chart_obj:
             raise ToolExecutionError("Failed to create TextEmbeddedObject instance.")
 
-        # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
-        chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
+        # Same CLSID that DrawPage.create sets on an OLE2Shape.
+        chart_obj.CLSID = CHART_CLSID_DRAW_OLE
         from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
         chart_obj.AnchorType = AS_CHARACTER
@@ -1190,7 +1152,6 @@ class WriterEmbeds:
 
             chart_obj.AnchorType = AT_PARAGRAPH
             text.insertTextContent(cursor, chart_obj, False)
-            tracked = False
             log.info("Successfully inserted chart object with AT_PARAGRAPH.")
 
         # 4. Configure properties after insertion
@@ -1323,7 +1284,7 @@ class DrawPage:
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
-            indexes_str = ", ".join(str(m.page_index) for m in matches if m.page_index is not None)
+            indexes_str = ", ".join(str(m.page_index) for m in matches)
             raise ToolExecutionError(f"Chart '{name}' found on multiple pages ({indexes_str}). Please specify 'page'.", code="CHART_AMBIGUOUS")
         return None
 
@@ -1350,10 +1311,9 @@ class DrawPage:
                 _chart_list_failure(exc, errors, page=i)
                 continue
             try:
-                page_idx = i
-
                 def _on_draw_probe_error(idx: int, exc: Exception) -> None:
-                    _chart_list_failure(exc, errors, page=page_idx, index=idx)
+                    # called only within this iteration
+                    _chart_list_failure(exc, errors, page=i, index=idx)
 
                 for j, (shape, _parent, shape_type) in enumerate(
                     _iter_page_shapes(page, self.doc, on_probe_error=_on_draw_probe_error)
@@ -1399,7 +1359,7 @@ class DrawPage:
                 raise ToolExecutionError("No draw page or slide to insert chart.")
             for i in range(count):
                 candidate = draw_pages.getByIndex(i)
-                if page is candidate or uno_same(page, candidate):
+                if uno_same(page, candidate):
                     page_index = i
                     break
 
@@ -1444,7 +1404,7 @@ class DrawPage:
 def _chart_list_names(host: SheetCharts | WriterEmbeds | DrawPage) -> list[str]:
     """Chart names for ``chart_list``-style hints; re-raises disposal."""
     try:
-        return sorted(str(n) for n in host.names())
+        return sorted(host.names())
     except Exception as exc:
         if is_disposal(exc):
             raise
@@ -1482,7 +1442,7 @@ def get_chart_info(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     info = make_tool_ok(name=chart_name)
 
     # Data ranges (Calc only)
-    if hasattr(chart_obj, "getRanges"):
+    if ref.kind == "calc_sheet":
         try:
             info["data_ranges"] = [format_range_address(r) for r in chart_obj.getRanges()]
         except Exception as exc:
@@ -1506,8 +1466,7 @@ def get_chart_info(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
                 info["percent"] = getattr(diagram, "Percent", None)
 
                 for axis, key in (("X", "x_axis_title"), ("Y", "y_axis_title")):
-                    flag = f"Has{axis}AxisTitle"
-                    if hasattr(diagram, flag) and getattr(diagram, flag):
+                    if getattr(diagram, f"Has{axis}AxisTitle", False):
                         try:
                             text = _axis_title_shape_string(getattr(diagram, f"get{axis}AxisTitle")(), None)
                             if text is not None:
@@ -1550,7 +1509,7 @@ def _edit_chart(
             addr = _resolve_chart_data_range(
                 bridge,
                 data_range,
-                str(ref.parent.getName()) if ref.parent is not None else None,
+                ref.parent.getName(),
             )
             try:
                 chart_obj.setRanges((addr,))
@@ -1570,11 +1529,9 @@ def _edit_chart(
 
         chart_type = kwargs.get("chart_type")
         if chart_type:
-            assert chart_type in CHART_SERVICE_MAP, chart_type
             chart_doc.setDiagram(chart_doc.createInstance(CHART_SERVICE_MAP[chart_type]))
 
-        styling_warnings = _apply_chart_styling(chart_doc, **kwargs)
-        warnings.extend(styling_warnings)
+        warnings.extend(_apply_chart_styling(chart_doc, **kwargs))
     except Exception as e:
         _raise_chart_op_error(e, prefix="Failed to edit chart", code="CHART_EDIT_ERROR")
 
@@ -1587,7 +1544,6 @@ def _create_chart(
     **kwargs: Any,
 ) -> dict[str, Any]:
     chart_type = kwargs["chart_type"]
-    assert chart_type in CHART_SERVICE_MAP, chart_type
     chart_service = CHART_SERVICE_MAP[chart_type]
     rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 

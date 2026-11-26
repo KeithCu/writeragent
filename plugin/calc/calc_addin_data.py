@@ -19,7 +19,7 @@ decides; do not "simplify" it away.
 # crosshair: off
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
@@ -149,7 +149,7 @@ def calc_addin_data_to_python(value: Any) -> list[list[Any]] | None:
     return ensure_rectangular_2d(grid)
 
 
-def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: ForceBinary = "auto", addresses: list[str | None] | None = None) -> Any:
+def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: ForceBinary = "auto", addresses: Sequence[str | None] | None = None) -> Any:
     """Pack multiple Calc ranges as ``multi_data`` of ``calc_range`` envelopes."""
     if not py_data:
         return None
@@ -238,4 +238,4 @@ def resolve_python_data(doc: Any, *, data_range: Any = None, data: Any = None) -
         return None, size_err
     if not is_multi:
         return pack_calc_data_for_wire(grids[0], address=addresses[0] if addresses else None), None
-    return pack_calc_multi_data_for_wire(grids, addresses=list(addresses)), None
+    return pack_calc_multi_data_for_wire(grids, addresses=addresses), None

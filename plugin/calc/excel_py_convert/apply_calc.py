@@ -84,7 +84,7 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
 
     # 2. Write with rollback tracking
     journal: list[tuple[str, str, Any]] = []
-    named_ranges = getattr(doc, "NamedRanges", None)
+    named_ranges = doc.NamedRanges
 
     def _rollback() -> list[str]:
         failed: list[str] = []
@@ -103,12 +103,11 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
                 journal.append(("remove sheet", code_sheet, lambda sh_name=code_sheet: sheets.removeByName(sh_name) if sheets.hasByName(sh_name) else None))
             bank_sheet = sheets.getByName(code_sheet)
 
-            if named_ranges is not None:
-                expected_def = bank_defined_name_for(code_sheet)
-                if not named_ranges.hasByName(expected_def):
-                    addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
-                    named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
-                    journal.append(("removeByName", expected_def, lambda name=expected_def, nr=named_ranges: nr.removeByName(name) if nr.hasByName(name) else None))
+            expected_def = bank_defined_name_for(code_sheet)
+            if not named_ranges.hasByName(expected_def):
+                addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
+                named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
+                journal.append(("removeByName", expected_def, lambda name=expected_def: named_ranges.removeByName(name) if named_ranges.hasByName(name) else None))
 
             if CODE_SHEET_NOTE_CELL not in sheet_bank:
                 note_cell = bank_sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL)

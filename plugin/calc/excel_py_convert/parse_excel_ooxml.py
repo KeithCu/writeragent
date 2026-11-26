@@ -53,16 +53,16 @@ def row_col_1based(a1: str) -> tuple[int, int]:
 def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
     """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
     try:
-        _sheet, local = split_sheet_prefix(ref or "")
+        _sheet, local = split_sheet_prefix(ref)
         (c0, r0), (c1, r1) = parse_range_string(local)
-        return ((min(c0, c1) + 1, min(r0, r1) + 1), (max(c0, c1) + 1, max(r0, r1) + 1))
+        return (c0 + 1, r0 + 1), (c1 + 1, r1 + 1)
     except (ValueError, TypeError):
         return None
 
 
 def split_top_level_args(tail: str) -> list[str]:
     """Split comma-separated formula args with quote/paren awareness."""
-    s = (tail or "").strip()
+    s = tail.strip()
     if s.startswith(","):
         s = s[1:].strip()
     if not s:
@@ -117,7 +117,7 @@ def split_top_level_args(tail: str) -> list[str]:
 
 def parse_xlws_py_formula(formula: str) -> tuple[int, int, list[str]] | None:
     """Parse ``_xlfn._xlws.PY(scriptIndex, returnType, …deps)``."""
-    text = (formula or "").strip()
+    text = formula.strip()
     if text.startswith("="):
         text = text[1:].strip()
     m = _RE_XLWS_PY.match(text)
@@ -125,7 +125,7 @@ def parse_xlws_py_formula(formula: str) -> tuple[int, int, list[str]] | None:
         return None
     script_index = int(m.group(1))
     return_type = int(m.group(2))
-    deps = split_top_level_args(m.group(3) or "")
+    deps = split_top_level_args(m.group(3))
     return script_index, return_type, deps
 
 
@@ -150,10 +150,7 @@ def _shift_single_coord(coord: str, delta_row: int, delta_col: int) -> str | Non
     bare = part.replace("$", "")
     locked = part.startswith("$")
     if bare.isalpha() and bare.isascii():
-        try:
-            c = column_to_index(bare)
-        except Exception:
-            return None
+        c = column_to_index(bare)
         new_c = c + (0 if locked else delta_col)
         if new_c < 0 or new_c > MAX_COL:
             return None
@@ -253,8 +250,7 @@ def iter_formula_cells(ws_root: ET.Element) -> Iterator[tuple[str, ET.Element, s
         f = find_child(c, "f")
         if f is None or not a1:
             continue
-        # ElementTree already decodes entities. A second _unescape_xml
-        # corrupts literals like &lt; or &amp;. Use body as decoded.
+        # ElementTree has already decoded the entities; unescaping again would corrupt a literal &lt; or &amp; in the Python source.
         body = "".join(f.itertext()).strip()
         yield a1, f, body
 
@@ -306,7 +302,7 @@ def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     root = _read_xml(zf, "xl/pythonScripts.xml", issues)
     if root is None:
         return []
-    script_els = [el for el in list(root) if local_name(el.tag) == "pythonScript"]
+    script_els = [el for el in root if local_name(el.tag) == "pythonScript"]
     if not script_els:
         script_els = [el for el in root.iter() if local_name(el.tag) == "pythonScript"]
 
@@ -394,8 +390,7 @@ def shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
         si = f.attrib.get("si")
         body = "".join(f.itertext()).strip()
         if si is not None and body:
-            # ElementTree already decodes entities. A second _unescape_xml
-            # corrupts literals like &lt; or &amp;. Use body as decoded.
+            # ElementTree has already decoded the entities; unescaping again would corrupt a literal &lt; or &amp; in the Python source.
             masters[si] = (body, a1)
     return masters
 

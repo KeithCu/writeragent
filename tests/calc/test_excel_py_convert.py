@@ -1318,20 +1318,20 @@ def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
 
 
 def test_cell_string_value_inlinestr():
-    """_cell_string_value must match both t='inlineStr' and t='inlinestr'."""
-    from plugin.calc.excel_py_convert.parse_dag_formulas import _cell_string_value
+    """cell_string_value must match both t='inlineStr' and t='inlinestr'."""
+    from plugin.calc.excel_py_convert.ooxml_util import cell_string_value
 
     c1 = ET.fromstring('<c r="A1" t="inlineStr"><is><t>code string 1</t></is></c>')
-    assert _cell_string_value(c1, []) == "code string 1"
+    assert cell_string_value(c1, []) == "code string 1"
 
     c2 = ET.fromstring('<c r="A2" t="inlinestr"><is><t>code string 2</t></is></c>')
-    assert _cell_string_value(c2, []) == "code string 2"
+    assert cell_string_value(c2, []) == "code string 2"
 
     c3 = ET.fromstring('<c r="A3" t="inlineStr"><is><t>part A</t><t> and part B</t></is></c>')
-    assert _cell_string_value(c3, []) == "part A and part B"
+    assert cell_string_value(c3, []) == "part A and part B"
 
     c_empty = ET.fromstring('<c r="A4" t="inlineStr"/>')
-    assert _cell_string_value(c_empty, []) == ""
+    assert cell_string_value(c_empty, []) == ""
 
 
 def test_no_double_xml_unescape():
@@ -1754,7 +1754,7 @@ def test_shared_formula_vs_array_formula(tmp_path: Path):
 
 
 def test_inline_string_bank_reading(tmp_path: Path):
-    """_cell_string_value and iter_dag_py_formulas_xlsx must read bank code stored as inlineStr."""
+    """cell_string_value and iter_dag_py_formulas_xlsx must read bank code stored as inlineStr."""
     from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas_xlsx
 
     wb_xml = (

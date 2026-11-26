@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from plugin.calc.bridge import used_range_address
 from plugin.calc.calc_utils import FORMULA, TEXT
 from plugin.calc.formula_dialect import to_api
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
@@ -62,10 +63,9 @@ def _cells_to_edit(
     cells: list[tuple[int, int, str]] = []
     skipped_formula = False
     for r_i, row_vals in enumerate(formula_array):
-        for c_i, raw_val in enumerate(row_vals):
+        for c_i, cell_text in enumerate(row_vals):
             if len(cells) >= _MAX_CELLS:
                 return cells, skipped_formula
-            cell_text = "" if raw_val is None else str(raw_val)
             if not cell_text:
                 continue
             col_abs = start_col + c_i
@@ -119,10 +119,7 @@ def do_calc_extend_edit(
     edit_max = get_config("chatbot.edit_selection_max_new_tokens")
 
     # Intersect selection with used area to prevent evaluating 1M empty rows
-    cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    used_area = cursor.getRangeAddress()
+    used_area = used_range_address(sheet)
 
     start_col = max(area.StartColumn, used_area.StartColumn)
     end_col = min(area.EndColumn, used_area.EndColumn)

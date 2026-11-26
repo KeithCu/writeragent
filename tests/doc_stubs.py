@@ -581,6 +581,26 @@ class _UserDefinedPropertiesStub:
         self.values[name] = value
 
 
+class _CalcNamedRangesStub:
+    def __init__(self):
+        self._items = {}
+
+    def hasByName(self, name):
+        return name in self._items
+
+    def getByName(self, name):
+        return self._items[name]
+
+    def getElementNames(self):
+        return tuple(self._items.keys())
+
+    def addNewByName(self, name, content, _addr, _type):
+        self._items[name] = SimpleNamespace(getContent=lambda: content)
+
+    def removeByName(self, name):
+        del self._items[name]
+
+
 class CalcDocStub:
     """Stateful SpreadsheetDocument stub for pure pytest (no live LibreOffice).
 
@@ -615,6 +635,7 @@ class CalcDocStub:
             selection = active.getCellRangeByName(selection)
         self._controller = CalcControllerStub(active, selection=selection)
         self.CurrentController = self._controller
+        self.NamedRanges = _CalcNamedRangesStub()
         self.url = url
         self._command_values = command_values
         self._close_calls = []

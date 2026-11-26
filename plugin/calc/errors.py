@@ -29,7 +29,7 @@ from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
-from plugin.calc.error_detector import ErrorDetector, truncation_hint
+from plugin.calc.error_detector import MAX_EXPLAINED_ERRORS, ErrorDetector, truncation_hint
 from plugin.framework.errors import make_tool_ok
 
 if TYPE_CHECKING:
@@ -40,7 +40,10 @@ class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
     name: str | None = "detect_errors"
-    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
+    description: str = (
+        f"Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. "
+        f"Explanations are capped at {MAX_EXPLAINED_ERRORS} per range; truncated and total_error_count report any remainder."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. {CALC_SHEET_PREFIX_NOTE}"}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = False
@@ -65,10 +68,10 @@ class DetectErrors(ToolCalcErrorBase):
 
         results = [error_detector.detect_and_explain(range_str=r) for r in ranges]
         combined_errors: list[dict[str, Any]] = [
-            err for res in results for err in res.get("errors", [])
+            err for res in results for err in res["errors"]
         ]
-        total = sum(res.get("total_error_count", res.get("error_count", 0)) for res in results)
-        truncated = any(res.get("truncated") for res in results)
+        total = sum(res["total_error_count"] for res in results)
+        truncated = any(res["truncated"] for res in results)
         combined: dict[str, Any] = {
             "ranges": ranges,
             "total_error_count": total,

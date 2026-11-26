@@ -72,10 +72,10 @@ def shared_strings(zf: zipfile.ZipFile) -> list[str]:
     except KeyError:
         return []
     out: list[str] = []
-    for si in list(root):
+    for si in root:
         if local_name(si.tag) != "si":
             continue
-        out.append("".join(t.text or "" for t in si.iter() if local_name(t.tag) == "t" and t.text))
+        out.append("".join(t.text for t in si.iter() if local_name(t.tag) == "t" and t.text))
     return out
 
 
@@ -87,6 +87,29 @@ def find_all(parent: ET.Element, name: str) -> list[ET.Element]:
 def find_child(parent: ET.Element, name: str) -> ET.Element | None:
     """Find the first direct child whose local tag matches *name*."""
     return next((child for child in parent if local_name(child.tag) == name), None)
+
+
+def cell_string_value(c: ET.Element, shared: list[str]) -> str:
+    """Read a cell's display/string value (shared string, inlineStr, or ``v``)."""
+    # t is already lowercased. Compare to "inlinestr", or an inline-string
+    # bank cell never matches "inlineStr".
+    t = (c.attrib.get("t") or "").lower()
+    # Some writers omit t="inlineStr" on <c><is><t>...</t></is></c> cells; read <is> whenever t is absent or inlineStr.
+    is_el = find_child(c, "is") if t in ("", "inlinestr") else None
+    if is_el is not None:
+        return "".join(el.text for el in is_el.iter() if local_name(el.tag) == "t" and el.text)
+    if t == "inlinestr":
+        return ""
+    v = find_child(c, "v")
+    if v is None or v.text is None:
+        return ""
+    raw = v.text
+    if t == "s":
+        try:
+            return shared[int(raw)]
+        except (ValueError, IndexError):
+            return ""
+    return raw
 
 
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
@@ -210,7 +233,7 @@ def workbook_sheets(zf: zipfile.ZipFile) -> list[SheetInfo]:
     if sheets_el is None:
         return []
     out: list[SheetInfo] = []
-    for order, sh in enumerate(list(sheets_el)):
+    for order, sh in enumerate(sheets_el):
         if local_name(sh.tag) != "sheet":
             continue
         title = sh.attrib.get("name") or f"Sheet{order + 1}"
@@ -222,8 +245,6 @@ def workbook_sheets(zf: zipfile.ZipFile) -> list[SheetInfo]:
                     rid = v
                     break
         part = rels.get(rid, "")
-        if part and not part.startswith("xl/"):
-            part = f"xl/{part}"
         out.append(SheetInfo(title=title, order=order, part_name=part, rel_id=rid))
     return out
 

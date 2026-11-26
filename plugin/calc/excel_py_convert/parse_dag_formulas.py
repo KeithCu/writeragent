@@ -9,9 +9,9 @@ from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .
 
 from plugin.calc.excel_py_convert.models import DagFormulaItem, find_sheet_ci
 from plugin.calc.excel_py_convert.ooxml_util import (
+    cell_string_value,
     find_all,
     find_child,
-    local_name,
     shared_strings,
     workbook_sheets,
 )
@@ -26,28 +26,6 @@ from plugin.calc.python.formula_edit import (
     PyFormula,
     escape_code_for_formula,
 )
-
-
-def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
-    """Read a cell's display/string value (shared string, inlineStr, or ``v``)."""
-    # t is already lowercased. Compare to "inlinestr", or an inline-string
-    # bank cell never matches "inlineStr".
-    t = (c.attrib.get("t") or "").lower()
-    if t == "inlinestr":
-        is_el = find_child(c, "is")
-        if is_el is None:
-            return ""
-        return "".join(el.text for el in is_el.iter() if local_name(el.tag) == "t" and isinstance(el.text, str) and el.text)
-    v = find_child(c, "v")
-    if v is None or v.text is None:
-        return ""
-    raw = v.text
-    if t == "s":
-        try:
-            return shared[int(raw)]
-        except (ValueError, IndexError):
-            return ""
-    return raw
 
 
 def _shift_py_formula_args(body: str, rows: int, cols: int) -> str | None:
@@ -78,12 +56,12 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
         # ElementTree already decodes entities; a second unescape corrupts Python with a literal &lt;.
         formula = "".join(f.itertext()).strip() if f is not None else ""
 
-        if f is not None and t_attr == "shared" and not formula and si in masters:
+        if t_attr == "shared" and not formula and si in masters:
             formula = expand_shared(masters[si], a1, shift_other=_shift_py_formula_args) or ""
 
         if formula and not formula.startswith("="):
             formula = "=" + formula
-        out[a1] = (formula, _cell_string_value(c, shared))
+        out[a1] = (formula, cell_string_value(c, shared))
     return out
 
 

@@ -238,13 +238,12 @@ def format_python_syntax_issue(exc: BaseException) -> str:
     return f"Python syntax error at {loc}: {msg}"
 
 
-@deal.pre(lambda code, *_unused, **__: _deal_excel_src_ok(code or ""))
+@deal.pre(lambda code, *_unused, **__: _deal_excel_src_ok(code))
 def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
     issues: list[str] = []
-    src = code or ""
     # Excel ``%Pn%`` is not valid Python; equal-length ``_Pn_`` lets us parse with AST.
-    normalized = normalize_excel_placeholders(src)
+    normalized = normalize_excel_placeholders(code)
     try:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
@@ -252,9 +251,9 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         issues.append(format_python_syntax_issue(exc))
         return [], issues
 
-    line_starts = line_starts_exact(src)
+    line_starts = line_starts_exact(code)
     calls: list[_XlCall] = []
-    for node, start, end in iter_xl_calls(tree, src, line_starts, issues):
+    for node, start, end in iter_xl_calls(tree, code, line_starts, issues):
         header_mode, kw_err = _header_mode_from_keywords(node)
         if kw_err:
             issues.append(kw_err)
@@ -279,11 +278,11 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     for name_node in ast.walk(tree):
         if not (isinstance(name_node, ast.Name) and _P_SENTINEL_RE.match(name_node.id)):
             continue
-        off = ast_source_offset(src, name_node.lineno, name_node.col_offset, line_starts=line_starts)
+        off = ast_source_offset(code, name_node.lineno, name_node.col_offset, line_starts=line_starts)
         if off < 0:
             issues.append("placeholder token without reliable source position")
             continue
-        token = src[off : off + len(name_node.id)]
+        token = code[off : off + len(name_node.id)]
         inside = any(c.p_num is not None and c.start <= off < c.end for c in calls)
         if token.startswith(("%P", "%p")):
             if not inside:
@@ -357,17 +356,16 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     return sorted(model.cells, key=lambda c: (order_map[c.sheet] if c.sheet in order_map else unknown[c.sheet], c.row or 10**9, c.col or 10**9, c.cell))
 
 
-@deal.pre(lambda current, candidate: ascii_bounded(current or "", DEAL_MAX_SOURCE) and ascii_bounded(candidate or "", DEAL_MAX_SOURCE))
+@deal.pre(lambda current, candidate: ascii_bounded(current, DEAL_MAX_SOURCE) and ascii_bounded(candidate, DEAL_MAX_SOURCE))
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
     See ``plugin.calc.excel_py_convert.models`` module doc; fidelity only, not Calc semantics.
     """
-    # Blank/None values occur when a dep had no original text; strip so whitespace-only
-    # counts as empty and the other side wins.
-    cand = (candidate or "").strip()
-    cur = (current or "").strip()
+    # A whitespace-only token counts as empty, so the other side wins.
+    cand = candidate.strip()
+    cur = current.strip()
     if not cand:
         return cur
     if "[#" in cand or "ANCHORARRAY" in cand.upper():
@@ -379,7 +377,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     lambda resolved, header_modes: (
         type(resolved) is list
         and len(resolved) <= DEAL_MAX_CMD_ARGS
-        and all(isinstance(r, ResolvedDep) and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE)) for r in resolved)
+        and all(isinstance(r, ResolvedDep) and str_bounded(r.note, DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and ascii_bounded(r.original, DEAL_MAX_SOURCE) for r in resolved)
         and type(header_modes) is dict
         and len(header_modes) <= DEAL_MAX_CMD_ARGS
         and all(type(k) is int and 0 <= k <= DEAL_MAX_CMD_ARGS and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
@@ -519,8 +517,7 @@ def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False
     # crosshair: off — delegates to convert_cell_to_dag/resolve_dep; CrossHair's relib crashes on \[ under IGNORECASE
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""
     report = ConversionReport(direction="dag", source_path=model.source_path)
-    if model.issues:
-        report.issues.extend(model.issues)
+    report.issues.extend(model.issues)
     if not model.scripts:
         report.issues.append("no pythonScripts found")
     ordered = _excel_execution_order(model)

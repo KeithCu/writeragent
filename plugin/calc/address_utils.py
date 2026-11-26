@@ -129,7 +129,7 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     if quoted is not None:
         name = quoted.replace("''", "'")
     else:
-        name = match.group("bare") or ""
+        name = match.group("bare")
         # Calc prefixes absolute sheets with $ before the name ($Sheet1.$A$1); strip that marker, not a literal $ in the name.
         if name.startswith("$"):
             name = name[1:]
@@ -305,7 +305,7 @@ def format_range_address(addr: Any, *, collapse_single: bool = False) -> str:
 
 
 def _canonical(ref: str, *, casefold_sheet: bool = False) -> str:
-    s = (ref or "").strip()
+    s = ref.strip()
     if not s:
         return ""
     sheet, cell = split_sheet_prefix(s)
@@ -367,7 +367,7 @@ _CELL_TOKEN_RE = re.compile(r"^\$?([A-Za-z]{1,3})\$?([0-9]{1,7})$")
 
 def is_cell_token(s: str) -> bool:
     """True when *s* is a single A1 cell reference token (optional $, col A..XFD, row 1..1048576)."""
-    if not isinstance(s, str) or not s:
+    if not s:
         return False
     m = _CELL_TOKEN_RE.match(s.strip())
     if not m:
@@ -380,14 +380,14 @@ def is_cell_token(s: str) -> bool:
 
 def local_a1(address: str) -> str:
     """Return local cell/range address without sheet prefix: 'Sheet1.$A$1' -> 'A1'."""
-    _sheet, rest = split_sheet_prefix(address or "")
+    _sheet, rest = split_sheet_prefix(address)
     return canonical(rest)
 
 
 def parse_local(address: str) -> tuple[int, int] | None:
     """Parse cell address ignoring any sheet prefix, returning 0-based (col, row) or None."""
     try:
-        _sheet, rest = split_sheet_prefix(address or "")
+        _sheet, rest = split_sheet_prefix(address)
         return parse_address(rest)
     except (ValueError, TypeError):
         return None
@@ -400,8 +400,8 @@ def range_shape(range_str: str) -> tuple[int, int, int] | None:
         (c0, r0), (c1, r1) = parse_range_string(local)
     except (ValueError, TypeError):
         return None
-    cols = abs(c1 - c0) + 1
-    rows = abs(r1 - r0) + 1
+    cols = c1 - c0 + 1
+    rows = r1 - r0 + 1
     return cols * rows, rows, cols
 
 
@@ -429,7 +429,7 @@ def axis_range_bounds(address: str) -> tuple[tuple[int, int], tuple[int, int]] |
     if kind == "col":
         if len(start) <= 3 and len(end) <= 3:
             c0, c1 = column_to_index(start), column_to_index(end)
-            if 0 <= c0 <= MAX_COL and 0 <= c1 <= MAX_COL:
+            if c0 <= MAX_COL and c1 <= MAX_COL:
                 return (c0, 0), (c1, MAX_ROW)
         return None
     r0, r1 = int(start) - 1, int(end) - 1

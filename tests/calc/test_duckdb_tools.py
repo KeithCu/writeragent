@@ -1003,7 +1003,7 @@ def test_live_workbook_skips_cache(mock_open, mock_read, _mock_close, mock_expor
 
     assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
     mock_export.assert_not_called()
-    _mock_close.assert_not_called()
+    _mock_close.assert_called_once_with(mock_open.return_value[0], opened_for_document_research=False)
 
 
 @patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)

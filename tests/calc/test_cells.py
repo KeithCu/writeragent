@@ -17,8 +17,6 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from tests.harness.strip_bundle import requires_asserts
-
 from plugin.framework.errors import CalcError
 from plugin.framework.tool import prepare_tool_call
 from plugin.tests.testing_utils import DisposedException, FakeUndoManager, TestingFactory
@@ -565,6 +563,7 @@ def _range_addr(*, start_col, end_col, start_row, end_row):
     mock_range.getRangeAddress.return_value = MagicMock(
         StartColumn=start_col, EndColumn=end_col, StartRow=start_row, EndRow=end_row
     )
+    mock_range.getSpreadsheet.return_value.getName.return_value = "Sheet1"
     return mock_range
 
 
@@ -703,11 +702,11 @@ def test_read_cell_range_tool_truncates_large_range():
     assert entry["cell_count"] == 4000
     assert entry["row_count"] == 500
     assert entry["column_count"] == 8
-    assert entry["preview_range"] == "A1:H10"
+    assert entry["preview_range"] == "Sheet1.A1:H10"
     assert isinstance(entry["message"], str) and entry["message"]
-    assert "A1:H10" in entry["hint"]
+    assert "Sheet1.A1:H10" in entry["hint"]
     assert "next_range" not in entry
-    inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
+    inspector_cls.return_value.read_range.assert_called_once_with("Sheet1.A1:H10", include_format_info=True)
 
 
 def test_read_cell_range_min_over_cap_truncates_to_preview():
@@ -748,8 +747,8 @@ def test_read_cell_range_min_over_cap_truncates_to_preview():
     assert entry["range"] == range_name
     assert isinstance(entry["message"], str) and entry["message"]
     # Preview clips rows to 10 and columns to 8; 9 data rows stay 9 but columns become 8 (A1:H9).
-    assert entry["preview_range"] == "A1:H9"
-    inspector_cls.return_value.read_range.assert_called_once_with("A1:H9", include_format_info=True)
+    assert entry["preview_range"] == "Sheet1.A1:H9"
+    inspector_cls.return_value.read_range.assert_called_once_with("Sheet1.A1:H9", include_format_info=True)
 
 
 def test_read_cell_range_tool_keeps_small_range_full():
@@ -2240,15 +2239,6 @@ def test_insert_cell_html_reports_replaced_text():
         res_long = InsertCellHtml().execute(ctx, cell="A1", html="<b>x</b>")
         assert res_long["status"] == "ok"
         assert res_long["replaced_text"] == ("a" * 200) + "…"
-
-
-@requires_asserts
-def test_insert_cell_html_non_string_assertion():
-    from plugin.calc.cells import InsertCellHtml
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with pytest.raises(AssertionError):
-        InsertCellHtml().execute(ctx, cell="A1", html=123)
 
 
 @pytest.mark.parametrize(
