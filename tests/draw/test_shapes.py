@@ -1340,8 +1340,6 @@ def test_apply_shape_properties_sets_fill_and_line_style_via_uno_enum() -> None:
 
 
 def test_shape_upsert_negative_size_create_and_edit() -> None:
-    from plugin.draw.shapes import UpsertShape
-
     rect = MagicMock()
     rect.Name = "Shape 1"
     rect.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
@@ -1406,8 +1404,6 @@ def test_shape_upsert_negative_size_create_and_edit() -> None:
 
 
 def test_shape_upsert_arrowheads_create_and_edit() -> None:
-    from plugin.draw.shapes import UpsertShape
-
     ok, _err = UpsertShape().validate(
         action="create",
         shape_type="line",
@@ -1499,7 +1495,6 @@ def test_shape_upsert_arrowheads_create_and_edit() -> None:
 
 def test_shape_connect_prepare_keeps_arrowhead_params():
     from types import SimpleNamespace
-    from plugin.draw.shapes import ConnectShapes
     from plugin.framework.tool import prepare_tool_call
 
     prep = prepare_tool_call(
@@ -1514,8 +1509,6 @@ def test_shape_connect_prepare_keeps_arrowhead_params():
 
 
 def test_apply_shape_properties_zero_black_and_empty_omitted():
-    from plugin.draw.shapes import _apply_shape_properties
-
     shape = MagicMock()
     shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
     with patch("plugin.draw.shapes.apply_character_properties", return_value={}) as mock_char:

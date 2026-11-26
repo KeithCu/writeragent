@@ -113,8 +113,6 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
 
 
 def test_debounce_keys_differ_for_unsaved_workbooks():
-    from plugin.calc.python.workbook_state import WorkbookState
-
     doc_a = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-a"})
     doc_b = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-b"})
     sheet_a = doc_a.getSheets().getByName("Sheet1")
@@ -308,7 +306,6 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
 
 def test_schedule_timer_callback_clears_pending_timer() -> None:
     """Timer callback removes itself on fire."""
-    from plugin.calc.python.workbook_state import WorkbookState
 
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-fire-timer"})
     sheet = doc.getSheets().getByName("Sheet1")
@@ -325,7 +322,6 @@ def test_schedule_timer_callback_clears_pending_timer() -> None:
 
 def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) -> None:
     """Rekeyed pending timer is dropped on fire and runs pass for new sheet name."""
-    from plugin.calc.python.workbook_state import WorkbookState
 
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-rekey-timer"})
     sheet = doc.getSheets().getByName("Sheet1")
@@ -355,8 +351,6 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_unload_drops_pending_sheet_timer() -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     doc_unload = CalcDocStub(url="", props={"RuntimeUID": "uid-unload"})
     sheet_unload = doc_unload.getSheets().getByName("Sheet1")
     doc_keep = CalcDocStub(url="", props={"RuntimeUID": "uid-keep"})

@@ -270,7 +270,7 @@ def test_visible_range_text_from_inside_deletion_uno(ctx, doc):
     strike_across_paragraphs(doc, text)
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
 
     # Middle + end paragraphs (starts inside Delete).
@@ -298,7 +298,7 @@ def test_select_all_after_leading_table_hides_deleted_text_uno(ctx, doc):
 
     enum = text.createEnumeration()
     els = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         els.append(enum.nextElement())
     assert all(paragraph_deletion_flags(doc, els))
 
@@ -321,7 +321,7 @@ def test_live_leading_table_before_struck_paragraph_keeps_table_text_uno(ctx, do
 
     enum = text.createEnumeration()
     els = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         els.append(enum.nextElement())
     del_cur = text.createTextCursorByRange(els[1].getStart())
     del_cur.gotoRange(els[1].getEnd(), True)
@@ -442,7 +442,6 @@ def test_visible_body_range_round_trips_uno(ctx, doc):
             else:
                 chunk = normalize_linebreaks(visible_range_text(doc, el))
                 # Update state across paragraphs by scanning el's portions
-                from plugin.doc.text_helpers import visible_portions
                 for _p in visible_portions(el, state=state):
                     pass
             pos += len(chunk) + 1
@@ -481,7 +480,7 @@ def test_get_selection_text_hides_tracked_deletions_and_skips_table_range_uno(ct
     strike_across_paragraphs(doc, text)
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
 
     controller = doc.getCurrentController()
@@ -547,7 +546,7 @@ def test_removes_anchored_matches_accept_all_uno(ctx, doc):
         def _delete_range(text, start_para, start_off, end_para, end_off):
             enum = text.createEnumeration()
             paras = []
-            while enum.hasMoreElements():
+            while enum_has_more(enum):
                 paras.append(enum.nextElement())
             c = text.createTextCursorByRange(paras[start_para].getStart())
             if start_off:

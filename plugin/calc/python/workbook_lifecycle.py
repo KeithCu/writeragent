@@ -136,7 +136,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 self._workbook_session_id = session_id
 
     def on_document_event(self, Event: Any) -> None:
-        name = getattr(Event, "EventName", "") or ""
+        name = Event.EventName
         if name == "OnUnload":
             self._teardown()
         elif name in _SAVE_PREPARE_EVENTS and self._state is not None:
@@ -253,8 +253,7 @@ def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
         listener = factory()
         _LISTENERS[key] = listener
     try:
-        if hasattr(doc, "addDocumentEventListener"):
-            doc.addDocumentEventListener(listener)
+        doc.addDocumentEventListener(listener)
     except Exception:
         with _LOCK:
             _LISTENERS.pop(key, None)
@@ -358,7 +357,7 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
         self._ctx = ctx
 
     def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-        name = getattr(Event, "EventName", "") or ""
+        name = Event.EventName
         doc = _doc_from_event(Event)
         # Hidden factory OnNew/OnCreate often has Source the Writer
         # keeper (leftover scalc is not focused), so the geometric

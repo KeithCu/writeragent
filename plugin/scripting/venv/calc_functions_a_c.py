@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
-Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Spreadsheet import translates sheet functions to these helpers; where Calc and Excel differ they follow Calc (see calc_functions_util).
 """
 
 from __future__ import annotations
@@ -291,7 +291,7 @@ def _round_amor(value: float) -> float:
     """Integer round, half away from zero.
 
     GetAmordegrc uses rtl::math::round (analysishelper.cxx). Python
-    round() is half-to-even, so 0.5 became 0 and 2.5 became 2.
+    round() is half-to-even, which would turn 0.5 into 0 and 2.5 into 2.
     """
     return float(round_half_up(value, 0))
 
@@ -429,8 +429,8 @@ _ARABIC_DIGITS: dict[str, tuple[int, bool]] = {
 def arabic(text: Any) -> float:
     # ScArabic (interpr2.cxx) walks the numeral with nValidRest starting at
     # 3999. A digit followed by exactly twice itself (VX, LC, DM) is illegal,
-    # and so is a value past 3999 (MMMM). The old loop accepted those: VX
-    # became 5 and MMMM became 4000. Simplified forms that ROMAN modes emit
+    # and so is a value past 3999 (MMMM). A plain subtract-if-smaller loop would
+    # accept those (VX as 5, MMMM as 4000). Simplified forms that ROMAN modes emit
     # stay valid (IIII is 4, IC is 99, XMIX is 999). The help page says
     # ARABIC("") is 0. "-" is not a roman digit, so "-IV" is NaN.
     roman = py_str(text).upper().strip()
@@ -1031,4 +1031,3 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
 @propagate_errors
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
     return _cum_payment("ppmt", rate, nper, pv, start_period, end_period, type_val)
-

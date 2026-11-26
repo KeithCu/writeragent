@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.chatbot.web_research import (
-    _norm_research_query,
+    norm_research_query,
     WebResearchToolCallingAgent,
 )
 from plugin.contrib.smolagents.memory import ToolCall
@@ -37,8 +37,8 @@ def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50
 
 
 def test_norm_research_query_collapses_whitespace_and_case():
-    assert _norm_research_query("  Best  Pizza \n") == _norm_research_query("best pizza")
-    assert _norm_research_query("") == ""
+    assert norm_research_query("  Best  Pizza \n") == norm_research_query("best pizza")
+    assert norm_research_query("") == ""
 
 
 def test_cache_hit_does_not_stream_chat_append_callback():
@@ -69,7 +69,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
         with patch("plugin.framework.config.user_config_dir", return_value=td), \
              patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
              patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
-             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
+             patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")):
             tool = WebResearchTool()
             res = tool.execute(ctx, query="Search for caching test unique info")
             assert res.get("research_cache_event") == "hit"
@@ -759,7 +759,7 @@ def test_firefox_import_error_warns_chat_while_runtime_error_is_silent(exc, expe
     with (
         patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")),
         patch("plugin.chatbot.web_research.resolve_context_window", return_value=32_000),
         patch("plugin.chatbot.web_research._begin_shared_browser", side_effect=exc),
         patch("plugin.chatbot.web_research._run_web_agent", return_value="ok"),
@@ -858,7 +858,7 @@ def test_web_research_caching_logic(tmp_path):
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")):
 
         # Pre-populate the cache using _web_cache_set
         from plugin.contrib.smolagents.default_tools import _web_cache_set
@@ -909,9 +909,9 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
-         patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill"), \
-         patch("plugin.chatbot.web_research_cache.lookup_research_cache", side_effect=fake_lookup):
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.enqueue_research_cache_embedding_backfill"), \
+         patch("plugin.chatbot.web_research.lookup_research_cache", side_effect=fake_lookup):
         res = WebResearchTool().execute(ctx, query="Search for caching test unique info")
 
     assert res["status"] == "ok"
@@ -950,7 +950,7 @@ def test_web_research_caching_write(tmp_path):
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
 
         mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
@@ -994,7 +994,7 @@ def test_web_research_empty_agent_result_is_an_error(tmp_path, agent_result):
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research._write_research_cache") as mock_write_cache, \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
 
@@ -1041,7 +1041,7 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("DEEP REPORT", query)) as mock_deep:
         deep_res = WebResearchTool().execute(ctx, query=query, deep=True)
@@ -1056,7 +1056,7 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
         mock_exec.return_value.execute_safe.return_value = "LIVE SHALLOW"
@@ -1075,8 +1075,8 @@ def test_write_research_cache_enqueues_embedding_backfill(tmp_path):
     ctx.ctx = object()
     db_file = str(tmp_path / "writeragent_web_cache.db")
 
-    with patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill") as enqueue_backfill, \
-         patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_for_row") as enqueue_row:
+    with patch("plugin.chatbot.web_research.enqueue_research_cache_embedding_backfill") as enqueue_backfill, \
+         patch("plugin.chatbot.web_research.enqueue_research_cache_embedding_for_row") as enqueue_row:
         fields = _write_research_cache(ctx, db_file, "execute", "Live Searched Output", 50, 30, "english", embedding_text="execute ordered")
 
     assert fields["research_cache_event"] == "saved"
@@ -1148,8 +1148,8 @@ def test_web_research_cache_max_zero_does_not_serve_a_stale_report(tmp_path):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int, cache_max_mb=0)), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
-         patch("plugin.chatbot.web_research_cache.lookup_research_cache") as lookup, \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.lookup_research_cache") as lookup, \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
 
         mock_exec.return_value.execute_safe.return_value = "Live Searched Output"
@@ -1289,7 +1289,7 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", return_value=30), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research._run_web_agent", return_value="Live research result text"):
 
         tool = WebResearchTool()
@@ -1330,7 +1330,7 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path, status):
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
          patch("plugin.chatbot.web_research._run_deep_web_research", return_value=(dict(notes), "topic ratings")):
@@ -1664,7 +1664,7 @@ def _execute_web_research_with_window(
     with (
         patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.config.get_api_config", return_value=api_config),
-        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")),
         patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window) as mock_resolve,
         patch("plugin.chatbot.web_research._run_web_agent", side_effect=_fake_shallow) as mock_shallow,
         patch("plugin.chatbot.web_research._run_deep_web_research", side_effect=_fake_deep) as mock_deep,
@@ -1755,7 +1755,7 @@ def test_web_research_small_window_result_is_not_cached(tmp_path, resolved_windo
         patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.config.get_api_config", return_value={"endpoint": "http://localhost:11434", "model": "gemma4"}),
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")),
         patch("plugin.chatbot.web_research.resolve_context_window", return_value=resolved_window),
         patch("plugin.chatbot.web_research._run_web_agent", return_value="ok"),
         patch("plugin.chatbot.web_research._write_research_cache", return_value={}) as mock_write,

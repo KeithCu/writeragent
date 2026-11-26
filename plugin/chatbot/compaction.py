@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.chatbot.chat_session import message_text, request_tail
+from plugin.chatbot.chat_session import ChatSession, message_text, request_tail
 from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ COMPACTION_RATIO_SMALL = 0.70  # W <= 8192  (WA product; Hermes 85% is too late 
 COMPACTION_RATIO_DEFAULT = 0.75  # 8192 < W < 512_000  (Hermes small-context floor)
 COMPACTION_RATIO_LARGE = 0.50  # W >= 512_000  (Hermes large-window default)
 LARGE_CTX_WINDOW_LIMIT = 512_000
-MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3  # OpenClaw agent-compaction-constants.ts:30
+MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3  # OpenClaw MAX_OVERFLOW_COMPACTION_ATTEMPTS (agent-compaction-constants.ts:30)
 # Hermes TurnOverflow.compress_scored_by_tokens: shrank iff after < before * 0.95
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/turn_overflow.py#L203
 MIN_SHRINK_RATIO = 0.95
@@ -100,7 +100,7 @@ KEEP_RECENT_FRACTION = 0.30
 KEEP_RECENT_FLOOR = 2048  # preference, not a hard min after remaining-budget clamp
 KEEP_RECENT_CAP = 20_000  # OpenClaw DEFAULT_COMPACTION_SETTINGS.keepRecentTokens
 MIN_TAIL_TOKENS = 256  # hard floor; below this, nothing to gain
-IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
+IMAGE_BLOCK_TOKENS = 2000  # OpenClaw IMAGE_BLOCK_TOKENS (compaction.ts:278; Hermes default is 1500)
 # Hermes ContextCompressor._PRUNE_MIN_CHARS
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
@@ -664,7 +664,7 @@ def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stu
     return tail
 
 
-def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
+def _drop_stale_compaction(session: ChatSession, messages: list[dict[str, Any]]) -> Any:
     """Return session.compaction, or clear it and return None.
 
     first_kept_index is a raw index. clear() replaces the list, but the
@@ -681,7 +681,7 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     return None
 
 
-def messages_for_llm(session: Any) -> list[dict[str, Any]]:
+def messages_for_llm(session: ChatSession) -> list[dict[str, Any]]:
     """Live messages[0] + summary pair + tail (view stubs). Does not mutate session messages, but may clear session.compaction if stale."""
     messages = session.messages
     if not messages:
@@ -941,7 +941,7 @@ def _summarize_bounded(
 
 
 def compact_session(
-    session: Any,
+    session: ChatSession,
     client: Any,
     *,
     window: int | None,

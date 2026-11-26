@@ -69,7 +69,7 @@ from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.writer.edit_review import annotate_review_status, flag_style_unreviewed, flag_tracked, flag_untracked
+from plugin.writer.edit_review import flag_style_unreviewed, flag_tracked, flag_untracked
 from plugin.writer.html_import import run_writer_mutation_with_optional_review
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.specialized.textframes import text_content_anchor
@@ -480,7 +480,9 @@ class ImageGenerate(ToolWriterImageBase):
                         ),
                     )
                     res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
-                    return annotate_review_status(res) if recorded else res
+                    if recorded:
+                        flag_tracked(res)
+                    return res
                 res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                 _flag_untracked_replace(res, ctx.doc)
                 return res
@@ -501,7 +503,9 @@ class ImageGenerate(ToolWriterImageBase):
                 ),
             )
             res = {"status": "ok", "message": "Image generated and inserted from endpoint."}
-            return annotate_review_status(res) if recorded else res
+            if recorded:
+                flag_tracked(res)
+            return res
 
         # main.call defaults bound_scope to the current send scope, so Stop would
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
@@ -1451,7 +1455,9 @@ class ImageInsert(ToolWriterImageBase):
                 }
                 if placed["layout_changed"]:
                     flag_style_unreviewed(result, doc)
-                return annotate_review_status(result) if recorded else result
+                if recorded:
+                    flag_tracked(result)
+                return result
 
             if (locator is not None or paragraph_index is not None) and not visual_helpers.is_writer_like(doc_type):
                 return self._tool_error(
@@ -1496,7 +1502,9 @@ class ImageInsert(ToolWriterImageBase):
 
             image_name = graphic.getName()
             result = {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
-            return annotate_review_status(result) if recorded else result
+            if recorded:
+                flag_tracked(result)
+            return result
 
         return main.run(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 

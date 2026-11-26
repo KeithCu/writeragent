@@ -23,6 +23,7 @@ from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
 from plugin.writer.styles import ApplyStyle, StyleClone, StyleCreate, StyleFormatText, StyleGetInfo, StyleImport, StyleList, StyleUpdate
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from tests.writer.doc_builders import accept_all_changes, body_paragraphs, reject_all_changes
 
 
 @native_test
@@ -447,9 +448,7 @@ def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, 
             redline_types.append(str(rl_enum.nextElement().getPropertyValue("RedlineType")))
         assert redline_types and all(t == "Format" for t in redline_types), redline_types
 
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        frame = doc.getCurrentController().getFrame()
-        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
 
         restored = dict(_portion_fonts(text))
         assert restored["Body"]["CharFontName"] == "Liberation Serif"
@@ -465,7 +464,7 @@ def test_style_format_text_record_mode_format_redlines_reject_restores_uno(ctx, 
         after_reset = dict(_portion_fonts(text))
         assert after_reset["Body"]["CharFontName"] == style_font
         assert after_reset["Cell"]["CharFontName"] == style_font
-        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         restored_after_reset = dict(_portion_fonts(text))
         assert restored_after_reset["Body"]["CharFontName"] == "Liberation Serif"
         assert restored_after_reset["Cell"]["CharFontName"] == "Liberation Mono"
@@ -642,8 +641,7 @@ def test_style_format_text_reset_accept_leaves_style_font_also_after_style_edit_
         res = StyleFormatText().execute(tool_ctx, reset=["CharFontName"], target="full_document")
         assert res["status"] == "ok", res
         assert res["tracked"] is True
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        accept_all_changes(doc, ctx)
 
         std = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard")
         assert dict(_portion_fonts(text))["Styled"]["CharFontName"] == std.getPropertyValue("CharFontName")
@@ -679,8 +677,7 @@ def test_style_format_text_para_reset_is_tracked_and_rejectable_uno(ctx, doc):
         assert redlines.getCount() == before + 1
         assert redlines.getByIndex(before).getPropertyValue("RedlineType") == "ParagraphFormat"
 
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         para = text.createEnumeration().nextElement()
         assert abs(para.getPropertyValue("ParaLeftMargin") - 1000) <= 2
     finally:
@@ -776,9 +773,7 @@ def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
         assert redlines.getCount() == 1
         assert redlines.getByIndex(0).getPropertyValue("RedlineType") == "Format"
 
-        frame = doc.getCurrentController().getFrame()
-        dh = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        dh.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         assert float(_beta_portion().getPropertyValue("CharWeight")) == 150.0
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -788,7 +783,6 @@ def test_apply_no_character_style_clears_visible_style_uno(ctx, doc):
 @with_native_doc("writer")
 def test_style_update_char_color_int_and_minus_one_uno(ctx, doc):
     from plugin.framework.tool import prepare_tool_call
-    from plugin.writer.styles import StyleUpdate
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     tool = StyleUpdate()
@@ -840,8 +834,7 @@ def test_style_format_text_reset_char_style_name_is_rejectable_uno(ctx, doc):
         assert "style_unreviewed" not in res
         assert doc.getRedlines().getCount() > 0
 
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         para = text.createEnumeration().nextElement()
         penum = para.createEnumeration()
         portions = {}
@@ -1011,11 +1004,7 @@ def test_style_import_loads_template_styles_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)        
 def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_uno(ctx, doc):
-    import os
-    import tempfile
-    import uno
     from plugin.doc.text_helpers import iter_elements
-    from plugin.framework.uno_context import create_property_value
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
@@ -1196,16 +1185,6 @@ def _redline_records(doc):
     return records
 
 
-def _body_paras(doc):
-    paras = []
-    b_enum = doc.getText().createEnumeration()
-    while enum_has_more(b_enum):
-        el = b_enum.nextElement()
-        if el.supportsService("com.sun.star.text.Paragraph"):
-            paras.append(el)
-    return paras
-
-
 def _para_format_snapshot(doc):
     return [
         (
@@ -1213,7 +1192,7 @@ def _para_format_snapshot(doc):
             str(p.getPropertyValue("ParaStyleName")),
             int(p.getPropertyValue("ParaAdjust")),
         )
-        for p in _body_paras(doc)
+        for p in body_paragraphs(doc.getText())
     ]
 
 
@@ -1273,7 +1252,7 @@ def test_style_tools_refuse_while_undo_is_locked_uno(ctx):
                     assert res_ok["status"] == "ok", (recording, kind, res_ok)
                     assert len(um.getAllUndoActionTitles() or ()) == len(snap_titles) + 1
 
-                    p0 = _body_paras(doc)[0]
+                    p0 = body_paragraphs(doc.getText())[0]
                     if kind == "apply_para":
                         assert str(p0.getPropertyValue("ParaStyleName")) == "Heading 2"
                         assert _para_portion_snapshot(p0) != snap_paras[0][0]
@@ -1350,7 +1329,7 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                     assert um.isLocked() is False
                     doc.setPropertyValue("RecordChanges", recording)
 
-                    paras_before = _body_paras(doc)
+                    paras_before = body_paragraphs(doc.getText())
                     snap = [
                         (
                             str(p.getPropertyValue("ListLabelString")),
@@ -1372,7 +1351,7 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                     assert res["status"] == "ok", res
                     assert len(um.getAllUndoActionTitles() or ()) == len(titles_before) + 1
 
-                    p1_after = _body_paras(doc)[1]
+                    p1_after = body_paragraphs(doc.getText())[1]
                     assert str(p1_after.getPropertyValue("ParaStyleName")) == "Heading 1"
                     assert _para_portion_snapshot(p1_after) != snap[1][3]
                     assert int(p1_after.getPropertyValue("ParaAdjust")) != snap[1][1]
@@ -1383,7 +1362,7 @@ def test_apply_style_word_contract_one_undo_keeps_redlines_uno(ctx):
                         assert any(t == "ParagraphFormat" for t, _ in redlines_after)
 
                     um.undo()
-                    paras_undone = _body_paras(doc)
+                    paras_undone = body_paragraphs(doc.getText())
                     assert len(paras_undone) == len(snap)
                     for idx, p in enumerate(paras_undone):
                         got = (
@@ -1537,8 +1516,7 @@ def test_style_format_text_full_document_leading_table_tracked_uno(ctx, doc):
             assert props["CharFontName"] == "Arial", (s, props)
             assert abs(props["ParaLeftMargin"] - 400) <= 2, (s, props)
 
-        helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         after_reject = {s: (p["CharFontName"], p["ParaLeftMargin"]) for s, p in _portion_fonts(text)}
         assert after_reject == before
     finally:

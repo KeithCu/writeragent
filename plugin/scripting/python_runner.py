@@ -123,13 +123,13 @@ def _monaco_run_document_key(doc: Any) -> str:
 
 
 def _html_row(cells: list[Any] | tuple[Any, ...], tag: str = "td") -> str:
-    """One ``<tr>`` of ``th`` or ``td`` cells. Same bytes as the old per-cell appends."""
+    """One ``<tr>`` of ``th`` or ``td`` cells, each escaped for HTML insert."""
     inner = "".join(f"<{tag}>{escape_for_html_insert(cell)}</{tag}>" for cell in cells)
     return "<tr>" + inner + "</tr>"
 
 
 def _html_table(body: list[str], header: list[Any] | None = None) -> str:
-    """Same table bytes as the old per-branch joins. No header means no thead/tbody."""
+    """A bordered ``<table>`` of *body* rows. No header means no thead/tbody."""
     if header is None:
         return '<table border="1">' + "".join(body) + "</table>"
     return '<table border="1"><thead>' + _html_row(header, "th") + "</thead><tbody>" + "".join(body) + "</tbody></table>"

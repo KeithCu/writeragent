@@ -2,19 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """slide_set_layout / slide_get_layout must write and read AutoLayout ids.
 
-The old table used PowerPoint PpSlideLayout minus one, so title_only (10)
-grew two content boxes and blank (11) grew an OLE shape. These cases pin
-the placeholders this LibreOffice build actually creates.
+The layout table holds LibreOffice AutoLayout ids. PowerPoint PpSlideLayout
+numbers minus one would give title_only id 10 (two content boxes) and blank
+id 11 (an OLE shape). These cases pin the placeholders this LibreOffice build
+actually creates.
 """
-import json
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-
-def _exec_tool(doc, ctx, name, args):
-    res = TestingFactory.execute_tool(doc, ctx, name, args, doc_type="impress")
-    return res if isinstance(res, dict) else json.loads(res)
+from plugin.tests.testing_utils import with_native_doc
+from tests.draw.draw_tool_helpers import exec_tool
 
 
 def _shape_types(page):
@@ -54,27 +50,27 @@ def test_slide_layout_set_get_placeholders_match_autolayout(ctx, doc):
         ("blank", 20, []),
     )
     for name, expected_id, expected_shapes in cases:
-        added = _exec_tool(doc, ctx, "slide_add", {"layout": "blank"})
+        added = exec_tool(doc, ctx, "slide_add", {"layout": "blank"})
         assert added.get("status") == "ok", added
         page_idx = added["active_page_index"]
-        applied = _exec_tool(doc, ctx, "slide_set_layout", {"page": page_idx, "layout": name})
+        applied = exec_tool(doc, ctx, "slide_set_layout", {"page": page_idx, "layout": name})
         assert applied.get("status") == "ok", applied
         assert applied.get("layout") == name, applied
         page = doc.getDrawPages().getByIndex(page_idx)
         assert page.Layout == expected_id, "layout=%s Layout=%s" % (name, page.Layout)
         assert _shape_types(page) == expected_shapes, "layout=%s shapes=%s" % (name, _shape_types(page))
-        got = _exec_tool(doc, ctx, "slide_get_layout", {"page": page_idx})
+        got = exec_tool(doc, ctx, "slide_get_layout", {"page": page_idx})
         assert got.get("layout_name") == name, got
         assert got.get("layout_id") == expected_id, got
 
     # A fresh insert is already AUTOLAYOUT_NONE. get must say blank, not
-    # the old reverse label for id 20 (two_column_and_object).
-    fresh = _exec_tool(doc, ctx, "slide_add", {"layout": "none"})
+    # two_column_and_object (id 20 in PowerPoint-minus-one numbering).
+    fresh = exec_tool(doc, ctx, "slide_add", {"layout": "none"})
     assert fresh.get("layout") == "blank", fresh
     page_idx = fresh["active_page_index"]
     page = doc.getDrawPages().getByIndex(page_idx)
     assert page.Layout == 20
     assert page.getCount() == 0
-    labeled = _exec_tool(doc, ctx, "slide_get_layout", {"page": page_idx})
+    labeled = exec_tool(doc, ctx, "slide_get_layout", {"page": page_idx})
     assert labeled.get("layout_name") == "blank", labeled
     assert labeled.get("layout_id") == 20, labeled

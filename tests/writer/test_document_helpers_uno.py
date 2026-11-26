@@ -5,6 +5,7 @@ from plugin.doc.text_helpers import build_heading_tree, get_string_without_track
 from plugin.doc.document_helpers import resolve_locator, get_document_context_for_chat
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
 from plugin.doc.text_helpers import get_document_length
+from plugin.framework.uno_context import enum_has_more
 from plugin.writer.edit_review import WriterStreamedRewriteSession
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -76,7 +77,7 @@ def test_get_string_without_tracked_deletions_hides_deleted_text(ctx):
         assert get_string_without_tracked_deletions(full_range) == "Alpha "
 
         redline_enum = doc.getRedlines().createEnumeration()
-        assert redline_enum.hasMoreElements(), "Expected a tracked deletion redline"
+        assert enum_has_more(redline_enum), "Expected a tracked deletion redline"
 
 
 @native_test
@@ -124,7 +125,7 @@ def test_writer_streamed_rewrite_session_collapses_chunked_edit(ctx):
 
         redlines = doc.getRedlines().createEnumeration()
         count = 0
-        while redlines.hasMoreElements():
+        while enum_has_more(redlines):
             redlines.nextElement()
             count += 1
         assert 1 <= count <= 2, f"Expected one clean replacement, got {count} redlines"
@@ -301,8 +302,6 @@ def test_chat_context_marks_selection_in_long_document_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_chat_context_includes_leading_table_and_selection_uno(ctx, doc):
-    from plugin.doc.text_helpers import get_document_length
-
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(1, 1)
@@ -328,7 +327,6 @@ def test_chat_context_includes_leading_table_and_selection_uno(ctx, doc):
 @with_native_doc("writer")
 def test_chat_context_marks_struck_paragraph_only_not_real_blank_uno(ctx, doc):
     from plugin.doc.text_helpers import read_visible_body
-    from plugin.framework.uno_context import enum_has_more
 
     text = doc.getText()
     text.setString("")

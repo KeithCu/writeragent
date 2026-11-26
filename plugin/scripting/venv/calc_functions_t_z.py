@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
-Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Spreadsheet import translates sheet functions to these helpers; where Calc and Excel differ they follow Calc (see calc_functions_util).
 """
 
 from __future__ import annotations
@@ -213,8 +213,8 @@ def text(val: Any, fmt: Any) -> str | float:
 # Alias for spreadsheet-import emission: Calc's formula lexer treats ``TEXT(`` inside
 # ``=PY("calc.text(...)")`` as a spreadsheet function (#NAME?). ``formula_edit`` also
 # rewrites ``.text(`` to ``.fmt(``. The name has to be in ``__all__``: the venv
-# facade star-imports this module, so an unlisted alias never became an attribute
-# and ``=TEXT(...)`` recalc raised AttributeError (no attribute ``fmt``).
+# facade star-imports this module, so an unlisted alias would not become an attribute
+# and ``=TEXT(...)`` recalc would raise AttributeError (no attribute ``fmt``).
 fmt = text
 
 
@@ -956,9 +956,9 @@ def vlookup(lookup_val: Any, table: Any, col_index: Any, is_sorted: Any = True) 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any = OMITTED, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
     if not _modes_supported(match_mode, search_mode):
         return "Err:504"
-    # dtype=object. A mixed return such as ["x", 5] became strings,
-    # so the hit was "5" instead of the number 5. The lookup path
-    # already keeps numbers as numbers.
+    # dtype=object keeps a mixed return such as ["x", 5] from turning into a
+    # text array, so the hit is the number 5, not "5". The lookup path keeps
+    # numbers as numbers the same way.
     ret = np.asarray(return_arr, dtype=object)
     axis = _return_axis(np.asarray(lookup_arr, dtype=object), ret)
     if axis is None:
@@ -1134,7 +1134,7 @@ def ztest(data: Any, x: Any, sigma: Any = OMITTED) -> float:
     else:
         s = float(sigma)
 
-    # sigma <= 0 is #NUM!. inf made z = 0 and the survival function 0.5.
+    # sigma <= 0 is #NUM!. An infinite sigma would give z = 0 and a survival function of 0.5.
     if not math.isfinite(s) or s <= 0:
         return float("nan")
 

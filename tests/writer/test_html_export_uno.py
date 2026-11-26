@@ -8,8 +8,10 @@ from typing import Any
 
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from tests.testing_utils import TestingFactory, with_native_doc
+from tests.writer.doc_builders import accept_all_changes, body_shape
 
 
 @native_test
@@ -66,7 +68,6 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.scratch_writer import new_blank_writer
     from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
-    from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
@@ -115,7 +116,6 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.scratch_writer import new_blank_writer
     from plugin.writer.range_copy import copy_xtext_into_doc
     from plugin.writer.specialized.tables import TableGetCells, TableList
-    from tests.testing_utils import TestingFactory
 
     temp_doc = None
     try:
@@ -254,7 +254,6 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
     """A selection inside a real content index exports that entry, not the body sentence."""
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
-    from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.specialized.indexes import IndexesCreate
 
@@ -273,7 +272,7 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
 
     entry = None
     enum = text.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             chunk = para.getString() or ""
@@ -326,7 +325,6 @@ def _assert_semantic_ruby(html: str) -> None:
 @with_native_doc("writer")
 def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -> None:
     """Full XHTML export emits semantic <ruby>/<rt> markup instead of concatenating base and reading."""
-    from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 
     _seed_ruby_paragraph(doc)
@@ -342,7 +340,6 @@ def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -
 @with_native_doc("writer")
 def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
     """Range copy preserves RubyText so the reading appears in <rt>."""
-    from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 
     _seed_ruby_paragraph(doc)
@@ -516,7 +513,7 @@ def test_range_and_header_reads_report_line_height_uno(ctx: Any, doc: Any) -> No
 
     en = text.createEnumeration()
     paras = []
-    while en.hasMoreElements():
+    while enum_has_more(en):
         paras.append(en.nextElement())
 
     ls = uno.createUnoStruct("com.sun.star.style.LineSpacing")
@@ -660,7 +657,6 @@ def test_full_read_keeps_outline_link_targets_uno(ctx: Any, doc: Any) -> None:
     """Full-document XHTML read restores stored |outline hrefs over #a_... anchors."""
     from plugin.app import get_services
     from plugin.framework.tool import ToolContext
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -712,7 +708,6 @@ def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx:
     import re
     from com.sun.star.awt.FontSlant import ITALIC
 
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer import html_export
     from plugin.writer.range_copy import PARAGRAPH_BREAK
 
@@ -788,17 +783,7 @@ def test_range_read_after_tables_is_not_shifted_uno(ctx: Any, doc: Any) -> None:
     from plugin.writer.html_export import document_to_content
 
     def _body_structure() -> list[str]:
-        from plugin.framework.uno_context import enum_has_more
-
-        enum = doc.getText().createEnumeration()
-        out = []
-        while enum_has_more(enum):
-            el = enum.nextElement()
-            if el.supportsService("com.sun.star.text.TextTable"):
-                out.append("TextTable")
-            else:
-                out.append(f"Paragraph:{el.getString()}")
-        return out
+        return ["TextTable" if style == "TABLE" else f"Paragraph:{text}" for style, text in body_shape(doc.getText())]
 
     def _reset_and_build(layout: str) -> tuple[list[str], list[str]]:
         while doc.getTextTables().getCount() > 0:
@@ -1023,7 +1008,6 @@ def test_range_read_table_cells_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> None:
     import unittest
-    import uno  # noqa: F401
     from com.sun.star.text.WritingMode2 import LR_TB, RL_TB
     from plugin.writer.html_export import document_to_content
     from plugin.writer.html_import import replace_full_document
@@ -1047,7 +1031,6 @@ def test_para_adjust_start_round_trip_ltr_and_rtl_uno(ctx: Any, doc: Any) -> Non
     assert "text-align:start" in html, html
 
     replace_full_document(doc, ctx, html)
-    from plugin.framework.uno_context import enum_has_more
 
     enum = doc.getText().createEnumeration()
     adjusts = []
@@ -1189,7 +1172,7 @@ def test_html_export_hides_multi_para_deletion_in_range_selection_table_links_ru
     # 3. Selection from gone2 paragraph to the end: no gone.
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
     sel_cur = text.createTextCursorByRange(paras[2].getStart())
     sel_cur.gotoRange(text.getEnd(), True)
@@ -1411,7 +1394,7 @@ def test_html_export_full_read_skips_mid_deletion_outline_link_uno(ctx: Any, doc
     # Strike from StartGone (plain text) through EndGone; StruckLink sits in the middle para.
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
     d = text.createTextCursorByRange(paras[1].getStart())
     e = text.createTextCursorByRange(paras[3].getStart())
@@ -1425,7 +1408,7 @@ def test_html_export_full_read_skips_mid_deletion_outline_link_uno(ctx: Any, doc
 
     assert doc.getRedlines().getCount() == 1
     mid_enum = paras[2].createEnumeration()
-    while mid_enum.hasMoreElements():
+    while enum_has_more(mid_enum):
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
 
     full_html = document_to_content(doc, ctx, scope="full")
@@ -1452,7 +1435,7 @@ def test_html_export_full_read_skips_mid_deletion_ruby_uno(ctx: Any, doc: Any) -
 
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
     d = text.createTextCursorByRange(paras[0].getStart())
     e = text.createTextCursorByRange(paras[2].getStart())
@@ -1466,7 +1449,7 @@ def test_html_export_full_read_skips_mid_deletion_ruby_uno(ctx: Any, doc: Any) -
 
     assert doc.getRedlines().getCount() == 1
     mid_enum = paras[1].createEnumeration()
-    while mid_enum.hasMoreElements():
+    while enum_has_more(mid_enum):
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
 
     ruby_html = document_to_content(doc, ctx, scope="full")
@@ -1506,7 +1489,7 @@ def test_full_html_keeps_deleted_paragraph_breaks_and_list_joins_uno(ctx, doc):
 
     enum = text.createEnumeration()
     items = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         items.append(enum.nextElement())
     d_cur = text.createTextCursorByRange(items[0].getEnd())
     d_cur.gotoRange(items[2].getStart(), True)
@@ -1593,8 +1576,6 @@ def _setup_struck_doc(
         if p:
             text.insertString(cur, p, False)
 
-    from plugin.framework.uno_context import enum_has_more
-
     enum = text.createEnumeration()
     paras = []
     while enum_has_more(enum):
@@ -1661,7 +1642,6 @@ def test_struck_paragraphs_omitted_full_and_range_uno(ctx: Any, doc: Any) -> Non
 def test_numbered_list_with_struck_middle_item_uno(ctx: Any, doc: Any) -> None:
     import re
     from plugin.doc.text_helpers import read_visible_body
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_export import document_to_content
 
     doc.setPropertyValue("RecordChanges", False)
@@ -1734,7 +1714,6 @@ def test_struck_text_with_live_paragraph_anchored_image_kept_uno(ctx: Any, doc: 
     import os
     import tempfile
     from plugin.doc.text_helpers import read_visible_body
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_export import document_to_content
 
     png = base64.b64decode(
@@ -1784,7 +1763,6 @@ def test_struck_text_with_live_paragraph_anchored_image_kept_uno(ctx: Any, doc: 
 @native_test
 @with_native_doc("writer")
 def test_exported_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) -> None:
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_export import document_to_content
 
     cases = [
@@ -1795,11 +1773,10 @@ def test_exported_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) 
         (["AA", "BB", "", "CC"], (0, 0), (3, 0)),
         (["AA", "CC"], (0, 2), (1, 2)),
     ]
-    dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     for paragraphs, d_start, d_end in cases:
         _setup_struck_doc(doc, paragraphs, d_start, d_end)
         blocks = _block_styles_and_texts(document_to_content(doc, ctx, scope="full"))
-        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        accept_all_changes(doc, ctx)
         enum = doc.getText().createEnumeration()
         accepted_count = 0
         while enum_has_more(enum):
@@ -1816,7 +1793,7 @@ def test_exported_blocks_match_accepted_paragraph_count_uno(ctx: Any, doc: Any) 
         _setup_struck_doc(doc, paragraphs, d_start, d_end)
         blocks = _block_styles_and_texts(document_to_content(doc, ctx, scope="full"))
         assert len(blocks) == expected_exported, (paragraphs, d_start, d_end, blocks)
-        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        accept_all_changes(doc, ctx)
         enum = doc.getText().createEnumeration()
         accepted_count = 0
         while enum_has_more(enum):
@@ -1849,8 +1826,6 @@ def test_whole_doc_strike_list_and_heading_omitted_uno(ctx: Any, doc: Any) -> No
     text.insertControlCharacter(cur, 0, False)
     cur.setPropertyValue("NumberingStyleName", "")
     text.insertString(cur, "LiveTail", False)
-
-    from plugin.framework.uno_context import enum_has_more
 
     enum = text.createEnumeration()
     paras = []
@@ -1911,7 +1886,6 @@ def _insert_tiny_png(doc: Any, target_text: Any, cursor: Any, anchor_type: Any, 
     import base64
     import os
     import tempfile
-    import uno
 
     png = base64.b64decode(_TINY_PNG_B64)
     fd, img_path = tempfile.mkstemp(suffix=".png")
@@ -2447,7 +2421,6 @@ def test_shared_list_full_read_hides_tracked_deletions_uno(ctx):
     import os
     import tempfile
 
-    import uno
     from com.sun.star.beans import PropertyValue
 
     from plugin.app import get_services

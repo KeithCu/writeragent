@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 
 from plugin.doc.visual_helpers import list_graphic_objects
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.vision.vision_egress import prepare_vision_writer_insert
@@ -121,12 +122,12 @@ def _paragraphs_with_graphics(text):
     """Return (paragraph_string, has_frame_portion) in document order."""
     rows = []
     enum = text.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         has_frame = False
         try:
             portions = para.createEnumeration()
-            while portions.hasMoreElements():
+            while enum_has_more(portions):
                 portion = portions.nextElement()
                 if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
                     has_frame = True

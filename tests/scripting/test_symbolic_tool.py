@@ -60,8 +60,6 @@ def test_symbolic_math_requires_helper(writer_ctx):
 
 
 def test_symbolic_math_in_python_domain():
-    from plugin.app import get_tools
-
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=None),
         patch("plugin.writer.review_view_attachment.get_desktop", return_value=None),

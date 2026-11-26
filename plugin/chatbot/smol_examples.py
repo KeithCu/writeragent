@@ -13,8 +13,12 @@
 - **deep_research** — multi-step web research + `apply_content` (`reply_to_user`, `deep_research_search_web`).
 - **web_research** — web sub-agent (`final_answer`; ``web_search``, ``visit_webpage``, ``read_page``, ``find_in_page``).
 - **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
-- **``*:python``** — outer python agent: venv demo (`python_run_script` + ``sp.prime``), footnotes via ``python_delegate_domains``, and a ring of shapes (``python_delegate_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
-- **``domain_tools:shapes``** — inner agent after that hop: one ``python_run_script`` with the for-loop, then ``workflow_finished``. Not the outer ``*:python`` block (that block calls ``python_delegate_domains``, which the inner list does not include).
+- **``*:python``** — outer python agent: venv demo (`python_run_script` + ``sp.prime``), footnotes via
+  ``python_delegate_domains``, and a ring of shapes (``python_delegate_domains`` whose task tells the inner
+  agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
+- **``domain_tools:shapes``** — inner agent after that hop: one ``python_run_script`` with the for-loop, then
+  ``workflow_finished``. Not the outer ``*:python`` block (that block calls ``python_delegate_domains``, which
+  the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **``document_research:*``** — document exploration and search (`workflow_finished`).
 - **All other keys** — shared delegate demo (`workflow_finished`).
@@ -27,7 +31,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # WriterAgent owns this block because the finish tool name (workflow_finished) is ours.
-# The vendored copy in plugin/contrib/smolagents/toolcalling_agent_prompts.py is no longer used.
+# Agents get this block in place of the vendored default examples in plugin/contrib/smolagents/toolcalling_agent_prompts.py.
 DELEGATE_GENERIC_EXAMPLES_BLOCK = """Task: "Which city has the highest population, Guangzhou or Shanghai?"
 
 The manager's real task is in the user message below; this example only shows the Action/Observation call format.

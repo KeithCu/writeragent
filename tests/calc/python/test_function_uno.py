@@ -21,6 +21,7 @@ from plugin.calc.python.spill import (
     perform_deferred_spill,
 )
 from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
@@ -80,10 +81,8 @@ def _close_leftover_showcase_docs(ctx) -> int:
     comps = getattr(desktop, "getComponents", lambda: None)()
     if comps is None or not hasattr(comps, "createEnumeration"):
         return 0
-    enum = comps.createEnumeration()
     leftovers = []
-    while enum.hasMoreElements():
-        elem = enum.nextElement()
+    for elem in iter_elements(comps.createEnumeration()):
         model = elem
         if not is_calc(model):
             try:
@@ -644,8 +643,6 @@ def test_py_spill_neighbors_temporal_formats(ctx, doc):
 @with_native_doc("calc")
 def test_calc_spill_undo_lock(ctx, doc):
     """Deferred spill writes must not create extra undo actions on top of the formula."""
-    from plugin.calc.python.spill import perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     active_sheet = doc.getCurrentController().getActiveSheet()
     # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
@@ -678,7 +675,6 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
     """NaN spill neighbours become #NUM! (503) and orphan cleanup clears error literals but keeps user =1/0."""
     from com.sun.star.table.CellContentType import EMPTY, FORMULA
     from plugin.calc.python.spill import cleanup_orphans, perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
@@ -752,9 +748,6 @@ def test_nan_spill_neighbour_error_and_orphan_cleanup(ctx, doc):
 def test_inf_spill_neighbour_survives_ods_reload_uno(ctx, doc):
     """±inf spill neighbours become #NUM! (503), ISERROR true, and survive ODS store and reload."""
     from com.sun.star.beans import PropertyValue
-    import uno
-    from plugin.calc.python.spill import perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
@@ -811,8 +804,6 @@ def test_py_spill_cut_paste_leaves_block_and_drops_record_uno(ctx, doc):
     """Moving only the formula cell via moveRange drops the record, leaves old values, and refreshes used_ends."""
     from com.sun.star.table import CellRangeAddress
     from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
-    from plugin.calc.python.spill import perform_deferred_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
@@ -897,7 +888,6 @@ def test_py_spill_user_formula_in_rect_blocks_uno(ctx, doc):
     """Any user formula (including =1/0) inside the spill rectangle blocks respill; error literals do not."""
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
     from plugin.calc.python.spill import perform_deferred_spill, prepare_auto_spill
-    from plugin.calc.python.workbook_state import WorkbookState
 
     sheet = doc.getCurrentController().getActiveSheet()
     st = WorkbookState.for_doc(doc)
@@ -934,7 +924,6 @@ def test_py_spill_old_registry_format_reloads_as_rect_uno(ctx, doc):
     import json
     from com.sun.star.beans import PropertyValue
     from plugin.calc.python.spill import arm_spill_registry, save_spill_registry_for_doc
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.doc.udprops import get_document_property, set_document_property
 
     sheet = doc.getCurrentController().getActiveSheet()

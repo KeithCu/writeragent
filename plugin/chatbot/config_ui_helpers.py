@@ -334,15 +334,11 @@ def _sync_sidebar_model(
 
 def sync_sidebar_image_model(ctrl: Any) -> str | None:
     """Commit sidebar image model combobox text to image_model and image_model_lru (item select, focus lost, Send)."""
-    from plugin.framework.client.model_fetcher import get_image_model
-
     return _sync_sidebar_model(ctrl, "image_model", "image_model_lru", get_image_model)
 
 
 def sync_sidebar_text_model(ctrl: Any) -> str | None:
     """Commit sidebar chat model combobox text to text_model and model_lru (item select, focus lost, Send)."""
-    from plugin.framework.client.model_fetcher import get_text_model
-
     return _sync_sidebar_model(ctrl, "text_model", "model_lru", get_text_model)
 
 

@@ -126,8 +126,6 @@ def test_ensure_does_not_dirty_document(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_tree_read_does_not_dirty_document(ctx, doc):
-    from types import SimpleNamespace
-
     from plugin.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import EventBus
     from plugin.writer.tree import TreeService

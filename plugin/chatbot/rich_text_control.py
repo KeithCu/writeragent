@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import logging
 import os
+import uno
 from typing import TYPE_CHECKING, Any, cast, final
 
 from plugin.framework.errors import best_effort
-from plugin.framework.uno_listeners import BaseWindowListener
+from plugin.framework.uno_listeners import BaseWindowListener, BaseFocusListener, BaseMouseListener
 from plugin.doc.text_helpers import go_right
 # rich_text already loads navigation at import.
 from plugin.calc.navigation import (
@@ -31,7 +32,7 @@ from plugin.calc.navigation import (
     cell_link_registry,
     mark_cell_link_range,
 )
-from plugin.chatbot.dialogs import set_prop
+from plugin.chatbot.dialogs import set_prop, set_control_text
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     CHAT_FONT_NAME,
@@ -45,6 +46,8 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
+
+    from plugin.chatbot.chat_session import ChatSession
 
 log = logging.getLogger(__name__)
 
@@ -209,7 +212,7 @@ class RichTextChatWidget:
             restore_focus=self.restore_focus,
         )
 
-    def paint_session(self, session: Any, greeting: str | None = None) -> None:
+    def paint_session(self, session: ChatSession, greeting: str | None = None) -> None:
         """Draw the control from ``session.messages``. The hidden doc is that paint.
 
         Full repaint: load/switch, Stop, Clear, and an unknown control state.
@@ -282,7 +285,7 @@ class RichTextChatWidget:
             self._append_plain(tail)
         self._shown = list(items)
 
-    def stream_session(self, session: Any) -> None:
+    def stream_session(self, session: ChatSession) -> None:
         """Show ``session.messages`` during a turn by appending, not repainting.
 
         Why not ``paint_session`` per batch: a wipe-and-refill about 3 times a
@@ -356,7 +359,7 @@ class RichTextChatWidget:
         False, with nothing written, when *new_tail* is not *old_tail* plus
         appended text and rows.
         """
-        from plugin.chatbot.rich_text_paste import _plain_fallback_text
+        from plugin.chatbot.rich_text_paste import plain_fallback_text
 
         m = len(old_tail)
         if m:
@@ -370,8 +373,8 @@ class RichTextChatWidget:
                 open_content is not None
                 and new_content == open_content
             )
-            old_s = old_content if is_open else _plain_fallback_text(old_content or "")
-            new_s = new_content if is_open else _plain_fallback_text(new_content or "")
+            old_s = old_content if is_open else plain_fallback_text(old_content or "")
+            new_s = new_content if is_open else plain_fallback_text(new_content or "")
             if not new_s.startswith(old_s):
                 return False
             if not old_s.strip():
@@ -390,7 +393,7 @@ class RichTextChatWidget:
             self._append_plain(new_tail[m:])
         return True
 
-    def rerender_last_assistant_if_html(self, session: Any) -> bool:
+    def rerender_last_assistant_if_html(self, session: ChatSession) -> bool:
         """Format this turn's rows once the reply is complete.
 
         True when the session has an assistant row and the control was drawn
@@ -434,7 +437,7 @@ class RichTextChatWidget:
                 restore=self.query, restore_focus=self.restore_focus,
             )
         # A long cut (two turns after a Stop: partial answer, banner, the next
-        # turn) then a formatted refill left the same stale layout as a full
+        # turn) then a formatted refill leaves the same stale layout as a full
         # repaint: an 80px gap under the reply at Ready. One reformat per turn,
         # outside the stream drain, so it settles before the next send.
         force_rich_full_reformat(self.control)
@@ -453,7 +456,7 @@ class RichTextChatWidget:
         self._paint_items([("assistant", greeting)])
 
 
-def _is_automatic_char_color(color: Any) -> bool:
+def is_automatic_char_color(color: Any) -> bool:
     """True for LO automatic / unset character colors (COL_AUTO)."""
     if not isinstance(color, int):
         return True
@@ -632,7 +635,6 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("HideInactiveSelection", True),
     ):
         set_prop(model, name, val)
-    import uno
 
     fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
     fd.Name = CHAT_FONT_NAME
@@ -651,8 +653,6 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
     _apply_control_surface_colors(control, theme.bg_color)
 
     def _apply_cursor() -> None:
-        import uno
-
         cursor = model.createTextCursor()
         cursor.gotoStart(False)
         text_len = len(model.Text or "")
@@ -923,7 +923,6 @@ class RichTextControlListener(BaseWindowListener):
                 _CONTROL_INIT_STARTED.discard(id(self.root_window))
                 log_rich_control_context("deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
-                from plugin.chatbot.dialogs import set_control_text
 
                 if self.placeholder_ctrl:
                     set_control_text(
@@ -1045,7 +1044,7 @@ def _insert_string_at_rich_cursor(
         return
     start = cursor.getStart()
     follows_link = start is not None and _follows_cell_link(model, start)
-    if not _is_automatic_char_color(char_color):
+    if not is_automatic_char_color(char_color):
         cursor.CharColor = char_color
 
     inserted = False
@@ -1060,8 +1059,6 @@ def _insert_string_at_rich_cursor(
             insert_fn(cursor, text, False)
             inserted = True
     if not inserted:
-        import uno
-
         # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
         xtext = model.queryInterface(uno.getTypeByName("com.sun.star.text.XText"))
         if xtext is not None:
@@ -1071,14 +1068,14 @@ def _insert_string_at_rich_cursor(
         raise RuntimeError("RichTextControl model has no insertString")
 
     # Post-insert pass: RichTextControl often ignores pre-insert cursor Char* props.
-    if start is not None and (not _is_automatic_char_color(char_color) or bold is not None or underline is not None):
+    if start is not None and (not is_automatic_char_color(char_color) or bold is not None or underline is not None):
         end = cursor.getStart()
 
         def _apply() -> None:
             sel = model.createTextCursor()
             sel.gotoRange(start, False)
             sel.gotoRange(end, True)
-            if not _is_automatic_char_color(char_color):
+            if not is_automatic_char_color(char_color):
                 sel.CharColor = char_color
             if end is not None:
                 if bold is True:
@@ -1115,7 +1112,6 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
         peer = control.getPeer() if hasattr(control, "getPeer") else None
         if peer is None or not hasattr(peer, "queryDispatch"):
             return False
-        import uno
         # We set only URL.Complete, not URLTransformer.parseStrict, because
         # ORichTextPeer::queryDispatch and OSelectAllDispatcher match on URL.Complete.
         url = uno.createUnoStruct("com.sun.star.util.URL")
@@ -1202,8 +1198,6 @@ def _append_scroll_pad(model: Any) -> bool:
     if model is None or not hasattr(model, "createTextCursor"):
         return False
     try:
-        import uno
-
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         brk = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
@@ -1216,8 +1210,6 @@ def _append_scroll_pad(model: Any) -> bool:
         # Paragraph attributes only: a char attribute here would become an
         # empty attribute at the end of the last paragraph after the merge
         # and stick to the next streamed text.
-        import uno
-
         pad = model.createTextCursor()
         pad.gotoEnd(False)
         spacing = cast("Any", uno.createUnoStruct("com.sun.star.style.LineSpacing"))
@@ -1335,8 +1327,6 @@ def attach_rich_focus_tracker(control: Any, on_press: Any = None) -> RichFocusTr
     existing = _FOCUS_TRACKERS.get(id(control))
     if existing is not None and existing.control is control:
         return existing
-
-    from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener
 
     state = RichFocusTracker(control, on_press)
 

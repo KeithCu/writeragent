@@ -17,6 +17,7 @@
 
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -362,7 +363,6 @@ def test_forms_radio_group_rename(ctx, doc):
 def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
     from plugin.app import get_tools
     from plugin.framework.config import get_config, save
-    from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.inline_review import agent_tokens, scan_redline_view
 
     tools = get_tools()
@@ -565,8 +565,6 @@ def test_form_generate_recorded_over_selection_keeps_text_uno(ctx, doc):
         )
         assert res["status"] == "ok", res
         assert "Name:" in text.getString()
-
-        from plugin.framework.uno_context import execute_dispatch
 
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         accepted = text.getString()

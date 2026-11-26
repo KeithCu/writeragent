@@ -788,3 +788,15 @@ def test_unload_resets_user_close_even_while_scratch_copy_is_open(monkeypatch: p
 
 
 
+
+
+def test_failed_listener_attach_leaves_no_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A document that cannot take the listener keeps no entry, so a later call can register again."""
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.HAVE_UNO", True)
+
+    class _NoBroadcasterDoc:
+        def getPropertyValue(self, _name: str) -> str:
+            return "uid-no-broadcaster"
+
+    ensure_python_session_cleared_on_unload(_NoBroadcasterDoc(), "rps:file:///b.odt")
+    assert lifecycle._LISTENERS == {}

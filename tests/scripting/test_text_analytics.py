@@ -783,7 +783,6 @@ def test_selection_scope_topics_uses_selection_string(monkeypatch):
     text, ctx = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics", scope="selection")
     assert text == "A" * 30
     assert ctx == {"lang": "de"}
-    assert "doc_lang" not in ctx
 
 
 def test_whole_scope_topics_still_uses_sections(monkeypatch):

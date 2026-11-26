@@ -25,7 +25,7 @@ import pytest
 
 import plugin.scripting.calc_functions as calc
 from plugin.scripting.calc_range import CalcRange
-from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
 
 _INF = float("inf")
 
@@ -463,7 +463,7 @@ def test_tinv_tiny_probability_stays_finite():
 
 
 def test_weeknum_year_9999_does_not_raise():
-    # date(10000, 1, 1) used to escape weeknum's try.
+    # The week after 9999-12-31 would be date(10000, 1, 1), which weeknum's try must catch.
     serial = _serial(9999, 12, 31)
     assert calc.weeknum(serial, 1) == 1.0
     assert calc.weeknum(serial, 16) == 53.0
@@ -556,8 +556,6 @@ def test_text_unknown_format_is_nan():
 
 
 def test_textjoin_propagates_errors_and_flattens_ranges():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN
-
     assert calc.textjoin(",", True, ["a", "#VALUE!", "b"]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "#VALUE!"]) == "#VALUE!"
     assert calc.textjoin(",", True, ["a", "#DIV/0!", "b"]) == "#DIV/0!"
@@ -608,8 +606,6 @@ def test_xor_propagates_err_code():
 
 
 def test_xor_accepts_calc_range():
-    from plugin.scripting.calc_range import CalcRange
-
     assert calc.xor(CalcRange([[True], [False]])) is True
     assert calc.xor(CalcRange([[True], [True]])) is False
     assert calc.xor(CalcRange([["text"], [True]])) is True
@@ -630,8 +626,6 @@ def test_text_and_trend_shared_helpers_unchanged():
 
 
 def test_xmatch_miss_and_bad_mode_nan_payload():
-    from plugin.scripting.venv.calc_functions_util import NA_NAN
-
     miss = calc.xmatch(9, [1, 2])
     assert math.isnan(miss)
     assert _nan_low32(miss) == 0x7FFF
@@ -671,8 +665,6 @@ def test_xlookup_invalid_mode_is_err_504():
 
 
 def test_t_z_approx_floor_df():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     assert calc.tdist(1, 0.29 * 100, 1) == calc.tdist(1, 29, 1)
     assert calc.tinv(0.5, 0.29 * 100) == calc.tinv(0.5, 29)
     assert math.isclose(calc.tdist(1, 1e20, 1), 0.15865525393145707)
@@ -694,8 +686,6 @@ def test_xlookup_size_is_checked_before_search():
 
 
 def test_text_before_after_empty_delimiter_and_text():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     assert calc.textafter("a-b", "", 1, 0, 1) == ""
     assert calc.textafter("a-b", "", -1, 0, 1) == "a-b"
     assert calc.textbefore("a-b", "", 1, 0, 1) == "a-b"

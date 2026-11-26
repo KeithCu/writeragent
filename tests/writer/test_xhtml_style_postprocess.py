@@ -362,8 +362,6 @@ def test_xhtml_has_paragraph_autostyle():
 
 
 def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
-    from plugin.writer.xhtml_style_postprocess import parse_fodt_autostyles
-
     def make_fodt(generator_xml: str) -> str:
         return (
             f'<office:document>{generator_xml}'
@@ -385,8 +383,6 @@ def test_parse_fodt_autostyles_text_align_depends_on_generator_version():
 
 
 def test_xhtml_to_semantic_html_drops_image_title_text():
-    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
-
     cases = [
         '<p><span id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</span>abc</p>',
         '<div id="Image1"><img alt="ti" src="data:image/png;base64,AA=="/>ti</div><p>abc</p>',
@@ -648,8 +644,6 @@ def test_xhtml_to_semantic_html_deleted_mark():
 
 
 def test_xhtml_to_semantic_html_drops_frame_titles_and_keeps_following_text():
-    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
-
     raw_xhtml = (
         "<html><body>"
         '<p>Before <span id="Frame1" class="frame">'
@@ -676,8 +670,6 @@ def test_xhtml_to_semantic_html_drops_frame_titles_and_keeps_following_text():
 
 
 def test_xhtml_to_semantic_html_para_div_keeps_text_and_self_closing_box_drops_title():
-    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
-
     para_div = (
         '<div class="paragraph-P1"><div id="F" class="frame">'
         "<!--Next 'div' was a 'draw:text-box'.-->"
@@ -757,8 +749,6 @@ def test_simplify_drawings_rewrites_shapes_and_drops_empty_or_ole():
 
 
 def test_xhtml_to_semantic_html_drops_field_breaks_and_normalizes_following_nbsp():
-    from plugin.writer.xhtml_style_postprocess import xhtml_to_semantic_html
-
     xhtml = (
         '<html><body>'
         '<p>Page <span title="page-number">1</span>\n\xa0of <span title="page-count">3</span>\n/'

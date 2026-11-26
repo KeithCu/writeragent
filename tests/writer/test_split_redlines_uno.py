@@ -149,8 +149,8 @@ def test_review_payload_includes_final_text_uno(ctx, doc):
     # Each change reports its own inserted word; struck old text is skipped (no "quickfast" glue).
     assert "fast" in joined and "sleepy" in joined, fts
     assert "quickfast" not in joined and "sleepylazy" not in joined, fts
-    # Scoped per change -> the two reports differ and neither carries the OTHER change's word
-    # (nor the unrelated "brown" between them, which the old whole-paragraph final_text included).
+    # Scoped per change -> the two reports differ, and neither carries the OTHER change's word
+    # or the unrelated "brown" between them, which a whole-paragraph final_text would include.
     fast_ft = next(ft for ft in fts if "fast" in ft)
     sleepy_ft = next(ft for ft in fts if "sleepy" in ft)
     assert "sleepy" not in fast_ft and "brown" not in fast_ft, fast_ft
@@ -181,9 +181,9 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
     session.cleanup()
     chs = payload["changes"]
     assert len(chs) == 2, chs
-    # Per-change outcome is now scoped to the change's own region, so a PARTIAL resolution
-    # of two changes sharing a paragraph reports the accepted one as "accepted" and the other as
-    # "pending" -- the per-change outcome is reliable, no longer a whole-paragraph approximation.
+    # Each outcome is scoped to the change's own region, so a PARTIAL resolution of two changes
+    # sharing a paragraph reports the accepted one as "accepted" and the other as "pending"
+    # rather than one answer for the whole paragraph.
     by_outcome = {c["outcome"]: c for c in chs}
     assert set(by_outcome) == {"accepted", "pending"}, chs
     assert "fast" in (by_outcome["accepted"]["final_text"] or ""), by_outcome["accepted"]

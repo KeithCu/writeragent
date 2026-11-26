@@ -3,23 +3,27 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.chatbot.panel_resize import _set_pos_size_if_changed
+from plugin.chatbot.panel_resize import set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
-from plugin.framework.logging import is_hung_status, set_waiting_for_user
+from plugin.framework.logging import (
+    is_hung_status,
+    set_waiting_for_user,
+    format_tool_call_for_display,
+    format_tool_result_for_display,
+)
 
 log = logging.getLogger(__name__)
 
 
-def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
+def relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     """Change a sidebar button's label without moving it or losing its mnemonic.
 
     Keep the rect the layout gave the button, and put back the mnemonic
     VCL chose for that label the last time the button showed it. A
-    Send/Record relabel that also sets a fixed send width (the old
-    ``_fixed_send_width``, measured from the XDL before the panel layout
-    shared the button row) shrinks Record (1x) or grows it over Stop (2x)
-    until the next relayout. Setting the label also drops the mnemonic VCL
+    Send/Record relabel that also set a fixed send width measured from the
+    XDL (before the panel layout shares the button row) would shrink Record
+    (1x) or grow it over Stop (2x) until the next relayout. Setting the label also drops the mnemonic VCL
     added (``~Record``), so the R underline goes away. The model keeps the
     plain label that the click handlers compare.
     """
@@ -36,7 +40,7 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     if peer is not None and label in mnemonics:
         peer.setProperty("Label", mnemonics[label])
     if rect.Width > 0:
-        _set_pos_size_if_changed(ctrl, rect.X, rect.Y, rect.Width, rect.Height)
+        set_pos_size_if_changed(ctrl, rect.X, rect.Y, rect.Width, rect.Height)
 
 
 class PanelEventsController:
@@ -130,7 +134,7 @@ class PanelEventsController:
                 if not m:
                     continue
                 controls[key] = (m.Label, m.Enabled)
-                _relabel_button(ctrl, label, cache)
+                relabel_button(ctrl, label, cache)
                 m.Enabled = True
             if self._panel.status_control:
                 status_text = self._panel.status_control.getText()
@@ -179,7 +183,7 @@ class PanelEventsController:
                     if not model:
                         continue
                     label, enabled = controls[key]
-                    _relabel_button(ctrl, label, cache)
+                    relabel_button(ctrl, label, cache)
                     model.Enabled = enabled
             if self._panel.status_control and "status_text" in b:
                 self._panel.status_control.setText(b["status_text"])
@@ -230,7 +234,6 @@ class PanelEventsController:
             kept = {k: v for k, v in self._panel._last_mcp_turn.items() if getattr(v, "alive", False)}
             kept[rid] = turn
             self._panel._last_mcp_turn = kept
-        from plugin.framework.logging import format_tool_call_for_display
 
         fmt_str = format_tool_call_for_display(tool, args, method)
         log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
@@ -264,8 +267,6 @@ class PanelEventsController:
             if not _live():
                 return
             try:
-                from plugin.framework.logging import format_tool_result_for_display
-
                 fmt_str = format_tool_result_for_display(tool, result_snippet, args=kwargs.get("args"))
                 self._panel._append_response(f"[MCP Result] {fmt_str}\n")
             except Exception:

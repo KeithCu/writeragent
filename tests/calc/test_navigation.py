@@ -178,7 +178,6 @@ def test_attach_calc_cell_link_listener_disposing_clears_control_spans():
         import uno  # noqa: F401
         from com.sun.star.awt import XMouseListener  # noqa: F401
     except ImportError:
-        import pytest
 
         pytest.skip("PyUNO XMouseListener unavailable")
 
@@ -207,11 +206,8 @@ def test_cell_link_click_navigates_with_doc_and_address():
         import uno  # noqa: F401
         from com.sun.star.awt import XMouseListener  # noqa: F401
     except ImportError:
-        import pytest
 
         pytest.skip("PyUNO XMouseListener unavailable")
-
-    from types import SimpleNamespace
 
     from plugin.calc.navigation import attach_calc_cell_link_listener, cell_link_registry
 
@@ -226,7 +222,7 @@ def test_cell_link_click_navigates_with_doc_and_address():
     listener = listeners[0]
     try:
         with patch("plugin.calc.navigation.navigate_to_cell", return_value=True) as nav:
-            listener.mouseReleased(SimpleNamespace(Buttons=1, ClickCount=1, X=0, Y=0))
+            listener.mouseReleased(SimpleNamespace(Buttons=1, ClickCount=1, X=0, Y=0, Modifiers=0))
         nav.assert_called_once_with(doc, "Sheet1.B2")
     finally:
         listener.disposing(MagicMock())

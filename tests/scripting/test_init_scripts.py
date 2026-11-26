@@ -47,7 +47,6 @@ def test_get_set_calc_init_script_roundtrip():
 
 def test_init_script_runs_once_in_isolated_mode():
     """Init runs in :init session once; isolated cells see bindings without re-running expensive init."""
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-isolated-test:init"
     init_code = "INIT_RUNS = 1\nHELPER = 41"
@@ -110,7 +109,7 @@ def test_pandas_pickle_and_module_setattr_rejected():
 
 
 def test_shared_kernel_keeps_cell_override_of_init_name():
-    """Re-seeding every cell used to state.update init names over cell rebinds."""
+    """Re-seeding a cell must not state.update init names over the cell's own rebinds."""
     init_sid = "calc:wb-override:init"
     cell_sid = "calc:wb-override"
     init_code = "FACTOR = 10"
@@ -480,8 +479,7 @@ def test_numpy_compiler_and_testing_prefixes_rejected():
 
 
 def test_missing_init_hash_reruns_when_script_changes():
-    """A missing hash used to compare as "" == "" and skip the edited script."""
-    from plugin.scripting.venv import venv_sandbox as vs
+    """A missing hash must not compare as "" == "" and skip the edited script."""
 
     init_sid = "calc:wb-nohash:init"
     cell_sid = "calc:wb-nohash"

@@ -354,10 +354,6 @@ def test_connect_shapes_failure_removes_connector_and_raises():
 
 
 def test_create_diagram_connection_line_end_enum_folds():
-    from types import SimpleNamespace
-    from plugin.draw.shapes import CreateDiagram
-    from plugin.framework.tool import prepare_tool_call
-
     prep = prepare_tool_call(
         CreateDiagram(),
         SimpleNamespace(doc_type="draw"),

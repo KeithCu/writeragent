@@ -89,8 +89,6 @@ def test_calc_only_insert_passes_document_then_context():
 
 
 def test_calc_only_insert_forwards_kwargs():
-    from plugin.scripting.domain_registry import WIRING_TABLE
-
     wiring = next(w for w in WIRING_TABLE if w.post_venv_calc_only)
     ctx, doc, result = object(), object(), {"helper": "x"}
     seen: dict[str, object] = {}
@@ -143,7 +141,6 @@ def test_picker_supports_returns_false_when_check_raises():
 
 def test_sql_is_result_handles_missing_duckdb_sql():
     # LibrePy bundles omit duckdb_sql; ImportError must return False so other domains still run.
-    from plugin.scripting.domain_registry import WIRING_TABLE
 
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
 
@@ -164,8 +161,6 @@ def test_is_reserved_script_name():
 
 
 def test_rps_spec_insert_forwards_return_value():
-    from plugin.scripting.domain_registry import WIRING_TABLE
-
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: 42):
@@ -258,8 +253,6 @@ def test_picker_supports_matches_post_venv_calc_only():
 
 
 def test_units_format_ok_joins_formatted_list():
-    from plugin.scripting.domain_registry import WIRING_TABLE
-
     wiring = next(w for w in WIRING_TABLE if w.id == "units")
     out = wiring.format_ok(
         result={

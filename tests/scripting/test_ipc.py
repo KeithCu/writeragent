@@ -233,7 +233,6 @@ def test_nonblocking_skips_on_win32(monkeypatch):
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX peek sets the pipe non-blocking")
 def test_bad_length_prefix_restores_blocking_mode():
     """A garbage length must not leave the pipe non-blocking for the next read."""
-    import struct
 
     read_fd, write_fd = os.pipe()
     os.write(write_fd, struct.pack("!I", 50_000_000) + b"LEFTOVER")
@@ -453,8 +452,6 @@ def test_pickle_frame_write_timeout_on_unread_pipe():
 
 
 def test_pickle_frame_write_with_timeout_roundtrip():
-    import threading
-
     read_fd, write_fd = os.pipe()
     got: dict[str, object] = {}
 
@@ -510,7 +507,6 @@ def test_json_line_timeout_on_pipe():
 
 def test_win32_read_raising_cancel_keeps_reading(monkeypatch):
     """A raising cancel scope is not a stop; the peek loop still returns the bytes."""
-    import struct
     from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
@@ -615,8 +611,6 @@ def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
 
 
 def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
-    import struct
-    from unittest.mock import MagicMock
     from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
@@ -798,7 +792,6 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     """On budget timeout during a tool read, consume the reply before raising so the next call stays in sync."""
-    import signal
 
     from plugin.framework import ipc
 
@@ -836,8 +829,6 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
-    import signal
-
     from plugin.framework.ipc import _resume_script_alarm
 
     armed: list[float] = []
@@ -856,7 +847,6 @@ def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_resume_script_alarm_keeps_fractional_remainder(monkeypatch):
     """_resume_script_alarm must re-arm with the fractional remainder, not round up to a whole second."""
-    import signal
 
     from plugin.framework.ipc import _resume_script_alarm
 
@@ -1030,7 +1020,6 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch, 
     read_pickle_frame may prefetch the stdin buffer. On id mismatch, drain the
     tail before raising so the next exchange_tool_call does not read a stale frame.
     """
-    import threading
 
     from plugin.framework import ipc
 
@@ -1168,7 +1157,6 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
     POSIX select checks is_alive. The Windows path joins a thread and used
     to ignore is_alive, so a dead child blocked for the full deadline.
     """
-    import threading
 
     from plugin.framework.ipc import _write_bytes_until_joined
 
@@ -1204,9 +1192,6 @@ def test_packed_frame_write_without_int_fileno_writes() -> None:
 
 
 def test_hostile_reduce_bytes_raises_value_error():
-    import pickle
-    from plugin.framework.ipc import unpack_pickle_frame
-
     class BadBytes:
         def __reduce__(self):
             return (bytes, (10**12,))
@@ -1218,8 +1203,6 @@ def test_hostile_reduce_bytes_raises_value_error():
 
 def test_roundtrip_ndarray_complex_containers():
     import numpy as np
-    import pickle
-    from plugin.framework.ipc import unpack_pickle_frame
 
     obj1 = 1 + 2j
     obj2 = np.array([1, 2, 3], dtype=np.float64)
@@ -1394,9 +1377,7 @@ def test_unpack_allows_numpy_reconstruct_under_cap(shape, dtype_spec, expected_n
 
 
 def test_numpy_arbitrary_submodule_import_fails():
-    import pickle
     import numpy as np
-    from plugin.framework.ipc import unpack_pickle_frame
 
     class BadNumpy:
         def __reduce__(self):
@@ -1407,9 +1388,7 @@ def test_numpy_arbitrary_submodule_import_fails():
         unpack_pickle_frame(payload)
 
 def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
-    import sys
     from plugin.framework import ipc
-    from unittest.mock import MagicMock
 
     monkeypatch.setattr(sys, "platform", "win32")
 

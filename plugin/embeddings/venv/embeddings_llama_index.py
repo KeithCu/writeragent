@@ -45,7 +45,7 @@ def _resolve_rerank_model(rerank_model: str | None) -> str:
 
 def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
     """Convert LlamaIndex nodes to research_search_nearby_files-compatible hit dicts."""
-    from plugin.embeddings.venv.embeddings_search_graph import _public_hit_from_candidate
+    from plugin.embeddings.venv.embeddings_search_graph import public_hit_from_candidate
 
     hits: list[dict[str, Any]] = []
     for n in nodes:
@@ -60,7 +60,7 @@ def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
         }
         if metadata.get("parent_expanded"):
             cand["parent_expanded"] = True
-        hit = _public_hit_from_candidate(cand)
+        hit = public_hit_from_candidate(cand)
         matched_by = metadata.get("matched_by")
         if matched_by:
             if isinstance(matched_by, (list, tuple, set)):

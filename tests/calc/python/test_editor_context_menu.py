@@ -171,8 +171,6 @@ def test_notify_inserts_entry_when_source_window_has_no_controller():
 
 
 def test_register_controller_dedups_uno_identity():
-    from plugin.calc.python import editor_context_menu as mod
-
     mod._registered_controllers.clear()
 
     class StubModel:

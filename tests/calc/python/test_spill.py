@@ -146,7 +146,6 @@ def test_perform_deferred_spill_error_and_empty_neighbours_record_kinds(monkeypa
 
 def _fire_sheet_modify(ctx, doc, sheet, sheet_name="Sheet1"):
     from plugin.calc.python.sheet_modify import SheetModifyDispatcher, flush_sheet_modify_pass_for_tests
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -160,7 +159,6 @@ def _fire_sheet_modify(ctx, doc, sheet, sheet_name="Sheet1"):
 
 def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that spill registry loads from old/new formats and saves rectangles to document properties."""
-    import json
     from plugin.calc.python.spill import SpillRecord
 
     saved_payload = None
@@ -197,7 +195,6 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_doc.ods")
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -236,7 +233,6 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two unsaved books must not share spill rows (each has its own WorkbookState)."""
-    import json
     from plugin.calc.python.spill import PreparedSpill, SpillRecord
 
     stored: dict[int, str] = {}
@@ -265,7 +261,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
     reset_calc_workbook_states()
     reset_calc_workbook_states()
     from plugin.calc.python.formula_locator_cache import FormulaOrigin, locate_formula_cell_in_doc
-    from plugin.calc.python.workbook_state import WorkbookState
 
     ctx1 = _ctx_with_doc(doc1)
     ctx2 = _ctx_with_doc(doc2)
@@ -295,7 +290,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         assert (SPILL_REGISTRY[key1].rows, SPILL_REGISTRY[key1].cols) == (2, 1)
         assert (SPILL_REGISTRY[key2].rows, SPILL_REGISTRY[key2].cols) == (9, 9)
         assert ("", "Sheet1", 1, 1) not in SPILL_REGISTRY
-        from plugin.calc.python.workbook_state import WorkbookState
 
         assert WorkbookState.for_doc(doc1) is not None and WorkbookState.for_doc(doc1).loaded
         assert WorkbookState.for_doc(doc2) is not None and WorkbookState.for_doc(doc2).loaded
@@ -351,7 +345,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sheet modify pass cleans up spilled cells when formula is removed."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub("Sheet1")
@@ -389,7 +382,6 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     """Orphan cleanup must undo/save the workbook that owns the sheet."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     from plugin.calc.python.sheet_modify import SheetModifyDispatcher, flush_sheet_modify_pass_for_tests
-    from plugin.calc.python.workbook_state import WorkbookState
 
     owner = CalcDocStub(url="file:///owner.ods", props={"RuntimeUID": "uid-owner"})
     active = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
@@ -425,7 +417,6 @@ def test_calc_spill_modify_listener_drops_without_clearing_when_formula_only_con
 ) -> None:
     """=PYMT and other formulas that merely contain PY/PYTHON drop the record without clearing."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub("Sheet1")
@@ -456,14 +447,11 @@ def test_calc_spill_modify_listener_drops_without_clearing_when_formula_only_con
 
 
 def _clear_spill_timer_registry() -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     WorkbookState.reset_for_tests()
 
 
 def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unload cancel must see off-main timers; registering them must not call UNO."""
-    from plugin.calc.python.workbook_state import WorkbookState
 
     _clear_spill_timer_registry()
     doc = CalcDocStub(url="file:///spill-life.ods", props={"RuntimeUID": "uid-spill"})
@@ -498,7 +486,6 @@ def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.
 
 def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each cached model keeps its own unload key; a missing model stays blank."""
-    from plugin.calc.python.workbook_state import WorkbookState
 
     _clear_spill_timer_registry()
     doc_a = CalcDocStub(props={"RuntimeUID": "uid-a"})
@@ -523,8 +510,6 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
 
 
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     doc = CalcDocStub(url="file:///spill.ods")
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("=SUM(A2)")
@@ -542,7 +527,6 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
 
 def test_off_main_spill_timer_does_not_register_empty_lkey() -> None:
     """Missing doc must not arm a debounce slot."""
-    from plugin.calc.python.workbook_state import WorkbookState
 
     _clear_spill_timer_registry()
     try:
@@ -555,7 +539,6 @@ def test_off_main_spill_timer_does_not_register_empty_lkey() -> None:
 def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
     """Spills past 1024 columns succeed on a 16384-column sheet; overflowing the last column is #SPILL!."""
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub(name="Sheet1")
@@ -594,7 +577,6 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
 def test_prepare_auto_spill_records_why_it_is_blocked() -> None:
     from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcSheetStub
 
     doc = CalcDocStub(url="file:///spill-blocked-diag.ods", props={"RuntimeUID": "uid-spill-blocked-diag"})
@@ -644,8 +626,6 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
 
     grid = [[1, 2], [3, 4]]
 
-    from plugin.calc.python.workbook_state import WorkbookState
-
     _spill.perform_deferred_spill(
         "Sheet1",
         0,
@@ -669,8 +649,6 @@ def test_spill_remap_when_block_moves_with_formula(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///remap.ods")
-
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -710,8 +688,6 @@ def test_spill_cut_paste_drops_record_and_leaves_block(monkeypatch: pytest.Monke
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///cutpaste.ods")
 
-    from plugin.calc.python.workbook_state import WorkbookState
-
     st = WorkbookState.for_doc(doc)
     assert st is not None
 
@@ -745,8 +721,6 @@ def test_spill_clear_keeps_block_when_user_formula_inside(
     sheet = CalcSheetStub("Sheet1")
     doc = CalcDocStub(sheets=[sheet], url="file:///skip.ods")
 
-    from plugin.calc.python.workbook_state import WorkbookState
-
     st = WorkbookState.for_doc(doc)
     assert st is not None
 
@@ -773,7 +747,6 @@ def test_spill_clear_keeps_block_when_user_formula_inside(
 
 
 def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcSheetStub
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -809,8 +782,6 @@ def test_perform_deferred_spill_writes_nan_column_as_err_block(monkeypatch: pyte
 
 
 def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
     payload = json.dumps({
         "Sheet1:1,1": [[2, 1]],
         "Sheet1:x,1": [[0, 0]],
@@ -823,7 +794,6 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
     doc = CalcDocStub(url="file:///fake_malformed.ods")
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
@@ -835,8 +805,6 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
 
 
 def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     class MethodVsPropStub:
         def getRuntimeUID(self) -> str:
             return "from-method"
@@ -862,8 +830,6 @@ def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
 
 
 def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     doc = CalcDocStub(url="", props={})
     counter = 0
 
@@ -892,7 +858,6 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
 def test_perform_deferred_spill_aborts_on_late_collision(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-late-collision.ods", props={"RuntimeUID": "uid-spill-late-collision"})
@@ -943,8 +908,6 @@ def test_perform_deferred_spill_aborts_on_late_collision(monkeypatch: pytest.Mon
 
 
 def test_perform_deferred_spill_allows_owned_spill_overwrite(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-owned.ods", props={"RuntimeUID": "uid-spill-owned"})
     sheet = doc.getSheets().getByIndex(0)
@@ -980,7 +943,6 @@ def test_perform_deferred_spill_allows_owned_spill_overwrite(monkeypatch: pytest
 
 def test_perform_deferred_spill_late_collision_clears_old_spill(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-late-clear.ods", props={"RuntimeUID": "uid-spill-late-clear"})
@@ -1032,9 +994,7 @@ def test_perform_deferred_spill_late_collision_clears_old_spill(monkeypatch: pyt
 
 
 def test_prepare_auto_spill_blocked_clears_owned_cells_after_settle(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     saved: list[str] = []
@@ -1088,7 +1048,6 @@ def test_blocked_spill_skips_clear_when_record_belongs_to_different_formula(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-mismatch-rec.ods", props={"RuntimeUID": "uid-spill-mismatch"})
@@ -1128,7 +1087,6 @@ def test_blocked_spill_skips_clear_when_record_belongs_to_different_formula(
 
 def test_off_main_fitting_spill_cancels_pending_release(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-offmain-cancel.ods", props={"RuntimeUID": "uid-offmain-cancel"})
@@ -1174,7 +1132,6 @@ def test_off_main_fitting_spill_cancels_pending_release(monkeypatch: pytest.Monk
 
 def test_perform_deferred_spill_overwrites_user_value_in_rect(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill-user-edit.ods", props={"RuntimeUID": "uid-spill-user-edit"})
@@ -1216,8 +1173,6 @@ def test_perform_deferred_spill_overwrites_user_value_in_rect(monkeypatch: pytes
 
 
 def test_perform_deferred_spill_shrink_clears_old_rect(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.workbook_state import WorkbookState
-
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(_spill, "save_spill_registry_for_doc", lambda _d, _st: None)
     doc = CalcDocStub(url="file:///spill-shrink-user.ods", props={"RuntimeUID": "uid-spill-shrink-user"})
@@ -1406,7 +1361,6 @@ def test_cleanup_refreshes_used_end_after_pass(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_arm_spill_registry_loads_and_arms_sheets(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
     from plugin.tests.testing_utils import CalcSheetStub
 
     s1 = CalcSheetStub("Sheet1")
@@ -1654,7 +1608,6 @@ def test_spill_adjacent_records_remap_both_directions(monkeypatch: pytest.Monkey
 def test_moved_formula_respills_before_modify_pass(
     monkeypatch: pytest.MonkeyPatch, used_end: tuple[int, int]
 ) -> None:
-    import json
     from plugin.calc.python.formula_locator_cache import FormulaOrigin
     from plugin.tests.testing_utils import CalcSheetStub
 
@@ -2128,8 +2081,6 @@ def test_perform_deferred_spill_code_in_cell_ref(monkeypatch: pytest.MonkeyPatch
 
 
 def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
     stored = json.dumps({"Sheet1:0,0": {"code": "x", "rows": 2, "cols": 1}})
 
     for fail_kind in ("getPropertyValue", "getPropertySetInfo"):
@@ -2180,7 +2131,6 @@ def test_load_spill_registry_failure_does_not_mark_loaded_or_clobber_save(monkey
 
 
 def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
     from plugin.tests.testing_utils import CalcSheetStub
 
     doc = CalcDocStub(
@@ -2227,8 +2177,6 @@ def test_cleanup_orphans_loads_registry_before_dropping_records(monkeypatch: pyt
 
 
 def test_load_spill_registry_unparsable_payload_marks_loaded_and_allows_recovery() -> None:
-    import json
-
     for bad_payload in ("{not-json", "[1, 2]"):
         doc = CalcDocStub(url="file:///bad_json.ods", props={"RuntimeUID": "uid-bad-json"})
         bag = doc.getDocumentProperties().UserDefinedProperties
@@ -2323,3 +2271,19 @@ def test_multiple_spills_in_one_debounce_drain_save_registry_once(monkeypatch: p
         assert len(saved_payloads) == 1
     finally:
         WorkbookState.forget_key(st.key)
+
+
+def test_one_cell_result_does_not_read_owned_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1 x 1 result needs no growth check, so a row delete does not make it read the old tail during recalc."""
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    rec = _seen_record(sheet, 0, 0, "x", 2, 1)
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("_rect_values must not be called for a 1 x 1 result")
+
+    monkeypatch.setattr(_spill, "_rect_values", _boom)
+    assert _spill._spill_is_blocked(MagicMock(), "x", sheet, "Sheet1", 0, 0, 1, 1, rec, (-1, 0)) is False

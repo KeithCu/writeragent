@@ -659,8 +659,6 @@ def test_get_open_documents_empty_desktop_is_not_disposed():
 
 
 def test_get_open_documents_returns_open_calc_doc():
-    from plugin.framework.doc_type import DocumentType
-
     mock_ctx = MagicMock()
     mock_desktop = MagicMock()
     mock_comp = MagicMock()

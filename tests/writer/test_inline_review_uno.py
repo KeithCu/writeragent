@@ -8,6 +8,7 @@
 # on a paragraph-wide selection via the view cursor.
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import agent_changes, with_native_doc
 from plugin.writer.edit_review import EditReviewSession
@@ -65,7 +66,7 @@ def _para_with(doc, needle):
 def _redline_count(doc):
     n = 0
     e = doc.getRedlines().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         e.nextElement()
         n += 1
     return n
@@ -257,7 +258,6 @@ def test_snapshot_reliable_with_table_cell_redline_uno(ctx, doc):
     whose redlines live in a NON-BODY container -- here a table cell. getRedlines() is one flat table
     spanning body + cells, so getCount() must equal the enumeration length; this pins that, proving
     resolve never spuriously refuses on documents containing tables."""
-    from plugin.writer.inline_review import scan_redline_view
 
     reset_body(doc, ctx, "Body clause one here.")
     text = doc.getText()
@@ -562,7 +562,6 @@ def test_fast_travel_visits_across_text_objects_uno(ctx, doc):
 def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ctx, doc):
     from plugin.writer.edit_review import EditReviewSession, record_html_atomically
     from plugin.writer.html_import import replace_single_range_with_content
-    from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
 
     reset_body(doc, ctx, "Intro", "Replace me", "Outro")
     session = EditReviewSession(doc, ctx, enabled=True)

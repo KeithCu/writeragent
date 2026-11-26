@@ -433,7 +433,7 @@ def test_delete_document_script_rejects_workbook_init():
 
 
 def test_missing_property_bag_is_not_a_successful_save():
-    """No UserDefinedProperties bag used to return None without storing anything."""
+    """With no UserDefinedProperties bag nothing is stored, so the save must not report success."""
 
     class _DocProps:
         UserDefinedProperties = None

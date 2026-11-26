@@ -1,3 +1,4 @@
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.navigation import NavHeading, NavSurroundings
@@ -145,7 +146,7 @@ def test_get_surroundings_frames_include_text_boxes_uno(ctx, doc):
 
     para_enum = text.createEnumeration()
     paras = []
-    while para_enum.hasMoreElements():
+    while enum_has_more(para_enum):
         paras.append(para_enum.nextElement())
 
     plain = doc.createInstance("com.sun.star.text.TextFrame")
@@ -192,7 +193,7 @@ def test_surroundings_hides_tracked_deletions_uno(ctx, doc):
     strike_across_paragraphs(doc, text)
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
     p2_cur = text.createTextCursorByRange(paras[2])
     p2_cur.setPropertyValue("ParaStyleName", "Heading 1")

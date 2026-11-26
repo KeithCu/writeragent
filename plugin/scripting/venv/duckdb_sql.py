@@ -192,7 +192,9 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
 
 
 def _sandbox_context() -> tuple[str | None, str | None, bool]:
-    # Lazy (boundary): the LibreOffice process imports this module for its constants (plugin/calc/duckdb_tools.py), and venv_sandbox would load the smolagents executor and patch its thread pool there. Outside run_sandboxed_code the three getters return None, None, False.
+    # Lazy (boundary): the LibreOffice process imports this module for its constants
+    # (plugin/calc/duckdb_tools.py), and venv_sandbox would load the smolagents executor and patch
+    # its thread pool there. Outside run_sandboxed_code the three getters return None, None, False.
     from plugin.scripting.venv.venv_sandbox import (
         current_sandbox_scoped_dir,
         current_sandbox_session_id,

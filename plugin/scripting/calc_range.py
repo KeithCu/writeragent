@@ -256,6 +256,7 @@ class CalcRange:
         An explicit ``dtype`` is ``np.array`` on the raw cells. Blanks are not
         rewritten first.
         """
+        # Host boundary: this module also loads in LibreOffice's Python, where numpy may be absent.
         import numpy as np
 
         kwargs: dict[str, Any] = {}
@@ -434,8 +435,7 @@ def materialize_calc_range(wire: Any) -> CalcRange:
         inner = wire.get("data")
         address = wire.get("address")
         addr = (address.strip() or None) if isinstance(address, str) else None
-        # __init__ calls _materialize_inner_grid. Unpacking here first built
-        # the rectangular list, then __init__ walked every cell again.
+        # __init__ calls _materialize_inner_grid, so unpacking here as well would walk every cell twice.
         cr = CalcRange(inner, address=addr)
         assert cr.shape == tuple(wire["shape"]), f"Shape mismatch: {cr.shape} != {tuple(wire['shape'])}"
         return cr
@@ -492,6 +492,7 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
 
     np: Any = None
     try:
+        # Host boundary: this module also loads in LibreOffice's Python, where numpy may be absent.
         import numpy as np
     except ImportError:
         pass
