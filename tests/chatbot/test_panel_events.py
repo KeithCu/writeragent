@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
+from plugin.chatbot.panel_events import PanelEventsController, relabel_button
 from plugin.chatbot.send_state import ButtonAction
 from plugin.chatbot.tool_loop_actions import TurnController
 
@@ -129,7 +129,7 @@ class DummyEventsPanel:
 def test_relabel_button_preserves_rect():
     btn = _MockButton("Old", True)
     cache: dict[str, str] = {}
-    _relabel_button(btn, "New", cache)
+    relabel_button(btn, "New", cache)
     assert btn.model.Label == "New"
     assert btn.rect == (0, 0, 100, 30)
 

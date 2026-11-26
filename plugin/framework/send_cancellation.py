@@ -28,13 +28,13 @@ _AGENT_OPEN_SCOPES: list["SendCancellation"] = []
 _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
 
 
-class _ScopeUnset:
+class ScopeUnset:
     """Marker: enqueue reads the current send instead of a caller-supplied scope."""
 
 
 # ``_enqueue_work`` reads the current send unless the caller passes the scope
 # that was current when a pending post was stored.
-_SCOPE_UNSET = _ScopeUnset()
+SCOPE_UNSET = ScopeUnset()
 
 
 class CancellableClient(Protocol):

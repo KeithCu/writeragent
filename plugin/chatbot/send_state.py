@@ -42,7 +42,9 @@ class SendMode(Enum):
 class SendButtonState(BaseState):
     mode: SendMode
     has_text: bool  # True when the query text area is non-empty
-    has_audio: bool  # Stop Rec committed a take to send. Not proof a WAV exists; the panel's audio_wav_path is the file. A missing file ends the send as ERROR_OCCURRED, which clears this flag.
+    # has_audio: Stop Rec committed a take to send. Not proof a WAV exists; the panel's audio_wav_path is
+    # the file. A missing file ends the send as ERROR_OCCURRED, which clears this flag.
+    has_audio: bool
     audio_supported: bool  # True if audio recording feature is available on the platform
 
     @property

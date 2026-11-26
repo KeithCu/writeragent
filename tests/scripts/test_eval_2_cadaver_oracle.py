@@ -5,12 +5,12 @@ import re
 import sys
 from pathlib import Path
 
-from docx import Document
 from odf.draw import Frame, TextBox
 from odf.opendocument import OpenDocumentText
 from odf.table import Table, TableCell, TableRow
 from odf.text import H, P
 import pytest
+from tests.scripts.script_test_support import write_docx
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 _REPO = Path(__file__).resolve().parents[2]
@@ -54,14 +54,6 @@ Simple 30-45 minutes (up to 4 per window; totals 40-48). Standard 1-1.5
 hours (2-3 per window; totals 20-36). Complex 2-3 hours (1 per window;
 totals 10-12). This proposal does not account for mixing complexity.
 """
-
-
-def _write_docx(path: Path, text: str) -> Path:
-    doc = Document()
-    for line in text.strip().splitlines():
-        doc.add_paragraph(line)
-    doc.save(str(path))
-    return path
 
 
 def _write_odt(path: Path, text: str, *, title_as_heading: bool = False) -> Path:
@@ -127,7 +119,7 @@ totals 10-12). This proposal does not account for mixing complexity.
 
 def test_passing_proposal_docx_and_odt(tmp_path: Path) -> None:
     text = _padded()
-    docx = _write_docx(tmp_path / "ok.docx", text)
+    docx = write_docx(tmp_path / "ok.docx", text)
     odt = _write_odt(tmp_path / "ok.odt", text)
     for path in (docx, odt):
         result = score_proposal(path)

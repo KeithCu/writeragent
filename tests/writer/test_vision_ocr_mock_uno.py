@@ -20,6 +20,7 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection, run_trusted_vision
 from plugin.writer.images.image_tools import insert_image_at_locator
+from tests.writer.doc_builders import accept_all_changes
 
 _PNG_COLORS = ((255, 0, 0), (0, 255, 0), (0, 0, 255))
 
@@ -356,7 +357,6 @@ def test_mock_ocr_multi_select_reverse_click_order(ctx, doc):
 def test_mock_ocr_cancel_aborts_without_insert(ctx, doc):
     """If cancel is set, run_and_insert_vision_for_selection returns USER_STOPPED."""
     from plugin.framework.send_cancellation import SendCancellation
-    from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
     scope = SendCancellation()
     scope.cancel()
@@ -593,8 +593,7 @@ def test_mock_ocr_reports_image_kept_when_delete_cannot_be_tracked_uno(ctx, doc)
         assert result["kept_images_delete_not_trackable"] == [names[1]]
 
         doc.RecordChanges = False
-        dispatcher = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+        accept_all_changes(doc, ctx)
 
         remaining = [name for name, _unused in list_graphic_objects(doc)]
         assert remaining == [names[1]]

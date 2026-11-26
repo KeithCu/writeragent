@@ -1628,9 +1628,9 @@ _SCOPE_SENTINEL = object()
 @pytest.mark.parametrize(
     ("is_current", "bg_task", "bound_scope", "args", "kwargs"),
     [
-        (False, None, mt._SCOPE_UNSET, ("hello",), {}),
-        (True, "mcp_worker", mt._SCOPE_UNSET, (), {}),
-        (False, None, mt._SCOPE_UNSET, ("arg1",), {"kw": "val"}),
+        (False, None, mt.SCOPE_UNSET, ("hello",), {}),
+        (True, "mcp_worker", mt.SCOPE_UNSET, (), {}),
+        (False, None, mt.SCOPE_UNSET, ("arg1",), {"kw": "val"}),
         (False, None, _SCOPE_SENTINEL, (), {}),
     ],
     ids=[
@@ -1651,7 +1651,7 @@ def test_main_post_or_run_posts(
         pass
 
     call_kwargs = dict(kwargs)
-    if bound_scope is not mt._SCOPE_UNSET:
+    if bound_scope is not mt.SCOPE_UNSET:
         call_kwargs["bound_scope"] = bound_scope
 
     with patch.object(main, "is_current", return_value=is_current), \

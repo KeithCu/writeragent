@@ -325,8 +325,6 @@ def test_forms_create_rejects_bad_date():
 
 
 def test_forms_edit_invalid_state_leaves_model_untouched():
-    from plugin.writer.specialized.forms import FormEditControl
-
     doc = MagicMock()
     dp = MagicMock()
     shape = MagicMock()
@@ -552,7 +550,6 @@ def test_form_create_control_listbox():
 
 
 def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
-    from plugin.writer.specialized.forms import FormCreate
     from com.sun.star.awt import Point, Size
 
     dp = MagicMock()
@@ -604,7 +601,6 @@ def test_draw_page_stacked_cursor_single_scan_and_y_positions(monkeypatch):
 
 def test_draw_form_create_stacks_per_page(monkeypatch):
     from com.sun.star.awt import Point, Size
-    from plugin.writer.specialized.forms import FormCreate
 
     class _PlainPage:
         def __init__(self, existing_shape):
@@ -687,8 +683,6 @@ def test_draw_form_create_stacks_per_page(monkeypatch):
 
 
 def test_draw_form_generate_interleaved_text_shares_cursor(monkeypatch):
-    from plugin.writer.specialized.forms import FormGenerate
-
     dp = MagicMock()
     dp.getCount.return_value = 0
 
@@ -1006,7 +1000,6 @@ def test_form_tools_registered_for_all_doc_types():
 
 
 def test_form_create_control_items_comma_and_json_array():
-    from types import SimpleNamespace
     from plugin.framework.tool import prepare_tool_call
     from plugin.writer.specialized.forms import FormCreateControl, _items_or_error
 

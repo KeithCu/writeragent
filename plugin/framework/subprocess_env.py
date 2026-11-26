@@ -109,8 +109,8 @@ _DEAL_SCRUB_VAL = DEAL_MAX_ARGV
 
 def _deal_scrub_env_ok_pytest(base: object) -> bool:
     # os.environ values (PATH) exceed DEAL_MAX_ARGV and names can exceed
-    # a token. The old cap raised PreContractError before secrets were
-    # dropped. Values must stay str so the post (str→str) holds.
+    # a token, so a length cap here would raise PreContractError before
+    # secrets are dropped. Values must stay str so the post (str→str) holds.
     # CrossHair keeps the one-entry domain.
     if base is None:
         return True

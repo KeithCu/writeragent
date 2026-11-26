@@ -62,7 +62,7 @@ def test_hit_snippet_collapses_whitespace():
 
 
 def test_public_hit_omits_char_offsets():
-    hit = embeddings_search_graph._public_hit_from_candidate(
+    hit = embeddings_search_graph.public_hit_from_candidate(
         {
             "chunk_id": "abc",
             "doc_url": "file:///a.odt",

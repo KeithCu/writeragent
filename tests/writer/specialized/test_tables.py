@@ -661,13 +661,6 @@ def test_get_table_cells_unknown_table_lists_names():
 
 # ---- set cell ---------------------------------------------------------------
 
-def test_set_table_cell_ok():
-    t = FakeTable(2, 2, cells={"B2": "old"})
-    res = TableSetCell().execute(_ctx({"T": t}), name="T", cell="b2", text="new")
-    assert res["status"] == "ok" and res["old_text"] == "old" and res["new_text"] == "new"
-    assert t._cells["B2"] == "new"
-
-
 def test_set_table_cell_host_keeps_nested_table():
     """Host cell: rewrite paragraphs, leave the nested TextTable (do not setString)."""
     parent = FakeParentTable(
@@ -682,8 +675,6 @@ def test_set_table_cell_host_keeps_nested_table():
     assert isinstance(parent._nested_by_cell["B2"][0], FakeParagraph)
     assert parent._nested_by_cell["B2"][0].getString() == "caption"
     assert parent._nested_by_cell["B2"][-1].getName() == "Child"
-    sibling = TableSetCell().execute(ctx, name="Parent", cell="A1", text="ok")
-    assert sibling["status"] == "ok" and parent._cells["A1"] == "ok"
 
 
 def test_set_table_cell_host_rewrites_existing_paragraphs():
@@ -732,15 +723,13 @@ def test_set_table_cell_uno_failure_returns_clean_error():
     assert res["status"] == "error" and "uno exploded" in res["message"]
 
 
-def test_set_table_cell_never_blind_uppercases_real_lowercase_names():
+def test_resolve_cell_name_never_blind_uppercases():
     """Writer names columns A..Z then LOWERCASE a..z: on a wide table 'a1' and 'A1' are DIFFERENT
     cells. An exact lowercase name must be used as-is, never rewritten to uppercase."""
-    t = FakeTable(1, 2, cells={"A1": "first", "a1": "col27"})
-    # Simulate the wide-table naming: real names include both 'A1' and 'a1'.
-    t.getCellNames = lambda: ["A1", "a1"]
-    res = TableSetCell().execute(_ctx({"T": t}), name="T", cell="a1", text="new")
-    assert res["status"] == "ok" and res["cell"] == "a1"
-    assert t._cells["a1"] == "new" and t._cells["A1"] == "first"  # A1 untouched
+    from plugin.writer.specialized.tables import _resolve_cell_name
+
+    assert _resolve_cell_name("a1", ["A1", "a1"]) == "a1"
+    assert _resolve_cell_name("b2", ["B2"]) == "B2"
 
 
 def test_writer_cell_position_matches_get_cell_position():

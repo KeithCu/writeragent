@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Regression test: applying a paragraph style via apply_style must not wipe DIRECT
+# Applying a paragraph style via apply_style must not wipe DIRECT
 # character emphasis (color/bold/highlight) already set on the target text. Default
 # clear_direct is style_props: house font/size win, bold/italic/colour stay. The
 # helper captures Char* that differ from the old style default and restores
@@ -64,11 +64,10 @@ def test_apply_paragraph_style_preserves_direct_char_format_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_paragraph_style_via_search_preserves_whole_paragraph_uno(ctx, doc):
-    """Regression (found via live MCP testing 2026-06-01): when a PARAGRAPH style is
-    applied with target='search' matching only a SUBSTRING, the style still resets the
-    WHOLE paragraph's direct char formatting. The capture must therefore cover the
-    whole paragraph, not just the matched range, so direct formatting OUTSIDE the
-    match survives too."""
+    """When a PARAGRAPH style is applied with target='search' matching only a SUBSTRING,
+    the style still resets the WHOLE paragraph's direct char formatting. The capture
+    therefore covers the whole paragraph, not just the matched range, so direct
+    formatting OUTSIDE the match survives too."""
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
@@ -89,7 +88,7 @@ def test_apply_paragraph_style_via_search_preserves_whole_paragraph_uno(ctx, doc
     assert res.get("status") == "ok", f"apply_style failed: {res}"
 
     # check a portion OUTSIDE the matched range ("Result", the first word): it must
-    # keep red+bold. Before the fix, only "by a judge" was preserved.
+    # keep red+bold, which fails if only the matched "by a judge" is captured.
     lead = text.createTextCursorByRange(text.getStart())
     lead.goRight(6, True)  # "Result"
     assert int(lead.getPropertyValue("CharColor")) == 0xFF0000, \

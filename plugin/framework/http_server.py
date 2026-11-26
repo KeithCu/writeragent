@@ -87,8 +87,9 @@ class _RequestThreads:
     The shared ``wa-bg`` pool is not used: one SSE connection would hold a
     UI worker until the client left.
 
-    ``submit`` / ``shutdown(wait, cancel_futures)`` match the old executor
-    so ``drain_executor`` can wait for in-flight work. Threads start on the
+    ``submit`` / ``shutdown(wait, cancel_futures)`` match the
+    ``concurrent.futures.Executor`` signatures so ``drain_executor`` can wait
+    for in-flight work. Threads start on the
     first submit, so a failed bind does not spawn any. A submit starts another
     thread when unfinished calls exceed the number of threads, up to the cap.
     A thread inside a handler is unfinished work, not an idle worker.
@@ -256,7 +257,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     The socket accept loop uses selectors.DefaultSelector to monitor all bound sockets concurrently.
     Incoming connections are submitted to ``_RequestThreads``. The worker count is bounded.
-    The accept queue is capped (default 128); past the ceiling the accept thread closes the socket and writes no response. Compute HTTP 503 is worker admission, not this path.
+    The accept queue is capped (default 128); past the ceiling the accept thread closes the socket and writes no
+    response. Compute HTTP 503 is worker admission, not this path.
     Supports optional TLS socket wrapping.
 
     The request handler sets the read deadline (MCP: ``GenericRequestHandler.timeout``; compute: ``DeadlineRequestHandler``).

@@ -204,10 +204,10 @@ def shape_kind(shape: Any) -> str:
         # lazy: calc.charts and writer.math pull in calc/writer modules that
         # import back into plugin.draw / plugin.doc; both are already loaded by
         # tool registration.
-        from plugin.calc.charts import _is_chart_clsid
+        from plugin.calc.charts import is_chart_clsid
         from plugin.writer.math.math_mml_convert import MATH_CLSID
 
-        if _is_chart_clsid(clsid):
+        if is_chart_clsid(clsid):
             return "Chart"
         if clsid == MATH_CLSID.lower():
             return "Formula"
@@ -292,7 +292,7 @@ def shape_path(base: str | None, i: int) -> str:
     return str(i) if base is None else f"{base}.{i}"
 
 
-def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
+def iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
     """Direct ``(slot, shape)`` pairs. ``slot`` is the XShapes index, not a compacted count.
 
     Non-disposal ``getCount`` ends the walk. Non-disposal ``getByIndex`` skips that slot.
@@ -328,8 +328,8 @@ def is_group(shape: Any) -> bool:
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
     """Preorder (address, shape, parent). parent is the XShapes to remove from (page or GroupShape).
     Recurse only when "GroupShape" is in the shape type. Disposal from getCount / getByIndex
-    (_iter_children) and getShapeType propagates as the original exception."""
-    for i, shape in _iter_children(xshapes):
+    (iter_children) and getShapeType propagates as the original exception."""
+    for i, shape in iter_children(xshapes):
         addr = shape_path(base, i)
         yield addr, shape, xshapes
 
@@ -341,10 +341,7 @@ def page_shape_names(page: Any) -> list[str]:
     seen: set[str] = set()
     names: list[str] = []
     for _path, shape, _parent in iter_shape_addresses(page):
-        raw = getattr(shape, "Name", None)
-        if raw is None:
-            continue
-        name = str(raw).strip()
+        name = shape.Name.strip()
         if name and name not in seen:
             seen.add(name)
             names.append(name)
@@ -486,7 +483,7 @@ def resolve_shape_ref(
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
     """Recursively build a semantic tree from an XShapes collection."""
     tree: list[dict[str, Any]] = []
-    for i, shape in _iter_children(xshapes):
+    for i, shape in iter_children(xshapes):
         current_index = shape_path(base_index, i)
 
         shape_type = uno_read(lambda: shape.getShapeType(), "UnknownShape")

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
-Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Spreadsheet import translates sheet functions to these helpers; where Calc and Excel differ they follow Calc (see calc_functions_util).
 """
 
 from __future__ import annotations

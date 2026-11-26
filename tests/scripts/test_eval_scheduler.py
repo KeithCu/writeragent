@@ -106,7 +106,7 @@ def test_select_pack_lo_keeps_flag_and_drops_py_rows() -> None:
     assert "toc_renumber_insert" in ids
     assert "py_refuse_overlap" not in ids
     assert "py_no_bulk_read" not in ids
-    # Explicit -e of a =PY row still runs it (the old non-explicit filter).
+    # An explicit -e of a =PY row still runs it.
     py = [ex for ex in examples if ex.task_id == "py_refuse_overlap"]
     kept = select_pack(py, cli_backend="lo", explicit=True, student="llm")
     assert [ex.task_id for ex in kept.examples] == ["py_refuse_overlap"]
@@ -140,7 +140,7 @@ def test_lo_pool_workers_two_overlap() -> None:
 
 
 def test_lo_lane_workers_one_is_serial() -> None:
-    """workers=1 keeps the old single-thread FIFO for example bodies."""
+    """workers=1 runs example bodies one at a time, in FIFO order."""
     events, lock = _events()
     lane = LoLane(workers=1)
     try:

@@ -35,7 +35,7 @@ from tests.scripting.serialization_ab_support import (
     hypothesis_grid_ok,
 )
 
-# payload_codec no longer loads Cython at import (compute workers import unpack
+# payload_codec does not load Cython at import (compute workers import its unpack
 # helpers). Parity tests need the host accelerator bound before skipif.
 load_cython_accelerator()
 from plugin.scripting.payload_codec import fast_flatten_grid_2d  # noqa: E402

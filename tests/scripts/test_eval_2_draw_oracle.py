@@ -4,8 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from odf.opendocument import OpenDocumentText
-from odf.text import P
+from tests.scripts.script_test_support import write_odt
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -41,15 +40,6 @@ _PASSING_LABELS = (
     "Manual outbound dispatch",
     "End",
 )
-
-
-def _write_odt(path: Path, text: str) -> Path:
-    doc = OpenDocumentText()
-    for line in text.strip().splitlines():
-        doc.text.addElement(P(text=line))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(path))
-    return path
 
 
 def _write_labeled_odg(
@@ -132,7 +122,7 @@ def test_husk_body_fails() -> None:
 
 
 def test_writer_odt_is_not_a_substitute(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", "\n".join(_PASSING_LABELS))
+    memo = write_odt(tmp_path / "final_memo.odt", "\n".join(_PASSING_LABELS))
     result = score_artifact(memo)
     assert not result.passed
     assert any(".odg" in item for item in result.failures)

@@ -59,8 +59,8 @@ def _require_sympy() -> Any | None:
 def _param_text(value: Any) -> str:
     """Stringify a parameter. ``None`` becomes an empty string.
 
-    ``value or ""`` treated JSON ``0`` and ``False`` as missing, so
-    ``expression: 0`` became "empty expression" instead of the number zero.
+    ``value or ""`` would treat JSON ``0`` and ``False`` as missing, so
+    ``expression: 0`` would be "empty expression" instead of the number zero.
     """
     if value is None:
         return ""

@@ -10,6 +10,7 @@ import unittest
 import uno  # noqa: F401
 from typing import Any
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc, writer_services_tool_context
 from plugin.writer.images.image_tools import graphic_from_bytes
@@ -166,7 +167,7 @@ def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
     enum = text.createEnumeration()
     last_para = None
     count = 0
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         last_para = enum.nextElement()
         count += 1
 
@@ -203,7 +204,7 @@ def test_clone_heading_block_inserts_before_next_heading_uno(ctx, doc):
     doc.RecordChanges = True
     enum = text.createEnumeration()
     body = None
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         if el.getString() == "This is good text.":
             body = el
@@ -226,7 +227,7 @@ def test_clone_heading_block_inserts_before_next_heading_uno(ctx, doc):
 
     rows = []
     enum = text.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         rows.append((el.getString(), el.getPropertyValue("ParaStyleName")))
     assert rows == [
@@ -452,15 +453,12 @@ def test_clone_heading_block_hides_multi_para_tracked_deletion_uno(ctx, doc):
 
 @native_test
 def test_get_page_objects_print_preview_returns_tool_error_uno(ctx):
-    from plugin.framework.uno_context import get_desktop, get_service_manager
+    from plugin.framework.uno_context import execute_dispatch, get_desktop
 
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
     try:
-        dispatcher = get_service_manager(ctx).createInstanceWithContext(
-            "com.sun.star.frame.DispatchHelper", ctx
-        )
-        dispatcher.executeDispatch(doc.getCurrentController().getFrame(), ".uno:PrintPreview", "", 0, ())
+        execute_dispatch(ctx, doc.getCurrentController(), ".uno:PrintPreview")
         tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
         tool = GetPageObjects()
         for kwargs in ({"page": 0}, {"paragraph": 0}, {}):

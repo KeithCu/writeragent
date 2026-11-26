@@ -210,8 +210,6 @@ def test_untracked_restores_modified_and_unlocks_on_error():
 # ---- 1) reads never doc.store() ----------------------------------------------
 
 def test_ensure_heading_bookmarks_never_stores():
-    from plugin.writer.specialized.bookmarks import BookmarkService
-
     doc = MagicMock()
     text = MagicMock()
     enum = MagicMock()
@@ -419,8 +417,6 @@ def test_bookmark_resolve_rejects_unplaced_anchor():
 
 
 def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
-    from plugin.writer.specialized.bookmarks import BookmarkService
-
     doc = _HeadingDoc(
         [_Para("Title", 1)],
         {"_mcp_existing": _Mark("_mcp_existing", para=0)},
@@ -627,8 +623,6 @@ def test_bookmark_list_isolates_bad_bookmark():
 
 
 def test_bookmark_delete_rejects_mcp_names():
-    from plugin.writer.specialized.bookmarks import BookmarkDelete
-
     doc = MagicMock()
     text = MagicMock()
     doc.getText.return_value = text
@@ -652,7 +646,6 @@ def test_bookmark_delete_rejects_mcp_names():
 
 def test_bookmark_get_and_delete_dead_anchor_and_disposal():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.specialized.bookmarks import BookmarkDelete, BookmarkGet
 
     doc = MagicMock()
     bookmarks = MagicMock()

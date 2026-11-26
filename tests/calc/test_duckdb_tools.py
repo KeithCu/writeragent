@@ -1199,8 +1199,6 @@ def test_apostrophe_sheet_name_round_trips_qualified_a1():
 @patch("plugin.calc.duckdb_tools.resolve_table_source_a1", return_value="Sales.A1:B2")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
 def test_read_range_calc_error_reports_maximum_is(mock_resolve, mock_a1, mock_read_range):
-    from plugin.framework.errors import CalcError
-
     del mock_resolve, mock_a1
     mock_read_range.side_effect = CalcError("Data range has 500000 cells; maximum is 250000.")
     res = _run(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
@@ -1282,7 +1280,6 @@ def test_execute_rejects_data_range_with_tables_data():
 
 def test_export_uses_unique_partial_temp(tmp_path, monkeypatch):
     import uno
-    from pathlib import Path
 
     monkeypatch.setattr(uno, "systemPathToFileUrl", lambda path: str(path))
     dest = tmp_path / "cached.ods"

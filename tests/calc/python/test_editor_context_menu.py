@@ -171,8 +171,6 @@ def test_notify_inserts_entry_when_source_window_has_no_controller():
 
 
 def test_register_controller_dedups_uno_identity():
-    from plugin.calc.python import editor_context_menu as mod
-
     mod._registered_controllers.clear()
 
     class StubModel:
@@ -362,8 +360,9 @@ def test_new_doc_listener_on_document_event():
 
         # Event without ViewController registers Source.getCurrentController()
         mock_reg.reset_mock()
-        evt2 = MagicMock(spec=["EventName", "Source"])
+        evt2 = MagicMock(spec=["EventName", "ViewController", "Source"])
         evt2.EventName = "OnLoadFinished"
+        evt2.ViewController = None
         evt2.Source = MagicMock()
         controller = MagicMock()
         evt2.Source.getCurrentController.return_value = controller

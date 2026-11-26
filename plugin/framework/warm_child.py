@@ -573,7 +573,8 @@ class WarmChild(ChildSlot):
         ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``refuse`` is consulted
         only while waiting for the lock—not after it is held, because ``begin_io`` makes this
         thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
-        ``cancel`` is checked again once the lock is held, before any spawn, when a spawned child is published, during the spawn handshake, and when a spawn fails.
+        ``cancel`` is checked again once the lock is held, before any spawn, when a spawned child is published, during
+        the spawn handshake, and when a spawn fails.
         """
         acquire_end: float | None = None
         if wait is not None and wait > 0:

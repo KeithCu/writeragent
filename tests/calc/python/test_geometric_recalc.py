@@ -690,7 +690,6 @@ def test_fill_down_unanimous_ours_is_strip_safe():
 
 def test_mixed_user_last_arg_poisons_the_triple():
     """Same (code, n_args=2), one ours and one not → neither is strip-safe."""
-    from plugin.calc.python.geometric_recalc import compute_eval_index
 
     code = "f"
     cells = [
@@ -772,7 +771,6 @@ def test_cap_hit_user_message_names_the_sheet(monkeypatch):
     boxes = []
     monkeypatch.setattr("plugin.chatbot.dialogs.msgbox", lambda *args, **kw: boxes.append(args))
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    from plugin.calc.python.geometric_recalc import notify_geometric_cap_hit
 
     assert notify_geometric_cap_hit("ctx", "Pivots", session_id="calc:wb") is True
     assert len(boxes) == 1
@@ -782,7 +780,6 @@ def test_cap_hit_user_message_names_the_sheet(monkeypatch):
 
 def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
     """K3: a truncated sheet poisons the entire workbook's strip safe index."""
-    from plugin.calc.python.geometric_recalc import reconcile
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
@@ -1364,7 +1361,6 @@ def test_strip_helper_does_not_use_1x1_or_uniqueness():
     # Unique code + 1×1 last arg is still no-strip without a map mark.
     assert maybe_strip_geometric_eval_args("unique_snippet_xyz", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
     # ≥1-hit would strip if any cell is ours; we require the triple in strip_safe.
-    from plugin.calc.python.geometric_recalc import _RUNTIME
 
     _RUNTIME.records[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
     assert maybe_strip_geometric_eval_args("f", [col, pred], _eval_cell(_wb_doc())) == [col, pred]
@@ -1377,7 +1373,6 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
     so numbers stay correct. A value hash was the worse trade (data edits
     missed the key and skipped strip on the edited cell).
     """
-    from plugin.calc.python.geometric_recalc import compute_eval_index
     _reset_geo()
     code = "np.mean(data)"
     range_a = ((1.0,), (2.0,), (3.0,))
@@ -1451,7 +1446,6 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
         dispatch_sheet_modified,
         reset_sheet_modify_runtime_for_tests,
     )
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
@@ -1494,8 +1488,6 @@ def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
 
 
 def test_dispatcher_insert_retargets_successor(monkeypatch):
-    from plugin.calc.python.formula_edit import PyFormula
-    from plugin.calc.python.geometric_recalc_core import formula_data_args, same_cell_ref
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
         reset_sheet_modify_runtime_for_tests,
@@ -1530,7 +1522,6 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
 
 
 def test_dispatcher_delete_first_removes_field(monkeypatch):
-    from plugin.calc.python.geometric_recalc_core import formula_data_args
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
         reset_sheet_modify_runtime_for_tests,
@@ -1565,7 +1556,6 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
         dispatch_sheet_modified,
         reset_sheet_modify_runtime_for_tests,
     )
-    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
@@ -1586,9 +1576,6 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
 
 def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     """A data-edit that changes the PY list must rebuild unanimous-ours."""
-    from plugin.calc.python.geometric_recalc import (
-        _RUNTIME,
-    )
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
         reset_sheet_modify_runtime_for_tests,
@@ -1679,12 +1666,6 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
 
 def test_compute_eval_index_requires_last_arg_equals_predecessor_bug2():
     """BUG 2: compute_eval_index must require live formula last arg equals rec.predecessor."""
-    from plugin.calc.python.geometric_recalc import (
-        compute_eval_index,
-        maybe_strip_geometric_eval_args,
-        replace_geometric_strip_safe,
-        reset_geometric_runtime_for_tests,
-    )
 
     reset_geometric_runtime_for_tests()
     code = "np.mean(data)"

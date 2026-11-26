@@ -15,6 +15,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
 
 if TYPE_CHECKING:
+    from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.tool import SelectionPin
 
@@ -54,7 +55,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled, wait_for_approval
 from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
@@ -221,7 +222,7 @@ def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
 
 # Stop writes this as an ordinary assistant row. It is not matched by text
 # to decide whether a dead turn may still paint.
-_STOP_LINE = "\n[Stopped by user]\n"
+STOP_LINE = "\n[Stopped by user]\n"
 # One row per tool call that never received a result. Not a second controller.
 _CANCELLED_TOOL = "Cancelled by user. The call may have completed."
 
@@ -241,7 +242,7 @@ class TurnController:
     ``session.messages``; streamed tokens are the open row on that list.
     """
 
-    session: Any
+    session: ChatSession | None
     messages: list[dict[str, Any]]
     queue: Any
     batcher: Any
@@ -272,7 +273,7 @@ class TurnController:
 
     def __init__(
         self,
-        session: Any,
+        session: ChatSession | None,
         model: Any = None,
     ) -> None:
         self.session = session
@@ -411,7 +412,7 @@ class TurnController:
         assert self.session is not None
         # A second call sees a finished stripper and a last row that is not
         # _open_transcript, so open_text() is empty and it stores another
-        # "No response." plus another _STOP_LINE (including when the first
+        # "No response." plus another STOP_LINE (including when the first
         # call had already stored the open row). send_handlers.on_stopped and
         # tool_loop._handle_stream_stopped both call this; the drain invokes
         # on_stopped once, and the turn did not. _stop_committed is not
@@ -427,7 +428,7 @@ class TurnController:
         closed = _append_cancelled_tool_rows(self.messages)
         if not chosen and closed == 0:
             persist_assistant_on_turn(host, content="No response.")
-        persist_assistant_on_turn(host, content=_STOP_LINE)
+        persist_assistant_on_turn(host, content=STOP_LINE)
 
 
 def note_stop_partial(turn: Any, response: Any) -> None:
@@ -484,8 +485,8 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
 
     Skip rerender after Stop. The Stop path already stored the partial answer
     and the ``[Stopped by user]`` row, then painted that list. A second paint
-    is not required. The old splice truncated the tail and pasted the answer
-    without the marker.
+    is not required, and a splice here would truncate the tail and paste the
+    answer without the marker.
 
     Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
@@ -508,7 +509,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     if leftover and not replaced:
         listener._append_response(leftover, role="assistant")
 
-    # Append _STOP_LINE to the control for this stopped turn. Skipping
+    # Append STOP_LINE to the control for this stopped turn. Skipping
     # rerender keeps the ramble from painting over the banner, and
     # close_stopped only persisted the line on session.messages, so the
     # control never drew [Stopped by user].
@@ -524,14 +525,14 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
         if widget is not None:
             run_rich = getattr(listener, "_run_rich_ui", None)
             if callable(run_rich):
-                run_rich(lambda: widget.append_chunk(_STOP_LINE))
+                run_rich(lambda: widget.append_chunk(STOP_LINE))
             else:
-                widget.append_chunk(_STOP_LINE)
+                widget.append_chunk(STOP_LINE)
         else:
             control = getattr(listener, "response_control", None)
             if control is not None and control.getModel():
                 cur = get_control_text(control, default="") or ""
-                set_control_text(control, cur + _STOP_LINE)
+                set_control_text(control, cur + STOP_LINE)
 
 
 def assign_send_outcome(host: Any, outcome: SendOutcome | None) -> None:
@@ -596,8 +597,7 @@ def begin_send_turn(host: Any) -> TurnController:
     previous = current_turn(host)
     if previous is not None:
         previous.abort()
-    session = getattr(host, "session", None)
-    turn = TurnController(session)
+    turn = TurnController(host.session)
     orphan = getattr(host, "_orphan_send_outcome", None)
     if orphan is not None:
         turn.outcome = orphan
@@ -614,7 +614,7 @@ def running_turn(host: Any) -> TurnController | None:
     return None
 
 
-def session_for_turn(host: Any) -> Any:
+def session_for_turn(host: Any) -> ChatSession | None:
     """The session this send bound. None when the turn is gone or the list changed."""
     turn = current_turn(host)
     if turn is not None and turn.can_write(host):
@@ -622,7 +622,7 @@ def session_for_turn(host: Any) -> Any:
     return None
 
 
-def turn_session_or_stop(host: Any) -> Any:
+def turn_session_or_stop(host: Any) -> ChatSession | None:
     """The session for this send. None when the turn is already over.
 
     ``_do_send`` starts the turn before this runs. A direct call with no
@@ -706,9 +706,9 @@ def persist_assistant_on_turn(
     tool_calls: Any = None,
     reasoning_replay: Any = None,
 ) -> None:
-    turn = current_turn(host)
-    if turn is not None and turn.can_write(host):
-        turn.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
+    session = session_for_turn(host)
+    if session is not None:
+        session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
 def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController) -> None:
@@ -772,7 +772,7 @@ def tool_message_content(content: Any) -> Any:
 
 class ToolLoopActionHost(Protocol):
     ctx: Any
-    session: Any
+    session: ChatSession | None
     image_model_selector: Any
     audio_wav_path: str | None
     _send_cancellation: SendCancellation | None
@@ -854,7 +854,6 @@ def build_tool_execute_fn(
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
                 event = threading.Event()
-                from plugin.framework.send_cancellation import wait_for_approval
 
                 if not put_for_turn(captured_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
                     return (False, None)
@@ -990,6 +989,8 @@ class ToolLoopEffectInterpreter:
             # Clear replaced the message list, or the turn was aborted.
             # Do not write [DOCUMENT CONTENT] onto the wiped chat.
             return True
+        # running_turn goes through can_write, which refuses a turn with no session.
+        assert turn.session is not None
 
         def _fail(message: str) -> bool:
             host._append_response(message)
@@ -1062,10 +1063,11 @@ class ToolLoopEffectInterpreter:
                 reasoning_replay=effect.reasoning_replay,
             )
         elif effect.role == MessageRole.TOOL:
-            turn = current_turn(self.host)
-            if turn is not None and turn.can_write(self.host):
-                assert turn.session is not None
-                turn.session.add_tool_result(effect.call_id, tool_message_content(content))
+            session = session_for_turn(self.host)
+            if session is not None:
+                # next_state builds every TOOL row with the result's call_id (a str).
+                assert effect.call_id is not None
+                session.add_tool_result(effect.call_id, tool_message_content(content))
 
     def _cleanup_audio(self) -> None:
         """Clean up recording file and record audio support for the captured model.

@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import uno
 
+# The com.sun.star.* imports in this file stay inside functions (host boundary): those
+# names resolve only inside LibreOffice or with UNO stubs.
 from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import (
@@ -35,13 +37,15 @@ from plugin.doc.visual_helpers import (
     parse_color_to_uno_int,
 )
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_read, uno_write
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, available_miss_details, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
+from plugin.framework.uno_context import get_service_manager, uno_same
 from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
 from plugin.writer.search import shape_is_as_character, shape_text_boxes
 from plugin.writer.specialized_base import ToolWriterShapeBase, grouped_text_box_error
 from plugin.writer.styles import para_adjust_to_uno
 from . import layout
+from .bridge import DrawBridge, page_size
 from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
 from .tree import (
     custom_shape_geometry,
@@ -87,8 +91,6 @@ def _lookup_ref(
     *,
     by_name: bool = False,
 ) -> tuple[int | str | None, Any | None, Any | None, dict[str, Any] | None]:
-    from plugin.framework.errors import available_miss_details
-
     if by_name:
         wanted = str(ref).strip()
         addr, shape, parent, err = find_shape_on_page(page, name=wanted)
@@ -265,8 +267,6 @@ class GetDrawSummary(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         shapes = []
@@ -274,7 +274,7 @@ class GetDrawSummary(_AnyDocumentShapeTool):
             row_index: int | str = int(addr) if "." not in addr else addr
             info: dict[str, Any] = {
                 "index": row_index,
-                "name": getattr(s, "Name", "") or "",
+                "name": s.Name,
                 "type": s.getShapeType(),
                 "x": s.getPosition().X,
                 "y": s.getPosition().Y,
@@ -306,7 +306,6 @@ def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> 
     relative to its existing bounding box (and Writer ignores negative direction),
     so endpoints must be written through PolyPolygon instead.
     """
-    # Host boundary: com.sun.star.awt only resolves inside LibreOffice or with UNO stubs.
     from com.sun.star.awt import Point
 
     # Writer's SwXShape::getPosition returns anchor-relative coords while PolyPolygon
@@ -476,8 +475,7 @@ _DEFAULT_ARROWHEAD_WIDTH = 300
 
 
 def _arrow_coords() -> Any:
-    """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (svx/source/xoutdev/xtablend.cxx:62-67)."""
-    # Host boundary: com.sun.star.awt only resolves inside LibreOffice or with UNO stubs.
+    """PolyPolygonBezierCoords for LibreOffice's built-in 'Arrow' triangle (XLineEndList::Create, svx/source/xoutdev/xtablend.cxx:62-67)."""
     from com.sun.star.awt import Point
 
     normal = _drawing_enum("PolygonFlags", "NORMAL")
@@ -501,7 +499,7 @@ def _set_arrowhead(shape: Any, prefix: str, marker: str) -> None:
         width = max(_DEFAULT_ARROWHEAD_WIDTH, line_w * 3) if isinstance(line_w, int) and not isinstance(line_w, bool) else _DEFAULT_ARROWHEAD_WIDTH
         shape.setPropertyValue(f"{prefix}Width", width)
     else:
-        # Empty name puts an empty polygon in svx/source/unodraw/unoshape.cxx:1404-1413.
+        # Empty name puts an empty polygon in SvxShape::SetFillAttribute (svx/source/unodraw/unoshape.cxx:1404-1413).
         shape.setPropertyValue(name_prop, "")
 
 
@@ -680,7 +678,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
 # A label is centred and wrapped unless the caller says otherwise. LibreOffice leaves a
 # CustomShape created through UNO top/start aligned, and unwrapped in Writer and Calc
-# (svx/source/svdraw/svdmodel.cxx:185).
+# (SdrModel::SdrModel sets SdrTextWordWrapItem(false), svx/source/svdraw/svdmodel.cxx:185).
 _CUSTOM_SHAPE_TEXT_DEFAULTS: dict[str, Any] = {"h_align": "center", "v_align": "center", "wrap_text": True}
 
 # CustomShape flowchart-* type strings (valid at runtime; omitted from create_shape schema description for brevity):
@@ -727,8 +725,6 @@ def _x_follows_text(addr: int | str | None, shape: Any) -> bool:
 
 def _outside_page(page: Any, shape: Any) -> bool:
     """True when the shape's box spills past the page edges."""
-    from plugin.draw.bridge import page_size
-
     size = page_size(page)
     if size is None:
         return False  # Tip: Calc sheet draw pages have no size or report 0; skip.
@@ -834,7 +830,6 @@ class UpsertShape(_AnyDocumentShapeTool):
 
 
 def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-    from plugin.draw.bridge import DrawBridge
     from com.sun.star.awt import Point, Size
 
     action = kwargs["action"]
@@ -1052,7 +1047,6 @@ class ConnectShapes(_AnyDocumentShapeTool):
 
 def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     from com.sun.star.awt import Point, Size
-    from plugin.draw.bridge import DrawBridge
 
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
@@ -1123,8 +1117,6 @@ def _create_shape_collection(uno_ctx: Any) -> Any:
     and ``XDrawPage.group`` accepts it (Writer ``AT_PAGE`` shapes,
     Draw, Calc).
     """
-    from plugin.framework.uno_context import get_service_manager
-
     smgr = get_service_manager(uno_ctx)
     if smgr is None:
         raise RuntimeError("ServiceManager unavailable for ShapeCollection")
@@ -1150,9 +1142,6 @@ class GroupShapes(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-        from plugin.framework.uno_context import uno_same
-
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         indices = kwargs["indices"]
@@ -1246,8 +1235,6 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
 
 def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout_arg: str, *, min_count: int, too_few: str, moves_x: bool, layout_fn: Any, ok_message: str, page_kwargs: dict[str, Any]) -> dict[str, Any]:
     """Shared align/distribute tail. Do not catch: disposal and a bad index must reach execute_safe."""
-    from plugin.draw.bridge import DrawBridge
-
     if len(indices) < min_count:
         return tool._tool_error(too_few)
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(page_kwargs.get("page"), active_page_index=ctx.active_page_index)
@@ -1373,9 +1360,6 @@ class CreateDiagram(_AnyDocumentShapeTool):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-        from plugin.draw.layout import diagram_node_boxes
-
         nodes = kwargs["nodes"]
         assert isinstance(nodes, list)
         if not nodes:
@@ -1403,11 +1387,9 @@ class CreateDiagram(_AnyDocumentShapeTool):
                     )
 
         layout_name = kwargs["layout"]
-        from plugin.draw.bridge import page_size
-
         page_w, page_h = page_size(page) or (layout.DEFAULT_PAGE_WIDTH, layout.DEFAULT_PAGE_HEIGHT)
         try:
-            boxes = diagram_node_boxes(nodes, layout_name, page_width=page_w, page_height=page_h)
+            boxes = layout.diagram_node_boxes(nodes, layout_name, page_width=page_w, page_height=page_h)
         except ValueError as exc:
             return self._tool_error(str(exc))
 
@@ -1504,8 +1486,6 @@ class DeleteShape(_AnyDocumentShapeTool):
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if "index" in kwargs:
             addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])

@@ -254,8 +254,6 @@ def test_add_slide_reports_inherited_master():
 def test_enumerate_impress_designs_limit():
     import tempfile
     import os
-    from unittest.mock import patch
-    from plugin.draw.designs import enumerate_impress_designs
 
     with tempfile.TemporaryDirectory() as td:
         for i in range(1005):
@@ -1403,8 +1401,6 @@ def test_clone_master_aspect_mismatch_warning():
 
 
 def test_match_listed_design_with_otp_extension():
-    from plugin.draw.designs import _match_listed_design
-
     designs = [
         {"id": "metropolis", "name": "Metropolis", "path": "/path/Metropolis.otp", "url": "file:///path/Metropolis.otp"}
     ]

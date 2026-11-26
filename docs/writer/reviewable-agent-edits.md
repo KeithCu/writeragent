@@ -35,6 +35,7 @@ What is implemented today (not every Writer mutation tool):
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` / units / text-analytics / symbolic-math Writer insert | Yes | No | No |
 | `table_delete`, `table_manage_structure` (row/column delete) | Yes (single-cell and multi-cell deletes are anchored as one agent change; both tracked and untracked `table_delete` and row/column deletes refuse with `CELLS_PROTECTED` when the table or band has, or the deleted table is nested in, a protected cell; row deletes refuse a row where a non-empty cell spanning multiple rows starts, both tracked and untracked; a tracked row delete also refuses when an empty spanning cell is the row's first or last cell, because LibreOffice would strike the rows it spans; column deletes refuse any column covered by a wider merged cell, both tracked and untracked; tracked `table_delete` returns `tracked: true` and `pending_review: true`) | No | No |
+| `table_set_cell` | Yes while the document is recording and in Record/Wait (`tracked: true` and `pending_review: true` when Writer recorded it, with `review_mode` only in Record/Wait; refuses `CELLS_PROTECTED`, and `MATCH_CROSSES_DELETION` while Track Changes is off) | No | No |
 | `style_format_text` | Yes for `properties` and recordable `reset` (`Char*` via Format redline on non-collapsed targets, `Para*` / `NumberingStyleName` via `ParagraphFormat` redline; `Char*` at a caret, headings, list items, empty paragraphs, `BreakType`, `WritingMode`, `PageDescName`, `NumberingLevel`, `CharAutoStyleName`, `CharInteropGrabBag`, and `Char*` border complex-colour resets are not tracked and report `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
 | `apply_style` (paragraphs) | Yes while the document is recording and in Record/Wait (`ParagraphFormat` redline via `makeRedline`, authored `WriterAgent` in Record/Wait or office user when Off; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
 | `apply_style` (character) | Yes in Record/Wait or while the document is recording (Format redline on non-collapsed targets; a caret target is not tracked and reports `style_unreviewed`; with review Off while the user records, a tracked result carries `tracked: true` and `pending_review: true` without `review_mode`) | No | No |
@@ -46,7 +47,7 @@ What is implemented today (not every Writer mutation tool):
 | `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and while the document is recording or in Record/Wait its `target='search'` deletion is recorded — tagged as an agent change only in Record/Wait — and the result carries `pending_review: true` while the index itself is not tracked; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, …) | No | No | No |
 
-Single-paragraph literal search matches that run across a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` on destructive edit paths (`apply_content` replace, `insert_at_target` replacements, `index_create target="search"`, `index_refresh_toc_entry`, and `apply_style` for character styles / `style_format_text` with `target="search"` while recording or in review mode).
+Single-paragraph literal search matches that run across a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` on destructive edit paths (`apply_content` replace, `insert_at_target` replacements, `index_create target="search"`, `index_refresh_toc_entry`, `apply_style` for character styles / `style_format_text` with `target="search"` while recording or in review mode, and `table_set_cell` while Track Changes is off).
 
 Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
@@ -172,9 +173,12 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
-  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
-  and footers and the tables and frames in them (a read-then-write would reveal hidden text or drop section
-  protection), and places new content outside a leading section
+  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`)
+  outside headers and footers and the tables and frames in them (a read-then-write would reveal
+  hidden text or drop section protection), as well as pending tracked insertions or deletions by
+  anyone while Track Changes is off (`PENDING_TRACKED_CHANGES`; an untracked rewrite erases them
+  unreviewed, whereas recorded rewrites keep other authors' deletions and stack on their insertions),
+  and places new content outside a leading section
   or TOC (while recording, a paragraph is added untracked before a leading section and after a
   trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
   refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a floating object,

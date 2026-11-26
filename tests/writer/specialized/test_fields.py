@@ -699,18 +699,12 @@ def test_document_properties_set_keywords_array():
 
 
 def test_fields_delete_prepare_coerces_scalar_id_string():
-    from types import SimpleNamespace
-    from plugin.framework.tool import prepare_tool_call
-
     prep = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": "3"})
     assert prep.error is None
     assert prep.kwargs["ids"] == [3]
 
 
 def test_fields_delete_prepare_coerces_list_elements_and_refuses_bool():
-    from types import SimpleNamespace
-    from plugin.framework.tool import prepare_tool_call
-
     prep = prepare_tool_call(FieldsDelete(), SimpleNamespace(doc_type="writer"), "field_delete", {"ids": ["3", 4.0]})
     assert prep.error is None
     assert prep.kwargs["ids"] == [3, 4]

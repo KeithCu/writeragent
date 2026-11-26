@@ -139,9 +139,8 @@ def list_user_defined_document_properties(model: Any) -> list[str]:
             return []
         names: list[str] = []
         for prop in uno_call(info.getProperties, "List user-defined properties"):
-            name = getattr(prop, "Name", None)
-            if name:
-                names.append(str(name))
+            if prop.Name:
+                names.append(prop.Name)
         return sorted(names)
     except DocumentDisposedError:
         raise

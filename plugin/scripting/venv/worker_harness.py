@@ -45,7 +45,8 @@ from plugin.framework.child_runtime import announce_ready, die_with_parent
 from plugin.framework.log_redaction import RedactingFormatter
 from plugin.scripting.venv.sandbox_request import SandboxRequest
 
-# claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
+# claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout
+# is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
 if __name__ == "__main__":
     claim_ipc_channel()
 
@@ -70,7 +71,7 @@ def _clean_str(val: Any) -> str | None:
 
 def emit_heartbeat(stream: BinaryIO | Any, payload: dict[str, Any]) -> None:
     # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
-    # _write_all's header and payload are separate writes; a second thread in
+    # write_all's header and payload are separate writes; a second thread in
     # a host tool_call would otherwise split the length prefix. The lock is not
     # reentrant: do not call emit on the thread that is inside exchange_tool_call.
     write_child_ipc_frame(
@@ -148,7 +149,9 @@ def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
-    # Lazy (weight): venv_sandbox loads the smolagents executor; importing this harness as a library or serving only trusted actions must not (test_harness_library_import_does_not_claim_or_load_sandbox).
+    # Lazy (weight): venv_sandbox loads the smolagents executor; importing this harness as a library
+    # or serving only trusted actions must not
+    # (test_harness_library_import_does_not_claim_or_load_sandbox).
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = request.get("code")

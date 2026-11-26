@@ -73,7 +73,8 @@ def finalize_python_data(raw: Any) -> list[list[Any]] | None:
         return None
     if isinstance(raw, str):
         return [[raw]]
-    # Plain list/tuple only: a namedtuple subclasses tuple and is not a grid (SplitResultBytes would iterate its int fields in ensure_rectangular_2d and raise TypeError).
+    # Plain list/tuple only: a namedtuple subclasses tuple and is not a grid (SplitResultBytes would
+    # iterate its int fields in ensure_rectangular_2d and raise TypeError).
     if type(raw) is not list and type(raw) is not tuple:
         return [[raw]]
     if not raw:

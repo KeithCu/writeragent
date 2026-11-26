@@ -66,7 +66,7 @@ def _scan_shapes(page: Any) -> list[_ScanRow]:
     return out
 
 
-def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) -> tuple[Any | None, int | None]:
+def find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) -> tuple[Any | None, int | None]:
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
@@ -92,7 +92,7 @@ def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) 
 
 def slide_title(page: Any) -> str:
     """Return the title placeholder's text for *page*, or ``""`` when none exists."""
-    shape, _idx = _find_placeholder(page, "title")
+    shape, _idx = find_placeholder(page, "title")
     if shape is None or not hasattr(shape, "getString"):
         return ""
     return str(uno_read(lambda: shape.getString(), "") or "")
@@ -158,7 +158,7 @@ def _locate(page: Any, role: str | None, index: int | None, scan: list[_ScanRow]
             return None, None, "Shape index out of range."
         return page.getByIndex(index), index, None
     if role:
-        shape, shape_index = _find_placeholder(page, role, scan)
+        shape, shape_index = find_placeholder(page, role, scan)
         if shape is None:
             return None, None, "not_found"
         return shape, shape_index, None

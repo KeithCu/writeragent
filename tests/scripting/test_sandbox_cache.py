@@ -291,7 +291,6 @@ def test_sandbox_ast_validation_denylist_table() -> None:
 
 def test_all_ast_stmt_and_expr_subclasses_covered() -> None:
     from plugin.contrib.smolagents.local_python_executor import _HANDLERS
-    from plugin.scripting.sandbox_cache import validate_sandbox_ast
 
     def get_subclasses(cls: type[ast.AST]) -> set[type[ast.AST]]:
         subclasses: set[type[ast.AST]] = set()

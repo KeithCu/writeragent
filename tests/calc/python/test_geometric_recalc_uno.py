@@ -18,6 +18,7 @@ import time
 import unittest
 from typing import Any
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.config import save
 from plugin.testing_runner import current_office, native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
@@ -189,10 +190,8 @@ def _close_extra_calc_docs(ctx, keep) -> int:
     comps = getattr(desktop, "getComponents", lambda: None)()
     if comps is None or not hasattr(comps, "createEnumeration"):
         return 0
-    enum = comps.createEnumeration()
     extras = []
-    while enum.hasMoreElements():
-        elem = enum.nextElement()
+    for elem in iter_elements(comps.createEnumeration()):
         model = elem
         if not is_calc(model):
             try:
@@ -385,7 +384,7 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
         assert um.isUndoPossible()
         um.undo()
         restored = str(a2.getFormula() or "")
-        assert "PY" in restored.upper() or "PYTHON" in restored.upper(), restored
+        assert "PY" in restored.upper(), restored
         # One undo may restore only A2; flush re-links A3 to it either way.
         _flush(ctx, doc, sheet)
         assert _pred(str(a3.getFormula() or "")) == "A2", (

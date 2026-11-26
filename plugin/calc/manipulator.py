@@ -30,15 +30,17 @@ if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table import BorderLineStyle, TableSortField
+    from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
+    from com.sun.star.util import MalformedNumberFormatException
     from plugin.calc.python.diagnostics import DiagnosticEntry
     from plugin.calc.python.formula_edit import PyFormula
 else:
     try:
+        from com.sun.star.util import MalformedNumberFormatException
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table import BorderLineStyle, TableSortField
+        from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
     except ImportError:
         pass
 
@@ -605,8 +607,6 @@ def _uno_range_address(cell_or_range: Any) -> Any:
     if hasattr(cell_or_range, "getRangeAddress"):
         return cell_or_range.getRangeAddress()
     cell_addr = cell_or_range.getCellAddress()
-    from com.sun.star.table import CellRangeAddress
-
     ra = CellRangeAddress()
     ra.Sheet = cell_addr.Sheet
     ra.StartColumn = cell_addr.Column
@@ -1080,8 +1080,6 @@ class CellManipulator:
 
     def number_format_key(self, format_str: str) -> int:
         """Resolve a preset name or en-US format code to a document NumberFormat key."""
-        from com.sun.star.util import MalformedNumberFormatException
-
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = resolve_document_locale(doc)

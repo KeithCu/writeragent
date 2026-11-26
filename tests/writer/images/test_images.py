@@ -803,15 +803,15 @@ def test_download_cache_hit_skips_second_request(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "sync_outcome",
+    ("sync_outcome", "raised"),
     [
-        NetworkError("HTTP response exceeded 33554432 bytes", code="HTTP_ERROR"),
-        TimeoutError("HTTP read timed out"),
-        HttpResult(200, b"", "image/png"),
-        HttpResult(200, b"not-an-image", "image/png"),
+        (NetworkError("HTTP response exceeded 33554432 bytes", code="HTTP_ERROR"), NetworkError),
+        (TimeoutError("HTTP read timed out"), TimeoutError),
+        (HttpResult(200, b"", "image/png"), RuntimeError),
+        (HttpResult(200, b"not-an-image", "image/png"), RuntimeError),
     ],
 )
-def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outcome):
+def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outcome, raised):
     monkeypatch.setattr("plugin.writer.images.image_tools.image_cache_dir", lambda: str(tmp_path))
     patch_kwargs = (
         {"side_effect": sync_outcome}
@@ -819,7 +819,7 @@ def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outco
         else {"return_value": sync_outcome}
     )
     with patch("plugin.writer.images.image_utils.sync_request", **patch_kwargs):
-        with pytest.raises(Exception):
+        with pytest.raises(raised):
             _download_image_to_cache("https://example.com/sample.png")
     assert list(tmp_path.iterdir()) == []
 

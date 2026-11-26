@@ -19,7 +19,8 @@
 Lock rules:
 - ``_pool_lock``: Guards creating the global pool instance.
 - ``StderrTail._lock``: Protects only the bounded child stderr chunk deque and character count; synchronizes background drain appends with consumer reads.
-- No pooled joins from pool workers: Enforced via thread-local flag in ``BackgroundHandle.join``; prevents deadlocking the fixed-size pool when all workers block on queued tasks.
+- No pooled joins from pool workers: Enforced via thread-local flag in ``BackgroundHandle.join``; prevents deadlocking
+  the fixed-size pool when all workers block on queued tasks.
 - Dedicated threads for blocking jobs: Servers, long pipes, and join targets pass ``dedicated=True``; prevents permanently exhausting fixed pool worker slots.
 """
 

@@ -48,10 +48,11 @@ from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
 
-# CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
-# Clears values, formulas, and direct hard cell formatting/number formats without removing
-# annotations, styles, or draw objects.
+# CellFlags VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16): what counts as content when
+# checking that a spill target is free or was emptied.
 SPILL_CONTENT_FLAGS = 1 | 2 | 4 | 16
+# Content plus HARDATTR (32): clearing also removes direct cell formatting and number formats.
+# Annotations, styles and draw objects stay.
 SPILL_CLEAR_FLAGS = SPILL_CONTENT_FLAGS | 32
 
 # A spilled error cell reads back as =#ERR504!, =#NUM! and so on, a void cell as #N/A, and any error
@@ -357,6 +358,11 @@ def _classify_orphan_record(
 
 
 def _used_end_delta(state: WorkbookState, sheet: Any, sheet_name: str) -> tuple[int, int] | None:
+    """Return how far (rows, cols) the sheet's used-area end moved since ``state.used_ends`` was set.
+
+    None means the sheet is not armed yet. Prepare, the deferred write and ``cleanup_orphans`` all
+    compare against this one witness.
+    """
     prev = state.used_ends.get(sheet_name)
     if prev is None:
         return None
@@ -447,7 +453,7 @@ def cleanup_orphans(
                     ]
                     for new_k, rec in moved:
                         state.spills[new_k] = rec
-                    _persist_spill_registry(doc, state)
+                    persist_spill_registry(doc, state)
 
             state.used_ends[sheet_name] = _used_end(sheet)
     except Exception:
@@ -526,7 +532,7 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
-def _persist_spill_registry(doc: Any, state: WorkbookState) -> None:
+def persist_spill_registry(doc: Any, state: WorkbookState) -> None:
     """Schedule one debounced registry save instead of saving per spill.
 
     Saving after every spill rewrites the full JSON property per spill, making a full recalc of N
@@ -624,18 +630,13 @@ def _live_origin_sheet(
     code: str,
 ) -> tuple[Any, str] | None:
     """Resolve the current sheet (following renames) and verify the origin still matches ``code``."""
-    resolved_sheet = sheet
     try:
-        named = doc.getSheets().getByName(sheet_name)
-        if named is not None:
-            resolved_sheet = named
-    except Exception:  # noqa: S110
-        pass
-    sheet = resolved_sheet
-    live_sheet_name = ""
+        sheet = doc.getSheets().getByName(sheet_name)
+    except Exception:
+        # getByName raises NoSuchElementException after a rename; keep the sheet located earlier.
+        log.debug("_live_origin_sheet: no sheet named %r; using the located sheet", sheet_name)
     try:
-        if hasattr(sheet, "getName"):
-            live_sheet_name = str(sheet.getName() or "")
+        live_sheet_name = str(sheet.getName() or "")
     except Exception:
         return None
     if live_sheet_name and live_sheet_name != sheet_name:
@@ -680,7 +681,7 @@ def _clear_owned_and_shrink(
     cleared = _clear_rect(sheet, row, col, owned_r, owned_c)
     if cleared:
         state.spills[(sheet_name, row, col)] = SpillRecord(code=code, rows=1, cols=1)
-        _persist_spill_registry(doc, state)
+        persist_spill_registry(doc, state)
     _advance_used_end(state, sheet, sheet_name, before)
     return cleared
 
@@ -839,7 +840,7 @@ def perform_deferred_spill(
                     cols=num_cols,
                     values=_rect_values(sheet, formula_row, formula_col, num_rows, num_cols),
                 )
-                _persist_spill_registry(doc, state)
+                persist_spill_registry(doc, state)
                 _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
                 _advance_used_end(state, sheet, sheet_name, before)
 
@@ -851,13 +852,10 @@ def cell_is_matrix(sheet: Any, cell: Any) -> bool:
     """True when the located formula cell is part of a multi-cell array formula block."""
 
     def _probe() -> bool:
-        if hasattr(sheet, "createCursorByRange") and cell is not None:
-            cursor = sheet.createCursorByRange(cell)
-            if hasattr(cursor, "collapseToCurrentArray"):
-                cursor.collapseToCurrentArray()
-                addr = cursor.getRangeAddress()
-                return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
-        return False
+        cursor = sheet.createCursorByRange(cell)
+        cursor.collapseToCurrentArray()
+        addr = cursor.getRangeAddress()
+        return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
 
     return bool(uno_read(_probe, False))
 
@@ -934,7 +932,8 @@ def _spill_is_blocked(
     previous_record: SpillRecord | None,
     delta: tuple[int, int] | None,
 ) -> bool:
-    """Return True and record diagnostics if any target cell is out of bounds, occupied outside the owned part of ``previous_record``, or holds a user formula."""
+    """Return True and record diagnostics if any target cell is out of bounds, occupied outside the
+    owned part of ``previous_record``, or holds a user formula."""
     if num_rows == 0 or num_cols == 0:
         # Scalar/empty results need no cells beside the origin, so a user formula in the old
         # rectangle must not block the origin with #SPILL!; _owned_rect preserves those cells.
@@ -954,14 +953,14 @@ def _spill_is_blocked(
                 in_previous_rect=True,
             )
             return True
-    owned_rows, owned_cols = _owned_rect(sheet, row, col, previous_record, delta)
-
     if num_rows * num_cols <= 1:
         return False
 
     if row + num_rows > int(sheet.getRows().getCount()) or col + num_cols > int(sheet.getColumns().getCount()):
         _record_spill_blocked(doc, code, sheet_name, row, col, num_rows, num_cols, None)
         return True
+
+    owned_rows, owned_cols = _owned_rect(sheet, row, col, previous_record, delta)
 
     # The growth is two strips around the part already owned (at least the formula cell): right of
     # it, then below it. They follow row-major order, so the first strip with content holds the
@@ -1007,8 +1006,8 @@ def _moved_record(
     cleanup_orphans has not remapped it yet; None when the cell already has its own record.
 
     Inserting a row inside a data range recalculates =PY() at once, 0.1 s before the modify pass
-    remaps. The record is the one the used-area delta back from this cell (the witness
-    _classify_orphan_record uses). Reads only, because it also runs during interpretation.
+    remaps. The record looked up is the one at this cell minus the used-area delta (the same
+    witness _classify_orphan_record uses). Reads only, because it also runs during interpretation.
     """
     record = state.spills.get((sheet_name, row, col))
     if record is not None and _origin_matches_record(sheet, row, col, record, doc=doc):

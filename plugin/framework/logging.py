@@ -28,7 +28,8 @@ hung_shown / stacks_dumped flags live in
 ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
 you do not need another mutex around ``log.info``.
-``init_lock`` covers ``debug_log_path``, ``enable_agent_log``, and debug-handler install only. ``init_config``, ``get_config``, excepthook, and ``audit_plugin_roots`` stay outside it.
+``init_lock`` covers ``debug_log_path``, ``enable_agent_log``, and debug-handler install only. ``init_config``,
+``get_config``, excepthook, and ``audit_plugin_roots`` stay outside it.
 """
 
 from __future__ import annotations

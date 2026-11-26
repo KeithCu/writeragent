@@ -61,7 +61,7 @@ def _cell_string(cell: Any) -> str:
         raise ValueError("Could not read Draw table cell: %s" % exc) from exc
 
 
-def _is_table_shape(shape: Any) -> bool:
+def is_table_shape(shape: Any) -> bool:
     try:
         st = shape.getShapeType()
         if st and "TableShape" in str(st):
@@ -79,7 +79,7 @@ def table_cells_for_shape(shape: Any) -> list[list[str]] | None:
 
     Disposal propagates; any other failure is logged at debug and returns None.
     """
-    if not _is_table_shape(shape):
+    if not is_table_shape(shape):
         return None
     model = _table_model(shape)
     if model is None:
@@ -130,7 +130,7 @@ def iter_table_shapes(doc: Any) -> list[dict[str, Any]]:
         page = pages.getByIndex(page_i)
         for shape_i in range(page.getCount()):
             shape = page.getByIndex(shape_i)
-            if not _is_table_shape(shape):
+            if not is_table_shape(shape):
                 continue
             model = _table_model(shape)
             rows = cols = 0

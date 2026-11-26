@@ -540,7 +540,7 @@ def test_restore_puts_back_black_and_no_underline_after_url_write():
 
 @pytest.mark.timeout(5)
 def test_capture_outline_hyperlinks_magicmock_range_does_not_spin():
-    """MagicMock.hasMoreElements() is truthy; the walker must stop (PR #823 merge CI)."""
+    """MagicMock.hasMoreElements() is truthy; the walker must stop."""
     snap = capture_outline_hyperlinks(MagicMock())
     assert snap.links == []
 

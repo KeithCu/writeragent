@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ from plugin.app import get_tools
 from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory
+from plugin.writer import review_authors
 from tests.writer.corpus_fixture import (
     CONTRACT,
     LETTER,
@@ -218,16 +220,6 @@ def _check_reads(ctx: Any, path: Path) -> None:
         _assert_same(f"reading ({[name for name, _ in calls]})", before, _state(ctx, doc))
 
 
-def _has_redline(cell: Any) -> bool:
-    paragraphs = cell.createEnumeration()
-    while enum_has_more(paragraphs):
-        portions = paragraphs.nextElement().createEnumeration()
-        while enum_has_more(portions):
-            if portions.nextElement().getPropertyValue("TextPortionType") == "Redline":
-                return True
-    return False
-
-
 def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """Writing back what a read returned, with Track Changes off, changes nothing."""
     with _opened(ctx, path) as doc:
@@ -239,21 +231,17 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
             if read["is_on"]:
                 _ok(ctx, doc, "page_set_header_footer_text", region=region, content=read["content"])
         for name in doc.getTextTables().getElementNames():
-            table = doc.getTextTables().getByName(name)
             for cell, text in _ok(ctx, doc, "table_get_cells", name=name)["cells"].items():
-                # Left out: a cell with pending changes (rewriting it with Track Changes off resolves them)
-                # and an empty one (setting "" also clears a picture in the cell).
-                if text and not _has_redline(table.getCellByName(cell)):
-                    _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
+                _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
+        if case.redlines:
+            refused = _tool(ctx, doc, "apply_content", target="full_document", content="<p>Replaced.</p>")
+            assert refused.get("status") == "error" and refused.get("code") == "PENDING_TRACKED_CHANGES", refused
         _assert_same("unchanged writes", before, _state(ctx, doc))
 
 
 def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """One recorded edit survives save and reload; Reject All then gives what it gives without the edit."""
-    from collections import Counter
-
     from plugin.framework.config import get_config, save
-    from plugin.writer import review_authors
 
     def _redline_counts(doc: Any) -> Counter[tuple[str, str, str]]:
         return Counter(
@@ -280,6 +268,7 @@ def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
             assert added, "expected new redline(s)"
             expected_author = review_authors.office_author(ctx)
             assert all(author == expected_author for (_t, author, _c) in added), added
+            assert {t for t, _a, _c in added} <= {"Insert", "Delete"}, added
             edited = _counts(ctx, doc)
             doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
             reject_all_changes(doc, ctx)

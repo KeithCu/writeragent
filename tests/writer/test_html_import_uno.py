@@ -12,7 +12,9 @@ import uno  # noqa: F401
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.framework.uno_context import enum_has_more, execute_dispatch
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
+from tests.writer.doc_builders import accept_all_changes, body_paragraphs, body_shape, body_texts, reject_all_changes
 
 
 def _ruby_portions(doc: Any) -> list[tuple[str, str, str | None]]:
@@ -20,7 +22,7 @@ def _ruby_portions(doc: Any) -> list[tuple[str, str, str | None]]:
     para = doc.getText().createEnumeration().nextElement()
     out = []
     enum = para.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         portion = enum.nextElement()
         kind = str(portion.getPropertyValue("TextPortionType") or "")
         text = portion.getString() or ""
@@ -155,7 +157,7 @@ def test_styled_insert_at_end_cursor_walk_uno(ctx: Any, doc: Any) -> None:
 
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
             paras.append(el)
@@ -169,7 +171,7 @@ def test_styled_insert_at_end_cursor_walk_uno(ctx: Any, doc: Any) -> None:
 
 def _find_field_by_service(doc: Any, service: str) -> Any | None:
     enum = doc.getTextFields().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         tf = enum.nextElement()
         if hasattr(tf, "supportsService") and tf.supportsService(service):
             return tf
@@ -256,7 +258,7 @@ def _project_body_paragraphs(doc: Any) -> list[tuple[str, str, list[tuple[str, s
 
     enum = doc.getText().createEnumeration()
     paras = []
-    while enum.hasMoreElements() is True:
+    while enum_has_more(enum):
         para = enum.nextElement()
         style = str(para.getPropertyValue("ParaStyleName") or "")
         text = str(para.getString() or "")
@@ -529,7 +531,6 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 @with_native_doc("writer")
 def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, doc: Any) -> None:
     """data-lo-para background-color is applied to the newly inserted paragraph at 'end' of non-empty doc."""
-    import uno
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -543,7 +544,7 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
 
     paras = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
             paras.append(el)
@@ -582,7 +583,7 @@ def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: A
 
     paras = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         if el.supportsService("com.sun.star.text.Paragraph"):
             paras.append(el)
@@ -594,17 +595,6 @@ def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: A
     p_old = next((p for p in paras if "Existing paragraph" in p.getString()), None)
     assert p_old is not None, [p.getString() for p in paras]
     assert p_old.getPropertyValue("ParaLeftMargin") == 0
-
-
-def _body_paragraphs(doc: Any) -> list[Any]:
-    """Return all paragraph objects in the document body."""
-    paras = []
-    enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
-        el = enum.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            paras.append(el)
-    return paras
 
 
 def _numbering_style_name(value: Any) -> str:
@@ -679,7 +669,7 @@ def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, do
     res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>a</p><p>b</p>")
     assert res.get("status") == "ok", res
 
-    paras = _body_paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     non_empty = [p for p in paras if p.getString() != ""]
     empty_paras = [p for p in paras if p.getString() == ""]
 
@@ -730,7 +720,7 @@ def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(
     assert replace_full_document(doc, ctx, "<p>a</p><p>b</p>").unapplied_para == []
 
     border_names = ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder")
-    paras = _body_paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     p_old = None
     for p in paras:
         text_val = p.getString()
@@ -775,19 +765,17 @@ def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(
     # Verify no format redlines were recorded on the absorb paragraph
     rl_enum = doc.getRedlines().createEnumeration()
     rl_types = []
-    while rl_enum.hasMoreElements():
+    while enum_has_more(rl_enum):
         rl = rl_enum.nextElement()
         rl_types.append(str(rl.getPropertyValue("RedlineType")))
     assert "Format" not in rl_types
     assert "ParagraphFormat" not in rl_types
 
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+    reject_all_changes(doc, ctx)
 
     assert "old" in doc.getText().getString()
 
-    paras_after = _body_paragraphs(doc)
+    paras_after = body_paragraphs(doc.getText())
     p_restored = next((p for p in paras_after if "old" in p.getString()), None)
     assert p_restored is not None
     assert p_restored.getPropertyValue("ParaTopMargin") == readback_top
@@ -816,18 +804,6 @@ def _seed_two_paras_and_place_caret(doc: Any, offset: int) -> None:
         vc.goRight(offset, False)
 
 
-def _para_texts_via_enum(text_obj: Any) -> list[str]:
-    from plugin.framework.uno_context import enum_has_more
-
-    enum = text_obj.createEnumeration()
-    out: list[str] = []
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append(el.getString())
-    return out
-
-
 @native_test
 @with_native_doc("writer")
 def test_selection_caret_block_goes_after_paragraph_uno(ctx: Any, doc: Any) -> None:
@@ -837,17 +813,17 @@ def test_selection_caret_block_goes_after_paragraph_uno(ctx: Any, doc: Any) -> N
     _seed_two_paras_and_place_caret(doc, 6)
     report_mid = insert_content_at_position(doc, ctx, content, "selection")
     assert report_mid.snapped_to_paragraph is True
-    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
+    assert body_texts(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
 
     _seed_two_paras_and_place_caret(doc, 17)
     report_end = insert_content_at_position(doc, ctx, content, "selection")
     assert report_end.snapped_to_paragraph is False
-    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
+    assert body_texts(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
 
     _seed_two_paras_and_place_caret(doc, 0)
     report_start = insert_content_at_position(doc, ctx, content, "selection")
     assert report_start.snapped_to_paragraph is False
-    assert _para_texts_via_enum(doc.getText()) == ["New A", "New B", "Alpha beta gamma.", "Second para."]
+    assert body_texts(doc.getText()) == ["New A", "New B", "Alpha beta gamma.", "Second para."]
 
 
 @native_test
@@ -859,13 +835,12 @@ def test_selection_caret_block_at_document_end_leaves_no_empty_paragraph_uno(ctx
     vc = doc.getCurrentController().getViewCursor()
     vc.gotoEnd(False)
     insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
-    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "Second para.", "New A", "New B"]
+    assert body_texts(doc.getText()) == ["Alpha beta gamma.", "Second para.", "New A", "New B"]
 
 
 @native_test
 @with_native_doc("writer")
 def test_selection_caret_inline_stays_in_paragraph_uno(ctx: Any, doc: Any) -> None:
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_import import insert_content_at_position
 
     _seed_two_paras_and_place_caret(doc, 6)
@@ -873,13 +848,13 @@ def test_selection_caret_inline_stays_in_paragraph_uno(ctx: Any, doc: Any) -> No
     first_para.setPropertyValue("ParaStyleName", "Heading 1")
 
     insert_content_at_position(doc, ctx, "new ", "selection")
-    assert _para_texts_via_enum(doc.getText()) == ["Alpha new beta gamma.", "Second para."]
+    assert body_texts(doc.getText()) == ["Alpha new beta gamma.", "Second para."]
     first_para = doc.getText().createEnumeration().nextElement()
     assert first_para.getPropertyValue("ParaStyleName") == "Heading 1"
 
     _seed_two_paras_and_place_caret(doc, 6)
     insert_content_at_position(doc, ctx, "<b>bold</b> ", "selection")
-    assert _para_texts_via_enum(doc.getText()) == ["Alpha bold beta gamma.", "Second para."]
+    assert body_texts(doc.getText()) == ["Alpha bold beta gamma.", "Second para."]
     first_para = doc.getText().createEnumeration().nextElement()
     p_enum = first_para.createEnumeration()
     bold_weights = []
@@ -913,21 +888,20 @@ def test_selection_caret_block_in_table_cell_uno(ctx: Any, doc: Any) -> None:
     vc.gotoRange(cell_cur, False)
 
     insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
-    assert _para_texts_via_enum(cell) == ["Cell words here", "New A", "New B"]
+    assert body_texts(cell) == ["Cell words here", "New A", "New B"]
     assert doc.getTextTables().getCount() == 1
 
 
 @native_test
 @with_native_doc("writer")
 def test_selection_caret_block_tracked_changes_uno(ctx: Any, doc: Any) -> None:
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_import import insert_content_at_position
 
     _seed_two_paras_and_place_caret(doc, 6)
     doc.setPropertyValue("RecordChanges", True)
     try:
         insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
-        assert _para_texts_via_enum(doc.getText()) == [
+        assert body_texts(doc.getText()) == [
             "Alpha beta gamma.",
             "New A",
             "New B",
@@ -944,17 +918,8 @@ def test_selection_caret_block_tracked_changes_uno(ctx: Any, doc: Any) -> None:
 
 
 def _body_structure_via_enum(text_obj: Any) -> list[str]:
-    from plugin.framework.uno_context import enum_has_more
-
-    enum = text_obj.createEnumeration()
-    out: list[str] = []
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"):
-            out.append("TextTable")
-        elif hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append("Paragraph:" + (el.getString() or ""))
-    return out
+    """``"TextTable"`` per table and ``"Paragraph:<text>"`` per paragraph of *text_obj*."""
+    return ["TextTable" if style == "TABLE" else "Paragraph:" + text for style, text in body_shape(text_obj)]
 
 
 @native_test
@@ -964,7 +929,6 @@ def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any
 
     table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
     expected = ["Paragraph:Alpha beta gamma.", "TextTable", "Paragraph:Second para."]
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
 
     # Without Track Changes: mid-paragraph (6) and mid-word (3)
     for offset in (6, 3):
@@ -982,13 +946,7 @@ def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any
         try:
             report = insert_content_at_position(doc, ctx, table_html, "selection")
             assert report.snapped_to_paragraph is True
-            helper.executeDispatch(
-                doc.getCurrentController().getFrame(),
-                ".uno:AcceptAllTrackedChanges",
-                "",
-                0,
-                (),
-            )
+            accept_all_changes(doc, ctx)
         finally:
             doc.setPropertyValue("RecordChanges", False)
         assert doc.getTextTables().getCount() == 1
@@ -1015,20 +973,6 @@ def _seed_three_paras(doc: Any, *, third_style: str | None = None) -> None:
     text.insertString(cur, "Keep after", False)
 
 
-def _body_style_and_text(doc: Any) -> list[tuple[str, str]]:
-    from plugin.framework.uno_context import enum_has_more
-
-    enum = doc.getText().createEnumeration()
-    out: list[tuple[str, str]] = []
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"):
-            out.append(("TextTable", ""))
-        elif hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append((str(el.getPropertyValue("ParaStyleName")), el.getString() or ""))
-    return out
-
-
 def _find_first(doc: Any, needle: str) -> Any:
     desc = doc.createSearchDescriptor()
     desc.SearchString = needle
@@ -1047,14 +991,14 @@ def test_whole_paragraph_block_replace_leaves_no_empty_paragraph_uno(ctx: Any, d
     _seed_three_paras(doc)
     with WriterCompoundUndo(doc, "test-replace"):
         replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<p>A</p><p>B</p>", ctx)
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "A",
         "B",
         "Keep after",
     ]
     doc.getUndoManager().undo()
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "Replace me",
         "Keep after",
@@ -1063,7 +1007,7 @@ def test_whole_paragraph_block_replace_leaves_no_empty_paragraph_uno(ctx: Any, d
     # Bullet list replace
     _seed_three_paras(doc)
     replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<ul><li>Item 1</li></ul>", ctx)
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "Item 1",
         "Keep after",
@@ -1077,17 +1021,17 @@ def test_whole_paragraph_block_replace_leaves_no_empty_paragraph_uno(ctx: Any, d
         "<p>A</p><table><tr><td>C</td></tr></table>",
         ctx,
     )
-    structure = _body_style_and_text(doc)
+    structure = body_shape(doc.getText())
     assert structure[0][1] == "Keep before"
     assert structure[1][1] == "A"
-    assert structure[2] == ("TextTable", "")
+    assert structure[2] == ("TABLE", "")
     assert structure[3] == ("Heading 1", "Keep after")
     assert len(structure) == 4, structure
 
     # Replaced paragraph last in the text
     _seed_three_paras(doc)
     replace_single_range_with_content(doc, _find_first(doc, "Keep after"), "<p>End para</p>", ctx)
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "Replace me",
         "End para",
@@ -1096,7 +1040,7 @@ def test_whole_paragraph_block_replace_leaves_no_empty_paragraph_uno(ctx: Any, d
     # Empty <p></p> keeps exactly one empty paragraph
     _seed_three_paras(doc)
     replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<p></p>", ctx)
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "",
         "Keep after",
@@ -1111,16 +1055,11 @@ def test_selection_whole_paragraph_replace_leaves_no_empty_paragraph_uno(ctx: An
     _seed_three_paras(doc)
     doc.getCurrentController().select(_find_first(doc, "Replace me"))
     insert_content_at_position(doc, ctx, "<p>plain words</p>", "selection")
-    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+    assert [t for s, t in body_shape(doc.getText()) if s != "TABLE"] == [
         "Keep before",
         "plain words",
         "Keep after",
     ]
-
-
-def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
 
 
 @native_test
@@ -1156,7 +1095,7 @@ def test_selection_inline_replace_stays_in_paragraph_uno(ctx: Any, doc: Any) -> 
     for case in ("word", "whole", "shiftdown"):
         content, expected, orig_style = _setup_case(case)
         insert_content_at_position(doc, ctx, content, "selection")
-        actual = _body_style_and_text(doc)
+        actual = body_shape(doc.getText())
         assert len(actual) == 3, f"case={case} rec=False: {actual!r}"
         assert actual == expected, f"case={case} rec=False: {actual!r}"
 
@@ -1171,11 +1110,11 @@ def test_selection_inline_replace_stays_in_paragraph_uno(ctx: Any, doc: Any) -> 
             doc.setPropertyValue("RecordChanges", True)
             try:
                 insert_content_at_position(doc, ctx, content, "selection")
-                assert len(_body_style_and_text(doc)) == 3, f"case={case} rec=True pre-{action_cmd}"
-                _dispatch(ctx, doc, action_cmd)
+                assert len(body_shape(doc.getText())) == 3, f"case={case} rec=True pre-{action_cmd}"
+                execute_dispatch(ctx, doc.getCurrentController(), action_cmd)
             finally:
                 doc.setPropertyValue("RecordChanges", False)
-            actual = _body_style_and_text(doc)
+            actual = body_shape(doc.getText())
             assert actual == post_expected, f"case={case} rec=True {action_cmd}: {actual!r}"
 
 
@@ -1202,7 +1141,7 @@ def test_selection_inline_replace_in_table_cell_stays_in_paragraph_uno(ctx: Any,
     doc.getCurrentController().select(cell_cur)
 
     insert_content_at_position(doc, ctx, "books", "selection")
-    assert _para_texts_via_enum(cell) == ["Cell books here"]
+    assert body_texts(cell) == ["Cell books here"]
     assert doc.getTextTables().getCount() == 1
 
 
@@ -1221,7 +1160,7 @@ def test_selection_ending_at_next_paragraph_start_applies_style_uno(ctx: Any, do
         doc, ctx, '<p data-lo-style="Heading2">New heading</p>', "selection"
     )
     assert report.style_skips == []
-    assert _body_style_and_text(doc) == [
+    assert body_shape(doc.getText()) == [
         ("Standard", "Keep before"),
         ("Heading 2", "New heading"),
         ("Heading 1", "Keep after"),
@@ -1270,7 +1209,6 @@ def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) 
 
     table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
     content = f"<h1>H</h1><p>p</p>{table_html}"
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     text = doc.getText()
 
     def _seed(body: str) -> None:
@@ -1300,9 +1238,7 @@ def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) 
             "TextTable",
             "Paragraph:Old para",
         ]
-        helper.executeDispatch(
-            doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ()
-        )
+        accept_all_changes(doc, ctx)
         assert _body_structure_via_enum(text) == untracked
 
         # Empty document + table-only under recording, then Reject All
@@ -1310,9 +1246,7 @@ def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) 
         doc.setPropertyValue("RecordChanges", True)
         replace_full_document(doc, ctx, table_html)
         assert doc.getTextTables().getCount() == 1
-        helper.executeDispatch(
-            doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
-        )
+        reject_all_changes(doc, ctx)
         assert doc.getTextTables().getCount() == 0
         assert text.getString() == ""
     finally:
@@ -1324,11 +1258,8 @@ def test_full_document_review_mode_keeps_trailing_table_uno(ctx: Any, doc: Any) 
 def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
     text = doc.getText()
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -1386,7 +1317,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
             _seed_three()
             res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
             assert res.get("status") == "ok", (label, "record-accept", res)
-            helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+            accept_all_changes(doc, ctx)
             actual_accept = _body_structure_via_enum(text)
             expected_accept = ["TextTable", "Paragraph:Trail", "Paragraph:"] if label == "full+trail" else expected
             assert actual_accept == expected_accept, (label, "record-accept", actual_accept, expected_accept)
@@ -1394,7 +1325,7 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
             _seed_three()
             res = ApplyDocumentContent().execute(tctx, content=[html], **kwargs)
             assert res.get("status") == "ok", (label, "record-reject", res)
-            helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+            reject_all_changes(doc, ctx)
             actual_reject = _body_structure_via_enum(text)
             assert actual_reject == ["Paragraph:Intro", "Paragraph:Body", "Paragraph:Outro"], (
                 label,
@@ -1411,7 +1342,6 @@ def test_table_import_no_stray_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
 def test_table_import_edge_cases_and_non_table_unchanged_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1543,13 +1473,9 @@ def test_full_document_does_not_inherit_old_character_formatting_uno(ctx: Any, d
     from com.sun.star.lang import Locale
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.config import get_config, save
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
     text = doc.getText()
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     flag = "doc.agent_edit_review_mode"
@@ -1594,20 +1520,20 @@ def test_full_document_does_not_inherit_old_character_formatting_uno(ctx: Any, d
             _seed_formatted(with_plain_prefix)
             res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
             assert res.get("status") == "ok", (with_plain_prefix, res)
-            _assert_plain_words(_body_paragraphs(doc), allow_trailing_empty=False)
+            _assert_plain_words(body_paragraphs(doc.getText()), allow_trailing_empty=False)
 
             save({flag: "record"})
             _seed_formatted(with_plain_prefix)
             res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
             assert res.get("status") == "ok", (with_plain_prefix, res)
-            helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
-            _assert_plain_words(_body_paragraphs(doc), allow_trailing_empty=True)
+            accept_all_changes(doc, ctx)
+            _assert_plain_words(body_paragraphs(doc.getText()), allow_trailing_empty=True)
 
             _seed_formatted(with_plain_prefix)
             res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>plain words</p>"])
             assert res.get("status") == "ok", (with_plain_prefix, res)
-            helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
-            paras = _body_paragraphs(doc)
+            reject_all_changes(doc, ctx)
+            paras = body_paragraphs(doc.getText())
             expected_old = "Plain Old formatted text" if with_plain_prefix else "Old formatted text"
             assert [p.getString() for p in paras] == [expected_old]
             portions = list(iter_elements(paras[0].createEnumeration()))
@@ -1619,8 +1545,8 @@ def test_full_document_does_not_inherit_old_character_formatting_uno(ctx: Any, d
         _seed_formatted(False)
         res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p></p>"])
         assert res.get("status") == "ok", res
-        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
-        assert [p.getString() for p in _body_paragraphs(doc)] == ["Old formatted text"]
+        reject_all_changes(doc, ctx)
+        assert body_texts(doc.getText()) == ["Old formatted text"]
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -1631,7 +1557,6 @@ def test_full_document_does_not_inherit_old_character_formatting_uno(ctx: Any, d
 def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1657,7 +1582,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
     def _select_para(needle: str, *, shift_down: bool = False) -> None:
         vc = doc.getCurrentController().getViewCursor()
         e = text.createEnumeration()
-        while e.hasMoreElements():
+        while enum_has_more(e):
             el = e.nextElement()
             if el.supportsService("com.sun.star.text.Paragraph") and el.getString() == needle:
                 vc.gotoRange(el.getStart(), False)
@@ -1688,7 +1613,7 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
                         _select_para(needle)
                         res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
                     assert res.get("status") == "ok", (label, "off", res)
-                    untracked = _body_style_and_text(doc)
+                    untracked = body_shape(doc.getText())
 
                     save({flag: "record"})
                     _seed()
@@ -1698,8 +1623,8 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
                         _select_para(needle)
                         res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
                     assert res.get("status") == "ok", (label, "accept", res)
-                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-                    actual_accept = _body_style_and_text(doc)
+                    accept_all_changes(doc, ctx)
+                    actual_accept = body_shape(doc.getText())
                     if pos == "middle":
                         assert actual_accept == untracked, (label, "accept", actual_accept, untracked)
                     elif table_ending:
@@ -1714,8 +1639,8 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
                         _select_para(needle)
                         res = ApplyDocumentContent().execute(tctx, target="selection", content=[html])
                     assert res.get("status") == "ok", (label, "reject", res)
-                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-                    assert _body_style_and_text(doc) == seed, (label, "reject", _body_style_and_text(doc))
+                    reject_all_changes(doc, ctx)
+                    assert body_shape(doc.getText()) == seed, (label, "reject", body_shape(doc.getText()))
 
         # Shift+Down selection on middle paragraph trims trailing break and matches untracked.
         save({flag: "off"})
@@ -1723,22 +1648,22 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
         _select_para("Middle", shift_down=True)
         res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        untracked_sd = _body_style_and_text(doc)
+        untracked_sd = body_shape(doc.getText())
 
         save({flag: "record"})
         _seed()
         _select_para("Middle", shift_down=True)
         res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-        assert _body_style_and_text(doc) == untracked_sd
+        accept_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == untracked_sd
 
         _seed()
         _select_para("Middle", shift_down=True)
         res = ApplyDocumentContent().execute(tctx, target="selection", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert _body_style_and_text(doc) == seed
+        reject_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == seed
 
         # Empty follower paragraph: Accept still keeps the blank follower and Reject keeps both styles.
         seed_blank = [("Standard", "First"), ("Heading 2", "Middle"), ("Standard", ""), ("Standard", "Last")]
@@ -1760,20 +1685,20 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
         _seed_blank()
         res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        untracked_blank = _body_style_and_text(doc)
+        untracked_blank = body_shape(doc.getText())
 
         save({flag: "record"})
         _seed_blank()
         res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-        assert _body_style_and_text(doc) == untracked_blank
+        accept_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == untracked_blank
 
         _seed_blank()
         res = ApplyDocumentContent().execute(tctx, target="search", old_content="Middle", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert _body_style_and_text(doc) == seed_blank
+        reject_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == seed_blank
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -1783,14 +1708,12 @@ def test_recorded_whole_paragraph_replace_matches_untracked_uno(ctx: Any, doc: A
 @with_native_doc("writer")
 def test_full_document_keeps_trailing_inline_formula_paragraph_uno(ctx: Any, doc: Any) -> None:
     """_drop_leftover_paragraph does not drop a trailing paragraph holding an inline formula."""
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     res = ApplyDocumentContent().execute(tctx, target="full_document", content=["<p>text</p>\\(x^2\\)"])
     assert res.get("status") == "ok", res
-    paras = _body_paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     assert len(paras) == 2
     assert paras[0].getString() == "text"
     types = []
@@ -1806,7 +1729,6 @@ def test_search_replace_cross_referenced_heading_drops_leftover_paragraph_uno(ct
     """Replacing a bookmarked heading with Track Changes off leaves no empty leftover paragraph."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1838,7 +1760,7 @@ def test_search_replace_cross_referenced_heading_drops_leftover_paragraph_uno(ct
             content=['<h1 data-lo-style="Heading 1">Renamed Heading</h1>'],
         )
         assert res.get("status") == "ok", res
-        assert [p.getString() for p in _body_paragraphs(doc)] == ["Renamed Heading", "Body text"]
+        assert body_texts(doc.getText()) == ["Renamed Heading", "Body text"]
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -1849,7 +1771,6 @@ def test_search_replace_cross_referenced_heading_drops_leftover_paragraph_uno(ct
 def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1879,8 +1800,8 @@ def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None
                     tctx, target="search", old_content=target_p, content=[f"<p>{target_p} new</p>"]
                 )
                 assert res.get("status") == "ok", (order, target_p, res)
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-            assert _body_style_and_text(doc) == [
+            accept_all_changes(doc, ctx)
+            assert body_shape(doc.getText()) == [
                 ("Standard", "P1"),
                 ("Text body", "P2 new"),
                 ("Text body", "P3 new"),
@@ -1893,8 +1814,8 @@ def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None
                     tctx, target="search", old_content=target_p, content=[f"<p>{target_p} new</p>"]
                 )
                 assert res.get("status") == "ok", (order, target_p, res)
-            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-            assert _body_style_and_text(doc) == seed, order
+            reject_all_changes(doc, ctx)
+            assert body_shape(doc.getText()) == seed, order
 
             _seed()
             doc.getUndoManager().reset()
@@ -1906,7 +1827,7 @@ def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None
             um = doc.getUndoManager()
             while um.isUndoPossible():
                 um.undo()
-            assert _body_style_and_text(doc) == seed, order
+            assert body_shape(doc.getText()) == seed, order
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -1917,7 +1838,6 @@ def test_recorded_consecutive_paragraph_replaces_uno(ctx: Any, doc: Any) -> None
 def test_recorded_replace_empty_content_rejects_cleanly_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1937,8 +1857,8 @@ def test_recorded_replace_empty_content_rejects_cleanly_uno(ctx: Any, doc: Any) 
 
         res = ApplyDocumentContent().execute(tctx, target="search", old_content="two", content=["<p></p>"])
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert _body_style_and_text(doc) == [("Standard", "one"), ("Heading 2", "two")]
+        reject_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == [("Standard", "one"), ("Heading 2", "two")]
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -1949,7 +1869,6 @@ def test_recorded_replace_empty_content_rejects_cleanly_uno(ctx: Any, doc: Any) 
 def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1982,7 +1901,7 @@ def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> Non
         e = text.createEnumeration()
         p = e.nextElement()
         pe = p.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             portion = pe.nextElement()
             if portion.getPropertyValue("TextPortionType") == "Text" and word in portion.getString():
                 return float(portion.getPropertyValue("CharWeight"))
@@ -1994,14 +1913,14 @@ def test_recorded_selection_plain_text_keeps_bold_uno(ctx: Any, doc: Any) -> Non
             _seed_bold(line_break=line_break)
             res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
             assert res.get("status") == "ok", res
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            accept_all_changes(doc, ctx)
             assert text.getString() == "aaa Swap bbb"
             assert _weight_of("Swap") == 150.0
 
             _seed_bold(line_break=line_break)
             res = ApplyDocumentContent().execute(tctx, target="selection", content=["Swap"])
             assert res.get("status") == "ok", res
-            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            reject_all_changes(doc, ctx)
             expected_old = "aaa Re\nplace bbb" if line_break else "aaa Replace bbb"
             assert text.getString() == expected_old
             assert _weight_of("Re" if line_break else "Replace") == 150.0
@@ -2016,7 +1935,6 @@ def test_paragraph_after_recorded_replace_stays_readable_uno(ctx: Any, doc: Any)
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -2036,7 +1954,7 @@ def test_paragraph_after_recorded_replace_stays_readable_uno(ctx: Any, doc: Any)
 
         res = ApplyDocumentContent().execute(tctx, target="search", old_content="Replace me", content=["<p>New</p>"])
         assert res.get("status") == "ok", res
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         para_after = next(p for p in paras if "Keep after" in p.getString())
         assert get_string_without_tracked_deletions(para_after) == "Keep after"
     finally:
@@ -2050,7 +1968,6 @@ def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
     from com.sun.star.style.BreakType import PAGE_BEFORE
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.record_changes import record_changes
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -2068,7 +1985,7 @@ def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
 
         res = ApplyDocumentContent().execute(tctx, target="end", content="<p>First</p><p>Second</p>")
         assert res.get("status") == "ok", res
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert [p.getString() for p in paras] == [
             "Plain Styled" if tail_only else "Styled",
             "First",
@@ -2093,13 +2010,13 @@ def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
     for letter in ("A", "B", "C"):
         res = ApplyDocumentContent().execute(tctx, target="end", content=f"<p>{letter}</p>")
         assert res.get("status") == "ok", res
-    assert [p.getString() for p in _body_paragraphs(doc)] == ["A", "B", "C"]
+    assert body_texts(doc.getText()) == ["A", "B", "C"]
 
     # Spaces-only last paragraph keeps its own content.
     text.setString("   ")
     res = ApplyDocumentContent().execute(tctx, target="end", content="<p>AfterSpaces</p>")
     assert res.get("status") == "ok", res
-    assert [p.getString() for p in _body_paragraphs(doc)] == ["   ", "AfterSpaces"]
+    assert body_texts(doc.getText()) == ["   ", "AfterSpaces"]
 
     # Page-break last paragraph keeps its break.
     text.setString("")
@@ -2110,7 +2027,7 @@ def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
     cur.setPropertyValue("BreakType", PAGE_BEFORE)
     res = ApplyDocumentContent().execute(tctx, target="end", content="<p>AfterBreak</p>")
     assert res.get("status") == "ok", res
-    paras = _body_paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     assert [p.getString() for p in paras] == ["First", "AfterBreak"]
     assert paras[1].getPropertyValue("BreakType") == PAGE_BEFORE
 
@@ -2131,30 +2048,23 @@ def test_end_insert_continues_direct_font_uno(ctx: Any, doc: Any) -> None:
             tctx, target="end", content='<p data-lo-style="Heading2">One</p><p>Two</p>'
         )
         assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-    assert [p.getString() for p in _body_paragraphs(doc)] == ["First", "Second", "One", "Two"]
+    accept_all_changes(doc, ctx)
+    assert body_texts(doc.getText()) == ["First", "Second", "One", "Two"]
 
     _seed_two_paras()
     with record_changes(doc, True):
         ApplyDocumentContent().execute(
             tctx, target="end", content='<p data-lo-style="Heading2">One</p><p>Two</p>'
         )
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-    paras_after_reject = _body_paragraphs(doc)
+    reject_all_changes(doc, ctx)
+    paras_after_reject = body_paragraphs(doc.getText())
     assert [p.getString() for p in paras_after_reject] == ["First", "Second"]
     assert [p.getPropertyValue("ParaStyleName") for p in paras_after_reject] == ["Standard", "Heading 1"]
 
 
 def _body_element_kinds(doc: Any) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if el.supportsService("com.sun.star.text.TextTable"):
-            out.append(("TABLE", ""))
-        else:
-            out.append(("P", el.getString()))
-    return out
+    """``("TABLE", "")`` per table and ``("P", text)`` per paragraph of the body."""
+    return [(style if style == "TABLE" else "P", text) for style, text in body_shape(doc.getText())]
 
 
 @native_test
@@ -2163,7 +2073,6 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
     """Mixed math content opening with a table leaves no blank paragraph before the table."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -2189,7 +2098,7 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
             res = ApplyDocumentContent().execute(tctx, target="beginning", content=[html])
             assert res.get("status") == "ok", (mode, res)
             if mode == "record":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
             kinds = _body_element_kinds(doc)
             assert kinds[0] == ("TABLE", ""), (mode, "beginning", kinds)
 
@@ -2198,7 +2107,7 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
             res = ApplyDocumentContent().execute(tctx, target="end", content=[html])
             assert res.get("status") == "ok", (mode, res)
             if mode == "record":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
             kinds = _body_element_kinds(doc)
             assert kinds[:2] == [("P", "Head"), ("TABLE", "")], (mode, "end", kinds)
 
@@ -2209,7 +2118,7 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
             )
             assert res.get("status") == "ok", (mode, res)
             if mode == "record":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
             kinds = _body_element_kinds(doc)
             assert [k for k, _ in kinds] == ["P", "TABLE", "P", "P"], (mode, "search", kinds)
 
@@ -2218,7 +2127,7 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
             res = ApplyDocumentContent().execute(tctx, target="full_document", content=[html])
             assert res.get("status") == "ok", (mode, res)
             if mode == "record":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
             kinds = _body_element_kinds(doc)
             assert kinds[0] == ("TABLE", ""), (mode, "full_document", kinds)
 
@@ -2235,7 +2144,7 @@ def test_math_leading_table_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) ->
                         kwargs["old_content"] = "Replace me"
                     res = ApplyDocumentContent().execute(tctx, **kwargs)
                     assert res.get("status") == "ok", (target, res)
-                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                    reject_all_changes(doc, ctx)
                     assert _body_element_kinds(doc) == [("P", p) for p in seed_paras], target
     finally:
         save({flag: prev})
@@ -2248,7 +2157,6 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
     """Recorded whole-paragraph replaces apply data-lo-style identically to untracked on Accept and restore on Reject."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -2265,17 +2173,6 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
                 text.insertControlCharacter(cur, 0, False)
             cur.setPropertyValue("ParaStyleName", "Standard")
             text.insertString(cur, p, False)
-
-    def _styled_kinds() -> list[tuple[str, str]]:
-        out: list[tuple[str, str]] = []
-        e = text.createEnumeration()
-        while e.hasMoreElements():
-            el = e.nextElement()
-            if el.supportsService("com.sun.star.text.TextTable"):
-                out.append(("TABLE", ""))
-            else:
-                out.append((str(el.getPropertyValue("ParaStyleName")), el.getString()))
-        return out
 
     def _select_para(needle: str) -> None:
         sd = doc.createSearchDescriptor()
@@ -2303,7 +2200,7 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
                         tctx, target="search", old_content="Middle", content=[html]
                     )
                 assert res.get("status") == "ok", (_name, target, res)
-                expected = _styled_kinds()
+                expected = body_shape(text)
 
                 # Recorded + Accept
                 save({flag: "record"})
@@ -2316,8 +2213,8 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
                         tctx, target="search", old_content="Middle", content=[html]
                     )
                 assert res.get("status") == "ok", (_name, target, res)
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-                assert _styled_kinds() == expected, (_name, target)
+                accept_all_changes(doc, ctx)
+                assert body_shape(text) == expected, (_name, target)
 
                 # Recorded + Reject
                 _seed(["Before", "Middle", "After"])
@@ -2329,8 +2226,8 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
                         tctx, target="search", old_content="Middle", content=[html]
                     )
                 assert res.get("status") == "ok", (_name, target, res)
-                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-                assert _styled_kinds() == [
+                reject_all_changes(doc, ctx)
+                assert body_shape(text) == [
                     ("Standard", "Before"),
                     ("Standard", "Middle"),
                     ("Standard", "After"),
@@ -2344,7 +2241,7 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
             tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
         )
         assert res.get("status") == "ok", res
-        expected_adj = _styled_kinds()
+        expected_adj = body_shape(text)
 
         save({flag: "record"})
         _seed(["Before", "Dup", "Dup", "After"])
@@ -2352,16 +2249,16 @@ def test_recorded_whole_paragraph_styles_match_untracked_uno(ctx: Any, doc: Any)
             tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-        assert _styled_kinds() == expected_adj
+        accept_all_changes(doc, ctx)
+        assert body_shape(text) == expected_adj
 
         _seed(["Before", "Dup", "Dup", "After"])
         res = ApplyDocumentContent().execute(
             tctx, target="search", old_content="Dup", all_matches=True, content=[html_adj]
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert _styled_kinds() == [
+        reject_all_changes(doc, ctx)
+        assert body_shape(text) == [
             ("Standard", "Before"),
             ("Standard", "Dup"),
             ("Standard", "Dup"),
@@ -2378,7 +2275,6 @@ def test_html_import_math_with_style_while_recording_leaves_no_format_redline_un
     """Importing styled HTML with math while recording leaves no Format redline and rejects cleanly."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -2394,7 +2290,7 @@ def test_html_import_math_with_style_while_recording_leaves_no_format_redline_un
         redlines = doc.getRedlines()
         types = [redlines.getByIndex(i).getPropertyValue("RedlineType") for i in range(redlines.getCount())]
         assert "Format" not in types, types
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        reject_all_changes(doc, ctx)
         assert text.getString() == orig
     finally:
         save({flag: prev})
@@ -2410,7 +2306,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
     def _paras_snapshot() -> list[tuple[str, str, int]]:
         out: list[tuple[str, str, int]] = []
         enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             el = enum.nextElement()
             if el.supportsService("com.sun.star.text.Paragraph"):
                 out.append((
@@ -2449,7 +2345,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
         ):
             _setup_empty_middle()
             insert_content_at_position(doc, ctx, html, "selection")
-            _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+            reject_all_changes(doc, ctx)
             snap = _paras_snapshot()
             assert len(snap) == 3, (html, snap)
             assert snap[0][0] == "Alpha"
@@ -2461,15 +2357,14 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
 
         # Accept and single-undo check for <p>Body</p> via ApplyDocumentContent
         from plugin.writer.apply_document_content import ApplyDocumentContent
-        from tests.writer.test_apply_document_content_uno import native_writer_tool_context
-
+    
         _setup_empty_middle()
         doc.getUndoManager().clear()
         res = ApplyDocumentContent().execute(
             native_writer_tool_context(doc, ctx), target="selection", content=["<p>Body</p>"]
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
         assert [s[0] for s in _paras_snapshot()] == ["Alpha", "", "Body", "Omega"]
         doc.getUndoManager().undo()  # undo Accept
         doc.getUndoManager().undo()  # undo insert (single step)
@@ -2486,7 +2381,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
         cur.setPropertyValue("ParaStyleName", "Quotations")
         doc.setPropertyValue("RecordChanges", True)
         insert_content_at_position(doc, ctx, "<p>Body</p>", "beginning")
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        reject_all_changes(doc, ctx)
         assert [(s[0], s[1]) for s in _paras_snapshot()] == [("", "Quotations")]
         assert doc.getRedlines().getCount() == 0
     finally:
@@ -2495,7 +2390,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
 
 def _first_text_portion_props(para: Any) -> dict[str, Any]:
     enum = para.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         p = enum.nextElement()
         if str(p.getPropertyValue("TextPortionType") or "") == "Text" and p.getString():
             return {
@@ -2508,16 +2403,6 @@ def _first_text_portion_props(para: Any) -> dict[str, Any]:
     raise AssertionError("No non-empty text portion found in paragraph")
 
 
-def _body_paragraphs(doc: Any) -> list[Any]:
-    out = []
-    enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
-        el = enum.nextElement()
-        if el.supportsService("com.sun.star.text.Paragraph"):
-            out.append(el)
-    return out
-
-
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) -> None:
@@ -2525,7 +2410,6 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
     from com.sun.star.lang import Locale
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -2547,7 +2431,7 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
         text.insertControlCharacter(cur, 0, False)
         text.insertString(cur, "After", False)
 
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         for idx in (0, 2):
             neighbour = text.createTextCursorByRange(paras[idx])
             neighbour.setPropertyValue("CharWeight", 150.0)
@@ -2573,7 +2457,7 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
         return left_readback, border_readback
 
     def _select_mid() -> None:
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         cur = doc.getText().createTextCursorByRange(paras[1])
         doc.getCurrentController().select(cur)
 
@@ -2598,11 +2482,11 @@ def test_whole_paragraph_replace_drops_old_formatting_uno(ctx: Any, doc: Any) ->
                     reds = [redlines.getByIndex(i) for i in range(redlines.getCount())]
                     types = {r.getPropertyValue("RedlineType") for r in reds}
                     assert types == {"Insert", "Delete"}, (target, types)
-                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                    accept_all_changes(doc, ctx)
                 elif mode == "reject":
-                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                    reject_all_changes(doc, ctx)
 
-                paras = _body_paragraphs(doc)
+                paras = body_paragraphs(doc.getText())
                 assert paras[0].getString() == "Before"
                 assert paras[2].getString() == "After"
                 for idx in (0, 2):
@@ -2644,7 +2528,6 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
     from com.sun.star.lang import Locale
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -2677,7 +2560,7 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
         assert text.getString() == "Done"
 
         doc.getUndoManager().undo()
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert paras[0].getString() == "Replace me"
         props = _first_text_portion_props(paras[0])
         assert props["weight"] == 150.0
@@ -2688,7 +2571,7 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
         assert str(paras[0].getPropertyValue("ListLabelString") or "") == "1."
 
         doc.getUndoManager().redo()
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert paras[0].getString() == "Done"
         redo_props = _first_text_portion_props(paras[0])
         assert redo_props["weight"] == 100.0
@@ -2712,11 +2595,11 @@ def test_whole_paragraph_replace_undo_restores_formatting_uno(ctx: Any, doc: Any
         )
         assert res.get("status") == "ok", res
         doc.getUndoManager().undo()
-        p0 = _body_paragraphs(doc)[0]
+        p0 = body_paragraphs(doc.getText())[0]
         assert p0.getString() == "Bold rest"
         runs = []
         enum = p0.createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             portion = enum.nextElement()
             if str(portion.getPropertyValue("TextPortionType") or "") == "Text" and portion.getString():
                 runs.append((portion.getString(), float(portion.getPropertyValue("CharWeight"))))
@@ -2733,7 +2616,6 @@ def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) ->
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.writer.chapter_numbering_fixtures import enable_chapter_numbering
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -2758,7 +2640,7 @@ def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) ->
             tctx, target="search", old_content="Old Heading", content=["<h1>New Heading</h1>"]
         )
         assert res.get("status") == "ok", res
-        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+        assert str(body_paragraphs(doc.getText())[0].getPropertyValue("ListLabelString") or "") == "1"
 
         # search (record + Accept) -> <h1>
         save({flag: "record"})
@@ -2767,8 +2649,8 @@ def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) ->
             tctx, target="search", old_content="Old Heading", content=["<h1>New Heading</h1>"]
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+        accept_all_changes(doc, ctx)
+        assert str(body_paragraphs(doc.getText())[0].getPropertyValue("ListLabelString") or "") == "1"
 
         # full_document (off) -> <h1>
         save({flag: "off"})
@@ -2777,7 +2659,7 @@ def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) ->
             tctx, target="full_document", content=["<h1>Fresh Heading</h1>"]
         )
         assert res.get("status") == "ok", res
-        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "1"
+        assert str(body_paragraphs(doc.getText())[0].getPropertyValue("ListLabelString") or "") == "1"
 
         # search (off) -> <ul><li>a</li><li>b</li></ul>
         _seed_heading()
@@ -2785,7 +2667,7 @@ def test_whole_paragraph_replace_keeps_chapter_number_uno(ctx: Any, doc: Any) ->
             tctx, target="search", old_content="Old Heading", content=["<ul><li>a</li><li>b</li></ul>"]
         )
         assert res.get("status") == "ok", res
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert [bool(p.getPropertyValue("NumberingIsNumber")) for p in paras[:2]] == [True, True]
     finally:
         save({flag: prev})
@@ -2798,7 +2680,6 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
     """Replacing a bold paragraph with a <ul> gives both items bullets and normal weight."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -2818,7 +2699,7 @@ def test_whole_paragraph_list_replaces_bold_paragraph_uno(ctx: Any, doc: Any) ->
             tctx, target="search", old_content="Bold para", content=["<ul><li>one</li><li>two</li></ul>"]
         )
         assert res.get("status") == "ok", res
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert len(paras) == 2
         for p in paras:
             assert bool(p.getPropertyValue("NumberingIsNumber")) is True
@@ -2835,14 +2716,13 @@ def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
     from plugin.framework.config import get_config, save
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
 
     def _state(doc: Any) -> list[tuple[str, int, str, dict[str, Any]]]:
         out = []
-        for para in _body_paragraphs(doc):
+        for para in body_paragraphs(doc.getText()):
             s = para.getString()
             if s:
                 out.append((
@@ -2912,13 +2792,15 @@ def test_full_document_undo_restores_formatting_uno(ctx: Any) -> None:
                             "lang": "pt",
                         },
                     )]
+                    assert len(body_paragraphs(doc.getText())) == 1, case
                     assert _state(doc) == expected_done, case
 
                     doc.getUndoManager().undo()
-                    assert len(_body_paragraphs(doc)) == len(words), case
+                    assert len(body_paragraphs(doc.getText())) == len(words), case
                     assert _state(doc) == expected_seeded, case
 
                     doc.getUndoManager().redo()
+                    assert len(body_paragraphs(doc.getText())) == 1, case
                     assert _state(doc) == expected_done, case
     finally:
         save({flag: prev})
@@ -2931,7 +2813,6 @@ def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, do
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.writer.chapter_numbering_fixtures import enable_chapter_numbering
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -2949,7 +2830,7 @@ def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, do
         cur.setPropertyValue("ParaStyleName", "Heading 1")
         cur.setPropertyValue("ParaIsNumberingRestart", True)
         cur.setPropertyValue("NumberingStartValue", 5)
-        assert str(_body_paragraphs(doc)[0].getPropertyValue("ListLabelString") or "") == "5"
+        assert str(body_paragraphs(doc.getText())[0].getPropertyValue("ListLabelString") or "") == "5"
 
     try:
         for mode in ("off", "record"):
@@ -2966,10 +2847,10 @@ def test_whole_paragraph_and_full_document_keep_heading_restart_uno(ctx: Any, do
                 assert res.get("status") == "ok", res
                 if mode == "record":
                     assert doc.getRedlines().getCount() > 0, (mode, target)
-                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                    accept_all_changes(doc, ctx)
                 labels = [
                     (p.getString(), str(p.getPropertyValue("ListLabelString") or ""))
-                    for p in _body_paragraphs(doc)
+                    for p in body_paragraphs(doc.getText())
                     if p.getString()
                 ]
                 assert labels == [("One", "5"), ("Two", "6")], (mode, target, labels)
@@ -3024,7 +2905,7 @@ def test_insert_at_caret_is_one_undo_step_uno(ctx: Any, doc: Any) -> None:
                 after_titles = tuple(um.getAllUndoActionTitles() or ())
                 assert len(after_titles) == len(before_titles) + 1, (recording, after_titles, before_titles)
                 um.undo()
-                paras = _body_paragraphs(doc)
+                paras = body_paragraphs(doc.getText())
                 assert [p.getString() for p in paras] == ["Alpha", "", "Omega"]
                 assert [p.getPropertyValue("ParaStyleName") for p in paras] == ["Standard", "Heading 2", "Standard"]
                 assert paras[1].getPropertyValue("ParaTopMargin") == 700
@@ -3086,7 +2967,7 @@ def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, d
         vc.goDown(1, False)
 
         insert_content_at_position(doc, ctx, html, "selection")
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert [p.getString() for p in paras] == expected_texts, html
         assert [p.getPropertyValue("ParaStyleName") for p in paras] == expected_styles, html
         assert doc.getTextTables().getCount() == expected_tables, html
@@ -3098,7 +2979,7 @@ def test_block_insert_at_empty_heading_leaves_no_empty_paragraph_uno(ctx: Any, d
     cur.gotoStart(False)
     cur.setPropertyValue("ParaStyleName", "Heading 1")
     insert_content_at_position(doc, ctx, '<p data-lo-style="Textbody">b</p>', "beginning")
-    paras = _body_paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     assert [p.getString() for p in paras] == ["b"]
     assert [p.getPropertyValue("ParaStyleName") for p in paras] == ["Text body"]
 
@@ -3144,9 +3025,7 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
     from com.sun.star.lang import Locale
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.config import get_config, save
-    from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     flag = "doc.agent_edit_review_mode"
@@ -3187,7 +3066,7 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
             toc.update()
 
     def _assert_all_text_portions_lang(expected: str) -> None:
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert len(paras) >= 2
         langs = [
             portion.getPropertyValue("CharLocale").Language
@@ -3217,7 +3096,7 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
                 )
                 assert res.get("status") == "ok", res
                 if record:
-                    execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
+                    accept_all_changes(doc, ctx)
                 _assert_all_text_portions_lang(expected)
     finally:
         save({flag: prev})
@@ -3229,7 +3108,6 @@ def test_full_document_language_from_first_paragraph_uno(ctx: Any, doc: Any) -> 
 def test_ruby_after_8190_chars_and_table_or_in_cell_uno(ctx: Any, doc: Any) -> None:
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.html_export import document_to_content
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -3279,7 +3157,6 @@ def test_ruby_after_8190_chars_and_table_or_in_cell_uno(ctx: Any, doc: Any) -> N
 def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any) -> None:
     """Trailing bare text or inline math after a table must not merge with the next paragraph."""
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -3287,7 +3164,7 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
     def _seed(empty_first: bool = False) -> list[tuple[str, str]]:
         doc.setPropertyValue("RecordChanges", False)
         if len(doc.getRedlines()):
-            _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+            accept_all_changes(doc, ctx)
         tables = doc.getTextTables()
         for idx in range(tables.getCount() - 1, -1, -1):
             tables.getByIndex(idx).dispose()
@@ -3307,7 +3184,7 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
         text.insertControlCharacter(cur, 0, False)
         cur.setPropertyValue("ParaStyleName", "Standard")
         text.insertString(cur, "End", False)
-        return _body_style_and_text(doc)
+        return body_shape(doc.getText())
 
     def _select_target(target_kind: str) -> None:
         controller = doc.getCurrentController()
@@ -3333,7 +3210,7 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
                 _select_target(target_kind)
                 res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
                 assert res.get("status") == "ok", (html, target_kind, res)
-                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                assert ("Heading 3", "Omega") in body_shape(doc.getText()), (html, target_kind)
                 assert doc.getTextTables().getCount() == 1, (html, target_kind)
 
                 _seed(empty_first=empty_first)
@@ -3341,8 +3218,8 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
                 doc.setPropertyValue("RecordChanges", True)
                 res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
                 assert res.get("status") == "ok", (html, target_kind, res)
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-                assert ("Heading 3", "Omega") in _body_style_and_text(doc), (html, target_kind)
+                accept_all_changes(doc, ctx)
+                assert ("Heading 3", "Omega") in body_shape(doc.getText()), (html, target_kind)
                 assert doc.getTextTables().getCount() == 1, (html, target_kind)
 
                 expected_seed = _seed(empty_first=empty_first)
@@ -3350,11 +3227,11 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
                 doc.setPropertyValue("RecordChanges", True)
                 res = ApplyDocumentContent().execute(tctx, target="selection", content=html)
                 assert res.get("status") == "ok", (html, target_kind, res)
-                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-                assert _body_style_and_text(doc) == expected_seed, (html, target_kind)
+                reject_all_changes(doc, ctx)
+                assert body_shape(doc.getText()) == expected_seed, (html, target_kind)
                 assert len(doc.getRedlines()) == 0, (html, target_kind)
 
-        expected_seed = _seed(empty_first=False)
+        expected_seed = _seed()
         doc.setPropertyValue("RecordChanges", True)
         res = ApplyDocumentContent().execute(
             tctx,
@@ -3362,8 +3239,8 @@ def test_table_then_trailing_inline_keeps_next_paragraph_uno(ctx: Any, doc: Any)
             content="<table><tr><td>C</td></tr></table>tail",
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
-        assert _body_style_and_text(doc) == expected_seed
+        reject_all_changes(doc, ctx)
+        assert body_shape(doc.getText()) == expected_seed
         assert len(doc.getRedlines()) == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -3378,9 +3255,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
     from com.sun.star.style.TabAlign import LEFT as TAB_ALIGN_LEFT
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
     from plugin.framework.config import get_config, save
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -3395,7 +3270,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
             if idx < 2:
                 text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
 
-        for p in _body_paragraphs(doc):
+        for p in body_paragraphs(doc.getText()):
             pc = text.createTextCursorByRange(p)
             pc.setPropertyValue("ParaStyleName", "Standard")
             pc.setPropertyValue("NumberingStyleName", "Numbering 123")
@@ -3413,7 +3288,7 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
             pc.setPropertyValue("CharHeight", 11.0)
 
         # Bold prefix on target clause to verify bold is cleared while font/size stay.
-        bcur = text.createTextCursorByRange(_body_paragraphs(doc)[1].getStart())
+        bcur = text.createTextCursorByRange(body_paragraphs(doc.getText())[1].getStart())
         bcur.goRight(6, True)
         bcur.setPropertyValue("CharWeight", 150.0)
 
@@ -3466,11 +3341,11 @@ def test_whole_paragraph_replace_preserves_numbered_justified_clause_uno(ctx: An
                     )
                     assert res.get("status") == "ok", (kind, mode, res)
                     if mode == "accept":
-                        _dispatch(ctx, d, ".uno:AcceptAllTrackedChanges")
+                        accept_all_changes(d, ctx)
                     elif mode == "reject":
-                        _dispatch(ctx, d, ".uno:RejectAllTrackedChanges")
+                        reject_all_changes(d, ctx)
 
-                    paras = _body_paragraphs(d)
+                    paras = body_paragraphs(d.getText())
                     labels = [str(p.getPropertyValue("ListLabelString") or "") for p in paras]
                     if kind in ("p", "p_same_style", "p_same_style_para", "p_same_style_top", "ol1"):
                         assert labels == ["1.", "2.", "3."], (kind, mode, labels)
@@ -3529,7 +3404,6 @@ def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, d
     """Same-style replace keeps all four direct borders and background unless overridden by data-lo-para."""
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -3545,7 +3419,7 @@ def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, d
                 text.setString("")
                 cur = text.createTextCursor()
                 text.insertString(cur, "Boxed clause", False)
-                p_seed = _body_paragraphs(doc)[0]
+                p_seed = body_paragraphs(doc.getText())[0]
                 pc = text.createTextCursorByRange(p_seed)
                 pc.setPropertyValue("ParaStyleName", "Standard")
                 for bname in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
@@ -3572,8 +3446,8 @@ def test_whole_paragraph_same_style_keeps_borders_and_background_uno(ctx: Any, d
                 )
                 assert res.get("status") == "ok", (mode, bg_case, res)
                 if mode == "accept":
-                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-                p0 = _body_paragraphs(doc)[0]
+                    accept_all_changes(doc, ctx)
+                p0 = body_paragraphs(doc.getText())[0]
                 for bname in ("LeftBorder", "RightBorder", "TopBorder", "BottomBorder"):
                     assert int(p0.getPropertyValue(bname).OuterLineWidth) == 35, (mode, bg_case, bname)
                 assert int(p0.getPropertyValue("ParaBackColor")) == expected_bg, (
@@ -3593,7 +3467,6 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
     from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -3605,7 +3478,7 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
             text.setString("")
             cur = text.createTextCursor()
             text.insertString(cur, "Justified body clause", False)
-            pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+            pc = text.createTextCursorByRange(body_paragraphs(doc.getText())[0])
             pc.setPropertyValue("ParaStyleName", "Text body")
             pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
             res = ApplyDocumentContent().execute(
@@ -3616,8 +3489,8 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
             )
             assert res.get("status") == "ok", (mode, res)
             if mode == "accept":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-            assert int(_body_paragraphs(doc)[0].getPropertyValue("ParaAdjust")) == 1, mode  # RIGHT
+                accept_all_changes(doc, ctx)
+            assert int(body_paragraphs(doc.getText())[0].getPropertyValue("ParaAdjust")) == 1, mode  # RIGHT
 
         # Same-style with multi-property data-lo-para overrides both margin and alignment
         save({flag: "off"})
@@ -3626,7 +3499,7 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
         text.setString("")
         cur = text.createTextCursor()
         text.insertString(cur, "Justified clause", False)
-        pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+        pc = text.createTextCursorByRange(body_paragraphs(doc.getText())[0])
         pc.setPropertyValue("ParaStyleName", "Standard")
         pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
         pc.setPropertyValue("ParaLeftMargin", 1499)
@@ -3637,7 +3510,7 @@ def test_whole_paragraph_text_body_data_lo_para_overrides_alignment_uno(ctx: Any
             content=['<p data-lo-style="Standard" data-lo-para="margin-left:3cm; text-align:right">Right</p>'],
         )
         assert res.get("status") == "ok", res
-        p_css = _body_paragraphs(doc)[0]
+        p_css = body_paragraphs(doc.getText())[0]
         assert int(p_css.getPropertyValue("ParaAdjust")) == 1  # RIGHT
         assert abs(int(p_css.getPropertyValue("ParaLeftMargin")) - 3000) <= 5
     finally:
@@ -3652,7 +3525,6 @@ def test_whole_paragraph_same_style_restore_anchor_positions_uno(ctx: Any, doc: 
     from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -3668,7 +3540,7 @@ def test_whole_paragraph_same_style_restore_anchor_positions_uno(ctx: Any, doc: 
                 tbl.initialize(1, 1)
                 text.insertTextContent(cur, tbl, False)
             text.insertString(cur, "Lead clause", False)
-            p_target = _body_paragraphs(doc)[0]
+            p_target = body_paragraphs(doc.getText())[0]
             pc = text.createTextCursorByRange(p_target)
             pc.setPropertyValue("ParaStyleName", "Standard")
             pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
@@ -3681,8 +3553,8 @@ def test_whole_paragraph_same_style_restore_anchor_positions_uno(ctx: Any, doc: 
             )
             assert res.get("status") == "ok", (pos, mode, res)
             if mode == "accept":
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
-            p_after = _body_paragraphs(doc)[0]
+                accept_all_changes(doc, ctx)
+            p_after = body_paragraphs(doc.getText())[0]
             assert p_after.getPropertyValue("ParaStyleName") == "Standard", (pos, mode)
             assert int(p_after.getPropertyValue("ParaAdjust")) == 2, (pos, mode)
             assert abs(int(p_after.getPropertyValue("ParaLeftMargin")) - 1400) <= 5, (
@@ -3702,7 +3574,6 @@ def test_whole_paragraph_single_item_ul_keeps_bullet_layout_uno(ctx: Any, doc: A
     from com.sun.star.style.ParagraphAdjust import BLOCK as PARA_ADJUST_BLOCK
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from tests.writer.test_apply_document_content_uno import native_writer_tool_context
 
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
@@ -3713,7 +3584,7 @@ def test_whole_paragraph_single_item_ul_keeps_bullet_layout_uno(ctx: Any, doc: A
         text.setString("")
         cur = text.createTextCursor()
         text.insertString(cur, "Bullet clause", False)
-        pc = text.createTextCursorByRange(_body_paragraphs(doc)[0])
+        pc = text.createTextCursorByRange(body_paragraphs(doc.getText())[0])
         pc.setPropertyValue("NumberingStyleName", "List 1")
         pc.setPropertyValue("ParaAdjust", PARA_ADJUST_BLOCK)
         res = ApplyDocumentContent().execute(
@@ -3723,7 +3594,7 @@ def test_whole_paragraph_single_item_ul_keeps_bullet_layout_uno(ctx: Any, doc: A
             content=["<ul><li>Bullet revised</li></ul>"],
         )
         assert res.get("status") == "ok", res
-        p_ul = _body_paragraphs(doc)[0]
+        p_ul = body_paragraphs(doc.getText())[0]
         assert bool(p_ul.getPropertyValue("NumberingIsNumber")) is True
         assert int(p_ul.getPropertyValue("ParaAdjust")) == 2
     finally:
@@ -3735,7 +3606,6 @@ def test_whole_paragraph_single_item_ul_keeps_bullet_layout_uno(ctx: Any, doc: A
 @with_native_doc("writer", reuse=False)
 def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: Any, doc: Any) -> None:
     """replace_preserving_format keeps adjacent fields, bold/links, and other-author redlines at run edges."""
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer import review_authors
     from plugin.writer.html_import import replace_preserving_format
 
@@ -3800,11 +3670,11 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
                 replace_preserving_format(doc, rng, "tap now", ctx=ctx, in_undo_context=False)
 
                 if mode == "accept":
-                    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                    accept_all_changes(doc, ctx)
                 elif mode == "reject":
-                    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                    reject_all_changes(doc, ctx)
 
-                pts = _portions(_body_paragraphs(doc)[0])
+                pts = _portions(body_paragraphs(doc.getText())[0])
                 assert pts[0][0] == "TextField" and pts[-1][0] == "TextField", (mode, pts)
                 expected_text = "click here" if mode == "reject" else "tap now"
                 mid = [p for p in pts if p[0] == "Text"]
@@ -3861,21 +3731,21 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
             assert authors.count("Alice") == 4, (mode, authors)
             if mode == "off":
                 assert "Bob" not in authors, authors
-                zz = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "ZZ"]
+                zz = [p for p in _portions(body_paragraphs(doc.getText())[0]) if p[1] == "ZZ"]
                 assert zz and zz[0][2] == 150.0 and zz[0][3] == "https://example.com/clause", zz
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
                 assert text.getString() == "alpha ADDEDZZTAIL omega"
             elif mode == "accept":
                 assert "Bob" in authors, authors
-                _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+                accept_all_changes(doc, ctx)
                 assert text.getString() == "alpha ADDEDZZTAIL omega"
-                zz = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "ZZ"]
+                zz = [p for p in _portions(body_paragraphs(doc.getText())[0]) if p[1] == "ZZ"]
                 assert zz and zz[0][2] == 150.0 and zz[0][3] == "https://example.com/clause", zz
             else:
                 assert "Bob" in authors, authors
-                _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+                reject_all_changes(doc, ctx)
                 assert text.getString() == "alpha DEL1old wordsDEL2 omega"
-                ow = [p for p in _portions(_body_paragraphs(doc)[0]) if p[1] == "old words"]
+                ow = [p for p in _portions(body_paragraphs(doc.getText())[0]) if p[1] == "old words"]
                 assert ow and ow[0][2] == 150.0 and ow[0][3] == "https://example.com/clause", ow
     finally:
         _restore_lo_author(prev_given, prev_sn)
@@ -3888,7 +3758,6 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
     """Block insert (<p> or <table>) on an empty paragraph preserves page break, page style, and bookmark."""
     from com.sun.star.style.BreakType import PAGE_BEFORE
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.html_import import insert_content_at_position
 
     try:
@@ -3903,7 +3772,7 @@ def test_block_insert_on_empty_paragraph_preserves_page_break_and_bookmark_uno(c
                 text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
                 text.insertString(cur, "After.", False)
 
-                empty_para = _body_paragraphs(doc)[1]
+                empty_para = body_paragraphs(doc.getText())[1]
                 p1_cur = text.createTextCursorByRange(empty_para.getStart())
                 p1_cur.setPropertyValue("ParaStyleName", "Heading 1")
                 p1_cur.setPropertyValue("BreakType", PAGE_BEFORE)
@@ -3982,14 +3851,14 @@ def test_table_insert_on_empty_paragraph_respects_direct_vs_style_page_break_uno
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         text.insertString(cur, "After.", False)
-        after_para = _body_paragraphs(doc)[2]
+        after_para = body_paragraphs(doc.getText())[2]
         text.createTextCursorByRange(after_para.getStart()).setPropertyValue("BreakType", PAGE_BEFORE)
 
-        sel_cur = text.createTextCursorByRange(_body_paragraphs(doc)[1].getStart())
+        sel_cur = text.createTextCursorByRange(body_paragraphs(doc.getText())[1].getStart())
         insert_content_at_position(
             doc, ctx, "<table><tr><td>Cell</td></tr></table>", position="selection", selection=sel_cur
         )
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert [p.getString() for p in paras] == ["Before.", "", "After."]
         assert doc.getTextTables().getCount() == 1
         assert str(paras[2].getPropertyValue("BreakType").value) == "PAGE_BEFORE"
@@ -4002,16 +3871,81 @@ def test_table_insert_on_empty_paragraph_respects_direct_vs_style_page_break_uno
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
         text.insertString(cur, "Heading.", False)
-        text.createTextCursorByRange(_body_paragraphs(doc)[2].getStart()).setPropertyValue("ParaStyleName", "Heading 1")
+        text.createTextCursorByRange(body_paragraphs(doc.getText())[2].getStart()).setPropertyValue("ParaStyleName", "Heading 1")
 
-        sel_cur = text.createTextCursorByRange(_body_paragraphs(doc)[1].getStart())
+        sel_cur = text.createTextCursorByRange(body_paragraphs(doc.getText())[1].getStart())
         insert_content_at_position(
             doc, ctx, "<table><tr><td>Cell</td></tr></table>", position="selection", selection=sel_cur
         )
-        paras = _body_paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert [p.getString() for p in paras] == ["Before.", "Heading."]
         assert doc.getTextTables().getCount() == 1
         assert paras[1].getPropertyValue("ParaStyleName") == "Heading 1"
         assert str(paras[1].getPropertyValue("BreakType").value) == "PAGE_BEFORE"
     finally:
         h1_style.setPropertyValue("BreakType", prev_h1_break)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> None:
+    """Header inserts and body Format redlines pass; body table-cell inserts refuse when untracked."""
+    from com.sun.star.awt.FontWeight import BOLD
+    from plugin.doc.text_helpers import iter_elements, redline_bounds
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import review_authors
+    from plugin.writer.html_import import raise_if_pending_changes_untracked
+
+    prior = review_authors.begin(ctx)
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        text = doc.getText()
+        text.setString("Body text.")
+
+        # Header insertion (recorded) and body Format change (recorded): neither should block.
+        page_style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+        page_style.setPropertyValue("HeaderIsOn", True)
+        header_text = page_style.getPropertyValue("HeaderText")
+
+        doc.setPropertyValue("RecordChanges", True)
+        h_cur = header_text.createTextCursor()
+        header_text.insertString(h_cur, "Header ins", False)
+        b_cur = text.createTextCursor()
+        b_cur.gotoStart(False)
+        b_cur.goRight(4, True)
+        b_cur.setPropertyValue("CharWeight", BOLD)
+
+        seen_redlines = {
+            (str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)[0].getImplementationName())
+            for rl in iter_elements(doc.getRedlines().createEnumeration())
+        }
+        assert ("Insert", "SwXHeadFootText") in seen_redlines, seen_redlines
+        assert ("Format", "SwXBodyText") in seen_redlines, seen_redlines
+
+        doc.setPropertyValue("RecordChanges", False)
+        raise_if_pending_changes_untracked(doc)
+
+        # Body table-cell insertion by Bob: recording on passes, recording off refuses.
+        table = doc.createInstance("com.sun.star.text.TextTable")
+        table.initialize(1, 1)
+        end_cur = text.createTextCursor()
+        end_cur.gotoEnd(False)
+        text.insertTextContent(end_cur, table, False)
+
+        review_authors.set_office_author(ctx, "Bob")
+        doc.setPropertyValue("RecordChanges", True)
+        cell = table.getCellByName("A1")
+        cell.insertString(cell.createTextCursor(), "Cell ins", False)
+
+        raise_if_pending_changes_untracked(doc)
+
+        doc.setPropertyValue("RecordChanges", False)
+        try:
+            raise_if_pending_changes_untracked(doc)
+        except ToolExecutionError as exc:
+            assert exc.code == "PENDING_TRACKED_CHANGES"
+        else:
+            raise AssertionError("Expected PENDING_TRACKED_CHANGES")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)

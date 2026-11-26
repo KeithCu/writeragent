@@ -462,7 +462,7 @@ def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.M
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
-    # _write_all rejects a write() that does not return a positive byte count.
+    # write_all rejects a write() that does not return a positive byte count.
     worker.process.stdin.write.side_effect = lambda data: len(data)
     worker.process.stdout = MagicMock()
 

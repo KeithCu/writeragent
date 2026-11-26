@@ -39,17 +39,18 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+import uno
 from html import unescape
 from typing import Any, Sequence, cast
 
-from plugin.chatbot.chat_session import message_text
+from plugin.chatbot.chat_session import ChatSession, message_text
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     ChatTheme,
     normalize_portion_font,
     _append_rich_text_with_span,
-    _role_prefix,
+    role_prefix,
     apply_chat_char_props,
     apply_rich_control_para_margins,
     contains_html_tag,
@@ -60,7 +61,7 @@ from plugin.chatbot.rich_text import (
 from plugin.chatbot.rich_text_control import (
     force_rich_full_reformat,
     _insert_string_at_rich_cursor,
-    _is_automatic_char_color,
+    is_automatic_char_color,
     rollback_rich_insert,
     _scroll_rich_to_tail,
     clear_control,
@@ -76,7 +77,7 @@ from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
-from plugin.framework.uno_context import focus_preserved, process_events_to_idle
+from plugin.framework.uno_context import focus_preserved, process_events_to_idle, enum_has_more
 
 log = logging.getLogger(__name__)
 
@@ -140,8 +141,6 @@ def create_hidden_html_writer(ctx: Any) -> Any | None:
 
 def configure_hidden_writer_for_chat(doc: Any) -> None:
     """Apply sidebar chat defaults on a hidden Writer doc (font, zero margins, no spellcheck)."""
-    import uno
-
     style_families = doc.getStyleFamilies()
     if style_families.hasByName("ParagraphStyles"):
         para_styles = style_families.getByName("ParagraphStyles")
@@ -275,8 +274,6 @@ def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
         return
 
     def _apply() -> None:
-        import uno
-
         stops = []
         for pos in positions_twips:
             ts = cast("Any", uno.createUnoStruct("com.sun.star.style.TabStop"))
@@ -307,7 +304,7 @@ def _role_from_portion_text(text: str) -> str | None:
 
 def _resolve_portion_char_color(src_portion: Any, txt: str, theme: Any, default_role: str = "assistant") -> int:
     raw = getattr(src_portion, "CharColor", None)
-    if isinstance(raw, int) and not _is_automatic_char_color(raw):
+    if isinstance(raw, int) and not is_automatic_char_color(raw):
         return raw
     role = _role_from_portion_text(txt) or default_role
     return ChatTheme.role_color(theme, role)
@@ -402,16 +399,16 @@ OPEN_TRANSCRIPT = "_open_transcript"
 SLASH_LOCAL = "_slash_local"
 
 
-def append_slash_local_message(session: Any, text: str) -> bool:
+def append_slash_local_message(session: ChatSession, text: str) -> bool:
     """Persist a closed assistant row for local slash output (not an LLM turn)."""
     messages = session.messages
-    if not text or not str(text).strip():
+    if not text.strip():
         return False
     messages.append({"role": "assistant", "content": text, SLASH_LOCAL: True})
     return True
 
 
-def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> bool:
+def fold_transcript_chunk(session: ChatSession, text: str, role: str = "assistant") -> bool:
     """Record *text* on ``session.messages``. The control is painted afterwards.
 
     User rows are already stored by the send path. Assistant tokens grow one
@@ -420,7 +417,7 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     text. Returns True when the list changed.
     """
     messages = session.messages
-    if not text or not str(text).strip():
+    if not text.strip():
         return False
     if role == "user":
         # A user row already in session.messages (add_user_message at send
@@ -433,25 +430,25 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
         messages.append({"role": "user", "content": text})
         return True
     if messages and messages[-1].get(OPEN_TRANSCRIPT):
-        messages[-1]["content"] = (messages[-1].get("content") or "") + text
+        messages[-1]["content"] += text
         return True
     messages.append({"role": "assistant", "content": text, OPEN_TRANSCRIPT: True})
     return True
 
 
-def plain_transcript_text(session: Any, greeting: str = "") -> str:
+def plain_transcript_text(session: ChatSession, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     # The plain box is a text field. Panel wiring paints history before the
     # rich control is ready, and writing stored HTML answers verbatim shows
     # "Assistant <p>done</p>" after File > Reload until the rich control
     # takes over. Give it the same stripped text the stream stripper shows.
-    text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
+    text = (plain_fallback_text(greeting) + "\n") if greeting else ""
     notice = session.history_notice
     if notice:
-        text += "\n%s %s\n" % (_("Assistant:"), _plain_fallback_text(notice))
+        text += "\n%s %s\n" % (_("Assistant:"), plain_fallback_text(notice))
     for msg in session.messages:
         role = msg.get("role", "")
-        content = _plain_fallback_text(message_text(msg.get("content", "")))
+        content = plain_fallback_text(message_text(msg.get("content", "")))
         if role == "user":
             text += "\nYou: %s\n" % content
         elif role == "assistant":
@@ -463,7 +460,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     return text
 
 
-def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
+def session_history_items(session: ChatSession, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
     # Tool-call lines ("[Running tool: ...]", "[tool: result]") are not restored:
     # they are live status text only. ChatSession.add_assistant_message writes
@@ -493,7 +490,7 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
     return items
 
 
-# Body of tool_loop_actions._STOP_LINE ("\n[Stopped by user]\n"), stored by
+# Body of tool_loop_actions.STOP_LINE ("\n[Stopped by user]\n"), stored by
 # close_stopped as its own assistant message.
 _STOP_BANNER = "[Stopped by user]"
 
@@ -551,8 +548,8 @@ def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") ->
     cursor.gotoEnd(False)
     if text_obj.getString():
         text_obj.insertString(cursor, "\n\n", False)
-    body = _plain_fallback_text(text)
-    text_obj.insertString(cursor, _role_prefix(role) + body, False)
+    body = plain_fallback_text(text)
+    text_obj.insertString(cursor, role_prefix(role) + body, False)
 
 
 def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
@@ -726,7 +723,6 @@ def _copy_formatted_from_hidden_doc_to_control(
             order_counters: dict[Any, int] = {}
             pending_links = list(cell_link_targets or [])
             pending_link_idx = 0
-            from plugin.framework.uno_context import enum_has_more
 
             while enum_has_more(para_enum):
                 para = para_enum.nextElement()
@@ -880,7 +876,7 @@ def _copy_formatted_from_hidden_doc_to_control(
     return _do_copy()
 
 
-def _plain_fallback_text(text: str) -> str:
+def plain_fallback_text(text: str) -> str:
     """Visible text when the hidden Writer that formats HTML is missing.
 
     A missing Writer must still insert the message, or the sidebar skips
@@ -917,7 +913,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
     cursor.gotoEnd(False)
 
     for role, content in batch:
-        plain = _plain_fallback_text(content or "")
+        plain = plain_fallback_text(content or "")
         if not plain.strip():
             continue
         sep = _row_separator_suffix(last_text)
@@ -927,7 +923,7 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
         apply_rich_control_para_margins(cursor)
 
         color = ChatTheme.role_color(theme, role)
-        prefix = _role_prefix(role)
+        prefix = role_prefix(role)
         _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)

@@ -175,7 +175,8 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("ipmt-type-inf", "ipmt", (0.1, 1, 3, 8000, 0, _INF), _NAN),
     ("irr-blank", "irr", ([None, None],), _NAN),
     # All zeros: f and df are 0, so ScIRR never shrinks the step and
-    # pushes NoConvergence. The old NPV test returned the guess 0.1.
+    # pushes NoConvergence. A convergence check on NPV alone would accept the
+    # guess 0.1, because NPV is 0 at every rate.
     ("irr-zero", "irr", ([0, 0, 0],), _NAN),
     ("irr-inf", "irr", ([_INF, -_INF],), _NAN),
     ("irr-guess-inf", "irr", ([-100, 110], _INF), _NAN),
@@ -576,7 +577,7 @@ def test_mround_zero_and_negative_multiple_is_positive_zero():
 
 
 def test_intercept_drops_text_pairs():
-    # slope keeps (1, 1) and (5, 3). The old dtype=float parse raised.
+    # slope keeps (1, 1) and (5, 3); parsing the inputs with dtype=float would raise on the text.
     assert calc.intercept([1.0, "text", 5.0], [1.0, 2.0, 3.0]) == pytest.approx(-1.0)
 
 
@@ -746,4 +747,3 @@ def test_regression_and_lookup_error_codes():
     assert calc.linest([1, 2, 3], [0, 0, 0], False) == "#VALUE!"
     assert calc.lookup("#DIV/0!", [1, 2, 3]) == "#DIV/0!"
     assert calc.lookup(CalcRange([[2]]), [1, 2, 3]) == 2
-

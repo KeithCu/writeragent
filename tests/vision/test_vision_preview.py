@@ -532,7 +532,7 @@ def test_preview_exports_discovered_unnamed_shape_after_selection_changes():
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
-        patch("plugin.framework.i18n.get_lo_locale", return_value="en-US"),
+        patch("plugin.vision.vision_runner.get_lo_locale", return_value="en-US"),
         patch(
             "plugin.vision.vision_runner.run_vision",
             return_value={"status": "ok", "helper": "extract_structure", "html": "<p>hi</p>", "full_text": "hi"},

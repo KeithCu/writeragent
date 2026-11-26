@@ -279,7 +279,7 @@ def test_direct_import_os_still_forbidden():
 @pytest.mark.parametrize(
     "value, value_2, value_3",
     [
-        # Allowed platform must not re-export raw os (get_safe_module used to return os as-is).
+        # Allowed platform must not re-export raw os (get_safe_module must not return os as-is).
         pytest.param("platform", "import platform\nresult = platform.os", "platform.os must not resolve to a live os module", id="test_platform_os_is_not_the_os_module"),
         pytest.param("writeragent", "import writeragent\nresult = writeragent.sys", "writeragent.sys must not resolve to a live sys module", id="test_writeragent_sys_is_not_the_sys_module"),
     ],
@@ -295,7 +295,6 @@ def test_platform_os_is_not_the_os_module(value, value_2, value_3):
 
 def test_evaluate_import_hide_blocklist():
     """Executor import failure must not dump the blocklist or expose duckdb."""
-    import pytest
 
     executor = LocalPythonExecutor(additional_authorized_imports=["duckdb"])
     executor.send_tools({})
@@ -1387,7 +1386,6 @@ def test_slice9_timeout_validation_and_unwinding():
     assert 1.5 <= elapsed <= 2.8
 
     # 4. Non-main thread timeout stops pure-Python loop via _Ops deadline
-    from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor
 
     def loop_worker():
         executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
@@ -1886,7 +1884,6 @@ res_zero = a < 5 < bad_call()
 
 
 def test_hasattr_and_ast_assignment_dunder_guard():
-    import ast
     from plugin.contrib.smolagents.local_python_executor import evaluate_ast
 
     executor = LocalPythonExecutor(additional_authorized_imports=["math"])
@@ -2050,7 +2047,6 @@ def test_sigalrm_timeout_leaves_abandoned_flag_clear():
 
 def test_snippets_match_exec():
     # Tip: compare LocalPythonExecutor evaluation with standard exec across language constructs.
-    from typing import Any
 
     snippets = [
         # Arithmetic & operators
@@ -2228,7 +2224,7 @@ def test_operator_wrapper_policy_not_shared_between_sessions():
         getter(holder)  # pickle is in DANGEROUS_MODULES; [] does not authorize it
     get_safe_module(operator, ["pickle"])
     with pytest.raises(InterpreterError):
-        getter(holder)  # fails before the fix: the cached wrapper was overwritten with ["pickle"]
+        getter(holder)  # a shared cached wrapper overwritten with ["pickle"] would let this through
 
 
 def test_operator_and_string_star_imports():

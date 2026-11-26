@@ -2,7 +2,9 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Records the import's stages pass along: ingest's ``CellRecord``/``SheetModel``, translate's ``TranslationResult``, emit's ``ConversionReport``/``TodoCell``, preserve's ``OutputCell``/``OutputSheetModel``, verify's ``VerifyMismatch``."""
+"""Records the import's stages pass along: ingest's ``CellRecord``/``SheetModel``, translate's
+``TranslationResult``, emit's ``ConversionReport``/``TodoCell``, preserve's
+``OutputCell``/``OutputSheetModel``, verify's ``VerifyMismatch``."""
 
 from __future__ import annotations
 

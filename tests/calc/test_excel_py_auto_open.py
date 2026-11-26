@@ -713,7 +713,6 @@ def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.Mon
 
 def test_add_safety_warnings_parses_each_script_once(monkeypatch: pytest.MonkeyPatch):
     from plugin.calc.excel_py_convert import script_bank
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     calls: list[str] = []
 

@@ -341,10 +341,10 @@ def test_initialize_extension_paths_hops_impl_not_self():
             patch("plugin.framework.queue_executor.main.call") as hop,
         ):
             hop.return_value = None
-            pf._initialize_extension_paths(object())
+            pf.initialize_extension_paths(object())
         hop.assert_called_once()
         impl = hop.call_args[0][0]
-        assert impl is not pf._initialize_extension_paths
+        assert impl is not pf.initialize_extension_paths
         assert impl.__name__ == "_impl"
     finally:
         pf._paths_initialized = False
@@ -365,7 +365,7 @@ def test_initialize_extension_paths_inline_hop_does_not_recurse():
         ), patch(
             "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
         ):
-            pf._initialize_extension_paths(object())
+            pf.initialize_extension_paths(object())
         assert pf._paths_initialized is True
     finally:
         pf._paths_initialized = False
@@ -467,7 +467,7 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     with patch(
         "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch(
+    ), patch("plugin.chatbot.panel_factory.initialize_extension_paths") as init, patch(
         "plugin.chatbot.panel_factory.apply_deck_icons"
     ) as deck_icons, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -882,13 +882,11 @@ def test_refresh_controls_chk_voice_sync(initial_state, model_side_effect, expec
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
         "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
     ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m", side_effect=model_side_effect), patch(
-        "plugin.chatbot.panel_factory.get_config", return_value=""
+        "plugin.chatbot.panel_factory.get_config",
+        side_effect=lambda key: True if key == "audio.tts_enabled" else "",
     ), patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=""), patch(
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
-    ), patch(
-        "plugin.framework.config.get_config",
-        side_effect=lambda key: True if key == "audio.tts_enabled" else False,
     ):
         el._refresh_controls_from_config()
 
@@ -1048,7 +1046,7 @@ def _wire_buttons_patches(send_listener=None, *, send_patch=None, doc_type_patch
         stack.enter_context(patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""))
         stack.enter_context(patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""))
         stack.enter_context(patch("plugin.chatbot.panel_factory.get_extension_url", return_value=ext_url))
-        stack.enter_context(patch("plugin.framework.menu_icon_dpi.menu_icon_filename", return_value="python_16.png"))
+        stack.enter_context(patch("plugin.chatbot.panel_factory.menu_icon_filename", return_value="python_16.png"))
         ctor = stack.enter_context(
             send_patch if send_patch is not None else patch("plugin.chatbot.panel.SendButtonListener", return_value=send_listener)
         )
@@ -1193,7 +1191,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
-        patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.initialize_extension_paths"),
         patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
@@ -1458,7 +1456,7 @@ def test_get_real_interface_second_queued_create_keeps_first_panel():
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=run_twice),
-        patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch("plugin.chatbot.panel_factory.initialize_extension_paths"),
         patch("plugin.chatbot.panel_factory.apply_deck_icons"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
@@ -1506,7 +1504,7 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
             patch.object(pf, "init_logging", mock_init_logging),
             patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
         ):
-            pf._initialize_extension_paths(object())
+            pf.initialize_extension_paths(object())
         assert pf._paths_initialized is False
         mock_init_logging.assert_called()
     finally:
@@ -1529,7 +1527,7 @@ def test_initialize_extension_paths_handler_still_inits_logging():
             patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")),
             patch.object(pf, "init_logging", mock_init_logging),
         ):
-            pf._initialize_extension_paths(object())
+            pf.initialize_extension_paths(object())
         assert pf._paths_initialized is False
         mock_init_logging.assert_called_once()
     finally:

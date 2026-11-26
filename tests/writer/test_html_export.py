@@ -169,8 +169,6 @@ def test_xtext_to_content_none_is_empty():
 
 
 def _content_doc(text="Texto do documento"):
-    from unittest.mock import MagicMock
-
     model = MagicMock()
     model.getText.return_value.getString.return_value = text
     return model
@@ -178,11 +176,7 @@ def _content_doc(text="Texto do documento"):
 
 def test_document_to_content_fails_loudly_when_both_exports_fail():
     """#63: both exports failing returned "" and get_content said ok with empty content."""
-    from unittest.mock import patch
 
-    import pytest
-
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_export
 
     model = _content_doc()
@@ -195,8 +189,6 @@ def test_document_to_content_fails_loudly_when_both_exports_fail():
 
 
 def test_empty_xhtml_export_of_a_document_with_text_falls_back():
-    from unittest.mock import patch
-
     from plugin.writer import html_export
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
@@ -244,8 +236,6 @@ def test_full_export_happy_path_produces_no_fallback_warning():
 
 
 def test_an_empty_document_still_reads_as_empty():
-    from unittest.mock import patch
-
     from plugin.writer import html_export
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
@@ -273,8 +263,6 @@ def test_shorten_outline_anchor_ids_keeps_short_and_other_ids():
 
 
 def test_apply_image_export_options_shortens_anchor_with_or_without_images():
-    from plugin.writer.html_export import _apply_image_export_options
-
     data = "data:image/png;base64," + "QUJD" * 100
     html = '<h1><a id="a__%s"><span/></a><img src="%s"/>T</h1>' % ("QUJD" * 100, data)
     with_images = _apply_image_export_options(html, include_images=True)
@@ -284,8 +272,7 @@ def test_apply_image_export_options_shortens_anchor_with_or_without_images():
 
 
 def test_xtext_to_content_propagates_export_error_and_closes():
-    """The export catch used to return "" and the header tool said ok."""
-    from plugin.framework.errors import ToolExecutionError
+    """An export failure propagates; returning "" would let the header tool report ok on an empty read."""
     from plugin.writer import html_export
 
     temp = MagicMock()
@@ -305,7 +292,6 @@ def test_xtext_to_content_propagates_export_error_and_closes():
 
 
 def test_xtext_to_content_raises_when_scratch_missing():
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_export
 
     with (
@@ -316,8 +302,6 @@ def test_xtext_to_content_raises_when_scratch_missing():
 
 
 def test_range_export_raises_when_scratch_missing():
-    from plugin.framework.errors import ToolExecutionError
-
     with (
         patch("plugin.writer.html_export.new_blank_writer", return_value=None),
         pytest.raises(ToolExecutionError, match="no scratch document"),
@@ -330,7 +314,6 @@ class _DisposedException(Exception):
 
 
 def test_full_export_disposal_does_not_fall_back():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer import html_export
 
     model = _content_doc()
@@ -344,7 +327,6 @@ def test_full_export_disposal_does_not_fall_back():
 
 
 def test_starwriter_disposal_is_not_wrapped():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer import html_export
 
     model = _content_doc()
@@ -357,8 +339,6 @@ def test_starwriter_disposal_is_not_wrapped():
 
 
 def test_range_xhtml_disposal_does_not_fall_back():
-    from plugin.framework.errors import DocumentDisposedError
-
     temp_doc = MagicMock()
     with pytest.raises(DocumentDisposedError):
         _run_range_export(
@@ -681,7 +661,6 @@ def test_page_field_converters():
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_export import _raise_if_empty_export
     from plugin.writer.range_copy import supports_service, _writer_table_copy_layout
 
@@ -1080,7 +1059,6 @@ def test_export_full_disposes_struck_tables_even_without_split():
 
 
 def test_raise_if_empty_export_uses_visible_text_when_deletions_pending():
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_export as hx
 
     model = MagicMock()
@@ -1154,9 +1132,6 @@ def test_full_fallback_with_pending_deletions_reads_a_copy_without_tracked_chang
 
 
 def test_full_fallback_with_deletions_raises_when_no_scratch_copy():
-    import pytest
-
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_export as hx
 
     with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \

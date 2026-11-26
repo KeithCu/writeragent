@@ -40,6 +40,7 @@ from plugin.chatbot.slash_commands import (
     slash_command_tokens,
     slash_display_name,
     slash_typed_prefix,
+    SlashResult,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
 from plugin.framework.uno_listeners import BaseKeyHandler, BaseKeyListener, BaseMouseListener
@@ -146,7 +147,8 @@ def _printable_key_char(key_char: Any) -> str | None:
         return None
     raw: Any = key_char
     if not isinstance(raw, str):
-        raw = getattr(key_char, "value", None)
+        # A UNO char arrives as uno.Char (pyuno_runtime.cxx Runtime::any2PyObject, TypeClass_CHAR).
+        raw = key_char.value
     if not isinstance(raw, str) or len(raw) != 1:
         return None
     if not raw.isprintable() or raw in "\t\n\r":
@@ -349,9 +351,9 @@ def _create_ask_peer_listbox(
 def _make_slash_key_handler(host: Any, label: str) -> BaseKeyHandler:
     class _Handler(BaseKeyHandler):
         def on_key_pressed(self, e: Any) -> bool:
-            code = int(getattr(e, "KeyCode", 0) or 0)
-            mods = int(getattr(e, "Modifiers", 0) or 0)
-            ch = getattr(e, "KeyChar", None)
+            code = e.KeyCode
+            mods = e.Modifiers
+            ch = e.KeyChar
             _ovlog("%s keyPressed code=%s mods=%s char=%r", label, code, mods, ch)
             return bool(host.handle_key(code, mods, ch, from_overlay=False))
 
@@ -613,28 +615,25 @@ class SlashPopupController:
         self.on_query_text("/" + name)
 
     def accept_selected(self) -> None:
-        from plugin.chatbot.dialogs import get_control_text
-
         host = self.send_listener
         raw = get_control_text(self.query_control) or ""
         parsed = parse_slash_text(raw.strip())
         typed = raw.strip()
-        # Bugfix (QA N1): exact "/explain" + Enter should run, not complete to "/explain ".
+        # Exact "/explain" + Enter runs the command; it does not complete to "/explain ".
         # The same is true for the active locale's alias ("/解説" when that is explain).
         if parsed is not None:
             cmd, arg = parsed
             first = typed.split()[0] if typed else ""
             token = first[1:].lower() if first.startswith("/") else ""
             if token in slash_command_tokens(cmd) and not slash_ask_past_command_name(raw):
-                # Bugfix (QA N1): ANSWER presets return False so Send runs _do_send; without
-                # SEND_CLICKED the draft stays in Ask until a second Enter.
+                # ANSWER presets return False so Send runs _do_send; without
+                # SEND_CLICKED the draft would stay in Ask until a second Enter.
                 def _accept_exact_or_send() -> None:
                     from plugin.chatbot.send_state import SendEvent, SendEventKind
-                    from plugin.chatbot.slash_commands import SlashResult
 
                     result = run_slash_command(cmd, host, arg, from_popup=False)
                     if result is SlashResult.CONTINUE_SEND:
-                        # Bugfix (QA F1): SEND_COMPLETED clears has_text; exact /preset + Enter
+                        # SEND_COMPLETED clears has_text; exact /preset + Enter
                         # must sync Ask before SEND_CLICKED or send_state ignores the click.
                         host.sync_has_text_from_query()
                         host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
@@ -650,7 +649,7 @@ class SlashPopupController:
         cmd_obj = get_slash_command(name)
         if cmd_obj is None:
             return
-        # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
+        # from_popup=True completes "/name " for presets instead of
         # running them with an empty argument from the partial filter text.
         _defer_to_next_turn(lambda: run_slash_command(cmd_obj, host, arg, from_popup=True))
 
@@ -822,10 +821,10 @@ class SlashPopupController:
 
         class _Keys(BaseKeyListener):
             def keyPressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-                code = int(getattr(e, "KeyCode", 0) or 0)
-                mods = int(getattr(e, "Modifiers", 0) or 0)
+                code = e.KeyCode
+                mods = e.Modifiers
                 _ovlog("overlay/dialog keyPressed code=%s mods=%s", code, mods)
-                if host.handle_key(code, mods, getattr(e, "KeyChar", None), from_overlay=True):
+                if host.handle_key(code, mods, e.KeyChar, from_overlay=True):
                     with suppress_disposed("slash list Consume", logger=log):
                         if hasattr(e, "Consume"):
                             setattr(e, "Consume", True)

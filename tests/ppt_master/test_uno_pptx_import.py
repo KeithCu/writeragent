@@ -21,48 +21,38 @@ from unittest.mock import MagicMock
 
 from plugin.draw.shape_clone import ClonedShape
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
-from tests.draw.shape_fakes import FailingPosShape, FakePage as ShapeFakePage, FakeShape
+from tests.draw.shape_fakes import FailingPosShape, FakePage, FakeShape
 from tests.harness.strip_bundle import skip_if_release_build
 
 _NOTES = "com.sun.star.presentation.NotesShape"
 _HEADER = "com.sun.star.presentation.HeaderShape"
 
 
-class FakePage:
+class FakeSlidePage(FakePage):
+    """A draw page that also has page properties and an empty notes page."""
+
     def __init__(self, shapes: list[Any] | None = None) -> None:
-        self.shapes = list(shapes or [])
+        super().__init__(shapes)
         self.props: dict[str, Any] = {}
 
     def getNotesPage(self) -> Any:
         return _NotesPage([])
-
-    def getCount(self) -> int:
-        return len(self.shapes)
-
-    def getByIndex(self, index: int) -> Any:
-        return self.shapes[index]
-
-    def add(self, shape: Any) -> None:
-        self.shapes.append(shape)
-
-    def remove(self, shape: Any) -> None:
-        self.shapes.remove(shape)
 
     def setPropertyValue(self, name: str, value: Any) -> None:
         self.props[name] = value
 
 
 class FakePages:
-    def __init__(self, pages: list[FakePage]) -> None:
+    def __init__(self, pages: list[FakeSlidePage]) -> None:
         self.pages = pages
 
     def getCount(self) -> int:
         return len(self.pages)
 
-    def getByIndex(self, index: int) -> FakePage:
+    def getByIndex(self, index: int) -> FakeSlidePage:
         return self.pages[index]
 
-    def remove(self, page: FakePage) -> None:
+    def remove(self, page: FakeSlidePage) -> None:
         self.pages.remove(page)
 
 
@@ -79,9 +69,9 @@ class FakeBridge:
     def get_pages(self) -> FakePages:
         return self.doc.pages
 
-    def create_slide(self, index: int | None = None, switch: bool = True) -> tuple[FakePage, int]:
+    def create_slide(self, index: int | None = None, switch: bool = True) -> tuple[FakeSlidePage, int]:
         del switch
-        page = FakePage([])
+        page = FakeSlidePage([])
         pages = self.get_pages()
         count = pages.getCount()
         if index is None or index >= count:
@@ -97,9 +87,9 @@ class FakeBridge:
         return True
 
 
-def _deck(user_slides: list[list[Any]], source_slides: int) -> tuple[Any, Any, list[FakePage], list[FakePage]]:
-    target_pages = [FakePage(list(shapes)) for shapes in user_slides]
-    source_pages = [FakePage([f"src-{index}"]) for index in range(source_slides)]
+def _deck(user_slides: list[list[Any]], source_slides: int) -> tuple[Any, Any, list[FakeSlidePage], list[FakeSlidePage]]:
+    target_pages = [FakeSlidePage(list(shapes)) for shapes in user_slides]
+    source_pages = [FakeSlidePage([f"src-{index}"]) for index in range(source_slides)]
     target = SimpleNamespace(pages=FakePages(target_pages))
     source = SimpleNamespace(getDrawPages=lambda: FakePages(source_pages))
     return target, source, target_pages, source_pages
@@ -375,7 +365,7 @@ def test_copy_shapes_to_page_reimports_graphics_with_context():
     uno_ctx = MagicMock()
     uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
 
-    copied = copy_shapes_to_page(ShapeFakePage([source]), doc, ShapeFakePage(), uno_ctx=uno_ctx)
+    copied = copy_shapes_to_page(FakePage([source]), doc, FakePage(), uno_ctx=uno_ctx)
 
     assert copied == 1
     assert dest.props.get("Graphic") is owned
@@ -389,14 +379,14 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
         pass
 
     doc = MagicMock()
-    page = ShapeFakePage()
+    page = FakePage()
 
     # Case A: shape 1 raises DisposedException -> copy_shapes_to_page raises, shape 2 not cloned
     shape1_disp = FakeShape("com.sun.star.drawing.RectangleShape")
     shape1_disp.getPropertyValue = MagicMock(side_effect=DisposedException("doc disposed"))
     shape2_ok = FakeShape("com.sun.star.drawing.RectangleShape")
     shape2_ok.getPropertyValue = MagicMock(return_value=None)
-    src_page_disp = ShapeFakePage([shape1_disp, shape2_ok])
+    src_page_disp = FakePage([shape1_disp, shape2_ok])
 
     dest_shape = FakeShape("com.sun.star.drawing.RectangleShape")
     doc.createInstance.return_value = dest_shape
@@ -411,9 +401,9 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
     shape1_err = FakeShape("com.sun.star.drawing.RectangleShape")
     shape1_err.getShapeType = MagicMock(side_effect=RuntimeException("shape corrupted"))
     shape2_ok2 = FakeShape("com.sun.star.drawing.RectangleShape")
-    src_page_err = ShapeFakePage([shape1_err, shape2_ok2])
+    src_page_err = FakePage([shape1_err, shape2_ok2])
 
-    target_page = ShapeFakePage()
+    target_page = FakePage()
     copied = copy_shapes_to_page(src_page_err, doc, target_page)
     assert copied == 1
     assert target_page.getCount() == 1
@@ -423,7 +413,7 @@ def test_copy_shapes_to_page_empty_group_removes_clone_and_skips(monkeypatch):
     doc = MagicMock()
     clone1 = FakeShape("com.sun.star.drawing.GroupShape")
     clone2 = FakeShape("com.sun.star.drawing.RectangleShape")
-    target_page = ShapeFakePage()
+    target_page = FakePage()
 
     results = [
         ClonedShape(
@@ -451,7 +441,7 @@ def test_copy_shapes_to_page_empty_group_removes_clone_and_skips(monkeypatch):
 
     monkeypatch.setattr(uno_pptx_import, "clone_shape", mock_clone)
 
-    src_page = ShapeFakePage([FakeShape("s1"), FakeShape("s2")])
+    src_page = FakePage([FakeShape("s1"), FakeShape("s2")])
     copied = copy_shapes_to_page(src_page, doc, target_page)
     assert copied == 1
     assert target_page.getCount() == 1
@@ -474,7 +464,7 @@ def test_copy_shapes_to_page_empty_group_remove_fails_returns_zero(monkeypatch):
     )
     monkeypatch.setattr(uno_pptx_import, "clone_shape", lambda *a, **kw: res)
 
-    src_page = ShapeFakePage([FakeShape("s1")])
+    src_page = FakePage([FakeShape("s1")])
     copied = copy_shapes_to_page(src_page, doc, target_page)
     assert copied == 0
 
@@ -588,9 +578,9 @@ def test_copy_shapes_to_page_removes_a_partial_clone_and_keeps_the_rest():
     created = [clone1, clone2]
     doc = MagicMock()
     doc.createInstance.side_effect = lambda _t: created.pop(0)
-    target_page = ShapeFakePage()
+    target_page = FakePage()
 
-    copied = copy_shapes_to_page(ShapeFakePage([src1, src2]), doc, target_page)
+    copied = copy_shapes_to_page(FakePage([src1, src2]), doc, target_page)
     assert copied == 1
     assert target_page.shapes == [clone2]
 

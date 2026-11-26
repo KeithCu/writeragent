@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import re
 import struct
@@ -20,7 +21,7 @@ from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import log_target, origin_and_path
-from plugin.framework.errors import NetworkError
+from plugin.framework.errors import ConfigError, NetworkError
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -46,7 +47,6 @@ def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
     any model, Kokoro included. OpenAI documents speed 0.25-4.0 on /audio/speech.
     """
     from plugin.framework.client.provider_detection import get_provider_from_endpoint
-    from plugin.framework.errors import ConfigError
 
     try:
         host = get_provider_from_endpoint(endpoint_url)
@@ -142,8 +142,6 @@ def _speech_url(endpoint_url: str) -> str:
 
 def _explicit_openrouter(endpoint_url: str) -> bool:
     """True when is_openrouter config flag matches the scheme, host, port, and path."""
-    from plugin.framework.errors import ConfigError
-
     try:
         from plugin.framework.config import get_config, get_current_endpoint
 
@@ -170,7 +168,6 @@ def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
     """Build headers for TTS POST, applying provider detection and auth config."""
     headers = {"Content-Type": "application/json"}
     from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-    from plugin.framework.errors import ConfigError
 
     try:
         resolved = resolve_auth_for_config({
@@ -218,8 +215,6 @@ def _post_audio_speech(
     cancel: SendCancellation | None = None,
 ) -> tuple[bytes | None, str, int, str]:
     """Execute the HTTP request, returning (audio_bytes, content_type, code, error_body)."""
-    import json
-
     from plugin.framework.config import get_config
     from plugin.framework.client.requests import sync_request
 

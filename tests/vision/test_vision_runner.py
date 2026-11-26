@@ -180,7 +180,7 @@ def test_resolve_vision_image_raises_when_export_returns_none(mock_get_obj, mock
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
-@patch("plugin.framework.i18n.get_lo_locale", return_value="fr_FR")
+@patch("plugin.vision.vision_runner.get_lo_locale", return_value="fr_FR")
 @patch("plugin.vision.vision_runner.run_vision")
 @patch("plugin.vision.vision_runner.resolve_vision_image")
 def test_run_trusted_vision_resolves_lang_from_locale(mock_resolve, mock_run_vision, mock_get_lo_locale, _mock_merge):
@@ -387,7 +387,7 @@ def test_resolve_locale_runtime_exception_graphic_falls_back_to_ui_locale():
 
     graphic = MagicMock()
     graphic.getPropertyValue.side_effect = RuntimeException("unexpected error")
-    with patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
+    with patch("plugin.vision.vision_runner.get_lo_locale", return_value="en_US"):
         res = _resolve_locale_language(MagicMock(), graphic)
     assert res == "en-US"
 
@@ -421,7 +421,7 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
             patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
             patch("plugin.vision.vision_runner.run_vision") as mock_run_vision, \
             patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=b"png"), \
-            patch("plugin.framework.i18n.get_lo_locale", return_value="en_US"):
+            patch("plugin.vision.vision_runner.get_lo_locale", return_value="en_US"):
         mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
         run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1"})
 
@@ -441,7 +441,7 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
 def test_resolve_locale_keeps_region(char_locale, lo_locale, expected):
     graphic = MagicMock()
     graphic.getPropertyValue.return_value = char_locale
-    with patch("plugin.framework.i18n.get_lo_locale", return_value=lo_locale):
+    with patch("plugin.vision.vision_runner.get_lo_locale", return_value=lo_locale):
         assert _resolve_locale_language(MagicMock(), graphic) == expected
 
 
@@ -1109,7 +1109,7 @@ def test_run_and_insert_keeps_shape_across_selection_change(img_name):
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=AmbiguousGraphicNameError("dup")),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
-        patch("plugin.framework.i18n.get_lo_locale", return_value="en-US"),
+        patch("plugin.vision.vision_runner.get_lo_locale", return_value="en-US"),
         patch(
             "plugin.vision.vision_runner.run_vision",
             return_value={"status": "ok", "helper": "extract_structure", "full_text": "hi", "html": "<p>hi</p>"},
@@ -1147,7 +1147,7 @@ def test_run_and_insert_writer_named_image_passes_none_graphic_and_looks_up_by_n
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", shape_sel)]),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=shape_named) as mock_by_name,
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
-        patch("plugin.framework.i18n.get_lo_locale", return_value="en-US"),
+        patch("plugin.vision.vision_runner.get_lo_locale", return_value="en-US"),
         patch(
             "plugin.vision.vision_runner.run_vision",
             return_value={"status": "ok", "helper": "extract_structure", "full_text": "hi", "html": "<p>hi</p>"},

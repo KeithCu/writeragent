@@ -153,7 +153,8 @@ def _emit_row_col(axis: int, node: FunctionNode, state: _CodegenState) -> str:
     if not isinstance(arg, RangeNode):
         raise TranslationError("UNSUPPORTED_FUNCTION", "ROW/COLUMN argument must be a range")
 
-    # _range_bounds strips the sheet prefix and $ so parse_range_string can read =ROW($A$5) or =ROW(Sheet2.A1:A3); anything else raises TranslationError rather than emit a guessed 1.
+    # _range_bounds strips the sheet prefix and $ so parse_range_string can read =ROW($A$5) or
+    # =ROW(Sheet2.A1:A3); anything else raises TranslationError rather than emit a guessed 1.
     try:
         (sc, sr), (ec, er) = _range_bounds(arg.address)
     except ValueError as exc:

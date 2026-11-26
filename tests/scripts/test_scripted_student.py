@@ -115,7 +115,6 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
 
 
 def test_scripted_flowchart_inner_loop_nests_shapes() -> None:
-    from dataset import ALL_EXAMPLES
     from llm_chat_eval import run_llm_chat_eval
 
     ex = next(row for row in ALL_EXAMPLES if row["task_id"] == "flowchart_gen")
@@ -143,7 +142,6 @@ def test_scripted_flowchart_inner_loop_nests_shapes() -> None:
 
 def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
     """Outer allowlist must not strip ranges-domain schemas (don't break specialize)."""
-    from dataset import ALL_EXAMPLES
     from llm_chat_eval import run_llm_chat_eval
 
     ex = next(row for row in ALL_EXAMPLES if row["task_id"] == "data_sorting")
@@ -170,7 +168,6 @@ def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
 
 
 def test_writer_minimal_scripted_apply_task() -> None:
-    from dataset import ALL_EXAMPLES
     from llm_chat_eval import run_llm_chat_eval
 
     ex = next(row for row in ALL_EXAMPLES if row["task_id"] == "table_from_mess")

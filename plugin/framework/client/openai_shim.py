@@ -163,10 +163,10 @@ class OpenAIShim(BaseProviderShim):
         lower_model = str(model).lower() if model else ""
         # dall-e-2 and dall-e-3 were retired on 2026-05-12. dall-e-3 never
         # edited. dall-e-2 edits were multipart image=@file, which this client
-        # does not send. The old error told the user to pick dall-e-2, and a
-        # missing model kept response_format on /images/edits. GPT Image
-        # models (the documented default when model is omitted is
-        # gpt-image-2.5-sunburst) reject that field with HTTP 400.
+        # does not send, so the error below names GPT Image models instead.
+        # GPT Image models (the documented default when model is omitted is
+        # gpt-image-2.5-sunburst) reject response_format on /images/edits with
+        # HTTP 400.
         # https://developers.openai.com/api/reference/resources/images/methods/edit
         # https://developers.openai.com/api/reference/python/resources/images/methods/generate/
         if ref and lower_model.startswith("dall-e"):

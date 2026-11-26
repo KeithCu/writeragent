@@ -1,10 +1,10 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
-# Regression tests: apply_content(target='search') failed to match document
-# text containing a non-breaking space (U+00A0) when old_content used a normal space.
-# The fix normalizes NBSP & relatives (U+00A0/202F/2007/2009) to a normal space on
-# both the search string and the document text (1:1, so cursor offsets stay aligned).
+# apply_content(target='search') matches document text containing a non-breaking space
+# (U+00A0) when old_content uses a normal space. NBSP and relatives (U+00A0/202F/2007/2009)
+# normalize to a normal space on both the search string and the document text (1:1, so
+# cursor offsets stay aligned).
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
@@ -12,10 +12,6 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 
 _NBSP = chr(0xA0)  # non-breaking space U+00A0 (ASCII-safe in source)
-
-
-def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(doc, ctx)
 
 
 @native_test
@@ -27,7 +23,7 @@ def test_apply_document_content_search_matches_nbsp_uno(ctx, doc):
     text.insertString(cur, "Result figures)" + _NBSP + "by a judge, final.", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=["figures) BY A JUDGE"],
         old_content="figures) by a judge",
         target="search",
@@ -46,7 +42,7 @@ def test_apply_document_content_all_matches_nbsp_uno(ctx, doc):
     text.insertString(cur, "foo" + _NBSP + "bar. And foo" + _NBSP + "bar again.", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=["REPLACED"],
         old_content="foo bar",
         target="search",
@@ -67,7 +63,7 @@ def test_apply_document_content_all_matches_nbsp_preserving_uno(ctx, doc):
     text.insertString(cur, "alpha" + _NBSP + "beta. alpha" + _NBSP + "beta.", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=["ALPHA BETA"],
         old_content="alpha beta",
         target="search",
@@ -89,7 +85,7 @@ def test_apply_document_content_all_matches_mixed_spaces_uno(ctx, doc):
     text.insertString(cur, "phrase one here. phrase two" + _NBSP + "here.", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=["TWO"],
         old_content="phrase two here",
         target="search",

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer import range_copy as rc
 
@@ -52,7 +53,6 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
     dest_cell.createTextCursor.return_value = dest_cursor
     dest_cell.createTextCursorByRange.return_value = run
 
-    from plugin.doc.text_helpers import TrackedDeletions
     rc._copy_cell_xtext(MagicMock(), src_cell, dest_doc, dest_cell, TrackedDeletions(MagicMock()))
 
     dest_cell.insertString.assert_any_call(dest_cursor, "Bold", False)
@@ -548,7 +548,6 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
 def test_copy_properties_skips_values_the_style_already_gives():
     """Copying an inherited value would make it a hand-set one on the copy, and the read would
     then report margin-right:0cm on every paragraph as if the user had set it."""
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     src, dst, style = MagicMock(), MagicMock(), MagicMock()
@@ -561,7 +560,6 @@ def test_copy_properties_skips_values_the_style_already_gives():
 
 
 def test_copy_properties_without_a_style_copies_everything_readable():
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     src, dst = MagicMock(), MagicMock()
@@ -574,7 +572,6 @@ def test_copy_properties_without_a_style_copies_everything_readable():
 
 def test_copy_properties_continues_past_one_the_target_refuses():
     """The temp document is a plain Writer doc and need not offer every source property."""
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     src, dst = MagicMock(), MagicMock()
@@ -594,7 +591,6 @@ def test_copy_properties_continues_past_one_the_target_refuses():
 def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
     """A refused Para* must not skip the portion Char* loop — that paint is why the
     temp-doc path exists (bold/colour on a range read)."""
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     para = MagicMock()
@@ -616,7 +612,6 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
 
 def test_paint_direct_formatting_puts_paragraph_font_on_the_paragraph_not_each_run():
     """Paragraph-level font/colour is painted on the paragraph; runs only get what differs."""
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     para = MagicMock()
@@ -645,7 +640,6 @@ def test_paint_direct_formatting_puts_paragraph_font_on_the_paragraph_not_each_r
 
 
 def test_source_style_is_cached_and_tolerates_a_missing_style():
-    from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc
 
     model = MagicMock()
@@ -661,7 +655,6 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
 
 
 def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import range_copy as rc
 
     class _Enum:
@@ -690,7 +683,6 @@ def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
         patch.object(rc, "_copy_math_or_text", return_value=""),
         patch.object(rc, "clone_graphics", return_value=1) as clone,
     ):
-        from plugin.doc.text_helpers import TrackedDeletions
         rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, TrackedDeletions(MagicMock()))
         assert clone.call_count == 2
         assert clone.call_args_list[0].args[0] is frame_portion
@@ -698,7 +690,6 @@ def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
 
 
 def test_iter_nested_texts_walks_nested_tables():
-    from unittest.mock import MagicMock
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import iter_nested_texts
 
@@ -742,7 +733,6 @@ def test_iter_nested_texts_walks_nested_tables():
 
 
 def test_iter_nested_texts_skips_struck_table():
-    from unittest.mock import MagicMock, patch
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import iter_nested_texts
 
@@ -769,7 +759,6 @@ def test_iter_nested_texts_skips_struck_table():
 
 
 def test_table_is_struck():
-    from unittest.mock import MagicMock, patch
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import table_is_struck
 
@@ -796,7 +785,6 @@ def test_table_is_struck():
 
 
 def test_clone_graphics_keeps_automatic_name_when_taken():
-    from unittest.mock import MagicMock
     from plugin.writer.range_copy import clone_graphics
 
     shape = MagicMock()
@@ -820,7 +808,6 @@ def test_clone_graphics_keeps_automatic_name_when_taken():
 
 
 def test_copy_cell_xtext_marks_struck_only_when_requested():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import range_copy as rc
     from plugin.writer.xhtml_style_postprocess import DELETED_MARK
 
@@ -855,7 +842,6 @@ def test_copy_cell_xtext_marks_struck_only_when_requested():
         dest_cursor = MagicMock()
         dest_cell.createTextCursor.return_value = dest_cursor
 
-        from plugin.doc.text_helpers import TrackedDeletions
         with patch.object(rc, "clone_graphics", return_value=0):
             rc._copy_cell_xtext(MagicMock(), src_cell, MagicMock(), dest_cell, TrackedDeletions(MagicMock()), mark_struck=mark_struck)
         return dest_cell
@@ -868,7 +854,6 @@ def test_copy_cell_xtext_marks_struck_only_when_requested():
 
 
 def test_copy_cell_xtext_skips_struck_nested_table():
-    from unittest.mock import MagicMock, patch
     from plugin.writer import range_copy as rc
 
     nested_tbl = MagicMock()
@@ -879,7 +864,6 @@ def test_copy_cell_xtext_skips_struck_nested_table():
     src_cell = MagicMock()
     src_cell.createEnumeration.return_value = cell_enum
 
-    from plugin.doc.text_helpers import TrackedDeletions
     with (
         patch.object(rc, "table_is_struck", return_value=True),
         patch.object(rc, "copy_table") as mock_copy_table,
@@ -889,7 +873,6 @@ def test_copy_cell_xtext_skips_struck_nested_table():
 
 
 def test_cells_all_tracked_deleted_accepts_struck_marker_without_raw_text():
-    from unittest.mock import MagicMock, patch
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import cells_all_tracked_deleted
 

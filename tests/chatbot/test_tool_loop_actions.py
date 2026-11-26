@@ -1019,7 +1019,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
             patch("plugin.chatbot.tool_loop_actions.get_config", return_value=True),
-            patch("plugin.framework.send_cancellation.wait_for_approval", side_effect=fake_wait),
+            patch("plugin.chatbot.tool_loop_actions.wait_for_approval", side_effect=fake_wait),
         ):
             interpreter.execute(
                 SpawnToolWorkerEffect(

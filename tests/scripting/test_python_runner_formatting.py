@@ -177,8 +177,6 @@ class TestPythonRunnerFormatting:
 
 
 def _calc_doc_with_selection(start_col: int = 0, start_row: int = 0):
-    from unittest.mock import MagicMock
-
     addr = MagicMock()
     addr.StartColumn = start_col
     addr.StartRow = start_row
@@ -192,8 +190,6 @@ def _calc_doc_with_selection(start_col: int = 0, start_row: int = 0):
 
 
 def test_insert_result_into_calc_primitive():
-    from unittest.mock import MagicMock, patch
-
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = _calc_doc_with_selection(0, 0)
@@ -204,8 +200,6 @@ def test_insert_result_into_calc_primitive():
 
 
 def test_insert_result_into_calc_list_at_selection():
-    from unittest.mock import MagicMock, patch
-
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = _calc_doc_with_selection(1, 2)
@@ -219,8 +213,6 @@ def test_insert_result_into_calc_list_at_selection():
 
 
 def test_insert_result_into_calc_dict_title_and_table():
-    from unittest.mock import MagicMock, patch
-
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = _calc_doc_with_selection(0, 0)
@@ -236,8 +228,6 @@ def test_insert_result_into_calc_dict_title_and_table():
 
 
 def test_insert_result_into_calc_dataframe_envelope():
-    from unittest.mock import MagicMock, patch
-
     from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME
     from plugin.scripting.python_runner import insert_result_into_calc
 
@@ -255,7 +245,6 @@ def test_insert_result_into_calc_dataframe_envelope():
 
 def test_insert_result_into_calc_exception_propagates():
     """A failed insert must not look like success. The caller reports ok=False."""
-    from unittest.mock import MagicMock
 
     from plugin.scripting.python_runner import insert_result_into_calc
 
@@ -265,7 +254,6 @@ def test_insert_result_into_calc_exception_propagates():
         insert_result_into_calc(doc, MagicMock(), 1)
 
 def test_insert_result_into_calc_skips_shape_status_dict():
-    from unittest.mock import MagicMock, patch
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = MagicMock()

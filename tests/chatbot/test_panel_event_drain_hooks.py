@@ -109,7 +109,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         patch.object(listener, "_do_send", side_effect=_start_turn),
         patch.object(listener, "_project_closing_line"),
         patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
-        patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
+        patch("plugin.chatbot.panel.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state) as activity,
         patch("plugin.framework.queue_executor.main.post") as post_main,
@@ -213,7 +213,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         patch.object(listener, "_do_send", side_effect=_start_turn),
         patch.object(listener, "_project_closing_line"),
         patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
-        patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
+        patch("plugin.chatbot.panel.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
         patch("plugin.framework.queue_executor.main.post"),
@@ -258,7 +258,7 @@ def test_do_send_raises_before_drain_cleans_up() -> None:
         patch.object(listener, "_do_send", side_effect=_start_turn),
         patch.object(listener, "_project_closing_line"),
         patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
-        patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+        patch("plugin.chatbot.panel.drop_turn"),
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
         patch("plugin.framework.queue_executor.main.post"),
@@ -324,7 +324,7 @@ def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
     q: queue.Queue = queue.Queue()
 
     with (
-        patch("plugin.framework.logging.note_activity") as note,
+        patch("plugin.chatbot.panel.note_activity") as note,
         patch.object(listener, "render_session_messages"),
     ):
         run_stream_drain_loop(

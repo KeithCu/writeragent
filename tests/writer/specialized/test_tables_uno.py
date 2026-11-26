@@ -5,6 +5,7 @@
 """Native UNO coverage for nested Writer text-table relationships."""
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.tables import (
@@ -178,9 +179,9 @@ def test_table_in_frame_not_in_cell_xtext_is_not_hosted_uno(ctx, doc):
 
     The frame is anchored to the cell, but the cell enum is Paragraph only
     and portions have TextFrame=None. table_list therefore does not nest it.
-    table_set_cell uses setString, which destroys the anchored frame and the
-    table inside it. In-cell frames that *do* appear as as-character portions
-    are covered by the unit walk.
+    table_set_cell replaces the cell's text in place, so the anchored frame
+    and the table inside it stay intact. In-cell frames that *do* appear as
+    as-character portions are covered by the unit walk.
     """
     outer = insert_named_table(doc, "FrameOuter", 2, 2)
     host = outer.getCellByName("B2")
@@ -205,7 +206,9 @@ def test_table_in_frame_not_in_cell_xtext_is_not_hosted_uno(ctx, doc):
     assert by["FrameOuter"]["nested_in_cells"] == {}
     wipe = TableSetCell().execute(tool_ctx, name="FrameOuter", cell="B2", text="wipe")
     assert wipe.get("status") == "ok", wipe
-    assert not doc.getTextTables().hasByName("FrameNested")
+    assert doc.getTextTables().hasByName("FrameNested")
+    assert doc.getTextFrames().getCount() == 1
+    assert TableGetCells().execute(tool_ctx, name="FrameOuter")["cells"]["B2"] == "wipe"
 
 
 def _merge_a1_d1(table):
@@ -439,7 +442,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
     a1_cell.insertString(a1_cur, "second para", False)
     para_count = 0
     para_enum = a1_cell.createEnumeration()
-    while para_enum.hasMoreElements():
+    while enum_has_more(para_enum):
         para_enum.nextElement()
         para_count += 1
     assert para_count == 2
@@ -727,7 +730,6 @@ def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     # 3. Split A1:B1 -> 2 columns, then delete col 0 keeps b and c
     t3 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a", "b", "c"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B1")
-    from plugin.writer.specialized.tables import TableSplitCell
     split_res = TableSplitCell().execute_safe(tool_ctx, name=t3, cell="A1", direction="columns", parts=2)
     assert split_res["status"] == "ok", split_res
     del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
@@ -861,10 +863,10 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     assert doc.getRedlines().getCount() == 2  # 1 in A1 + 1 in B1
     b_enum = cell_b1.createEnumeration()
     b_paras = []
-    while b_enum.hasMoreElements():
+    while enum_has_more(b_enum):
         b_paras.append(b_enum.nextElement())
     mid_enum = b_paras[1].createEnumeration()
-    while mid_enum.hasMoreElements():
+    while enum_has_more(mid_enum):
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
     assert visible_range_text(doc, cell_b1).strip("\n") == ""
 
@@ -1068,7 +1070,6 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
 def test_table_insert_uses_pinned_caret_uno(ctx, doc):
     from plugin.doc.text_helpers import selection_cursor_snapshot
     from plugin.framework.tool import SelectionPin
-    from plugin.framework.uno_context import enum_has_more
     from plugin.tests.testing_utils import native_writer_tool_context
 
     text = doc.getText()
@@ -1555,3 +1556,266 @@ def test_table_insert_reports_tracked_when_recorded_uno(ctx, doc):
 
     reject_all_changes(doc, ctx)
     assert doc.getTextTables().getCount() == 1
+
+
+def _cell_portions(cell):
+    from plugin.framework.uno_context import enum_has_more
+
+    runs = []
+    paras = cell.createEnumeration()
+    while enum_has_more(paras):
+        portions = paras.nextElement().createEnumeration()
+        while enum_has_more(portions):
+            p = portions.nextElement()
+            if p.getPropertyValue("TextPortionType") == "Text":
+                runs.append(
+                    (
+                        p.getString(),
+                        p.getPropertyValue("CharWeight"),
+                        p.getPropertyValue("HyperLinkURL"),
+                    )
+                )
+    return runs
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_keeps_run_formatting_one_undo_step_uno(ctx, doc):
+    """Plain-text table_set_cell preserves run formatting/links and lands as one undo step."""
+    table = insert_named_table(doc, "FmtTable", 1, 2)
+    cell = table.getCellByName("A1")
+    cur = cell.createTextCursor()
+    cell.insertString(cur, "Fee: ", False)
+    cur.gotoEnd(False)
+    cur.setPropertyValue("CharWeight", 150.0)
+    cell.insertString(cur, "100", False)
+    cur.gotoEnd(False)
+    cur.setPropertyValue("CharWeight", 100.0)
+    cell.insertString(cur, " see ", False)
+    cur.gotoEnd(False)
+    cell.insertString(cur, "terms", True)
+    cur.setPropertyValue("HyperLinkURL", "https://example.com")
+
+    doc.setPropertyValue("RecordChanges", False)
+    undo_mgr = doc.getUndoManager()
+    titles_before = list(undo_mgr.getAllUndoActionTitles())
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = TableSetCell().execute_safe(tool_ctx, name="FmtTable", cell="A1", text="Fee: 200 see terms")
+    assert res["status"] == "ok", res
+    assert "tracked" not in res
+    assert "pending_review" not in res
+
+    runs = _cell_portions(cell)
+    assert any(text == "Fee: " and weight == 100.0 for text, weight, _url in runs), runs
+    assert any(text == "200" and weight == 150.0 for text, weight, _url in runs), runs
+    assert any(text == " see " and weight == 100.0 for text, weight, _url in runs), runs
+    assert any(text == "terms" and url == "https://example.com" for text, _w, url in runs), runs
+
+    titles_after = list(undo_mgr.getAllUndoActionTitles())
+    assert len(titles_after) == len(titles_before) + 1, (titles_before, titles_after)
+    assert titles_after[0] == "WriterAgent: Set table cell", titles_after
+
+    undo_mgr.undo()
+    assert cell.getString() == "Fee: 100 see terms"
+    restored = _cell_portions(cell)
+    assert any(text == "100" and weight == 150.0 for text, weight, _url in restored), restored
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_recorded_while_user_records_uno(ctx, doc):
+    """With RecordChanges on and review mode off, table_set_cell records and flags tracked/pending_review."""
+    from plugin.framework.config import get_config, save
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        table = insert_named_table(doc, "UserRecTable", 1, 1)
+        cell = table.getCellByName("A1")
+        cur = cell.createTextCursor()
+        cell.insertString(cur, "Fee ", False)
+        cur.gotoEnd(False)
+        cur.setPropertyValue("CharWeight", 150.0)
+        cell.insertString(cur, "100", False)
+
+        doc.setPropertyValue("RecordChanges", True)
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res = TableSetCell().execute_safe(tool_ctx, name="UserRecTable", cell="A1", text="Fee 200")
+        assert res["status"] == "ok", res
+        assert res.get("tracked") is True, res
+        assert res.get("pending_review") is True, res
+        assert "review_mode" not in res, res
+        assert TableGetCells().execute(tool_ctx, name="UserRecTable")["cells"]["A1"] == "Fee 200"
+
+        reject_all_changes(doc, ctx)
+        assert cell.getString() == "Fee 100"
+        runs = _cell_portions(cell)
+        assert any(text == "100" and weight == 150.0 for text, weight, _url in runs), runs
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_review_record_mode_tags_agent_change_uno(ctx, doc):
+    """In review record mode, table_set_cell records an agent-authored change and restores RecordChanges."""
+    from plugin.framework.config import get_config, save
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer import review_authors
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        table = insert_named_table(doc, "ReviewRecTable", 1, 1, {"A1": "Fee 100"})
+        doc.setPropertyValue("RecordChanges", False)
+
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        res = TableSetCell().execute_safe(tool_ctx, name="ReviewRecTable", cell="A1", text="Fee 200")
+        assert res["status"] == "ok", res
+        assert res.get("review_mode") == "record", res
+        assert res.get("pending_review") is True, res
+        assert doc.getPropertyValue("RecordChanges") is False
+
+        redlines = doc.getRedlines().createEnumeration()
+        found_agent_insert = False
+        while enum_has_more(redlines):
+            r = redlines.nextElement()
+            if r.getPropertyValue("RedlineType") == "Insert" and r.getPropertyValue("RedlineAuthor") == review_authors.INSERT_AUTHOR:
+                found_agent_insert = True
+        assert found_agent_insert
+
+        accept_all_changes(doc, ctx)
+        assert table.getCellByName("A1").getString() == "Fee 200"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({"doc.agent_edit_review_mode": prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_refuses_protected_cell_uno(ctx, doc):
+    """table_set_cell refuses a protected cell or a cell inside a protected host cell."""
+    outer = insert_named_table(doc, "ProtSetOuter", 2, 2, {"A1": "locked", "B1": "open"})
+    outer.getCellByName("A1").setPropertyValue("IsProtected", True)
+
+    host = outer.getCellByName("B2")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host.insertTextContent(host.getStart(), inner, False)
+    inner.setName("ProtSetInner")
+    inner.getCellByName("A1").setString("nested")
+    host.setPropertyValue("IsProtected", True)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res_a1 = TableSetCell().execute_safe(tool_ctx, name="ProtSetOuter", cell="A1", text="changed")
+    assert res_a1["status"] == "error" and res_a1["code"] == "CELLS_PROTECTED", res_a1
+    assert outer.getCellByName("A1").getString() == "locked"
+
+    res_a1_noop = TableSetCell().execute_safe(tool_ctx, name="ProtSetOuter", cell="A1", text="locked")
+    assert res_a1_noop["status"] == "ok" and res_a1_noop["old_text"] == "locked", res_a1_noop
+    assert outer.getCellByName("A1").getString() == "locked"
+
+    res_in = TableSetCell().execute_safe(tool_ctx, name="ProtSetInner", cell="A1", text="changed")
+    assert res_in["status"] == "error" and res_in["code"] == "CELLS_PROTECTED", res_in
+    assert inner.getCellByName("A1").getString() == "nested"
+
+    res_b1 = TableSetCell().execute_safe(tool_ctx, name="ProtSetOuter", cell="B1", text="updated")
+    assert res_b1["status"] == "ok", res_b1
+    assert outer.getCellByName("B1").getString() == "updated"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_pending_deletion_uno(ctx, doc):
+    """Pending deletion: refused on rewrite when Track Changes off, no-op on visible text, allowed when recording."""
+    table = insert_named_table(doc, "DelCellTable", 1, 1, {"A1": "Fee 100 net"})
+    cell = table.getCellByName("A1")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur = cell.createTextCursor()
+        cur.gotoStart(False)
+        cur.goRight(4, False)
+        cur.goRight(4, True)
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    redlines_before = doc.getRedlines().getCount()
+    assert redlines_before >= 1
+
+    refused = TableSetCell().execute_safe(tool_ctx, name="DelCellTable", cell="A1", text="Fee 500 net")
+    assert refused["status"] == "error" and refused["code"] == "MATCH_CROSSES_DELETION", refused
+    assert doc.getRedlines().getCount() == redlines_before
+    assert TableGetCells().execute(tool_ctx, name="DelCellTable")["cells"]["A1"] == "Fee net"
+
+    noop = TableSetCell().execute_safe(tool_ctx, name="DelCellTable", cell="A1", text="Fee net")
+    assert noop["status"] == "ok" and noop["old_text"] == "Fee net", noop
+    assert doc.getRedlines().getCount() == redlines_before
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        rec = TableSetCell().execute_safe(tool_ctx, name="DelCellTable", cell="A1", text="Fee 500 net")
+        assert rec["status"] == "ok" and rec.get("pending_review") is True, rec
+        assert TableGetCells().execute(tool_ctx, name="DelCellTable")["cells"]["A1"] == "Fee 500 net"
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_formula_cell_becomes_text_uno(ctx, doc):
+    """Writing to a formula cell clears its formula so later updates do not overwrite it."""
+    table = insert_named_table(doc, "FormulaTable", 3, 1)
+    table.getCellByName("A1").setValue(100)
+    table.getCellByName("A2").setValue(250)
+    a3 = table.getCellByName("A3")
+    a3.setFormula("sum <A1:A2>")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = TableSetCell().execute_safe(tool_ctx, name="FormulaTable", cell="A3", text="999")
+    assert res["status"] == "ok", res
+    assert a3.getFormula() == ""
+
+    table.getCellByName("A1").setValue(150)
+    assert a3.getString() == "999"
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_table_set_cell_keeps_picture_uno(ctx, doc):
+    """Writing '' or new text in a picture-only cell keeps the as-character graphic."""
+    import base64
+    import os
+    import tempfile
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    table = insert_named_table(doc, "PicTable", 1, 1)
+    cell = table.getCellByName("A1")
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png)
+        img_path = f.name
+    try:
+        g = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        g.setPropertyValue("GraphicURL", uno.systemPathToFileUrl(img_path))
+        g.setPropertyValue("AnchorType", AS_CHARACTER)
+        g.setPropertyValue("Width", 500)
+        g.setPropertyValue("Height", 500)
+        cell.insertTextContent(cell.getStart(), g, False)
+    finally:
+        os.unlink(img_path)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    empty_res = TableSetCell().execute_safe(tool_ctx, name="PicTable", cell="A1", text="")
+    assert empty_res["status"] == "ok", empty_res
+    assert doc.getGraphicObjects().getCount() == 1
+
+    cap_res = TableSetCell().execute_safe(tool_ctx, name="PicTable", cell="A1", text="Caption")
+    assert cap_res["status"] == "ok", cap_res
+    assert doc.getGraphicObjects().getCount() == 1
+    assert cell.getString() == "Caption"

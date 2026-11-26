@@ -344,7 +344,8 @@ class ReadCellRange(ToolBase):
         results = [self._read_one(bridge, inspector, r, wire_format) for r in rn]
         failed = [item["range"] for item in results if item.get("status") != "ok"]
         if failed:
-            # One range answers with that range's own code, message and details, so a missing sheet still reaches the agent as UNO_OBJECT_ERROR with the sheet names.
+            # One range answers with that range's own code, message and details, so a missing sheet
+            # still reaches the agent as UNO_OBJECT_ERROR with the sheet names.
             if len(rn) == 1:
                 return results[0]
             return {

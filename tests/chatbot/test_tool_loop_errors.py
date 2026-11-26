@@ -232,10 +232,10 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     test_instance._voice._transcribe_audio = MagicMock(return_value="spoken words")
 
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
-        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
-        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
-        patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_cache,
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value="stt-model"),
+        patch("plugin.chatbot.tool_loop.set_native_audio_support") as mock_cache,
         patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
         patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
     ):
@@ -278,10 +278,10 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     )
 
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
-        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
-        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
-        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value="stt-model"),
+        patch("plugin.chatbot.tool_loop.set_native_audio_support"),
         patch("plugin.chatbot.tool_loop.os.remove"),
         patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
     ):
@@ -842,9 +842,9 @@ def test_stream_error_cleans_failed_image_from_history(test_instance):
     test_instance.session.db = MagicMock()
 
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-oss-20b:nitro"),
-        patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"),
-        patch("plugin.framework.client.model_fetcher.set_native_vision_support") as mock_set_vision,
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="gpt-oss-20b:nitro"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://openrouter.ai/api"),
+        patch("plugin.chatbot.tool_loop.set_native_vision_support") as mock_set_vision,
     ):
         payload = {"message": "No endpoints found that support image input"}
         recovered = test_instance._handle_stream_error(payload)
@@ -1078,10 +1078,10 @@ def _make_audio_fallback_host(text_model="chat-model", endpoint="https://example
 @contextmanager
 def _audio_fallback_patches(cfg_model="chat-model", cfg_endpoint="https://example"):
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value=cfg_model),
-        patch("plugin.framework.config.get_current_endpoint", return_value=cfg_endpoint),
-        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
-        patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_set_support,
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value=cfg_model),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value=cfg_endpoint),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value="stt-model"),
+        patch("plugin.chatbot.tool_loop.set_native_audio_support") as mock_set_support,
         patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
         patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
     ):
@@ -1190,10 +1190,10 @@ def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instan
     test_instance._transcribe_audio = MagicMock(side_effect=_transcribe_side_effect)
 
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
-        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
-        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
-        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value="stt-model"),
+        patch("plugin.chatbot.tool_loop.set_native_audio_support"),
         patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
         patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
     ):
@@ -1233,9 +1233,9 @@ def test_stream_error_image_strip_uses_turn_session(test_instance):
     test_instance.session = new_session
 
     with (
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-oss-20b:nitro"),
-        patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"),
-        patch("plugin.framework.client.model_fetcher.set_native_vision_support") as mock_set_vision,
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="gpt-oss-20b:nitro"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://openrouter.ai/api"),
+        patch("plugin.chatbot.tool_loop.set_native_vision_support") as mock_set_vision,
     ):
         payload = {"message": "No endpoints found that support image input"}
         recovered = test_instance._handle_stream_error(payload)

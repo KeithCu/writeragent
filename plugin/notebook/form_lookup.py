@@ -12,7 +12,7 @@ import threading
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort
-from plugin.framework.uno_context import enum_has_more
+from plugin.framework.uno_context import enum_has_more, uno_same
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
@@ -40,7 +40,7 @@ def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
         yield
         return
     prev = _current_control_index()
-    if prev is not None and prev.doc is doc:
+    if prev is not None and uno_same(prev.doc, doc):
         yield
         return
     idx = build_control_index(doc)
@@ -67,7 +67,7 @@ def build_control_index(doc: Any) -> ControlIndex:
             model = shape.Control
             if model is None:
                 continue
-            name = str(getattr(model, "Name", "") or "")
+            name = model.Name
             if name:
                 models.setdefault(name, model)
                 shapes.setdefault(name, shape)
@@ -78,7 +78,7 @@ def build_control_index(doc: Any) -> ControlIndex:
 
 def _index_for(doc: Any) -> ControlIndex:
     idx = _current_control_index()
-    if idx is not None and idx.doc is doc:
+    if idx is not None and uno_same(idx.doc, doc):
         return idx
     return build_control_index(doc)
 
@@ -126,7 +126,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
             model = _model_from_text_portion(portion)
             if model is None:
                 continue
-            name = str(getattr(model, "Name", "") or "")
+            name = model.Name
             if name and name not in by_name:
                 by_name[name] = model
 

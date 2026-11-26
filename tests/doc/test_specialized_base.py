@@ -84,7 +84,6 @@ def test_delegate_status_workflow_finished_ok(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: Finish dict with no inner errors stays status: 'ok'."""
-    from unittest.mock import patch
 
     ctx = _structural_registry(writer_gateway)
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -108,7 +107,6 @@ def test_delegate_status_inner_tool_error(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: Inner tool error becomes status: 'error', code SPECIALIZED_TOOL_ERROR."""
-    from unittest.mock import patch
     from plugin.writer.specialized_base import ToolWriterStructuralBase
 
     class _FailingStructuralTool(ToolWriterStructuralBase):
@@ -143,7 +141,6 @@ def test_delegate_unstarted_call_is_error(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """An inner tool call that raises before running (e.g. marshal TimeoutError) fails the delegation."""
-    from unittest.mock import patch
 
     ctx = _structural_registry(writer_gateway)
 
@@ -170,7 +167,6 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: No finish tool call and no tool error becomes status: 'incomplete'."""
-    from unittest.mock import patch
 
     ctx = _structural_registry(writer_gateway)
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -183,7 +179,6 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
 
 
 def _structural_registry(writer_gateway: DelegateToSubagent, tool: Any = None) -> MagicMock:
-    from plugin.framework.tool import ToolRegistry
     from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
     class _DummyStructuralTool(ToolWriterStructuralBase):
@@ -213,7 +208,6 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
 ) -> None:
     """Discussion #2262: a plain-text reply cut off by finish_reason=length must not become a
     synthetic workflow_finished call; the delegate reports incomplete with the partial text."""
-    from unittest.mock import patch
 
     from plugin.chatbot.smol_agent import WriterAgentSmolModel
 
@@ -246,7 +240,6 @@ def test_delegate_plain_text_answer_appears_once(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2262: a plain-text return (no finish call) is carried once, on message."""
-    from unittest.mock import patch
 
     text = "PLAIN-" + "y" * 5000
     ctx = _structural_registry(writer_gateway)
@@ -265,8 +258,6 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2262: the finish answer is sent once, not copied again into ``result``."""
-    import json
-    from unittest.mock import patch
 
     answer = "ENTRY-" + "x" * 5000
     ctx = _structural_registry(writer_gateway)
@@ -380,7 +371,6 @@ def test_domain_declared_after_gateway_creation_is_accepted() -> None:
 def test_delegate_finish_only_stays_ok(
     writer_gateway: DelegateToSubagent,
 ) -> None:
-    from unittest.mock import patch
     from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
     from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
     from plugin.writer.specialized_base import ToolWriterDocumentResearchBase
@@ -432,7 +422,6 @@ def test_delegate_finish_only_stays_ok(
 def test_delegate_retried_tool_error_is_recovered(
     writer_gateway: DelegateToSubagent,
 ) -> None:
-    from unittest.mock import patch
     from plugin.writer.specialized_base import ToolWriterStructuralBase
 
     class _RetryingStructuralTool(ToolWriterStructuralBase):
@@ -475,7 +464,6 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     import plugin.draw.transitions  # noqa: F401
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
-    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
 
     gateway = DelegateToSubagent()
@@ -528,10 +516,7 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
 def test_delegate_footnotes_hint_reaches_inner_instructions(
     writer_gateway: DelegateToSubagent,
 ) -> None:
-    from unittest.mock import patch
-    from plugin.framework.tool import ToolRegistry
     from plugin.writer.specialized.footnotes import FootnotesList
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     class _DummyFootnotesList(FootnotesList):
         def execute(self, ctx, **kwargs):
@@ -950,7 +935,6 @@ def test_draw_specialized_delegation_sub_agent(
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):
     """Writer delegate must pick up Calc-registered ``python_run_script`` (specialized_cross_cutting)."""
     from plugin.calc.python.venv import RunVenvPythonScript
-    from plugin.doc.specialized_base import DelegateToSubagent
 
     registry.register(RunVenvPythonScript())
 
@@ -992,8 +976,6 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
 
 
 def test_delegate_requires_document_lock_read_only_domains():
-    from plugin.doc.specialized_base import DelegateToSubagent
-
     gw = DelegateToSubagent()
     assert gw.requires_document_lock({"domain": "document_research"}) is False
     assert gw.requires_document_lock({"domain": "web_research"}) is False
@@ -1050,8 +1032,6 @@ def test_prepare_tool_call_hides_chat_tier_domains_from_mcp_valid_options(doc_ty
 
 
 def test_registry_execute_mcp_web_research_returns_domain_chat_only() -> None:
-    from plugin.framework.tool import ToolContext, ToolRegistry
-
     gw = DelegateToSubagent()
     reg = ToolRegistry(services={})
     reg.register(gw)
@@ -1093,8 +1073,6 @@ def _run_shapes_delegation(
     tools: list[Any],
     run_inner_side_effect: Any,
 ) -> dict[str, Any]:
-    from plugin.framework.tool import ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     reg = ToolRegistry(services={})
     for t in tools:
@@ -1221,19 +1199,14 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
 def test_calc_gateway_enum_keeps_forms_on_spreadsheet() -> None:
     # Before this fix the base declared TextDocument only, so Calc documents lost forms.
     import plugin.writer.specialized.forms  # noqa: F401
-    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
 
     assert "forms" in DelegateToSubagent().domains_for_services(frozenset({CALC_DOCUMENT_SERVICE}))
 
 
 def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_document() -> None:
-    from unittest.mock import patch
-    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.draw.transitions import GetSlideLayout, SetSlideLayout
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
-    from plugin.framework.tool import ToolContext, ToolRegistry
-    from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     gw = DelegateToSubagent()
     reg = ToolRegistry(services={})
@@ -1275,10 +1248,6 @@ def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_documen
 
 
 def test_delegate_mcp_returns_listing_errors() -> None:
-    from unittest.mock import patch
-
-    from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.framework.tool import ToolContext
     from plugin.mcp_client.client import McpClientError
 
     gw = DelegateToSubagent()
@@ -1297,11 +1266,7 @@ def test_delegate_mcp_returns_listing_errors() -> None:
 
 
 def test_mcp_server_schema_hides_chat_only_domain() -> None:
-    from unittest.mock import patch
-
-    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
-    from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
 
     register_writeragent_prompt_hooks()

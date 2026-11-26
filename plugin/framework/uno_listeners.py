@@ -619,19 +619,19 @@ def install_view_doc_listener(
     try:
         class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                name = getattr(Event, "EventName", "") or ""
+                name = Event.EventName
                 if name == "OnUnload":
                     if on_unload is None:
                         return
-                    controller = getattr(Event, "ViewController", None)
+                    controller = Event.ViewController
                     model = None
-                    if controller is not None and hasattr(controller, "getModel"):
+                    if controller is not None:
                         try:
                             model = controller.getModel()
                         except Exception:
                             model = None
                     if model is None:
-                        model = getattr(Event, "Source", None)
+                        model = Event.Source
                     on_unload(model)
                     return
                 if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
@@ -639,11 +639,11 @@ def install_view_doc_listener(
                 # Prefer the event's own controller: it is guaranteed attached to the view
                 # shell (OnViewCreated is broadcast after attach), while getCurrentController
                 # can race and yield a controller whose registration is a silent no-op.
-                controller = getattr(Event, "ViewController", None)
+                controller = Event.ViewController
                 if controller is not None:
                     register_controller(controller)
                     return
-                source = getattr(Event, "Source", None)
+                source = Event.Source
                 if source is not None and hasattr(source, "getCurrentController"):
                     register_controller(source.getCurrentController())
 

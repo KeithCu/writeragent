@@ -14,26 +14,16 @@
 # See docs/writer/html-style-model-plan.md.
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.html_export as fmt
-from tests.writer.doc_builders import accept_all_changes, reject_all_changes
-
-
-def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(doc, ctx)
+from tests.writer.doc_builders import accept_all_changes, body_paragraphs, reject_all_changes
 
 
 def _para_style_names(doc):
-    text = doc.getText()
-    out = []
-    e = text.createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append(el.getPropertyValue("ParaStyleName"))
-    return out
+    return [para.getPropertyValue("ParaStyleName") for para in body_paragraphs(doc.getText())]
 
 
 # --- Read path: named styles -> compact data-lo-style tokens ---------------
@@ -108,7 +98,7 @@ def test_read_order_survives_table_uno(ctx, doc):
 def test_write_compact_token_applies_uno(ctx, doc):
     """Compact tokens drive the paragraph style; 'Heading2' resolves to UNO 'Heading 2'."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Caption">cap</p>\n<p data-lo-style="Heading2">head</p>')
     assert res.get("status") == "ok", res
     names = _para_style_names(doc)
@@ -120,7 +110,7 @@ def test_write_compact_token_applies_uno(ctx, doc):
 @with_native_doc("writer")
 def test_write_compact_heading1_resolves_to_spaced_uno(ctx, doc):
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Heading1">title</p>')
     assert res.get("status") == "ok", res
     text = doc.getText()
@@ -134,7 +124,7 @@ def test_write_compact_textbody_resolves_to_spaced_uno(ctx, doc):
     """Regression: the compact token 'Textbody' (LO name 'Text body', lowercase b) must resolve
     to the real UNO 'Text body' — NOT fall back to Standard. Guards the prompt/code contract."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Textbody">body text</p>')
     assert res.get("status") == "ok", res
     text = doc.getText()
@@ -147,7 +137,7 @@ def test_write_compact_textbody_resolves_to_spaced_uno(ctx, doc):
 def test_write_spaced_form_still_works_uno(ctx, doc):
     """Back-compat: an agent that passes the spaced UNO name still resolves correctly."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Heading 1">title</p>')
     assert res.get("status") == "ok", res
     text = doc.getText()
@@ -160,20 +150,16 @@ def test_write_spaced_form_still_works_uno(ctx, doc):
 def test_write_preserves_inline_override_uno(ctx, doc):
     """Applying the named style must not wipe the inline char override the import laid down."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Heading1">title <span style="color: #ff0000">red</span></p>')
     assert res.get("status") == "ok", res
     text = doc.getText()
     assert text.createTextCursorByRange(text.getStart()).getPropertyValue("ParaStyleName") == "Heading 1", \
         _para_style_names(doc)
     found_red = False
-    enum = text.createEnumeration()
-    while enum.hasMoreElements():
-        para = enum.nextElement()
-        if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
-            continue
+    for para in body_paragraphs(text):
         pe = para.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             portion = pe.nextElement()
             try:
                 if int(portion.getPropertyValue("CharColor")) == 0xFF0000:
@@ -187,7 +173,7 @@ def test_write_preserves_inline_override_uno(ctx, doc):
 @with_native_doc("writer")
 def test_write_unknown_token_falls_back_to_standard_uno(ctx, doc):
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="NoSuchStyleXYZ">x</p>')
     assert res.get("status") == "ok", res
     assert "Standard" in _para_style_names(doc), _para_style_names(doc)
@@ -209,7 +195,7 @@ def test_read_write_round_trip_uno(ctx, doc):
 
     content = fmt.document_to_content(doc, ctx, scope="full")
     assert 'data-lo-style="Heading1"' in content, content  # compact token round-trips
-    res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=content)
+    res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=content)
     assert res.get("status") == "ok", res
     names = _para_style_names(doc)
     assert "Heading 1" in names, names
@@ -222,16 +208,11 @@ def test_write_div_wrapper_does_not_desync_styles_uno(ctx, doc):
     """A <div> is a transparent container: it must not consume a positional style slot, so an
     off-contract wrapper does not shift styles onto the wrong paragraphs."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<div><p data-lo-style="Heading1">first</p><p data-lo-style="Caption">second</p></div>')
     assert res.get("status") == "ok", res
     text = doc.getText()
-    pairs = []
-    e = text.createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            pairs.append((el.getPropertyValue("ParaStyleName"), el.getString()))
+    pairs = [(el.getPropertyValue("ParaStyleName"), el.getString()) for el in body_paragraphs(text)]
     by_text = {t: s for s, t in pairs}
     assert by_text.get("first") == "Heading 1", pairs
     assert by_text.get("second") == "Caption", pairs
@@ -251,7 +232,7 @@ def test_write_ambiguous_token_falls_back_to_standard_uno(ctx, doc):
         created = True
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="full_document",
+            native_writer_tool_context(doc, ctx), target="full_document",
             content='<p data-lo-style="Heading1">x</p>')
         assert res.get("status") == "ok", res
         text = doc.getText()
@@ -268,7 +249,7 @@ def test_write_ambiguous_token_falls_back_to_standard_uno(ctx, doc):
 def test_write_data_lo_style_with_math_uno(ctx, doc):
     """A compact token must apply even when the paragraph contains math (math import branch)."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>')
     assert res.get("status") == "ok", res
     text = doc.getText()
@@ -283,30 +264,22 @@ def test_write_then_read_recovers_token_via_fodt_uno(ctx, doc):
     props, so on re-export the paragraph is an autostyle whose XHTML CSS matches no named rule
     (the wall). The flat-ODF parent map recovers the real style name on re-read."""
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="full_document",
+        native_writer_tool_context(doc, ctx), target="full_document",
         content='<p data-lo-style="Caption">just a caption</p>')
     assert res.get("status") == "ok", res
     content = fmt.document_to_content(doc, ctx, scope="full")
-    # Before the FODT fix this dropped the token; now it round-trips.
+    # The token survives only through the flat-ODF parent map.
     assert 'data-lo-style="Caption"' in content, content
     assert "paragraph-" not in content, content
 
 
-def _paragraphs(doc):
-    e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if el.supportsService("com.sun.star.text.Paragraph"):
-            yield el
-
-
 def _para_pairs(doc):
-    return [(p.getPropertyValue("ParaStyleName"), p.getString()) for p in _paragraphs(doc)]
+    return [(p.getPropertyValue("ParaStyleName"), p.getString()) for p in body_paragraphs(doc.getText())]
 
 
 def _para_by_text(doc, needle):
     """Return the com.sun.star.text.Paragraph whose text contains *needle* (first match)."""
-    for p in _paragraphs(doc):
+    for p in body_paragraphs(doc.getText()):
         if needle in p.getString():
             return p
     raise AssertionError("no paragraph containing %r" % needle)
@@ -319,7 +292,7 @@ def test_write_blank_beginning_applies_heading1_uno(ctx, doc):
     text = doc.getText()
     text.setString("")
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="beginning",
+        native_writer_tool_context(doc, ctx), target="beginning",
         content=['<p data-lo-style="Heading1">Intro</p>', '<p>body</p>'])
     assert res.get("status") == "ok", res
     pairs = _para_pairs(doc)
@@ -345,7 +318,7 @@ def test_write_beginning_styles_new_heading_keeps_existing_body_uno(ctx, doc):
         _baseline.setPropertyValue("ParaStyleName", "Standard")
     body_style = _baseline.getPropertyValue("ParaStyleName")
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="beginning",
+        native_writer_tool_context(doc, ctx), target="beginning",
         content=['<p data-lo-style="Heading1">Title</p>'])
     assert res.get("status") == "ok", res
     pairs = _para_pairs(doc)
@@ -368,7 +341,7 @@ def test_write_end_styles_new_paras_keeps_existing_body_uno(ctx, doc):
     _baseline.gotoEnd(True)
     _baseline.setPropertyValue("ParaStyleName", "Standard")
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="end",
+        native_writer_tool_context(doc, ctx), target="end",
         content=['<p data-lo-style="Caption">CAPX para</p>', '<p data-lo-style="Heading2">HEADX para</p>'])
     assert res.get("status") == "ok", res
     pairs = _para_pairs(doc)
@@ -394,7 +367,7 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
     _baseline.gotoEnd(True)
     _baseline.setPropertyValue("ParaStyleName", "Standard")
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="search", old_content="MARKER",
+        native_writer_tool_context(doc, ctx), target="search", old_content="MARKER",
         content=['<p data-lo-style="Caption">CAPX</p>', '<p data-lo-style="Heading2">HEADX</p>'])
     assert res.get("status") == "ok", res
     assert "warning" not in res
@@ -436,7 +409,7 @@ def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
     _setup_three_paragraphs(doc)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+        native_writer_tool_context(doc, ctx), target="search", old_content="Replace me",
         content='<p data-lo-style="Heading2">New heading</p>')
     assert res.get("status") == "ok", res
     assert "warning" not in res, res.get("warning")
@@ -457,7 +430,7 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
 
     content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+        native_writer_tool_context(doc, ctx), target="search", old_content="Replace me", content=content
     )
     assert res.get("status") == "ok", res
     assert res.get("warnings") == [
@@ -491,7 +464,7 @@ def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
     _setup_three_paragraphs(doc, select_middle=True)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="selection",
+        native_writer_tool_context(doc, ctx), target="selection",
         content='<p data-lo-style="Heading2">New heading</p>')
     assert res.get("status") == "ok", res
     assert "warning" not in res, res.get("warning")
@@ -512,7 +485,7 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
 
     content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="selection", content=content
+        native_writer_tool_context(doc, ctx), target="selection", content=content
     )
     assert res.get("status") == "ok", res
     assert res.get("warnings") == [
@@ -556,7 +529,7 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
     doc.getCurrentController().select(cur)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="selection",
+        native_writer_tool_context(doc, ctx), target="selection",
         content='<p data-lo-style="Heading2">New heading</p>')
     assert res.get("status") == "ok", res
     assert "warning" not in res
@@ -582,7 +555,7 @@ def test_write_search_partial_match_skips_data_lo_para_uno(ctx, doc):
 
     content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4">New para</p>'
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="search", old_content="Replace me", content=content
+        native_writer_tool_context(doc, ctx), target="search", old_content="Replace me", content=content
     )
     assert res.get("status") == "ok", res
     assert "warnings" in res
@@ -648,13 +621,13 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+            native_writer_tool_context(doc, ctx), target="search", old_content="Replace me",
             content=content)
         assert res.get("status") == "ok", res
         assert not res.get("warnings"), res
         rl_types = []
         e = doc.getRedlines().createEnumeration()
-        while e.hasMoreElements():
+        while enum_has_more(e):
             rl_types.append(str(e.nextElement().getPropertyValue("RedlineType")))
         assert set(rl_types) == {"Insert", "Delete"}, rl_types
     finally:
@@ -679,7 +652,7 @@ def test_write_search_whole_paragraph_recording_applies_style_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+            native_writer_tool_context(doc, ctx), target="search", old_content="Replace me",
             content=content)
         assert res.get("status") == "ok", res
     finally:
@@ -717,7 +690,7 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
     text.insertString(cur, "Keep after", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx), target="search", old_content="Target", all_matches=True,
+        native_writer_tool_context(doc, ctx), target="search", old_content="Target", all_matches=True,
         content='<p data-lo-style="Heading2">Replacement</p>')
     assert res.get("status") == "ok", res
     assert res.get("replaced_count") == 2, res
@@ -763,7 +736,7 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     text.insertString(cur, "Keep after", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         target="search",
         old_content="TARGET",
         content='<p data-lo-style="Heading2">Replacement</p>',
@@ -786,7 +759,7 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     assert_valid_suggested_call(suggested)
 
     # Replay the suggested call against LibreOffice
-    style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
+    style_res = ApplyStyle().execute(native_writer_tool_context(doc, ctx), **suggested["arguments"])
     assert style_res.get("status") == "ok", style_res
 
     # Host paragraph is restyled to Heading 2, while neighbouring paragraphs remain Standard
@@ -822,7 +795,7 @@ def test_partial_match_suggested_call_replay_recorded_uno(ctx, doc):
     try:
         doc.setPropertyValue("RecordChanges", True)
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             target="search",
             old_content="TARGET",
             content='<p data-lo-style="Heading2">Replacement</p>',
@@ -833,7 +806,7 @@ def test_partial_match_suggested_call_replay_recorded_uno(ctx, doc):
         assert "suggested_call" in diag
         suggested = diag["suggested_call"]
 
-        style_res = ApplyStyle().execute(_tool_ctx(doc, ctx), **suggested["arguments"])
+        style_res = ApplyStyle().execute(native_writer_tool_context(doc, ctx), **suggested["arguments"])
         assert style_res.get("status") == "ok", style_res
         assert style_res.get("tracked") is True
 
@@ -858,7 +831,7 @@ def test_full_document_write_with_nbsp_block_keeps_following_styles_uno(ctx, doc
         '<p data-lo-style="Standard">C</p>'
     )
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=html,
         target="full_document",
     )
@@ -877,7 +850,7 @@ def test_full_document_write_with_empty_block_keeps_following_styles_uno(ctx, do
         '<p data-lo-style="Standard">Z</p>'
     )
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=html,
         target="full_document",
     )
@@ -906,7 +879,7 @@ def test_plain_round_trip_with_hr_and_nested_list_keeps_styles_uno(ctx, doc):
         '<p data-lo-style="Heading2">After</p>'
     )
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=html,
         target="full_document",
     )
@@ -923,7 +896,7 @@ def test_plain_round_trip_with_hr_and_nested_list_keeps_styles_uno(ctx, doc):
 
     exported = fmt.document_to_content(doc, ctx, scope="full")
     res2 = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         content=exported,
         target="full_document",
     )
@@ -951,7 +924,7 @@ def test_hr_in_empty_container_and_blockquote_table_keep_styles_uno(ctx, doc):
         '<blockquote><hr><p data-lo-style="Quotations">q</p></blockquote>'
         '<h1 data-lo-style="Heading1">After</h1>'
     )
-    res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), content=html_hr, target="full_document")
+    res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), content=html_hr, target="full_document")
     assert res["status"] == "ok", res
     assert _para_pairs(doc) == [
         ("Horizontal Line", ""),
@@ -965,7 +938,7 @@ def test_hr_in_empty_container_and_blockquote_table_keep_styles_uno(ctx, doc):
         '<p data-lo-style="Quotations">x</p></blockquote>'
         '<h1 data-lo-style="Heading1">After</h1>'
     )
-    res2 = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), content=html_table, target="full_document")
+    res2 = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), content=html_table, target="full_document")
     assert res2["status"] == "ok", res2
     assert _para_pairs(doc) == [
         ("Quotations", "x"),

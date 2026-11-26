@@ -6,7 +6,9 @@
 
 Writer: named text tables (table_list / getCellByName), plus Writer-only cell merge/split
 (table_merge_cells / table_split_cell). Draw: TableShape on a page (page + shape index, or
-shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked changes).
+shape.Name); Draw does not merge or split cells. Writer cell text is replaced in place
+(keeping run formatting) and is recorded as a tracked change while Track Changes or review
+mode is on.
 """
 import itertools
 import logging
@@ -19,13 +21,15 @@ from plugin.doc.text_helpers import (
     TrackedDeletions,
     get_string_without_tracked_deletions,
     iter_elements,
+    normalize_linebreaks,
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
+from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
 from plugin.writer.edit_review import flag_tracked, record_write
-from plugin.writer.html_import import non_text_portion_type
+from plugin.writer.html_import import non_text_portion_type, replace_preserving_format
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
@@ -49,6 +53,12 @@ _PAGE_PROPERTY: dict[str, Any] = page_index_param("Draw/Impress only.")
 # (cell name or None for a box covered by a vertical merge, left edge, right edge)
 _Box = tuple[str | None, int, int]
 _TEXT_CONTENT = "text, or a pending tracked deletion"
+_CELL_DELETION_REFUSAL = (
+    "Cell %s of table '%s' holds a pending tracked deletion. With Track Changes off, rewriting it "
+    "would put the new text inside that deletion or remove it, so the cell was not changed. Tell the "
+    "user; with Track Changes on the rewrite is recorded as a tracked change. Do not accept or reject "
+    "the deletion yourself."
+)
 _NOT_RECORDED_HELP = (
     "Do not retry; tell the user. If the table or its text is a pending tracked insertion, "
     "the user must accept or reject that first (table_set_cell can still change its text); "
@@ -523,12 +533,12 @@ def _protected_cells(table: Any, names: list[str]) -> list[str]:
     return [name for name in names if table.getCellByName(name).getPropertyValue("IsProtected")]
 
 
-def _protected_refusal(what: str, cells: list[str]) -> str:
-    """Refusal message when *what* ("this row", "table 'T'") cannot go because *cells* are protected."""
+def _protected_refusal(verb: str, what: str, cells: list[str]) -> str:
+    """Refusal message when *what* ("this row", "table 'T'", "cell A1 of table 'T'") cannot be changed because *cells* are protected."""
     return (
-        "Cannot delete %s: cell(s) %s are protected. Leave it and ask the user to unprotect "
-        "them first (Table > Unprotect Cells), then delete it; do not change protected cells."
-        % (what, ", ".join(cells))
+        "Cannot %s %s: cell(s) %s are protected. Leave it and ask the user to unprotect "
+        "them first (Table > Unprotect Cells), then %s it; do not change protected cells."
+        % (verb, what, ", ".join(cells), verb)
     )
 
 
@@ -811,13 +821,29 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         )
 
 
-def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
-    """Run a Writer delete with optional review inside an undo rollback guard."""
+def _mutate_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
+    """Run a Writer table mutation with optional review inside an undo rollback guard."""
     # The guard stays outside record_mutation, which keeps its own undo group open while apply
     # runs: XUndoManager.undo refuses inside an open context (impl_doUndoRedo in
     # framework/source/fwe/helper/undomanagerhelper.cxx).
     with UndoStepOrRollback(doc, title):
         return record_write(doc, uno_ctx, apply)[0]
+
+
+def _protected_with_hosts(doc: Any, table: Any, names: list[str], nesting: dict[str, Any]) -> list[str]:
+    """Protected cells among *names*, plus protected host cells up the nesting chain.
+
+    The UI refuses edits inside a protected host cell (``SwFrame::IsProtected``, ``trvlfrm.cxx``,
+    which walks up through the host cell frames), whereas ``IsProtected`` is not inherited on UNO
+    cells, so the hosts are read one by one.
+    """
+    cells = _protected_cells(table, names)
+    while nesting["is_nested"]:
+        host_name, host_cell = nesting["parent_table"], nesting["parent_cell"]
+        host = _get_table(doc, host_name)
+        cells += ["%s of table '%s'" % (n, host_name) for n in _protected_cells(host, [host_cell])]
+        nesting = _nesting_for(doc, host, host_name)
+    return cells
 
 
 def _require_no_protected_cells(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
@@ -826,16 +852,10 @@ def _require_no_protected_cells(doc: Any, table: Any, name: str, nesting: dict[s
     LibreOffice's Delete Table does nothing then (SwDoc::DeleteRowCol, ndtbl.cxx; SwEditShell::Delete,
     eddel.cxx), but SwXTextTable::dispose (unotbl.cxx) passes RowColMode::DeleteProtected, so
     removeTextContent would delete it. Like LibreOffice, cells of tables nested inside do not count.
-    IsProtected is not inherited from a host cell, so the hosts are read one by one.
     """
-    cells = _protected_cells(table, _writer_named_cells(table))
-    while nesting["is_nested"]:
-        host_name, host_cell = nesting["parent_table"], nesting["parent_cell"]
-        host = _get_table(doc, host_name)
-        cells += ["%s of table '%s'" % (n, host_name) for n in _protected_cells(host, [host_cell])]
-        nesting = _nesting_for(doc, host, host_name)
+    cells = _protected_with_hosts(doc, table, _writer_named_cells(table), nesting)
     if cells:
-        raise ToolExecutionError(_protected_refusal("table '%s'" % name, cells), code="CELLS_PROTECTED")
+        raise ToolExecutionError(_protected_refusal("delete", "table '%s'" % name, cells), code="CELLS_PROTECTED")
 
 
 def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
@@ -964,6 +984,17 @@ class TableList(ToolWriterTableBase):
         return {"status": "ok", "count": len(out), "tables": out}
 
 
+def _cell_text(deletions: TrackedDeletions, cell: Any, hosted: list[str]) -> str:
+    """Visible plain text of *cell*.
+
+    Host cells omit concatenated inner-table text. ``get_string_without_tracked_deletions``
+    hides pending tracked deletions: ``getString()`` also returns deleted text, so a pending
+    "velha" -> "nova" would otherwise read "celula novavelha".
+    """
+    state = deletions.state_at(cell)
+    return cell_plain_siblings(cell, state) if hosted else get_string_without_tracked_deletions(cell, state)
+
+
 class TableGetCells(ToolWriterTableBase):
     name: str | None = "table_get_cells"
     description: str = (
@@ -1031,11 +1062,7 @@ class TableGetCells(ToolWriterTableBase):
                     hosted = cell_hosted_table_names(c)
                     if hosted:
                         nested_in_cells[cell_name] = hosted
-                    # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
-                    # hides pending tracked deletions: getString() also returns deleted text, so a
-                    # pending "velha" -> "nova" would read "celula novavelha" here.
-                    state = deletions.state_at(c)
-                    cells[cell_name] = cell_plain_siblings(c, state) if hosted else get_string_without_tracked_deletions(c, state)
+                    cells[cell_name] = _cell_text(deletions, c, hosted)
                 except Exception as exc:
                     # Per-cell read errors must not disappear into a bare continue.
                     # That also swallows document disposal. Re-raise disposal and log
@@ -1069,10 +1096,13 @@ class TableSetCell(ToolWriterTableBase):
     name: str | None = "table_set_cell"
     description: str = (
         "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). "
-        "A normal cell is replaced with setString (clears in-cell formatting). "
-        "A cell that hosts a nested table keeps that table and rewrites only the host "
-        "paragraphs. Edit the nested table by its own name. "
-        "Not a tracked change even when review mode is on."
+        "Writer: the new text keeps the character formatting of the text it replaces, writing the "
+        "cell's current text changes nothing, and the write is recorded as a tracked change while "
+        "Track Changes or review mode is on. A cell holding a formula or a number value becomes plain "
+        "text (the formula is removed). A cell that hosts a nested table keeps that table and "
+        "rewrites only the host paragraphs; edit the nested table by its own name. Refuses a "
+        "protected cell (CELLS_PROTECTED) and, while Track Changes is off, a cell holding a pending "
+        "tracked deletion (MATCH_CROSSES_DELETION)."
     )
     is_mutation: bool | None = True
     parameters: dict[str, Any] | None = {
@@ -1114,22 +1144,68 @@ class TableSetCell(ToolWriterTableBase):
                     _unknown_cell_message(cell_raw, name, names)
                 )
             cell = table.getCellByName(cell_name)
-            # setString wipes nested TextTables. Rewrite host paragraphs instead.
             nested = cell_hosted_table_names(cell)
+            deletions = TrackedDeletions(ctx.doc)
+            new = str(text)
+            result: dict[str, Any] = {
+                "status": "ok",
+                "table_name": name,
+                "cell": cell_name,
+                "old_text": _cell_text(deletions, cell, nested),
+                "new_text": new,
+            }
             if nested:
-                old = cell_plain_siblings(cell, TrackedDeletions(ctx.doc).state_at(cell))
-                set_host_paragraphs(cell, str(text))
-                return {
-                    "status": "ok",
-                    "table_name": name,
-                    "cell": cell_name,
-                    "old_text": old,
-                    "new_text": str(text),
-                    "nested_tables": nested,
-                }
-            old = cell.getString()
-            cell.setString(str(text))
-            return {"status": "ok", "table_name": name, "cell": cell_name, "old_text": old, "new_text": str(text)}
+                result["nested_tables"] = nested
+            if result["old_text"] == normalize_linebreaks(new):
+                return result
+            protected = _protected_with_hosts(ctx.doc, table, [cell_name], _nesting_for(ctx.doc, table, name))
+            if protected:
+                return self._tool_error(
+                    _protected_refusal("change", "cell %s of table '%s'" % (cell_name, name), protected),
+                    code="CELLS_PROTECTED",
+                )
+            uno_ctx = resolve_uno_context(ctx)
+            # Decide from Writer's recording state at write time, not from the review mode or
+            # left_tracked_changes() (False when the user records with review Off): the review
+            # session has already turned recording on in Record/Wait, and a user who records
+            # has it on already.
+            recorded = False
+
+            def _apply() -> None:
+                nonlocal recorded
+                if nested:
+                    # setString on a host cell wipes nested TextTables. Rewrite host paragraphs instead.
+                    set_host_paragraphs(cell, new)
+                    recorded = is_recording_changes(ctx.doc)
+                    return
+                span = cell.createTextCursor()
+                span.gotoStart(False)
+                span.gotoEnd(True)
+                # An untracked replace writes into the struck run, and setString removes another
+                # author's deletion.
+                if not is_recording_changes(ctx.doc) and deletions.overlaps(span):
+                    raise ToolExecutionError(
+                        _CELL_DELETION_REFUSAL % (cell_name, name),
+                        code="MATCH_CROSSES_DELETION",
+                    )
+                # SwXCell::setString (sw_setString, unotbl.cxx) clears the formula and value. An
+                # in-place replace would keep them, and Writer would recompute the cell text over
+                # the edit.
+                if cell.getType().value in ("VALUE", "FORMULA"):
+                    cell.setString(new)
+                    recorded = is_recording_changes(ctx.doc)
+                else:
+                    # One atomic op authored once, as index_refresh_toc_entry does: a cell replace
+                    # is a single small edit, and the atomic path cannot leave a half-applied delete.
+                    wrote = replace_preserving_format(
+                        ctx.doc, span, new, uno_ctx, in_undo_context=True, split_author=False
+                    )
+                    recorded = wrote and is_recording_changes(ctx.doc)
+
+            _mutate_or_rollback(ctx.doc, uno_ctx, _("WriterAgent: Set table cell"), _apply)
+            if recorded:
+                flag_tracked(result)
+            return result
         except ValueError as ve:
             return self._tool_error(str(ve))
 
@@ -1212,7 +1288,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 protected = _protected_cells(table, _band_cell_names(table, axis_arg, idx))
                 if protected:
                     return self._tool_error(
-                        _protected_refusal("this %s" % axis_arg, protected),
+                        _protected_refusal("delete", "this %s" % axis_arg, protected),
                         code="CELLS_PROTECTED",
                     )
                 if axis_arg == "row":
@@ -1253,7 +1329,7 @@ class ManageTableStructure(ToolWriterTableBase):
                         )
                     return False
 
-                tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))
+                tracked = bool(_mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete %s" % axis_arg, _apply))
             rows, cols = table_dims(table)
             result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
             if tracked:
@@ -1560,7 +1636,7 @@ class TableDelete(ToolWriterTableBase):
                 # be recorded, not silently applied.
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
 
-            tracked = bool(_delete_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply))
+            tracked = bool(_mutate_or_rollback(ctx.doc, uno_ctx, "WriterAgent: Delete table", _apply))
             result = {
                 "status": "ok",
                 "message": "Table deleted",

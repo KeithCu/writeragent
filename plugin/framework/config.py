@@ -35,7 +35,8 @@ GitHub. Those comments are stripped on read. ``save`` does not validate,
 write, or emit ``config:changed`` when the coerced value already matches the
 stored value, or the schema default when that key is omitted from the file.
 The default itself is not a change. If nothing changed, it does not write or emit.
-Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory, external editor, history JSON, harper cache) do not fsync.
+Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory,
+external editor, history JSON, harper cache) do not fsync.
 
 Concurrency: ``save`` and ``update_config_mapping`` hold ``_config_write_lock``
 (an ``RLock``) across the read, merge, validate, keystore writes, and file
@@ -149,7 +150,7 @@ def init_config(ctx: Any | None = None) -> str:
 
 
 def reset_config_for_tests() -> None:
-    """Clear cached config path and in-memory dict (pytest isolation)."""
+    """Clear cached config path and in-memory dict (pytest isolation, and the UNO runner when it starts a new office)."""
     global _resolved_config_path, _config_uninitialized_warned
     _resolved_config_path = None
     _config_uninitialized_warned = False
@@ -961,10 +962,10 @@ def validate_api_config(config: Any) -> tuple[bool, str]:
     if not model:
         return (False, _("Please set Model in Settings."))
     try:
-        from plugin.framework.model_lru import _is_model_combobox_placeholder
+        from plugin.framework.model_lru import is_model_combobox_placeholder
     except ImportError:
         return (True, "")
 
-    if _is_model_combobox_placeholder(model):
+    if is_model_combobox_placeholder(model):
         return (False, _("Please select a valid model in Settings (not a placeholder)."))
     return (True, "")

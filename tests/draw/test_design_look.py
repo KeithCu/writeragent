@@ -161,8 +161,9 @@ def _forge_uncompressed_size(blob: bytearray, declared: int) -> None:
 
 def test_forged_zip_file_size_cannot_inflate_past_member_cap(tmp_path):
     # 4× the member cap of zeros deflates to a few KB. Declared uncompressed
-    # size is 64, under the cap, so the old file_size check called ZipFile.read
-    # and zlib inflated the whole stream (ZipExtFile.MAX_N) before slicing.
+    # size is 64, under the cap, so a check on the declared file_size alone
+    # would call ZipFile.read and zlib would inflate the whole stream
+    # (ZipExtFile.MAX_N) before slicing.
     # Returning "" is not the proof: a CRC failure already did that, after
     # the multi-megabyte buffer existed. Peak allocation is the proof.
     payload = b"\x00" * (_MAX_MEMBER_BYTES * 4)

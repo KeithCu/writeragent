@@ -730,7 +730,7 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.send_cancellation = None
 
         with (
-            patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
+            patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en", "english")),
             patch("plugin.framework.config.user_config_dir", return_value=None),
             patch("plugin.framework.config.get_api_config", return_value={}),
             patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
@@ -760,7 +760,7 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.send_cancellation = None
 
         with (
-            patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
+            patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en", "english")),
             patch("plugin.framework.config.user_config_dir", return_value=None),
             patch("plugin.framework.config.get_api_config", return_value={}),
             patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
@@ -798,7 +798,7 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
     with (
         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("REPORT", edited)),
         patch("plugin.chatbot.web_research._write_research_cache", side_effect=_write),
-        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")),
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
@@ -1043,7 +1043,7 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
     with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.config.get_api_config", return_value={"model": "test-model"}), \
-         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.framework.client.llm_client.LlmClient", _RecordingClient), \
          patch("plugin.chatbot.smol_agent.LlmClient", _RecordingClient), \
