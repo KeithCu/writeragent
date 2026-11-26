@@ -19,7 +19,7 @@ from plugin.chatbot.sub_agent_tools import (
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
-    _session_tool_parameters,
+    session_tool_parameters,
     run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
@@ -85,6 +85,6 @@ class WritingPlanSessionTool(SubAgentSessionToolBase):
         )
     )
     doc_types: list[str] | None = ["writer"]
-    parameters: dict[str, Any] | None = _session_tool_parameters(
+    parameters: dict[str, Any] | None = session_tool_parameters(
         "Original context/topic for writing task."
     )

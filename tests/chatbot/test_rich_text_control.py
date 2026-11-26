@@ -16,7 +16,7 @@ import pytest
 
 from plugin.chatbot.rich_text_control import (
     _apply_rich_control_geometry,
-    _is_automatic_char_color,
+    is_automatic_char_color,
     append_text_chunk,
     clear_control,
     reveal_rich_control_caret,
@@ -26,10 +26,10 @@ from plugin.chatbot.rich_text_control import (
 
 class TestRichControlHelpers:
     def test_automatic_char_color(self):
-        assert _is_automatic_char_color(None)
-        assert _is_automatic_char_color(-1)
-        assert _is_automatic_char_color(0xFFFFFFFF)
-        assert not _is_automatic_char_color(0x2A6099)
+        assert is_automatic_char_color(None)
+        assert is_automatic_char_color(-1)
+        assert is_automatic_char_color(0xFFFFFFFF)
+        assert not is_automatic_char_color(0x2A6099)
 
     def test_content_bounds_inset(self):
         from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
@@ -451,7 +451,7 @@ class TestRichTextChatWidget:
         session.messages[-1]["content"] = "Hello"
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=12), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste._plain_fallback_text") as fallback, \
+             patch("plugin.chatbot.rich_text_paste.plain_fallback_text") as fallback, \
              patch("plugin.chatbot.rich_text_control.append_text_chunk") as chunk, \
              patch("plugin.chatbot.rich_text_control.ChatTheme"):
             widget.stream_session(session)
@@ -477,7 +477,7 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
              patch("plugin.chatbot.rich_text_control.clear_control") as clear, \
-             patch("plugin.chatbot.rich_text_paste._plain_fallback_text", side_effect=lambda t: t), \
+             patch("plugin.chatbot.rich_text_paste.plain_fallback_text", side_effect=lambda t: t), \
              patch("plugin.chatbot.rich_text_control.rollback_rich_insert") as rollback, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain:
             widget.stream_session(session)

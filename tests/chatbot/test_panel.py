@@ -330,6 +330,7 @@ class TestSendDispose:
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
         ):
             listener._run_send_drain()
         speak.assert_not_called()
@@ -629,7 +630,7 @@ class TestSendDispose:
         listener.status_control.setText.assert_not_called()
 
     def test_drain_finally_cleanup_on_tts_on_stop(self) -> None:
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        from plugin.chatbot.tool_loop_actions import STOP_LINE
 
 
         listener = _make_send_listener()
@@ -642,7 +643,7 @@ class TestSendDispose:
             def __init__(self, messages):
                 self.messages = messages
         session = MockSession(
-            messages=[{"role": "assistant", "content": _STOP_LINE}]
+            messages=[{"role": "assistant", "content": STOP_LINE}]
         )
 
         listener.cached_doc_type = "writer"
@@ -653,8 +654,8 @@ class TestSendDispose:
         # Test that `_pump_completion` finally block runs drop_turn even when TTS is empty and enabled.
         with patch("plugin.chatbot.panel.update_activity_state"):
             with patch("plugin.framework.config.get_config", return_value=True):
-                with patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=session):
-                    with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop:
+                with patch("plugin.chatbot.panel_voice.session_for_turn", return_value=session):
+                    with patch("plugin.chatbot.panel.drop_turn") as mock_drop:
                         with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
                             with patch.object(listener, "dispatch"):
                                 with patch.object(listener, "sync_has_text_from_query"):
@@ -696,6 +697,7 @@ class TestSendDispose:
             patch("plugin.audio.tts_service.speak_text_async"),
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
             patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=False),
             patch("plugin.chatbot.dialogs.get_control_text", return_value=""),
         ):
             listener._run_send_drain()
@@ -714,6 +716,7 @@ class TestSendDispose:
             patch("plugin.audio.tts_service.speak_text_async"),
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
             patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=False),
             patch("plugin.chatbot.dialogs.get_control_text", return_value="still typing"),
         ):
             listener._run_send_drain()
@@ -903,7 +906,7 @@ class TestSendDispose:
     def test_do_send_during_stt_does_not_abort_the_turn(self) -> None:
         listener = _make_send_listener()
         listener._stt_inflight = True
-        with patch("plugin.chatbot.tool_loop_actions.begin_send_turn") as begin:
+        with patch("plugin.chatbot.panel.begin_send_turn") as begin:
             listener._do_send()
         begin.assert_not_called()
 
@@ -924,7 +927,7 @@ class TestSendDispose:
             patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
             patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat"),
-            patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+            patch("plugin.chatbot.panel_voice.get_current_endpoint", return_value="https://example"),
             patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
         ):
             listener._do_send()
@@ -1121,7 +1124,7 @@ class TestQueryKeyListenerDispose:
 class TestTtsStopInteraction:
     def test_stop_line_is_not_spoken(self) -> None:
         from plugin.chatbot.panel_voice import PanelVoiceController
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE, begin_send_turn
+        from plugin.chatbot.tool_loop_actions import STOP_LINE, begin_send_turn
 
         listener = _make_send_listener()
         listener._panel_teardown = False
@@ -1134,13 +1137,14 @@ class TestTtsStopInteraction:
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
             patch("plugin.framework.config.get_config", side_effect=lambda k, default=None: True if k == "audio.tts_enabled" else default),
+            patch("plugin.chatbot.panel_voice.get_config", side_effect=lambda k, default=None: True if k == "audio.tts_enabled" else default),
         ):
             # No new message since turn start: must not replay the prior reply.
             voice.speak_reply(speak=True)
             speak.assert_not_called()
 
-            # New assistant message with trailing _STOP_LINE: only the reply body is spoken.
-            listener.session.messages.append({"role": "assistant", "content": "reply" + _STOP_LINE})
+            # New assistant message with trailing STOP_LINE: only the reply body is spoken.
+            listener.session.messages.append({"role": "assistant", "content": "reply" + STOP_LINE})
             voice.speak_reply(speak=True)
             speak.assert_called_once()
             assert speak.call_args.args[0] == "reply"
@@ -1511,10 +1515,11 @@ class TestHandsFreeRecord:
 
         with (
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
             patch("plugin.audio.tts_service.is_speaking", return_value=True),
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
-            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.chatbot.panel_voice.session_for_turn", return_value=spoken),
+            patch("plugin.chatbot.panel.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         ):
             listener._close_turn_ui(speak=True)
@@ -1551,10 +1556,11 @@ class TestHandsFreeRecord:
 
         with (
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
             patch("plugin.audio.tts_service.is_speaking", return_value=True),
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
-            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.chatbot.panel_voice.session_for_turn", return_value=spoken),
+            patch("plugin.chatbot.panel.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         ):
             listener._close_turn_ui(speak=True)
@@ -1584,7 +1590,7 @@ class TestHandsFreeRecord:
             patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
             patch("plugin.audio.stt_service.uses_local_stt", return_value=True),
             patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat"),
-            patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+            patch("plugin.chatbot.panel_voice.get_current_endpoint", return_value="https://example"),
             patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
         ):
             listener._do_send()
@@ -1614,7 +1620,7 @@ class TestHandsFreeRecord:
             pass
 
         # The chat path is not under test; stop right after STT returns.
-        with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", side_effect=_ChatPathReached):
+        with patch("plugin.chatbot.panel.mode_from_selector_with_flags", side_effect=_ChatPathReached):
             with pytest.raises(_ChatPathReached):
                 self._empty_take_send(listener)
         assert listener._voice._empty_take_count == 0
@@ -1727,8 +1733,9 @@ class TestStoppedTTS:
         )
 
         with (
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.chatbot.panel_voice.session_for_turn") as mock_session,
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
@@ -1751,8 +1758,8 @@ class TestStoppedTTS:
 
         with (
             patch.object(listener, "_do_send"),
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
-            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.chatbot.panel_voice.session_for_turn", return_value=listener.session),
+            patch("plugin.chatbot.panel.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts")
         ):
             listener._run_send_drain()
@@ -1775,8 +1782,8 @@ class TestStoppedTTS:
 
         with (
             patch.object(listener, "_do_send"),
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.session),
-            patch("plugin.chatbot.tool_loop_actions.drop_turn"),
+            patch("plugin.chatbot.panel_voice.session_for_turn", return_value=listener.session),
+            patch("plugin.chatbot.panel.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts")
         ):
             listener._run_send_drain()
@@ -1794,8 +1801,9 @@ class TestStoppedTTS:
         )
 
         with (
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
+            patch("plugin.chatbot.panel_voice.session_for_turn") as mock_session,
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
@@ -1822,8 +1830,9 @@ class TestStoppedTTS:
 
         with (
             patch.object(listener, "_do_send", side_effect=_simulate_do_send),
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=fake_session),
+            patch("plugin.chatbot.panel_voice.session_for_turn", return_value=fake_session),
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
         ):
@@ -1845,7 +1854,7 @@ class TestClearButtonAndPeerDrain:
 
         listener = ClearButtonListener(session, MagicMock(), MagicMock(), "", send_listener)
         with patch("plugin.audio.tts_service.stop_speech"):
-            with patch("plugin.chatbot.tool_loop_actions.abort_turn"):
+            with patch("plugin.chatbot.panel.abort_turn"):
                 with patch("plugin.framework.prompts.get_greeting_for_document") as mock_get_greeting:
                     mock_get_greeting.return_value = "Doc Greeting"
                     listener.on_action_performed(MagicMock())
@@ -1871,7 +1880,7 @@ class TestClearButtonAndPeerDrain:
 
         with (
             patch("plugin.audio.tts_service.stop_speech"),
-            patch("plugin.chatbot.tool_loop_actions.abort_turn"),
+            patch("plugin.chatbot.panel.abort_turn"),
             patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting),
         ):
             listener.on_action_performed(MagicMock())
@@ -1894,7 +1903,7 @@ class TestClearButtonAndPeerDrain:
         listener = ClearButtonListener(session, MagicMock(), MagicMock(), "Welcome", send_listener)
         with (
             patch("plugin.audio.tts_service.stop_speech"),
-            patch("plugin.chatbot.tool_loop_actions.abort_turn"),
+            patch("plugin.chatbot.panel.abort_turn"),
         ):
             listener.on_action_performed(MagicMock())
 
@@ -1933,9 +1942,9 @@ class TestClearButtonAndPeerDrain:
 
         with patch.object(listener, "_do_send_extracted_peer"):
             with patch.object(listener, "dispatch", side_effect=_dispatch):
-                with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn:
+                with patch("plugin.chatbot.panel.drop_turn") as mock_drop_turn:
                     with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
-                        with patch("plugin.framework.send_cancellation.agent_session") as mock_session:
+                        with patch("plugin.chatbot.panel.agent_session") as mock_session:
                             mock_cancel_scope = MagicMock()
                             mock_cancel_scope.is_cancelled.return_value = False
                             mock_session.return_value.__enter__.return_value = mock_cancel_scope
@@ -1968,7 +1977,7 @@ def test_do_send_restores_query_text_on_error() -> None:
          patch("plugin.audio.stt_service.uses_local_stt", return_value=True), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="model"), \
          patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt"), \
-         patch("plugin.framework.config.get_current_endpoint", return_value="endpoint"):
+         patch("plugin.chatbot.panel_voice.get_current_endpoint", return_value="endpoint"):
         listener._get_document_model = MagicMock()
         listener.cached_doc_type = "writer"
         listener.audio_wav_path = "test.wav"
@@ -2010,6 +2019,7 @@ class TestPanelR3Fixes:
 
         with (
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch.object(listener, "_do_send") as mock_do_send,
         ):
@@ -2039,6 +2049,7 @@ class TestPanelR3Fixes:
             patch("plugin.chatbot.dialogs.get_control_text", return_value="   \t\n  "),
             patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
         ):
             listener._run_send_drain()
@@ -2094,10 +2105,10 @@ class TestPanelR3Fixes:
         assert listener._active_mode == "brainstorming"
 
     def test_stop_tts_helper(self) -> None:
-        from plugin.chatbot.panel import _stop_tts
+        from plugin.chatbot.panel import stop_tts
 
         with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("audio err")) as mock_stop:
-            _stop_tts()  # must not raise
+            stop_tts()  # must not raise
         assert mock_stop.called
 
     def test_mouse_listeners_removed_on_dispose(self) -> None:
@@ -2274,9 +2285,9 @@ def test_do_send_answer_slash_calls_begin_send_then_chat() -> None:
     with patch("plugin.chatbot.dialogs.get_control_text", return_value="/summarize budget"), patch(
         "plugin.chatbot.dialogs.set_control_text"
     ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
-        "plugin.chatbot.send_handlers.dispatch_sidebar_send", return_value=False
+        "plugin.chatbot.panel.dispatch_sidebar_send", return_value=False
     ), patch(
-        "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT
+        "plugin.chatbot.panel.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT
     ), patch("plugin.framework.config.get_config", return_value=None), patch(
         "plugin.acp.registry.normalize_backend_id", return_value="builtin"
     ), patch.object(listener, "_begin_send", wraps=real_begin) as mock_begin:
@@ -2304,7 +2315,7 @@ def test_extracted_peer_send_starts_one_chat_turn() -> None:
     listener = _make_send_listener()
     listener._require_send_document = MagicMock(return_value=(MagicMock(), "calc"))
     listener._tool_calling = MagicMock()
-    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT):
+    with patch("plugin.chatbot.panel.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT):
         listener._do_send_extracted_peer("hello", already_appended=True)
     listener._tool_calling._do_send_chat_with_tools.assert_called_once_with("hello", ANY, "calc", skip_append_user=True)
 
@@ -2476,6 +2487,7 @@ class TestPanelR14Fixes:
             patch.object(listener, "_do_send", side_effect=_fake_do_send),
             patch.object(listener, "_project_closing_line", side_effect=_fake_project_closing_line),
             patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=False),
         ):
             listener._run_send_drain()
 
@@ -2499,6 +2511,7 @@ class TestPanelR14Fixes:
         with (
             patch.object(listener, "_do_send", side_effect=_fake_do_send),
             patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.chatbot.panel_voice.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
         ):
@@ -2534,7 +2547,7 @@ class TestPanelR14Fixes:
             patch("plugin.chatbot.dialogs.get_control_text", return_value="some text"),
             patch("plugin.chatbot.dialogs.set_control_text"),
             patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
-            patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT),
+            patch("plugin.chatbot.panel.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT),
             patch("plugin.framework.config.get_config", return_value="builtin"),
             patch.object(listener._tool_calling, "_do_send_chat_with_tools", side_effect=_fake_chat_with_tools),
             patch.object(listener, "_restore_query_text") as mock_restore,
@@ -2740,7 +2753,7 @@ def test_append_output_persists_slash_local_on_session(in_tool_loop: bool):
     listener.session = session
     widget = MagicMock()
     listener.rich_text_widget = widget
-    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=turn):
+    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.panel.running_turn", return_value=turn):
         listener.append_output("\nSlash commands:\n")
     assert session.messages[-1][SLASH_LOCAL] is True
     if in_tool_loop:
@@ -2877,6 +2890,7 @@ def _make_do_send_listener() -> SimpleNamespace:
     listener = SimpleNamespace(
         ctx=MagicMock(),
         frame_session=None,
+        session=None,
         sidebar_mode_flags=SidebarModeFlags(),
         sidebar_state=sidebar_state,
         _record_gesture=RecordGesture(),
@@ -2922,7 +2936,7 @@ def _patch_do_send(listener, *, sidebar_mode: str):
         patch("plugin.acp.registry.normalize_backend_id", return_value="builtin"),
         patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"),
         patch(
-            "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags",
+            "plugin.chatbot.panel.mode_from_selector_with_flags",
             return_value=sidebar_mode,
         ),
     )
