@@ -17,26 +17,22 @@
 
 import json
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-
-def _exec_tool(doc, ctx, name, args):
-    res = TestingFactory.execute_tool(doc, ctx, name, args, doc_type="impress")
-    return json.dumps(res) if isinstance(res, dict) else res
+from plugin.tests.testing_utils import with_native_doc
+from tests.draw.draw_tool_helpers import exec_tool_json
 
 
 @native_test
 @with_native_doc("impress")
 def test_headers_footers(ctx, doc):
     # 1. Get initial headers/footers
-    result_str = _exec_tool(doc, ctx, "slide_get_header_footer", {"page": 0})
+    result_str = exec_tool_json(doc, ctx, "slide_get_header_footer", {"page": 0})
     result = json.loads(result_str)
 
     assert result.get("status") == "ok"
     assert "properties" in result
 
     # 2. Set headers/footers
-    set_result_str = _exec_tool(doc, ctx, "slide_set_header_footer", {
+    set_result_str = exec_tool_json(doc, ctx, "slide_set_header_footer", {
         "page": 0,
         "footer": "This is a test footer",
         "footer_visible": True,
@@ -51,7 +47,7 @@ def test_headers_footers(ctx, doc):
     assert set_result.get("updated_properties") > 0
 
     # 3. Verify changes
-    result_str = _exec_tool(doc, ctx, "slide_get_header_footer", {"page": 0})
+    result_str = exec_tool_json(doc, ctx, "slide_get_header_footer", {"page": 0})
     result = json.loads(result_str)
 
     props = result.get("properties", {})
@@ -63,7 +59,7 @@ def test_headers_footers(ctx, doc):
     assert props.get("IsDateTimeFixed") is True
 
     # 4. Test master page
-    set_result_str = _exec_tool(doc, ctx, "slide_set_header_footer", {
+    set_result_str = exec_tool_json(doc, ctx, "slide_set_header_footer", {
         "page": 0,
         "is_master_page": True,
         "footer": "Master Footer"
@@ -71,7 +67,7 @@ def test_headers_footers(ctx, doc):
     set_result = json.loads(set_result_str)
     assert set_result.get("status") == "ok"
 
-    result_str = _exec_tool(doc, ctx, "slide_get_header_footer", {"page": 0, "is_master_page": True})
+    result_str = exec_tool_json(doc, ctx, "slide_get_header_footer", {"page": 0, "is_master_page": True})
     result = json.loads(result_str)
     props = result.get("properties", {})
     assert props.get("FooterText") == "Master Footer"

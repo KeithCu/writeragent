@@ -688,7 +688,6 @@ def test_duplicate_tool_name_fails_generation():
 def test_main_exits_nonzero_when_module_load_fails_on_duplicate_name(monkeypatch, tmp_path, capsys):
     """generate_tool_proxies.main must fail loudly when ModuleLoader swallows a duplicate tool."""
     import importlib
-    import os
     import types
     from plugin.framework.module_base import ModuleBase, ModuleLoader
     from plugin.framework.service import ServiceRegistry

@@ -144,7 +144,6 @@ def test_handle_llm_request_uses_host_cancel():
 
 
 def test_intermediate_llm_frame_forwards_cancel():
-    from plugin.framework.send_cancellation import SendCancellation
     from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
 
     scope = SendCancellation()
@@ -310,7 +309,6 @@ def test_handle_llm_request_returns_user_stopped_via_client_stopped():
     assert out["code"] == "USER_STOPPED"
 
 def test_handle_llm_request_returns_user_stopped_via_cancel():
-    from plugin.framework.send_cancellation import SendCancellation
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
     scope = SendCancellation()

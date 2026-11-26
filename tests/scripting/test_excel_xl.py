@@ -107,7 +107,6 @@ class TestExcelXlShim:
 def test_excel_xl_binding_resolution(idx: int) -> None:
     ranges = tuple([f"range_{i}" for i in range(15)])
     xl_fn = make_xl(ranges)
-    assert callable(xl_fn)
 
     # %P2% corresponds to 0th range in zero-indexed list (idx - 2)
     ref = f"%P{idx}%"

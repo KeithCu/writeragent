@@ -495,7 +495,7 @@ def test_plot_data_hue_is_ignored(mock_plt, _mock_payload):
 @patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
 @patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_quick_plot_line_plots_x_col(mock_plt, _mock_payload):
-    """A line chart used to ignore x_col once the frame passed 12 rows."""
+    """A line chart plots against x_col even when the frame has more than 12 rows."""
     plt_mod = _mock_plt_module()
     mock_plt.return_value = plt_mod
     fig, ax = plt_mod.subplots.return_value
@@ -682,7 +682,7 @@ def test_time_series_plots_rows_in_date_order(mock_plt, _mock_payload):
 @patch("plugin.scripting.venv.viz.figure_to_image_payload", side_effect=RuntimeError("render failed"))
 @patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
-    """Savefig used to skip plt.close, and trusted actions never call _close_open_figures."""
+    """plt.close runs even when savefig raises, because trusted actions never call _close_open_figures."""
     plt_mod = _mock_plt_module()
     mock_plt.return_value = plt_mod
     fig, ax = plt_mod.subplots.return_value

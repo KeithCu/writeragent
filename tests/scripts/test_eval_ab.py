@@ -6,11 +6,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from tests.scripts.script_test_support import git
 
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
@@ -19,25 +19,15 @@ if str(_PO) not in sys.path:
 import eval_ab  # noqa: E402
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def _init_repo(root: Path) -> Path:
     (root / "plugin").mkdir(parents=True, exist_ok=True)
     (root / "plugin" / "a.py").write_text("x = 1\n", encoding="utf-8")
     (root / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
-    _git(root, "init", "-b", "master")
-    _git(root, "config", "user.name", "Test")
-    _git(root, "config", "user.email", "test@example.com")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "base")
+    git(root, "init", "-b", "master")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "add", ".")
+    git(root, "commit", "-m", "base")
     return root
 
 
@@ -289,8 +279,8 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
     assert len(files_after_d - files_after_c) == 2
 
     # (e) Committing the edit moves master and B's HEAD, so rerunning original tasks runs both A and B.
-    _git(repo, "add", "plugin/a.py")
-    _git(repo, "commit", "-m", "second")
+    git(repo, "add", "plugin/a.py")
+    git(repo, "commit", "-m", "second")
     assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
     out_e = capsys.readouterr().out
     assert "[run] A-r1" in out_e

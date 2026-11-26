@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from scripts import test_bot_uno as tbu
+from tests.scripts.script_test_support import git
 
 
 def _touch(root: Path, rel: str, text: str = "x = 1\n") -> None:
@@ -18,32 +19,22 @@ def _touch(root: Path, rel: str, text: str = "x = 1\n") -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def _init_repo(root: Path) -> None:
     _touch(root, "plugin/base.py")
     _touch(root, "tests/writer/test_base_uno.py")
-    _git(root, "init", "-b", "master")
-    _git(root, "config", "user.name", "Test")
-    _git(root, "config", "user.email", "test@example.com")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "base")
+    git(root, "init", "-b", "master")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "add", ".")
+    git(root, "commit", "-m", "base")
 
 
 def test_list_branch_uno_files_selects_committed_and_dirty_changes(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     _touch(tmp_path, "tests/writer/test_new_uno.py")
-    _git(tmp_path, "checkout", "-b", "feature")
-    _git(tmp_path, "add", "tests/writer/test_new_uno.py")
-    _git(tmp_path, "commit", "-m", "add uno")
+    git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "add", "tests/writer/test_new_uno.py")
+    git(tmp_path, "commit", "-m", "add uno")
     _touch(tmp_path, "tests/writer/test_base_uno.py", "x = 2\n")
     _touch(tmp_path, "tests/writer/test_dirty_uno.py")
     _touch(tmp_path, "tests/writer/test_plain.py")
@@ -59,9 +50,9 @@ def test_list_branch_uno_files_selects_committed_and_dirty_changes(tmp_path: Pat
 
 def test_list_branch_uno_files_omits_deleted_uno_tests(tmp_path: Path) -> None:
     _init_repo(tmp_path)
-    _git(tmp_path, "checkout", "-b", "feature")
-    _git(tmp_path, "rm", "tests/writer/test_base_uno.py")
-    _git(tmp_path, "commit", "-m", "remove uno")
+    git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "rm", "tests/writer/test_base_uno.py")
+    git(tmp_path, "commit", "-m", "remove uno")
     assert tbu.list_branch_uno_files(tmp_path) == []
 
 
@@ -69,9 +60,9 @@ def test_main_print_files_and_skip_when_probe_missing(tmp_path: Path, monkeypatc
     monkeypatch.delenv("SKIP_UNO", raising=False)
     _init_repo(tmp_path)
     _touch(tmp_path, "tests/writer/test_new_uno.py")
-    _git(tmp_path, "checkout", "-b", "feature")
-    _git(tmp_path, "add", "tests/writer/test_new_uno.py")
-    _git(tmp_path, "commit", "-m", "add uno")
+    git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "add", "tests/writer/test_new_uno.py")
+    git(tmp_path, "commit", "-m", "add uno")
     monkeypatch.setattr(tbu, "is_main_checkout", lambda repo_root, main=None: False)
     printed: list[str] = []
 
@@ -106,13 +97,13 @@ def test_list_branch_uno_files_selects_stem_and_1hop_uno_tests_and_caps_large_ex
     _touch(tmp_path, "tests/doc/test_text_helpers_uno.py", "x = 1\n")
     _touch(tmp_path, "tests/writer/test_search_uno.py", "x = 1\n")
     _touch(tmp_path, "tests/writer/test_uses_search_uno.py", "import plugin.writer.search\n")
-    _git(tmp_path, "add", ".")
-    _git(tmp_path, "commit", "-m", "add doc and writer modules")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-m", "add doc and writer modules")
 
-    _git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "checkout", "-b", "feature")
     _touch(tmp_path, "plugin/doc/text_helpers.py", "def clean():\n    return 'v2'\n")
-    _git(tmp_path, "add", "plugin/doc/text_helpers.py")
-    _git(tmp_path, "commit", "-m", "edit text_helpers")
+    git(tmp_path, "add", "plugin/doc/text_helpers.py")
+    git(tmp_path, "commit", "-m", "edit text_helpers")
 
     assert tbu.list_branch_uno_files(tmp_path) == [
         "tests/doc/test_text_helpers_uno.py",

@@ -26,15 +26,6 @@ from plugin.calc.viz import PlotDataTool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
-
-
 def test_output_anchor_quoted_dotted_sheet_and_range():
     """rsplit('.') dropped quoted/dotted sheets and used the range's end cell."""
 
@@ -259,7 +250,7 @@ def test_analyze_data_requires_data_source(calc_ctx):
     with pytest.raises(ToolExecutionError) as exc_info:
         tool.execute(calc_ctx, helper="describe_data")
     assert exc_info.value.code == "ANALYSIS_ERROR"
-    assert "data_range" in str(exc_info.value).lower() or "data" in str(exc_info.value).lower()
+    assert "data_range" in str(exc_info.value).lower()
 
 
 @patch("plugin.framework.queue_executor.main.call")
@@ -358,7 +349,7 @@ def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
     with pytest.raises(ToolExecutionError) as exc_info2:
         tool.execute(calc_ctx, helper="describe_data")  # no data_range and no data
     assert exc_info2.value.code == "ANALYSIS_ERROR"
-    assert "data_range" in str(exc_info2.value).lower() or "data" in str(exc_info2.value).lower()
+    assert "data_range" in str(exc_info2.value).lower()
 
 
 @pytest.mark.parametrize(

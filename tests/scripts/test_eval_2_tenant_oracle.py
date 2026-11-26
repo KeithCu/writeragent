@@ -4,11 +4,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from docx import Document
 from odf.opendocument import OpenDocumentText
 from odf.table import Table, TableCell, TableRow
 from odf.text import H, P
 import pytest
+from tests.scripts.script_test_support import write_docx, write_odt
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -44,22 +44,6 @@ Touchpoints at 90-day, 60-day, and 30-day marks before lease end.
 4. Community Engagement Initiatives
 We will host two resident events next quarter on the front lawn and in the lounge.
 """
-
-
-def _write_docx(path: Path, text: str) -> Path:
-    doc = Document()
-    for line in text.strip().splitlines():
-        doc.add_paragraph(line)
-    doc.save(str(path))
-    return path
-
-
-def _write_odt(path: Path, text: str) -> Path:
-    doc = OpenDocumentText()
-    for line in text.strip().splitlines():
-        doc.text.addElement(P(text=line))
-    doc.save(str(path))
-    return path
 
 
 def _write_heading_table_odt(path: Path) -> Path:
@@ -117,8 +101,8 @@ def _padded() -> str:
 
 def test_passing_memo_docx_and_odt(tmp_path: Path) -> None:
     text = _padded()
-    docx = _write_docx(tmp_path / "ok.docx", text)
-    odt = _write_odt(tmp_path / "ok.odt", text)
+    docx = write_docx(tmp_path / "ok.docx", text)
+    odt = write_odt(tmp_path / "ok.odt", text)
     for path in (docx, odt):
         result = score_memo(path)
         assert result.passed, (path.name, result.failures)
@@ -126,7 +110,7 @@ def test_passing_memo_docx_and_odt(tmp_path: Path) -> None:
 
 
 def test_empty_memo_fails(tmp_path: Path) -> None:
-    path = _write_odt(tmp_path / "empty.odt", "")
+    path = write_odt(tmp_path / "empty.odt", "")
     result = score_memo(path)
     assert not result.passed
     assert any("empty" in item or "word_count" in item for item in result.failures)
@@ -233,14 +217,14 @@ def test_odt_heading_and_split_table_fixture(tmp_path: Path) -> None:
 
 
 def test_headed_score_routes_odt_to_tenant_oracle(tmp_path: Path) -> None:
-    path = _write_odt(tmp_path / "final_memo.odt", _padded())
+    path = write_odt(tmp_path / "final_memo.odt", _padded())
     assert headed_main(["--score", str(path)]) == 0
-    empty = _write_odt(tmp_path / "empty.odt", "")
+    empty = write_odt(tmp_path / "empty.odt", "")
     assert headed_main(["--task", "tenant-retention", "--score", str(empty)]) == 1
 
 
 def test_oracle_cli_json(tmp_path: Path, capsys) -> None:
-    path = _write_odt(tmp_path / "final_memo.odt", _padded())
+    path = write_odt(tmp_path / "final_memo.odt", _padded())
     assert oracle_main(["--json", str(path)]) == 0
     out = capsys.readouterr().out
     assert '"passed": true' in out

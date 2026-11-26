@@ -14,15 +14,6 @@ from plugin.calc.forecast import ForecastDataTool
 from plugin.framework.errors import ToolExecutionError
 
 
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
-
-
 def test_forecast_data_requires_helper(calc_ctx):
     tool = ForecastDataTool()
     with pytest.raises(ToolExecutionError) as exc_info:
@@ -36,7 +27,7 @@ def test_forecast_data_requires_data_source(calc_ctx):
     with pytest.raises(ToolExecutionError) as exc_info:
         tool.execute(calc_ctx, helper="forecast_time_series")
     assert exc_info.value.code == "FORECAST_ERROR"
-    assert "data_range" in str(exc_info.value).lower() or "data" in str(exc_info.value).lower()
+    assert "data_range" in str(exc_info.value).lower()
 
 
 @patch("plugin.framework.queue_executor.main.call")

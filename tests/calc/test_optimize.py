@@ -6,20 +6,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from plugin.calc.optimize import OptimizeDataTool
-
-
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
 
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc")

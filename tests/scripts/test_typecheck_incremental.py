@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 from scripts import typecheck_incremental as ti
+from tests.scripts.script_test_support import git
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -29,25 +29,15 @@ def _copy_configs(root: Path) -> None:
     shutil.copy2(REPO_ROOT / "pyspector.toml", root / "pyspector.toml")
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def _init_repo_with_master(root: Path) -> None:
     _copy_configs(root)
     _touch(root, "plugin/base.py")
-    _git(root, "init", "-b", "master")
-    _git(root, "config", "user.name", "Test")
-    _git(root, "config", "user.email", "test@example.com")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "base")
-    _git(root, "checkout", "-b", "feature")
+    git(root, "init", "-b", "master")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "add", ".")
+    git(root, "commit", "-m", "base")
+    git(root, "checkout", "-b", "feature")
 
 
 def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path) -> None:
@@ -105,19 +95,19 @@ def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path
 
 def test_get_changed_files_collects_only_staged_unstaged_and_untracked(tmp_path: Path) -> None:
     _init_repo_with_master(tmp_path)
-    _git(tmp_path, "checkout", "master")
+    git(tmp_path, "checkout", "master")
     _touch(tmp_path, "plugin/staged.py")
     _touch(tmp_path, "plugin/unstaged.py")
-    _git(tmp_path, "add", ".")
-    _git(tmp_path, "commit", "-m", "more base")
-    _git(tmp_path, "checkout", "-B", "feature", "master")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-m", "more base")
+    git(tmp_path, "checkout", "-B", "feature", "master")
 
     _touch(tmp_path, "plugin/committed branch.py")
-    _git(tmp_path, "add", "plugin/committed branch.py")
-    _git(tmp_path, "commit", "-m", "branch change")
+    git(tmp_path, "add", "plugin/committed branch.py")
+    git(tmp_path, "commit", "-m", "branch change")
 
     (tmp_path / "plugin/staged.py").write_text("x = 2\n", encoding="utf-8")
-    _git(tmp_path, "add", "plugin/staged.py")
+    git(tmp_path, "add", "plugin/staged.py")
 
     (tmp_path / "plugin/unstaged.py").write_text("x = 3\n", encoding="utf-8")
     _touch(tmp_path, "plugin/untracked.py")
@@ -135,10 +125,10 @@ def test_get_changed_files_works_in_linked_worktree(tmp_path: Path) -> None:
     main_repo.mkdir()
     _init_repo_with_master(main_repo)
 
-    _git(main_repo, "worktree", "add", "-b", "wt-branch", str(worktree), "master")
+    git(main_repo, "worktree", "add", "-b", "wt-branch", str(worktree), "master")
     _touch(worktree, "plugin/wt_committed.py")
-    _git(worktree, "add", "plugin/wt_committed.py")
-    _git(worktree, "commit", "-m", "worktree commit")
+    git(worktree, "add", "plugin/wt_committed.py")
+    git(worktree, "commit", "-m", "worktree commit")
 
     _touch(worktree, "plugin/wt_dirty.py")
 
@@ -170,12 +160,12 @@ def test_build_invocations_substitutes_target_placeholder_or_appends() -> None:
 def test_main_exits_zero_when_no_changed_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _git(tmp_path, "init", "-b", "main")
-    _git(tmp_path, "config", "user.name", "Test")
-    _git(tmp_path, "config", "user.email", "test@example.com")
+    git(tmp_path, "init", "-b", "main")
+    git(tmp_path, "config", "user.name", "Test")
+    git(tmp_path, "config", "user.email", "test@example.com")
     _touch(tmp_path, "plugin/a.py")
-    _git(tmp_path, "add", "plugin/a.py")
-    _git(tmp_path, "commit", "-m", "init")
+    git(tmp_path, "add", "plugin/a.py")
+    git(tmp_path, "commit", "-m", "init")
 
     rc = ti.main(["--tool", "bandit", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
     assert rc == 0

@@ -556,8 +556,6 @@ def test_parse_cli_default_is_headless_suite(monkeypatch) -> None:
 
 
 def test_user_profile_soffice_argv_skips_nodefault_and_restore() -> None:
-    from pathlib import Path
-
     argv = tr._user_profile_soffice_argv(Path("/usr/bin/soffice"), "socket,host=127.0.0.1,port=9;urp;")
     assert "--norestore" in argv
     assert "--writer" in argv
@@ -689,7 +687,6 @@ def test_soffice_bin_running_uses_pids_helper(monkeypatch) -> None:
 
 def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) -> None:
     import glob
-    import tempfile
 
     monkeypatch.setattr(tr, "_soffice_bin_running", lambda: False)
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing.lock")
@@ -713,7 +710,6 @@ def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) ->
 
 def test_headless_connect_delays_windows_longer(monkeypatch) -> None:
     """Windows headless budget exceeds POSIX."""
-    import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "win32")
     win = tr._headless_connect_delays()
@@ -745,7 +741,6 @@ def test_connect_uno_accept_logs_stderr_tail_on_miss(
 ) -> None:
     """Windows UNO bootstrap pipe miss (#709): stderr tail is logged on a failed connect."""
     monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
-    import plugin.testing_runner as tr
 
     class _Proc:
         def poll(self):
@@ -781,7 +776,6 @@ def test_connect_uno_accept_logs_stderr_tail_on_miss(
 
 def test_native_test_per_test_timeout(monkeypatch) -> None:
     """@native_test(timeout=N) raises the watchdog floor without shortening env overrides."""
-    import plugin.testing_runner as tr
 
     monkeypatch.delenv("WRITERAGENT_UNO_TEST_TIMEOUT", raising=False)
 

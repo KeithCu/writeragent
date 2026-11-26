@@ -137,7 +137,6 @@ def test_scrub_overrides_inherited_python_flags() -> None:
 
 
 def test_scrub_drops_loader_injection() -> None:
-    from plugin.framework.subprocess_env import scrub_subprocess_env
     out = scrub_subprocess_env({"LD_PRELOAD": "/tmp/x.so", "ld_audit": "/tmp/a.so", "DYLD_INSERT_LIBRARIES": "/tmp/y.dylib", "PATH": "/usr/bin"})
     assert "LD_PRELOAD" not in {k.upper() for k in out}
     assert "LD_AUDIT" not in {k.upper() for k in out}
@@ -199,7 +198,7 @@ def test_crosshair_scrub_subprocess_env_fqn_if_available() -> None:
 
 
 def test_scrub_env_accepts_long_values() -> None:
-    """PATH and workspace paths are longer than the old deal caps."""
+    """PATH and workspace paths may be longer than DEAL_MAX_ARGV."""
     env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
     assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
     assert env["PYTHONUTF8"] == "1"
