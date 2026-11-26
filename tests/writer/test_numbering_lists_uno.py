@@ -184,8 +184,6 @@ def test_nested_ol_levels_share_list_id_uno(ctx, doc):
     _apply_list_fixture(doc, ctx)
     heading = _para(doc, "List numbering boundary")
     assert heading["ParaStyleName"] == "Heading 2", heading
-    # Boundary only — do not assert chapter/outline labels.
-    _assert_not_list_item(heading, "heading")
 
     outer_one = _para(doc, "Outer one")
     nested_two = _para(doc, "Nested two")
@@ -197,6 +195,14 @@ def test_nested_ol_levels_share_list_id_uno(ctx, doc):
     )
     list_id = outer_one["ListId"]
     style = outer_one["NumberingStyleName"]
+    # The heading must stay out of the imported list. It may still sit in the
+    # "Outline" chapter list: LibreOffice links a built-in Heading N style to
+    # Outline when the style is first created by name (lcl_SetHeadline in
+    # sw/source/core/doc/DocumentStylePoolManager.cxx). A pooled Writer keeps
+    # that style once any earlier test applied "Heading 2", so whether the
+    # heading reads as Outline here depends on test order.
+    assert heading["NumberingStyleName"] in ("", "Outline"), heading
+    assert heading["ListId"] != list_id, heading
     _assert_list_item(
         nested_two,
         level=1,
