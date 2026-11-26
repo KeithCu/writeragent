@@ -2049,38 +2049,43 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
     from plugin.doc.text_helpers import visible_range_text
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.doc_builders import list_redlines, reject_all_changes, strike_substring
 
     tool = ApplyDocumentContent()
 
     def _setup_crossing(case_doc, content_str: str):
-        text = case_doc.getText()
-        text.setString(content_str)
-        cur = text.createTextCursor()
-        cur.gotoStart(False)
-        cur.goRight(len("Word "), False)
-        cur.goRight(len("here "), True)
-        case_doc.setPropertyValue("RecordChanges", True)
-        try:
-            cur.setString("")
-        finally:
-            case_doc.setPropertyValue("RecordChanges", False)
+        case_doc.getText().setString(content_str)
+        strike_substring(case_doc, case_doc.getText(), "here ", ctx=ctx, author="Alice")
         case_doc.getRedlines().getByIndex(0).setPropertyValue("RedlineComment", "keep-me")
 
-    for record in (False, True):
-        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
-            _setup_crossing(case_doc, "Word here there")
-            orig_author = case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor")
-            tctx = native_writer_tool_context(case_doc, ctx)
-            case_doc.setPropertyValue("RecordChanges", record)
-            try:
-                res = tool.execute_safe(tctx, target="search", old_content="Word there", content="Word here")
-            finally:
-                case_doc.setPropertyValue("RecordChanges", False)
-            assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", (record, res)
-            assert visible_range_text(case_doc, case_doc.getText()) == "Word there"
-            assert case_doc.getRedlines().getCount() == 1
-            assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor") == orig_author
-            assert case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineComment") == "keep-me"
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        _setup_crossing(case_doc, "Word here there")
+        orig_author = case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor")
+        tctx = native_writer_tool_context(case_doc, ctx)
+        res = tool.execute_safe(tctx, target="search", old_content="Word there", content="Word here")
+        assert res["status"] == "error" and res["code"] == "MATCH_CROSSES_DELETION", res
+        assert visible_range_text(case_doc, case_doc.getText()) == "Word there"
+        assert case_doc.getRedlines().getCount() == 1
+        assert case_doc.getRedlines().getByIndex(0).RedlineAuthor == orig_author
+        assert case_doc.getRedlines().getByIndex(0).RedlineComment == "keep-me"
+
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        _setup_crossing(case_doc, "Word here there")
+        orig_author = case_doc.getRedlines().getByIndex(0).getPropertyValue("RedlineAuthor")
+        tctx = native_writer_tool_context(case_doc, ctx)
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = tool.execute_safe(tctx, target="search", old_content="Word there", content="Word here")
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        assert res["status"] == "ok", res
+        assert visible_range_text(case_doc, case_doc.getText()) == "Word here"
+        assert any(
+            r["type"] == "Delete" and r["RedlineComment"] == "keep-me" and r["RedlineAuthor"] == orig_author
+            for r in list_redlines(case_doc)
+        ), list_redlines(case_doc)
+        reject_all_changes(case_doc, ctx)
+        assert case_doc.getText().getString() == "Word here there"
 
     with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
         # Place 20 clean matches before one crossing match so occurrence=20 sits outside replaceable.
@@ -2110,9 +2115,21 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
             tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=0
         )
         assert dry["status"] == "ok", dry
+        assert dry["replaceable"][0]["text"] == "Word there", dry["replaceable"][0]
         assert dry["replaceable"][0].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["replaceable"]
         assert "edit_refused" not in dry["replaceable"][1], dry["replaceable"]
+        assert dry["selected_match"]["text"] == "Word there", dry["selected_match"]
         assert dry["selected_match"].get("edit_refused") == "MATCH_CROSSES_DELETION", dry["selected_match"]
+
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            dry_rec = tool.execute_safe(
+                tctx, target="search", old_content="Word there", content="Clean", dry_run=True, occurrence=0
+            )
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        assert dry_rec["status"] == "ok", dry_rec
+        assert "edit_refused" not in dry_rec["replaceable"][0], dry_rec["replaceable"]
 
         res_all = tool.execute_safe(tctx, target="search", old_content="Word there", content="Clean", all_matches=True)
         assert res_all["status"] == "ok", res_all
@@ -2134,6 +2151,64 @@ def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx
         )
         assert res_occ["status"] == "ok", res_occ
         assert visible_range_text(case_doc, case_doc.getText()) == "Word there and Second"
+
+
+@native_test
+def test_apply_content_anchor_across_deletion_unless_recorded_uno(ctx):
+    from plugin.doc.text_helpers import normalize_linebreaks, visible_range_text
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from tests.writer.doc_builders import list_redlines, reject_all_changes, strike_substring
+
+    tool = ApplyDocumentContent()
+
+    # Anchors across a struck paragraph: refused with Track Changes off, recorded with Track Changes on.
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        case_doc.getText().setString("Alpha one\rstruck para\rDelta end")
+        strike_substring(case_doc, case_doc.getText(), "struck para\n", ctx=ctx, author="Alice")
+        raw_before = normalize_linebreaks(case_doc.getText().getString())
+        tctx = native_writer_tool_context(case_doc, ctx)
+
+        refused = tool.execute_safe(
+            tctx, target="search", start_anchor="Alpha", end_anchor="Delta", content="Rewritten clause"
+        )
+        assert refused["status"] == "error" and refused["code"] == "MATCH_CROSSES_DELETION", refused
+        assert normalize_linebreaks(case_doc.getText().getString()) == raw_before
+        assert any(r["type"] == "Delete" and r["RedlineAuthor"] == "Alice" for r in list_redlines(case_doc))
+
+        case_doc.setPropertyValue("RecordChanges", True)
+        try:
+            ok = tool.execute_safe(
+                tctx, target="search", start_anchor="Alpha", end_anchor="Delta", content="Rewritten clause"
+            )
+        finally:
+            case_doc.setPropertyValue("RecordChanges", False)
+        assert ok["status"] == "ok", ok
+        vis = visible_range_text(case_doc, case_doc.getText())
+        assert vis == "\n\nRewritten clause end", repr(vis)
+        assert any(r["type"] == "Delete" and r["RedlineAuthor"] == "Alice" for r in list_redlines(case_doc))
+        reject_all_changes(case_doc, ctx)
+        assert normalize_linebreaks(case_doc.getText().getString()) == raw_before
+
+    # Agent's own pending change in Record mode: follow-up edit across it is recorded and rejects cleanly.
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as case_doc:
+        case_doc.getText().setString("Notice within 30 days of receipt.")
+        tctx = native_writer_tool_context(case_doc, ctx)
+        prev = get_config("doc.agent_edit_review_mode")
+        save({"doc.agent_edit_review_mode": "record"})
+        try:
+            r1 = tool.execute_safe(tctx, target="search", old_content="30", content="60")
+            assert r1["status"] == "ok", r1
+            r2 = tool.execute_safe(
+                tctx, target="search", old_content="within 60 days", content="within sixty days"
+            )
+            assert r2["status"] == "ok", r2
+        finally:
+            save({"doc.agent_edit_review_mode": prev})
+        assert visible_range_text(case_doc, case_doc.getText()) == "Notice within sixty days of receipt."
+        reject_all_changes(case_doc, ctx)
+        assert case_doc.getText().getString() == "Notice within 30 days of receipt."
 
 
 def _write_tiny_png():

@@ -204,6 +204,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
 @with_native_doc("writer")
 def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
     from plugin.doc.text_helpers import visible_range_text
+    from tests.writer.doc_builders import reject_all_changes
 
     _set_body(doc, "Word OLD here")
     cur = doc.getText().createTextCursor()
@@ -222,4 +223,14 @@ def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
     assert visible_range_text(doc, doc.getText()) == "Word here"
     assert doc.getRedlines().getCount() == 1
     assert _count_text_fields(doc) == 0
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        ok = FieldsInsert().execute(tool_ctx, field="PageCount", target="search", old_content="Word here")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert ok["status"] == "ok", ok
+    assert _count_text_fields(doc) == 1
+    reject_all_changes(doc, ctx)
+    assert doc.getText().getString() == "Word OLD here"
 

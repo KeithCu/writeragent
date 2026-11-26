@@ -61,6 +61,7 @@ from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import create_property_value, get_toolkit
 from plugin.writer.edit_review import (
     agent_format_author,
+    edit_is_recorded,
     flag_style_unreviewed,
     flag_tracked,
     next_agent_edit_undo_title,
@@ -1697,10 +1698,10 @@ def target_cursors(
             err.update(mode.result_fields())
             return [], err, mode
         ranges = [ranges[occ]]
-    if check_crossing and (is_recording_changes(ctx.doc) or review_recording_enabled()):
+    if check_crossing and edit_is_recorded(ctx.doc):
         # A recorded character format over a pending Delete becomes a Format redline, and the struck text is live again.
         deletions = TrackedDeletions(ctx.doc)
-        ranges = [r for r in ranges if not search_mod.match_crosses_deletion(deletions, r)]
+        ranges = [r for r in ranges if not deletions.overlaps(r)]
         if not ranges:
             err = tool._tool_error(
                 search_mod.CROSSES_DELETION_MESSAGE,
@@ -2015,7 +2016,7 @@ class ApplyStyle(FrameworkToolBase):
         if family == "CharacterStyles":
             if review_recording_enabled():
                 recording_cm = record_changes(ctx.doc, True)
-        elif review_recording_enabled() or is_recording_changes(ctx.doc):
+        elif edit_is_recorded(ctx.doc):
             author = paragraph_redline_author(ctx.ctx)
             # Recording is off during the write because LibreOffice would record the Char* restore
             # as Format redlines whose Reject keeps the new style; makeRedline records the paragraph

@@ -1167,6 +1167,21 @@ def test_apply_char_style_crossing_deletion_recording_vs_off_uno(ctx, doc):
     types = [doc.getRedlines().getByIndex(i).RedlineType for i in range(doc.getRedlines().getCount())]
     assert types.count("Delete") == 1, types
 
+    # Multi-paragraph needle across a deletion is also refused while recording.
+    text.setString("First OLD\rSecond")
+    from tests.writer.doc_builders import strike_substring
+    strike_substring(doc, text, "OLD")
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        multi_refused = ApplyStyle().execute(
+            tool_ctx, style="Emphasis", family="CharacterStyles", target="search", old_content="First\nSecond"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert multi_refused["status"] == "error" and multi_refused["code"] == "MATCH_CROSSES_DELETION", multi_refused
+    assert doc.getRedlines().getCount() == 1
+    assert doc.getRedlines().getByIndex(0).RedlineType == "Delete"
+
 
 def _para_portion_snapshot(para):
     portions = []

@@ -450,31 +450,26 @@ def anchor_miss_message(kind: AnchorMissKind, *, tracked_deletions: bool = False
 
 
 CROSSES_DELETION_MESSAGE = (
-    "The matched text runs across a pending tracked deletion, so it was not changed. Accept or reject "
-    "that deletion first, or use a shorter piece on one side of it."
+    "The matched text overlaps a pending tracked deletion, so it was not changed. Do not accept or "
+    "reject that deletion; use a shorter piece of text on one side of it."
+)
+UNRECORDED_CROSSES_DELETION_MESSAGE = CROSSES_DELETION_MESSAGE + (
+    " With Track Changes on, this edit is recorded beside the deletion, so ask the user to turn "
+    "Track Changes on if the whole passage must change."
 )
 
 
-def match_crosses_deletion(deletions: TrackedDeletions, found: Any) -> bool:
-    """True when *found* lies in one paragraph and a pending deletion strikes part of it.
+def crossing_match_error(doc: Any, found: Any, *, recorded: bool) -> dict[str, Any] | None:
+    """MATCH_CROSSES_DELETION when an unrecorded edit of *found* would overlap a pending deletion.
 
-    An untracked replace would put new text inside the struck run or remove another author's
-    deletion, and a recorded character format turns the Delete redline into a Format redline.
-    A chained match over several paragraphs is not checked.
+    Made with Track Changes off, a replace removes struck text outright, so the deletion
+    (often another author's) is gone without a trace. Recorded, LibreOffice keeps that
+    deletion as its own redline beside the new Delete and Insert, so the edit goes ahead.
+    The range may span paragraphs (chained matches and start/end anchors).
     """
-    if not deletions.overlaps(found):
-        return False
-    text = found.getText()
-    para_end = text.createTextCursorByRange(found.getStart())
-    para_end.gotoEndOfParagraph(False)
-    return starts_at_or_after(text, para_end, found.getEnd())
-
-
-def crossing_match_error(doc: Any, found: Any) -> dict[str, Any] | None:
-    """The MATCH_CROSSES_DELETION tool error for *found*, or None when it may be edited."""
-    if not match_crosses_deletion(TrackedDeletions(doc), found):
+    if recorded or not TrackedDeletions(doc).overlaps(found):
         return None
-    return make_tool_error(CROSSES_DELETION_MESSAGE, code="MATCH_CROSSES_DELETION")
+    return make_tool_error(UNRECORDED_CROSSES_DELETION_MESSAGE, code="MATCH_CROSSES_DELETION")
 
 
 def find_text_ranges(
