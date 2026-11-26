@@ -28,7 +28,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload, is
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
-from plugin.writer.edit_review import annotate_review_status, flag_tracked
+from plugin.writer.edit_review import flag_tracked
 from plugin.writer.html_import import (
     non_text_portion_type,
     replace_preserving_format,
@@ -1209,7 +1209,6 @@ class TableSetCell(ToolWriterTableBase):
             _mutate_or_rollback(ctx.doc, uno_ctx, _("WriterAgent: Set table cell"), _apply)
             if recorded:
                 flag_tracked(result)
-                return annotate_review_status(result)
             return result
         except ValueError as ve:
             return self._tool_error(str(ve))
