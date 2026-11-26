@@ -12,6 +12,7 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.selection import SetSelection
+from tests.writer.doc_builders import build_chain_deletion_doc
 
 
 @native_test
@@ -152,9 +153,7 @@ def test_set_selection_search_reports_visible_text_uno(ctx, doc):
     assert res["length"] == 9
 
     # Chained two-paragraph needle over struck text.
-    from tests.writer.test_search_uno import _build_chain_deletion_doc
-
-    _build_chain_deletion_doc(doc, text)
+    build_chain_deletion_doc(doc, text)
 
     chain_needle = "Line 1\nLine 2 match"
     res_chain = SetSelection().execute(tctx, search_text=chain_needle)

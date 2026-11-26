@@ -569,6 +569,7 @@ def test_acp_approval_default_and_dead_turn():
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self._send_cancellation = None
+            self.session = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -614,6 +615,7 @@ def test_acp_approval_auto_approve_when_configured():
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self._send_cancellation = None
+            self.session = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -1503,7 +1505,7 @@ def test_direct_image_stop_finalizes_with_stop_line():
     """Image-mode Stop must draw the stop line like chat and web (Scrolly QA)."""
     panel = DummyChatbotPanel()
     panel.stop_requested = True
-    with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=lambda *a, **kw: kw.get("on_finished") and kw["on_finished"]()), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response") as fin:
+    with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=lambda *a, **kw: kw.get("on_finished") and kw["on_finished"]()), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.send_handlers.finalize_sidebar_assistant_response") as fin:
         panel._execute_direct_image_effect("a cat", MagicMock())
     fin.assert_called_once_with(panel, allow_rerender=False)
 
@@ -1649,7 +1651,7 @@ def test_brainstorming_send_replaces_writing_plan_topic():
     send._mode_topic = "Old Writing Plan Topic"
     send._send_handlers._run_specialized = MagicMock()
 
-    with patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_BRAINSTORMING), \
+    with patch("plugin.chatbot.panel.mode_from_selector_with_flags", return_value=CHAT_MODE_BRAINSTORMING), \
          patch("plugin.chatbot.dialogs.get_control_text", return_value="New Brainstorming Query"):
         send._do_send()
 

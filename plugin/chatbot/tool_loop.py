@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from plugin.chatbot.chat_session import ChatSession
-    from plugin.framework.client.llm_client import LlmClient
 
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
@@ -33,18 +32,26 @@ from plugin.framework.errors import BlockingWaitStopped, best_effort, format_err
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
+    is_400_input_validation,
+    is_audio_unsupported_error,
+    is_image_unsupported_error,
 )
 from plugin.framework.config import (
     fill_api_key,
     get_api_config,
     get_config,
     validate_api_config,
+    get_current_endpoint,
 )
 from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client import model_fetcher
 from plugin.framework.client.model_fetcher import (
     resolve_context_window,
     set_image_model,
+    get_stt_model,
+    set_native_audio_support,
+    get_text_model,
+    set_native_vision_support,
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -110,7 +117,7 @@ def stream_error_keeps_drain(outcome: StreamErrorOutcome) -> bool:
 CHAT_STREAM_BATCH_INTERVAL = 0.25  # seconds
 
 
-def _last_user_message_with_image(session: Any) -> dict[str, Any] | None:
+def _last_user_message_with_image(session: ChatSession) -> dict[str, Any] | None:
     """The session's last user message when it carries an image_url part."""
     for msg in reversed(session.messages):
         if msg.get("role") == "user":
@@ -121,7 +128,7 @@ def _last_user_message_with_image(session: Any) -> dict[str, Any] | None:
     return None
 
 
-def _strip_user_image(session: Any, msg: dict[str, Any], fallback_text: str) -> None:
+def _strip_user_image(session: ChatSession, msg: dict[str, Any], fallback_text: str) -> None:
     """Drop msg's image_url parts. Text-only leftovers collapse to a string.
 
     Other parts (input_audio appended in memory for this turn) stay.
@@ -132,7 +139,7 @@ def _strip_user_image(session: Any, msg: dict[str, Any], fallback_text: str) -> 
         msg["content"] = clean_text or fallback_text
     else:
         msg["content"] = rest
-    if getattr(session, "db", None) is not None:
+    if session.db is not None:
         session.db.update_last_user_content(msg["content"])
 
 
@@ -182,7 +189,7 @@ def _chunk_callbacks(
 
 
 def _compact_bound_session(
-    session: Any,
+    session: ChatSession,
     client: Any,
     turn: TurnController | None,
     *,
@@ -223,12 +230,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
 
     The chat POST already failed, so this must not re-enter
     ``_do_send_chat_with_tools`` / ``_start_tool_calling_async`` (nested drain).
-    Model-catalog imports stay inside this function so importing ``tool_loop`` to
-    spawn a recording does not load the model fetcher.
     """
     from plugin.audio.stt_service import uses_local_stt
-    from plugin.framework.client.errors import is_400_input_validation, is_audio_unsupported_error
-    from plugin.framework.client.model_fetcher import get_stt_model, set_native_audio_support
     from plugin.framework.i18n import _
 
     if not host.audio_wav_path or not (is_400_input_validation(error) or is_audio_unsupported_error(error)):
@@ -241,9 +244,6 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
     turn_model = getattr(turn, "text_model", None)
     turn_endpoint = getattr(turn, "endpoint", None)
     if not turn_model:
-        from plugin.framework.client.model_fetcher import get_text_model
-        from plugin.framework.config import get_current_endpoint
-
         turn_model = get_text_model()
         turn_endpoint = get_current_endpoint()
     if turn_model:
@@ -285,7 +285,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
                 # The drain keeps running only when on_error returns True,
                 # which means a replacement worker was spawned. Empty speech
                 # spawns nothing and posts no STREAM_DONE, so returning True
-                # left the sidebar on Stop. None means this turn is finished
+                # would leave the sidebar on Stop. END means this turn is finished
                 # and a second API error should not be shown.
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
                 assign_send_outcome(host, None)
@@ -293,7 +293,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
             combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
             if turn_session.messages and turn_session.messages[-1].get("role") == "user":
                 turn_session.messages[-1]["content"] = combined
-                if getattr(turn_session, "db", None):
+                if turn_session.db:
                     turn_session.db.update_last_user_content(combined)
             else:
                 turn_session.add_user_message(combined)
@@ -328,7 +328,7 @@ def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
 
 
 def _append_user_message_for_send(
-    turn_session: Any,
+    turn_session: ChatSession,
     query_text: str,
     b64_image: str | None,
     panel: Any,
@@ -399,7 +399,7 @@ def _append_user_message_for_send(
         panel._append_response(display_line, role="user")
 
 
-class _PanelDescriptor:
+class PanelDescriptor:
     """Descriptor that returns the parent panel host, or the instance itself when unset (e.g. in test subclasses)."""
 
     def __get__(self, instance: Any, owner: Any = None) -> Any:
@@ -419,7 +419,7 @@ class ToolCallingMixin:
     document model live on the turn — not a second copy of round/pending/stop.
     """
 
-    _panel: Any = _PanelDescriptor()
+    _panel: Any = PanelDescriptor()
 
     def __init__(self, panel: Any = None) -> None:
         if panel is not None:
@@ -479,6 +479,7 @@ class ToolCallingMixin:
             if bound_turn is None or not bound_turn.can_write(self._panel):
                 return
             session = bound_turn.session
+            assert session is not None  # can_write refuses a turn with no session
             session.active_specialized_domain = domain
             session.python_tool_domain = python_tool_domain
             log.debug("_do_send: updated active specialized domain to: %s (python_tool_domain: %s)", domain, python_tool_domain)
@@ -487,7 +488,7 @@ class ToolCallingMixin:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
             turn_session = session_for_turn(self._panel)
             active_domain = turn_session.active_specialized_domain if turn_session is not None else None
-            python_tool_domain = getattr(turn_session, "python_tool_domain", None) if turn_session is not None else None
+            python_tool_domain = turn_session.python_tool_domain if turn_session is not None else None
             if entered.slash_sidebar_only:
                 # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
@@ -692,7 +693,7 @@ class ToolCallingMixin:
         tools: list[dict[str, Any]] | None = None,
         force: bool = False,
         resume_status: str,
-        stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Any], Any],
+        stream_call: Callable[[ChatSession, Callable[[str], None], Callable[[str], None], Callable[[str], None], Any], Any],
         done_kind: StreamQueueKind,
         on_success: Callable[[], None] | None = None,
         error_log_msg: str,
@@ -965,29 +966,24 @@ class ToolCallingMixin:
         err_msg = str(e.get("message") or e.get("code") or e)
         crash_blob = "%s %s" % (err_msg, e)
 
-        # Tip: a model that rejects images must not keep them in history, or
+        # A model that rejects images must not keep them in history, or
         # every later prompt fails too. Mark it text-only and strip the image.
-        from plugin.framework.client.errors import is_image_unsupported_error
-
         if is_image_unsupported_error(crash_blob):
             turn_model = getattr(live, "text_model", None)
             turn_endpoint = getattr(live, "endpoint", None)
             if not turn_model:
-                from plugin.framework.client.model_fetcher import get_text_model
                 turn_model = get_text_model()
             if not turn_endpoint:
-                from plugin.framework.config import get_current_endpoint
                 turn_endpoint = get_current_endpoint()
             if turn_model:
-                from plugin.framework.client.model_fetcher import set_native_vision_support
                 set_native_vision_support(turn_model, turn_endpoint, supported=False)
 
             # Vision strip targets session_for_turn, not host.session, so mode switches do not
             # mutate the wrong transcript.
             turn_session = session_for_turn(self._panel)
             image_msg = _last_user_message_with_image(turn_session) if turn_session is not None else None
-            if image_msg is not None:
-                # Old code tolerated a missing live turn; keep that.
+            if turn_session is not None and image_msg is not None:
+                # live can be None when the turn ended before this drain; the fallback text is then empty.
                 _strip_user_image(turn_session, image_msg, getattr(live, "active_query_text", "") or "")
 
         # Prompt-too-large: respawn the worker with force_compact. Never call

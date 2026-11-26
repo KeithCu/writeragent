@@ -1,7 +1,7 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.search import SearchInDocument
-from tests.writer.doc_builders import reject_all_changes, strike_substring
+from tests.writer.doc_builders import build_chain_deletion_doc, reject_all_changes, strike_substring
 
 
 def _populate_search_doc(doc):
@@ -333,7 +333,6 @@ def test_search_miss_names_closest_text_box_text_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_skips_tracked_deleted_text_and_table_cell_uno(ctx, doc):
     from plugin.tests.testing_utils import native_writer_tool_context, strike_across_paragraphs, strike_across_table
-    from plugin.writer.search import SearchInDocument
 
     text = doc.getText()
     strike_across_paragraphs(doc, text)
@@ -408,33 +407,6 @@ def test_apply_content_multi_paragraph_inside_one_cell_matches_uno(ctx, doc):
     assert "Three" in cell.getString()
 
 
-def _build_chain_deletion_doc(doc, text) -> None:
-    text.setString("")
-    cur = text.createTextCursor()
-    text.insertString(cur, "Keep GONE Line 1", False)
-    text.insertControlCharacter(cur, 0, False)
-    text.insertString(cur, "Line OLD 2 match More", False)
-
-    enum = text.createEnumeration()
-    paras = []
-    while enum.hasMoreElements():
-        paras.append(enum.nextElement())
-
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        c1 = text.createTextCursorByRange(paras[0].getStart())
-        c1.goRight(len("Keep "), False)
-        c1.goRight(len("GONE "), True)
-        c1.setString("")
-
-        c2 = text.createTextCursorByRange(paras[1].getStart())
-        c2.goRight(len("Line "), False)
-        c2.goRight(len("OLD "), True)
-        c2.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-
-
 @native_test
 @with_native_doc("writer")
 def test_chain_range_ignores_struck_text_uno(ctx, doc):
@@ -442,7 +414,7 @@ def test_chain_range_ignores_struck_text_uno(ctx, doc):
     from plugin.writer.search import find_first_range
 
     text = doc.getText()
-    _build_chain_deletion_doc(doc, text)
+    build_chain_deletion_doc(doc, text)
     needle = "Line 1\nLine 2 match"
     rng = find_first_range(doc, needle)
     assert rng is not None
@@ -458,7 +430,7 @@ def test_chain_replace_keeps_text_after_struck_run_uno(ctx, doc):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     text = doc.getText()
-    _build_chain_deletion_doc(doc, text)
+    build_chain_deletion_doc(doc, text)
     raw_before = normalize_linebreaks(text.getString())
     tctx = native_writer_tool_context(doc, ctx)
 
@@ -533,7 +505,7 @@ def test_chain_range_in_table_cell_ignores_struck_text_uno(ctx, doc):
     tbl.initialize(1, 1)
     doc.getText().insertTextContent(doc.getText().getEnd(), tbl, False)
     cell = tbl.getCellByName("A1")
-    _build_chain_deletion_doc(doc, cell)
+    build_chain_deletion_doc(doc, cell)
 
     needle = "Line 1\nLine 2 match"
     rng = find_first_range(doc, needle)

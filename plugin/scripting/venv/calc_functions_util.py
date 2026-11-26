@@ -2,7 +2,8 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what the letter files import; underscore names are used only inside this module.
+"""Shared helpers for the calc_functions_* letter files. Names without a leading underscore are what
+the letter files import; underscore names are used only inside this module.
 
 Where Calc and Excel differ, helpers follow Calc: it is what the sheet shows and what spreadsheet-import verification compares against.
 
@@ -54,6 +55,7 @@ import numpy as np
 from plugin.scripting.calc_range import CalcRange
 
 from .coerce import is_blank_value, is_error_token, is_missing_value
+
 
 def formula_error_nan(code: int) -> float:
     """Quiet NaN carrying a LibreOffice FormulaError code in its low bits (GetDoubleErrorValue, include/formula/errorcodes.hxx)."""
@@ -672,8 +674,6 @@ def collect_a_values(*args: Any) -> np.ndarray:
     return np.asarray(vals, dtype=float)
 
 
-
-
 def npf_result(kind: str, *args: Any) -> float:
     """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
 
@@ -743,7 +743,11 @@ def _to_float_or_none(value: Any) -> float | None:
 
 
 def is_criteria_blank(value: Any) -> bool:
-    """None, blank text, NaN, NaT or pd.NA. Error text is not blank: criteria compare an error cell by its displayed text (ScQueryEvaluator::getCellString, sc/source/core/data/queryevaluator.cxx)."""
+    """None, blank text, NaN, NaT or pd.NA.
+
+    Error text is not blank: criteria compare an error cell by its displayed text
+    (ScQueryEvaluator::getCellString, sc/source/core/data/queryevaluator.cxx).
+    """
     return is_blank_value(value) if isinstance(value, str) else is_missing_value(value)
 
 
@@ -853,7 +857,11 @@ def match_criteria(val: Any, crit: Any) -> bool:
 
 
 def criterion_text(crit: Any) -> Any:
-    """The text D* functions match. A criterion cell is read as text (doubleref.cxx passes the cell string to FillInExcelSyntax), and a boolean is "1" or "0"."""
+    """The text D* functions match.
+
+    A criterion cell is read as text (doubleref.cxx passes the cell string to FillInExcelSyntax),
+    and a boolean is "1" or "0".
+    """
     num = _to_float_or_none(crit) if isinstance(crit, _NUMERIC_TYPES) else None
     return crit if num is None else number_text(num)
 
@@ -947,5 +955,3 @@ def multi_criteria_mask(
         matcher = _parse_criterion(crit)
         mask &= np.fromiter((matcher(v) for v in flat), dtype=bool, count=width)
     return mask
-
-

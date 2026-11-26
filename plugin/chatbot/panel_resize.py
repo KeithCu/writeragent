@@ -355,17 +355,19 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
 
 
 def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
-    """(width, height) from XLayoutConstrains on a control, or None."""
-    size: Any = uno_read(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
+    """(width, height) from XLayoutConstrains on a control, or None when the control is absent or the read fails."""
+    if ctrl is None:
+        return None
+    size = uno_read(getattr(ctrl, method), None)
     if size is None:
         return None
-    w, h = getattr(size, "Width", 0), getattr(size, "Height", 0)
+    w, h = size.Width, size.Height
     if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
         return None
     return w, h
 
 
-def _set_pos_size_if_changed(ctrl: Any, x: int, y: int, w: int, h: int) -> None:
+def set_pos_size_if_changed(ctrl: Any, x: int, y: int, w: int, h: int) -> None:
     cur = ctrl.getPosSize()
     if (cur.X, cur.Y, cur.Width, cur.Height) != (x, y, w, h):
         ctrl.setPosSize(x, y, w, h, 15)
@@ -523,7 +525,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         for name, rect in layouts.items():
             ctrl = self._c.get(name)
             if ctrl is not None:
-                _set_pos_size_if_changed(ctrl, rect.x, rect.y, rect.width, rect.height)
+                set_pos_size_if_changed(ctrl, rect.x, rect.y, rect.width, rect.height)
 
         response = layouts["response"]
         self.last_response_rect = (response.x, response.y, response.width, response.height)

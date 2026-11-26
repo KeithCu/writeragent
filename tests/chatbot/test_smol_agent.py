@@ -574,7 +574,7 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
 
 
 def test_run_smol_side_turn_trims_history_and_reports_document_opens():
-    from plugin.chatbot.smol_agent import _document_open_tool_handler, run_smol_side_turn
+    from plugin.chatbot.smol_agent import document_open_tool_handler, run_smol_side_turn
     from plugin.chatbot.smol_examples import get_examples_block
 
     ctx = MagicMock()
@@ -591,7 +591,7 @@ def test_run_smol_side_turn_trims_history_and_reports_document_opens():
             collector=lambda c: [],
             instructions="inst",
             examples_key="brainstorming",
-            tool_call_handler=_document_open_tool_handler(ctx),
+            tool_call_handler=document_open_tool_handler(ctx),
             status_message="Brainstorming...",
             stop_message="Brainstorming stopped by user.",
             error_prefix="Brainstorming failed",

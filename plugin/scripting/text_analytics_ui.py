@@ -196,7 +196,8 @@ class TextAnalyticsDialog:
                 ctrl = self._dlg.getControl(cid)
             except Exception:
                 log.debug("text analytics: set busy control %s failed", cid, exc_info=True)
-                # return stopped the loop at the first getControl failure, so a later re-enable left every control after that id disabled. One missing or throwing id must not freeze the others.
+                # Skip only this id: stopping the loop here would leave every later control
+                # disabled after the next re-enable.
                 continue
             if ctrl is not None:
                 set_control_enabled(ctrl, not busy)
@@ -299,7 +300,9 @@ class TextAnalyticsDialog:
             if is_text_diagnostics(helper):
                 text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
-                # every non-diagnostics exception, including Python worker failed: timed out after …, used this package paragraph. The paragraph stays for messages that are failed imports. Other failures show only Error: plus the exception text.
+                # The missing-package paragraph is only for failed imports. Every other failure
+                # (including "Python worker failed: timed out after …") shows only Error: plus the
+                # exception text.
                 if any(marker in str(error) for marker in ("No module named", "ModuleNotFoundError", "ImportError")):
                     text = _(
                         "Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). "
@@ -341,7 +344,9 @@ class TextAnalyticsDialog:
 
         source = self._source_uid or ""
         active = get_runtime_uid(doc) or ""
-        # Insert used whatever document was active at click time, so a report computed from document A was written into document B. The uid is taken on the UI thread before the worker starts. Both ids must be present before a mismatch refuses; a missing id keeps the previous insert.
+        # The source uid is taken on the UI thread before the worker starts, so a report computed
+        # from document A is not written into document B after the user switches windows. Both ids
+        # must be present before a mismatch refuses; a missing id inserts into the active document.
         if source and active and source != active:
             msgbox(ctx, _("Text Analytics"), _("Switch back to the document that was analyzed, or run the analysis again."))
             return

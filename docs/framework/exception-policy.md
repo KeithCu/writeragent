@@ -83,6 +83,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `SELECTION_NOT_TEXT` | error | Selection is a floating object, several objects, or a cell block rather than text, or the view has no caret (Print Preview) (`html_import.py`) | None |
 | `HIDDEN_SECTION` | error | `full_document` on a document with a hidden or conditional (`IsVisible=False`) section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
 | `PROTECTED_SECTION` | error | `full_document` on a document with a protected non-index section outside headers and footers (including tables and frames in them) (`html_import.py`) | None |
+| `PENDING_TRACKED_CHANGES` | error | `full_document` with Track Changes off while the body (outside headers and footers) has pending tracked insertions or deletions by anyone (`html_import.py`) | None |
 | `HYPERLINK_UPDATE_FAILED` | error | Updating hyperlink URL or bookmark target failed (`apply_document_content.py`, `hyperlink_fixup.py`, also reported by `all_matches`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`), `page.py`, `html_import.py`. `commit_or_rollback_mutation` and `styles.py` keep their own code when `UndoOutcome.nothing_landed` is False, but say the change could not be rolled back. | None |

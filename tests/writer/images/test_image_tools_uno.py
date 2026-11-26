@@ -130,7 +130,7 @@ def test_insert_image_plain_writer_body(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_insert_image_in_table_cell(ctx, doc):
-    """#796 nested XText: insert at a cell view cursor must still land a graphic."""
+    """Nested XText: insert at a cell view cursor must still land a graphic."""
     logo = _logo_path()
     assert os.path.isfile(logo), "fixture image missing: %s" % logo
     text = doc.getText()
@@ -229,8 +229,6 @@ def test_writer_graphic_object_get_size_uno(ctx, doc):
 @with_native_doc("calc")
 def test_calc_insert_image_anchors_to_selection_top_left_uno(ctx, doc):
     """Embedded Calc picture insert anchors to selection top-left, moves on row insert, and uses A1 on another sheet."""
-    import shutil
-    import tempfile
 
     sheet0 = doc.getSheets().getByIndex(0)
     draw_page0 = sheet0.getDrawPage()
@@ -359,8 +357,6 @@ def test_calc_insert_linked_image_is_one_anchored_picture_uno(ctx, doc):
 @with_native_doc("calc")
 def test_calc_insert_image_rtl_right_edge_on_cell_uno(ctx, doc):
     """On an RTL sheet (TableLayout=1), inserted picture's right edge aligns with the cell's right edge."""
-    import shutil
-    import tempfile
 
     sheet = doc.getSheets().getByIndex(0)
     draw_page = sheet.getDrawPage()

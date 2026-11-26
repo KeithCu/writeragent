@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Write a DAG conversion report into the open Calc document on OnLoadFinished: script-bank sheets, ;-separated =PY formulas, and a spill clear before each rewrite."""
+"""Write a DAG conversion report into the open Calc document on OnLoadFinished: script-bank sheets,
+;-separated =PY formulas, and a spill clear before each rewrite."""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+import uno
 
 from plugin.calc.excel_py_convert.models import find_sheet_ci
 from plugin.calc.excel_py_convert.parse_excel_ooxml import row_col_1based, a1_span_bounds
@@ -104,9 +106,6 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             if named_ranges is not None:
                 expected_def = bank_defined_name_for(code_sheet)
                 if not named_ranges.hasByName(expected_def):
-                    # pyuno; only the bank defined-name path needs a UNO struct.
-                    import uno
-
                     addr = uno.createUnoStruct("com.sun.star.table.CellAddress")
                     named_ranges.addNewByName(expected_def, f"'{code_sheet}'.$A$1", addr, 0)
                     journal.append(("removeByName", expected_def, lambda name=expected_def, nr=named_ranges: nr.removeByName(name) if nr.hasByName(name) else None))

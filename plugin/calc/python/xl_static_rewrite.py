@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Save-time sugar: static ``xl("A1:…")`` → ``=PY`` data args + polymorphic ``data``.
 
-Gated by ``scripting.xl_static_rewrite`` (Settings → Python → Rewrite xl() ranges, default off; applied by ``editor.apply_cell_save`` for formula and ``=PY($A$1)`` follow saves). No live sheet reads —
+Gated by ``scripting.xl_static_rewrite`` (Settings → Python → Rewrite xl() ranges, default off;
+applied by ``editor.apply_cell_save`` for formula and ``=PY($A$1)`` follow saves). No live sheet
+reads —
 ranges become normal formula precedents; call sites become ``data`` (one binding) or
 ``data[i]`` (two or more). On the one-to-many transition only, prior sugar-shaped bare
 ``data`` uses are migrated to ``data[0]`` (skipped when the script binds or imports ``data``).

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, TYPE_CHECKING
 
-from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase, _session_tool_parameters
+from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase, session_tool_parameters
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -78,7 +78,7 @@ class PptMasterSessionTool(SubAgentSessionToolBase):
     description: str = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
     agent_label: str = "PPT-Master"
     runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_ppt_master_venv_agent)
-    parameters: dict[str, Any] | None = _session_tool_parameters(
+    parameters: dict[str, Any] | None = session_tool_parameters(
         "Original deck topic.",
         query_description="User message.",
         history_description="Prior conversation.",

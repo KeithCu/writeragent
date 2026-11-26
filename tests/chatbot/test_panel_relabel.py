@@ -12,7 +12,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from plugin.chatbot.panel import _relabel_button
+from plugin.chatbot.panel import relabel_button
 from plugin.chatbot.send_state import UpdateUIEffect
 
 
@@ -75,23 +75,23 @@ class _Button:
 
 def test_relabel_keeps_the_layout_rect():
     btn = _Button("Record", "~Record", (16, 700, 148, 24), grow_on_relabel=12)
-    _relabel_button(btn, "Send", {})
+    relabel_button(btn, "Send", {})
     assert btn.rect == (16, 700, 148, 24)
     assert btn.model.Label == "Send"
 
 
 def test_relabel_does_not_move_a_button_that_kept_its_size():
     btn = _Button("Record", "~Record", (16, 700, 148, 24))
-    _relabel_button(btn, "Send", {})
+    relabel_button(btn, "Send", {})
     assert btn.calls == []
 
 
 def test_mnemonic_comes_back_with_its_label():
     btn = _Button("Record", "~Record", (16, 700, 148, 24))
     cache: dict[str, str] = {}
-    _relabel_button(btn, "Send", cache)
+    relabel_button(btn, "Send", cache)
     assert btn.peer.label == "Send"
-    _relabel_button(btn, "Record", cache)
+    relabel_button(btn, "Record", cache)
     assert btn.peer.label == "~Record"
     # Click handlers compare the model label; it stays plain.
     assert btn.model.Label == "Record"
@@ -99,7 +99,7 @@ def test_mnemonic_comes_back_with_its_label():
 
 def test_same_label_is_a_no_op():
     btn = _Button("Record", "~Record", (16, 700, 148, 24), grow_on_relabel=12)
-    _relabel_button(btn, "Record", {})
+    relabel_button(btn, "Record", {})
     assert btn.peer.label == "~Record"
     assert btn.calls == [] and btn.rect == (16, 700, 148, 24)
 

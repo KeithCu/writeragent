@@ -11,7 +11,7 @@ from plugin.embeddings.venv.embeddings_cross_encoder_rerank import cross_encoder
 from plugin.embeddings.venv.embeddings_parent_hits import expand_candidates_to_parent_paragraphs
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_search_graph import (
-    _public_hit_from_candidate,
+    public_hit_from_candidate,
 )
 from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
@@ -92,7 +92,7 @@ def hybrid_corpus_search(
     hits: list[dict[str, Any]] = []
     for row in fused:
         cand = dict(row)
-        hit = _public_hit_from_candidate(cand)
+        hit = public_hit_from_candidate(cand)
         if row.get("matched_by"):
             hit["matched_by"] = list(row["matched_by"])
         hits.append(hit)

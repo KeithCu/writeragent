@@ -143,7 +143,7 @@ def test_factory_opens_one_session_per_frame():
         return "uid-a" if frame is frame_a else "uid-b"
 
     with (
-        patch("plugin.framework.uno_context.document_id_for_frame", side_effect=_doc_id),
+        patch("plugin.chatbot.panel_factory.document_id_for_frame", side_effect=_doc_id),
         patch("plugin.framework.uno_context.get_active_document", side_effect=AssertionError("current component")),
     ):
         element_a = factory.createUIElement("private:resource/toolpanel/WriterAgent/ChatPanel", _args(frame_a))

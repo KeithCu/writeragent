@@ -307,8 +307,6 @@ def test_search_paragraph_texts_does_not_scan_past_cap():
 
 
 def test_search_paragraph_texts_stop_checker_returns_nothing():
-    from plugin.framework.send_cancellation import SendCancellation
-
     scope = SendCancellation()
     scope.cancel()
     matches, truncated = search_paragraph_texts("foo", ["foo"], cancel=scope)

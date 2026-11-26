@@ -166,7 +166,7 @@ class SubAgentSessionToolBase(ToolBase):
             return format_error_payload(err)
 
 
-def _session_tool_parameters(  # pyright: ignore[reportUnusedFunction]
+def session_tool_parameters(
     topic_description: str,
     *,
     query_description: str = "User message or initial task.",
@@ -250,7 +250,7 @@ def run_domain_sub_agent(
     history_text: str | None = None,
     topic: str | None = None,
 ) -> dict[str, Any]:
-    from plugin.chatbot.smol_agent import _document_open_tool_handler, run_smol_side_turn
+    from plugin.chatbot.smol_agent import document_open_tool_handler, run_smol_side_turn
 
     tools = collect_sub_agent_tools(ctx, domain)
     tool_names = [t.name for t in tools if t.name]
@@ -265,7 +265,7 @@ def run_domain_sub_agent(
         instructions=instructions,
         examples_key=domain,
         mode=mode,
-        tool_call_handler=_document_open_tool_handler(ctx),
+        tool_call_handler=document_open_tool_handler(ctx),
         status_message=f"{activity_label}...",
         stop_message=f"{activity_label} stopped by user.",
         error_prefix=f"{activity_label} failed",

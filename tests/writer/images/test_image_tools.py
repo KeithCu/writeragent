@@ -218,7 +218,7 @@ class TestWriterImageCursorConversion:
                 description="d",
             )
 
-        # Body must clone via getStart(), not the ViewCursor itself (PR #796).
+        # The body clones via getStart(), not the ViewCursor itself.
         doc_text.createTextCursorByRange.assert_called_once_with("range-start")
         doc_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
         image_instance.setPropertyValue.assert_any_call("GraphicURL", f"file:///{os.path.abspath('/home/user/photo.png')}")
@@ -256,7 +256,7 @@ class TestWriterImageCursorConversion:
         view_cursor.jumpToStartOfPage.assert_not_called()
 
     def test_insert_nested_falls_back_to_clone_when_getstart_rejected(self):
-        """#796: table/frame XText that rejects getStart() still clones on the host."""
+        """A table/frame XText that rejects getStart() still clones on the host."""
         cell_text = MagicMock()
         text_cursor = MagicMock(name="cell_clone")
         cell_text.createTextCursorByRange.side_effect = [
@@ -1011,8 +1011,6 @@ class TestAddImageToGallery:
 
 
 def test_insert_image_into_header_footer_reports_resolved_style_name():
-    from unittest.mock import MagicMock, patch
-
     from plugin.writer.images import image_tools
 
     style = MagicMock()

@@ -4,10 +4,9 @@ import logging
 from typing import Any
 
 from plugin.chatbot.history_db import get_chat_history
+from plugin.framework.client.shim_helpers import snapshot_text
 
 log = logging.getLogger(__name__)
-
-from plugin.framework.client.shim_helpers import snapshot_text
 
 
 def strip_legacy_document_suffix(content: str) -> str:
@@ -29,13 +28,13 @@ def history_open_failed_text() -> str:
     return _("Chat history could not be opened. This conversation will not be saved.")
 
 
-def request_tail(session: Any) -> str:
+def request_tail(session: ChatSession) -> str:
     """Return dynamic per-request context (such as the document snapshot).
 
     Everything that changes per request lives after the cache breakpoint so
     earlier history and system prompts stay cacheable across turns.
     """
-    doc_text = getattr(session, "document_context", "") or ""
+    doc_text = session.document_context
     if doc_text:
         snap = snapshot_text(doc_text)
         if snap:
@@ -190,7 +189,8 @@ class ChatSession:
             return view[:-1] + [new_last]
 
         if role == "tool" and tail:
-            # A user turn after a tool result reads as a new request (gpt-oss-20b re-edited in a loop); folding the snapshot into the tool result keeps the model in tool-response state.
+            # A user turn after a tool result reads as a new request (gpt-oss-20b re-edits in a loop on it);
+            # folding the snapshot into the tool result keeps the model in tool-response state.
             content = last.get("content")
             new_content: Any
             if isinstance(content, str):

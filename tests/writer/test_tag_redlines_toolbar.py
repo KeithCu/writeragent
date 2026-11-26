@@ -27,7 +27,7 @@ class FakeRedline:
             return self.rid
         if name == "RedlineComment":
             return self.comment if self.comment is not None else ""
-        # The scan fails closed when these are unreadable (K204).
+        # The scan fails closed when these are unreadable.
         if name == "RedlineDateTime":
             return None
         if name == "RedlineSuccessorData":

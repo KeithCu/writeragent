@@ -11,7 +11,7 @@ from typing import Any, Callable, NamedTuple
 
 from plugin.chatbot.dialogs import (
     TabListener,
-    _dialog_model_element_names,
+    dialog_model_element_names,
     get_optional,
     load_writeragent_dialog_detail,
     msgbox,
@@ -74,7 +74,8 @@ class _PreviewPane:
 
     Built manually instead of using native dialog scrolling: ``ScrollableDialog::SetScrollTop``
     moves children the wrong way without clipping (``scrollabledialog.cxx``), and toggling
-    ``VScroll`` on a live control recreates the peer (``unocontrol.cxx:502``). Mouse-wheel
+    ``VScroll`` on a live control recreates the peer (``UnoControl::ImplModelPropertiesChanged``,
+    ``unocontrol.cxx:502``). Mouse-wheel
     scrolling is absent because UNO exposes no wheel listener and VCL ``ScrollBar`` has no
     ``Command`` handler.
     """
@@ -202,7 +203,7 @@ class _CallbackActionListener(BaseActionListener):
 def _tab_buttons_in_order(dlg: Any) -> list[Any]:
     """btn_tab_* controls in dialog-model order (the order the XDL generator writes)."""
     buttons: list[Any] = []
-    for name in _dialog_model_element_names(dlg):
+    for name in dialog_model_element_names(dlg):
         if not str(name).startswith("btn_tab_"):
             continue
         btn = get_optional(dlg, str(name))

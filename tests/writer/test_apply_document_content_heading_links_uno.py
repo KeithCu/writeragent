@@ -15,21 +15,23 @@ from typing import Any
 import uno  # noqa: F401
 from com.sun.star.beans import PropertyValue
 
+from plugin.framework.uno_context import enum_has_more, execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
+from tests.writer.doc_builders import accept_all_changes, reject_all_changes
 
 
 def _read_portion_urls(doc) -> list[tuple[str, str]]:
     """Collect (text, HyperLinkURL) for all visible portions in the body."""
     urls = []
     e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         para = e.nextElement()
         if not para.supportsService("com.sun.star.text.Paragraph"):
             continue
         portions = para.createEnumeration()
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             url = str(portion.getPropertyValue("HyperLinkURL") or "")
             text = str(portion.getString() or "")
@@ -40,13 +42,10 @@ def _read_portion_urls(doc) -> list[tuple[str, str]]:
 
 def _jump_to_mark(ctx, doc, mark_name: str) -> None:
     """Dispatch .uno:JumpToMark with Bookmark parameter to simulate a link click."""
-    smgr = ctx.getServiceManager()
-    helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
     prop = PropertyValue()
     prop.Name = "Bookmark"
     prop.Value = mark_name
-    helper.executeDispatch(frame, ".uno:JumpToMark", "", 0, (prop,))
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:JumpToMark", (prop,))
 
 
 def _view_cursor_paragraph_text(doc) -> str:
@@ -287,23 +286,17 @@ def test_heading_links_resolve_text_box_heading_uno(ctx, doc) -> None:
     assert _view_cursor_paragraph_text(doc) == "Box Heading"
 
 
-def _dispatch(ctx, doc, command: str) -> None:
-    smgr = ctx.getServiceManager()
-    helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), command, "", 0, ())
-
-
 def _snapshot_paragraphs(doc) -> list[tuple[str, list[tuple[str, str, str, str, Any, Any]]]]:
     """Capture paragraph text and per-Text-portion link/formatting properties."""
     out = []
     e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         p = e.nextElement()
         if not p.supportsService("com.sun.star.text.Paragraph"):
             continue
         runs = []
         pe = p.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             por = pe.nextElement()
             if str(por.getPropertyValue("TextPortionType") or "") != "Text":
                 continue
@@ -348,12 +341,12 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
 
     # Color the link run to verify color/weight/name/target survive.
     e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         p = e.nextElement()
         if not p.supportsService("com.sun.star.text.Paragraph"):
             continue
         pe = p.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             por = pe.nextElement()
             if str(por.getPropertyValue("HyperLinkURL") or "") == "#Old Alpha|outline":
                 por.setPropertyValue("CharColor", 0x112233)
@@ -375,12 +368,12 @@ def test_heading_rename_retargets_links_uno(ctx, doc) -> None:
     # Verify bold half kept weight, color, name, target.
     half_props = None
     e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         p = e.nextElement()
         if not p.supportsService("com.sun.star.text.Paragraph"):
             continue
         pe = p.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             por = pe.nextElement()
             if str(por.getString() or "") == "half":
                 half_props = (
@@ -539,7 +532,7 @@ def test_heading_rename_reaches_cells_frames_notes_header_uno(ctx, doc) -> None:
         p = e.nextElement()
         pe = p.createEnumeration()
         found_new = False
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             if str(pe.nextElement().getPropertyValue("HyperLinkURL") or "") == "#Renamed Target|outline":
                 found_new = True
         assert found_new
@@ -564,12 +557,12 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
 
     # Apply direct colour on the split link so Reject/Accept formatting preservation is pinned.
     e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         p = e.nextElement()
         if not p.supportsService("com.sun.star.text.Paragraph"):
             continue
         pe = p.createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             por = pe.nextElement()
             if str(por.getPropertyValue("HyperLinkURL") or "") == "#Two part|outline":
                 por.setPropertyValue("CharColor", 0x224466)
@@ -611,7 +604,7 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
     assert res.get("status") == "ok", res
 
     doc.setPropertyValue("ShowChanges", True)
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    reject_all_changes(doc, ctx)
     assert _snapshot_paragraphs(doc) == start_snap
 
     # Also reject once with the renames made under ShowChanges=True, and verify one Undo.
@@ -624,7 +617,7 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
     assert res.get("status") == "ok", res
     res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    reject_all_changes(doc, ctx)
     assert _snapshot_paragraphs(doc) == start_snap
 
     # Re-apply and Accept All: check paragraphs, URLs, and preserved link look.
@@ -632,7 +625,7 @@ def test_heading_rename_while_user_records_uno(ctx, doc) -> None:
     assert res.get("status") == "ok", res
     res = tool.execute(tool_ctx, target="search", old_content="Two part", content="Two B")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     accepted = _snapshot_paragraphs(doc)
     assert len(accepted) == len(start_snap)
     assert [u for _t, u in _read_portion_urls(doc)] == [
@@ -920,9 +913,6 @@ def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) ->
 
     tool_ctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
-    helper = ctx.getServiceManager().createInstanceWithContext(
-        "com.sun.star.frame.DispatchHelper", ctx
-    )
 
     def _setup(heading_text: str):
         res = tool.execute(
@@ -968,11 +958,11 @@ def test_streamed_rewrite_and_append_on_heading_retargets_links_uno(ctx, doc) ->
                         assert _first_para() == "Old Head"
                         assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
                     elif outcome == "accept":
-                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+                        accept_all_changes(doc, ctx)
                         assert _first_para() == expected
                         assert _read_portion_urls(doc) == [("go", f"#{expected}|outline")]
                     elif outcome == "reject":
-                        helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ())
+                        reject_all_changes(doc, ctx)
                         assert _first_para() == "Old Head"
                         assert _read_portion_urls(doc) == [("go", "#Old Head|outline")]
                     else:
@@ -1003,12 +993,12 @@ def _read_text_portion_urls(text_obj) -> list[tuple[str, str]]:
     """Collect (text, HyperLinkURL) for all visible portions in *text_obj*."""
     urls = []
     e = text_obj.createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         para = e.nextElement()
         if not para.supportsService("com.sun.star.text.Paragraph"):
             continue
         portions = para.createEnumeration()
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             url = str(portion.getPropertyValue("HyperLinkURL") or "")
             text = str(portion.getString() or "")
@@ -1279,8 +1269,7 @@ def test_two_links_in_one_paragraph_while_recording_uno(ctx, doc) -> None:
     assert retarget_outline_links(doc, {"Old": "New"}) == (3, {})
     assert retarget_outline_links(doc, {"Old": "New"}) == (0, {})
 
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+    accept_all_changes(doc, ctx)
 
     assert text.getString() == original_text
     urls = _read_portion_urls(doc)

@@ -28,7 +28,12 @@ from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.contrib.smolagents.utils import AgentToolExecutionError
 from plugin.chatbot import smol_examples
-from plugin.framework.errors import ToolExecutionError, make_tool_error, resolve_exception_message
+from plugin.framework.errors import (
+    ToolExecutionError,
+    make_tool_error,
+    resolve_exception_message,
+    format_error_payload,
+)
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
@@ -389,7 +394,6 @@ class SmolAgentExecutor:
         Returns:
             The final answer or a formatted error payload.
         """
-        from plugin.framework.errors import format_error_payload
         from plugin.framework.i18n import _
 
         try:
@@ -518,7 +522,7 @@ def run_inner_tool_agent(
     )
 
 
-def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:  # pyright: ignore[reportUnusedFunction]
+def document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
     """Brainstorming and writing report each research_delegate_read in the chat.
 
     The status line is the tool name alone. Deep research does not use this

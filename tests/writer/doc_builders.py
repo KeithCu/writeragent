@@ -12,10 +12,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.uno_context import enum_has_more, execute_dispatch
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _PARAGRAPH_BREAK = 0
+_PARAGRAPH = "com.sun.star.text.Paragraph"
+_TEXT_TABLE = "com.sun.star.text.TextTable"
 
 
 def reset_body(doc: Any, ctx: Any, *paragraphs: str) -> None:
@@ -35,6 +38,27 @@ def reset_body(doc: Any, ctx: Any, *paragraphs: str) -> None:
         accept_all_changes(doc, ctx)
 
 
+def body_paragraphs(text: Any) -> list[Any]:
+    """Return the paragraphs directly inside *text* (body, header or cell), skipping tables."""
+    return [el for el in iter_elements(text.createEnumeration()) if el.supportsService(_PARAGRAPH)]
+
+
+def body_texts(text: Any) -> list[str]:
+    """Return the string of each paragraph directly inside *text*, skipping tables."""
+    return [para.getString() for para in body_paragraphs(text)]
+
+
+def body_shape(text: Any) -> list[tuple[str, str]]:
+    """Return ``(ParaStyleName, text)`` per paragraph and ``("TABLE", "")`` per table in *text*."""
+    out: list[tuple[str, str]] = []
+    for el in iter_elements(text.createEnumeration()):
+        if el.supportsService(_TEXT_TABLE):
+            out.append(("TABLE", ""))
+        else:
+            out.append((str(el.getPropertyValue("ParaStyleName")), el.getString()))
+    return out
+
+
 def insert_named_table(
     doc: Any, name: str, rows: int, cols: int, cells: dict[str, str] | None = None
 ) -> Any:
@@ -47,6 +71,29 @@ def insert_named_table(
     for cell_name, value in (cells or {}).items():
         table.getCellByName(cell_name).setString(value)
     return table
+
+
+def build_chain_deletion_doc(doc: Any, text: Any) -> None:
+    """Fill *text* with ``Keep GONE Line 1`` / ``Line OLD 2 match More`` and track-delete ``GONE `` and ``OLD ``.
+
+    *text* is the body or a cell. The visible text is ``Keep Line 1`` / ``Line 2 match More``, so a
+    needle spanning both paragraphs (``Line 1`` then ``Line 2 match``) only matches if search skips struck text.
+    """
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Keep GONE Line 1", False)
+    text.insertControlCharacter(cur, _PARAGRAPH_BREAK, False)
+    text.insertString(cur, "Line OLD 2 match More", False)
+    paras = body_paragraphs(text)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        for para, keep, gone in ((paras[0], "Keep ", "GONE "), (paras[1], "Line ", "OLD ")):
+            cursor = text.createTextCursorByRange(para.getStart())
+            cursor.goRight(len(keep), False)
+            cursor.goRight(len(gone), True)
+            cursor.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
 
 
 def accept_all_changes(doc: Any, ctx: Any) -> None:

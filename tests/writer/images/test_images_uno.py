@@ -388,7 +388,6 @@ def test_image_generate_uses_pinned_selection_after_slow_generate_uno(ctx, doc):
 @with_native_doc("writer")
 def test_image_generate_edits_selected_graphic_uno(ctx, doc):
     from unittest.mock import patch
-    from plugin.writer.images.image_tools import insert_image_at_locator
     from plugin.writer.images.images import ImageGenerate
 
     insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
@@ -412,7 +411,6 @@ def test_image_generate_edits_selected_graphic_uno(ctx, doc):
 @with_native_doc("writer")
 def test_image_insert_with_graphic_selected_uno(ctx, doc):
     from unittest.mock import patch
-    from plugin.writer.images.image_tools import insert_image_at_locator
 
     insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
     graphic = doc.getGraphicObjects().getByIndex(0)

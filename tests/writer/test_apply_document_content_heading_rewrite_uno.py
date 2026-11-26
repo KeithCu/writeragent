@@ -6,11 +6,10 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Regression test: replacing text inside a heading paragraph with inline HTML (e.g. a
-# <span>) used to silently downgrade the paragraph to a normal one, losing the heading
-# level (and its outline semantics). The fix preserves the target paragraph style for
-# inline-only content and inserts the fragment raw, so the StarWriter HTML filter does
-# not wrap it in an extra <p>.
+# Replacing text inside a heading paragraph with inline HTML (e.g. a <span>) keeps the
+# heading level and its outline semantics. Inline-only content keeps the target paragraph
+# style and is inserted raw; otherwise the StarWriter HTML filter wraps it in an extra <p>
+# and the heading becomes a normal paragraph.
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test

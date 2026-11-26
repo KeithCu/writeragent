@@ -683,4 +683,3 @@ def test_blank_one_cell_args_in_prob_regex_and_numbervalue():
     assert calc.regex("abc", "b", blank) == "ac"
     assert calc.regex("None here", blank) == ""
     assert calc.numbervalue("1e3", ".", blank) == 1000.0
-

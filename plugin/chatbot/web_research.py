@@ -61,8 +61,15 @@ from plugin.chatbot.web_pages import (
     ReadPageTool,
     page_budget_chars,
 )
-from plugin.chatbot.web_research_cache import ordered_unique_query_words
-from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
+from plugin.chatbot.web_research_cache import (
+    ordered_unique_query_words,
+    format_research_cache_key,
+    enqueue_research_cache_embedding_backfill,
+    enqueue_research_cache_embedding_for_row,
+    resolve_research_locale,
+    lookup_research_cache,
+)
+from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text, clip_sub_agent_history
 
 log = logging.getLogger(__name__)
 
@@ -202,8 +209,6 @@ def _write_research_cache(
     embedding_text: str | None = None,
     mode: str = "",
 ) -> dict[str, Any]:
-    from plugin.chatbot.web_research_cache import format_research_cache_key
-    from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, enqueue_research_cache_embedding_for_row
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
     storage_key = format_research_cache_key(stem_lang, unique_key, mode=mode)
@@ -226,13 +231,14 @@ def _profile_lock(browser_type: str) -> Generator[None]:
     """
     profile_dir = browser_cdp_tool.browser_profile_dir(browser_type)
     with open(os.path.join(profile_dir, _PROFILE_LOCK_NAME), "a", encoding="utf-8") as f:
+        # msvcrt and fcntl each exist only on their own platform, so each is imported in its branch.
         try:
             if sys.platform == "win32":
-                import msvcrt  # Windows-only stdlib module.
+                import msvcrt
 
                 msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
             else:
-                import fcntl  # POSIX-only stdlib module.
+                import fcntl
 
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
@@ -241,7 +247,7 @@ def _profile_lock(browser_type: str) -> Generator[None]:
             yield
         finally:
             if sys.platform == "win32":
-                import msvcrt  # Windows-only stdlib module.
+                import msvcrt
 
                 msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
 
@@ -605,8 +611,8 @@ def _run_web_agent(
                     q = query_override
                     echo(q)
             else:
-                q_norm = _norm_research_query(q)
-                query_norm = _norm_research_query(params.outer_query)
+                q_norm = norm_research_query(q)
+                query_norm = norm_research_query(params.outer_query)
                 if not (web_search_step_index == 0 and q_norm == query_norm):
                     echo(q)
 
@@ -794,7 +800,6 @@ class WebResearchTool(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         history_text = kwargs.get("history_text")
         query_str = str(kwargs.get("query") or "")
-        from plugin.chatbot.web_research_cache import resolve_research_locale
 
         stem_lang = resolve_research_locale(ctx.ctx, ctx.doc)[1]
         unique_key, embedding_text = _cache_key_inputs(query_str, stem_lang)
@@ -819,8 +824,6 @@ class WebResearchTool(ToolBase):
 
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
-                from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
-
                 jaccard_percent = get_config("chatbot.web_research_cache_jaccard_percent")
                 embedding_percent = get_config("chatbot.web_research_cache_embedding_percent")
                 min_overlap = get_config("chatbot.web_research_cache_min_overlap")
@@ -857,8 +860,6 @@ class WebResearchTool(ToolBase):
                 log.warning("Failed to lookup web research cache: %s", e)
 
         status_callback = ctx.status_callback
-
-        from plugin.chatbot.web_research_chat import clip_sub_agent_history
 
         history_text = clip_sub_agent_history(history_text)
 
@@ -947,8 +948,8 @@ class WebResearchTool(ToolBase):
                     final_ans.setdefault("instruction", instruction)
             else:
                 # Sub-agent execution can return None or empty string when it finishes
-                # without a final answer. Previously str(final_ans) became literal "None",
-                # returning status: ok and caching a blank result.
+                # without a final answer. str(None) would be the literal "None", which
+                # would return status: ok and cache a blank result.
                 result_str = str(final_ans or "")
                 if not result_str.strip():
                     return format_error_payload(
@@ -973,6 +974,6 @@ class WebResearchTool(ToolBase):
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
 
 
-def _norm_research_query(q: str) -> str:
+def norm_research_query(q: str) -> str:
     return " ".join(q.lower().split()).rstrip("?").rstrip(".")
 
