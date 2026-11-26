@@ -41,9 +41,7 @@ def enrich_number_formats(sheet: Any, model: SheetModel) -> None:
         if record.type != "constant":
             continue
         col, row = parse_address(addr)
-        value = sheet.getCellByPosition(col, row).getPropertyValue("NumberFormat")
-        if value is not None:
-            record.number_format = int(value)
+        record.number_format = int(sheet.getCellByPosition(col, row).getPropertyValue("NumberFormat"))
 
 
 def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:

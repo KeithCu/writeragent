@@ -40,6 +40,7 @@ from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
+from plugin.framework.doc_type import is_calc
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
@@ -73,7 +74,7 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     out: list[str] = []
     f = cell.getFormula()
     if f:
-        out.append(str(f))
+        out.append(f)
     for prop in ("FormulaLocal", "Formula"):
         val = uno_read(lambda: cell.getPropertyValue(prop), None)
         if val and str(val) not in out:
@@ -121,7 +122,7 @@ def _load_cell_editor_code(cell: Any, formulas: list[str]) -> tuple[str, PyFormu
         parts = PyFormula.parse(raw)
         if parts is not None:
             return parts.code, parts, raw
-    return str(cell.getString() or ""), None, None
+    return cell.getString(), None, None
 
 
 def format_cell_a1(cell: Any) -> str:
@@ -155,7 +156,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
         log.warning("python_editor: no controller")
         return None
     model = guard_uno(controller.getModel())
-    if model is None or not hasattr(model, "getSheets"):
+    if not is_calc(model):
         log.warning("python_editor: not a spreadsheet document")
         return None
     cc = model.getCurrentController()
@@ -273,11 +274,10 @@ def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_
             result = {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
         else:
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
-        if result.get("type") == "saved":
-            result.update(refreshed)
-            # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
-            after_py_cell_save(doc, cell)
-            best_effort(doc.calculateAll, "calculateAll after editor save")
+        result.update(refreshed)
+        # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
+        after_py_cell_save(doc, cell)
+        best_effort(doc.calculateAll, "calculateAll after editor save")
         return result
 
 
@@ -360,18 +360,18 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         return
     doc, cell = resolved
 
-    # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
     formulas = _cell_formula_strings(cell)
     initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell, formulas=formulas)
     code_cell: Any | None = None
     code_ref: str | None = None
+    # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
     if parsed_parts is not None and parsed_parts.code_is_ref:
         followed = _resolve_code_ref_cell(doc, parsed_parts.code)
         if followed is None:
             msgbox(ctx, product_display_name(ctx), _("Could not open the code cell {0}.").format(parsed_parts.code))
             return
         if not _same_calc_cell(followed, cell):
-            initial_code = str(followed.getString() or "")
+            initial_code = followed.getString()
             code_cell = followed
             code_ref = parsed_parts.code
 

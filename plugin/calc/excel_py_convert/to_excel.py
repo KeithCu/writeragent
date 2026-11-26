@@ -8,7 +8,7 @@ Forward import keeps runnable ``xl("%Pn%", …)`` call sites (sandbox binding-on
   Microsoft package (``xl("%P2%")`` → ``xl(%P2%)``) and normalize headers spacing.
 * Legacy DAG workbooks that still use ``data`` / ``data[i]`` / ``ranges[i]`` /
   ``.to_pandas()`` (and the older ``pd.DataFrame(data[1:], columns=data[0])``
-  form) are reversed to ``xl(...)`` as before.
+  form) are reversed to ``xl(...)``.
 
 Native OOXML write banks restored scripts into ``pythonScripts.xml`` and cell
 formulas as ``_xlfn._xlws.PY(...)`` (see ``xlws_py_formula`` /
@@ -203,7 +203,7 @@ def rewrite_dag_code_to_excel(
     modes: list[HeaderMode] = list(header_modes or [])
     while len(modes) < len(deps):
         modes.append("omit")
-    text = code or ""
+    text = code
     if text.endswith(OBJECT_SUPPRESS):
         text = text[:-len(OBJECT_SUPPRESS)]
 
@@ -260,7 +260,7 @@ def rewrite_dag_code_to_excel(
 
 def excel_dep_ref(ref: str) -> str:
     """Normalize a Calc/Excel range token for ``_xlws.PY`` args (``Sheet.A1`` → ``Sheet!A1``)."""
-    raw = (ref or "").strip()
+    raw = ref.strip()
     if not raw or "!" in raw:
         return raw
     m = _CALC_SHEET_REF_RE.match(raw)
@@ -283,7 +283,7 @@ def deps_for_xlws_export(cell: ConvertedCell) -> list[str]:
 
 def xlws_py_formula(script_index: int, return_type: int, data_args: Sequence[str]) -> str:
     """Build ``_xlfn._xlws.PY(scriptIndex, returnType, deps…)`` (no leading ``=``)."""
-    parts = [str(int(script_index)), str(int(return_type))]
+    parts = [str(script_index), str(return_type)]
     parts.extend(excel_dep_ref(a) for a in data_args if a)
     return "_xlfn._xlws.PY(" + ",".join(parts) + ")"
 
@@ -296,7 +296,7 @@ def assign_script_bank(cells: Sequence[ConvertedCell]) -> list[str]:
     scripts: list[str] = []
     index_by_code: dict[str, int] = {}
     for cell in cells:
-        if not cell.converted or not (cell.converted_code or "").strip():
+        if not cell.converted or not cell.converted_code.strip():
             continue
         code = cell.converted_code
         idx = index_by_code.get(code)
@@ -362,7 +362,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
     """
     out = ConversionReport(direction="excel", source_path=dag_report.source_path)
     for cell in dag_report.cells:
-        if not cell.converted or not (cell.converted_code or "").strip():
+        if not cell.converted or not cell.converted_code.strip():
             out.cells.append(
                 ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="excel", original_code=cell.converted_code or cell.original_code, converted_code="", issues=list(cell.issues) + ["skipped: not converted on DAG pass"], converted=False, return_type=cell.return_type, array_ref=cell.array_ref)
             )
@@ -386,7 +386,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 issues=issues,
                 shared_kernel=cell.shared_kernel,
                 snapshot_deps=list(cell.snapshot_deps),
-                return_type=int(cell.return_type or 0),
+                return_type=cell.return_type,
                 converted=not fatal,
                 array_ref=cell.array_ref,
             )

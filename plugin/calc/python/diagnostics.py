@@ -15,7 +15,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
@@ -54,7 +54,7 @@ class DiagnosticEntry:
 
     @property
     def has_output(self) -> bool:
-        return bool((self.stdout or "").strip())
+        return bool(self.stdout.strip())
 
     @property
     def is_error(self) -> bool:
@@ -72,6 +72,10 @@ class DiagnosticEntry:
         return f"{where}: ok"
 
 
+def _normalize_workbook_key(workbook_key: str) -> str:
+    return workbook_key.strip() or "unknown"
+
+
 class PythonDiagnosticsStore:
     """Thread-safe ring buffer of diagnostics keyed by workbook."""
 
@@ -80,10 +84,10 @@ class PythonDiagnosticsStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._by_workbook: OrderedDict[str, deque[DiagnosticEntry]] = OrderedDict()
-        self._listeners: list[Any] = []
+        self._listeners: list[Callable[[DiagnosticEntry], None]] = []
 
     def record(self, *, workbook_key: str, code: str, status: str, message: str = "", stdout: str = "", traceback: str = "", sheet: str = "", address: str = "") -> DiagnosticEntry:
-        key = (workbook_key or "unknown").strip() or "unknown"
+        key = _normalize_workbook_key(workbook_key)
         snippet = (code or "")[:_CODE_SNIPPET_MAX]
         entry = DiagnosticEntry(
             workbook_key=key,
@@ -92,8 +96,8 @@ class PythonDiagnosticsStore:
             message=_clip(message, _CLIP_MESSAGE),
             stdout=_clip(stdout, _CLIP_STDOUT),
             traceback=_clip(traceback, _CLIP_TRACEBACK),
-            sheet=str(sheet or ""),
-            address=str(address or ""),
+            sheet=sheet,
+            address=address,
         )
         with self._lock:
             bucket = self._by_workbook.get(key)
@@ -112,7 +116,7 @@ class PythonDiagnosticsStore:
         return entry
 
     def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all") -> list[DiagnosticEntry]:
-        key = (workbook_key or "unknown").strip() or "unknown"
+        key = _normalize_workbook_key(workbook_key)
         with self._lock:
             bucket = list(self._by_workbook.get(key, ()))
         bucket.reverse()
@@ -137,12 +141,12 @@ class PythonDiagnosticsStore:
                 return entry
         return None
 
-    def add_listener(self, callback: Any) -> None:
+    def add_listener(self, callback: Callable[[DiagnosticEntry], None]) -> None:
         with self._lock:
             if callback not in self._listeners:
                 self._listeners.append(callback)
 
-    def remove_listener(self, callback: Any) -> None:
+    def remove_listener(self, callback: Callable[[DiagnosticEntry], None]) -> None:
         with self._lock:
             if callback in self._listeners:
                 self._listeners.remove(callback)

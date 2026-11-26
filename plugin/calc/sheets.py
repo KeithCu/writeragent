@@ -15,11 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc sheet management tools.
-
-Each tool is a ToolBase subclass that instantiates CalcBridge and the
-appropriate helper class per call using ``ctx.doc``.
-"""
+"""Calc sheet management tools (list, switch, create, rename, delete, protect, copy, move, hide, summary)."""
 
 from __future__ import annotations
 

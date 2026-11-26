@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from plugin.calc.calc_addin_data import (
     calc_addin_args_from_split,
@@ -143,19 +143,19 @@ def _record_py_diagnostic(
     stdout = ""
     tb = traceback
     msg = message
-    if isinstance(res, dict):
+    if res is not None:
         stdout = str(res.get("stdout") or "")
         if not msg:
             msg = str(res.get("message") or res.get("error") or "")
         if not tb:
             raw_tb = res.get("traceback")
             tb = str(raw_tb) if raw_tb else ""
-    if status == "ok" and not (stdout or "").strip():
+    if status == "ok" and not stdout.strip():
         return
     best_effort(
         lambda: get_diagnostics_store().record(
             workbook_key=workbook_key,
-            code=code or "",
+            code=code,
             status=status,
             message=msg,
             stdout=stdout,
@@ -175,7 +175,7 @@ def _auto_spill_grid(cell: CellContext, result: Any) -> list[list[Any]] | None:
     return grid if grid[0] else []
 
 
-def _dispatch_auto_spill(cell: CellContext, grid_to_spill: list[list[Any]]) -> str | None:
+def _dispatch_auto_spill(cell: CellContext, grid_to_spill: list[list[Any]]) -> Literal["#SPILL!", "dispatched"] | None:
     """Queue a spill write or stale-spill clear.
 
     Returns ``"#SPILL!"`` when an array spill is blocked, ``"dispatched"`` when a main-thread
@@ -249,9 +249,8 @@ def _cells_beside_images(result: Any) -> list[Any] | None:
 
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
-    target_doc: Any = doc
     on_main = main.is_current()
-    cell_ctx = build_cell_context(ctx, target_doc, code, on_main=on_main)
+    cell_ctx = build_cell_context(ctx, doc, code, on_main=on_main)
 
     try:
         args = split_python_addin_data_args(data)
@@ -270,14 +269,11 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         else:
             worker_data = None
 
-        session_id = cell_ctx.session_id
-        init_kwargs = cell_ctx.init_kwargs
-
         log.debug(
             "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
-            target_doc is not None,
-            session_id,
-            "init_script" in init_kwargs,
+            doc is not None,
+            cell_ctx.session_id,
+            "init_script" in cell_ctx.init_kwargs,
             cell_ctx.on_main,
             in_sync_host_dispatch(),
         )
@@ -285,13 +281,13 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             code,
             data=worker_data,
             bindings={"scoped_dir": cell_ctx.scoped_dir},
-            session_id=session_id,
+            session_id=cell_ctx.session_id,
             python_tool_domain="",
-            **init_kwargs,
+            **cell_ctx.init_kwargs,
         )
         if res.get("status") == "ok":
             result = res.get("result")
-            if isinstance(result, dict) and is_helper_error_dict(result):
+            if is_helper_error_dict(result):
                 err_text = helper_error_log_message(result)
                 addin_val = py_addin_cell_value(result)
                 _record_py_diagnostic(code, res, status="error", message=err_text, workbook_key=cell_ctx.diag_workbook_key)
@@ -311,7 +307,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                         insert_image_result_on_sheet(
                             img,
                             code=code,
-                            doc=target_doc,
+                            doc=doc,
                             image_index=i,
                             image_count=len(images),
                             notify_cell=True,

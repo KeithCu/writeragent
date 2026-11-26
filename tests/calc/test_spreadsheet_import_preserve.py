@@ -120,11 +120,6 @@ def test_enrich_number_formats_updates_constants():
     assert model.cells["A1"].number_format == 4
     assert model.cells["B1"].number_format is None
 
-    cell_a1.getPropertyValue.return_value = None
-    model.cells["A1"].number_format = None
-    enrich_number_formats(sheet, model)
-    assert model.cells["A1"].number_format is None
-
 
 def test_apply_output_to_sheet():
     sheet = MagicMock()

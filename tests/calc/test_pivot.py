@@ -164,6 +164,9 @@ def test_pivot_table_create_function_mapping_and_page_filters():
         )
 
     assert res["status"] == "ok"
+    assert res["message"] == "Created pivot table 'MyPivot' at Sheet2.A1."
+    assert res["destination_sheet"] == "Sheet2"
+    assert res["destination_cell"] == "A1"
     f_sales.setPropertyValue.assert_any_call("Function", AVERAGE)
     assert filter_desc.setFilterFields.called
     fields_tuple = filter_desc.setFilterFields.call_args[0][0]

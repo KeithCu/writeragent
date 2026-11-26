@@ -66,17 +66,16 @@ def open_init_script_editor(ctx: Any) -> None:
 
     def on_save(code: str, _save_as_plain: bool, _data_binding: str | None, action: str) -> dict[str, Any]:
         nonlocal initial
-        new_code = code or ""
-        if new_code != initial:
+        if code != initial:
             try:
-                err = set_calc_init_script(doc, new_code)
+                err = set_calc_init_script(doc, code)
             except Exception as exc:
                 if not is_disposal(exc):
                     raise
                 return {"type": "error", "message": closed_message}
             if err is not None:
                 return {"type": "error", "message": err}
-            initial = new_code
+            initial = code
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
     load_msg: dict[str, Any] = {

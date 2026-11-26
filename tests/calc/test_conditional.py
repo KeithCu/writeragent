@@ -11,7 +11,6 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import uno
 from com.sun.star.uno import RuntimeException
 
 from plugin.calc.conditional import _entry_to_dict
@@ -165,7 +164,6 @@ def test_conditional_formatting_add_operator_path():
 
     with (
         patch("plugin.calc.conditional.CalcBridge", return_value=bridge),
-        patch.object(uno, "createUnoStruct", side_effect=lambda *a, **k: SimpleNamespace()),
     ):
         # 1. Standard operator -> int code and SourcePosition top-left
         res_gt = tool.execute_safe(ctx, range=["C5:C9"], operator="GREATER", formula1="5", style="Result")

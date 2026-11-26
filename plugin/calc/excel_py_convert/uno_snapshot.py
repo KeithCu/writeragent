@@ -65,7 +65,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
         bank_sheet = find_sheet_ci(sheets_by_name, sheet_name)
         if bank_sheet is None:
             return None
-        val = uno_read(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), "")
+        val = uno_read(lambda: bank_sheet.getCellRangeByName(a1).getString(), "")
         return val if val and val.strip() else None
 
     # Higher ceiling than sidebar discovery — export must see every PY cell.
@@ -86,7 +86,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             total_scanned += 1
             if not formula:
                 continue
-            parsed = PyFormula.parse(str(formula))
+            parsed = PyFormula.parse(formula)
             if parsed is None:
                 continue
             a1 = format_address(col, row)
@@ -94,7 +94,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             if resolved is not None and resolved.strip():
                 formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parsed.data_suffix}'
             else:
-                formula_out = str(formula)
+                formula_out = formula
             stored = meta_map.get(cell_meta_key(sheet_name, a1))
             items.append(DagFormulaItem(sheet_name, a1, formula_out, DagCellMeta.from_dict(stored) if isinstance(stored, dict) else None))
         if scan_limit_reached:
@@ -103,7 +103,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     report = convert_dag_cells_to_excel(items)
     if scan_limit_reached:
         report.issues.append(f"scan limit reached ({FORMULA_SCAN_CAP} formula cells); export aborted")
-    doc_url = uno_read(lambda: str(doc.getURL() or ""), "")
+    doc_url = uno_read(doc.getURL, "")
     if doc_url:
         report.source_path = doc_url
     return report

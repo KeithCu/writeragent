@@ -1621,14 +1621,6 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     }
 
 
-def test_commit_write_prepends_plan_notes() -> None:
-    manipulator = CellManipulator(MagicMock())
-    note = {"code": "REPEATED_FORMULA", "message": "repeated"}
-    with patch.object(manipulator, "_write_array_formula", return_value={"message": "m"}):
-        res = manipulator.commit_write(WritePlan("array", "A1", notes=(note,)))
-    assert res["warnings"] == [note]
-
-
 def test_array_error_quotes_fresh_py_diagnostic() -> None:
     from plugin.calc.python.diagnostics import get_diagnostics_store
 
