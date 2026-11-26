@@ -28,6 +28,7 @@ import re
 
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -70,10 +71,6 @@ _LIST_FIXTURE_HTML = [
 ]
 
 
-def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(doc, ctx)
-
-
 def _rule_prop(rules, level, name):
     """Read one NumberingRules level property (NumberingType, BulletChar, …)."""
     if rules is None:
@@ -91,7 +88,7 @@ def _rule_prop(rules, level, name):
 def _iter_paras(doc):
     """Non-empty body paragraphs with list props. Trailing empty Standard is skipped."""
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if hasattr(el, "supportsService") and not el.supportsService(
@@ -130,7 +127,7 @@ def _para(doc, needle):
 
 
 def _apply_list_fixture(doc, ctx):
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = native_writer_tool_context(doc, ctx)
     res = ApplyDocumentContent().execute(
         tool_ctx, target="full_document", content=_LIST_FIXTURE_HTML
     )
@@ -243,7 +240,7 @@ def test_xhtml_export_shows_list_markers_not_hierarchy_uno(ctx, doc):
     assert "2." in numbered, xhtml
     assert "1.2" not in numbered, numbered
     assert "1.2.3" not in numbered, numbered
-    assert any("\u2022" in mark or mark.strip() == "\u2022" for mark in bullets), (
+    assert any("\u2022" in mark for mark in bullets), (
         bullets,
         xhtml,
     )

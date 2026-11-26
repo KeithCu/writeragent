@@ -479,7 +479,6 @@ def test_section_password_params_are_secret_keys() -> None:
 
 
 def test_section_create_refuses_spanning_tracked_change(monkeypatch) -> None:
-    from unittest.mock import MagicMock
     from plugin.writer.specialized import sections as sections_mod
 
     doc = MagicMock()

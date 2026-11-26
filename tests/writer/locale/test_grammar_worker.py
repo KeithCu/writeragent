@@ -80,9 +80,8 @@ def test_call_grammar_llm_single() -> None:
     with patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=MagicMock()), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_worker.collect_ignored_reasons", return_value=set()):
-        results, elapsed = call_grammar_llm([(item, item.text)], "en-US", ec)
+        results, _elapsed = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
-    assert elapsed >= 0
     args, kwargs = client.chat_completion_sync.call_args
     assert args[0][1]["content"] == item.text
 
@@ -792,7 +791,6 @@ def test_thread_llm_client_rebuilds_on_endpoint_change() -> None:
 
 
 def test_thread_llm_client_separate_per_thread() -> None:
-    import threading
     from plugin.writer.locale.grammar_worker import _get_or_create_thread_llm_client
 
     ctx = MagicMock()
@@ -875,7 +873,6 @@ def test_process_grammar_results_caches_raw_ignored_rule() -> None:
 
 def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     full_text = "word1 word2 word3 word4 word5."
     prefix = "word1 word2 word3"
@@ -922,7 +919,6 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
 
 def test_worker_runs_model_from_checker_identity() -> None:
     """Keeper 2: LLM group sets model from checker_identity and writes cache under that identity."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     ctx = MagicMock()
     item = _item(
@@ -973,8 +969,6 @@ def test_worker_batch_gates_provider_rules() -> None:
 
 def test_worker_detection_superseded_drops_item() -> None:
     """Keeper 4: Detection enqueues a newer generation for the same key before returning; grammar runner not called."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
-    from plugin.writer.locale.grammar_work_queue import GrammarWorkQueue
 
     gq = GrammarWorkQueue()
     item = _item("Hello world.", doc_id="d1", seq=1, inflight_key="k1", grammar_bcp47="en-US")
@@ -1002,7 +996,6 @@ def test_worker_detection_superseded_drops_item() -> None:
 
 def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> None:
     """Keeper 4: Detection returns fr-FR, fr-FR cache is primed, grammar runner not called, apply_language_change called with fr-FR."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     ctx = MagicMock()
     item = _item("Bonjour le monde.", doc_id="d1", seq=1, inflight_key="k1", grammar_bcp47="en-US")
@@ -1033,7 +1026,6 @@ def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> Non
 
 def test_detect_once_per_group_eight_items_batch_1() -> None:
     """Keeper 5: Eight complete items, detection mode llm, batch size 1, exactly one detect call then grammar calls."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     items = [_item(f"Sentence number {i}.", seq=i, inflight_key=f"k{i}", grammar_bcp47="en-US") for i in range(1, 9)]
 
@@ -1071,7 +1063,6 @@ def test_detect_once_per_group_eight_items_batch_1() -> None:
 
 def test_detect_batch_parse_failure_affects_only_that_chunk() -> None:
     """Keeper 5: A detect-batch parse failure affects only that detect chunk."""
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
 
     items = [_item(f"Sentence {i}.", seq=i, inflight_key=f"k{i}", grammar_bcp47="en-US") for i in range(1, 10)]
 
@@ -1245,8 +1236,6 @@ def test_batch_resolves_provider_once() -> None:
 
 
 def test_worker_batch_skips_harper_provider() -> None:
-    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
-
     item = _item(provider="harper")
     with patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run:
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())

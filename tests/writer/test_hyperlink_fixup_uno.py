@@ -13,9 +13,11 @@ the new text rather than merely preserved.
 """
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from tests.writer.doc_builders import accept_all_changes, reject_all_changes
 
 
 _OUTLINE = "#1.Old title|outline"
@@ -74,7 +76,7 @@ def _paragraph_rows(doc):
     text = doc.getText()
     enum = text.createEnumeration()
     paragraphs = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             if hasattr(para, "supportsService") and not para.supportsService(
@@ -164,7 +166,7 @@ def _portion_looks(doc):
     """(text, HyperLinkURL, CharColor, CharUnderline) for every visible portion."""
     rows = []
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             if hasattr(para, "supportsService") and not para.supportsService(
@@ -173,7 +175,7 @@ def _portion_looks(doc):
             portions = para.createEnumeration()
         except Exception:
             continue
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             try:
                 chunk = portion.getString() or ""
@@ -505,7 +507,7 @@ def test_hyperlink_url_on_plain_text_is_rejected_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_deleting_the_whole_outline_link_succeeds_uno(ctx, doc):
-    """Clearing the only linked characters used to roll the delete back."""
+    """Clearing the only linked characters succeeds; the delete is not rolled back."""
     text, cursor = _clear(doc)
     _append_linked(text, cursor, "Old title", _OUTLINE)
     res = _apply(doc, ctx, old_content="Old title", content="")
@@ -617,13 +619,13 @@ def test_outline_rewrite_keeps_inherited_look_uno(ctx, doc):
     def _check_portions(expected_url):
         enum = text.createEnumeration()
         checked = 0
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             para = enum.nextElement()
             if hasattr(para, "supportsService") and not para.supportsService(
                     "com.sun.star.text.Paragraph"):
                 continue
             portions = para.createEnumeration()
-            while portions.hasMoreElements():
+            while enum_has_more(portions):
                 portion = portions.nextElement()
                 chunk = str(portion.getString() or "")
                 if not chunk:
@@ -654,13 +656,7 @@ def test_outline_rewrite_keeps_inherited_look_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_recorded_title_replace_keeps_link_on_accept_and_reject_uno(ctx, doc):
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.record_changes import record_changes
-
-    helper = ctx.getServiceManager().createInstanceWithContext(
-        "com.sun.star.frame.DispatchHelper", ctx
-    )
-    frame = doc.getCurrentController().getFrame()
 
     def _run_case(url, old, new, is_outline):
         text, cursor = _clear(doc)
@@ -680,7 +676,7 @@ def test_recorded_title_replace_keeps_link_on_accept_and_reject_uno(ctx, doc):
         for idx in range(redlines.getCount()):
             assert str(redlines.getByIndex(idx).getPropertyValue("RedlineType")) != "Format"
 
-        helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+        accept_all_changes(doc, ctx)
         plain = new.replace("<b>", "").replace("</b>", "")
         para = text.createEnumeration().nextElement()
         assert para.getString() == f"1. {plain}\t5"
@@ -700,7 +696,7 @@ def test_recorded_title_replace_keeps_link_on_accept_and_reject_uno(ctx, doc):
         _append_linked(text, cursor, "\t5", url)
         with record_changes(doc, True):
             _apply(doc, ctx, old_content=old, content=new)
-        helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+        reject_all_changes(doc, ctx)
         para = text.createEnumeration().nextElement()
         assert para.getString() == f"1. {old}\t5"
         portions = para.createEnumeration()
@@ -720,7 +716,6 @@ def test_recorded_title_replace_keeps_link_on_accept_and_reject_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_recorded_replace_over_two_adjacent_links_keeps_both_on_reject_uno(ctx, doc):
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.record_changes import record_changes
 
     url_a = "https://a.example.com/"
@@ -733,12 +728,7 @@ def test_recorded_replace_over_two_adjacent_links_keeps_both_on_reject_uno(ctx, 
         res = _apply(doc, ctx, old_content="Alpha Beta", content="Gamma")
     assert res.get("status") == "ok", res
 
-    helper = ctx.getServiceManager().createInstanceWithContext(
-        "com.sun.star.frame.DispatchHelper", ctx
-    )
-    helper.executeDispatch(
-        doc.getCurrentController().getFrame(), ".uno:RejectAllTrackedChanges", "", 0, ()
-    )
+    reject_all_changes(doc, ctx)
 
     para = text.createEnumeration().nextElement()
     assert para.getString() == "Alpha Beta"
@@ -755,7 +745,6 @@ def test_recorded_replace_over_two_adjacent_links_keeps_both_on_reject_uno(ctx, 
 @native_test
 @with_native_doc("writer")
 def test_recorded_replace_over_partly_linked_text_does_not_spread_the_link_uno(ctx, doc):
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.record_changes import record_changes
 
     text, cursor = _clear(doc)
@@ -766,12 +755,7 @@ def test_recorded_replace_over_partly_linked_text_does_not_spread_the_link_uno(c
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="START Old title END", content="START New title END")
     assert res.get("status") == "ok", res
-    helper = ctx.getServiceManager().createInstanceWithContext(
-        "com.sun.star.frame.DispatchHelper", ctx
-    )
-    helper.executeDispatch(
-        doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ()
-    )
+    accept_all_changes(doc, ctx)
     para = text.createEnumeration().nextElement()
     portions = para.createEnumeration()
     urls = [
@@ -794,16 +778,8 @@ def test_outline_replace_after_emoji_uno(ctx, doc):
     assert res["hyperlinks"][0]["hyperlink_url_after"] == _OUTLINE_NEW
 
 
-def _dispatch(ctx, doc, cmd: str) -> None:
-    helper = ctx.getServiceManager().createInstanceWithContext(
-        "com.sun.star.frame.DispatchHelper", ctx
-    )
-    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
-
-
 def _portion_details(doc):
     """Per portion: (text, HyperLinkURL, CharWeight, CharColor, CharUnderline)."""
-    from plugin.framework.uno_context import enum_has_more
 
     out = []
     paras = doc.getText().createEnumeration()
@@ -849,7 +825,7 @@ def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, do
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="Old title", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     details = _portion_details(doc)
     assert [(s, u, w) for s, u, w, _c, _ul in details] == [
         ("See ", "", 100.0),
@@ -862,7 +838,7 @@ def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, do
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="Old title", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    reject_all_changes(doc, ctx)
     details = _portion_details(doc)
     assert [(s, u, w) for s, u, w, _c, _ul in details] == [
         ("See ", "", 100.0),
@@ -877,7 +853,7 @@ def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, do
         setup()
         res = _apply(doc, ctx, old_content="Old title", content="Swap")
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
         details = _portion_details(doc)
         assert [(s, u, w) for s, u, w, _c, _ul in details] == [
             ("See ", "", 100.0),
@@ -888,7 +864,7 @@ def test_recorded_bold_link_keeps_bold_and_link_on_accept_and_reject_uno(ctx, do
         setup()
         res = _apply(doc, ctx, old_content="Old title", content="Swap")
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        reject_all_changes(doc, ctx)
         details = _portion_details(doc)
         assert [(s, u, w) for s, u, w, _c, _ul in details] == [
             ("See ", "", 100.0),
@@ -928,7 +904,7 @@ def test_recorded_bold_mixed_single_link_hint_uno(ctx, doc):
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="LongBold xy", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     assert _portion_urls(doc) == [("Swap", _OUTLINE)]
 
     # (b) Match extends past the link while the longest run is inside the hint:
@@ -937,14 +913,14 @@ def test_recorded_bold_mixed_single_link_hint_uno(ctx, doc):
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     assert _portion_urls(doc) == [("Swap", "")]
 
     _setup_single_hint(" z")
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="LongBold xy z", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    reject_all_changes(doc, ctx)
     assert _portion_urls(doc) == [("LongBold", _OUTLINE), (" xy", _OUTLINE), (" z", "")]
 
 
@@ -962,7 +938,7 @@ def test_recorded_link_keeps_direct_color_and_no_underline_uno(ctx, doc):
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="Old title", content="Swap")
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     details = _portion_details(doc)
     assert details == [("Swap", _OUTLINE, 100.0, 0x112233, 0)], details
 
@@ -986,7 +962,7 @@ def test_surgical_review_edit_inside_link_stays_linked_on_accept_uno(ctx, doc):
             content="Alpha beta gamma delta epsilon New title zeta eta theta iota kappa.",
         )
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
         urls = _portion_urls(doc)
         assert ("New title", _OUTLINE) in urls, urls
     finally:
@@ -1068,7 +1044,7 @@ def test_recorded_all_matches_across_paragraphs_does_not_merge_uno(ctx, doc):
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="foo", content="baz", all_matches=True)
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+    reject_all_changes(doc, ctx)
     assert [[c for c, _u, _n, _t in row] for row in _body_paragraphs(doc)] == [
         ["See foo"],
         ["foo", " bar"],
@@ -1078,7 +1054,7 @@ def test_recorded_all_matches_across_paragraphs_does_not_merge_uno(ctx, doc):
     with record_changes(doc, True):
         res = _apply(doc, ctx, old_content="foo", content="baz", all_matches=True)
     assert res.get("status") == "ok", res
-    _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+    accept_all_changes(doc, ctx)
     assert ["".join(c for c, _u, _n, _t in row) for row in _body_paragraphs(doc)] == [
         "See baz",
         "baz bar",
@@ -1176,7 +1152,7 @@ def test_recorded_html_replace_keeps_link_name_and_target_uno(ctx, doc):
         with record_changes(doc, True):
             res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:AcceptAllTrackedChanges")
+        accept_all_changes(doc, ctx)
         assert _paragraph_rows(doc) == [[("New title", url, "nm", "_blank")]]
 
         text, cursor = _clear(doc)
@@ -1184,15 +1160,13 @@ def test_recorded_html_replace_keeps_link_name_and_target_uno(ctx, doc):
         with record_changes(doc, True):
             res = _apply(doc, ctx, old_content="Old title", content="<b>New title</b>")
         assert res.get("status") == "ok", res
-        _dispatch(ctx, doc, ".uno:RejectAllTrackedChanges")
+        reject_all_changes(doc, ctx)
         assert _paragraph_rows(doc) == [[("Old title", url, "nm", "_blank")]]
 
 
 @native_test
 @with_native_doc("writer")
 def test_html_rename_keeps_the_link_style_uno(ctx, doc):
-    from plugin.framework.uno_context import enum_has_more
-
     text, cursor = _clear(doc)
     _append_linked(text, cursor, "Old title", _OUTLINE)
     sel = text.createTextCursor()

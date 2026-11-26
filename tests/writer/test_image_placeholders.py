@@ -357,8 +357,8 @@ def test_restore_image_placeholders_updates_hyperlink_from_marker():
         model = MagicMock()
         found = MagicMock()
         found.getPropertyValue.side_effect = lambda k: marker_props.get(k, "")
+        model.findFirst.return_value = found
         with (
-            patch.object(image_placeholders, "_find_marker", return_value=found),
             patch.object(image_placeholders, "_deleted_by_the_edit", return_value=True),
             patch.object(image_placeholders, "_insert_copy") as ins,
         ):

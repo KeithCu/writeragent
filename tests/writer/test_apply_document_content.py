@@ -33,8 +33,6 @@ def _icu_rejects(ctx):
 
 @pytest.mark.timeout(5)
 def test_dry_run_reports_matches_without_mutating():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     r1, r2 = MagicMock(), MagicMock()
     r1.getString.return_value = "clause 3.2 text"
     r2.getString.return_value = "clause 3.2 again"
@@ -51,14 +49,12 @@ def test_dry_run_reports_matches_without_mutating():
 
 
 def test_dry_run_requires_search_target():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     res = ApplyDocumentContent().execute(_edit_ctx(), content=["x"], target="end", dry_run=True)
     assert res["status"] == "error" and "search" in res["message"]
 
 
 @pytest.mark.timeout(5)
 def test_dry_run_marshals_to_main_thread(monkeypatch):
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     import threading
 
     r1 = MagicMock()
@@ -92,7 +88,6 @@ def test_dry_run_marshals_to_main_thread(monkeypatch):
 def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     """A preview that uses a different matcher than the commit is worse than none: with
     regex=true, dry_run must route through find_ranges_regex_case with the RAW pattern."""
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     r = MagicMock()
     r.getString.return_value = "bravo charlie"
@@ -110,8 +105,6 @@ def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
 
 
 def test_dry_run_invalid_regex():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _icu_rejects(_edit_ctx())
     ctx.services.get.return_value = MagicMock()
     with patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -121,8 +114,6 @@ def test_dry_run_invalid_regex():
 
 
 def test_dry_run_icu_only_regex_warns_on_shape_skip():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 1
     ctx.services.get.return_value = MagicMock()
@@ -137,8 +128,6 @@ def test_dry_run_icu_only_regex_warns_on_shape_skip():
 # ---- 5) position='before'/'after' contract ------------------------------------
 
 def test_position_param_validation():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     tool = ApplyDocumentContent()
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
@@ -156,10 +145,8 @@ def test_position_param_validation():
 def test_position_after_inserts_at_match_edge_without_replacing():
     """The Q8 happy path: collapsed cursor at the found range's edge, HTML import,
     result carries inserted=true/position and NO replaced_count."""
-    from unittest.mock import patch
 
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
     found.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -183,10 +170,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 
 
 def test_position_before_inserts_at_match_start():
-    from unittest.mock import patch
-
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
     found.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -222,7 +206,6 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
     first block onto it. It must go into a fresh paragraph after the matched one, and the empty
     paragraph the import leaves behind must be removed."""
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
@@ -246,7 +229,6 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
 
 def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -262,7 +244,6 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
 def test_position_after_table_preserves_table():
     """Tip: stepping left from a paragraph following a table spans into the table; don't delete it."""
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     # 1st call: empty leftover paragraph; 2nd: goLeft spanned table cell; 3rd: goRight into next.
@@ -286,7 +267,6 @@ def test_position_after_table_preserves_table():
 def test_table_insert_reports_failure_when_no_table_produced(position):
     """Tip: table insert must honestly report failure if table count did not increase."""
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     cursor.getString.side_effect = ["", "\nCell 1\n", "next"]
@@ -308,7 +288,6 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
 
 def test_position_before_block_goes_to_paragraph_start_without_a_break():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -325,7 +304,6 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
 def test_position_before_inline_stays_at_the_exact_match_edge():
     """#59: plain text went through <p> wrapping and split the paragraph around the word."""
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -345,7 +323,6 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
     """Plain text with line breaks on the inline path went in as manual line breaks glued onto
     the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -365,7 +342,6 @@ def test_apply_document_content_validate_accepts_string_or_array():
     execute() still treats a string as one block and joins a list with newlines.
     A dict is not either shape.
     """
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool = ApplyDocumentContent()
     samples = [
@@ -490,7 +466,6 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
 
 def test_all_matches_replaces_every_range():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
     r1, r2 = MagicMock(), MagicMock()
@@ -513,7 +488,6 @@ def test_all_matches_replaces_every_range():
 
 def test_search_replace_attaches_style_note_warning():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
@@ -575,7 +549,6 @@ def test_search_replace_attaches_style_note_warning():
 
 def test_all_matches_reports_skip_count_in_warning():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     from tests.framework.suggested_call_access import assert_valid_suggested_call
 
     ctx = _edit_ctx()
@@ -633,7 +606,6 @@ def test_all_matches_reports_skip_count_in_warning():
 
 def test_suggested_call_omitted_when_style_unresolvable():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -661,7 +633,6 @@ def test_suggested_call_omitted_when_style_unresolvable():
 
 def test_suggested_call_omitted_when_text_has_newlines():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -692,7 +663,6 @@ def test_suggested_call_omitted_when_text_has_newlines():
 
 def test_suggested_call_omitted_for_selection_target():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -714,7 +684,6 @@ def test_suggested_call_omitted_for_selection_target():
 
 def test_suggested_call_omitted_when_post_match_count_mismatches():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
     fam = MagicMock()
@@ -874,8 +843,6 @@ def test_partial_match_style_suggestion_gate_match_count_mismatch(find_mock: Any
 
 
 def test_edge_spaces_with_use_preserve():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     found = MagicMock()
     found.getString.return_value = "paragrafo"
@@ -901,7 +868,6 @@ def test_edge_spaces_with_use_preserve():
 
 def test_position_after_string_with_backslash_is_not_block():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -919,7 +885,6 @@ def test_position_after_string_with_backslash_is_not_block():
 
 def test_target_end_entity_decoded_proposed_preview():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.edit_review import EditReviewSession
 
     ctx = _edit_ctx()
@@ -935,8 +900,6 @@ def test_target_end_entity_decoded_proposed_preview():
 
 
 def test_shape_edit_leave_undo_context_failure_does_not_fail_edit():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     shape = MagicMock()
     shape.Name = "TestShape"
@@ -956,8 +919,6 @@ def test_shape_edit_leave_undo_context_failure_does_not_fail_edit():
 
 
 def test_content_list_item_must_be_string():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=[None], target="end")
@@ -967,8 +928,6 @@ def test_content_list_item_must_be_string():
 
 
 def test_content_none_rejected():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     res = ApplyDocumentContent().execute(ctx, content=None, target="end")
     assert res["status"] == "error"
@@ -978,8 +937,6 @@ def test_content_none_rejected():
 @pytest.mark.parametrize("target", ["end", "beginning", "selection"])
 @pytest.mark.parametrize("content", ["", "   ", "\n"])
 def test_empty_insert_at_end_beginning_selection(target, content):
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=content, target=target)
@@ -989,8 +946,6 @@ def test_empty_insert_at_end_beginning_selection(target, content):
 
 
 def test_empty_full_document_is_not_the_insert_error():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
         mock_replace.return_value = html_import_styles.WriteReport()
@@ -1001,8 +956,6 @@ def test_empty_full_document_is_not_the_insert_error():
 
 
 def test_worker_cleanup_timeout_does_not_mask_the_edit():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
@@ -1031,8 +984,6 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
 
 
 def test_apply_document_content_releases_session_on_mid_edit_failure():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
@@ -1050,8 +1001,6 @@ def test_apply_document_content_releases_session_on_mid_edit_failure():
 
 
 def test_param_errors_do_not_construct_review_session():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     with patch("plugin.writer.apply_document_content.EditReviewSession") as session_cls:
         tool = ApplyDocumentContent()
@@ -1085,8 +1034,6 @@ def test_param_errors_do_not_construct_review_session():
     ids=["full_document", "end", "beginning", "selection", "search", "unknown_target"],
 )
 def test_apply_document_content_routes_targets_to_edit_helpers(expected_method, execute_kwargs):
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     routed: list[str] = []
 
@@ -1126,7 +1073,6 @@ def test_apply_document_content_routes_targets_to_edit_helpers(expected_method, 
 def test_outline_undo_reraises_disposal_on_mutate_error():
     """commit_or_rollback re-raises disposal today; this pins _outline_undo if mutate_error is set."""
     from plugin.doc.compound_undo import UndoOutcome
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     doc = MagicMock()
     session = MagicMock()
@@ -1171,8 +1117,6 @@ def test_apply_document_content_main_thread_uses_is_current():
 
 
 def test_outline_undo_says_when_rollback_fails():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1204,8 +1148,6 @@ def test_outline_undo_says_when_rollback_fails():
 
 
 def test_outline_undo_propagates_disposed_document():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -1224,8 +1166,6 @@ def test_outline_undo_propagates_disposed_document():
 
 
 def test_shape_edit_refuses_without_undo_context():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = True
     shape = MagicMock()
@@ -1253,9 +1193,6 @@ def test_shape_edit_refuses_without_undo_context():
 
 
 def test_shape_edit_enter_disposed_reraises():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
     shape = MagicMock()
@@ -1271,8 +1208,6 @@ def test_shape_edit_enter_disposed_reraises():
 
 
 def test_shape_edit_rolls_back_when_replace_returns_false():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     mgr = ctx.doc.getUndoManager.return_value
     mgr.isLocked.return_value = False
@@ -1293,8 +1228,6 @@ def test_shape_edit_rolls_back_when_replace_returns_false():
 
 
 def test_shape_edit_regex_shares_stripped_pattern():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     shape = MagicMock()
     shape.Name = "Box"
@@ -1318,9 +1251,6 @@ def test_shape_edit_regex_shares_stripped_pattern():
 
 
 def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
-    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     r1, r2 = MagicMock(), MagicMock()
     calls = {"n": 0}
@@ -1392,7 +1322,6 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
 
 def test_all_matches_outline_update_failure_reports_hyperlink_code():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.hyperlink_fixup import OutlineLink, OutlineSnapshot
 
     ctx = _edit_ctx()
@@ -1427,7 +1356,6 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
 
 def test_position_after_cell_probe_reraises_disposed():
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
@@ -1442,8 +1370,6 @@ def test_position_after_cell_probe_reraises_disposed():
 
 
 def test_emptied_table_delete_reraises_disposed():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     found = MagicMock()
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
@@ -1585,7 +1511,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
         preserve.assert_not_called()
 
 
-# ---- K171: undo entry, table verification, regex validation -----------------
+# ---- undo entry, table verification, regex validation ----------------------
 
 def test_outline_undo_disposed_undo_manager_reraises():
     doc = MagicMock()
@@ -1704,9 +1630,7 @@ def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
 def test_apply_document_content_selection_failure_not_silent():
     from plugin.framework.config import save
     save({'doc.agent_edit_review_mode': 'none'})
-    from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
@@ -1725,7 +1649,6 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
     from plugin.framework.config import save
     save({"doc.agent_edit_review_mode": "none"})
     from plugin.writer import html_import
-    from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.html_import_styles import WriteReport
 
     ctx = MagicMock()
@@ -1806,9 +1729,6 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
 
 def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() -> None:
     from types import SimpleNamespace
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.search import MatchMode
 
     ctx = _edit_ctx()
     tables = MagicMock()
@@ -1853,8 +1773,6 @@ def test_all_matches_table_insert_unchanged_count_returns_table_insert_failed() 
 
 
 def test_dry_run_rejects_non_string_content_list_items() -> None:
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     res = ApplyDocumentContent().execute(
         _edit_ctx(),
         target="search",
@@ -1869,8 +1787,6 @@ def test_dry_run_rejects_non_string_content_list_items() -> None:
 
 @pytest.mark.parametrize("left", [True, False])
 def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> None:
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     session = MagicMock()
     session.left_tracked_changes.return_value = left
@@ -1892,8 +1808,6 @@ def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> Non
 
 
 def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     ctx = _edit_ctx()
     session = MagicMock()
     session.changes = []
@@ -1919,7 +1833,5 @@ def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:
 
 
 def test_replacement_plain_preserves_tex_escapes() -> None:
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     assert ApplyDocumentContent._replacement_plain(r"$\nu$") == r"$\nu$"
     assert ApplyDocumentContent._replacement_plain(r"Line\nTwo") == "Line\nTwo"

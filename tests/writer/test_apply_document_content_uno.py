@@ -9,6 +9,7 @@ import uno  # noqa: F401
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
+from tests.writer.doc_builders import body_paragraphs, body_texts, reject_all_changes
 
 
 def _clear_body(doc):
@@ -192,18 +193,6 @@ def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc
     assert "Beta two." in body
 
 
-def _body_paras(doc):
-    from plugin.framework.uno_context import enum_has_more
-
-    enum = doc.getText().createEnumeration()
-    out = []
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
-            out.append(el)
-    return out
-
-
 def _seed_three_simple_paras(doc):
     text = doc.getText()
     doc.setPropertyValue("RecordChanges", False)
@@ -240,7 +229,7 @@ def test_position_before_after_apply_block_styles_uno(ctx, doc):
         assert res.get("status") == "ok", res
         assert "warnings" not in res, res
 
-        paras = {p.getString(): p for p in _body_paras(doc)}
+        paras = {p.getString(): p for p in body_paragraphs(doc.getText())}
         assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
         assert paras["P"].getPropertyValue("ParaAdjust") == 3
         assert paras["P"].getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
@@ -255,7 +244,6 @@ def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
     from plugin.framework.uno_context import enum_has_more
 
     tctx = native_writer_tool_context(doc, ctx)
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     for pos in ("before", "after"):
         _seed_three_simple_paras(doc)
         doc.setPropertyValue("RecordChanges", True)
@@ -268,7 +256,7 @@ def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
                 content='<p data-lo-style="Heading2">H</p>',
             )
             assert res.get("status") == "ok", res
-            paras = {p.getString(): p for p in _body_paras(doc)}
+            paras = {p.getString(): p for p in body_paragraphs(doc.getText())}
             assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
 
             rl_types = []
@@ -278,14 +266,8 @@ def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
                 rl_types.append(str(rl.getPropertyValue("RedlineType")))
             assert set(rl_types) == {"Insert"}, (pos, rl_types)
 
-            helper.executeDispatch(
-                doc.getCurrentController().getFrame(),
-                ".uno:RejectAllTrackedChanges",
-                "",
-                0,
-                (),
-            )
-            assert [p.getString() for p in _body_paras(doc)] == [
+            reject_all_changes(doc, ctx)
+            assert body_texts(doc.getText()) == [
                 "Keep before",
                 "Replace me",
                 "Keep after",
@@ -1268,16 +1250,6 @@ def test_linked_picture_round_trip_uno(ctx, doc):
         os.unlink(img_path)
 
 
-def _body_para_strings(doc) -> list[str]:
-    from plugin.doc.text_helpers import iter_elements
-
-    return [
-        el.getString()
-        for el in iter_elements(doc.getText().createEnumeration())
-        if el.supportsService("com.sun.star.text.Paragraph")
-    ]
-
-
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_full_document_refuses_protected_middle_section_uno(ctx, doc):
@@ -1488,7 +1460,7 @@ def test_full_document_allows_sections_in_header_footer_containers_uno(ctx, doc)
             doc.setPropertyValue("RecordChanges", rec)
             res = tool.execute(tctx, target="full_document", content="<p>BodyNew</p>")
             assert res.get("status") == "ok", res
-            assert _body_para_strings(doc)[0] == "BodyNew"
+            assert body_texts(doc.getText())[0] == "BodyNew"
             sections = doc.getTextSections()
             for name in ("HCellProtSec", "HCellHidSec", "HFrameProtSec", "FNestProtSec"):
                 assert sections.hasByName(name), name
@@ -1566,7 +1538,7 @@ def test_full_document_recorded_leading_section_page_style_uno(ctx, doc):
         res = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res.get("status") == "ok", res
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-        assert _body_para_strings(doc)[0] == "N1"
+        assert body_texts(doc.getText())[0] == "N1"
         c = text.createTextCursor()
         c.gotoStart(False)
         assert c.getPropertyValue("PageDescName") == "First Page"
@@ -1582,7 +1554,7 @@ def test_full_document_recorded_leading_section_page_style_uno(ctx, doc):
         res2 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res2.get("status") == "ok", res2
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-        assert _body_para_strings(doc) == ["", "CoverText", ""]
+        assert body_texts(doc.getText()) == ["", "CoverText", ""]
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1605,7 +1577,7 @@ def test_full_document_recorded_leading_toc_accept_removes_index_uno(ctx, doc):
         assert res.get("status") == "ok", res
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
         assert doc.getDocumentIndexes().getCount() == 0
-        assert _body_para_strings(doc) == ["N1", "N2", ""]
+        assert body_texts(doc.getText()) == ["N1", "N2", ""]
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
@@ -1640,13 +1612,13 @@ def test_full_document_recorded_trailing_section_is_struck_uno(ctx, doc):
         res = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res.get("status") == "ok", res
         doc.getUndoManager().undo()
-        assert _body_para_strings(doc) == ["head", "body", "tail"]
+        assert body_texts(doc.getText()) == ["head", "body", "tail"]
         assert doc.getTextSections().getCount() == 1
 
         res2 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res2.get("status") == "ok", res2
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-        assert _body_para_strings(doc) == ["head", "body", "tail", ""]
+        assert body_texts(doc.getText()) == ["head", "body", "tail", ""]
         assert doc.getTextSections().getCount() == 1
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1657,7 +1629,7 @@ def test_full_document_recorded_trailing_section_is_struck_uno(ctx, doc):
         res3 = tool.execute(tctx, target="full_document", content="<p>N1</p>")
         assert res3.get("status") == "ok", res3
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-        assert _body_para_strings(doc) == ["N1", ""]
+        assert body_texts(doc.getText()) == ["N1", ""]
         assert doc.getTextSections().getCount() == 0
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1667,7 +1639,7 @@ def test_full_document_recorded_trailing_section_is_struck_uno(ctx, doc):
     res4 = tool.execute(tctx, target="full_document", content="<p>Off</p>")
     assert res4.get("status") == "ok", res4
     assert doc.getTextSections().getCount() == 0
-    assert _body_para_strings(doc) == ["Off"]
+    assert body_texts(doc.getText()) == ["Off"]
 
 
 @native_test
@@ -1734,7 +1706,7 @@ def test_full_document_recorded_table_only_leading_section_uno(ctx, doc):
     assert res3.get("status") == "ok", res3
     assert doc.getTextTables().getCount() == 0
     assert doc.getTextSections().getCount() == 0
-    assert _body_para_strings(doc) == ["Off"]
+    assert body_texts(doc.getText()) == ["Off"]
     doc.getUndoManager().undo()
     assert doc.getTextTables().getCount() == 1
     assert doc.getTextSections().getCount() == 1
@@ -1747,7 +1719,6 @@ def test_outline_picture_link_round_trips_full_document_uno(ctx, doc):
     import base64
     import os
     import tempfile
-    import uno
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
     from plugin.writer.html_export import document_to_content
 
@@ -1788,7 +1759,6 @@ def test_linked_picture_inside_text_link_keeps_trailing_link_uno(ctx, doc):
     import base64
     import os
     import tempfile
-    import uno
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER
 
     png = base64.b64decode(
@@ -1833,7 +1803,6 @@ def test_recorded_full_document_at_paragraph_surviving_picture_link_uno(ctx, doc
     import base64
     import os
     import tempfile
-    import uno
     from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
     from plugin.writer.html_export import document_to_content
 
@@ -1947,8 +1916,6 @@ def test_record_mode_pending_review_matches_redlines_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_markup_in_control_and_input_field_refused_uno(ctx, doc):
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
     tctx = native_writer_tool_context(doc, ctx)
     tool = ApplyDocumentContent()
     text = doc.getText()
@@ -2005,7 +1972,6 @@ def test_markup_in_control_and_input_field_refused_uno(ctx, doc):
 @native_test
 def test_full_document_refuses_shown_conditional_section_uno(ctx):
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool = ApplyDocumentContent()
 
@@ -2048,7 +2014,6 @@ def test_full_document_refuses_shown_conditional_section_uno(ctx):
 def test_apply_content_refuses_crossing_deletion_and_handles_all_matches_uno(ctx):
     from plugin.doc.text_helpers import visible_range_text
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     tool = ApplyDocumentContent()
 

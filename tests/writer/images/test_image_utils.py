@@ -308,7 +308,6 @@ class TestEndpointImageProvider:
         """_save_url rejects HTML and non-image bytes, and validates image magic."""
         import glob
         import tempfile
-        from plugin.framework.client.http_transport import HttpResult
 
         # Tip: own temp dir, so other workers' wa-img-* files never show up in the diff.
         monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -343,7 +342,6 @@ class TestEndpointImageProvider:
                 provider._save_url("https://example.com/bad.png")
         after_files = set(glob.glob(os.path.join(tempfile.gettempdir(), "wa-img-*")))
         assert after_files == before_files
-
 
     def test_make_image_request_body_includes_image_url_when_source_image(self):
         """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
@@ -805,7 +803,6 @@ def test_write_temp_image_and_suffix():
 
 def test_write_temp_image_unlinks_on_write_failure(monkeypatch, tmp_path):
     import tempfile
-    import pytest
     from plugin.writer.images.image_utils import write_temp_image
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
@@ -821,7 +818,6 @@ def test_write_temp_image_unlinks_on_write_failure(monkeypatch, tmp_path):
 
 
 def test_temp_cleanup_on_failure():
-    import pytest
     from plugin.writer.images.image_utils import EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
 
     provider = EndpointImageProvider({"model": "test"}, None)

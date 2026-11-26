@@ -778,8 +778,6 @@ def test_kick_start_extracted_peer_send_returns_false():
 
 
 def test_format_peer_envelope_work_vs_result():
-    from plugin.doc.peer_message import PEER_WORK_DELIVERY_FOOTER, format_peer_envelope
-
     work = format_peer_envelope(
         name="A.ods", uid="u1", url="", message="do thing", kind="work"
     )
