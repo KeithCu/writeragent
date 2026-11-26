@@ -935,17 +935,13 @@ def _writer_pool_is_clean(doc) -> bool:
 
 
 def _reset_writer_doc(doc, ctx) -> None:
-    # With controllers locked, Writer lays the document out once at unlockControllers, so the
-    # wipe raises a couple of layout document events (OnLayoutFinished, OnPageCountChange)
-    # instead of one per step; each event calls back into every registered plugin listener.
-    doc.lockControllers()
-    try:
-        _wipe_writer_doc(doc, ctx)
-    finally:
-        doc.unlockControllers()
-
-
-def _wipe_writer_doc(doc, ctx) -> None:
+    # Do not wrap the wipe in lockControllers. Deleting the body text empties sections such as
+    # a table of contents, and Writer keeps their frames half-dead until the next layout pass
+    # (sw/source/core/layout/sectfrm.cxx SwSectionFrame::DelEmpty -> SwRootFrame::InsertEmptySct,
+    # flushed by SwLayAction through DeleteEmptySct). Each unlocked UNO call below ends its own
+    # layout action, so those frames are gone before the next step. Under one lock they live on
+    # through the dispatches and the section removal, and LibreOffice 26.2 aborts (SalAbort)
+    # while wiping a document that holds a table of contents.
     try:
         doc.setPropertyValue("RecordChanges", False)
     except Exception:
