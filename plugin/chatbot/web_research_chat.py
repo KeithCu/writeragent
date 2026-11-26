@@ -10,7 +10,7 @@ import os
 import posixpath
 from typing import Any, Mapping
 
-from plugin.chatbot.chat_session import message_text
+from plugin.chatbot.chat_session import ChatSession, message_text
 
 HISTORY_CLIP_CHARS = 4000
 
@@ -45,7 +45,7 @@ def clip_sub_agent_history(history_text: str | None) -> str | None:
     return head + tail
 
 
-def format_sub_agent_conversation_history(session: Any, *, current_query: str | None = None) -> str:
+def format_sub_agent_conversation_history(session: ChatSession, *, current_query: str | None = None) -> str:
     """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession (one User:/Assistant: turn per message)."""
     # Compare whitespace-collapsed text so a padded or &nbsp; variant of the query still dedupes.
     query_line = " ".join((current_query or "").split())
