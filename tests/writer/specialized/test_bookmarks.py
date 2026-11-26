@@ -9,6 +9,7 @@ from plugin.writer.specialized.bookmarks import (
     BookmarkGet,
     BookmarkList,
     BookmarkService,
+    _BookmarkSaveListener,
 )
 
 
@@ -726,3 +727,19 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
     assert all_names == []
 
 
+
+
+class _SourceRaisingEvent:
+    def __init__(self, name: str) -> None:
+        self.EventName = name
+
+    @property
+    def Source(self):  # noqa: N802 -- UNO struct field
+        raise AssertionError("Source must not be read for an unhandled event")
+
+
+@pytest.mark.parametrize("event_name", ["OnFocus", "OnModifyChanged", "OnTitleChanged"])
+def test_save_listener_ignores_unhandled_events_without_reading_source(event_name):
+    svc = MagicMock()
+    _BookmarkSaveListener(svc, "doc-key").on_document_event(_SourceRaisingEvent(event_name))
+    assert svc.mock_calls == []

@@ -93,14 +93,11 @@ class ReviewModifyListener(BaseModifyListener):
         super().__init__()
         self._key = key
 
-    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        try:
-            model = aEvent.Source
-            lm = layout_manager(model)
-            if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
-                schedule_toolbar_refresh(model, self._key)
-        except Exception:
-            log.debug("review_view_attachment: modify handler failed", exc_info=True)
+    def on_modified(self, aEvent: Any) -> None:  # noqa: N803 -- UNO signature
+        # Every keystroke fires this, so it only queues one deferred recount per main-loop
+        # turn; ``_run_deferred_refresh`` does the LayoutManager lookup and skips the recount
+        # while the toolbar is hidden.
+        schedule_toolbar_refresh(aEvent.Source, self._key)
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         attachment = _attachments.get(self._key)

@@ -146,14 +146,17 @@ def test_keystroke_burst_collapses_into_one_queued_recount():
     _reset_pending()
 
 
-def test_normal_typing_without_a_review_queues_nothing():
+def test_modify_events_never_touch_the_layout_manager():
     _reset_pending()
     listener = rva.ReviewModifyListener(_doc_key("uid-idle"))
+    model = FakeModel("uid-idle")
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(False), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
-        listener.modified(_event(FakeModel("uid-idle")))
-    refresh.assert_not_called()
-    assert posted == []
+    with patch.object(rva, "layout_manager") as lm_lookup, post_patch:
+        for _ in range(25):
+            listener.modified(_event(model))
+    lm_lookup.assert_not_called()
+    assert len(posted) == 1, "a burst of modify events must queue at most one recount"
+    _reset_pending()
 
 
 def test_queued_recount_runs_once_then_allows_the_next():
