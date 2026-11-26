@@ -3884,3 +3884,68 @@ def test_table_insert_on_empty_paragraph_respects_direct_vs_style_page_break_uno
         assert str(paras[1].getPropertyValue("BreakType").value) == "PAGE_BEFORE"
     finally:
         h1_style.setPropertyValue("BreakType", prev_h1_break)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> None:
+    """Header inserts and body Format redlines pass; body table-cell inserts refuse when untracked."""
+    from com.sun.star.awt.FontWeight import BOLD
+    from plugin.doc.text_helpers import iter_elements, redline_bounds
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import review_authors
+    from plugin.writer.html_import import raise_if_pending_changes_untracked
+
+    prior = review_authors.begin(ctx)
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        text = doc.getText()
+        text.setString("Body text.")
+
+        # Header insertion (recorded) and body Format change (recorded): neither should block.
+        page_style = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+        page_style.setPropertyValue("HeaderIsOn", True)
+        header_text = page_style.getPropertyValue("HeaderText")
+
+        doc.setPropertyValue("RecordChanges", True)
+        h_cur = header_text.createTextCursor()
+        header_text.insertString(h_cur, "Header ins", False)
+        b_cur = text.createTextCursor()
+        b_cur.gotoStart(False)
+        b_cur.goRight(4, True)
+        b_cur.setPropertyValue("CharWeight", BOLD)
+
+        seen_redlines = {
+            (str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)[0].getImplementationName())
+            for rl in iter_elements(doc.getRedlines().createEnumeration())
+        }
+        assert ("Insert", "SwXHeadFootText") in seen_redlines, seen_redlines
+        assert ("Format", "SwXBodyText") in seen_redlines, seen_redlines
+
+        doc.setPropertyValue("RecordChanges", False)
+        raise_if_pending_changes_untracked(doc)
+
+        # Body table-cell insertion by Bob: recording on passes, recording off refuses.
+        table = doc.createInstance("com.sun.star.text.TextTable")
+        table.initialize(1, 1)
+        end_cur = text.createTextCursor()
+        end_cur.gotoEnd(False)
+        text.insertTextContent(end_cur, table, False)
+
+        review_authors.set_office_author(ctx, "Bob")
+        doc.setPropertyValue("RecordChanges", True)
+        cell = table.getCellByName("A1")
+        cell.insertString(cell.createTextCursor(), "Cell ins", False)
+
+        raise_if_pending_changes_untracked(doc)
+
+        doc.setPropertyValue("RecordChanges", False)
+        try:
+            raise_if_pending_changes_untracked(doc)
+        except ToolExecutionError as exc:
+            assert exc.code == "PENDING_TRACKED_CHANGES"
+        else:
+            raise AssertionError("Expected PENDING_TRACKED_CHANGES")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        review_authors.end(ctx, prior)

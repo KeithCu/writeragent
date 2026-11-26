@@ -384,6 +384,132 @@ def test_apply_document_content_tool_untracked_when_config_off_uno(ctx, doc):
         save({_FLAG: prev})
 
 
+def _alice_changes(doc, ctx):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.writer import review_authors
+
+    _reset(doc, ctx, "Clause one keep. Alice deletes this.")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    text.insertString(cur, "Clause two. Tail.", False)
+
+    prior = review_authors.begin(ctx)
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        with _recording(doc):
+            del_cur = text.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.goRight(len("Clause one keep. "), False)
+            del_cur.goRight(len("Alice deletes this."), True)
+            del_cur.setString("")
+
+            ins_cur = text.createTextCursor()
+            ins_cur.gotoEnd(False)
+            text.insertString(ins_cur, " Alice inserted.", False)
+    finally:
+        review_authors.end(ctx, prior)
+
+
+def _redline_snapshot(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    out = []
+    e = doc.getRedlines().createEnumeration()
+    while enum_has_more(e):
+        rl = e.nextElement()
+        start = rl.getPropertyValue("RedlineStart")
+        end = rl.getPropertyValue("RedlineEnd")
+        cur = end.getText().createTextCursorByRange(start)
+        cur.gotoRange(end, True)
+        succ = rl.getPropertyValue("RedlineSuccessorData")
+        succ_dict = {pv.Name: pv.Value for pv in succ} if succ else {}
+        out.append(
+            (str(rl.getPropertyValue("RedlineType")), str(rl.getPropertyValue("RedlineAuthor")), cur.getString(), succ_dict)
+        )
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_untracked_refuses_over_pending_changes_uno(ctx, doc):
+    """full_document with Track Changes off refuses over pending Insert/Delete redlines by any author."""
+    _alice_changes(doc, ctx)
+    with _saved_config(doc, ctx, {_FLAG: "off"}):
+        before_text = doc.getText().getString()
+        before_redlines = _redline_snapshot(doc)
+        before_undo = undo_titles(doc)
+
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+        )
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PENDING_TRACKED_CHANGES", res
+        assert doc.getText().getString() == before_text
+        assert _redline_snapshot(doc) == before_redlines
+        assert undo_titles(doc) == before_undo
+
+    # Also refuses over a lone agent-authored pending Insert left from an earlier record-mode turn.
+    _reset(doc, ctx, "Plain start.")
+    with _saved_config(doc, ctx, {_FLAG: "record"}):
+        seed = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="end", content=["<p>Agent added.</p>"]
+        )
+        assert seed.get("status") == "ok", seed
+        save({_FLAG: "off"})
+        res2 = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="full_document", content=["<p>Wipe all.</p>"]
+        )
+        assert res2.get("status") == "error", res2
+        assert res2.get("code") == "PENDING_TRACKED_CHANGES", res2
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_recorded_keeps_other_authors_changes_uno(ctx, doc):
+    """Recorded full_document keeps Alice's deletion and stacks on Alice's insertion."""
+    from plugin.writer import review_authors
+
+    for mode, user_rec in (("record", False), ("off", True)):
+        _alice_changes(doc, ctx)
+        with _saved_config(doc, ctx, {_FLAG: mode}):
+            doc.setPropertyValue("RecordChanges", user_rec)
+            try:
+                res = ApplyDocumentContent().execute(
+                    _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+                )
+                assert res.get("status") == "ok", res
+                snap = _redline_snapshot(doc)
+                assert any(
+                    rtype == "Delete" and author == "Alice" and rtext == "Alice deletes this."
+                    for rtype, author, rtext, _succ in snap
+                ), snap
+
+                assert any(
+                    rtext == " Alice inserted."
+                    and succ.get("RedlineType") == "Insert"
+                    and succ.get("RedlineAuthor") == "Alice"
+                    for _rtype, _author, rtext, succ in snap
+                ), snap
+
+                expected_authors = (
+                    {review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR}
+                    if mode == "record"
+                    else {review_authors.office_author(ctx)}
+                )
+                for _rtype, author, rtext, _succ in snap:
+                    if rtext == "Alice deletes this.":
+                        assert author == "Alice"
+                    else:
+                        assert author in expected_authors, (mode, author, rtext)
+
+                _accept_all(doc, ctx)
+                assert doc.getText().getString().rstrip("\r\n") == "New body."
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+
+
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_tool_tags_changes_with_session_tokens_uno(ctx, doc):
