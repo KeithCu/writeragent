@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 
 from plugin.writer.edit_review import (
     EditReviewSession,
-    annotate_review_status,
     edit_review_wait_seconds,
     flag_tracked,
     review_recording_enabled,
@@ -173,8 +172,6 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
         "message": message,
         "table_deleted": names[0] if len(names) == 1 else names,
     }
-    if tracked:
-        flag_tracked(result)
     return result
 
 
@@ -1095,7 +1092,9 @@ class ApplyDocumentContent(ToolBase):
             # of 3 replace-all matches fails after the 1st).
             try:
                 result, _session, pending = _run_on_main_thread(_do_edit)
-                return annotate_review_status(result) if pending else result
+                if pending:
+                    flag_tracked(result)
+                return result
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
@@ -1118,7 +1117,9 @@ class ApplyDocumentContent(ToolBase):
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
                 self._release_review_session(session)
-            return annotate_review_status(result) if pending else result
+            if pending:
+                flag_tracked(result)
+            return result
 
         # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
         # The callback marshals onto the chat drain queue, so it is safe from this worker thread.
@@ -1263,10 +1264,10 @@ class ApplyDocumentContent(ToolBase):
                 else:
                     content = html_import_styles.normalize_character_references(content)
 
-        # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
-        # the agent's edits as native tracked changes (redlines) the user can accept/reject --
-        # tagging each logical change so its outcome can be reported -- and restores the prior
-        # recording state. Default off -> the session is inert and behavior is unchanged.
+        # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession turns on
+        # recording under WriterAgent's author and tags each logical change so its outcome can be
+        # reported. When off, the session is inert (does not enable recording or switch the author),
+        # while still noting redlines from the user's own recording so the result reports them.
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
@@ -1573,8 +1574,6 @@ class ApplyDocumentContent(ToolBase):
             if doomed:
                 deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
                 resp["table_deleted"] = deletion["table_deleted"]
-                if tracked_delete:
-                    flag_tracked(resp)
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
         html_import_styles.attach_write_report(
             resp, report, total_matches=count,

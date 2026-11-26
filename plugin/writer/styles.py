@@ -61,7 +61,6 @@ from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.framework.uno_context import create_property_value, get_toolkit
 from plugin.writer.edit_review import (
     agent_format_author,
-    annotate_review_status,
     flag_style_unreviewed,
     flag_tracked,
     next_agent_edit_undo_title,
@@ -1959,7 +1958,7 @@ class ApplyStyle(FrameworkToolBase):
         res.update(self._merge_reports(reports))
         if char_tracked or res.get("tracked"):
             flag_tracked(res)
-            return annotate_review_status(res)
+            return res
         if "tracked" not in res:
             flag_style_unreviewed(res)
         return res
@@ -2273,7 +2272,7 @@ class StyleFormatText(ToolWriterStyleBase):
             res["warning"] = " ".join(warnings)
 
         if tracked:
-            res = annotate_review_status(res)
+            flag_tracked(res)
             _flag_stacked_format_redlines(res, ctx.doc, cursors)
         if untracked or not tracked or unrestorable:
             flag_style_unreviewed(res, ctx.doc)
