@@ -104,7 +104,7 @@ def test_identifier_mismatch_does_not_notify():
          patch("plugin.framework.config.get_config", return_value=0.0), \
          patch("plugin.framework.config.save"), \
          patch("plugin.version.EXTENSION_VERSION", "0.0.1"):
-        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        run_extension_update_check(ctx, _WRITERAGENT_PROFILE, EXTENSION_ID_WRITERAGENT)
         mock_msgbox.assert_not_called()
 
 
@@ -122,7 +122,7 @@ def test_schedule_once_allows_two_products_same_process():
         # Second call for same product is a no-op.
         schedule_extension_update_check_once(ctx, EXTENSION_ID_WRITERAGENT)
         assert run_bg.call_count == 2
-        kw_ids = {c.kwargs["extension_id"] for c in run_bg.call_args_list}
+        kw_ids = {c.args[3] for c in run_bg.call_args_list}
         assert kw_ids == {EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER}
         assert all(c.kwargs.get("dedicated") is True for c in run_bg.call_args_list)
     reset_extension_update_check_schedule_for_tests()
@@ -146,7 +146,7 @@ def test_run_extension_update_check_dialog_formatting(monkeypatch):
          patch("plugin.framework.config.get_config", return_value=0.0), \
          patch("plugin.framework.config.save") as mock_set_config, \
          patch("plugin.version.EXTENSION_VERSION", "0.7.0"):
-        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        run_extension_update_check(ctx, _WRITERAGENT_PROFILE, EXTENSION_ID_WRITERAGENT)
 
         assert mock_sync.call_args.kwargs["max_bytes"] == 64 * 1024
         assert mock_msgbox.call_count == 1
@@ -165,7 +165,7 @@ def test_transient_fetch_failure_retries_in_six_hours(monkeypatch):
     with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("offline")), \
          patch("plugin.framework.config.get_config", return_value=0.0), \
          patch("plugin.framework.config.save") as mock_set_config:
-        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        run_extension_update_check(ctx, _WRITERAGENT_PROFILE, EXTENSION_ID_WRITERAGENT)
 
         mock_set_config.assert_called_once_with(
             {_WRITERAGENT_PROFILE.config_key_epoch: pytest.approx(
@@ -180,7 +180,7 @@ def test_not_due_check_writes_nothing(monkeypatch):
     with patch("plugin.framework.config.get_config", return_value=time.time()), \
          patch("plugin.framework.client.requests.sync_request") as mock_sync, \
          patch("plugin.framework.config.save") as mock_set_config:
-        run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
+        run_extension_update_check(ctx, _WRITERAGENT_PROFILE, EXTENSION_ID_WRITERAGENT)
         mock_sync.assert_not_called()
         mock_set_config.assert_not_called()
 

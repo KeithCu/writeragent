@@ -14,12 +14,11 @@ from plugin.chatbot.record_gesture import (
     hands_free_silence_text,
     hands_free_status_text,
 )
-from plugin.chatbot.send_state import SendEvent, SendEventKind, StartSendEffect
+from plugin.chatbot.send_state import SendEvent, SendEventKind, StartSendEffect, spawn_scope
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import fill_api_key, get_api_config, get_current_endpoint, get_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import is_cancelled
-from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.tool_loop_actions import (
     assign_send_outcome,
     send_outcome_is_stopped,
@@ -48,7 +47,7 @@ def stop_playback_if_speaking(host: Any) -> bool:
 
     if is_speaking():
         stop_tts()
-        if not getattr(host, "_send_busy", False):
+        if not host._send_busy:
             # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
             # hands-free, or the TTS poll would arm the mic again.
             host._voice.exit_hands_free_record()
@@ -211,7 +210,7 @@ class PanelVoiceController:
             self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
     def _panel_gone(self) -> bool:
-        return bool(getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None)
+        return bool(self._panel._panel_teardown or self._panel.ctx is None)
 
     def _on_record_hold_elapsed(self) -> None:
         if self._panel_gone():
@@ -227,7 +226,7 @@ class PanelVoiceController:
         the next click sends it. ERROR_OCCURRED clears is_recording without
         starting a send.
         """
-        recorder = getattr(self._panel, "audio_recorder", None)
+        recorder = self._panel.audio_recorder
         if recorder is not None:
             try:
                 recorder.cleanup()
@@ -310,7 +309,7 @@ class PanelVoiceController:
             self._panel._close_turn_ui(speak=False)
             return
 
-        if getattr(self._panel, "stop_requested", False):
+        if self._panel.stop_requested:
             from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
             assign_send_outcome(self._panel, "stopped")
@@ -326,14 +325,15 @@ class PanelVoiceController:
     def _on_audio_recorder_error(self, msg: str) -> None:
         """Child error after ready, on the UI thread.
 
-        The stdout monitor only posts here. Applying the recorder event on
-        that thread raised out of ReportErrorEffect and left the button on
-        Stop Rec. ERROR_OCCURRED drops the recording label.
+        The stdout monitor only posts here. The recorder event is applied here
+        on the UI thread; applied on the monitor thread it raises out of
+        ReportErrorEffect and the button stays on Stop Rec. ERROR_OCCURRED
+        drops the recording label.
         """
         # A post can already be queued when disposing clears the recorder hooks.
         if self._panel_gone():
             return
-        recorder = getattr(self._panel, "audio_recorder", None)
+        recorder = self._panel.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
 
@@ -480,15 +480,16 @@ class PanelVoiceController:
         finally:
             self._cleanup_stt(wav_path)
 
+    def _ask_text(self) -> str:
+        from plugin.chatbot.dialogs import get_control_text
+
+        return get_control_text(self._panel.query_control).strip()
+
     def _apply_stt_transcript(self, transcript: str, query_text: str) -> tuple[str, bool]:
         """Apply finished STT transcript to *query_text* or Ask box on Stop/empty."""
         from plugin.framework.i18n import _
 
-        typed_after = ""
-        if self._panel.query_control and self._panel.query_control.getModel():
-            from plugin.chatbot.dialogs import get_control_text
-
-            typed_after = (get_control_text(self._panel.query_control) or "").strip()
+        typed_after = self._ask_text()
 
         if send_outcome_is_stopped(self._panel):
             # Do not auto-send late transcript into the new typed turn.
@@ -537,10 +538,10 @@ class PanelVoiceController:
         Returns True when STT was started asynchronously (caller should exit and
         let ``on_resolved`` continue the turn when STT completes).
         """
-        qe = getattr(self._panel, "queue_executor", None)
+        qe = self._panel.queue_executor
         if qe is None or getattr(qe, "_async_callback_service", None) is None:
             return False
-        wav_path = getattr(self._panel, "audio_wav_path", None)
+        wav_path = self._panel.audio_wav_path
         if not wav_path:
             return False
 
@@ -612,11 +613,7 @@ class PanelVoiceController:
 
     def _put_stopped_transcript_in_ask(self, transcript: str, query_text: str) -> None:
         """Put a finished transcript in Ask when the send was stopped (not auto-send)."""
-        typed_after = ""
-        if self._panel.query_control and self._panel.query_control.getModel():
-            from plugin.chatbot.dialogs import get_control_text
-
-            typed_after = (get_control_text(self._panel.query_control) or "").strip()
+        typed_after = self._ask_text()
 
         new_text = _join_voice_text(query_text, transcript)
         if typed_after and typed_after != query_text:
@@ -635,11 +632,7 @@ class PanelVoiceController:
         if not (local_stt or stt_model) or not self._panel.audio_wav_path:
             return
 
-        query_text = ""
-        if self._panel.query_control and self._panel.query_control.getModel():
-            from plugin.chatbot.dialogs import get_control_text
-
-            query_text = (get_control_text(self._panel.query_control) or "").strip()
+        query_text = self._ask_text()
 
         try:
             transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
@@ -653,7 +646,7 @@ class PanelVoiceController:
 
         Returns (query_text, should_exit_send).
         """
-        if not getattr(self._panel, "audio_wav_path", None):
+        if not self._panel.audio_wav_path:
             return query_text, False
 
         from plugin.audio.stt_service import uses_local_stt
@@ -717,9 +710,9 @@ class PanelVoiceController:
         if terminal:
             self._panel._set_status(_(terminal))
         try:
-            # Speak from session_for_turn(self) (valid until drop_turn) when TTS is enabled and
+            # Speak from session_for_turn(self._panel) (valid until drop_turn) when TTS is enabled and
             # terminal status is not Stopped. An alive-turn check fails here: the tool-loop finally
-            # already ran abort_turn(self).
+            # already ran abort_turn(self._panel).
             if get_config("audio.tts_enabled") and terminal != "Stopped":
                 spoken = session_for_turn(self._panel)
                 turn = current_turn(self._panel)
@@ -788,7 +781,7 @@ def strip_audio_from_last_user_message(host: Any, *, speak: bool) -> None:
     from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER
 
     sess = session_for_turn(host) or host.session
-    if sess and getattr(sess, "messages", None):
+    if sess and sess.messages:
         # Ensure in-memory audio is not resent on the next turn.
         # Iterate backwards to find the last user message.
         for msg in reversed(sess.messages):

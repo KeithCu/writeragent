@@ -452,7 +452,7 @@ class TestSettingsEnhancements:
         mock_check.assert_called_once_with("https://openrouter.ai/api", "sk-test-key")
         status_ctrl.setText.assert_called_with("✓ Connected (25ms)")
 
-    @patch("plugin.chatbot.dialog_views.open_system_url")
+    @patch("plugin.chatbot.dialog_views.open_url_in_browser")
     def test_provider_starter_listener_action(self, mock_open_url):
         from plugin.chatbot.dialog_views import ProviderStarterListener
 
@@ -2136,29 +2136,6 @@ def test_setup_module_tabs_wiring_error_propagates():
             setup_module_tabs(dlg)
 
 
-def test_open_system_url(caplog):
-    from plugin.chatbot.dialog_views import open_system_url
-
-    # Empty URL does nothing
-    ctx = MagicMock()
-    open_system_url(ctx, "")
-    ctx.getServiceManager.assert_not_called()
-
-    # Valid URL calls SystemShellExecute
-    shell = MagicMock()
-    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = shell
-    open_system_url(ctx, "https://example.com")
-    shell.execute.assert_called_once_with("https://example.com", "", 0)
-
-    # Errors during execute are swallowed and recorded
-    shell.execute.reset_mock()
-    shell.execute.side_effect = RuntimeError("shell error")
-    with caplog.at_level("DEBUG", logger="writeragent.errors"):
-        open_system_url(ctx, "https://example.com")
-    shell.execute.assert_called_once_with("https://example.com", "", 0)
-    assert any(r.exc_info is not None for r in caplog.records)
-
-
 def test_stt_provider_item_listener_sync_ui(caplog):
     from plugin.chatbot.dialog_views import sync_stt_ui
 
@@ -2594,7 +2571,7 @@ def test_provider_starter_different_endpoint_syncs_and_starts_read(fake_keystore
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
-        patch("plugin.chatbot.dialog_views.open_system_url"),
+        patch("plugin.chatbot.dialog_views.open_url_in_browser"),
         patch("plugin.chatbot.dialog_views.threading.Timer"),
         patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
@@ -2636,7 +2613,7 @@ def test_provider_starter_same_endpoint_retries_read(fake_keystore) -> None:
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
-        patch("plugin.chatbot.dialog_views.open_system_url"),
+        patch("plugin.chatbot.dialog_views.open_url_in_browser"),
         patch("plugin.chatbot.settings_fields.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.settings_fields.run_in_background", side_effect=lambda fn, *_a, **_kw: workers.append(fn)),
         patch("plugin.chatbot.settings_fields.main.post", side_effect=lambda fn: fn()),

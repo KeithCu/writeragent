@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
+from plugin.chatbot.bug_report import open_url_in_browser
 from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url, pick_shipped_icon, resolve_menu_icon_pixel_size
 from plugin.framework.uno_context import get_extension_url
@@ -319,7 +320,6 @@ class SettingsDialog:
             raise UnoObjectError("Failed to create dialog: SettingsDialog")
 
     def _setup_tabs(self) -> None:
-        assert self._dlg is not None
         self._dlg.getControl("btn_tab_chat").addActionListener(TabListener(self._dlg, 1))
         self._dlg.getControl("btn_tab_image").addActionListener(TabListener(self._dlg, 2))
 
@@ -374,8 +374,6 @@ class SettingsDialog:
             self._attach_combo(provider_ctrl, McpTunnelProviderListener(self._dlg))
 
     def _populate_fields(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
-        assert self._dlg is not None
-
         raw_api_key = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
         if keystore.is_ref(raw_api_key):
             api_key_val: str | None = None if api_key_needs_keystore_read(current_endpoint) else ""
@@ -383,15 +381,15 @@ class SettingsDialog:
             api_key_val = raw_api_key
 
         for field in field_specs:
+            name = field["name"]
             # get_optional returns None for a name missing from the XDL
             # (and still raises if the dialog is disposed). getControl
             # raises on a missing name and aborts show() before execute().
-            ctrl = get_optional(self._dlg, field["name"])
+            ctrl = get_optional(self._dlg, name)
             if ctrl is None:
-                log.warning("Settings dialog missing control %r", field["name"])
+                log.warning("Settings dialog missing control %r", name)
                 continue
 
-            name = field["name"]
             val = field["value"]
 
             if name in _MODEL_LRU_KEYS:
@@ -442,12 +440,7 @@ class SettingsDialog:
                 sync_fn(self._dlg)
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
-        """Every provider: combos are already LRU. Fetch the catalog off the UI thread.
-
-        Every provider fetches here, off the UI thread. Returning unless
-        the provider was OpenRouter or Together left Ollama, Groq, and custom
-        URLs with only the open-time fill, and that load blocked execute().
-        """
+        """Fetch the catalog off the UI thread for every provider; the combos already show the LRU."""
         from plugin.framework.client.auth import provider_requires_api_key
 
         listener = self._endpoint_listener
@@ -481,7 +474,6 @@ class SettingsDialog:
                     set_control_enabled(ctrl, False)
 
     def _extract_results(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
-        assert self._dlg is not None
         # Mixed checkbox bools and text strings; without this mypy infers dict[str, str]
         # from the empty-control "" default once SettingsDialog has class-body annotations.
         result: dict[str, Any] = {}
@@ -521,21 +513,12 @@ class SettingsDialog:
                 self._dlg.dispose()
 
 
-def settings_box(ctx: Any) -> Any:
+def settings_box(ctx: Any) -> dict[str, Any]:
     """Entry point for settings dialog."""
     return SettingsDialog(ctx).show()
 
 
 # ── Listeners ────────────────────────────────────────────────────────
-
-def open_system_url(ctx: Any, url_str: str) -> None:
-    """Open URL in default browser via UNO SystemShellExecute."""
-    if not url_str:
-        return
-    best_effort(
-        lambda: ctx.getServiceManager().createInstanceWithContext("com.sun.star.system.SystemShellExecute", ctx).execute(url_str, "", 0),
-        f"open URL {url_str}",
-    )
 
 
 class EditConfigListener(BaseActionListener):
@@ -596,7 +579,7 @@ class ProviderStarterListener(BaseActionListener):
             ak_ctrl = get_optional(self._dlg, "api_key")
             if ak_ctrl:
                 ak_ctrl.setFocus()
-        open_system_url(self._ctx, self._signup_url)
+        open_url_in_browser(self._ctx, self._signup_url)
 
 
 class TestConnectionListener(BaseActionListener):
@@ -622,7 +605,7 @@ class TestConnectionListener(BaseActionListener):
         # on the settings worker. Do not wait for the connection probe.
         listener = self._endpoint_listener
         ak_ctrl = get_optional(self._dlg, "api_key")
-        has_ref = ak_ctrl is not None and keystore.is_ref(str(get_control_text(ak_ctrl) or ""))
+        has_ref = ak_ctrl is not None and keystore.is_ref(get_control_text(ak_ctrl))
         if listener is not None:
             listener.force_catalog_refresh()
             api_key = "" if has_ref else (listener._api_key_override() or "")
@@ -630,7 +613,7 @@ class TestConnectionListener(BaseActionListener):
             api_key = ""
 
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
-        endpoint_text = str(get_control_text(endpoint_ctrl)) if endpoint_ctrl else ""
+        endpoint_text = get_control_text(endpoint_ctrl) if endpoint_ctrl else ""
         endpoint = endpoint_from_selector_text(endpoint_text)
 
         def _worker() -> None:
@@ -641,7 +624,7 @@ class TestConnectionListener(BaseActionListener):
                 if btn_test:
                     set_control_enabled(btn_test, True)
                 if lbl_status:
-                    set_control_text(lbl_status, _(msg))
+                    set_control_text(lbl_status, msg)
 
             main.post(_apply)
 
@@ -1108,15 +1091,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             set_control_text(lbl, _("API Key ({where}):").format(where=where))
 
     def _clear_test_status(self) -> None:
-        # The Get API Key link is gone. A new endpoint still leaves the last
-        # connection-test line on screen, so clear that label here.
+        # A new endpoint must not keep the last connection-test line on screen.
         lbl_status = get_optional(self._dlg, "lbl_test_status")
         if lbl_status:
             set_control_text(lbl_status, "")
 
     def _typed_api_key(self, ak_ctrl: Any) -> str:
         """Field text, or '' when it holds a keystore ref (unreadable keys must never be sent)."""
-        text = str(get_control_text(ak_ctrl) or "")
+        text = get_control_text(ak_ctrl)
         return "" if keystore.is_ref(text) else text
 
     def _api_key_override(self) -> str | None:
@@ -1146,23 +1128,27 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             self._user_edited_key,
         )
 
+    @staticmethod
+    def _key_slot(key: str | None) -> str:
+        return "" if key is None else key
+
     def _catalog_identity(self, resolved: str) -> tuple[str, str]:
-        """Endpoint plus the live key. None (no field) and "" are different slots."""
-        override = self._api_key_override()
-        return (resolved, "" if override is None else override)
+        """Endpoint plus the live key. A missing key field and an empty one share the "" slot."""
+        return (resolved, self._key_slot(self._api_key_override()))
 
     def _apply_catalog(self, resolved: str, models: Any = None) -> None:
         self._applied_catalog = self._catalog_identity(resolved)
         self._apply_dropdowns(resolved, models=models)
 
     def _apply_warm_catalog(self, resolved: str, key: str | None) -> None:
-        self._applied_catalog = (resolved, "" if key is None else key)
+        self._applied_catalog = (resolved, self._key_slot(key))
         self._apply_dropdowns(
             resolved,
             models=cached_text_models(resolved, api_key_override=key),
         )
 
     def _apply_dropdowns(self, resolved: str, models: Any = None) -> None:
+        key_ov = self._api_key_override()
         ak_ctrl = get_optional(self._dlg, "api_key")
         api_key_ov = None if self._key_read_pending() else (self._typed_api_key(ak_ctrl) if ak_ctrl else "")
         resolved_provider = _provider_for_catalog(resolved)
@@ -1171,20 +1157,20 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._painted_identity = identity
 
         text_models = (
-            drop_non_text_models(resolved, models, api_key_override=self._api_key_override())
+            drop_non_text_models(resolved, models, api_key_override=key_ov)
             if isinstance(models, list) else models
         )
         image_models = (
-            cached_image_models(resolved, api_key_override=self._api_key_override())
+            cached_image_models(resolved, api_key_override=key_ov)
             if models is not None
             else None
         )
         # Speech rows need the full models list because Together speech ids are prefix-matched from it.
         rows = (
-            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), _MODEL_LRU_KEYS["text_model"], text_models),
-            (get_optional(self._dlg, "audio__stt_model"), str(get_stt_model() or ""), _MODEL_LRU_KEYS["audio__stt_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")),
-            (get_optional(self._dlg, "audio__tts_model"), str(get_config("audio.tts_model") or get_tts_model() or ""), _MODEL_LRU_KEYS["audio__tts_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")),
-            (get_optional(self._dlg, "image_model"), str(get_image_model() or ""), "image_model_lru", image_models),
+            (get_optional(self._dlg, "text_model"), get_text_model(), _MODEL_LRU_KEYS["text_model"], text_models),
+            (get_optional(self._dlg, "audio__stt_model"), get_stt_model(), _MODEL_LRU_KEYS["audio__stt_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt", key_ov)),
+            (get_optional(self._dlg, "audio__tts_model"), str(get_config("audio.tts_model") or get_tts_model()), _MODEL_LRU_KEYS["audio__tts_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts", key_ov)),
+            (get_optional(self._dlg, "image_model"), get_image_model(), "image_model_lru", image_models),
         )
         for ctrl, fallback, lru_key, remote in rows:
             if ctrl:
@@ -1218,6 +1204,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         models: Any,
         api_key_ov: str | None,
         kind: str,
+        key_ov: str | None,
     ) -> Any:
         """Ids for the Speech-tab STT or TTS combo.
 
@@ -1243,7 +1230,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if not isinstance(models, list):
             return None
         fetch = cached_tts_models if kind == "tts" else cached_stt_models
-        found = fetch(resolved, api_key_override=self._api_key_override())
+        found = fetch(resolved, api_key_override=key_ov)
         return found if isinstance(found, list) else None
 
     def _cancel_pending(self) -> int:
@@ -1277,7 +1264,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if not self._pending_key_ref:
             return False
         ak_ctrl = get_optional(self._dlg, "api_key")
-        return ak_ctrl is not None and str(get_control_text(ak_ctrl) or "") == self._pending_key_ref
+        return ak_ctrl is not None and get_control_text(ak_ctrl) == self._pending_key_ref
 
     def start_key_read(self, resolved: str) -> None:
         """Start an async keystore read when the ``api_key`` field holds an uncached ref."""
@@ -1285,7 +1272,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if ak_ctrl is None:
             self._pending_key_ref = None
             return
-        text = str(get_control_text(ak_ctrl) or "")
+        text = get_control_text(ak_ctrl)
         if not keystore.is_ref(text):
             self._pending_key_ref = None
             return
@@ -1393,7 +1380,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         key = self._api_key_override()
         if resolved and settings_catalog_is_warm(resolved, api_key_override=key):
             self._cancel_pending()
-            if (resolved, "" if key is None else key) == self._applied_catalog:
+            if (resolved, self._key_slot(key)) == self._applied_catalog:
                 return
             self._apply_warm_catalog(resolved, key)
             return
@@ -1455,10 +1442,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             # LRU plus defaults now. The catalog GET is the worker below.
             self._apply_dropdowns(resolved, models=None)
             self._start_bg_fetch(gen, resolved, "settings-select")
-
-
-# ── Evaluation Dashboard ─────────────────────────────────────────────
-
 
 
 # ── Helper for module tabs ───────────────────────────────────────────
@@ -1540,7 +1523,6 @@ __all__ = [
     "SettingsDialog",
     "TestConnectionListener",
     "input_box",
-    "open_system_url",
     "settings_box",
     "setup_module_tabs",
     "sync_acp_model_ui",

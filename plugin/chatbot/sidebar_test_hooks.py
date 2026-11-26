@@ -133,7 +133,7 @@ def _session_snapshot_fields(sl: Any) -> dict[str, Any]:
             len(str(m.get("content") or "")) for m in messages if isinstance(m, dict)
         ],
         "has_compaction": compaction is not None,
-        # Per-turn now (TurnController); None once the drain dropped the turn.
+        # Per-turn (TurnController); None once the drain dropped the turn.
         "last_compact_reason": getattr(getattr(sl, "_turn", None), "_last_compact_reason", None),
     }
 
@@ -175,9 +175,9 @@ def _all_live_panels() -> list[Any]:
     return panels
 
 
-def _voice_checkboxes() -> list[Any]:
+def _voice_checkboxes(panels: list[Any] | None = None) -> list[Any]:
     chks: list[Any] = []
-    for panel in _all_live_panels():
+    for panel in (_all_live_panels() if panels is None else panels):
         root = getattr(panel, "m_panelRootWindow", None)
         if root is None or not hasattr(root, "getControl"):
             continue
@@ -194,7 +194,7 @@ def _tts_snapshot_fields() -> dict[str, Any]:
     enabled = bool(get_config("audio.tts_enabled"))
     chk_state: int | None = None
     panels = _all_live_panels()
-    for chk in _voice_checkboxes():
+    for chk in _voice_checkboxes(panels):
         if hasattr(chk, "getState"):
             chk_state = int(chk.getState())
             break
@@ -540,6 +540,7 @@ def _clear_fake_stt_in_process() -> None:
         _FAKE_STT_PROCS = {}
         _FAKE_STT_STATE = {}
 
+
 _FAKE_RECORDER_SCRIPT = """
 import json, sys, threading, wave
 
@@ -627,7 +628,6 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         # Keep existing config for STT provider to allow testing both local and endpoint.
-        # save("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
         _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
@@ -722,11 +722,13 @@ def _apply_fake_stt(mode: str) -> None:
 
         write_json_state(_tmp_state_path(_FAKE_STT_NAME), _FAKE_STT_STATE)
 
+
 def install_fake_stt(mode: str) -> None:
     _require_debug()
     if mode not in ("hold", "crash", "missing", "silence", "noisy"):
         raise ValueError(f"Invalid fake STT mode: {mode}")
     _local_or_op("FAKE_STT_" + mode.upper(), lambda: _apply_fake_stt(mode))
+
 
 def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]], path: str) -> None:
     execute_debug_sidebar_op(op)
@@ -1114,12 +1116,16 @@ def _warn_missing_listener(op: str) -> None:
     _write_debug_snapshot(None)
 
 
+_KEY_RETURN = 1280
+_KEY_ESCAPE = 1281
+
+
 def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
-    ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
-    With WRITERAGENT_TESTING, MainThread.post is inline; marshal FSM work onto the VCL
-    executor before StartSendEffect so Stop Rec does not run _do_send off-thread.
+    ``DispatchHandler`` runs on the URP thread, and ``WRITERAGENT_TESTING=1``
+    makes ``MainThread.post`` inline. Marshal FSM work onto the VCL executor
+    before StartSendEffect so Stop Rec does not run _do_send off-thread.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
     after a Writer deck never returns.
     """
@@ -1286,9 +1292,9 @@ def handle_debug_sidebar_command(command: str) -> None:
         if op == "SLASH_REFRESH":
             _slash_refresh_in_soffice(sl)
         elif op == "SLASH_ENTER":
-            _slash_key_in_soffice(sl, 1280, 0)
+            _slash_key_in_soffice(sl, _KEY_RETURN, 0)
         else:
-            _slash_key_in_soffice(sl, 1281, 0)
+            _slash_key_in_soffice(sl, _KEY_ESCAPE, 0)
         _write_debug_snapshot(sl)
         return
     if sl is None:
@@ -1322,7 +1328,7 @@ def handle_debug_sidebar_command(command: str) -> None:
         elif op == "SET_TEXT_NONEMPTY":
             sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         elif op == "SET_CHAT_MODE":
-            apply_fn = getattr(sl, "_apply_sidebar_mode_fn", None)
+            apply_fn = getattr(sl, "apply_sidebar_mode", None)
             if apply_fn is not None:
                 from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
@@ -1574,8 +1580,7 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
     A named frame that does not match returns None. ``panels[0]`` is
     only the no-frame, one-deck debug fallback. A frame miss (including
     ``uno_same`` raising off the URP thread) that falls through to
-    ``panels[0]`` is the leftover-Calc pad from Packet K: both the match
-    A named frame miss must return None, not panels[0], when multiple decks exist.
+    ``panels[0]`` is the leftover-Calc pad from Packet K.
     """
     _require_debug()
     panels = iter_live_chat_panels()
@@ -2095,8 +2100,9 @@ def send_listener_for_uid(uid: str) -> Any:
     """``SendButtonListener`` for *uid* (production live-panel map, then debug walk).
 
     Packet K inflate must not use soffice ``getCurrentComponent()`` when the
-    URP client already named the Writer RuntimeUID. Leftover Calc after
-    Resolve by uid so leftover Calc as getCurrentComponent does not bind inflate to the wrong deck.
+    URP client already named the Writer RuntimeUID. Resolve by uid: a leftover
+    Calc can still be ``getCurrentComponent()`` in soffice, and inflate must
+    not bind to that deck.
     """
     _require_debug()
     token = str(uid or "").strip()
@@ -2174,7 +2180,7 @@ def ensure_sidebar_chat_mode(
         set_selector_mode_with_flags(sel, CHAT_MODE_CHAT, sidebar_mode_flags_for_doc_type(doc_type))
     sl = _sl(listener)
     if sl is not None:
-        apply_fn = getattr(sl, "_apply_sidebar_mode_fn", None)
+        apply_fn = getattr(sl, "apply_sidebar_mode", None)
         if apply_fn is not None:
             from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
@@ -2303,7 +2309,7 @@ def query_text(*, listener: Any = None) -> str:
         return ""
     from plugin.chatbot.dialogs import get_control_text
 
-    return get_control_text(getattr(sl, "query_control", None), default="") or ""
+    return get_control_text(getattr(sl, "query_control", None), default="")
 
 
 def _slash_control_near_query(query: Any) -> Any:
@@ -2372,7 +2378,7 @@ def _slash_refresh_in_soffice(sl: Any) -> None:
     popup = _attach_slash_popup_on_listener(sl)
     if popup is None:
         return
-    popup.on_query_text(get_control_text(getattr(sl, "query_control", None), default="") or "")
+    popup.on_query_text(get_control_text(getattr(sl, "query_control", None), default=""))
 
 
 def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
@@ -2436,7 +2442,7 @@ class _UrpSlashHost:
     def append_output(self, text: str) -> None:
         from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-        current = get_control_text(self.response_control, default="") or ""
+        current = get_control_text(self.response_control, default="")
         set_control_text(self.response_control, current + text)
 
     def clear_chat(self) -> None:
@@ -2562,10 +2568,10 @@ def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) 
         handle = getattr(popup, "handle_key", None) if popup is not None else None
         if callable(handle) and handle(int(key_code), int(modifiers)) is True:
             return
-        if int(key_code) == 1280 and int(modifiers) == 0:
+        if int(key_code) == _KEY_RETURN and int(modifiers) == 0:
             execute_debug_sidebar_op("SLASH_ENTER")
             return
-        if int(key_code) == 1281:
+        if int(key_code) == _KEY_ESCAPE:
             execute_debug_sidebar_op("SLASH_ESC")
             return
         raise RuntimeError("no live SendButtonListener")
@@ -2586,7 +2592,7 @@ def transcript_text(*, listener: Any = None) -> str:
     control = getattr(widget, "control", None) if widget is not None else None
     if control is None:
         control = getattr(sl, "response_control", None)
-    return get_control_text(control, default="") or ""
+    return get_control_text(control, default="")
 
 
 def transcript_contains(needle: str, *, listener: Any = None) -> bool:
@@ -2726,10 +2732,9 @@ def approval_active(*, listener: Any = None) -> bool:
 def press_record(*, listener: Any = None) -> None:
     """Short Record click. No-op unless the Send button label is Record.
 
-    No-op unless the Send button label is Record. Dispatching
-    ``RECORD_CLICKED`` when the label is Send does not match the URP click,
-    which already requires the Record label. A real short click is mouse
-    press then release (``actionPerformed`` is swallowed when that release
+    Dispatching ``RECORD_CLICKED`` when the label is Send does not match the
+    URP click, which already requires the Record label. A real short click is
+    mouse press then release (``actionPerformed`` is swallowed when that release
     already dispatched).
     """
     _require_debug()
@@ -3188,6 +3193,7 @@ def get_writer_graphics_count(*, ctx: Any = None) -> int:
         return 0
     return len(doc.getGraphicObjects().getElementNames())
 
+
 def get_draw_graphics_count(*, ctx: Any = None, doc: Any = None) -> int:
     """Return the number of shapes on the first draw page of *doc* (default: current component).
 
@@ -3200,6 +3206,7 @@ def get_draw_graphics_count(*, ctx: Any = None, doc: Any = None) -> int:
         return 0
     return doc.getDrawPages().getByIndex(0).getCount()
 
+
 def assert_no_empty_graphics(*, ctx: Any = None) -> None:
     """Assert no empty/partial graphics exist in Writer."""
     doc = current_component(ctx)
@@ -3209,6 +3216,7 @@ def assert_no_empty_graphics(*, ctx: Any = None) -> None:
         g = doc.getGraphicObjects().getByName(name)
         if hasattr(g, "GraphicURL"):
             assert g.GraphicURL, f"Found graphic {name} with empty GraphicURL"
+
 
 def dispatch_undo(*, ctx: Any = None) -> None:
     """Dispatch .uno:Undo on the current document frame."""

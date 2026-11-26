@@ -88,7 +88,7 @@ class PanelEventsController:
             self._panel._subscribe(event_bus, "http:server_stopped", self._on_http_server_stopped)
             log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
 
-    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
+    def begin_inline_web_approval(self, query: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
 
         Approval mode only mutates UNO control labels/enabled flags here and restores them from

@@ -74,7 +74,7 @@ from plugin.framework.uno_context import (
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 from plugin.chatbot.rich_text_control import debug_env_active, log_rich_scroll
 
-# debug-only: omitted in release (thread_guard stub has no _violation_ui_lock).
+# debug-only: omitted in release.
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 
 
@@ -86,9 +86,9 @@ def register_debug_live_panel(element: Any) -> None:
 def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control: Any) -> None:
     """Closing the document window tears down this sidebar's turn.
 
-    FrameSession.dispose alone only removed listeners: the stream kept
-    painting into the dead window, the reply was saved to history, and the
-    LLM lane stayed held so other documents could not send.
+    FrameSession.dispose alone only removes listeners: this hook also tears
+    down the in-flight stream, history save, and LLM lane hold when the
+    document window closes.
     """
 
     def on_frame_close() -> None:
@@ -160,9 +160,11 @@ if TYPE_CHECKING:
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 
 try:
-    from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
+    from com.sun.star.ui.UIElementType import TOOLPANEL  # ty: ignore[unresolved-import]
 except ImportError:
-    TOOLPANEL = 3  # Fallback
+    TOOLPANEL = 7  # UIElementType.idl: TOOLPANEL = 7
+
+_POSSIZE = 15
 
 from plugin.framework.uno_listeners import BaseFocusListener, BaseItemListener
 from plugin.framework.config import get_config, get_current_endpoint, save
@@ -267,7 +269,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         """Return LayoutSize and fill the deck viewport.
 
         nWidth is rContentBox.GetWidth(). The GTK ChildFrame size-request can
-        stick (Keith: parent 992 while deck_hint 806). Sync width-only.
+        stick at a larger width than the deck hint, so sync width-only.
         """
         width = nWidth
         if not self.parent_window or not self.PanelWindow or width <= 0 or self._in_hfw:
@@ -309,7 +311,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return layout
 
     def getMinimalWidth(self) -> int:
-        # XDL dlg:width=180 is AppFont, ~300px on this machine (Clear right=304).
+        # XDL dlg:width=180 is AppFont (~300px at 1x).
         # Same constant as the pre-negotiation cap so the two cannot drift.
         return _PRE_NEGOTIATION_PANEL_WIDTH
 
@@ -345,16 +347,10 @@ def plan_session_id(
     if not url:
         return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=False)
 
-    # Fork only when the id has to change. Snapshot and replace
-    # the destination. When the id already names this file, update
-    # the stored URL and leave the rows alone. A regenerated sha256
-    # equal to the stored id that calls clear() before the copy
-    # reads the rows wipes the only history. A copied file whose
-    # stored id is a 64-hex digest but has no WriterAgentSessionURL
-    # skips the URL-change branch, then stamps the new URL onto that
-    # old id so the new file shares the old chat. A UUID from the
-    # first save of an untitled document is not a url-hash and must
-    # keep its history.
+    # Fork only when the id has to change. When the id already names this file,
+    # update the stored URL and leave the rows alone. A 64-hex stored id with
+    # no stored URL belongs to a copied file and forks; a UUID from an untitled
+    # document's first save keeps its history.
     if stored_url_str == url:
         return SessionIdPlan(stored_id_str, None, False)
     fork = (url_id != stored_id_str) if stored_url_str else (_is_sha256_hex(stored_id_str) and stored_id_str != url_id)
@@ -394,7 +390,7 @@ class _SelectorFocusCommitListener(BaseFocusListener):
     # partial LRU entries and emit config:changed, repainting the combo mid-typing.
     # Opening the dropdown is not focus lost (VCL AllowGrabFocus is only set when
     # there is no float window), so half-typed text stays uncommitted while picking;
-    # /formula returns before Send sync (panel.py:1405-1412) and relies on this.
+    # /formula returns before the Send sync (SendButtonListener._do_send, SlashRun.FORMULA branch) and relies on this.
     panel: Any
     _sync_fn: Any
 
@@ -569,7 +565,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                   id(self.xParentWindow) if self.xParentWindow else None)
         base_url = get_extension_url(self.ctx)
         dialog_url = base_url + "/" + XDL_PATH
-        # INFO so missing-XDL failures are visible at default WARN when we escalate below.
+        # Logged before the load so a later "no window" error has the URL next to it.
         log.info("[RICH-LIFECYCLE] dialog_url=%s", dialog_url)
         # The extension context, not a fresh bootstrap context. get_ctx() can
         # be a different component context and the dialog URL lookup misses.
@@ -611,7 +607,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             target_h = current_rect.Height if current_rect.Height > 0 else (
                 parent_rect.Height if parent_rect.Height > 0 else 400
             )
-            self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
+            self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, _POSSIZE)
             log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
         return self.m_panelRootWindow
 
@@ -671,10 +667,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     length = len(text)
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception:
-            # Pass greeting. Logger.exception interpolates only when args
-            # are supplied, so a format that names greeting and passes
-            # nothing keeps a literal %s and the failed history render does
-            # not record which greeting was in use.
             log.exception("_render_session_history failed [greeting=%s]", greeting)
 
     def _refresh_controls_from_config(self) -> None:
@@ -690,7 +682,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         _SelectorFocusCommitListener). Without ``_in_refresh_controls``,
         those listeners treat programmatic UI updates as user edits, calling
         sync_sidebar_text_model -> save -> event_bus
-        emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
+        emit('config:changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
         # No-op once released. A config refresh queued by _on_config_changed
@@ -733,7 +725,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     )
 
                     flags = self._sidebar_mode_flags()
-                    labels = tuple(get_mode_labels(flags))
+                    labels = get_mode_labels(flags)
                     # removeItems/addItems resets the combo to index 0 (Chat) and
                     # fires ChatModeListener. Capturing first, then restoring after
                     # populate, keeps Librarian/Web selected. The listener also
@@ -816,7 +808,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 model_selector,
                 self._painted_models.get("model_lru"),
                 current_endpoint,
-                str(current_model or ""),
+                current_model,
             )
             set_val = populate_combobox_with_lru(
                 model_selector,
@@ -847,7 +839,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 image_model_selector,
                 self._painted_models.get("image_model_lru"),
                 current_endpoint,
-                str(current_image or ""),
+                current_image,
             )
             set_image_val = populate_image_model_selector(
                 image_model_selector,
@@ -880,7 +872,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._in_refresh_controls = True
         try:
             with suppress_disposed("paint fetched sidebar models", logger=log):
-                stored = str(get_text_model() or "")
+                stored = get_text_model()
                 keep = _holds_typed_text(sel, self._painted_models.get("model_lru"), endpoint, stored)
                 shown = populate_combobox_with_lru(
                     sel,
@@ -915,7 +907,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._in_refresh_controls = True
         try:
             with suppress_disposed("paint fetched sidebar image models", logger=log):
-                stored = str(get_image_model() or "")
+                stored = get_image_model()
                 keep = _holds_typed_text(sel, self._painted_models.get("image_model_lru"), endpoint, stored)
                 shown = populate_image_model_selector(
                     sel,
@@ -972,13 +964,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _toggle_image_ui(self, is_image: bool) -> None:
         root = self.m_panelRootWindow
-        set_control_visible(get_optional_control(root, "model_label"), not is_image)
-        set_control_visible(get_optional_control(root, "model_selector"), not is_image)
-        set_control_visible(get_optional_control(root, "reasoning_effort_selector"), not is_image)
-        set_control_visible(get_optional_control(root, "image_model_selector"), is_image)
-        set_control_visible(get_optional_control(root, "aspect_ratio_selector"), is_image)
-        set_control_visible(get_optional_control(root, "base_size_input"), is_image)
-        set_control_visible(get_optional_control(root, "base_size_label"), is_image)
+        for name, visible in (
+            ("model_label", not is_image),
+            ("model_selector", not is_image),
+            ("reasoning_effort_selector", not is_image),
+            ("image_model_selector", is_image),
+            ("aspect_ratio_selector", is_image),
+            ("base_size_input", is_image),
+            ("base_size_label", is_image),
+        ):
+            set_control_visible(get_optional_control(root, name), visible)
         tp = self.toolpanel
         rl = tp.resize_listener if tp else None
         if rl and root:
@@ -1050,7 +1045,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 populate_mode_selector_with_flags(chat_mode_selector, mode_flags)
                 from plugin.chatbot.chat_sidebar_mode import get_mode_labels
 
-                self._last_mode_labels = tuple(get_mode_labels(mode_flags))
+                self._last_mode_labels = get_mode_labels(mode_flags)
                 set_selector_mode_with_flags(chat_mode_selector, initial_mode, mode_flags)
                 self._toggle_image_ui(is_image_mode(initial_mode))
 
@@ -1093,7 +1088,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if response_ctrl:
             self._render_session_history(self.session, response_ctrl, greeting)
 
-    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, mode_flags: Any) -> None:
+    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, mode_flags: SidebarModeFlags) -> None:
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
         def apply_mode(mode: str) -> None:
@@ -1101,7 +1096,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         # Librarian switch_to_document_mode must apply Chat even if ComboBox
         # selectItemPos does not fire the item listener (UNO is inconsistent).
-        send_listener._apply_sidebar_mode_fn = apply_mode
+        send_listener.apply_sidebar_mode = apply_mode
 
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
@@ -1205,7 +1200,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         )
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any) -> Any:
+    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: SidebarModeFlags) -> Any:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
         from plugin.chatbot.panel import (
             ActionHandlerButtonListener,
@@ -1394,13 +1389,13 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     # Called externally by LibreOffice UNO framework; do not remove.
     def createUIElement(self, ResourceURL: str, Args: Any) -> XUIElement:
         log.debug("createUIElement: %s" % ResourceURL)
-        # pyuno refuses a partial positional initialiser (pyuno_module.cxx fillStruct) and raises RuntimeException instead, so pass every member.
         if "ChatPanel" not in ResourceURL:
             raise NoSuchElementException("Unknown resource: " + ResourceURL, self)
         frame = property_arg(Args, "Frame")
         parent_window = property_arg(Args, "ParentWindow")
         log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
+            # pyuno refuses a partial positional initialiser (pyuno_module.cxx fillStruct) and raises RuntimeException instead, so pass every member.
             # The last argument is the zero-based position of Args.
             raise IllegalArgumentException("ParentWindow is required", self, 1)
 

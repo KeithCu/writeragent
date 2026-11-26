@@ -75,8 +75,8 @@ def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
         try:
             cur = ctrl.getPosSize().Width
             for lab in labels:
-                # Live labels are _(effect.send_label). Measuring the English
-                # string let a longer translation change width before the pin.
+                # Live labels are _(effect.send_label). Measure the translated
+                # string: a longer translation is the width that has to fit.
                 m.Label = _(lab)
                 cur = max(cur, ctrl.getPosSize().Width)
             wmax = cur
@@ -240,7 +240,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         log.error("_wireControls ERROR: %s" % msg)
         with suppress_disposed("show init error on response control", logger=log, exc_info=True):
             if controls["response"] and controls["response"].getModel():
-                current = get_control_text(controls["response"]) or ""
+                current = get_control_text(controls["response"])
                 set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
 
     from plugin.chatbot.panel_factory import initialize_extension_paths
@@ -319,8 +319,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
                 )
                 log.info("slash popup attached to Ask field")
 
-            # The label update logic is now handled correctly by the state machine
-            # so we can just trigger a fake text update event to sync the state
+            # The state machine owns the label; one TEXT_UPDATED syncs it with the box.
             has_text = bool(get_control_text(query_ctrl).strip())
             from plugin.chatbot.send_state import SendEvent, SendEventKind
 
@@ -338,7 +337,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         with suppress_disposed("set status text on init", logger=log, exc_info=True):
             controls["status"].setText(_("Ready"))
 
-    # Stop +22px/windowResized loop when Record <-> Send (see writeragent_debug.log).
+    # Stop +22px/windowResized loop when Record <-> Send.
     # Measure before first relayout so snapshot preserves stabilized button widths.
     if controls["send"]:
         from plugin.chatbot.panel import HAS_RECORDING
@@ -392,7 +391,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     # Backend indicator (when external agent enabled)
     self._update_backend_indicator(root_window)
 
-    # 6. Global Config Listener
+    # Global Config Listener
     get_event_bus().subscribe("config:changed", self._on_config_changed, weak=True)
     get_event_bus().subscribe("keystore:unlocked", self._on_keystore_unlocked, weak=True)
 
@@ -414,7 +413,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     except Exception as e:
         log.warning("embeddings periodic indexer schedule failed: %s", e)
 
-    # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
+    # Rich Text Control Sidebar
     rich_sidebar_enabled = get_config("chatbot.rich_text_control_sidebar")
     log.info("[RICH-CONTROL] config rich_text_control_sidebar=%s", rich_sidebar_enabled)
     if rich_sidebar_enabled:

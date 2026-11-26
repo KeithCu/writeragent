@@ -2,8 +2,8 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO-free conversation compaction. Cached view over a duck-typed session
-(``messages``, ``compaction``). Does not import ``panel``, ``tool_loop``,
+"""UNO-free conversation compaction. Cached view over ``ChatSession.messages`` /
+``ChatSession.compaction``. Does not import ``panel``, ``tool_loop``,
 or UNO. Must run inside the caller's ``llm_request_lane`` hold — this
 module must not take that lock.
 
@@ -35,6 +35,7 @@ from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from plugin.framework.client.auth import AuthError
     from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.send_cancellation import SendCancellation
 
@@ -42,13 +43,10 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _auth_error_line(exc: BaseException) -> str:
-    from plugin.framework.client.auth import AuthError
+def _auth_error_line(exc: AuthError) -> str:
     from plugin.framework.errors import format_error_message
     from plugin.framework.i18n import _
 
-    if not isinstance(exc, AuthError):
-        raise TypeError("expected AuthError")
     if exc.code == "missing_api_key":
         return "\n" + _("Configure an API key to compact.") + "\n"
     return "\n" + format_error_message(exc) + "\n"
@@ -68,15 +66,12 @@ def auth_line_for_error(exc: BaseException) -> str | None:
     return None
 
 
-def auth_line_for_client(client: "LlmClient") -> str | None:
+def auth_line_for_client(client: LlmClient) -> str | None:
     """Pre-check auth before ``compact_session``; None when the client can call the API."""
     from plugin.framework.client.auth import AuthError, resolve_auth_for_config
 
-    cfg = client.config
-    if not isinstance(cfg, dict):
-        return None
     try:
-        resolve_auth_for_config(dict(cfg))
+        resolve_auth_for_config(dict(client.config))
     except AuthError as exc:
         return _auth_error_line(exc)
     return None
@@ -384,13 +379,13 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
 def _is_real_user(msg: dict[str, Any]) -> bool:
     """Non-empty user text. Simpler analog of Hermes ``_is_actionable_user_turn``.
 
+    Dummy compaction ack is view-only and never appears in session.messages.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3660-L3670
     """
     if msg.get("role") != "user":
         return False
     text = flatten_content(msg.get("content"))[0].strip()
     return bool(text)
-    # Dummy compaction ack is view-only and never appears in session.messages.
 
 
 def ensure_last_user_in_tail(messages: list[dict[str, Any]], cut: int, start_index: int, keep_tokens: int) -> int | None:
@@ -452,7 +447,7 @@ def newest_assistant_tool_span(messages: list[dict[str, Any]], start_index: int)
         i -= 1
     if i < start_index or messages[i].get("role") != "assistant":
         return None
-    if not (messages[i].get("tool_calls") or []):
+    if not messages[i].get("tool_calls"):
         return None
     return i, end
 
@@ -615,7 +610,7 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if _is_slash_local_message(msg):
             i += 1
             continue
-        if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
             tools, j = tool_rows_after(messages, i + 1)
             have = {t.get("tool_call_id") for t in tools}
             kept_calls = [
@@ -651,7 +646,7 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stubbed_ids: Any) -> list[dict[str, Any]]:
+def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stubbed_ids: tuple[Any, ...]) -> list[dict[str, Any]]:
     ids = set(stubbed_ids)
     tail = []
     for i in range(first_kept_index, len(messages)):
@@ -664,7 +659,7 @@ def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stu
     return tail
 
 
-def _drop_stale_compaction(session: ChatSession, messages: list[dict[str, Any]]) -> Any:
+def _drop_stale_compaction(session: ChatSession, messages: list[dict[str, Any]]) -> CompactionState | None:
     """Return session.compaction, or clear it and return None.
 
     first_kept_index is a raw index. clear() replaces the list, but the
@@ -847,7 +842,7 @@ def _cap_running_summary(summary: str, window: int) -> str:
 
 
 def _summarize_bounded(
-    client: Any,
+    client: LlmClient,
     slice_messages: list[dict[str, Any]],
     *,
     window: int,
@@ -863,6 +858,21 @@ def _summarize_bounded(
 
     running = previous_summary
     idx = 0
+    summarizer_extra = {"reasoning": {"effort": "low"}}
+
+    def _request_summary(user_body: str, max_tokens_out: int) -> dict[str, Any] | None:
+        return client.request_with_tools(
+            [
+                {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_body},
+            ],
+            max_tokens=max_tokens_out,
+            tools=None,
+            stream=False,
+            cancel=cancel,
+            prepend_dev_build_system_prefix=False,
+            chat_extra=summarizer_extra,
+        )
 
     while idx < len(lines):
         if is_cancelled(cancel) or stale():
@@ -882,22 +892,6 @@ def _summarize_bounded(
         chunk_text, next_idx = next_chunk
         user_body = _summarizer_user_body(chunk_text, running, focus=focus)
 
-        summarizer_extra = {"reasoning": {"effort": "low"}}
-
-        def _request_summary(max_tokens_out: int) -> dict[str, Any]:
-            return client.request_with_tools(
-                [
-                    {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_body},
-                ],
-                max_tokens=max_tokens_out,
-                tools=None,
-                stream=False,
-                cancel=cancel,
-                prepend_dev_build_system_prefix=False,
-                chat_extra=summarizer_extra,
-            )
-
         # Reasoning models may burn max_tokens on thinking and return empty content.
         retry_cap = min(max(max_out * 2, 2048), 8192, window)
         attempt_outs = (max_out, retry_cap) if retry_cap > max_out else (max_out,)
@@ -906,7 +900,7 @@ def _summarize_bounded(
         finish_reason: str | None = None
         for attempt_idx, max_tokens_out in enumerate(attempt_outs):
             try:
-                result = _request_summary(max_tokens_out)
+                result = _request_summary(user_body, max_tokens_out)
             except Exception as exc:
                 if auth_line_for_error(exc) is not None:
                     raise
@@ -916,8 +910,8 @@ def _summarize_bounded(
                 return None, "aborted"
             if result is None:
                 return None, "failed"
-            content = (result or {}).get("content") or ""
-            finish_reason = (result or {}).get("finish_reason")
+            content = result.get("content") or ""
+            finish_reason = result.get("finish_reason")
             if content.strip():
                 break
             if attempt_idx + 1 >= len(attempt_outs):
@@ -942,7 +936,7 @@ def _summarize_bounded(
 
 def compact_session(
     session: ChatSession,
-    client: Any,
+    client: LlmClient,
     *,
     window: int | None,
     tools: Any = None,

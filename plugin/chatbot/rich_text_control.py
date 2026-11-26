@@ -62,6 +62,7 @@ def debug_env_active() -> bool:
 
     return is_dev_build()
 
+
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL: set[int] = set()
 # Focus trackers by control id. Stick-to-bottom skips SelectAll while the
@@ -97,10 +98,7 @@ def log_rich_control_context(phase: str, **extra: Any) -> None:
 
 
 class RichTextChatWidget:
-    """Widget wrapper that encapsulates a LibreOffice RichTextControl, its settings,
-
-    focus-preservation, text copying from hidden Writer, and caret reveal.
-    """
+    """Wraps the sidebar RichTextControl: settings, focus preservation, copy from the hidden Writer, caret reveal."""
 
     ctx: Any
     control: Any
@@ -373,8 +371,8 @@ class RichTextChatWidget:
                 open_content is not None
                 and new_content == open_content
             )
-            old_s = old_content if is_open else plain_fallback_text(old_content or "")
-            new_s = new_content if is_open else plain_fallback_text(new_content or "")
+            old_s = old_content if is_open else plain_fallback_text(old_content)
+            new_s = new_content if is_open else plain_fallback_text(new_content)
             if not new_s.startswith(old_s):
                 return False
             if not old_s.strip():
@@ -386,7 +384,7 @@ class RichTextChatWidget:
                 append_text_chunk(
                     self.control, new_s[len(old_s):], style_window=self.style_window,
                     ctx=self.ctx,
-                    char_color=theme.user_color if new_role == "user" else theme.assistant_color,
+                    char_color=theme.role_color(new_role),
                     restore_focus=self.restore_focus,
                 )
         if len(new_tail) > m:
@@ -471,7 +469,7 @@ def _content_bounds_for_rich_control(placeholder_ctrl: Any, placeholder_rect: An
         px, py, pw, ph = placeholder_rect
     else:
         ps = placeholder_ctrl.getPosSize()
-        px, py, pw, ph = int(ps.X), int(ps.Y), int(ps.Width), int(ps.Height)
+        px, py, pw, ph = ps.X, ps.Y, ps.Width, ps.Height
 
     return (
         px + inset,
@@ -485,14 +483,14 @@ def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, b
     """Apply bounds via setPosSize.
 
     Dialog-embedded controls accept PositionX/Y/Width/Height only at insert time;
-    after ``insertByName`` subsequent model writes return -1 (see writeragent_debug.log).
+    after ``insertByName`` subsequent model writes return -1.
     Resize uses this peer path. Insert-time model geometry stays in
     ``_try_dialog_embedded_rich_control``.
     """
     changed = False
     try:
         cur = rich_control.getPosSize()
-        if int(cur.X) != bx or int(cur.Y) != by or int(cur.Width) != bw or int(cur.Height) != bh:
+        if cur.X != bx or cur.Y != by or cur.Width != bw or cur.Height != bh:
             rich_control.setPosSize(bx, by, bw, bh, 15)
             changed = True
     except Exception as e:
@@ -503,10 +501,10 @@ def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, b
 def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh: int) -> bool:
     cur = rich_control.getPosSize()
     return (
-        abs(int(cur.X) - bx) > 2
-        or abs(int(cur.Y) - by) > 2
-        or abs(int(cur.Width) - bw) > 2
-        or abs(int(cur.Height) - bh) > 2
+        abs(cur.X - bx) > 2
+        or abs(cur.Y - by) > 2
+        or abs(cur.Width - bw) > 2
+        or abs(cur.Height - bh) > 2
     )
 
 
@@ -531,8 +529,9 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
         if bounds_changed:
             log_rich_scroll("sync_bounds", rect=f"{bx},{by},{bw},{bh}")
-            # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
-            # to the top. C++ patch keeps old top-left. Stock: Hidden SelectAll, no reveal_caret.
+            # Stock ORichTextPeer/RichTextControlImpl::layoutWindow() (forms/source/richtext/richtextimplcontrol.cxx)
+            # calls SetVisArea(Point()), so every setPosSize jumps to the top unless the patched build keeps
+            # the old top-left. Stock: Hidden SelectAll, no reveal_caret.
             if _model_text(rich_control):
                 _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
@@ -562,10 +561,10 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
             log.info(
                 "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
                 placeholder_rect,
-                int(cur.Width),
-                int(cur.Height),
-                int(cur.X),
-                int(cur.Y),
+                cur.Width,
+                cur.Height,
+                cur.X,
+                cur.Y,
             )
         return rich_control
     except Exception as e:
@@ -580,7 +579,7 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     log_rich_scroll("peer_refresh")
     process_events_to_idle(ctx, rounds=2)
     cur = rich_control.getPosSize()
-    rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
+    rich_control.setPosSize(cur.X, cur.Y, cur.Width, cur.Height, 15)
     _invalidate_peer(rich_control)
 
 
@@ -605,22 +604,21 @@ def force_rich_full_reformat(control: Any) -> None:
         control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
 
 
-def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = None) -> None:
+def _apply_rich_control_style_defaults_on_model(
+    model: Any,
+    style_window: Any = None,
+    *,
+    theme: ChatTheme | None = None,
+) -> None:
     """Set default character properties on the form TextField model (before peer creation).
 
     Do not set model TextColor/CharColor here — control-level text color homogenizes every
     run and hides per-message user/assistant CharColor applied at insert time.
     """
-    theme = ChatTheme.resolve(style_window=style_window)
+    resolved = theme if theme is not None else ChatTheme.resolve(style_window=style_window)
+    apply_chat_char_props(model, bg_color=resolved.bg_color)
     for name, val in (
-        ("CharFontName", CHAT_FONT_NAME),
-        ("CharFontNameAsian", CHAT_FONT_NAME),
-        ("CharFontNameComplex", CHAT_FONT_NAME),
-        ("CharHeight", CHAT_FONT_HEIGHT),
-        ("CharWeight", CHAT_FONT_WEIGHT),
-        ("CharPosture", 0),
-        ("BackgroundColor", theme.bg_color),
-        ("CharBackColor", theme.bg_color),
+        ("BackgroundColor", resolved.bg_color),
         ("PaintTransparent", False),
         ("RichText", True),
         ("ReadOnly", True),
@@ -648,8 +646,8 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
     model = control.getModel()
     if model is None:
         return
-    _apply_rich_control_style_defaults_on_model(model, style_window=style_window)
     theme = ChatTheme.resolve(style_window=style_window)
+    _apply_rich_control_style_defaults_on_model(model, style_window=style_window, theme=theme)
     _apply_control_surface_colors(control, theme.bg_color)
 
     def _apply_cursor() -> None:
@@ -693,8 +691,8 @@ def _disable_rich_hscroll(control: Any) -> None:
     """Clear WB_HSCROLL on the VCL window so ensureScrollbars disposes m_pHScroll.
 
     Model HScroll=False is not enough after createPeer: getWinBits already ran.
-    ORichTextPeer::setProperty("HScroll") calls adjustTwoStateWinBit + StyleChanged
-    which calls ensureScrollbars().
+    ORichTextPeer::setProperty("HScroll") (forms/source/richtext/richtextcontrol.cxx)
+    calls adjustTwoStateWinBit + StyleChanged which calls ensureScrollbars().
     """
     model = control.getModel()
     if model is not None:
@@ -845,12 +843,12 @@ class RichTextControlListener(BaseWindowListener):
     def try_eager_init(self) -> None:
         """Create the RichText control as soon as the panel root window has a VCL peer.
 
-        Historically init ran only from ``on_window_shown``. On GNOME (GTK/Wayland sidebar
-        deck), ``ContainerWindowProvider`` often never delivers ``windowShown`` for our panel
-        even though ``getPeer()`` is already valid when wiring finishes — so the plain
-        ``response`` field stayed visible with no error. KDE usually fires ``windowShown``,
-        so the listener alone was enough there. Wiring calls this immediately after
-        ``addWindowListener`` so both desktops share the same path when the peer exists.
+        On GNOME (GTK/Wayland sidebar deck), ``ContainerWindowProvider`` often
+        never delivers ``windowShown`` for this panel although ``getPeer()``
+        is valid when wiring finishes; without this call the plain ``response``
+        field stays visible with no error. KDE usually fires ``windowShown``.
+        Wiring calls this right after ``addWindowListener`` so both desktops
+        take the same path when the peer exists.
         """
         if self._disposed or self.initialized:
             log_rich_control_context(
@@ -934,7 +932,7 @@ class RichTextControlListener(BaseWindowListener):
             self._sync_bounds()
             visible = control.isVisible() if hasattr(control, "isVisible") else "?"
             pos = control.getPosSize()
-            bounds = "%sx%s@%s,%s" % (int(pos.Width), int(pos.Height), int(pos.X), int(pos.Y))
+            bounds = "%sx%s@%s,%s" % (pos.Width, pos.Height, pos.X, pos.Y)
             log_rich_control_context(
                 "deferred_init",
                 result="control_ok",
@@ -1003,10 +1001,10 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
         log.info(
             "create_sidebar_rich_text_control: ready visible=%s bounds=%dx%d@%d,%d",
             control.isVisible() if hasattr(control, "isVisible") else "?",
-            int(cur.Width),
-            int(cur.Height),
-            int(cur.X),
-            int(cur.Y),
+            cur.Width,
+            cur.Height,
+            cur.X,
+            cur.Y,
         )
         return control
     except Exception:
@@ -1043,7 +1041,7 @@ def _insert_string_at_rich_cursor(
     if not text:
         return
     start = cursor.getStart()
-    follows_link = start is not None and _follows_cell_link(model, start)
+    follows_link = _follows_cell_link(model, start)
     if not is_automatic_char_color(char_color):
         cursor.CharColor = char_color
 
@@ -1068,7 +1066,7 @@ def _insert_string_at_rich_cursor(
         raise RuntimeError("RichTextControl model has no insertString")
 
     # Post-insert pass: RichTextControl often ignores pre-insert cursor Char* props.
-    if start is not None and (not is_automatic_char_color(char_color) or bold is not None or underline is not None):
+    if not is_automatic_char_color(char_color) or bold is not None or underline is not None:
         end = cursor.getStart()
 
         def _apply() -> None:
@@ -1077,18 +1075,17 @@ def _insert_string_at_rich_cursor(
             sel.gotoRange(end, True)
             if not is_automatic_char_color(char_color):
                 sel.CharColor = char_color
-            if end is not None:
-                if bold is True:
-                    sel.CharWeight = 150.0
-                elif bold is False:
-                    sel.CharWeight = CHAT_FONT_WEIGHT
-                if underline is True:
-                    sel.CharUnderline = 1
-                elif underline is False:
-                    sel.CharUnderline = 0
+            if bold is True:
+                sel.CharWeight = 150.0
+            elif bold is False:
+                sel.CharWeight = CHAT_FONT_WEIGHT
+            if underline is True:
+                sel.CharUnderline = 1
+            elif underline is False:
+                sel.CharUnderline = 0
 
         best_effort(_apply, "_insert_string_at_rich_cursor")
-    if start is not None and follows_link:
+    if follows_link:
         # EditEngine stretches a character attribute that ends at the insert
         # point over the new text, so a cell link tag would spread past the link.
         end_pos = cursor.getStart()
@@ -1113,9 +1110,10 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
         if peer is None or not hasattr(peer, "queryDispatch"):
             return False
         # We set only URL.Complete, not URLTransformer.parseStrict, because
-        # ORichTextPeer::queryDispatch and OSelectAllDispatcher match on URL.Complete.
-        url = uno.createUnoStruct("com.sun.star.util.URL")
-        setattr(url, "Complete", command)
+        # ORichTextPeer::queryDispatch and OSelectAllDispatcher (forms/source/richtext/richtextcontrol.cxx)
+        # match on URL.Complete.
+        url = cast("Any", uno.createUnoStruct("com.sun.star.util.URL"))
+        url.Complete = command
         disp = peer.queryDispatch(url, "", 0)
         if disp is None:
             return False
@@ -1127,7 +1125,7 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
         return False
 
 
-def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
+def _scroll_rich_to_tail(control: Any, restore_focus: Callable[[], None] | None = None) -> None:
     """SelectAll for stick-to-bottom, then collapse it, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor, which
@@ -1138,8 +1136,8 @@ def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
 
     The All() selection must not outlive this call. A press inside a selection
     is a drag-and-drop start in the SelectionEngine, so the user's first click
-    or drag in the transcript did nothing (or dragged the whole transcript)
-    instead of starting a selection, and any later GetFocus painted it.
+    or drag in the transcript does nothing (or drags the whole transcript)
+    instead of starting a selection, and any later GetFocus paints it.
     ``_select_all_collapsed`` collapses it without focus.
 
     Skipped while the transcript has focus: the user is clicking, selecting or
@@ -1149,7 +1147,7 @@ def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
     focused Std-mode path (DrawSelectionXOR -> OutputDevice::Invert).
 
     Re-entrant no-op: setPosSize during a sidebar drag can nest through
-    layoutWindow into another restick; that is the hang we must not reintroduce.
+    layoutWindow into another restick, which hangs.
     Do not process_events_to_idle here.
     """
     if control is None:
@@ -1163,10 +1161,10 @@ def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
         return
     _IN_SCROLL_TO_TAIL.add(ctrl_id)
     try:
-        if callable(restore_focus):
+        if restore_focus is not None:
             restore_focus()
         _select_all_collapsed(control)
-        if callable(restore_focus):
+        if restore_focus is not None:
             restore_focus()
     finally:
         _IN_SCROLL_TO_TAIL.discard(ctrl_id)
@@ -1178,11 +1176,12 @@ def _select_all_collapsed(control: Any) -> bool:
     There is no UNO selection setter (the peer is a VCLXWindow, not an
     XTextComponent), and keys only reach the focus window. EditEngine does
     collapse a view selection whose end paragraph is deleted
-    (ImpEditEngine::UpdateSelections: caret at the start of the paragraph now
-    at that position). So: append an empty paragraph with a tiny fixed line
-    height, SelectAll (the end PaM lands in it; ShowCursor scrolls to the end),
-    then remove the paragraph break. Net text is unchanged. The caret ends at
-    the start of the last real paragraph, where the view already is.
+    (ImpEditEngine::UpdateSelections, editeng/source/editeng/impedit4.cxx:
+    caret at the start of the paragraph now at that position). So: append an
+    empty paragraph with a tiny fixed line height, SelectAll (the end PaM lands
+    in it; ShowCursor scrolls to the end), then remove the paragraph break.
+    Net text is unchanged. The caret ends at the start of the last real
+    paragraph, where the view already is.
     """
     model = control.getModel() if hasattr(control, "getModel") else None
     padded = _append_scroll_pad(model)
@@ -1295,9 +1294,9 @@ class RichFocusTracker:
     while the user selects in the transcript).
     """
 
-    def __init__(self, control: Any, on_press: Any = None) -> None:
+    def __init__(self, control: Any, on_press: Callable[[], None] | None = None) -> None:
         self.control: Any = control
-        self.on_press: Any = on_press
+        self.on_press: Callable[[], None] | None = on_press
         self.has_focus: bool = False
 
     def focus_gained(self) -> None:
@@ -1309,7 +1308,7 @@ class RichFocusTracker:
         best_effort(lambda: collapse_rich_selection_keep_view(self.control), "rich collapse on focus lost")
 
     def mouse_pressed(self) -> None:
-        if callable(self.on_press):
+        if self.on_press is not None:
             best_effort(self.on_press, "rich transcript press")
 
     def disposed(self) -> None:
@@ -1318,7 +1317,7 @@ class RichFocusTracker:
             del _FOCUS_TRACKERS[id(self.control)]
 
 
-def attach_rich_focus_tracker(control: Any, on_press: Any = None) -> RichFocusTracker | None:
+def attach_rich_focus_tracker(control: Any, on_press: Callable[[], None] | None = None) -> RichFocusTracker | None:
     """Register focus/mouse listeners on the transcript. See RichFocusTracker."""
     if control is None:
         return None
@@ -1369,7 +1368,7 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
         model = control.getModel()
         if model is None or not hasattr(model, "createTextCursor"):
             return
-        # Do not setFocus on stream. setFocus + focus_preserved(query) stole
+        # Do not setFocus on stream. setFocus + focus_preserved(query) steals
         # document typing: stock Toolkit has no getFocusWindow
         # (PyUNO hasattr lies). SelectAll on the rich peer scrolls without stealing focus.
         cursor = model.createTextCursor()
@@ -1379,8 +1378,8 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
         # _scroll_rich_to_tail already restores before and after SelectAll.
-        # A third restore here repeated the second with nothing in between,
-        # and each one is a GrabFocus on this frame (release QA BUG A).
+        # A third restore here repeats the second with nothing in between,
+        # and each one is a GrabFocus on this frame.
         # Restore goes through *restore_focus*, which closes over the frame session.
         _scroll_rich_to_tail(control, restore_focus=restore_focus)
         # SelectAll scrolls synchronously (EditView::SetSelection formats via CheckIdleFormatter
@@ -1446,7 +1445,7 @@ def rollback_rich_insert(control: Any, before: int | None) -> None:
             model = control.getModel()
             cursor = model.createTextCursor()
             cursor.gotoStart(False)
-            go_right(cursor, int(before), False)
+            go_right(cursor, before, False)
             cursor.gotoEnd(True)
             cursor.setString("")
     except Exception:
@@ -1480,5 +1479,5 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
         except Exception:
             log.exception("reveal_rich_control_caret failed")
         finally:
-            if was_readonly and model is not None:
+            if was_readonly:
                 set_prop(model, "ReadOnly", True)

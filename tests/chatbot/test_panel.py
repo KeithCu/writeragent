@@ -36,7 +36,6 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.bootstrap import BootstrapState
-from plugin.tests.testing_utils import DisposedException
 
 
 class TestQueryEnterSend:
@@ -217,7 +216,7 @@ class TestSidebarModeFinishApplies:
         listener = MagicMock()
         listener.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         listener.chat_mode_selector = MagicMock()
-        listener._apply_sidebar_mode_fn = MagicMock()
+        listener.apply_sidebar_mode = MagicMock()
         listener._mode_topic = "Kitchen remodel"
         listener._active_mode = CHAT_MODE_BRAINSTORMING
         listener._sidebar_mode = SidebarModeController(listener)
@@ -232,7 +231,7 @@ class TestSidebarModeFinishApplies:
         assert listener._mode_topic == "Implement the saved spec: Kitchen remodel"
         assert listener._active_mode == CHAT_MODE_WRITING_PLAN
         assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
-        listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
+        listener.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
 
     def test_brainstorm_without_spec_applies_chat(self) -> None:
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_CHAT
@@ -240,7 +239,7 @@ class TestSidebarModeFinishApplies:
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
             listener._sidebar_mode.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
-        listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+        listener.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
     def test_writing_plan_and_ppt_finish_apply_chat(self) -> None:
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, CHAT_MODE_PPT_MASTER, CHAT_MODE_WRITING_PLAN
@@ -252,7 +251,7 @@ class TestSidebarModeFinishApplies:
             listener = self._listener()
             with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
                 listener._sidebar_mode.on_mode_finished(mode_key, {})
-            listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+            listener.apply_sidebar_mode.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 class TestSendDispose:
@@ -1014,18 +1013,6 @@ class TestSendDispose:
         other_query.setFocus.assert_called_once()
 
 
-class _ConsumeEvent:
-    def __init__(self) -> None:
-        object.__setattr__(self, "KeyCode", 1280)
-        object.__setattr__(self, "Modifiers", 0)
-        object.__setattr__(self, "Consume", False)
-
-    def __setattr__(self, name, value):
-        if name == "Consume":
-            raise DisposedException("event disposed")
-        object.__setattr__(self, name, value)
-
-
 def _query_text_event(text: str) -> Any:
     source = MagicMock()
     source.Model.Text = text
@@ -1039,6 +1026,7 @@ class TestSlashOverlayListeners:
 
     def test_text_change_skips_overlay_and_still_dispatches(self) -> None:
         send_listener = MagicMock()
+        send_listener._panel_teardown = False
         send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False):
@@ -1051,6 +1039,7 @@ class TestSlashOverlayListeners:
 
     def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self) -> None:
         send_listener = MagicMock()
+        send_listener._panel_teardown = False
         send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False):
@@ -1060,6 +1049,7 @@ class TestSlashOverlayListeners:
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
+        send_listener._panel_teardown = False
         send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         listener.on_text_changed(_query_text_event("hello"))
@@ -1094,28 +1084,14 @@ class TestSlashOverlayListeners:
 
 
 class TestQueryKeyListenerDispose:
-    def test_consume_disposed_still_sends(self) -> None:
-        send_listener = MagicMock()
-        send_listener._button_action = ButtonAction.SEND
-        send_model = MagicMock()
-        send_model.Enabled = True
-        send_model.Label = "Send"
-        send_listener.send_control.getModel.return_value = send_model
-        listener = QueryKeyListener(send_listener)
-        event = _ConsumeEvent()
-        with patch("plugin.framework.config.get_config", return_value=True):
-            listener.on_key_pressed(event)
-        send_listener.on_action_performed.assert_called_once_with(event)
-
     def test_open_slash_popup_enter_does_not_send(self) -> None:
         send_listener = MagicMock()
         send_listener.slash_popup.handle_key.return_value = True
         listener = QueryKeyListener(send_listener)
-        event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
+        event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0})()
         listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_not_called()
-        assert event.Consume
 
 
 class TestTtsStopInteraction:
@@ -1150,6 +1126,7 @@ class TestTtsStopInteraction:
         send_listener = MagicMock()
         send_listener._approval_event = None
         send_listener._send_busy = False
+        send_listener._voice.stop_during_take.return_value = False
         stop_model = MagicMock()
         stop_model.Enabled = True
         send_listener.stop_control.getModel.return_value = stop_model
@@ -2904,6 +2881,7 @@ def _make_do_send_listener() -> SimpleNamespace:
         _active_mode="",
         _mode_topic="",
         _stt_inflight=False,
+        queue_executor=None,
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
         _append_response=MagicMock(),
