@@ -275,8 +275,7 @@ def _attached_status_listener(doc):
     listeners = []
     ctrl.addMouseListener.side_effect = listeners.append
     dispatch = ctrl.getPeer.return_value.queryDispatch.return_value
-    with patch("plugin.calc.navigation.uno.createUnoStruct", side_effect=lambda _n, **kw: SimpleNamespace(**kw)):
-        attach_calc_cell_link_listener(ctrl, lambda: doc)
+    attach_calc_cell_link_listener(ctrl, lambda: doc)
     listener = listeners[0]
     dispatch.addStatusListener.assert_called_once()
     assert dispatch.addStatusListener.call_args[0][0] is listener

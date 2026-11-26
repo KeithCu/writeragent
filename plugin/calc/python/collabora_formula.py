@@ -40,8 +40,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
 from plugin.calc.python.formula_edit import match_py_alias
-from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.calc.python.formula_locator_cache import iter_range_formula_texts
 from plugin.calc.python.undo import undo_lock
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.thread_guard import guard_uno

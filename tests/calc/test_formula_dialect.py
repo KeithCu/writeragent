@@ -233,10 +233,7 @@ def test_to_api_skips_create_instance_for_plain_formula() -> None:
 
 
 def test_make_cell_address_sets_fields() -> None:
-    from unittest.mock import patch
-
-    with patch("plugin.calc.formula_dialect.uno.createUnoStruct", side_effect=lambda _n, **kw: SimpleNamespace(**kw)):
-        addr = make_cell_address(2, 3, 4)
+    addr = make_cell_address(2, 3, 4)
     assert (addr.Sheet, addr.Column, addr.Row) == (2, 3, 4)
 
 

@@ -287,7 +287,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         )
         if res.get("status") == "ok":
             result = res.get("result")
-            if isinstance(result, dict) and is_helper_error_dict(result):
+            if is_helper_error_dict(result):
                 err_text = helper_error_log_message(result)
                 addin_val = py_addin_cell_value(result)
                 _record_py_diagnostic(code, res, status="error", message=err_text, workbook_key=cell_ctx.diag_workbook_key)

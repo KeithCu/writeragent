@@ -82,7 +82,7 @@ def owning_calc_doc(sheet: Any) -> Any | None:
 
 
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "", delay_sec: float = SETTLE_DELAY_SEC) -> None:
-    """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
+    """Debounce: schedule a ``SETTLE_DELAY_SEC`` UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
         return
     name = sheet_name or sheet_name_of(sheet)

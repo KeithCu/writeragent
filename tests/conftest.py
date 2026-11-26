@@ -323,6 +323,7 @@ try:
     _mock_uno.systemPathToFileUrl = MagicMock(side_effect=pyuno.systemPathToFileUrl)
 except Exception:
     _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=_file_url_to_system_path_without_pyuno)
+_mock_uno.createUnoStruct = MagicMock(side_effect=lambda _name, *a, **kw: types.SimpleNamespace(**kw))
 sys.modules["uno"] = _mock_uno
 
 

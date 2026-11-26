@@ -1811,8 +1811,9 @@ class CellManipulator:
                 cols = end[0] - start[0] + 1
                 sheet_name = sheet.getName()
                 for col_offset, head in repeated_formula_columns(values, start[1], rows, cols):
-                    col_letter = index_to_column(start[0] + col_offset)
-                    col_range = format_range(start[0] + col_offset, start[1], start[0] + col_offset, end[1])
+                    col_idx = start[0] + col_offset
+                    col_letter = index_to_column(col_idx)
+                    col_range = format_range(col_idx, start[1], col_idx, end[1])
                     target_range = qualify_a1(sheet_name, col_range) if isinstance(sheet_name, str) and sheet_name else col_range
                     notes.append({
                         "code": "REPEATED_FORMULA",

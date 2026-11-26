@@ -485,7 +485,7 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
 
 
 def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int, int]] | None:
-    if not code:
+    if not code or doc is None:
         return None
     return best_effort(lambda: locate_formula_cell_in_doc(doc, code), "locate formula cell", None)
 

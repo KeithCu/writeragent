@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
 from plugin.calc.python.formula_locator_cache import (
-    CELL_FLAG_FORMULA,
     bind_formula_locate_memo,
     is_matching_py_formula,
     iter_range_formula_texts,

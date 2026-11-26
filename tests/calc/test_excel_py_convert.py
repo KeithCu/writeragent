@@ -2986,6 +2986,7 @@ def test_clear_spill_xml_touches_stored_cells_only():
 
 
 def test_drop_py_code_sheets_sets_full_calc_on_load():
+    from plugin.calc.excel_py_convert.ooxml_util import parse_and_extract_namespaces
     from plugin.calc.excel_py_convert.xlsx_write import _drop_py_code_sheets_from_workbook
 
     wb_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -2999,7 +3000,8 @@ def test_drop_py_code_sheets_sets_full_calc_on_load():
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 </Relationships>"""
 
-    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set(), set())
+    wb_root, wb_ns = parse_and_extract_namespaces(wb_xml)
+    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_root, wb_ns, rels_xml, set(), set())
     root = ET.fromstring(new_wb_xml)
     calc_pr = root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
     assert calc_pr is not None

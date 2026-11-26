@@ -16,12 +16,6 @@ from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
-@pytest.fixture(autouse=True)
-def _stub_create_uno_struct(monkeypatch):
-    import uno
-    monkeypatch.setattr(uno, "createUnoStruct", lambda _name, **kw: SimpleNamespace(**kw))
-
-
 def _run(doc, tool_name: str, **kw):
     registry = ToolRegistry(MagicMock())
     for cls in (CreatePivotTable, RefreshPivotTable, DeletePivotTable, ListPivotTables):

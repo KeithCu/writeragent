@@ -443,7 +443,8 @@ def reconcile(
                 ensure_sheet_modify_listener(ctx, doc, one_sheet)
                 repaired = _repair_one_sheet(ctx, doc, one_sheet, workbook_key)
                 if repaired is not None:
-                    repaired_sheets[repaired[0]] = repaired[1]
+                    name, cells = repaired
+                    repaired_sheets[name] = cells
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:

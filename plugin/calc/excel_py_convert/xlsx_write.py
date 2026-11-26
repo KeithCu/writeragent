@@ -438,13 +438,13 @@ def _ensure_workbook_full_calc_on_load(wb: ET.Element) -> None:
 
 
 def _drop_py_code_sheets_from_workbook(
-    wb_xml: bytes,
+    wb: ET.Element,
+    wb_ns: dict[str, str],
     rels_xml: bytes,
     drop_rids: set[str],
     drop_titles: set[str],
 ) -> tuple[bytes, bytes]:
     """Remove ``py_code_*`` sheet entries and definedNames from workbook.xml + workbook rels."""
-    wb, wb_ns = parse_and_extract_namespaces(wb_xml)
     drop_titles_set = {t.lower() for t in drop_titles}
     for sheets_el in list(wb):
         if local_name(sheets_el.tag) != "sheets":
@@ -813,8 +813,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             )
 
         # 2. Bank sheet discovery via defined names / ZZ1 note
-        wb_xml = zin.read("xl/workbook.xml")
-        wb_root = ET.fromstring(wb_xml)
+        wb_root, wb_ns = parse_and_extract_namespaces(zin.read("xl/workbook.xml"))
         defined_names = _defined_name_pairs(wb_root)
         shared_strs = shared_strings(zin)
 
@@ -840,7 +839,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
 
         scripts_bytes = python_scripts_xml(scripts)
         rels_xml = zin.read("xl/_rels/workbook.xml.rels")
-        wb_xml, rels_xml = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, drop_rids, drop_titles=drop_titles)
+        wb_xml, rels_xml = _drop_py_code_sheets_from_workbook(wb_root, wb_ns, rels_xml, drop_rids, drop_titles=drop_titles)
 
     _write_package(
         source_xlsx,

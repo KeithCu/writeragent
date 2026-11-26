@@ -198,10 +198,10 @@ class CellInspector:
                 return category, format_code
         return None
 
-    def _resolve_single_cell(self, address: str) -> tuple[Any, str]:
+    @staticmethod
+    def _single_cell(cell: Any, address: str) -> tuple[Any, str]:
         _unused, bare_address = split_sheet_prefix(address)
         display_address = bare_address.upper()
-        cell = self.bridge.resolve_range_or_address(address)
         if hasattr(cell, "getRangeAddress"):
             addr = cell.getRangeAddress()
             if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
@@ -209,10 +209,10 @@ class CellInspector:
             if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
                 cell = cell.getCellByPosition(0, 0)
             display_address = format_address(addr.StartColumn, addr.StartRow)
-
         return cell, display_address
 
-    # ── Public API ─────────────────────────────────────────────────────
+    def _resolve_single_cell(self, address: str) -> tuple[Any, str]:
+        return self._single_cell(self.bridge.resolve_range_or_address(address), address)
 
     def _read_resolved_cell(self, cell: Any, bare_address: str, address_label: str, *, include_format_info: bool) -> dict[str, Any]:
         value, type_name, formula = classify_array_cell(
@@ -229,6 +229,8 @@ class CellInspector:
                 # Format enrichment failure must not replace an otherwise valid cell payload with an error.
                 log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address_label)
         return info
+
+    # ── Public API ─────────────────────────────────────────────────────
 
     def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
         """Read basic cell information.
@@ -264,14 +266,8 @@ class CellInspector:
 
         addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
         if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
-            if addr is not None:
-                if hasattr(cell_range, "getCellByPosition") and not hasattr(cell_range, "getType"):
-                    cell_range = cell_range.getCellByPosition(0, 0)
-                bare_address = format_address(addr.StartColumn, addr.StartRow)
-            else:
-                _unused, bare = split_sheet_prefix(range_name)
-                bare_address = bare.upper()
-            return [[self._read_resolved_cell(cell_range, bare_address, range_name, include_format_info=include_format_info)]]
+            cell, bare_address = self._single_cell(cell_range, range_name)
+            return [[self._read_resolved_cell(cell, bare_address, range_name, include_format_info=include_format_info)]]
         # Refuse an over-cap range before fetching data/formula arrays.
         n = (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
         limit = configured_python_max_data_cells()

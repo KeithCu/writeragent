@@ -21,7 +21,7 @@ from typing import Any, Literal
 from com.sun.star.container import NoSuchElementException
 
 from plugin.calc.address_utils import format_address, format_range, qualify_a1
-from plugin.calc.calc_utils import CELL_CONTENT_FLAGS, EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
+from plugin.calc.calc_utils import CELL_CONTENT_FLAGS, CELL_FLAG_FORMULA, EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     should_preserve_temporal_format,
@@ -34,7 +34,6 @@ from plugin.calc.python.addin_values import (
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_locator_cache import (
-    CELL_FLAG_FORMULA,
     FormulaOrigin,
     collect_matching_formula_origins,
     is_matching_py_formula,
@@ -51,6 +50,7 @@ from plugin.framework.queue_executor import main
 log = logging.getLogger(__name__)
 
 SPILL_REGISTRY_PROP = "WriterAgentSpillRegistry"
+# CELL_CONTENT_FLAGS is what counts as content when checking that a spill target is free or was emptied.
 # Content plus HARDATTR (32): clearing also removes direct cell formatting and number formats.
 # Annotations, styles and draw objects stay.
 SPILL_CLEAR_FLAGS = CELL_CONTENT_FLAGS | 32
@@ -761,7 +761,7 @@ def perform_deferred_spill(
 
     The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
     The state key, the sheet looked up by name, the origin formula, and target collisions are
-    checked again here on purpose: 0.1 s has passed since ``prepare_auto_spill``, and the sheet
+    checked again here on purpose: ``SETTLE_DELAY_SEC`` has passed since ``prepare_auto_spill``, and the sheet
     may have been renamed, the formula edited, or a target cell filled in between.
     """
     try:
@@ -1001,7 +1001,7 @@ def _moved_record(
     """Return this cell's record when rows or columns before it were inserted or deleted and
     cleanup_orphans has not remapped it yet; None when the cell already has its own record.
 
-    Inserting a row inside a data range recalculates =PY() at once, 0.1 s before the modify pass
+    Inserting a row inside a data range recalculates =PY() at once, ``SETTLE_DELAY_SEC`` before the modify pass
     remaps. The record looked up is the one at this cell minus the used-area delta (the same
     witness _classify_orphan_record uses). Reads only, because it also runs during interpretation.
     """
@@ -1115,7 +1115,7 @@ def prepare_auto_spill(
 
 
 def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: PreparedSpill, grid_to_spill: list[list[Any]]) -> None:
-    """Post neighbor writes to the UI thread after the usual 0.1s settle."""
+    """Post neighbor writes to the UI thread after the ``SETTLE_DELAY_SEC`` settle."""
     reg_key = (prepared.sheet_name, prepared.formula_row, prepared.formula_col)
     gen = state.queue_pending_spill(reg_key)
     token = _spill_token(*reg_key)

@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
 from plugin.calc.python.formula_edit import PyFormula
-from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.calc.python.formula_locator_cache import iter_range_formula_texts
 from plugin.framework.errors import best_effort
 
 MAX_PYTHON_CELLS_FOUND = 100

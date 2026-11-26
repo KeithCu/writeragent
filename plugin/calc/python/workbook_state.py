@@ -130,7 +130,7 @@ class WorkbookState:
     _spill_seq: int = 0
 
     def mark_spill_registry_dirty(self, doc: Any) -> None:
-        """Schedule a single non-re-armed 0.1 s registry save if not already dirty."""
+        """Schedule a single non-re-armed settle-delay registry save if not already dirty."""
         if self._dirty_spill_doc is not None:
             return
         self._dirty_spill_doc = doc

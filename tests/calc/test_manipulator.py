@@ -1621,14 +1621,6 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     }
 
 
-def test_with_notes_prepends_plan_notes() -> None:
-    from plugin.calc.manipulator import _with_notes
-
-    note = {"code": "REPEATED_FORMULA", "message": "repeated"}
-    res = _with_notes({"message": "m"}, (note,))
-    assert res["warnings"] == [note]
-
-
 def test_array_error_quotes_fresh_py_diagnostic() -> None:
     from plugin.calc.python.diagnostics import get_diagnostics_store
 

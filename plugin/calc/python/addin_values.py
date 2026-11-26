@@ -50,7 +50,7 @@ import logging
 import math
 import re
 import struct
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from com.sun.star.uno import RuntimeException
 
@@ -157,7 +157,7 @@ def worker_exception_error_code(message: str) -> int:
 _HELPER_ERROR_DICT_KEYS = frozenset({"status", "code", "message", "helper", "details"})
 
 
-def is_helper_error_dict(val: Any) -> bool:
+def is_helper_error_dict(val: Any) -> TypeGuard[dict[str, Any]]:
     """True only for the dict ``error_result`` builds (``plugin/scripting/venv/results.py``).
 
     status, code, and message are always set. helper and details are set only

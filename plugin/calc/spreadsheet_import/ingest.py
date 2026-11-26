@@ -44,7 +44,7 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
 
     Returns ``(type, value, formula)``.
     """
-    raw_text = raw_formula or ""
+    raw_text = raw_formula
     if raw_text.startswith("{") and raw_text.endswith("}"):
         # Array formulas keep the ``{=…}`` wrapper; normalize would strip the braces.
         return "array_formula", raw_val, raw_text
