@@ -20,6 +20,7 @@
 # docs/framework/uno-test-lifecycle.md
 
 import argparse
+import bisect
 import inspect
 import json
 import logging
@@ -69,6 +70,21 @@ class RunOptions:
     soak_repeat: int = 1
     show_window: bool = False
     use_user_profile: bool = False
+    # 1-based ``--shard`` from ``_UNO_SHARD_CUTS``; 0 runs every suite file.
+    shard: int = 0
+
+
+# PR CI runs the UNO suites as parallel jobs, each with its own soffice. Shard N
+# holds the suite files whose repo-relative path sorts at or after cut N-1 and
+# before cut N, so every file lands in exactly one shard and a new file joins the
+# shard its path sorts into. The ``shard`` matrix of ``test-uno-shard`` in
+# ``.github/workflows/pr-ci.yml`` must list 1 .. len(_UNO_SHARD_CUTS) + 1.
+_UNO_SHARD_CUTS = ("tests/writer/test_", "tests/writer/test_hyperlink_fixup_uno")
+
+
+def _uno_shard(rel_path: str) -> int:
+    """1-based shard of a repo-relative suite path that uses ``/`` separators."""
+    return bisect.bisect_right(_UNO_SHARD_CUTS, rel_path) + 1
 
 
 class HarnessOffice:
@@ -574,7 +590,9 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     parser.add_argument("--user-profile", action="store_true")
     parser.add_argument("--repeat", type=int, default=None)
     parser.add_argument("--pair", default=None)
+    parser.add_argument("--shard", type=int, choices=range(1, len(_UNO_SHARD_CUTS) + 2), default=0)
     known, filters = parser.parse_known_args(list(argv))
+    _office.options.shard = known.shard
 
     if known.show_window:
         _office.options.show_window = True
@@ -1630,13 +1648,14 @@ def run_all_tests(ctx: Any) -> str:
     from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
-    tests_root = os.path.join(os.path.dirname(get_plugin_dir()), "tests")
+    repo_root = os.path.dirname(get_plugin_dir())
+    tests_root = os.path.join(repo_root, "tests")
 
     if os.path.isdir(tests_root):
         # Discover ``*_uno.py`` recursively under tests/ (collocated with the module).
         # Gather all candidates
         test_candidates = []
-        has_scripts = os.path.isdir(os.path.join(os.path.dirname(tests_root), "scripts"))
+        has_scripts = os.path.isdir(os.path.join(repo_root, "scripts"))
 
         for root, dirs, files in os.walk(tests_root):
             if not has_scripts and root == tests_root and "scripts" in dirs:
@@ -1653,6 +1672,10 @@ def run_all_tests(ctx: Any) -> str:
                 if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
                     continue
                 full_path = os.path.join(root, filename)
+                if options.shard:
+                    rel_path = os.path.relpath(full_path, repo_root).replace(os.sep, "/")
+                    if _uno_shard(rel_path) != options.shard:
+                        continue
                 if _module_matches_filters(full_path, options.filters):
                     test_candidates.append(full_path)
 
@@ -1839,6 +1862,7 @@ def main() -> int:
         python -m plugin.testing_runner --user-profile …/test_mock_llm_sidebar_uno.py f3a
         python -m plugin.testing_runner --repeat 20 test_draw_uno
         python -m plugin.testing_runner --repeat 50 --pair tree-math
+        python -m plugin.testing_runner --shard 2
 
     Extra tokens select tests: packet letter (``B``/``C``/``D``/``E``/``F``/``G``/``P``/``K``/``T``/``R``), case id
     (``f3a`` / ``p1`` / ``k1``), or full ``test_*`` name. Prefer ``make test-mock-sidebar FILTER=P``
@@ -1850,6 +1874,9 @@ def main() -> int:
         make test-uno-soak
         make test-uno-soak PAIR=tree-math REPEAT=50
         make test-uno-soak FILTER="test_get_draw_tree test_insert_math_draw" REPEAT=50
+
+    ``--shard N`` runs only the suite files in shard N of ``_UNO_SHARD_CUTS``
+    (PR CI runs each shard as its own job). It combines with other filters.
 
     See ``docs/framework/uno-test-lifecycle.md``.
 

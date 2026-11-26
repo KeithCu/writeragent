@@ -566,6 +566,62 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     assert discovery_suites[0]["failed"] == 1
 
 
+def test_uno_shards_cover_every_suite_file_in_sorted_order() -> None:
+    """Each discovered *_uno.py lands in one shard, shards are contiguous runs of the sorted list, and none is empty."""
+    repo_root = Path(__file__).resolve().parents[2]
+    paths = sorted(p.relative_to(repo_root).as_posix() for p in (repo_root / "tests").rglob("test_*_uno.py"))
+    shards = [tr._uno_shard(path) for path in paths]
+    assert shards == sorted(shards)
+    assert set(shards) == set(range(1, len(tr._UNO_SHARD_CUTS) + 2))
+
+
+def test_pr_ci_shard_matrix_runs_every_shard() -> None:
+    """The CI matrix must list every runner shard, or the files in a missing shard never run."""
+    yaml = pytest.importorskip("yaml")
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-ci.yml"
+    jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+    assert jobs["test-uno-shard"]["strategy"]["matrix"]["shard"] == list(range(1, len(tr._UNO_SHARD_CUTS) + 2))
+    assert jobs["test-uno"]["needs"] == "test-uno-shard"
+
+
+def test_shard_option_limits_discovery_to_its_files(monkeypatch, tmp_path) -> None:
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir()
+    for rel in ("tests/calc/test_shard_one_uno.py", "tests/writer/test_zz_shard_three_uno.py"):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("from os import no_such_writeragent_pkg_shard\n", encoding="utf-8")
+
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "filters", [])
+    monkeypatch.setattr(tr.current_office().options, "soak_repeat", 1)
+    monkeypatch.setattr(tr.current_office().options, "shard", 3)
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
+
+    saved = (config_mod.get_config, config_mod.save, config_mod.get_config_dict)
+    try:
+        ctx = types.SimpleNamespace(getServiceManager=lambda: object())
+        summary = json.loads(tr.run_all_tests(ctx))
+    finally:
+        config_mod.get_config, config_mod.save, config_mod.get_config_dict = saved
+        sys.modules.pop("plugin.tests.calc.test_shard_one_uno", None)
+        sys.modules.pop("plugin.tests.writer.test_zz_shard_three_uno", None)
+
+    assert {entry["name"] for entry in summary["suites"]} == {"writer.test_zz_shard_three_uno"}
+
+
+def test_parse_cli_args_shard(monkeypatch) -> None:
+    monkeypatch.setattr(tr.current_office().options, "shard", 0)
+    assert tr._parse_cli_args(["--shard", "2", "test_cells_uno"]) == ["test_cells_uno"]
+    assert tr.current_office().options.shard == 2
+    with pytest.raises(SystemExit):
+        tr._parse_cli_args(["--shard", str(len(tr._UNO_SHARD_CUTS) + 2)])
+
+
 def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
