@@ -243,13 +243,9 @@ def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
     except TypeError:
         return result
     for item in items:
-        name = getattr(item, "Name", None)
-        if not name:
+        if not item.Name or item.Value in (None, ""):
             continue
-        value = getattr(item, "Value", None)
-        if value in (None, ""):
-            continue
-        result[str(name)] = value
+        result[item.Name] = item.Value
     return result
 
 

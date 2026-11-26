@@ -89,11 +89,8 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
         self._doc_key = doc_key
 
     def on_document_event(self, Event: Any) -> None:
-        try:
-            name = getattr(Event, "EventName", "") or ""
-        except Exception:
-            return
-        source = getattr(Event, "Source", None)
+        name = Event.EventName
+        source = Event.Source
         # storeToURL ("Save a Copy") is OnCopyTo / OnCopyToDone, not OnSaveTo.
         # UI Save a Copy may still emit OnSaveTo; handle both.
         if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"):

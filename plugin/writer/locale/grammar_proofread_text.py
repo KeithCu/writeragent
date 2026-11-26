@@ -15,6 +15,7 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
+import uno
 from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
 from .grammar_ignore_rules import WA_G_RULE_PREFIX
 from .grammar_obs import grammar_obs, slice_preview_debug
@@ -104,8 +105,6 @@ class Utf16OffsetMap:
 
 def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, Any]:
     """Initialize LO BreakIterator and Locale from a BCP-47 key."""
-    import uno
-
     smgr = ctx.ServiceManager
     bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
     la, ctry = bcp47_to_uno_lang_country(loc_key or "")

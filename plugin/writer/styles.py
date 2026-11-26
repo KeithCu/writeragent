@@ -313,8 +313,6 @@ def _capture_paragraphs(read: _CountingReader, para_enum: Any, notes: list[str])
     seen = 0
     for el in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
         seen += 1
-        if not hasattr(el, "supportsService"):
-            continue
         if el.supportsService("com.sun.star.text.Paragraph"):
             yield el
         elif el.supportsService("com.sun.star.text.TextTable"):
@@ -776,7 +774,8 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharFontName": {"type": "string", "description": "Font family name (e.g., 'Arial')."},
     "CharStrikeout": {"type": "integer", "description": "Strikeout type (0=None, 1=Single, 2=Double)."},
     "CharCaseMap": {"type": "integer", "description": "Case mapping (0=None, 1=Uppercase, 2=Lowercase, 3=Title, 4=SmallCaps)."},
-    # CharPosture follows com.sun.star.awt.FontSlant (0=None, 1=Oblique, 2=Italic). The schema must match that mapping or italic/oblique requests set the wrong UNO constant.
+    # CharPosture follows com.sun.star.awt.FontSlant (0=None, 1=Oblique, 2=Italic). The schema
+    # must match that mapping or italic/oblique requests set the wrong UNO constant.
     "CharPosture": {"type": "integer", "description": "Font slant (com.sun.star.awt.FontSlant: 0=None, 1=Oblique, 2=Italic)."},
     "CharShadowed": {"type": "boolean", "description": "Whether text is shadowed."},
     # "CharRelief": {"type": "integer", "description": "Relief style (0=None, 1=Embossed, 2=Engraved)."},
@@ -1315,14 +1314,8 @@ def copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], lis
     copied: list[str] = []
     skipped: list[str] = []
     for prop in props:
-        name = getattr(prop, "Name", None)
-        if not isinstance(name, str) or name in _CLONE_SKIP_PROPS:
-            continue
-        try:
-            attrs = int(getattr(prop, "Attributes", 0) or 0)
-        except (TypeError, ValueError):
-            attrs = 0
-        if attrs & PROPERTY_READONLY:
+        name = prop.Name
+        if name in _CLONE_SKIP_PROPS or prop.Attributes & PROPERTY_READONLY:
             continue
         try:
             state = source.getPropertyState(name)
@@ -1332,7 +1325,7 @@ def copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], lis
             continue
         # PropertyState.DIRECT_VALUE enum's integer is 0 (first enumerator).
         # Comparing against 1 would copy inherited defaults and skip real overrides.
-        if getattr(state, "value", None) != "DIRECT_VALUE":
+        if state.value != "DIRECT_VALUE":
             continue
         try:
             dest.setPropertyValue(name, source.getPropertyValue(name))
@@ -1437,13 +1430,13 @@ def _installed_font_names(ctx: ToolContext) -> set[str] | None:
     if _installed_font_names_cache is not None:
         return _installed_font_names_cache
     try:
-        toolkit = get_toolkit(getattr(ctx, "ctx", None))
+        toolkit = get_toolkit(ctx.ctx)
         if toolkit is None:
             return None
         device = toolkit.createScreenCompatibleDevice(1, 1)
         if device is None:
             return None
-        names = {str(f.Name).casefold() for f in device.getFontDescriptors() if getattr(f, "Name", None)}
+        names = {str(f.Name).casefold() for f in device.getFontDescriptors() if f.Name}
         _installed_font_names_cache = names
         return names
     except Exception:
@@ -1689,7 +1682,8 @@ def target_cursors(
         res = search_mod.build_search_not_found_response(
             ctx.doc, s, case_sensitive=mode.case_sensitive, all_matches=many, refuse_oversized=True
         )
-        res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
+        # build_search_not_found_response takes no top_level kwarg, so its payload is extended here.
+        res.update({"target": "search", "applied": False, "matched": False})
         res.update(mode.result_fields())
         return [], res, mode
     if occ is not None:
@@ -2162,14 +2156,14 @@ class StyleFormatText(ToolWriterStyleBase):
                 for para in _touched_paragraphs(cursor):
                     set_paragraph_background(para, updates["ParaBackColor"])
             cleared = reset_properties_to_default(cursor, reset_names)
-            # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx:2593-2607)
+            # SwXTextCursor::setPropertiesToDefault (sw/source/core/unocore/unoobj.cxx)
             # silently skips properties outside RES_FRMATR_END (except NumberingStartValue),
             # such as ParaStyleName or ListId; those remain DIRECT_VALUE on the cursor.
             actually_cleared: list[str] = []
             for name in cleared:
                 try:
                     state = cursor.getPropertyState(name)
-                    if getattr(state, "value", None) == "DIRECT_VALUE":
+                    if state.value == "DIRECT_VALUE":
                         continue
                 except Exception as exc:
                     reraise_if_disposed(exc)
@@ -2640,8 +2634,8 @@ class StyleImport(ToolWriterStyleBase):
             return self._tool_error("path must be an absolute filesystem path.", code="INVALID_PARAM")
         if not os.path.isfile(file_path):
             return self._tool_error("path does not exist: %s" % file_path, code="INVALID_PARAM")
-        # SwDocShell::LoadStylesFromFile (sw/source/uibase/app/docsh2.cxx:1632-1693) silently skips
-        # non-Writer ODF storage packages and returns ERRCODE_NONE without throwing.
+        # SwDocShell::LoadStylesFromFile (sw/source/uibase/app/docsh2.cxx) silently skips files that
+        # are not ODF packages (plain text, binary .doc, flat .fodt) and returns ERRCODE_NONE without throwing.
         if os.path.splitext(file_path)[1].lower() not in (".odt", ".ott"):
             return self._tool_error("style_import only supports .odt and .ott files.", code="INVALID_PARAM")
 

@@ -747,7 +747,11 @@ setattr(document, "ChangedByOthersRequest", MockChangedByOthersRequest)
 setattr(document, "LockedOnSavingRequest", MockLockedOnSavingRequest)
 setattr(document, "OwnLockOnDocumentRequest", MockOwnLockOnDocumentRequest)
 _create_mock_module("com.sun.star.style")
-_create_mock_module("com.sun.star.style.BreakType")
+# Real UNO values: page.py imports these at load and writes them into mocked properties.
+setattr(_create_mock_module("com.sun.star.style.BreakType"), "PAGE_BEFORE", 4)
+_page_style_layout = _create_mock_module("com.sun.star.style.PageStyleLayout")
+for _idx, _layout_name in enumerate(("ALL", "LEFT", "RIGHT", "MIRRORED")):
+    setattr(_page_style_layout, _layout_name, _idx)
 _create_mock_module("com.sun.star.ui.UIElementType")
 class MockXTransferable:
     pass

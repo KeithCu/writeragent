@@ -19,6 +19,8 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+import uno
+from com.sun.star.beans import PropertyValue
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.errors import reraise_if_disposed
@@ -79,9 +81,6 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: %s" % (page, e)
-
-    import uno
-    from com.sun.star.beans import PropertyValue
 
     def export(tmp_path: str) -> None:
         ok = filt.filter((

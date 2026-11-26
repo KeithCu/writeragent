@@ -721,13 +721,7 @@ def _read_annotation(
     try:
         dt = field.getPropertyValue("DateTimeValue")
         if dt is not None:
-            entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-                getattr(dt, "Year", 0),
-                getattr(dt, "Month", 0),
-                getattr(dt, "Day", 0),
-                getattr(dt, "Hours", 0),
-                getattr(dt, "Minutes", 0),
-            )
+            entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
             props_read += 1
         else:
             entry["date"] = ""

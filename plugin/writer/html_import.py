@@ -1911,7 +1911,9 @@ def replace_xtext_with_html(
         unapplied_para=html_import_styles.declared_para_names(skipped_paras),
         style_tokens=list(dict.fromkeys(s for s in block_styles if s)),
     )
-    # Imported at call time: edit_review imports this module at its top (edit_review.py:66), so a module-level import is a cycle; LibrePy does not ship edit_review, and only page.py's header/footer write reaches this function.
+    # Imported at call time: edit_review imports this module at its top, so a module-level
+    # import is a cycle. LibrePy does not ship edit_review, and only page.py's header/footer
+    # write reaches this function.
     from .edit_review import next_agent_edit_undo_title
 
     title = next_agent_edit_undo_title()
