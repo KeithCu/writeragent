@@ -17,7 +17,7 @@ WITHOUT a live LibreOffice (a fake UNO text/cursor), that:
 
 The real splitter (``word_diff_split.split_change``) is used for real; only UNO is faked.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -201,7 +201,7 @@ def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, repla
                             "doc.agent_edit_split_author_colors": split_author}.__getitem__), \
          patch("plugin.writer.edit_review.replace_preserving_format",
                side_effect=wire) as mock_replace:
-        record_preserve_replace(session, doc, found, new, MagicMock(), split=True)
+        record_preserve_replace(session, doc, found, new, split=True)
     return session, mock_replace
 
 

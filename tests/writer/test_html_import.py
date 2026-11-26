@@ -138,6 +138,7 @@ def _undo_model():
 def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
     """Header/footer writes strip data-lo-* before the import and apply them after it."""
     text = MagicMock()
+    text.getString.return_value = ""
     imported: list[str] = []
     html = (
         '<p data-lo-style="Header" data-lo-para="margin-left:1cm; font-weight:bold">H</p>'
@@ -162,6 +163,7 @@ def test_replace_xtext_with_html_applies_and_reports_data_lo_attrs():
 def test_replace_xtext_with_html_preserves_tex_backslashes_and_expands_prose():
     """Header/footer writes expand prose escapes outside TeX while keeping TeX backslashes."""
     text = MagicMock()
+    text.getString.return_value = ""
     imported: list[str] = []
     html = r"<p>Rate $\nu$ \(\tau\) a\nb</p>"
     with patch(
@@ -178,6 +180,7 @@ def test_replace_xtext_with_html_preserves_tex_backslashes_and_expands_prose():
 
 def test_replace_xtext_with_html_plain_html_skips_style_walk():
     text = MagicMock()
+    text.getString.return_value = ""
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"), patch(
         "plugin.writer.html_import_styles.apply_block_lo_styles",
     ) as apply_styles:
@@ -282,6 +285,7 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     from plugin.writer import html_import
 
     cursor = MagicMock()
+    cursor.getText.return_value.getString.return_value = ""
     cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
     text = cursor.getText.return_value
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
@@ -299,6 +303,7 @@ def test_insert_inline_at_cursor_drops_edge_newlines(fragment):
 
     cursor = MagicMock()
     text = cursor.getText.return_value
+    text.getString.return_value = ""
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, fragment)
     text.insertString.assert_not_called()
@@ -323,6 +328,7 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
     from plugin.writer import field_restore, html_import
 
     cursor = MagicMock()
+    cursor.getText.return_value.getString.return_value = ""
     hit_cur = MagicMock()
     hit_cur.goRight.return_value = True
     hit_cur.getString.return_value = "漢字"
@@ -508,6 +514,7 @@ def test_styled_insert_propagates_style_pass_failure():
     from plugin.writer import html_import, html_import_styles
 
     cursor = MagicMock()
+    cursor.getText.return_value.getString.return_value = ""
     cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
     with patch.object(html_import_styles, "apply_block_lo_styles", side_effect=RuntimeError("style")), \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
@@ -681,7 +688,8 @@ def test_trailing_paragraph_disposal_is_not_success():
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.html_import import _cursor_paragraph_has_content, _uno_service_true
+    from plugin.framework.uno_context import supports_service
+    from plugin.writer.html_import import _cursor_paragraph_has_content
     from plugin.writer.html_import_styles import resolve_paragraph_style_token
 
     class RuntimeException(Exception):
@@ -690,11 +698,11 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     closed = MagicMock()
     closed.supportsService.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _uno_service_true(closed, "com.sun.star.drawing.Shape")
+        supports_service(closed, "com.sun.star.drawing.Shape")
 
     odd = MagicMock()
     odd.supportsService.side_effect = RuntimeException("uno")
-    assert _uno_service_true(odd, "com.sun.star.drawing.Shape") is False
+    assert supports_service(odd, "com.sun.star.drawing.Shape") is False
 
     # Fail safe: an unreadable paragraph still counts as non-empty.
     cursor = MagicMock()
@@ -1015,9 +1023,12 @@ def test_mixed_inserters_report_math_and_preserve_returns():
     model = MagicMock()
     model.getPropertyValue.return_value = False
     cursor = MagicMock()
+    cursor.getText.return_value.getString.return_value = ""
+    model.getText.return_value.getString.return_value = ""
     model.getText.return_value.createTextCursor.return_value = cursor
     text_range = MagicMock()
-    text_range.getText.return_value = MagicMock()
+    text_range.getText.return_value = model.getText.return_value
+    model.getText.return_value.createTextCursorByRange.return_value.getText.return_value = model.getText.return_value
     ctx = MagicMock()
 
     fake_attempt = [{"kind": "tex", "display_block": False, "snippet": "a", "ok": True}]
@@ -1057,6 +1068,7 @@ def test_replace_single_range_returns_failures_and_inline_skipped():
     ctx = MagicMock()
     text_range = MagicMock()
     text_obj = MagicMock()
+    text_obj.getString.return_value = ""
     text_range.getText.return_value = text_obj
     cursor = MagicMock()
     text_obj.createTextCursorByRange.return_value = cursor
@@ -1090,6 +1102,7 @@ def test_plain_html_leaves_math_empty():
 
     model = MagicMock()
     cursor = MagicMock()
+    cursor.getText.return_value.getString.return_value = ""
     ctx = MagicMock()
 
     with patch.object(html_import, "insert_html_fragment_at_cursor"):
@@ -1108,6 +1121,7 @@ class TestWriterMathPreservation:
         ctx = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
+        cursor.getText.return_value.getString.return_value = ""
 
         # r"\nabla" has 1 backslash, r"\n" has 1 backslash.
         test_content = r"<p>Equation: \[\nabla \cdot \mathbf{E}\]</p> and a newline: \nHello."
@@ -1146,6 +1160,7 @@ class TestWriterMathPreservation:
         ctx = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
+        cursor.getText.return_value.getString.return_value = ""
         cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
 
         content = (
@@ -1173,6 +1188,7 @@ class TestWriterMathPreservation:
         ctx = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
+        cursor.getText.return_value.getString.return_value = ""
         cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
 
         test_content = "Line 1\\nLine 2"
@@ -1470,8 +1486,7 @@ def test_insert_content_at_position_extremes_apply_styles(position: str, goto: s
     model.getText.return_value = body_text
 
     with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
-        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, pos, **_kw: cursor,
+        "plugin.writer.html_import._open_absorb_paragraph_at_end",
     ):
         insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
 
@@ -1571,8 +1586,7 @@ def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
-    assert out is cursor
+    hi._open_absorb_paragraph_at_end(text, cursor, recording=False)
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
@@ -1597,8 +1611,7 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
-    assert out is cursor
+    hi._open_absorb_paragraph_at_end(text, cursor, recording=False)
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
@@ -1617,7 +1630,7 @@ def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
+    hi._open_absorb_paragraph_at_end(text, cursor, recording=False)
     text.insertControlCharacter.assert_not_called()
 
 
@@ -1635,25 +1648,14 @@ def test_ensure_empty_absorb_opens_break_for_spaces_or_recording():
     cursor.getText.return_value = text_obj
     cursor.getStart.return_value = MagicMock()
 
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
+    hi._open_absorb_paragraph_at_end(text, cursor, recording=False)
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
     text.reset_mock()
     para.getString.return_value = ""
     para.createEnumeration.return_value = FakeUnoEnum([])
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=True)
+    hi._open_absorb_paragraph_at_end(text, cursor, recording=True)
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
-
-
-def test_ensure_empty_absorb_noop_for_beginning():
-    from unittest.mock import MagicMock
-
-    from plugin.writer import html_import as hi
-
-    cursor = MagicMock()
-    text = MagicMock()
-    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "beginning", recording=False)
-    text.insertControlCharacter.assert_not_called()
 
 
 def test_insert_content_at_position_nested_table_is_not_appended_at_end():
@@ -1732,7 +1734,7 @@ def test_ensure_empty_absorb_raises_when_break_fails():
     cursor.getStart.return_value = MagicMock()
     text.insertControlCharacter.side_effect = RuntimeError("break failed")
     with pytest.raises(RuntimeError, match="break failed"):
-        hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
+        hi._open_absorb_paragraph_at_end(text, cursor, recording=False)
 
 
 class _FakeReplacePortion:
@@ -1828,13 +1830,11 @@ def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, 
 
     cursor = _FakeReplaceCursor(go_right_fn=go_right_fn)
     text = _FakeReplaceText(cursor)
-    ctx = MagicMock()
     with patch.object(record_changes, "is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
-            hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str), new_str, ctx=ctx)
+            hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str), new_str)
     assert cursor.writes == []
     assert text.inserts == []
-    ctx.getServiceManager.assert_not_called()
 
 
 def test_replace_preserving_format_equal_string_is_noop():
@@ -2302,6 +2302,7 @@ def test_insert_inline_at_cursor_plain_decodes_complete_entities():
     model = MagicMock()
     cursor = MagicMock()
     text = cursor.getText.return_value
+    text.getString.return_value = ""
     html_import.insert_inline_at_cursor(model, MagicMock(), cursor, "R&#36;5 &sect 2o &lt;b&gt;")
     text.insertString.assert_called_once_with(cursor, "R$5 &sect 2o <b>", False)
 

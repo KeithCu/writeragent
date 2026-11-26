@@ -424,7 +424,7 @@ def test_search_occurrence_selects_requested_match(monkeypatch):
     monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.record_preserve_replace",
-        lambda session, doc, found, content, ctx, reviewable: selected.append(found),
+        lambda session, doc, found, content, reviewable: selected.append(found),
     )
 
     res = ApplyDocumentContent().execute(
@@ -559,7 +559,7 @@ def test_search_occurrence_regex_selects_requested_match(monkeypatch):
     monkeypatch.setattr(search_mod, "find_all_ranges", unused_find_all)
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.record_preserve_replace",
-        lambda session, doc, found, content, ctx, reviewable: selected.append(found),
+        lambda session, doc, found, content, reviewable: selected.append(found),
     )
 
     res = ApplyDocumentContent().execute(
@@ -852,15 +852,11 @@ def test_anchor_both_required():
 
 def test_anchor_non_strings():
     tool = ApplyDocumentContent()
-    res1 = tool.execute(_ctx(), start_anchor=123, end_anchor="bar", content="new")
-    assert res1["status"] == "error"
-    assert res1["code"] == "INVALID_PARAM"
-    assert "start_anchor and end_anchor must both be strings" in res1["message"]
+    ok1, err1 = tool.validate(start_anchor=123, end_anchor="bar", content="new")
+    assert not ok1 and err1 is not None and "start_anchor" in err1
 
-    res2 = tool.execute(_ctx(), start_anchor="foo", end_anchor=456, content="new")
-    assert res2["status"] == "error"
-    assert res2["code"] == "INVALID_PARAM"
-    assert "start_anchor and end_anchor must both be strings" in res2["message"]
+    ok2, err2 = tool.validate(start_anchor="foo", end_anchor=456, content="new")
+    assert not ok2 and err2 is not None and "end_anchor" in err2
 
 
 def test_anchor_empty_after_normalization(monkeypatch):

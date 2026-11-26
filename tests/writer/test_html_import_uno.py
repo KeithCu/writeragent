@@ -3614,7 +3614,7 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
                 rng.goRight(1, False)  # directly after start field
                 rng.goRight(len("click here"), True)
                 doc.setPropertyValue("RecordChanges", recording)
-                replace_preserving_format(doc, rng, "tap now", ctx=ctx, in_undo_context=False)
+                replace_preserving_format(doc, rng, "tap now", in_undo_context=False)
 
                 if mode == "accept":
                     accept_all_changes(doc, ctx)
@@ -3671,7 +3671,7 @@ def test_replace_preserving_format_edges_fields_links_and_other_author_uno(ctx: 
             rng.goRight(len("alpha ADDEDDEL1"), False)
             rng.goRight(len("old words"), True)
             assert rng.getString() == "old words", repr(rng.getString())
-            replace_preserving_format(doc, rng, "ZZ", ctx=ctx, in_undo_context=False)
+            replace_preserving_format(doc, rng, "ZZ", in_undo_context=False)
 
             rls = doc.getRedlines()
             authors = [str(rls.getByIndex(i).getPropertyValue("RedlineAuthor")) for i in range(rls.getCount())]

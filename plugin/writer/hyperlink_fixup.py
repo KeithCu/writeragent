@@ -83,10 +83,9 @@ import re
 from typing import Any, Iterator, Literal
 from urllib.parse import quote, unquote
 
-import uno
-
 from plugin.doc.text_helpers import TrackedDeletions, go_right, iter_elements, iter_portions
 from plugin.framework.errors import ToolExecutionError, uno_read, uno_write
+from plugin.framework.uno_context import create_property_value
 from plugin.writer.record_changes import is_recording_changes, record_changes, redline_kinds_covering, redline_spans
 
 log = logging.getLogger("writeragent.writer.hyperlink")
@@ -158,8 +157,8 @@ def _ranges_overlap(text: Any, portion: Any, match: Any) -> bool:
     # compareRegionStarts == 1: p0 starts before m1
     # compareRegionEnds == -1: p1 ends after m0
     return (
-        uno_read(lambda: int(text.compareRegionStarts(p0, m1)) == 1, False)
-        and uno_read(lambda: int(text.compareRegionEnds(p1, m0)) == -1, False)
+        uno_read(lambda: text.compareRegionStarts(p0, m1) == 1, False)
+        and uno_read(lambda: text.compareRegionEnds(p1, m0) == -1, False)
     )
 
 
@@ -274,7 +273,7 @@ def _paragraph_cursor(text: Any, pos: Any) -> Any:
 
 
 def _same_point(text: Any, left: Any, right: Any) -> bool:
-    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 0, False)
+    return uno_read(lambda: text.compareRegionStarts(left, right) == 0, False)
 
 
 def _paragraph_edges(text: Any, text_range: Any) -> tuple[Any, Any, bool]:
@@ -296,11 +295,13 @@ def _paragraph_edges(text: Any, text_range: Any) -> tuple[Any, Any, bool]:
 def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     cursor = text.createTextCursorByRange(start_pos)
     cursor.gotoRange(end_pos, True)
-    return str(cursor.getString() or "")
+    return cursor.getString()
 
 
-def _paragraph_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False) -> Iterator[Any]:
-    """Portions of the paragraph containing *anchor_pos*."""
+def _paragraph_portions_with_kind(
+    text: Any, anchor_pos: Any, *, include_redlines: bool = False,
+) -> Iterator[tuple[Any, str | None]]:
+    """``(portion, kind)`` pairs of the paragraph containing *anchor_pos*."""
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
     for para in iter_elements(para_enum):
@@ -313,7 +314,15 @@ def _paragraph_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = 
             # Skip tracked-change redline markers; they do not hold text or link properties.
             if not include_redlines and kind == "Redline":
                 continue
-            yield portion
+            yield portion, kind
+
+
+def _paragraph_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = False) -> Iterator[Any]:
+    """Portions of the paragraph containing *anchor_pos*."""
+    for portion, _kind in _paragraph_portions_with_kind(
+        text, anchor_pos, include_redlines=include_redlines,
+    ):
+        yield portion
 
 
 def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bool]]:
@@ -323,8 +332,8 @@ def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bo
     paragraph has no start marker in this one.
     """
     state = TrackedDeletions(doc).state_at(_paragraph_cursor(text, pos))
-    for portion in _paragraph_portions(text, pos, include_redlines=True):
-        if _prop(portion, "TextPortionType") == "Redline":
+    for portion, kind in _paragraph_portions_with_kind(text, pos, include_redlines=True):
+        if kind == "Redline":
             state.apply_marker(portion)
         else:
             yield portion, not state.in_delete
@@ -333,7 +342,7 @@ def _portions_with_live(doc: Any, text: Any, pos: Any) -> Iterator[tuple[Any, bo
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     """Read ``|outline`` links that overlap *text_range*, and the paragraph text around it."""
     text = text_range.getText()
-    matched = str(text_range.getString() or "")
+    matched = text_range.getString()
 
     try:
         start_cur, end_cur, single = _paragraph_edges(text, text_range)
@@ -384,7 +393,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
 
 def _paragraph_text(text: Any, anchor: Any) -> str:
     cursor = _paragraph_cursor(text, anchor.getStart())
-    return str(cursor.getString() or "")
+    return cursor.getString()
 
 
 def measured_replacement(anchor: Any, snapshot: OutlineSnapshot) -> str | None:
@@ -437,7 +446,7 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
         offset = 0
         start_cur: Any = None
         for portion in _paragraph_portions(text, anchor.getStart()):
-            chunk = str(portion.getString() or "")
+            chunk = portion.getString()
             end_off = offset + len(chunk)
             if start_cur is None:
                 if not new_plain and target_start <= end_off:
@@ -541,7 +550,7 @@ def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str
     offset = 0
     start = anchor.getStart()
     for portion in _paragraph_portions(text, start):
-        chunk = str(portion.getString() or "")
+        chunk = portion.getString()
         if chunk:
             props = read_link_look(portion)
             if props:
@@ -576,7 +585,7 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
     write (see the module docstring).
     """
     cursor = _select_replacement(text, anchor, snapshot, new_plain)
-    selected = None if cursor is None else uno_read(lambda: str(cursor.getString() or ""), None)
+    selected = None if cursor is None else uno_read(lambda: cursor.getString(), None)
     if cursor is None or selected != new_plain:
         if required:
             raise ToolExecutionError(
@@ -600,6 +609,17 @@ def _put_back_url(snapshot: OutlineSnapshot) -> str:
     return ""
 
 
+def _has_anchor_or_empty(anchor: Any, snapshot: OutlineSnapshot, override: str | None) -> bool:
+    if anchor is not None:
+        return True
+    if snapshot.links or override:
+        raise ToolExecutionError(
+            "Could not locate the replaced text to update its outline hyperlink.",
+            code="HYPERLINK_UPDATE_FAILED",
+        )
+    return False
+
+
 def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
                                fallback_plain: str | None,
                                override: str | None) -> list[dict[str, Any]]:
@@ -608,12 +628,7 @@ def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     *fallback_plain* is the plain text the caller inserted, used when the paragraph
     can no longer be measured. Returns the public before/after reports.
     """
-    if anchor is None:
-        if snapshot.links or override:
-            raise ToolExecutionError(
-                "Could not locate the replaced text to update its outline hyperlink.",
-                code="HYPERLINK_UPDATE_FAILED",
-            )
+    if not _has_anchor_or_empty(anchor, snapshot, override):
         return []
 
     new_plain = measured_replacement(anchor, snapshot)
@@ -738,6 +753,8 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
     link. The struck text keeps its link, so only the inserted runs are written, untracked: Accept
     keeps the link on the new text and Reject removes it with the insertion. No URL is renamed.
     """
+    if not _has_anchor_or_empty(anchor, snapshot, override):
+        return []
     url = _put_back_url(snapshot)
     raw = measured_replacement(anchor, snapshot)
     if url and raw:
@@ -746,7 +763,7 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
         offset, stop = -len(snapshot.prefix), len(raw)
         unlinked = []
         for portion, live in _portions_with_live(doc, text, anchor.getStart()):
-            chunk = str(portion.getString() or "")
+            chunk = portion.getString()
             if (
                 live
                 and chunk
@@ -809,8 +826,7 @@ def _linked_ranges(doc: Any) -> list[Any]:
     """One range per hyperlink and paragraph, in every text of *doc* (cells, frames, notes, headers)."""
     search = doc.createSearchDescriptor()
     search.ValueSearch = False  # search for the presence of HyperLinkURL, not a value
-    attr: Any = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    attr.Name = _URL
+    attr = create_property_value(_URL, None)
     search.setSearchAttributes((attr,))
     found = doc.findAll(search)
     return [found.getByIndex(i) for i in range(found.getCount())]
@@ -883,7 +899,7 @@ def retarget_outline_links(
         prev_para = para_start
         runs: list[tuple[Any, str, str, bool]] = []
         blocked: dict[str, StaleReason] = {}  # per paragraph: one field link must not block the others
-        for portion in _paragraph_portions(text, para_start):
+        for portion, kind in _paragraph_portions_with_kind(text, para_start):
             url = _prop(portion, _URL)
             if not url or not portion.getString():
                 continue
@@ -897,7 +913,7 @@ def retarget_outline_links(
                 stale[url] = "no_heading"
                 continue
             tracked = recording and "Insert" not in kinds
-            if tracked and _prop(portion, "TextPortionType") != "Text":
+            if tracked and kind != "Text":
                 blocked[url] = "field"
             runs.append((portion, url, new_url, tracked))
         stale.update(blocked)

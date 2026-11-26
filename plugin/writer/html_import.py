@@ -25,7 +25,6 @@ from typing import Any, Iterator, cast
 
 import uno
 
-
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.temp_files import with_temp_buffer
 from plugin.doc.text_helpers import (
@@ -47,9 +46,10 @@ from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import create_property_value, uno_any
+from plugin.framework.uno_context import create_property_value, supports_service, uno_any
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import strip_html_boilerplate
+from .range_copy import PARAGRAPH_BREAK
 from .math.html_math_segment import (
     MathSegment,
     html_fragment_contains_mixed_math,
@@ -66,13 +66,10 @@ from .table_nesting import raise_if_range_hosts_nested_table
 
 log = logging.getLogger("writeragent.writer")
 
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
-
 
 def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     """Wrap an HTML fragment in a full document structure for LO's filter."""
-    if not html_content or not isinstance(html_content, str):
+    if not html_content:
         return html_content
     low = html_content.lower()
     has_html = "<html" in low and "</html>" in low
@@ -93,7 +90,7 @@ def ensure_html_linebreaks(content: str) -> str:
     references while keeping ``< > & " '`` escaped, and the StarWriter filter
     decodes entities itself so escaped markup stays literal text.
     """
-    if not isinstance(content, str) or not content:
+    if not content:
         return content
 
     content = escape_prose_angle_brackets(_normalize(content))
@@ -118,8 +115,8 @@ def html_to_plain_text(html_string: str) -> str:
     Paragraphs, headings, list items, and table elements are separated by newlines;
     line breaks (<br>) emit a newline. Intra-block whitespace collapses to a single space.
     """
-    if not html_string or not isinstance(html_string, str):
-        return (html_string or "").strip()
+    if not html_string:
+        return ""
     # Plain text without markup or entities needs no parsing.
     if "<" not in html_string and "&" not in html_string:
         return html_string.strip()
@@ -243,7 +240,7 @@ def insert_html_fragment_at_cursor(
 
 
 def _math_attempt_entry(
-    seg: Any, snippet: str, *, ok: bool, error: str | None = None
+    seg: MathSegment, snippet: str, *, ok: bool, error: str | None = None
 ) -> dict[str, Any]:
     """Build a math conversion attempt record for structured tool reporting.
 
@@ -289,17 +286,17 @@ def _place_formulas(
     for idx, seg in enumerate(formulas):
         cursor = by_idx.get(idx)
         if cursor is None:
-            snippet = (seg.text or "").replace("\n", " ")[:120]
+            snippet = seg.text.replace("\n", " ")[:120]
             attempts.append(
                 _math_attempt_entry(seg, snippet, ok=False, error=html_import_styles.MATH_POSITION_LOST)
             )
             continue
         if seg.kind == "tex":
-            tex_text = html_import_styles.decode_complete_character_references(seg.text or "")
+            tex_text = html_import_styles.decode_complete_character_references(seg.text)
             snippet = tex_text.replace("\n", " ")[:120]
             res = convert_latex_to_starmath(ctx, tex_text, display_block=seg.display_block)
         else:
-            snippet = (seg.text or "").replace("\n", " ")[:120]
+            snippet = seg.text.replace("\n", " ")[:120]
             res = convert_mathml_to_starmath(ctx, seg.text)
         cursor.setString("")
         if not (res.ok and res.starmath):
@@ -311,11 +308,11 @@ def _place_formulas(
         if seg.display_block:
             text = cursor.getText()
             if not cursor.isEndOfParagraph():
-                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+                text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
                 cursor.gotoPreviousParagraph(False)
                 cursor.gotoEndOfParagraph(False)
             if not cursor.isStartOfParagraph():
-                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+                text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
             # A split keeps the heading style on a formula at the heading's start (and everywhere in a
             # style that follows itself), which would add an empty-looking entry to the outline. A formula
             # that was the whole heading keeps the style its author chose.
@@ -362,7 +359,7 @@ def _place_ruby(text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str
             log.warning("_place_ruby: base %r did not match at token %d", span.base, idx)
             continue
         cursor.setPropertyValue("RubyText", span.reading)
-        cursor.setPropertyValue("RubyIsAbove", bool(span.is_above))
+        cursor.setPropertyValue("RubyIsAbove", span.is_above)
         # 0 = com.sun.star.text.RubyAdjust.LEFT
         cursor.setPropertyValue("RubyAdjust", 0)
     if len(hits) < len(spans):
@@ -373,8 +370,7 @@ def _apply_ruby_and_restore_fields(
     model: Any, text_obj: Any, spans: list[html_ruby.ImportRubySpan], nonce: str
 ) -> None:
     _place_ruby(text_obj, spans, nonce)
-    if model is not None:
-        field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
+    field_restore.restore_field_placeholders(model, text_obj, nonce=nonce)
 
 
 def _table_count(model: Any) -> int | None:
@@ -398,7 +394,7 @@ def _sections_at(cursor: Any) -> list[Any]:
     out: list[Any] = []
     section = uno_read(lambda: cursor.getPropertyValue("TextSection"), None)
     # Service check instead of `is not None`: a mock's getParentSection() never returns None.
-    while _uno_service_true(section, "com.sun.star.text.TextSection"):
+    while supports_service(section, "com.sun.star.text.TextSection"):
         out.append(section)
         cur_sec: Any = section
         section = uno_read(lambda: cur_sec.getParentSection(), None)
@@ -508,7 +504,7 @@ def raise_if_pending_changes_untracked(model: Any) -> None:
     redlines = model.getRedlines()
     authors: list[str] = []
     seen: set[str] = set()
-    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+    for rl in iter_elements_limited(redlines.createEnumeration(), redlines.getCount()):
         if rl.getPropertyValue("RedlineType") not in ("Insert", "Delete"):
             continue
         text, _start, _end = redline_bounds(rl)
@@ -580,7 +576,7 @@ def _insert_mixed_or_plain_html(
     # SwXTextCursor::gotoStart) onto tail, making added_content read False.
     first = _insert_start_from_anchor(text_obj, start_anchor, cursor)
     tail = imported_end if imported_end is not None else cursor
-    added_content = True if first is cursor else text_obj.compareRegionStarts(first, tail.getStart()) != 0
+    added_content = first is cursor or text_obj.compareRegionStarts(first, tail.getStart()) != 0
 
     if has_table and added_content:
         if imported_end is not None:
@@ -746,7 +742,7 @@ def insert_html_after_paragraph(
     here because the import goes into a fresh empty paragraph and never merges.
     """
     cursor.gotoEndOfParagraph(False)
-    text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     # The import puts every block (each with its own break) BEFORE that paragraph,
     # which is then left over empty. This cursor stays at its start through the
     # import (checked live, also with a table next and at the end of the text).
@@ -785,19 +781,13 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
     next_elem = next(enum, None)
     if first_para is None or next_elem is None:
         return
-    if not _uno_service_true(next_elem, "com.sun.star.text.TextTable"):
+    if not supports_service(next_elem, "com.sun.star.text.TextTable"):
         return
     # Redline and SoftPageBreak portions carry no content. A bookmark does count here:
     # dispose() would delete it.
     if paragraph_has_non_text_portion(first_para, ignore_markers=True):
         return
     first_para.dispose()
-
-
-def _uno_service_true(obj: Any, service: str) -> bool:
-    """``supportsService`` is true only for sal_Bool True or integer 1."""
-    val = uno_read(lambda: obj.supportsService(service), False)
-    return val is True or (type(val) is int and val == 1)
 
 
 def non_text_portion_type(
@@ -867,16 +857,15 @@ def _cursor_paragraph_has_content(cursor: Any) -> bool:
     return uno_read(has_content, True)
 
 
-def _ensure_empty_absorb_for_styled_insert(
-    text: Any, cursor: Any, position: str, *, recording: bool
-) -> Any:
-    """Place *cursor* in a paragraph safe for styled HTML import (``apply_styles=True``).
+def _open_absorb_paragraph_at_end(
+    text: Any, cursor: Any, *, recording: bool
+) -> None:
+    """Place *cursor* in a paragraph safe for styled HTML import (``apply_styles=True``) at document end.
 
     StarWriter HTML import behavior (verified with headed/native UNO probes):
 
-    - **Paragraph start** (``target=beginning`` after ``gotoStart``): imported ``<p>`` blocks are
-      inserted as *new* paragraphs *before* the current one — the first block does **not** merge
-      into existing text — so no prep is required; styling by paragraph index leaves neighbors alone.
+    - **Paragraph start** (``target=beginning`` after ``gotoStart``): the first block does **not**
+      merge into existing text, so the beginning path needs no prep.
     - **Paragraph end** (``target=end``) when the absorb paragraph has content: the first
       imported ``<p>`` *merges* into that paragraph, so applying ``data-lo-style`` would restyle
       neighbor text. Insert ``PARAGRAPH_BREAK`` first; LibreOffice leaves the cursor in the new
@@ -893,18 +882,14 @@ def _ensure_empty_absorb_for_styled_insert(
     selections are cleared by ``setString`` before import, a collapsed caret goes
     through ``_insert_at_caret``, and search replaces handle their own boundaries.
     """
-    if position != "end":
-        return cursor
     if not recording and not _cursor_paragraph_has_content(cursor):
-        return cursor
-    # 0 == com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+        return
     # A failed break must not continue. The import would merge into the
     # neighbor paragraph and data-lo-style would restyle that text.
-    text.insertControlCharacter(cursor, 0, False)
-    return cursor
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
 
 
-def _prep_inline_html(html: str) -> tuple[str, list[Any], list[MathSegment], str]:
+def _prep_inline_html(html: str) -> tuple[str, list[html_ruby.ImportRubySpan], list[MathSegment], str]:
     nonce = uuid.uuid4().hex[:8]
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
     inline_html, formulas = math_placeholders(inline_html, nonce)
@@ -981,7 +966,7 @@ def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     text = text_range.getText()
     start = text.createTextCursorByRange(text_range.getStart())
     end = text.createTextCursorByRange(text_range.getEnd())
-    return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
+    return start.isStartOfParagraph() and end.isEndOfParagraph()
 
 
 def _within_one_paragraph(rng: Any) -> bool:
@@ -991,7 +976,7 @@ def _within_one_paragraph(rng: Any) -> bool:
     end = text.createTextCursorByRange(rng.getEnd())
     start.gotoStartOfParagraph(False)
     end.gotoStartOfParagraph(False)
-    return bool(text.compareRegionStarts(start, end) == 0)
+    return text.compareRegionStarts(start, end) == 0
 
 
 def _without_trailing_break(rng: Any) -> Any:
@@ -1192,7 +1177,7 @@ def _replace_whole_paragraphs(
     with _deletion_author():
         doomed.setString("")
     if recording:
-        text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         cursor.goLeft(1, False)
         # Untracked: the fresh paragraph copies the struck paragraph's formatting, and a
         # recorded reset would add a Format redline. The struck paragraph keeps its own for Reject.
@@ -1283,7 +1268,7 @@ def _should_insert_into_empty_paragraph(
     cursor: Any, content: str, *, recording: bool
 ) -> bool:
     """Return True when *cursor* sits in an empty paragraph that should open or absorb a line."""
-    return bool(
+    return (
         cursor.isStartOfParagraph()
         and cursor.isEndOfParagraph()
         and (recording or content_is_block(content))
@@ -1306,7 +1291,7 @@ def _insert_into_empty_paragraph(
     # into a non-empty follower, Reject would join the empty paragraph into that follower
     # and lose it.
     if recording:
-        cursor.getText().insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.getText().insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     # Not recording: the content takes the empty line; the leftover would otherwise
     # stay behind in the follow style of the paragraph
     # (SwTextNode::MakeNewTextNode, ndtxt.cxx).
@@ -1397,11 +1382,9 @@ def _insert_at_end(
     text = model.getText()
     cursor = text.createTextCursor()
     cursor.gotoEnd(False)
-    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert);
+    # Honor data-lo-style after absorb prep (see _open_absorb_paragraph_at_end);
     # _import_and_drop_leftover defaults to apply_styles=True.
-    cursor = _ensure_empty_absorb_for_styled_insert(
-        text, cursor, "end", recording=recording,
-    )
+    _open_absorb_paragraph_at_end(text, cursor, recording=recording)
     return _import_and_drop_leftover(model, ctx, cursor, content)
 
 
@@ -1416,10 +1399,6 @@ def _insert_at_beginning(
     text = model.getText()
     cursor = text.createTextCursor()
     cursor.gotoStart(False)
-    # Honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-    cursor = _ensure_empty_absorb_for_styled_insert(
-        text, cursor, "beginning", recording=recording,
-    )
     if _should_insert_into_empty_paragraph(cursor, content, recording=recording):
         return _insert_into_empty_paragraph(
             model, ctx, cursor, content, apply_styles=True, recording=recording
@@ -1609,7 +1588,7 @@ def replace_full_document(
             next(
                 (
                     el for el in iter_elements(text.createEnumeration())
-                    if not _uno_service_true(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                    if not supports_service(el, "com.sun.star.text.TextTable") and not _in_index(el)
                 ),
                 cursor,
             )
@@ -1619,7 +1598,7 @@ def replace_full_document(
         first = next(
             (
                 el for el in iter_elements(text.createEnumeration())
-                if not _uno_service_true(el, "com.sun.star.text.TextTable") or _sections_at(el)
+                if not supports_service(el, "com.sun.star.text.TextTable") or _sections_at(el)
             ),
             None,
         )
@@ -1668,7 +1647,7 @@ def replace_full_document(
             # Import into a fresh empty paragraph opened before the deleted
             # text, then drop that paragraph if it is left over empty
             # (`_drop_leftover_paragraph`).
-            text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
             cursor.goLeft(1, False)
         # Untracked: the fresh paragraph is new, so a recorded reset would add a FORMAT redline; the
         # struck text below keeps its direct props for Reject. Character formatting left on the
@@ -1807,7 +1786,7 @@ def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
     heading styles from the old paragraph do not stamp the imported blocks.
     """
     elements = list(iter_elements(text_obj.createEnumeration()))
-    tables = [_uno_service_true(el, "com.sun.star.text.TextTable") for el in elements]
+    tables = [supports_service(el, "com.sun.star.text.TextTable") for el in elements]
     table_edge = bool(tables and (tables[0] or tables[-1]))
     recording = record_changes.is_recording_changes(model)
     if not recording:
@@ -1835,7 +1814,7 @@ def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
         with record_changes.record_changes(model, False):
             _merge_empty_paragraph_forward(cursor)
         cursor.gotoStart(False)
-    text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     cursor.goLeft(1, False)
     with record_changes.record_changes(model, False):
         _drop_absorb_paragraph_props(cursor)
@@ -1890,10 +1869,8 @@ def replace_xtext_with_html(
     The clear and import are protected by a document undo context: any
     failure rolls back to the previous state, preserving graphics and fields.
     """
-    if text_obj is None:
-        raise ToolExecutionError("No text object to import into.")
     nonce = uuid.uuid4().hex[:8]
-    expanded = html if isinstance(html, str) else ("" if html is None else str(html))
+    expanded = html
     expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
     expanded = html_import_styles.normalize_character_references(expanded)
     expanded = html_import_styles.expand_prose_escapes(expanded)
@@ -1915,7 +1892,8 @@ def replace_xtext_with_html(
 
     def mutate() -> None:
         cursor, leftover = _clear_region(model, text_obj)
-        tables_before = _table_count(model) if "<table" in prepared.lower() else None
+        has_table = "<table" in prepared.lower()
+        tables_before = _table_count(model) if has_table else None
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False,
         )
@@ -1924,7 +1902,7 @@ def replace_xtext_with_html(
             raise_if_no_table_added(
                 tables_after - tables_before if tables_after is not None else None
             )
-        if "<table" in prepared.lower():
+        if has_table:
             with record_changes.record_changes(model, False):
                 _drop_empty_paragraph_before_table(text_obj, text_obj.getStart())
         if any(block_styles) or any(block_paras):
@@ -1952,11 +1930,9 @@ def replace_xtext_with_html(
                 last = elem
                 count += 1
             # A Writer text must not end with a table; keep the trailing paragraph when prev is one.
-            if count > 1 and last is not None and not _uno_service_true(prev, "com.sun.star.text.TextTable"):
+            if count > 1 and last is not None and not supports_service(prev, "com.sun.star.text.TextTable"):
                 if not last.getString():
-                    # Check for fields/portions before deleting
-                    has_content = paragraph_has_non_text_portion(last)
-                    if not has_content:
+                    if not paragraph_has_non_text_portion(last):
                         # To actually remove the trailing break, select from the end of the previous paragraph
                         # to the end of the document, and set String to empty.
                         c = text_obj.createTextCursorByRange(prev)
@@ -1986,7 +1962,7 @@ def replace_xtext_with_html(
 
 def content_has_markup(content: str | None) -> bool:
     """Return ``True`` if *content* appears to contain HTML or math markup."""
-    if not content or not isinstance(content, str):
+    if not content:
         return False
 
     if text_has_real_html_tag(content):
@@ -2001,9 +1977,7 @@ def content_needs_html_import(content: str | None) -> bool:
     TeX math ($...$), which must take the import path to become an embedded Math
     object while plain-text guards (such as TOC entries) still accept it.
     """
-    if not content or not isinstance(content, str):
-        return False
-    return content_has_markup(content) or html_fragment_contains_tex_math(content)
+    return content_has_markup(content) or (content is not None and html_fragment_contains_tex_math(content))
 
 
 def plain_text_if_markup(text: str) -> str:
@@ -2015,7 +1989,7 @@ def plain_text_if_markup(text: str) -> str:
 
 def content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
-    if not content or not isinstance(content, str):
+    if not content:
         return False
     return bool(html_import_styles.BLOCK_MARKUP_RE.search(content))
 
@@ -2028,7 +2002,7 @@ def content_is_block(content: str | None) -> bool:
     prose does because it becomes a paragraph). Only real newlines make plain
     content without math a block.
     """
-    if not content or not isinstance(content, str):
+    if not content:
         return False
     prose, formulas = math_placeholders(content, "")
     return content_has_block_markup(content) or "\n" in (
@@ -2250,7 +2224,6 @@ def replace_preserving_format(
     model: Any,
     target_range: Any,
     new_text: str,
-    ctx: Any = None,
     in_undo_context: bool = False,
     split_author: bool = True,
 ) -> bool:
