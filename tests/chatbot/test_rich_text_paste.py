@@ -26,7 +26,7 @@ from plugin.chatbot.rich_text_paste import (
     _is_writer_text_table,
     _list_prefix_for_paragraph,
     _max_column_ems,
-    _plain_fallback_text,
+    plain_fallback_text,
     _resolve_portion_char_color,
     _TABLE_V_PAD_MM100,
     _tab_stop_positions_twips,
@@ -456,13 +456,13 @@ class TestHistoryMessageBatching:
 
     def test_session_history_items_puts_the_stop_line_inside_the_stopped_answer(self):
         """No empty 'Assistant:' row and no trailing blank line for the stop banner."""
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        from plugin.chatbot.tool_loop_actions import STOP_LINE
 
         session = MagicMock(history_notice="")
         session.messages = [
             {"role": "user", "content": "q"},
             {"role": "assistant", "content": "Paragraph 1\n\nParagraph 2 can press"},
-            {"role": "assistant", "content": _STOP_LINE},
+            {"role": "assistant", "content": STOP_LINE},
             {"role": "user", "content": "q2"},
         ]
         assert session_history_items(session) == [
@@ -474,10 +474,10 @@ class TestHistoryMessageBatching:
         assert session_history_items(session)[1] == ("assistant", "<p>partial</p><p>[Stopped by user]</p>")
 
     def test_session_history_items_stop_before_first_token_keeps_a_bare_banner_row(self):
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
+        from plugin.chatbot.tool_loop_actions import STOP_LINE
 
         session = MagicMock(history_notice="")
-        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": _STOP_LINE}]
+        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": STOP_LINE}]
         assert session_history_items(session) == [("user", "q"), ("assistant", "[Stopped by user]")]
 
     def test_append_formatted_rows_renders_all_messages_in_one_hidden_doc(self):
@@ -1417,7 +1417,7 @@ class TestFlattenTextTableCopy:
 
 
 def test_plain_fallback_text_drops_script_and_unescapes():
-    assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
+    assert plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
 
 
 def test_plain_transcript_text_strips_html():

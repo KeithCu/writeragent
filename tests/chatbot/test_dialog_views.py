@@ -606,19 +606,19 @@ class TestProviderButtonIcons:
         from plugin.chatbot.dialog_views import provider_icon_filename
 
         with patch(
-            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=32
+            "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=32
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
         with patch(
-            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=16
+            "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=16
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_16.png")
         with patch(
-            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=24
+            "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=24
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_32.png")
         with patch(
-            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=40
+            "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=40
         ):
             assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
 
@@ -1181,7 +1181,7 @@ def test_bg_fetch_together_warms_voices() -> None:
          patch("plugin.chatbot.dialog_views.fetch_available_stt_models", return_value=None), \
          patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None), \
          patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
-         patch("plugin.framework.client.model_fetcher.fetch_together_tts_voices") as mock_voices:
+         patch("plugin.chatbot.dialog_views.fetch_together_tts_voices") as mock_voices:
         listener._bg_fetch(1, "https://api.together.xyz")
         mock_voices.assert_called_once()
         assert mock_voices.call_args.args[0] == "https://api.together.xyz"
@@ -2529,7 +2529,7 @@ def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) ->
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
-        patch("plugin.chatbot.config_ui_helpers.populate_endpoint_selector"),
+        patch("plugin.chatbot.dialog_views.populate_endpoint_selector"),
         patch("plugin.chatbot.dialog_views.populate_settings_control", side_effect=lambda c, f: c.setText(f["value"])),
         patch("plugin.chatbot.dialog_views.sync_mcp_config_snippet"),
         patch.object(view, "_setup_audio_listeners"),
@@ -2824,7 +2824,7 @@ def test_settings_show_starts_config_secret_read(fake_keystore) -> None:
         patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, n: ctrls.get(n)),
         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText()),
         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)),
-        patch("plugin.chatbot.config_ui_helpers.populate_endpoint_selector"),
+        patch("plugin.chatbot.dialog_views.populate_endpoint_selector"),
         patch("plugin.chatbot.dialog_views.populate_settings_control", side_effect=lambda c, f: c.setText(f["value"])),
         patch("plugin.chatbot.dialog_views.sync_mcp_config_snippet"),
         patch("plugin.mcp_client.settings_ui.McpServersEditor.attach", return_value=None),

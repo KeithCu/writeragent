@@ -30,7 +30,7 @@ from plugin.doc.text_helpers import get_selection_text
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
-from plugin.chatbot.send_state import spawn_scope
+from plugin.chatbot.send_state import spawn_scope, SendEvent, SendEventKind
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def _run_clear(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
 
 def _run_stop(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
     host.stop_in_flight()
-    # Bugfix (QA B11): partial slash drafts like "/sto" stayed in Ask after Stop.
+    # Clear partial slash drafts like "/sto" so they do not stay in Ask after Stop.
     host.clear_ask()
 
 
@@ -537,7 +537,7 @@ def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     base = _(cmd.instruction)
     arg_text = (arg or "").strip()
     if "{arg}" in base:
-        # Bugfix (QA N6): "/translate Spanish: Hello." plus a template period after {arg} became "..".
+        # "/translate Spanish: Hello." plus a template period after {arg} would end in "..".
         # Strip at most one trailing char when it duplicates punctuation immediately after {arg}.
         punct_after = re.search(r"\{arg\}([.!?])", base)
         if arg_text and punct_after and arg_text.endswith(punct_after.group(1)):
@@ -708,7 +708,6 @@ def _remember_key(fact: str) -> str:
 
 def _complete_ask_draft(host: SlashHost, name: str) -> None:
     from plugin.chatbot.dialogs import set_control_text
-    from plugin.chatbot.send_state import SendEvent, SendEventKind
 
     query = host.query_control
     if query is not None:

@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 
-from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
+from plugin.chatbot.panel_voice import PanelVoiceController, stop_tts
 from plugin.chatbot.record_gesture import RecordGesture
 from plugin.chatbot.send_state import SendButtonState, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
@@ -57,7 +57,7 @@ class DummyPanel:
 
 def test_stop_tts_handles_exceptions():
     with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("tts error")) as mock_stop:
-        _stop_tts()
+        stop_tts()
     mock_stop.assert_called_once()
 
 

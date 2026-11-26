@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, suppress_disposed
-from plugin.framework.menu_icon_dpi import menu_icon_asset_url
+from plugin.framework.menu_icon_dpi import menu_icon_asset_url, pick_shipped_icon, resolve_menu_icon_pixel_size
 from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
 from plugin.framework import keystore
@@ -62,6 +62,7 @@ from plugin.framework.client.model_fetcher import (
     get_tts_model,
     set_text_model,
     settings_catalog_is_warm,
+    fetch_together_tts_voices,
 )
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -75,6 +76,7 @@ from plugin.chatbot.config_ui_helpers import (
     endpoint_from_selector_text,
     populate_combobox_with_lru,
     populate_image_model_selector,
+    populate_endpoint_selector,
 )
 from plugin.chatbot.history_db import HAS_SQLITE
 from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeProgressDialog
@@ -113,8 +115,6 @@ def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) ->
     mark, while HiDPI keeps the large mark (macOS always resolves 16; see
     menu_icon_dpi.resolve_menu_icon_pixel_size). Probe miss prefers HiDPI large.
     """
-    from plugin.framework.menu_icon_dpi import pick_shipped_icon, resolve_menu_icon_pixel_size
-
     if px is None:
         menu_px = resolve_menu_icon_pixel_size(ctx)
         px = _MENU_PX_TO_PROVIDER.get(int(menu_px), 48)
@@ -375,7 +375,6 @@ class SettingsDialog:
 
     def _populate_fields(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
         assert self._dlg is not None
-        from plugin.chatbot.config_ui_helpers import populate_endpoint_selector
 
         raw_api_key = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
         if keystore.is_ref(raw_api_key):
@@ -1364,8 +1363,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 fetch_available_tts_models(resolved, api_key_override=key_ov)
                 fetch_available_stt_models(resolved, api_key_override=key_ov)
             else:
-                from plugin.framework.client.model_fetcher import fetch_together_tts_voices
-
                 # Ask for the model captured on the UI thread, then list-all
                 # so the other Speech rows and the warm check stay filled.
                 # A list-all memo does not fill the ?model= entry the combo
@@ -1435,7 +1432,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._schedule_debounced_models_fetch()
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:
-        idx = getattr(rEvent, "Selected", -1)
+        idx = rEvent.Selected
         if idx < 0: return
         item = self._ctrl.getItem(idx)
         if not item: return
@@ -1492,7 +1489,6 @@ class DownloadAudioListener(_CtxDlgActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.queue_executor import main
         from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_audio_download
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 

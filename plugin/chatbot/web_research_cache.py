@@ -90,10 +90,10 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
         return None
     first_para = enum.nextElement()
     char_locale = first_para.getPropertyValue("CharLocale")
-    lang = str(getattr(char_locale, "Language", "") or "").strip()
+    lang = char_locale.Language.strip()
     if not lang:
         return None
-    country = str(getattr(char_locale, "Country", "") or "").strip()
+    country = char_locale.Country.strip()
     lo_tag = f"{lang}_{country}" if country else lang
     snowball = ISO_TO_SNOWBALL.get(lang)
     return (lo_tag, snowball) if snowball else None

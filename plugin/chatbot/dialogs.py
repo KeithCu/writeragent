@@ -53,7 +53,14 @@ if TYPE_CHECKING:
 from plugin.framework.errors import best_effort
 from plugin.framework.log_redaction import redact_urls_in_text
 from plugin.framework.logging import set_waiting_for_user
-from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
+from plugin.framework.uno_context import (
+    get_ctx,
+    get_desktop,
+    get_extension_url,
+    process_events_to_idle,
+    get_extension_path,
+    resolve_package_extension_id,
+)
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -405,7 +412,7 @@ def _uno_impl_to_control_type(impl_name: str) -> str:
     """Map ``stardiv.Toolkit.UnoButtonControl``-style names to ``control_types`` keys.
 
     VCL uses ``Uno`` + ``FixedText``/``Button``/… + ``Control``, not ``UnoControl``
-    + ``Button``; the old strip only matched names starting with ``UnoControl``.
+    + ``Button``, so a strip that matched only a ``UnoControl`` prefix would miss them.
     """
     seg = impl_name.split(".")[-1]
     if seg.startswith("Uno") and seg.endswith("Control") and len(seg) > 10:
@@ -415,7 +422,7 @@ def _uno_impl_to_control_type(impl_name: str) -> str:
     return seg
 
 
-def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
+def dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     """Return control name strings from the dialog model (``ElementNames``), or ``()``."""
     return tuple(getattr(dlg.getModel(), "ElementNames", None) or ())
 
@@ -474,7 +481,7 @@ def translate_dialog(dlg: Any) -> None:
     # implement ``XControlContainer``, so ``getControls()`` is never reached.
     # Fall back to dialog model ``ElementNames`` + ``getControl(name)``.
     if root_child_count == 0 and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
-        names = _dialog_model_element_names(dlg)
+        names = dialog_model_element_names(dlg)
         for nm in names:
             c = dlg.getControl(nm)
             if c:
@@ -534,8 +541,6 @@ def _nested_exception_object(val: Any) -> BaseException | None:
 
 def _collect_xdl_load_diagnostics(ctx: Any, dialog_url: str, dialog_name: str) -> str:
     """Gather extension URL/path and on-disk XDL probes for failure reports."""
-    from plugin.framework.uno_context import get_extension_path, get_extension_url, resolve_package_extension_id
-
     lines = [
         f"dialog: {dialog_name}",
         f"url: {dialog_url}",

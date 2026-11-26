@@ -54,12 +54,25 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
-from plugin.framework.menu_icon_dpi import apply_deck_icons
+from plugin.framework.menu_icon_dpi import (
+    apply_deck_icons,
+    STOCK_ICON_SEARCH,
+    STOCK_ICON_SETTINGS,
+    menu_icon_asset_url,
+    menu_icon_filename,
+)
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.queue_executor import main
-from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
+from plugin.framework.uno_context import (
+    get_extension_path,
+    get_extension_url,
+    property_arg,
+    get_document_from_frame,
+    get_runtime_uid,
+    document_id_for_frame,
+)
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
-from plugin.chatbot.rich_text_control import debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active, log_rich_scroll
 
 # debug-only: omitted in release (thread_guard stub has no _violation_ui_lock).
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
@@ -152,7 +165,7 @@ except ImportError:
     TOOLPANEL = 3  # Fallback
 
 from plugin.framework.uno_listeners import BaseFocusListener, BaseItemListener
-from plugin.framework.config import get_config, get_current_endpoint
+from plugin.framework.config import get_config, get_current_endpoint, save
 from plugin.framework.client.model_fetcher import (
     get_image_model,
     get_text_model,
@@ -179,7 +192,7 @@ _PRE_NEGOTIATION_PANEL_WIDTH = 320
 _paths_initialized = False
 
 
-def _initialize_extension_paths(ctx: Any) -> None:
+def initialize_extension_paths(ctx: Any) -> None:
     """Initialize extension paths once per session."""
     global _paths_initialized
     if _paths_initialized:
@@ -192,7 +205,7 @@ def _initialize_extension_paths(ctx: Any) -> None:
         try:
             ext_path = get_extension_path(ctx)
             if not ext_path:
-                log.warning("_initialize_extension_paths: get_extension_path returned falsy value, skipping path setup")
+                log.warning("initialize_extension_paths: get_extension_path returned falsy value, skipping path setup")
                 return
 
             if ext_path not in sys.path:
@@ -214,7 +227,7 @@ def _initialize_extension_paths(ctx: Any) -> None:
             _paths_initialized = True
         except Exception:
             best_effort(lambda: init_logging(ctx), "init_logging failed during extension path setup")
-            log.exception("_initialize_extension_paths failed")
+            log.exception("initialize_extension_paths failed")
 
     # Hop the body, not this function: test_inline inlines
     # main.call on Dummy-N, and a self-call would recurse.
@@ -289,8 +302,6 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         rl = self.resize_listener
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
-                from plugin.chatbot.rich_text_control import log_rich_scroll
-
                 log_rich_scroll("getHeightForWidth_before", eff_w=eff_w)
                 rl.relayout_now(self.PanelWindow, viewport_w=eff_w)
                 log_rich_scroll("getHeightForWidth_after", eff_w=eff_w)
@@ -419,7 +430,8 @@ def _holds_typed_text(
 
     Focus loss already commits the text, so differing text can only be
     uncommitted. ``hasFocus`` is not used because a dropdown combo is a compound
-    control (``vcl/source/control/combobox.cxx:220``) and reports ``False``.
+    control (``ComboBox::ImplInit`` calls ``SetCompoundControl``, ``vcl/source/control/combobox.cxx:220``)
+    and reports ``False``.
     """
     typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
     return painted is not None and painted[0] == endpoint and typed not in ("", painted[1], stored)
@@ -524,7 +536,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     # body is the one building.
                     self._released = False
                     try:
-                        _initialize_extension_paths(self.ctx)
+                        initialize_extension_paths(self.ctx)
                         apply_deck_icons(self.ctx)
                         root_window = self._getOrCreatePanelRootWindow()
                         log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
@@ -586,7 +598,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if hasattr(self.m_panelRootWindow, "setVisible"):
             with suppress_disposed("set panel root window visible", logger=log):
                 self.m_panelRootWindow.setVisible(True)
-        # Bug fix: on restored-wide startup, createContainerWindow can leave the root
+        # On restored-wide startup, createContainerWindow can leave the root
         # at a stale frame-sized width before DeckLayouter calls getHeightForWidth.
         # Briefly cap that pre-negotiation size so sfx2 does not seed an H-scroll
         # range from the temporary root; getHeightForWidth expands to deck width.
@@ -737,8 +749,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             chk_voice = get_optional_control(root, "chk_voice")
             if chk_voice is not None and hasattr(chk_voice, "setState"):
                 with suppress_disposed("refresh chk_voice from audio.tts_enabled", logger=log):
-                    from plugin.framework.config import get_config
-
                     want = 1 if get_config("audio.tts_enabled") else 0
                     cur = int(chk_voice.getState()) if hasattr(chk_voice, "getState") else None
                     if cur != want:
@@ -783,8 +793,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _get_document_model(self) -> Any | None:
         """Helper to get the current document model strictly from the frame."""
-        from plugin.framework.uno_context import get_document_from_frame
-
         return get_document_from_frame(self.xFrame)
 
     def _populate_model_combos(self, model_selector: Any, image_model_selector: Any) -> None:
@@ -1028,8 +1036,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(aspect_ratio_selector, "addItemListener"):
                 class AspectListener(BaseItemListener):
                     def on_item_state_changed(self, rEvent: Any) -> None:
-                        ev = rEvent
-                        idx = getattr(ev, "Selected", -1)
+                        idx = rEvent.Selected
                         if idx >= 0 and aspect_ratio_selector is not None:
                             update_base_size_label(aspect_ratio_selector.getItem(idx))
 
@@ -1213,13 +1220,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         ext_url = get_extension_url(self.ctx)
 
-        from plugin.framework.menu_icon_dpi import (
-            STOCK_ICON_SEARCH,
-            STOCK_ICON_SETTINGS,
-            menu_icon_asset_url,
-            menu_icon_filename,
-        )
-
         third_kind = header_third_button_kind(model)
         third_btn: list[tuple[str, Any, Any, Any, Any]] = []
         if third_kind == "python_cell":
@@ -1282,7 +1282,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 chat_mode_selector=controls["chat_mode_selector"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
-                ensure_path_fn=_initialize_extension_paths,
+                ensure_path_fn=initialize_extension_paths,
                 clear_control=controls.get("clear"),
             )
 
@@ -1311,8 +1311,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             session = self.frame_session
             uid = self._live_panel_uid
             if not uid and model is not None:
-                from plugin.framework.uno_context import get_runtime_uid
-
                 uid = get_runtime_uid(model)
             self._live_panel_uid = uid
             if session is not None:
@@ -1358,7 +1356,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if controls.get("chk_voice"):
             chk_ctrl = controls["chk_voice"]
-            from plugin.framework.config import get_config, save
 
             is_voice = get_config("audio.tts_enabled")
             if hasattr(chk_ctrl, "setState"):
@@ -1408,7 +1405,6 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
             raise IllegalArgumentException("ParentWindow is required", self, 1)
 
         from plugin.framework.frame_session import open_frame_session
-        from plugin.framework.uno_context import document_id_for_frame
 
         # One session per frame, opened with the document id of that frame.
         session = open_frame_session(frame, document_id_for_frame(frame))

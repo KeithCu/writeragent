@@ -961,10 +961,10 @@ def validate_api_config(config: Any) -> tuple[bool, str]:
     if not model:
         return (False, _("Please set Model in Settings."))
     try:
-        from plugin.framework.model_lru import _is_model_combobox_placeholder
+        from plugin.framework.model_lru import is_model_combobox_placeholder
     except ImportError:
         return (True, "")
 
-    if _is_model_combobox_placeholder(model):
+    if is_model_combobox_placeholder(model):
         return (False, _("Please select a valid model in Settings (not a placeholder)."))
     return (True, "")
