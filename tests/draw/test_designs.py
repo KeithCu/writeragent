@@ -24,6 +24,7 @@ from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
 from plugin.draw.shape_clone import ClonedShape
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.url_utils import path_to_file_url
+from plugin.tests.testing_utils import DisposedException
 
 _STUB_CLONED_SHAPE = ClonedShape(
     shape=MagicMock(),
@@ -273,9 +274,6 @@ def test_enumerate_impress_designs_limit():
 def test_master_entries_reraise_disposed():
     from plugin.draw.designs import _master_entries
 
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock()
     doc.getMasterPages.side_effect = DisposedException("closed")
 
@@ -316,9 +314,6 @@ def test_apply_design_missing_enumerates_once():
 
 
 def test_apply_design_disposed_doc_is_not_unsupported():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
@@ -348,9 +343,6 @@ def test_inherit_master_from_neighbor_tries_next_after_failure():
 
 
 def test_inherit_master_from_neighbor_reraises_disposed():
-    class DisposedException(Exception):
-        pass
-
     pages = MagicMock()
     pages.getCount.return_value = 2
     pages.getByIndex.side_effect = DisposedException("closed")
@@ -660,9 +652,6 @@ def test_apply_design_assign_exception_rolls_back():
 
 
 def test_apply_design_assign_disposed_propagates():
-    class DisposedException(Exception):
-        pass
-
     dest = MagicMock()
     pages = MagicMock()
     pages.getCount.return_value = 1
@@ -819,9 +808,6 @@ def test_apply_design_snapshot_exception_rolls_back_and_removes_clone():
 
 def test_is_master_referenced_error_handling():
     from plugin.draw.designs import _cleanup_previous_same_named_masters, _is_master_referenced
-
-    class DisposedException(Exception):
-        pass
 
     doc = MagicMock()
     pages = MagicMock()
@@ -1064,9 +1050,6 @@ def test_apply_design_runtime_exception_vs_disposed():
     class RuntimeException(Exception):
         pass
 
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
     entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
@@ -1098,9 +1081,6 @@ def test_apply_design_readonly_returns_error_and_does_not_open_template():
     assert out["status"] == "error"
     assert out["code"] == "DOCUMENT_READONLY"
     mock_open.assert_not_called()
-
-    class DisposedException(Exception):
-        pass
 
     dest.isReadonly.side_effect = DisposedException("closed")
     with pytest.raises(DisposedException):
@@ -1540,10 +1520,6 @@ def test_clone_master_runtime_exception_on_rename_succeeds():
     assert cloned.name == "Original"
 
 
-class DisposedException(Exception):
-    pass
-
-
 def _disposed_setter_prop(getter_value=None):
     return property(
         lambda self: getter_value,
@@ -1652,4 +1628,3 @@ def test_design_tools_hidden_on_drawing_document():
     assert "design_list" not in draw_names
     assert "design_apply" not in draw_names
     assert {"design_list", "design_apply"} <= impress_names
-

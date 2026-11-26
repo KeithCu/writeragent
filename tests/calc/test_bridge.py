@@ -15,6 +15,7 @@ from plugin.calc.bridge import (
 )
 from plugin.framework.errors import CalcError, UnoObjectError, is_disposal
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 def _sheet(name: str) -> MagicMock:
@@ -136,9 +137,6 @@ def test_get_sheet_error_omits_leading_underscore_sheets():
 
 
 def test_resolve_range_or_address_disposal_propagates():
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock()
     doc.getCurrentController.side_effect = DisposedException("disposed")
     doc.getSheets.side_effect = DisposedException("disposed")
@@ -531,6 +529,3 @@ def test_resolve_range_or_address_prefixed_range_wins_over_sheet_name():
 
     assert CalcBridge(doc).resolve_range_or_address("Data.A1:B2", sheet_name="Sheet1") is sentinel
     data.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 1)
-
-
-

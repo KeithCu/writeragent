@@ -21,7 +21,7 @@ def _assert_undefined_name_error(val: object) -> None:
     assert isinstance(val, float)
     assert not math.isfinite(val)
     raw = struct.unpack("Q", struct.pack("d", val))[0]
-    assert raw == (0x7FF8000000000000 | 519)
+    assert raw == 0x7FF8000000000000 | 519
 
 
 @native_test

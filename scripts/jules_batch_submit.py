@@ -51,10 +51,10 @@ def run_jules_task(task_id, document_path, dry_run=False):
     # The command we want to run:
     # jules remote new --repo . --session "INSTRUCTIONS"
     # We use subprocess.run with the string to handle potential shell escaping issues.
-    
+
     # Explicitly use the repo name as 'jules' seems to fail with '.' in some environments.
     cmd = ["jules", "remote", "new", "--repo", "KeithCu/writeragent", "--session", instructions]
-    
+
     if dry_run:
         print(f"\n[DRY RUN] Task {task_id}: {document_path.name}")
         print(f"Command: {' '.join(cmd[:6])} \"[INSTRUCTIONS]\"")
@@ -62,15 +62,15 @@ def run_jules_task(task_id, document_path, dry_run=False):
 
     print(f"\n>>> Submitting task {task_id} to Jules...")
     print(f"Executing: {' '.join(cmd[:6])} \"{document_path.name} contents\"")
-    
+
     try:
         # Run the command and capture output
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         # NOTE: Some versions of Jules CLI return 0 even on errors like "repo not found".
         # We check both the return code and the output content.
         is_error = result.returncode != 0 or "Error:" in result.stdout or "Error:" in result.stderr
-        
+
         if not is_error:
             print(f"✅ Successfully submitted task {task_id}")
             if result.stdout:
@@ -85,7 +85,7 @@ def run_jules_task(task_id, document_path, dry_run=False):
             if result.stderr:
                 print(f"STDERR:\n{result.stderr.strip()}")
             return False
-            
+
     except Exception as e:
         print(f"💥 Unexpected error submitting task {task_id}: {str(e)}")
         return False
@@ -113,11 +113,11 @@ def main():
 
         task_id = str(task.get("task_id", "unknown"))
         doc_name = task.get("document")
-        
+
         if not doc_name:
             log.warning(f"Skipping task {task_id}: No 'document' field found in index.")
             continue
-            
+
         doc_path = TASK_DIR / doc_name
 
         if task_id in status and not args.force:
@@ -131,12 +131,12 @@ def main():
                     "status": "submitted"
                 }
                 save_status(status)
-                
+
                 # Sleep between requests to be friendly to the API
                 if submitted_count < args.limit - 1:
                     log.info("Waiting 5 seconds before next submission...")
                     time.sleep(5)
-            
+
             submitted_count += 1
 
     if submitted_count == 0:

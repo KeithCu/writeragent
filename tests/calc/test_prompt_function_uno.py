@@ -104,7 +104,7 @@ def test_python_addin_execution(ctx, doc):
         assert isinstance(res, float)
         assert not math.isfinite(res)
         raw = struct.unpack("Q", struct.pack("d", res))[0]
-        assert raw == (0x7FF8000000000000 | 519)
+        assert raw == 0x7FF8000000000000 | 519
 
         is_268 = libreoffice_version(ctx) >= (26, 8)
 

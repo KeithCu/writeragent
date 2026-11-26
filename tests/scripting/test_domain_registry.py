@@ -275,4 +275,3 @@ def test_picker_rows_without_templates_ref_use_their_wiring_row():
             templates = row.templates()
             assert templates == get_domain_wiring(row.origin).templates()
             assert len(templates) > 0
-

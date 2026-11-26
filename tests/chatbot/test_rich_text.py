@@ -134,8 +134,8 @@ class TestAppendRichText:
     def test_user_role_prefix(self, value, role, value_2, value_3):
         doc = self._call(value, role=role)
         content = doc.getText().getString()
-        assert (value_2) in (content)
-        assert (value_3) in (content)
+        assert value_2 in content
+        assert value_3 in content
 
 
     def test_assistant_role_prefix_uses_gettext(self):
@@ -156,7 +156,7 @@ class TestAppendRichText:
     def test_plain_text_inserted_for_non_html(self, value, value_2):
         doc = self._call(value, role="assistant")
         content = doc.getText().getString()
-        assert (value_2) in (content)
+        assert value_2 in content
 
     def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
         """The body range starts one past the prefix's last character, not at a document-start count."""
@@ -224,7 +224,7 @@ class TestAppendRichText:
 
         _append_rich_text_with_span(doc, "hi", role="user")
         prefix_cursor = created_cursors[0]
-        assert (prefix_cursor.CharColor) == (0x60A5FA)  # Dark-mode-optimized user blue
+        assert prefix_cursor.CharColor == 0x60A5FA  # Dark-mode-optimized user blue
 
     def test_html_body_preserves_span_colors(self):
         """Successful HTML import must not blanket-overwrite body CharColor."""
@@ -243,8 +243,8 @@ class TestAppendRichText:
         with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
             _append_rich_text_with_span(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
 
-        assert (len(body_cursors)) >= (2)
-        assert (body_cursors[-1].CharColor) is None
+        assert len(body_cursors) >= 2
+        assert body_cursors[-1].CharColor is None
 
     def test_plain_body_gets_role_color(self):
         """Non-HTML body still receives the role tint."""
@@ -261,8 +261,8 @@ class TestAppendRichText:
         doc.getText().createTextCursorByRange = track_body_cursor
         _append_rich_text_with_span(doc, "plain answer", role="assistant")
 
-        assert (len(body_cursors)) >= (2)
-        assert (body_cursors[-1].CharColor) == 0x1E293B
+        assert len(body_cursors) >= 2
+        assert body_cursors[-1].CharColor == 0x1E293B
 
     def test_html_import_failure_does_not_insert_raw_tags(self):
         """A filter exception must not leave the tags in the hidden doc."""
@@ -528,7 +528,7 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (_mock_uno_helpers.invoke.call_count) == (1)
+        assert _mock_uno_helpers.invoke.call_count == 1
 
     def test_processes_different_levels(self, _mock_uno_helpers):
         para1, _ = self._make_list_para(level=0, list_id="L1")
@@ -537,7 +537,7 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (_mock_uno_helpers.invoke.call_count) == (2)
+        assert _mock_uno_helpers.invoke.call_count == 2
 
 
 class TestContainsHtmlTag:
@@ -650,9 +650,9 @@ class TestChatThemeAndImporter:
         style_window.StyleSettings = style_settings
 
         theme = ChatTheme.resolve(style_window=style_window)
-        assert (theme.bg_color) == (0x1E1E1E)
-        assert (theme.user_color) == (0x60A5FA)
-        assert (theme.assistant_color) == (0xE2E8F0)
+        assert theme.bg_color == 0x1E1E1E
+        assert theme.user_color == 0x60A5FA
+        assert theme.assistant_color == 0xE2E8F0
 
 
 def test_render_calc_cell_refs_html():

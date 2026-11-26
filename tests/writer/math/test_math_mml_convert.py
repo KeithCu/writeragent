@@ -102,7 +102,7 @@ def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
 class TestCollapseStarmathNewline:
     def test_collapses_spaced_newline_operators(self):
         raw = "a newline x ^ 2 newline + newline b"
-        assert (collapse_starmath_newline_tokens_for_writer_embed(raw)) == ("a x ^ 2 + b")
+        assert collapse_starmath_newline_tokens_for_writer_embed(raw) == "a x ^ 2 + b"
 
     def test_formula_like_lo_quadratic(self):
         raw = (
@@ -110,13 +110,13 @@ class TestCollapseStarmathNewline:
             "{ { 2 a } } }"
         )
         out = collapse_starmath_newline_tokens_for_writer_embed(raw)
-        assert ("newline") not in (out)
-        assert ("x =") in (out)
-        assert ("frac") in (out)
+        assert "newline" not in out
+        assert "x =" in out
+        assert "frac" in out
 
     def test_idempotent(self):
         s = "a + b"
-        assert (collapse_starmath_newline_tokens_for_writer_embed(s)) == (s)
+        assert collapse_starmath_newline_tokens_for_writer_embed(s) == s
 
 
 class TestConvertLatexToStarmath:
@@ -127,13 +127,13 @@ class TestConvertLatexToStarmath:
         ) as mock_mml:
             mock_mml.return_value = MathConversionResult(True, "a + b", None)
             res = convert_latex_to_starmath(fake_ctx, "a+b", display_block=False)
-            assert (res.ok)
-            assert (res.starmath) == ("a + b")
+            assert res.ok
+            assert res.starmath == "a + b"
             mock_mml.assert_called_once()
             call_ctx, mathml_arg = mock_mml.call_args[0]
-            assert (call_ctx) is (fake_ctx)
-            assert ("<math") in (mathml_arg.lower())
-            assert ("http://www.w3.org/1998/Math/MathML") in (mathml_arg)
+            assert call_ctx is fake_ctx
+            assert "<math" in mathml_arg.lower()
+            assert "http://www.w3.org/1998/Math/MathML" in mathml_arg
 
 
 class _FakeMathText:
@@ -189,6 +189,3 @@ def test_inline_math_leaves_paragraph_alignment_alone() -> None:
 
     assert len(text.control_chars) == 0
     assert cur.adjust_writes == []
-
-
-

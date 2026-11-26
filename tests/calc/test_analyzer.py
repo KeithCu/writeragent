@@ -7,6 +7,7 @@ import pytest
 
 from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_get_sheet_summary_used_range_letters():
@@ -28,9 +29,6 @@ def test_get_sheet_summary_used_range_letters():
 
 
 def test_get_sheet_summary_reraises_raw_disposed_exception():
-    class DisposedException(Exception):
-        pass
-
     bridge = MagicMock()
     bridge.sheet_or_active.side_effect = DisposedException("Binary URP bridge disposed during call")
     with pytest.raises(DisposedException, match="URP"):
@@ -93,9 +91,6 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
 
 @pytest.mark.parametrize("raw_disposed", [False, True], ids=["document-disposed-error", "raw-disposed-exception"])
 def test_get_calc_context_for_chat_disposed(raw_disposed):
-    class DisposedException(Exception):
-        pass
-
     exc = DisposedException("stale") if raw_disposed else DocumentDisposedError("stale")
     model = MagicMock()
     with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=exc):
@@ -344,9 +339,6 @@ def test_get_calc_context_for_chat_selection_failure_preserves_summary(scenario)
 
 
 def test_get_calc_context_for_chat_disposed_from_read_range():
-    class DisposedException(Exception):
-        pass
-
     summary = {
         "sheet_name": "Sheet1",
         "used_range": "A1:B2",
@@ -381,9 +373,6 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
 
 @pytest.mark.parametrize("failing_attr", ["getCharts", "getAnnotations", "getPropertyValue", "DrawPage"])
 def test_get_sheet_summary_disposed_on_optional_metric_raises(failing_attr):
-    class DisposedException(Exception):
-        pass
-
     bridge = MagicMock()
     sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
@@ -494,4 +483,3 @@ def test_get_sheet_summary_first_empty_cells():
     max_summary = SheetAnalyzer(bridge).get_sheet_summary(include_extras=False)
     assert max_summary["first_empty_col"] is None
     assert max_summary["first_empty_row"] == 4
-

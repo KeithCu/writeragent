@@ -298,10 +298,10 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
         nonlocal captured_q
         captured_q = q
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
-        
+
         item = q.get()
         assert item == (StreamQueueKind.NEXT_TOOL,)
-        
+
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
         # The drain is still inside this send, so the turn is alive and the
@@ -348,24 +348,24 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        
+
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "Calling tools", "tool_calls": tool_calls}))
         assert len(session.messages) == 1
-        
+
         item = q.get()
         assert item == (StreamQueueKind.NEXT_TOOL,)
-        
+
         res1 = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res1)
-        
+
         tool_done_item1 = q.get()
         res2 = on_stream_done(tool_done_item1)
         results.append(res2)
-        
+
         item = q.get()
         res3 = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res3)
-        
+
         tool_done_item2 = q.get()
         res4 = on_stream_done(tool_done_item2)
         results.append(res4)
@@ -489,18 +489,18 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "step 1", "tool_calls": tool_calls_1}))
         q.get()  # next_tool
         on_stream_done((StreamQueueKind.NEXT_TOOL,))
-        
+
         # Simulate tool execution result
         on_stream_done((StreamQueueKind.TOOL_DONE, "call_1", "dummy", "{}", '{"ok": true}', False))
         q.get()  # next_tool
         on_stream_done((StreamQueueKind.NEXT_TOOL,))
-        
+
         # Round 1
         tool_calls_2 = [{"id": "call_2", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "step 2", "tool_calls": tool_calls_2}))
         q.get()  # next_tool
         on_stream_done((StreamQueueKind.NEXT_TOOL,))
-        
+
         on_stream_done((StreamQueueKind.TOOL_DONE, "call_2", "dummy", "{}", '{"ok": true}', False))
         q.get()  # next_tool
         on_stream_done((StreamQueueKind.NEXT_TOOL,))

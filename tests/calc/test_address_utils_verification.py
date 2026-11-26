@@ -10,12 +10,10 @@ CrossHair marked slow (excluded from default ``make test``).
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
+
+from tests.harness.crosshair import assert_crosshair_clean
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -30,22 +28,10 @@ from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
 from tests.harness.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/calc/address_utils.py"
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
-
 # Bound column width so Hypothesis stays fast (Excel max is wider; invariant holds generally).
 _col_letters = st.text(alphabet=st.characters(min_codepoint=ord("A"), max_codepoint=ord("Z")), min_size=1, max_size=3)
 _col_index = st.integers(min_value=0, max_value=DEAL_MAX_COL_INDEX)
 _row_index = st.integers(min_value=0, max_value=DEAL_MAX_ROW_INDEX)
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 def test_column_index_round_trip_named() -> None:
@@ -121,19 +107,4 @@ def test_crosshair_address_utils_if_available() -> None:
     if not deal_pre_present(format_address) or not deal_pre_present(column_to_index):
         pytest.skip("@deal.pre stripped in release bundle; CrossHair needs @deal.pre preconditions")
 
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", CROSSHAIR_MODULE],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(CROSSHAIR_MODULE, timeout=600)

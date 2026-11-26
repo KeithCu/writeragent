@@ -13,11 +13,7 @@ import pytest
 from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable
 from plugin.framework.errors import UnoObjectError, name_miss_details
 from plugin.framework.tool import ToolContext, ToolRegistry
-from plugin.tests.testing_utils import FakeUndoManager
-
-
-class DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
 def _run(doc, tool_name: str, **kw):

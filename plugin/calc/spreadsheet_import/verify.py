@@ -68,4 +68,3 @@ def verify_converted_cells(
         if not ok:
             failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
     return failed
-

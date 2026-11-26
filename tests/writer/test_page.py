@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import DisposedException, TestingFactory
 from plugin.writer import html_import_styles
 
 from plugin.writer.page import (
@@ -722,9 +722,6 @@ def test_disable_guard_refuses_when_region_text_unreadable():
 
 
 def test_disable_guard_propagates_disposal():
-    class DisposedException(Exception):
-        pass
-
     text_obj = _empty_text_obj()
     text_obj.getString.side_effect = DisposedException("gone")
     doc, style = _page_style_doc(text_obj)
@@ -1791,8 +1788,6 @@ def test_get_header_footer_omits_scan_extras_when_draw_page_unreadable():
 
 def test_get_header_footer_reports_disposed_region_text():
     """Accessing region text on a disposed document returns DOCUMENT_DISPOSED."""
-    class DisposedException(Exception):
-        pass
 
     text_obj = MagicMock()
     doc, style = _page_style_doc(text_obj)
@@ -1817,8 +1812,6 @@ def test_replace_reports_disposed_instead_of_region_off():
     When reading the region's IsOn flag fails due to document disposal, uno_read raises
     so the tool reports document disposal instead of claiming the region is turned off.
     """
-    class DisposedException(Exception):
-        pass
 
     text_obj = MagicMock()
     doc, style = _page_style_doc(text_obj)
@@ -1885,9 +1878,6 @@ def test_copy_page_style_unreadable_region_copies_as_empty_and_disposal_raises()
     disposal, uno_read raises DocumentDisposedError immediately.
     """
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     src_text = MagicMock()
     src_text.getString.return_value = ""

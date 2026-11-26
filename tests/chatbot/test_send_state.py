@@ -322,4 +322,3 @@ def test_stop_clicked_label_uses_get_send_label():
     tr3 = next_state(state3, SendEvent(SendEventKind.STOP_CLICKED))
     ui_effect3 = next(e for e in tr3.effects if isinstance(e, UpdateUIEffect))
     assert ui_effect3.send_label == "Send"
-

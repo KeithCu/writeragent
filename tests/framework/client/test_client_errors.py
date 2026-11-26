@@ -31,7 +31,7 @@ class TestZaiUnknownModelHint:
         msg = "HTTP Error 400"
         err_body = '{"error":{"code":"1211","message":"Unknown Model"}}'
         out = append_zai_unknown_model_hint(msg, err_body, value, value_2, value_3)
-        assert (out) == (msg)
+        assert out == msg
 
 class TestLlamaServerOverflowSentence:
     """Issue #570: sidebar sentence names overflow; no raw HTTP 500 dict."""
@@ -45,26 +45,26 @@ class TestLlamaServerOverflowSentence:
         msg = format_http_error_response(
             500, "Internal Server Error", self._CRASH_BODY, context_window=4096
         )
-        assert ("4K") in (msg)
-        assert ("HTTP Error 500") not in (msg)
-        assert ("0xc0000005") not in (msg)
-        assert ("{'status'") not in (msg)
+        assert "4K" in msg
+        assert "HTTP Error 500" not in msg
+        assert "0xc0000005" not in msg
+        assert "{'status'" not in msg
 
     def test_format_without_window_still_explains_overflow(self):
         msg = format_http_error_response(500, "Internal Server Error", self._CRASH_BODY)
-        assert (msg) == (local_model_overflow_message())
-        assert ("too-small context") in (msg)
-        assert ("HTTP Error 500") not in (msg)
+        assert msg == local_model_overflow_message()
+        assert "too-small context" in msg
+        assert "HTTP Error 500" not in msg
 
     def test_generic_500_keeps_provider_detail(self):
         body = '{"error":{"message":"boom"}}'
         msg = format_http_error_response(500, "Internal Server Error", body)
-        assert ("HTTP Error 500") in (msg)
-        assert ("boom") in (msg)
+        assert "HTTP Error 500" in msg
+        assert "boom" in msg
 
     def test_markers_detected(self):
-        assert (is_local_model_server_crash(self._CRASH_BODY))
-        assert (is_local_model_server_crash("truncating input prompt limit=4095"))
+        assert is_local_model_server_crash(self._CRASH_BODY)
+        assert is_local_model_server_crash("truncating input prompt limit=4095")
         assert not (is_local_model_server_crash("HTTP Error 500 from AI Provider: boom"))
 
     def test_format_context_window_label_overflow(self):

@@ -6,16 +6,7 @@ from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.fields import FieldsDelete, FieldsInsert
-
-
-def _set_body(doc, text_value):
-    text = doc.getText()
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    text.insertString(cur, text_value, False)
+from tests.writer.doc_builders import set_body_text
 
 
 def _count_text_fields(doc):
@@ -35,7 +26,7 @@ def test_fields_delete_body_and_footer(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     # 1. Body field between two words
-    _set_body(doc, "alpha omega")
+    set_body_text(doc, "alpha omega")
     cur = doc.getText().createTextCursor()
     cur.gotoStart(False)
     cur.goRight(6, False)  # after "alpha "
@@ -85,7 +76,7 @@ def test_fields_delete_body_and_footer(ctx, doc):
 @with_native_doc("writer")
 def test_fields_insert_search_absorb(ctx, doc):
     """Search insert replaces TARGET with field; neighbors stay and field count increases."""
-    _set_body(doc, "alpha TARGET omega")
+    set_body_text(doc, "alpha TARGET omega")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     count_before = _count_text_fields(doc)
@@ -135,7 +126,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     # 1. User recording: PageCount and Input Accept/Reject cleanly
     for field_name, props in (("PageCount", {}), ("Input", {"Content": "prompt"})):
-        _set_body(doc, "hello MATCH world")
+        set_body_text(doc, "hello MATCH world")
         doc.setPropertyValue("RecordChanges", True)
         try:
             res = FieldsInsert().execute(
@@ -170,7 +161,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
         ),
     ):
         for field_name, props in (("PageCount", {}), ("Input", {"Content": "prompt"})):
-            _set_body(doc, "hello MATCH world")
+            set_body_text(doc, "hello MATCH world")
             res_f = FieldsInsert().execute(
                 tool_ctx, field=field_name, properties=props, target="search", old_content="MATCH"
             )
@@ -185,7 +176,7 @@ def test_fields_insert_recorded_accept_reject_and_token_uno(ctx, doc):
             execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
             assert doc.getText().getString() == "hello MATCH world"
 
-        _set_body(doc, "dear NAME,")
+        set_body_text(doc, "dear NAME,")
         res_m = InsertField().execute(
             tool_ctx, column_name="First", data_source_name="Bib", table_name="biblio",
             target="search", old_content="NAME",
@@ -206,7 +197,7 @@ def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
     from plugin.doc.text_helpers import visible_range_text
     from tests.writer.doc_builders import reject_all_changes
 
-    _set_body(doc, "Word OLD here")
+    set_body_text(doc, "Word OLD here")
     cur = doc.getText().createTextCursor()
     cur.gotoStart(False)
     cur.goRight(len("Word "), False)
@@ -233,4 +224,3 @@ def test_fields_insert_refuses_crossing_deletion_uno(ctx, doc):
     assert _count_text_fields(doc) == 1
     reject_all_changes(doc, ctx)
     assert doc.getText().getString() == "Word OLD here"
-

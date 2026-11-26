@@ -190,4 +190,3 @@ def test_page_count_in_print_preview_uno(ctx):
             raise AssertionError("Expected UnoObjectError for get_page_for_paragraph in Print Preview")
     finally:
         best_effort(lambda: doc.close(True), "close preview writer doc")
-

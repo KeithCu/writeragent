@@ -976,4 +976,3 @@ class WebResearchTool(ToolBase):
 
 def norm_research_query(q: str) -> str:
     return " ".join(q.lower().split()).rstrip("?").rstrip(".")
-

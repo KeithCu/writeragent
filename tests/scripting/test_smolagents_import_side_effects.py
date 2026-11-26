@@ -53,5 +53,3 @@ def test_worker_base_import_does_not_load_huggingface_hub(value) -> None:
     leaked = {m for m in mods if m == "huggingface_hub" or m.startswith("huggingface_hub.")}
     assert not leaked
     assert "plugin.contrib.smolagents.tools" not in mods
-
-

@@ -34,12 +34,7 @@ from plugin.framework.client.request_controls import (
     wait_abortable,
     wait_host_gap,
 )
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
+from plugin.tests.testing_utils import cancelled_scope
 
 
 def _remaining(key: str, now: Any = None) -> float:
@@ -253,7 +248,7 @@ def test_retry_after_exceeds_cap():
 def test_wait_host_gap_stop_rolls_back_reservation():
     remember_host_gap("localhost", 5.0)
     mark_host_sent("localhost", monotonic=lambda: 100.0)
-    assert wait_host_gap("localhost", _cancelled_scope(), monotonic=lambda: 100.0) is False
+    assert wait_host_gap("localhost", cancelled_scope(), monotonic=lambda: 100.0) is False
     assert _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0] == 5.0
 
 
@@ -262,7 +257,7 @@ def test_wait_host_gap_stop_does_not_clobber_later_claim():
     mark_host_sent("localhost", monotonic=lambda: 100.0)
     first_wait = _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0]
     assert first_wait == 5.0
-    assert wait_host_gap("localhost", _cancelled_scope(), monotonic=lambda: 100.0) is False
+    assert wait_host_gap("localhost", cancelled_scope(), monotonic=lambda: 100.0) is False
     assert _remaining("localhost", lambda: 100.0) == 10.0
 
 
@@ -271,7 +266,7 @@ def test_wait_host_gap_status_callback():
     mark_host_sent(key, monotonic=lambda: 100.0)
     seen: list[str] = []
     # Key has 3s floor, 1s has elapsed, remaining is 2s.
-    wait_host_gap(key, _cancelled_scope(), status_callback=seen.append, monotonic=lambda: 101.0)
+    wait_host_gap(key, cancelled_scope(), status_callback=seen.append, monotonic=lambda: 101.0)
     assert len(seen) == 1
     assert "2s" in seen[0]
 
@@ -279,7 +274,7 @@ def test_wait_host_gap_status_callback():
     remember_host_gap("busy.ai", 10.0)
     mark_host_sent("busy.ai", monotonic=lambda: 100.0)
     seen_busy: list[str] = []
-    wait_host_gap("busy.ai", _cancelled_scope(), status_callback=seen_busy.append, monotonic=lambda: 101.0)
+    wait_host_gap("busy.ai", cancelled_scope(), status_callback=seen_busy.append, monotonic=lambda: 101.0)
     assert len(seen_busy) == 1
     assert "9s" in seen_busy[0]
 

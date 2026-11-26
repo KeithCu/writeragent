@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.queue_executor import main
 from plugin.framework.tool import SelectionPin, ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import DisposedException, TestingFactory
 
 # ── Tool Context Tests ───────────────────────────────────────────────
 
@@ -1222,9 +1222,6 @@ class TestToolIsolation:
     def test_execute_safe_async_off_main_thread_probe_skipped(self):
         """From a background thread, an async tool must not probe the live doc model."""
         class BareRuntimeException(Exception):
-            pass
-
-        class DisposedException(Exception):
             pass
 
         class RecordingDoc:

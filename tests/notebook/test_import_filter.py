@@ -34,9 +34,9 @@ def test_import_filter_success():
     with patch("plugin.notebook.import_filter.import_ipynb_to_writer") as mock_import, \
          patch("plugin.notebook.import_filter.uno.fileUrlToSystemPath", return_value="/fake/path/notebook.ipynb"):
         mock_import.return_value = {"cells": 1}
-        
+
         result = filter_comp.filter(media_descriptor)
-        
+
         assert result is True
         mock_import.assert_called_once_with(target_doc, "/fake/path/notebook.ipynb", ctx=ctx)
 
@@ -74,9 +74,9 @@ def test_import_filter_exception():
     with patch("plugin.notebook.import_filter.import_ipynb_to_writer") as mock_import, \
          patch("plugin.notebook.import_filter.uno.fileUrlToSystemPath", return_value="/fake/path/notebook.ipynb"):
         mock_import.side_effect = Exception("Test Exception")
-        
+
         result = filter_comp.filter(media_descriptor)
-        
+
         assert result is False
         mock_import.assert_called_once()
 

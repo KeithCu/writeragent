@@ -338,5 +338,3 @@ def test_symbolic_math_accepted_keys_match_child_signatures(mock_run, writer_ctx
     accepted = set(result["message"].split("Accepted: ")[1].rstrip(".").split(", "))
     assert accepted == expected
     mock_run.assert_not_called()
-
-

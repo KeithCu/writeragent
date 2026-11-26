@@ -6,35 +6,20 @@
 
 from __future__ import annotations
 
-import struct
-import zlib
 from typing import Any
 from unittest.mock import patch
 
 from com.sun.star.awt import Size
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import unique_png_bytes, with_native_doc
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, graphic_from_bytes
 
 
-def _make_unique_png_bytes(r: int, g: int, b: int) -> bytes:
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    signature = b"\x89PNG\r\n\x1a\n"
-    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-    raw = b"\x00" + bytes([r, g, b])
-    idat = chunk(b"IDAT", zlib.compress(raw))
-    iend = chunk(b"IEND", b"")
-    return signature + ihdr + idat + iend
-
-
 def _add_calc_image(ctx: Any, doc: Any, sheet: Any, col: int, row: int, rgb: tuple[int, int, int], *, name: str = "") -> Any:
     shape = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
-    shape.setPropertyValue("Graphic", graphic_from_bytes(ctx, _make_unique_png_bytes(*rgb)))
+    shape.setPropertyValue("Graphic", graphic_from_bytes(ctx, unique_png_bytes(*rgb)))
     shape.setSize(Size(2000, 2000))
     sheet.getDrawPage().add(shape)
     shape.setPropertyValue("Anchor", sheet.getCellByPosition(col, row))

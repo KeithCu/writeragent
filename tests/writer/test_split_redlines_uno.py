@@ -14,17 +14,11 @@ from plugin.tests.testing_utils import agent_changes, with_native_doc
 from plugin.writer import edit_review
 from plugin.writer.edit_review import EditReviewSession, record_preserve_replace
 from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
-from tests.writer.doc_builders import accept_all_changes, reset_body
-
-
-def _find(doc, needle):
-    sd = doc.createSearchDescriptor()
-    sd.setSearchString(needle)
-    return doc.findFirst(sd)
+from tests.writer.doc_builders import accept_all_changes, find_first, reset_body
 
 
 def _para_with(doc, needle):
-    f = _find(doc, needle)
+    f = find_first(doc, needle)
     if f is None:
         return None
     t = f.getText().createTextCursorByRange(f.getStart())
@@ -42,7 +36,7 @@ def test_split_small_change_makes_tight_surgical_changes_uno(ctx, doc):
     """Two non-adjacent word tweaks in a long paragraph -> TWO tight surgical changes (just the
     words), not one whole-paragraph delete+insert."""
     reset_body(doc, ctx, _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -58,7 +52,7 @@ def test_split_small_change_makes_tight_surgical_changes_uno(ctx, doc):
 def test_split_adjacent_words_agglutinate_into_one_change_uno(ctx, doc):
     """Two ADJACENT changed words collapse into ONE surgical change (consecutive run)."""
     reset_body(doc, ctx, _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick brown", "slow grey")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -73,7 +67,7 @@ def test_split_adjacent_words_agglutinate_into_one_change_uno(ctx, doc):
 def test_split_changes_resolve_individually_uno(ctx, doc):
     """Each surgical change is its own reviewable unit -- accept one, the other stays."""
     reset_body(doc, ctx, _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -91,7 +85,7 @@ def test_split_changes_resolve_individually_uno(ctx, doc):
 def test_split_large_change_stays_single_block_uno(ctx, doc):
     """A change above the threshold (most words changed) stays ONE clean block edit."""
     reset_body(doc, ctx, "alpha beta gamma")
-    found = _find(doc, "alpha beta gamma")
+    found = find_first(doc, "alpha beta gamma")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, "totally different replacement words", ctx, True)
     session.cleanup()
@@ -106,7 +100,7 @@ def test_split_accept_all_reconstructs_new_text_uno(ctx, doc):
     para = "The quick brown fox jumps over the lazy dog."
     new = "The fast brown fox leaps over the lazy dog."  # quick->fast, jumps->leaps
     reset_body(doc, ctx, para)
-    found = _find(doc, para)
+    found = find_first(doc, para)
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
     session.cleanup()
@@ -120,7 +114,7 @@ def test_split_accept_all_reconstructs_new_text_uno(ctx, doc):
 def test_split_off_when_not_recording_single_change_uno(ctx, doc):
     """With split disabled (review recording off) the edit is one whole replace, as before."""
     reset_body(doc, ctx, _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, False)  # split=False
@@ -136,7 +130,7 @@ def test_review_payload_includes_final_text_uno(ctx, doc):
     the whole paragraph -- so neighbouring changes in the same paragraph don't contaminate each
     other's report, and a change deep in a long paragraph is never truncated out of the preview."""
     reset_body(doc, ctx, "Intro.", _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -167,7 +161,7 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
                                              resolve_agent_change)
     from plugin.writer.review_scan import agent_change_presence
     reset_body(doc, ctx, "Intro.", _LONG)
-    found = _find(doc, _LONG)
+    found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -199,7 +193,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
     # Pure insertion, accepted -> "accepted", inserted word present in final_text.
     reset_body(doc, ctx, "The lazy dog.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, _find(doc, "dog"), "dog runs", ctx, True)
+        record_preserve_replace(session, doc, find_first(doc, "dog"), "dog runs", ctx, True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "runs" in chs[0]["new"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], True)[0].status == ResolveStatus.RESOLVED
@@ -210,7 +204,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
     # Pure deletion, rejected -> "rejected", restored word present in final_text.
     reset_body(doc, ctx, "The lazy dog.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, _find(doc, "lazy "), "", ctx, True)
+        record_preserve_replace(session, doc, find_first(doc, "lazy "), "", ctx, True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "lazy" in chs[0]["old"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], False)[0].status == ResolveStatus.RESOLVED
@@ -227,7 +221,7 @@ def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
     one alone, then accept the rest and confirm the paragraph reconstructs to the agent's text exactly."""
     base = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     reset_body(doc, ctx, "Intro.", base)
-    found = _find(doc, base)
+    found = find_first(doc, base)
     new = base.replace("beta", "BETA").replace("delta", "DELTA").replace("zeta", "ZETA")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -248,7 +242,7 @@ def test_final_text_not_truncated_for_deep_change_uno(ctx, doc):
     final_text, because final_text is the change's OWN region, not the paragraph's first N chars."""
     long_para = ("alpha " * 120) + "TARGETWORD " + ("omega " * 40)  # TARGETWORD sits ~720 chars in
     reset_body(doc, ctx, "Intro.", long_para)
-    found = _find(doc, long_para)
+    found = find_first(doc, long_para)
     new = long_para.replace("TARGETWORD", "REPLACEMENT")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         record_preserve_replace(session, doc, found, new, ctx, True)
@@ -267,7 +261,7 @@ def test_block_safe_for_surgical_guard_uno(ctx, doc):
     char offsets diverge from cursor stops, so it must fall back to the whole-block replace."""
     from plugin.writer.edit_review import _block_safe_for_surgical
     reset_body(doc, ctx, "Just some plain words here.")
-    assert _block_safe_for_surgical(_find(doc, "Just some plain words here.")) is True, "clean block is safe"
+    assert _block_safe_for_surgical(find_first(doc, "Just some plain words here.")) is True, "clean block is safe"
     # a range spanning TWO paragraphs -> unsafe
     reset_body(doc, ctx, "First para here.", "Second para here.")
     cur = doc.getText().createTextCursor()
@@ -277,12 +271,12 @@ def test_block_safe_for_surgical_guard_uno(ctx, doc):
     # a block that already holds a tracked change (struck text) -> unsafe
     reset_body(doc, ctx, "Alpha beta gamma delta.")
     doc.setPropertyValue("RecordChanges", True)
-    f = _find(doc, "beta")
+    f = find_first(doc, "beta")
     tc = f.getText().createTextCursorByRange(f)
     tc.setString("")
     f.getText().insertString(tc, "BETA", False)
     doc.setPropertyValue("RecordChanges", False)
-    para = _find(doc, "Alpha")
+    para = find_first(doc, "Alpha")
     pc = para.getText().createTextCursorByRange(para.getStart())
     pc.gotoStartOfParagraph(False)
     pc.gotoEndOfParagraph(True)
@@ -318,7 +312,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
 
     base = "The quick brown fox jumps over the lazy dog near the river."
     reset_body(doc, ctx, base)
-    found = _find(doc, base)
+    found = find_first(doc, base)
     new = base.replace("quick", "fast").replace("lazy", "sleepy")  # exactly two surgical sub-edits
 
     redlines_before = len(doc.getRedlines())
@@ -377,7 +371,7 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     assert "USEREDIT" in _para_with(doc, "Alpha"), "precondition: the user edit is present"
 
     base = "Alpha beta gamma delta epsilon zeta. USEREDIT"
-    found = _find(doc, base)
+    found = find_first(doc, base)
     new = base.replace("beta", "BETA").replace("delta", "DELTA")  # two surgical sub-edits
 
     real = edit_review.replace_preserving_format
@@ -423,7 +417,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     real = edit_review.replace_preserving_format
     raised = False
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, _find(doc, b1), new1, ctx, True)  # batch 1 succeeds
+        record_preserve_replace(session, doc, find_first(doc, b1), new1, ctx, True)  # batch 1 succeeds
         changes_after_b1 = len(session.changes)
         assert changes_after_b1 >= 1, "batch 1 must record at least one change"
 
@@ -433,7 +427,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
         fmt.replace_preserving_format = always_fail
         edit_review.replace_preserving_format = always_fail
         try:
-            record_preserve_replace(session, doc, _find(doc, b2), new2, ctx, True)
+            record_preserve_replace(session, doc, find_first(doc, b2), new2, ctx, True)
         except RuntimeError:
             raised = True
         finally:

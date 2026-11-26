@@ -164,4 +164,3 @@ def test_trusted_action_handlers_do_not_import_host_modules() -> None:
         timeout=60,
     )
     assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
-

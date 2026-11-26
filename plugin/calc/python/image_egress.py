@@ -981,4 +981,3 @@ def _insert_image_result_on_sheet_impl(
     finally:
         if created_path is not None:
             _unlink_temp_image(created_path)
-

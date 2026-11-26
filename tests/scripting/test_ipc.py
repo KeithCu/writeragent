@@ -1759,6 +1759,3 @@ def test_host_pickle_leaf_types():
         frame = pickle.dumps(rejected, protocol=PICKLE_PROTOCOL)
         with pytest.raises(pickle.UnpicklingError):
             _SafeUnpickler(io.BytesIO(frame)).load()
-
-
-

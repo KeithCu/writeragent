@@ -391,4 +391,3 @@ def download_endpoint_speech(
     suffix = ".mp3" if actual_format == "mp3" else ".wav"
     rate = 1.0 if native else max(_LOCAL_RATE_MIN, min(_LOCAL_RATE_MAX, speed))
     return _EndpointClip(audio=audio_bytes, suffix=suffix, rate=rate)
-

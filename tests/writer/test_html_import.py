@@ -13,6 +13,7 @@ from plugin.writer.html_import import (
     insert_html_fragment_at_cursor,
     replace_xtext_with_html,
 )
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 
@@ -521,16 +522,6 @@ def test_styled_insert_propagates_style_pass_failure():
 def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
     """A failed portion inspection is not 'empty'. Deleting can drop a frame."""
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Para:
         def __init__(self, text, boom=None):
             self._text = text
@@ -562,7 +553,7 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
             return cursor
 
         def createEnumeration(self):
-            return _Enum([_Para("kept"), _Para("", boom=RuntimeError("portion"))])
+            return FakeUnoEnum([_Para("kept"), _Para("", boom=RuntimeError("portion"))])
 
         def createTextCursorByRange(self, _para):
             deleted.append("delete")
@@ -581,16 +572,6 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
 
 
 def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Portion:
         def getString(self):
             return ""
@@ -611,7 +592,7 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
             return False
 
         def createEnumeration(self):
-            return _Enum(self._walk)
+            return FakeUnoEnum(self._walk)
 
         def getEnd(self):
             return object()
@@ -631,7 +612,7 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
             return cursor
 
         def createEnumeration(self):
-            return _Enum([_Para("kept", []), _Para("", [_Portion()])])
+            return FakeUnoEnum([_Para("kept", []), _Para("", [_Portion()])])
 
         def createTextCursorByRange(self, _para):
             cursor = MagicMock()
@@ -653,16 +634,6 @@ def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
 def test_trailing_paragraph_disposal_is_not_success():
     from plugin.framework.errors import DocumentDisposedError
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Para:
         def getString(self):
             return ""
@@ -671,7 +642,7 @@ def test_trailing_paragraph_disposal_is_not_success():
             return False
 
         def createEnumeration(self):
-            raise type("DisposedException", (Exception,), {})("gone")
+            raise DisposedException("gone")
 
     class _Text:
         def getString(self):
@@ -686,7 +657,7 @@ def test_trailing_paragraph_disposal_is_not_success():
             return cursor
 
         def createEnumeration(self):
-            return _Enum([_Para(), _Para()])
+            return FakeUnoEnum([_Para(), _Para()])
 
     model = MagicMock()
     model.getPropertyValue.return_value = False
@@ -712,9 +683,6 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_import import _cursor_paragraph_has_content, _uno_service_true
     from plugin.writer.html_import_styles import resolve_paragraph_style_token
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass
@@ -1622,8 +1590,8 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     portion.getString.return_value = ""
     portion.getPropertyValue.return_value = "TextContent"
     inner_para = MagicMock()
-    inner_para.createEnumeration.return_value = _FakeReplaceEnum([portion])
-    para.createEnumeration.return_value = _FakeReplaceEnum([inner_para])
+    inner_para.createEnumeration.return_value = FakeUnoEnum([portion])
+    para.createEnumeration.return_value = FakeUnoEnum([inner_para])
     text_obj = MagicMock()
     text_obj.createTextCursorByRange.return_value = para
     cursor.getText.return_value = text_obj
@@ -1643,7 +1611,7 @@ def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     text = MagicMock()
     para = MagicMock()
     para.getString.return_value = ""
-    para.createEnumeration.return_value = _FakeReplaceEnum([])
+    para.createEnumeration.return_value = FakeUnoEnum([])
     text_obj = MagicMock()
     text_obj.createTextCursorByRange.return_value = para
     cursor.getText.return_value = text_obj
@@ -1672,7 +1640,7 @@ def test_ensure_empty_absorb_opens_break_for_spaces_or_recording():
 
     text.reset_mock()
     para.getString.return_value = ""
-    para.createEnumeration.return_value = _FakeReplaceEnum([])
+    para.createEnumeration.return_value = FakeUnoEnum([])
     hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=True)
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
@@ -1767,17 +1735,6 @@ def test_ensure_empty_absorb_raises_when_break_fails():
         hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end", recording=False)
 
 
-class _FakeReplaceEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class _FakeReplacePortion:
     def __init__(self, text="", portion_type="Text"):
         self.TextPortionType = portion_type
@@ -1797,7 +1754,7 @@ class _FakeReplacePara:
         self._portions = portions
 
     def createEnumeration(self):
-        return _FakeReplaceEnum(self._portions)
+        return FakeUnoEnum(self._portions)
 
 
 class _FakeReplaceCursor:
@@ -1853,7 +1810,7 @@ class _FakeReplaceRange:
         return object()
 
     def createEnumeration(self):
-        return _FakeReplaceEnum(self._paras or [])
+        return FakeUnoEnum(self._paras or [])
 
 
 @pytest.mark.parametrize(
@@ -2292,7 +2249,7 @@ def test_raise_if_no_table_added_and_table_count_disposed():
     assert exc_info.value.code == "TABLE_INSERT_FAILED"
 
     model = MagicMock()
-    model.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
+    model.getTextTables.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         html_import._table_count(model)
 

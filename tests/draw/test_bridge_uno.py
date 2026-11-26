@@ -154,4 +154,3 @@ def test_move_and_front_insert_keep_unnamed_slides_unnamed(ctx, doc):
     pages.insertNewByIndex(0)
 
     assert _names(pages) == ["page1", "page2", "Named", "page4", "page5", "page6"]
-

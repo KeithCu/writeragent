@@ -1773,4 +1773,3 @@ class PageInsertBreak(ToolWriterPageBase):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)
         return _page_break_ok("Page break inserted.", page_style, restart)
-

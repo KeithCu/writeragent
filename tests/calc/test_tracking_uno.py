@@ -91,4 +91,3 @@ def test_calc_track_changes_show_returns_stub(ctx, doc):
     assert doc.getPropertyValue("RecordChanges") == rec_before
     if rdt_before is not None:
         assert doc.getPropertyValue("RedlineDisplayType") == rdt_before
-

@@ -223,4 +223,3 @@ def is_impress(model: Any) -> bool:
     from plugin.framework.uno_context import supports_service
 
     return supports_service(model, IMPRESS_DOCUMENT_SERVICE)
-

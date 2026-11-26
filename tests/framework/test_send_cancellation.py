@@ -585,6 +585,3 @@ def test_acquire_unless_cancelled():
             timer.join(timeout=2.0)
     finally:
         lock.release()
-
-
-

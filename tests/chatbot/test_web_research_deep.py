@@ -21,12 +21,7 @@ from plugin.chatbot.web_research_deep import (
 )
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.send_cancellation import SendCancellation
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
+from plugin.tests.testing_utils import cancelled_scope
 
 
 def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
@@ -206,7 +201,7 @@ class TestRunDeepResearch:
             "topic",
             llm_chat=llm_chat,
             worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
-            stop_checker=_cancelled_scope().is_cancelled,
+            stop_checker=cancelled_scope().is_cancelled,
             status_callback=None,
             breadth=1,
             max_rounds=1,

@@ -2314,7 +2314,3 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
     except ImportError:
         return apply_fn()
     return record_write(doc, ctx, apply_fn)[0]
-
-
-
-

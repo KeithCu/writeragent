@@ -178,4 +178,3 @@ def test_parse_request_ignores_loaded_crosshair_module(monkeypatch):
     assert parsed is not None
     assert parsed.method == "ping"
     assert parsed.req_id == 1
-

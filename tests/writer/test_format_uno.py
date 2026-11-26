@@ -791,5 +791,3 @@ def test_replace_is_one_undo_step_uno(ctx, doc):
     assert [(s, w) for s, w, _, _, _ in portions] == [
         ("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)
     ], portions
-
-

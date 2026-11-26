@@ -140,7 +140,7 @@ def test_final_done():
     )
     assert ready_status.outcome == "ready"
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
-    
+
     msg_effect = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert msg_effect.content == "Final words"
     assert msg_effect.role == "assistant"
@@ -191,7 +191,7 @@ def test_error_event():
 
 def test_stream_done_finish_reasons():
     state = create_base_state()
-    
+
     # finish_reason="length"
     event_len = create_event(EventKind.STREAM_DONE, response={"finish_reason": "length", "content": None})
     tr_len = next_state(state, event_len)
@@ -294,7 +294,7 @@ def test_next_tool_advances_round_and_handles_max_rounds():
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
     new_state, effects = tr.state, tr.effects
-    
+
     assert new_state.round_num == 4
     spawn_eff = next((e for e in effects if isinstance(e, SpawnLLMWorkerEffect)), None)
     assert spawn_eff is not None
@@ -351,13 +351,13 @@ def test_next_tool_with_pending_tools_and_action_state():
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
     new_state, effects = tr.state, tr.effects
-    
+
     # Consumed 1 tool
     assert len(new_state.pending_tools) == 0
-    
+
     spawn_eff = next(e for e in effects if isinstance(e, SpawnToolWorkerEffect))
     assert spawn_eff.func_name == "test_tool"
-    
+
     # Check activity state effect
     activity_eff = next(e for e in effects if isinstance(e, UpdateActivityStateEffect))
     assert activity_eff.phase == "tool_execute"
@@ -370,9 +370,9 @@ def test_next_tool_malformed_arguments_and_missing_func():
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
     new_state, effects = tr.state, tr.effects
-    
+
     assert len(new_state.pending_tools) == 0
-    
+
     spawn_eff = next(e for e in effects if isinstance(e, SpawnToolWorkerEffect))
     assert spawn_eff.func_name == "unknown" # Missing name defaults to unknown
     assert spawn_eff.func_args == {}  # Handled parsing failure
@@ -681,7 +681,7 @@ def test_stream_done_after_stop_may_append_and_trigger_next():
 
 def test_tool_result_parsing():
     state = create_base_state()
-    
+
     # Valid JSON tool result
     event_valid = create_event(
         EventKind.TOOL_RESULT,
@@ -695,7 +695,7 @@ def test_tool_result_parsing():
     _new_state, effects = tr_valid.state, tr_valid.effects
     assert any(isinstance(e, TriggerNextToolEffect) for e in effects)
     assert any(isinstance(e, UpdateDocumentContextEffect) for e in effects)  # is_success=True and mutates=True
-    
+
     msg_eff = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert msg_eff.role == "tool"
     assert msg_eff.call_id == "call_x"
@@ -712,7 +712,7 @@ def test_tool_result_parsing():
     )
     tr_adc = next_state(state, event_adc)
     _new_state_adc, effects_adc = tr_adc.state, tr_adc.effects
-    
+
     res_eff = next(e for e in effects_adc if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RESULT)
     debug_line = format_replaced_zero_debug_line(res_eff.func_args_str)
     assert "[Debug: params" in debug_line
@@ -772,7 +772,7 @@ def test_pending_tool_call_fields():
     assert pending_tool_call_fields(None) == ("unknown", "{}", "")
     assert pending_tool_call_fields({"id": "c2"}) == ("unknown", "{}", "c2")
     assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "")
-    
+
 
 def test_format_replaced_zero_debug_line():
     line = format_replaced_zero_debug_line('{"target": "doc"}')

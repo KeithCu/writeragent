@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
-from plugin.tests.testing_utils import FakeUndoManager
+from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
 @pytest.fixture(autouse=True)
@@ -371,9 +371,6 @@ def test_disposed_document_mid_insert_is_document_disposed():
     from types import SimpleNamespace
     from plugin.calc.cells import InsertCellHtml
     from plugin.calc.rich_html import insert_cell_html_rich
-
-    class DisposedException(Exception):
-        pass
 
     calc_doc, cell, desktop, _temp_doc, calc_ctrl, _writer_ctrl = _cell_and_docs()
     fake_undo = FakeUndoManager()

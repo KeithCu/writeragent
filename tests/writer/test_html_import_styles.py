@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from plugin.writer import html_import_styles
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_written_heading_texts_extraction() -> None:
@@ -822,9 +823,6 @@ def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
 def test_resolve_paragraph_style_token_fallback_and_disposal():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.html_import_styles import resolve_paragraph_style_token
-
-    class DisposedException(Exception):
-        pass
 
     # (i) Case-insensitive fallback
     fam = MagicMock()

@@ -1949,4 +1949,3 @@ def test_health_probe_log_hides_public_host(caplog):
     ):
         assert _health_probe_ok("https://abc.trycloudflare.com/health", timeout=1.0) is False
     assert "abc.trycloudflare.com" not in caplog.text
-

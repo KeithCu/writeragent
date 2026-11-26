@@ -332,4 +332,3 @@ def run_randomized_mcp_fuzz(
         "call_distribution": call_counts,
         "paired_followups": paired_followups,
     }
-

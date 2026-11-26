@@ -43,5 +43,3 @@ def test_run_analysis_happy_path(ctx):
     assert kwargs["context"] == context
     assert kwargs.get("session_id") is None
     assert kwargs["timeout_sec"] == 30
-
-

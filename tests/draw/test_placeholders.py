@@ -13,6 +13,7 @@ from plugin.draw.placeholders import (
     _role_miss_error_kwargs,
 )
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 class _FakeShape:
@@ -289,9 +290,6 @@ def test_scan_skips_shape_whose_get_string_raises():
 
 
 def test_scan_re_raises_disposal_from_shape_property():
-    class DisposedException(Exception):
-        pass
-
     class _Disposed:
         @property
         def Name(self):
@@ -316,5 +314,3 @@ def test_get_and_set_role_miss_payloads_match_on_empty_page():
     assert got["message"] == want["message"]
     assert got["details"] == want["details"]
     assert got["details"]["suggest_layout"] == "text"
-
-

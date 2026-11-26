@@ -821,6 +821,3 @@ def test_serve_forever_paused_accept_shutdown_wakes_in_under_100ms(monkeypatch: 
         assert slept == []
     finally:
         server.server_close()
-
-
-

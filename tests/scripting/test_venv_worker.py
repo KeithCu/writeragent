@@ -40,6 +40,7 @@ from plugin.scripting.venv_worker import (
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from tests.scripting.sandbox_support import sandbox_run
+from plugin.tests.testing_utils import cancelled_scope, pid_is_alive
 
 def _mgr_proc(mgr: PythonWorkerManager) -> Any:
     """Test helper: Popen for the live warm child, if any."""
@@ -203,12 +204,6 @@ def test_worker_error_message_strips_command_path():
     assert msg == 'Python worker failed: timed out after 3 seconds'
     assert 'Command' not in msg
     assert '/very/long' not in msg
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
-
 
 def test_run_code_in_user_venv_passes_cancel():
     """run_code_in_user_venv must pass cancel to the manager's execute method."""
@@ -407,38 +402,6 @@ def test_worker_child_hung_partial_frame_times_out_without_replay(tmp_path: Any,
         assert counter_file.read_text(encoding='utf-8').splitlines() == ['start']
     finally:
         mgr._terminate_worker()
-
-def pid_is_alive(pid: int) -> bool:
-    """True if *pid* still names a live process.
-
-    ``os.kill(pid, 0)`` is POSIX. On Windows signal 0 is WinError 87, so a
-    naive helper treated every live grandchild as dead (CI 33453184665).
-    Production kill code does not call this; the grandchild tests do.
-    """
-    if pid <= 0:
-        return False
-    if sys.platform == 'win32':
-        return _pid_is_alive_win32(int(pid))
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-def _pid_is_alive_win32(pid: int) -> bool:
-    if sys.platform != 'win32':
-        return False
-    import ctypes
-    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
-    handle = kernel32.OpenProcess(access, False, pid)
-    if not handle:
-        return ctypes.get_last_error() == 5
-    exit_code = ctypes.c_ulong()
-    still_active = 259
-    alive = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == still_active
-    kernel32.CloseHandle(handle)
-    return alive
 
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     """Timeout/crash cleanup must kill descendants (joblib/loky, DataLoader), not only the worker."""
@@ -768,7 +731,7 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
     from plugin.scripting import venv_worker as venv_worker_mod
     ipc_module = sys.modules[venv_worker_mod.read_frame_payload.__module__]
     monkeypatch.setattr(ipc_module, '_poll_pipe', _boom)
-    res = mgr._read_frame_bytes(_Stdout(), 1.0, cancel=_cancelled_scope())
+    res = mgr._read_frame_bytes(_Stdout(), 1.0, cancel=cancelled_scope())
     assert isinstance(res, FailedAfterStart)
     assert res.kind == 'cancel'
     with pytest.raises(IpcPartialFrameTimeout):
@@ -2030,7 +1993,7 @@ def test_execute_ipc_attempts_cancel_aborts() -> None:
         def readinto(self, b: bytearray) -> int:
             time.sleep(10)
             return 0
-    scope = _cancelled_scope()
+    scope = cancelled_scope()
     t0 = time.monotonic()
     result = mgr._read_response_bytes(io.BufferedReader(MockStdout()), timeout_sec=60, cancel=scope)
     assert time.monotonic() - t0 < 1.0
@@ -2047,7 +2010,7 @@ def test_read_response_with_heartbeats_cancel() -> None:
     mgr.exe = 'python'
     _install_mock_proc(mgr, MockProc())
     mgr._warm = None
-    scope = _cancelled_scope()
+    scope = cancelled_scope()
 
     class MockStdout(io.BytesIO):
 
@@ -2104,7 +2067,7 @@ def test_cancel_returns_cancelled_code():
     mgr._terminate_worker = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=FailedAfterStart(RuntimeError('Python worker stopped by user'), 'cancel'))
-    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, cancel=cancelled_scope()), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'CANCELLED'
     assert result['message'] == 'Python worker stopped by user'
@@ -2574,7 +2537,7 @@ def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()))
+    res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1, cancel=cancelled_scope()))
     assert res['code'] == 'CANCELLED'
 
 def test_parse_worker_stdout_frame_rejects_non_dict():
@@ -2586,7 +2549,7 @@ def test_run_in_session_does_not_warm_when_stopped():
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
     mock_warm = MagicMock()
     mgr._ensure_warmed_unlocked = mock_warm
-    res = mgr._run_in_session(lambda session: {'status': 'ok'}, cancel=_cancelled_scope(), timeout_sec=10)
+    res = mgr._run_in_session(lambda session: {'status': 'ok'}, cancel=cancelled_scope(), timeout_sec=10)
     assert res['status'] == 'error'
     assert res['code'] == 'CANCELLED'
     mock_warm.assert_not_called()

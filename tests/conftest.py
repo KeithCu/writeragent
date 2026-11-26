@@ -283,8 +283,8 @@ def pytest_collection_modifyitems(config, items):
         func = getattr(item, "obj", None)
         if func and getattr(func, "_is_test", False):
             return True
-            
-        # 2. Check for pytest.mark.skip(reason="...native runner...") 
+
+        # 2. Check for pytest.mark.skip(reason="...native runner...")
         # This catches both module-level and function-level markers
         for marker in item.iter_markers(name="skip"):
             reason = str(marker.kwargs.get("reason", ""))
@@ -441,6 +441,8 @@ def _isolate_logging_state(_setup_grammar_persistence_test_env):
                 if h not in logger.handlers:
                     logger.addHandler(h)
 
+        # init_logging and some tests change these levels; a leaked WARNING level
+        # would drop INFO records that later caplog tests assert on.
         wa_logger.propagate = old_wa_propagate
         wa_logger.setLevel(old_wa_level)
         root_logger.setLevel(old_root_level)

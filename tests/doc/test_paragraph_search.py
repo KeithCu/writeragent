@@ -14,20 +14,7 @@ from plugin.doc.paragraph_search import (
     search_paragraph_texts,
 )
 from plugin.framework.errors import DocumentDisposedError
-
-
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-        self._idx = 0
-
-    def hasMoreElements(self):
-        return self._idx < len(self._items)
-
-    def nextElement(self):
-        item = self._items[self._idx]
-        self._idx += 1
-        return item
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 class _Text:
@@ -35,7 +22,7 @@ class _Text:
         self._paras = paras
 
     def createEnumeration(self):
-        return _Enum(self._paras)
+        return FakeUnoEnum(self._paras)
 
 
 class _Doc:
@@ -330,5 +317,3 @@ def test_search_paragraph_texts_context_at_edges():
     assert len(matches) == 2
     assert [c["index"] for c in matches[0]["context"]] == [0, 1]
     assert [c["index"] for c in matches[1]["context"]] == [2, 3]
-
-

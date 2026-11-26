@@ -997,5 +997,3 @@ def test_library_frames_carry_library_label():
         res = sandbox_run("import writeragent as wa\nresult = wa.scripts.Helpers.bad(0)\n")
     assert res["status"] == "error"
     assert 'File "<wa.scripts.Helpers>", line 2, in bad' in res.get("user_traceback", "")
-
-

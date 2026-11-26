@@ -6,6 +6,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_truncated_flag_on_get_document_content():
@@ -262,7 +263,7 @@ def test_get_document_content_redline_read_reraises_disposed():
     from plugin.writer.get_document_content import GetDocumentContent
 
     doc = MagicMock()
-    doc.getRedlines.side_effect = type("DisposedException", (Exception,), {})("gone")
+    doc.getRedlines.side_effect = DisposedException("gone")
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
@@ -285,4 +286,3 @@ def test_get_document_content_selection_scope_uses_pinned_range():
     assert res["status"] == "ok"
     assert mock_export.call_args.kwargs["selection"] is pinned
     ctx.doc.getCurrentController.assert_not_called()
-

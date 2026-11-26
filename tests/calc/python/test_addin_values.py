@@ -436,7 +436,7 @@ def test_calc_formula_error_double_and_tokens() -> None:
         assert not math.isfinite(val)
         raw = struct.unpack("Q", struct.pack("d", val))[0]
         assert raw & 0xFFFF == expected_code
-        assert raw == (0x7FF8000000000000 | expected_code)
+        assert raw == 0x7FF8000000000000 | expected_code
         assert addin_values.calc_error_code_for_token(token) == expected_code
 
     # Direct calc_formula_error_double
@@ -444,7 +444,7 @@ def test_calc_formula_error_double_and_tokens() -> None:
         d = addin_values.calc_formula_error_double(code)
         raw = struct.unpack("Q", struct.pack("d", d))[0]
         assert raw & 0xFFFF == code
-        assert raw == (0x7FF8000000000000 | code)
+        assert raw == 0x7FF8000000000000 | code
 
     # Strings that stay str
     for non_err in ["hello", "#value!", "#VALUE! extra", "#SPILL!", "Error: Code execution failed"]:
@@ -665,7 +665,7 @@ def test_published_err_tokens_and_coerce_parity() -> None:
     for token, expected_code in (("Err:502", 502), (" err:504 ", 504)):
         val = addin_values.py_addin_cell_value(token)
         assert isinstance(val, float) and not math.isfinite(val)
-        assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFF) == expected_code
+        assert struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFF == expected_code
         spill_val = addin_values.coerce_spill_value(token)
         assert spill_val.kind == "err"
         assert spill_val.error_code == expected_code
@@ -692,7 +692,7 @@ def test_published_err_tokens_and_coerce_parity() -> None:
     ):
         cell_val = addin_values.py_addin_cell_value(fn_res)
         assert isinstance(cell_val, float) and not math.isfinite(cell_val)
-        assert (struct.unpack("Q", struct.pack("d", cell_val))[0] & 0xFFFF) == 502
+        assert struct.unpack("Q", struct.pack("d", cell_val))[0] & 0xFFFF == 502
 
 
 @pytest.mark.parametrize(

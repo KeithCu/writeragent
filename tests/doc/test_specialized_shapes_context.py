@@ -11,6 +11,7 @@ import pytest
 from plugin.doc.specialized_catalog import InnerToolCall
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context, summarize_shape_calls
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_format_shapes_canvas_context_writer_standard_page():
@@ -272,9 +273,6 @@ def test_format_shapes_canvas_context_none_doc():
 
 
 def test_format_shapes_canvas_context_reraises_disposed():
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock()
     doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.drawing.DrawingDocument"
     doc.getDrawPages.side_effect = DisposedException("closed")

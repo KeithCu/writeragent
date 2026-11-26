@@ -36,12 +36,12 @@ class TestMcpUi:
     def test_build_mcp_config_snippet_default(self, mock_port):
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)
-        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:18765/mcp")
+        assert parsed["mcpServers"]["libreoffice"]["url"] == "http://localhost:18765/mcp"
 
     def test_build_mcp_config_snippet_custom(self):
         snippet = build_mcp_config_snippet(url="https://custom.trycloudflare.com/mcp")
         parsed = json.loads(snippet)
-        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("https://custom.trycloudflare.com/mcp")
+        assert parsed["mcpServers"]["libreoffice"]["url"] == "https://custom.trycloudflare.com/mcp"
 
     @patch("plugin.mcp_server.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener(self, mock_copy):
@@ -69,16 +69,16 @@ class TestMcpUi:
             listener.on_action_performed(MagicMock())
 
         mock_copy.assert_called_once_with(ctx, '{"test": 1}')
-        assert (btn_model.Label) == ("✓ Copied!")
+        assert btn_model.Label == "✓ Copied!"
 
     def test_active_settings_dialog_tracking(self):
         dlg = MagicMock()
         set_active_settings_dialog(dlg)
 
-        assert (mcp_ui._active_settings_dialog_ref) is (dlg)
+        assert mcp_ui._active_settings_dialog_ref is dlg
 
         clear_active_settings_dialog(dlg)
-        assert (mcp_ui._active_settings_dialog_ref) is None
+        assert mcp_ui._active_settings_dialog_ref is None
 
 
 def _snippet_dialog(provider: str = "cloudflare", port: int = 19000, tunnel_on: bool = True):
@@ -492,7 +492,3 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     args, _ = mock_snippet.setText.call_args
     data = json.loads(args[0])
     assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:20000/mcp"
-
-
-
-

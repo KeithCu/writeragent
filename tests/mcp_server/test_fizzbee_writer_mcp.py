@@ -382,4 +382,3 @@ def test_fizzbee_randomized_mcp_fuzz(writer_mcp_setup):
     assert result["unique_tools_invoked"] >= 40, (
         f"Expected wide distribution of tools, got {result['unique_tools_invoked']} unique tools"
     )
-

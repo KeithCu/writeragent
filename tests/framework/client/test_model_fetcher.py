@@ -19,10 +19,10 @@ class TestEndpointUrlSuitableForModelFetch:
         assert not (endpoint_url_suitable_for_v1_models_fetch('http://localhost:99999'))
 
     def test_complete_urls_accepted(self):
-        assert (endpoint_url_suitable_for_v1_models_fetch('http://localhost:1234'))
-        assert (endpoint_url_suitable_for_v1_models_fetch('https://api.openai.com/v1'))
-        assert (endpoint_url_suitable_for_v1_models_fetch('http://127.0.0.1:11434'))
-        assert (endpoint_url_suitable_for_v1_models_fetch('http://[::1]:8080'))
+        assert endpoint_url_suitable_for_v1_models_fetch('http://localhost:1234')
+        assert endpoint_url_suitable_for_v1_models_fetch('https://api.openai.com/v1')
+        assert endpoint_url_suitable_for_v1_models_fetch('http://127.0.0.1:11434')
+        assert endpoint_url_suitable_for_v1_models_fetch('http://[::1]:8080')
 
     def test_bad_port_helpers_return_none_or_false_without_raising(self):
         from plugin.framework.client.model_fetcher import (
@@ -84,9 +84,9 @@ class TestFetchAvailableModelsCache:
             mock_sync.return_value = {'data': [{'id': 'alpha'}]}
             r1 = cfg.fetch_available_models('http://127.0.0.1:58901')
             r2 = cfg.fetch_available_models('http://127.0.0.1:58901')
-            assert (r1) == (['alpha'])
-            assert (r2) == (['alpha'])
-            assert (mock_sync.call_count) == (1)
+            assert r1 == ['alpha']
+            assert r2 == ['alpha']
+            assert mock_sync.call_count == 1
 
     def test_normalized_url_shares_cache_entry(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -94,23 +94,23 @@ class TestFetchAvailableModelsCache:
             mock_sync.return_value = {'data': [{'id': 'beta'}]}
             cfg.fetch_available_models('http://127.0.0.1:58902/')
             cfg.fetch_available_models('http://127.0.0.1:58902')
-            assert (mock_sync.call_count) == (1)
+            assert mock_sync.call_count == 1
 
     def test_fetch_available_models_sends_bearer_when_ctx_and_api_key(self):
         'GET /v1/models must use the same per-endpoint key as chat (LocalAI, etc.).'
         from plugin.framework.client import model_fetcher as cfg
         endpoint = 'http://127.0.0.1:58903'
-        
+
         with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value='secret-token'):
             with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                 mock_sync.return_value = {'data': [{'id': 'm1'}]}
                 r = cfg.fetch_available_models(endpoint)
-                assert (r) == (['m1'])
+                assert r == ['m1']
                 mock_sync.assert_called_once()
                 (_args, kwargs) = mock_sync.call_args
                 headers = kwargs.get('headers')
                 assert isinstance(headers, dict)
-                assert (headers.get('Authorization')) == ('Bearer secret-token')
+                assert headers.get('Authorization') == 'Bearer secret-token'
 
     def test_catalog_memo_key_differs_for_override(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -202,12 +202,12 @@ class TestTextModelPlaceholderGuards:
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'm1'}]}
                     r = cfg.fetch_available_models(endpoint, api_key_override='from-override')
-                    assert (r) == (['m1'])
+                    assert r == ['m1']
                     mock_sync.assert_called_once()
                     (_args, kwargs) = mock_sync.call_args
                     headers = kwargs.get('headers')
                     assert isinstance(headers, dict)
-                    assert (headers.get('Authorization')) == ('Bearer from-override')
+                    assert headers.get('Authorization') == 'Bearer from-override'
 
     def test_fetch_override_and_saved_key_separate_cache(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -231,7 +231,7 @@ class TestTextModelPlaceholderGuards:
                     mock_sync.return_value = {'data': [{'id': 'x'}]}
                     cfg.fetch_available_models(endpoint)
                     cfg.fetch_available_models(endpoint, api_key_override='key-b')
-                    assert (mock_sync.call_count) == (2)
+                    assert mock_sync.call_count == 2
 
 
 class TestGetModelCapabilityOpenRouter:
@@ -240,7 +240,7 @@ class TestGetModelCapabilityOpenRouter:
         from plugin.framework.constants import ModelCapability
 
         caps = get_model_capability('openai/gpt-oss-120b:nitro', 'https://openrouter.ai/api')
-        assert (isinstance(caps, int) and (caps & ModelCapability.TOOLS))
+        assert isinstance(caps, int) and (caps & ModelCapability.TOOLS)
 
 
 class TestHasNativeAudio:
@@ -262,7 +262,7 @@ class TestHasNativeAudio:
         from plugin.framework.client.model_fetcher import has_native_audio
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             result = has_native_audio('google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api')
-        assert (result)
+        assert result
 
 
 class TestFetchAvailableImageModels:
@@ -296,8 +296,8 @@ class TestFetchAvailableImageModels:
             image_ids = cfg.fetch_available_image_models('https://openrouter.ai/api')
             # Verify the correct endpoint URL was requested
             mock_sync.assert_called_once()
-            assert (mock_sync.call_args[0][0]) == ('https://openrouter.ai/api/v1/images/models')
-        assert (image_ids) == (['google/gemini-2.5-flash-image', 'black-forest-labs/flux-schnell'])
+            assert mock_sync.call_args[0][0] == 'https://openrouter.ai/api/v1/images/models'
+        assert image_ids == ['google/gemini-2.5-flash-image', 'black-forest-labs/flux-schnell']
 
 
     def test_local_endpoint_falls_back_to_keyword_filter(self):
@@ -306,7 +306,7 @@ class TestFetchAvailableImageModels:
         payload = {'data': [{'id': 'flux'}, {'id': 'llama3.2'}]}
         with patch('plugin.framework.client.requests.sync_request', return_value=payload):
             image_ids = cfg.fetch_available_image_models('http://127.0.0.1:58908')
-        assert (image_ids) == (['flux'])
+        assert image_ids == ['flux']
 
     def test_local_memo_matches_keyword_image_fetch(self):
         # Settings reads the memo from the one /v1/models GET. painter is
@@ -320,10 +320,10 @@ class TestFetchAvailableImageModels:
             cfg.fetch_available_models(endpoint)
             cached = cfg.cached_image_models(endpoint)
             fetched = cfg.fetch_available_image_models(endpoint)
-            assert (mock_sync.call_count) == (1)
-        assert (cached) == (['flux'])
-        assert (fetched) == (cached)
-        assert (cfg.settings_catalog_is_warm(endpoint)) is True
+            assert mock_sync.call_count == 1
+        assert cached == ['flux']
+        assert fetched == cached
+        assert cfg.settings_catalog_is_warm(endpoint) is True
 
     def test_vision_declarations_skip_omitted_modalities(self):
         from plugin.framework.client.model_fetcher import _vision_declarations_from_v1_entries
@@ -337,7 +337,7 @@ class TestFetchAvailableImageModels:
             {'id': 'omit'},
             {'id': 'omit-arch', 'architecture': {'output_modalities': ['text']}},
         ]
-        assert (_vision_declarations_from_v1_entries(entries)) == ({
+        assert _vision_declarations_from_v1_entries(entries) == ({
             'yes': True,
             'no': False,
             'empty': False,
@@ -375,7 +375,7 @@ class TestFetchAvailableImageModels:
             {'id': 'google/flash-image-2.5', 'type': 'image'},
             {'id': 'openai/gpt-oss-120b', 'type': 'chat'},
         ]
-        assert (_image_output_model_ids_from_v1_entries(entries)) == (['b', 'google/flash-image-2.5'])
+        assert _image_output_model_ids_from_v1_entries(entries) == ['b', 'google/flash-image-2.5']
 
     def test_together_list_response_parses_all_ids(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -386,7 +386,7 @@ class TestFetchAvailableImageModels:
         ]
         with patch('plugin.framework.client.requests.sync_request', return_value=payload):
             all_ids = cfg.fetch_available_models('https://api.together.xyz')
-        assert (all_ids) == (['openai/gpt-oss-120b', 'google/flash-image-2.5'])
+        assert all_ids == ['openai/gpt-oss-120b', 'google/flash-image-2.5']
 
     def test_together_image_models_from_type_field(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -398,7 +398,7 @@ class TestFetchAvailableImageModels:
         ]
         with patch('plugin.framework.client.requests.sync_request', return_value=payload):
             image_ids = cfg.fetch_available_image_models('https://api.together.xyz')
-        assert (image_ids) == (['google/flash-image-2.5', 'black-forest-labs/FLUX.1-schnell'])
+        assert image_ids == ['google/flash-image-2.5', 'black-forest-labs/FLUX.1-schnell']
 
     def test_together_image_skips_slug_only_models(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -409,7 +409,7 @@ class TestFetchAvailableImageModels:
         ]
         with patch('plugin.framework.client.requests.sync_request', return_value=payload):
             image_ids = cfg.fetch_available_image_models('https://api.together.xyz')
-        assert (image_ids) == (['google/flash-image-2.5'])
+        assert image_ids == ['google/flash-image-2.5']
 
 
 class TestHasNativeVision:
@@ -444,7 +444,7 @@ class TestHasNativeVision:
         from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
 
         set_native_vision_support('my-custom-model', 'http://localhost:11434', True)
-        assert (has_native_vision('my-custom-model', 'http://localhost:11434'))
+        assert has_native_vision('my-custom-model', 'http://localhost:11434')
 
         set_native_vision_support('my-custom-model', 'http://localhost:11434', False)
         assert not (has_native_vision('my-custom-model', 'http://localhost:11434'))
@@ -459,12 +459,12 @@ class TestHasNativeVision:
             memo = mf._get_catalog_memo('https://openrouter.ai/api')
             memo.vision_declarations = {'custom-openrouter-vision-model': True}
 
-            assert (has_native_vision('custom-openrouter-vision-model', 'https://openrouter.ai/api'))
+            assert has_native_vision('custom-openrouter-vision-model', 'https://openrouter.ai/api')
             assert not (has_native_vision('some-other-model', 'https://openrouter.ai/api'))
 
     def test_ollama_api_show_capabilities(self):
         from plugin.framework.client.model_fetcher import has_native_vision
-        
+
         with patch('plugin.framework.client.requests.sync_request') as mock_sync, \
              patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             mock_sync.return_value = {"capabilities": ["vision"]}
@@ -479,7 +479,7 @@ class TestHasNativeVision:
         from plugin.framework.client.model_fetcher import has_native_vision
 
         catalog_ids = [resolve_model_id(row, 'openrouter') for row in DEFAULT_MODELS]
-        assert ('google/gemini-3.8-flash') not in (catalog_ids)
+        assert 'google/gemini-3.8-flash' not in catalog_ids
 
         payload = {
             'data': [
@@ -972,7 +972,7 @@ class TestParseOllamaRuntimeNumCtx:
                 "general.architecture": "qwen2",
             },
         }
-        assert (parse_ollama_runtime_num_ctx(body)) == (4096)
+        assert parse_ollama_runtime_num_ctx(body) == 4096
 
     def test_modelfile_used_when_parameters_omit_num_ctx(self):
         from plugin.framework.client.model_fetcher import parse_ollama_runtime_num_ctx
@@ -982,7 +982,7 @@ class TestParseOllamaRuntimeNumCtx:
             "modelfile": "FROM qwen2.5:7b\nPARAMETER num_ctx 4096\n",
             "model_info": {"qwen2.context_length": 32768},
         }
-        assert (parse_ollama_runtime_num_ctx(body)) == (4096)
+        assert parse_ollama_runtime_num_ctx(body) == 4096
 
     def test_trained_context_length_is_not_a_fallback(self):
         from plugin.framework.client.model_fetcher import parse_ollama_runtime_num_ctx
@@ -992,7 +992,7 @@ class TestParseOllamaRuntimeNumCtx:
             "modelfile": "FROM qwen2.5:7b\n",
             "model_info": {"qwen2.context_length": 32768},
         }
-        assert (parse_ollama_runtime_num_ctx(body)) is None
+        assert parse_ollama_runtime_num_ctx(body) is None
 
     def test_query_reuses_show_cache_and_survives_missing_show(self):
         from plugin.framework.client import model_fetcher as mf
@@ -1004,11 +1004,11 @@ class TestParseOllamaRuntimeNumCtx:
             "model_info": {"qwen2.context_length": 32768},
         }
         with patch("plugin.framework.client.requests.sync_request", return_value=show) as mock_sync:
-            assert (mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b")) == (4096)
-            assert (mock_sync.call_count) == (1)
+            assert mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b") == 4096
+            assert mock_sync.call_count == 1
         mf._catalog_memos.clear()
         with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")):
-            assert (mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b")) is None
+            assert mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b") is None
 
 
 class TestFilterFetchedModels:
@@ -1017,10 +1017,10 @@ class TestFilterFetchedModels:
 
         models = ["glm-5.2", "glm-asr-2512", "whisper-1", "gpt-4o"]
         out = filter_fetched_models(models, "audio")
-        assert ("glm-asr-2512") in (out)
-        assert ("whisper-1") in (out)
-        assert ("glm-5.2") not in (out)
-        assert ("gpt-4o") not in (out)
+        assert "glm-asr-2512" in out
+        assert "whisper-1" in out
+        assert "glm-5.2" not in out
+        assert "gpt-4o" not in out
 
     def test_text_filter_keeps_vision_and_coder_chat_models(self):
         from plugin.framework.client.model_fetcher import filter_fetched_models
@@ -1070,7 +1070,7 @@ class TestV1ContextHarvest:
         payload = {"data": [{"id": "openai/gpt-oss-120b", "context_window": 131072}]}
         with patch("plugin.framework.client.requests.sync_request", return_value=payload):
             mf.fetch_available_models(self.ENDPOINT)
-        assert (mf.cached_v1_context_tokens(self.ENDPOINT, "openai/gpt-oss-120b")) == (131072)
+        assert mf.cached_v1_context_tokens(self.ENDPOINT, "openai/gpt-oss-120b") == 131072
 
     def test_prefers_context_length_over_context_window(self):
         from plugin.framework.client import model_fetcher as mf
@@ -1082,7 +1082,7 @@ class TestV1ContextHarvest:
         }
         with patch("plugin.framework.client.requests.sync_request", return_value=payload):
             mf.fetch_available_models(self.ENDPOINT)
-        assert (mf.cached_v1_context_tokens(self.ENDPOINT, "m")) == (1000)
+        assert mf.cached_v1_context_tokens(self.ENDPOINT, "m") == 1000
 
     def test_ignores_non_positive_and_max_context_length(self):
         from plugin.framework.client import model_fetcher as mf
@@ -1096,15 +1096,15 @@ class TestV1ContextHarvest:
         }
         with patch("plugin.framework.client.requests.sync_request", return_value=payload):
             mf.fetch_available_models(self.ENDPOINT)
-        assert (mf.cached_v1_context_tokens(self.ENDPOINT, "zero")) is None
-        assert (mf.cached_v1_context_tokens(self.ENDPOINT, "neg")) is None
-        assert (mf.cached_v1_context_tokens(self.ENDPOINT, "lms")) is None
+        assert mf.cached_v1_context_tokens(self.ENDPOINT, "zero") is None
+        assert mf.cached_v1_context_tokens(self.ENDPOINT, "neg") is None
+        assert mf.cached_v1_context_tokens(self.ENDPOINT, "lms") is None
 
     def test_lookup_does_not_http(self):
         from plugin.framework.client import model_fetcher as mf
 
         with patch("plugin.framework.client.requests.sync_request") as mock_sync:
-            assert (mf.cached_v1_context_tokens(self.ENDPOINT, "openai/gpt-oss-120b")) is None
+            assert mf.cached_v1_context_tokens(self.ENDPOINT, "openai/gpt-oss-120b") is None
             mock_sync.assert_not_called()
 
 

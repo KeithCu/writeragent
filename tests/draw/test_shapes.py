@@ -26,6 +26,7 @@ from plugin.draw.shapes import (
     _try_writer_anchor_shape_before_add,
     _try_writer_invalidate_and_pump,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 class _Pos:
@@ -406,10 +407,6 @@ def test_shape_upsert_execute_line_zero_height():
     assert rejected["code"] == "DRAW_INVALID_SIZE"
     doc.createInstance.assert_called_once_with("com.sun.star.drawing.LineShape")
     assert ("setSize", 4000, 0) in events
-
-
-class DisposedException(Exception):
-    """Type name matches is_disposal."""
 
 
 @pytest.mark.parametrize(

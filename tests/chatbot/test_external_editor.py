@@ -132,4 +132,3 @@ def test_open_writeragent_json_in_editor_reports_spawn_oserror(
     ee.open_writeragent_json_in_editor(MagicMock())
 
     mock_msgbox.assert_called_once()
-

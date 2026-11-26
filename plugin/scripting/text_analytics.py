@@ -344,4 +344,3 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
         lambda: insert_content_at_position(doc, ctx, html, "selection"),
     )
     return 1
-

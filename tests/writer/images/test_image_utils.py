@@ -1,7 +1,6 @@
 import pytest
 import sys
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.send_cancellation import SendCancellation
 
 import os
 import json
@@ -15,7 +14,7 @@ from plugin.writer.images.image_utils import ImageService, EndpointImageProvider
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.http_transport import HttpResult
 from plugin.framework.client.llm_client import LlmClient
-from plugin.tests.testing_utils import MockContext, create_mock_client
+from plugin.tests.testing_utils import cancelled_scope, create_mock_client, MockContext
 
 class TestEndpointImageProvider:
     def setup_method(self):
@@ -29,7 +28,7 @@ class TestEndpointImageProvider:
     def test_generate_openrouter_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
-        
+
         mock_resp = {
             "content": "Here is your image",
             "images": [{"image_url": {"url": "http://example.com/image.png"}}]
@@ -38,10 +37,10 @@ class TestEndpointImageProvider:
         mock_sync.return_value = HttpResult(200, b"\x89PNG\r\n\x1a\nfake-image-data", "image/png")
 
         paths, err = self.provider.generate("test prompt")
-        
-        assert (len(paths)) == (1)
-        assert (err) == ("")
-        assert (paths[0].endswith(".png"))
+
+        assert len(paths) == 1
+        assert err == ""
+        assert paths[0].endswith(".png")
         from plugin.framework.config import get_config
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
@@ -58,7 +57,7 @@ class TestEndpointImageProvider:
     def test_generate_openrouter_b64(self):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
-        
+
         # Mock OpenRouter response with b64 image
         b64_data = base64.b64encode(b"\x89PNG\r\n\x1a\nfake-image-data-b64").decode()
         mock_resp = {
@@ -67,12 +66,12 @@ class TestEndpointImageProvider:
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        
-        assert (len(paths)) == (1)
-        assert (err) == ("")
-        assert (paths[0].endswith(".png"))
+
+        assert len(paths) == 1
+        assert err == ""
+        assert paths[0].endswith(".png")
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"\x89PNG\r\n\x1a\nfake-image-data-b64")
+            assert f.read() == b"\x89PNG\r\n\x1a\nfake-image-data-b64"
         os.unlink(paths[0])
 
     def test_generate_standard_b64(self):
@@ -82,18 +81,18 @@ class TestEndpointImageProvider:
 
         paths, err = self.provider.generate("test prompt")
 
-        assert (len(paths)) == (1)
-        assert (err) == ("")
-        assert (paths[0].endswith(".png"))
+        assert len(paths) == 1
+        assert err == ""
+        assert paths[0].endswith(".png")
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"\x89PNG\r\n\x1a\nstandard-b64-data")
+            assert f.read() == b"\x89PNG\r\n\x1a\nstandard-b64-data"
         os.unlink(paths[0])
 
     @patch('plugin.writer.images.image_utils.sync_request')
     def test_fallback_logic_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
-        
+
         mock_resp = {
             "content": "http://fallback.com/image.png",
             "images": []
@@ -102,9 +101,9 @@ class TestEndpointImageProvider:
         mock_sync.return_value = HttpResult(200, b"\x89PNG\r\n\x1a\nfallback-image-data", "image/png")
 
         paths, err = self.provider.generate("test prompt")
-        
-        assert (len(paths)) == (1)
-        assert (err) == ("")
+
+        assert len(paths) == 1
+        assert err == ""
         assert paths[0].endswith(".png")
         from plugin.framework.config import get_config
         mock_sync.assert_called_with(
@@ -122,7 +121,7 @@ class TestEndpointImageProvider:
     def test_fallback_logic_b64(self):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
-        
+
         # Mock response where image is in content (fallback b64)
         b64_data = base64.b64encode(b"\x89PNG\r\n\x1a\nfallback-b64-data").decode()
         mock_resp = {
@@ -132,23 +131,23 @@ class TestEndpointImageProvider:
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        
-        assert (len(paths)) == (1)
-        assert (err) == ("")
+
+        assert len(paths) == 1
+        assert err == ""
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"\x89PNG\r\n\x1a\nfallback-b64-data")
+            assert f.read() == b"\x89PNG\r\n\x1a\nfallback-b64-data"
         os.unlink(paths[0])
 
     def test_scoping_bug_fix_verification(self):
         """
-        Verifies that the scoping bug is fixed. 
+        Verifies that the scoping bug is fixed.
         """
         self.mock_client.config.get.return_value = False # Standard path
         self.mock_client.image_completion.return_value = [] # No images
 
         # This should NOT crash now. It should just return [].
         result = self.provider.generate("test prompt")
-        assert (result) == (([], "No image data returned from provider"))
+        assert result == ([], "No image data returned from provider")
 
     def test_generate_error_handling_missing_fields(self):
         """When provider response lacks expected image fields, ensure we return ([], '')."""
@@ -162,7 +161,7 @@ class TestEndpointImageProvider:
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        assert (paths) == ([])
+        assert paths == []
         assert err == "No image data returned from provider"
 
     def test_fallback_logic_non_string_content(self):
@@ -178,7 +177,7 @@ class TestEndpointImageProvider:
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        assert (paths) == ([])
+        assert paths == []
         assert err == "No image data returned from provider"
 
     def test_generate_multi_image(self):
@@ -191,16 +190,16 @@ class TestEndpointImageProvider:
 
         paths, err = self.provider.generate("test prompt")
 
-        assert (len(paths)) == (2)
-        assert (err) == ("")
+        assert len(paths) == 2
+        assert err == ""
 
-        assert (paths[0].endswith(".png"))
+        assert paths[0].endswith(".png")
         with open(paths[0], 'rb') as f:
-            assert (f.read()) == (b"\x89PNG\r\n\x1a\nmulti-image-b64-data-1")
+            assert f.read() == b"\x89PNG\r\n\x1a\nmulti-image-b64-data-1"
 
-        assert (paths[1].endswith(".png"))
+        assert paths[1].endswith(".png")
         with open(paths[1], 'rb') as f:
-            assert (f.read()) == (b"\x89PNG\r\n\x1a\nmulti-image-b64-data-2")
+            assert f.read() == b"\x89PNG\r\n\x1a\nmulti-image-b64-data-2"
 
         os.unlink(paths[0])
         os.unlink(paths[1])
@@ -219,7 +218,7 @@ class TestEndpointImageProvider:
 
         paths, err = self.provider.generate("test prompt")
 
-        assert (paths) == ([])
+        assert paths == []
         assert err == "No image data returned from provider"
 
     @patch('plugin.writer.images.image_utils.LlmClient')
@@ -238,12 +237,12 @@ class TestEndpointImageProvider:
 
         mock_client.make_chat_request.assert_called_once()
         call_messages = mock_client.make_chat_request.call_args[0][0]
-        assert (len(call_messages)) == (1)
+        assert len(call_messages) == 1
         content = call_messages[0]["content"]
         assert isinstance(content, list)
-        assert (content[0]) == ({"type": "text", "text": "edit prompt"})
-        assert (content[1]["type"]) == ("image_url")
-        assert (content[1]["image_url"]["url"]) == ("data:image/png;base64," + b64)
+        assert content[0] == {"type": "text", "text": "edit prompt"}
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"] == "data:image/png;base64," + b64
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_edit_image_standard_endpoint_passes_source_image(self, mock_client_cls):
@@ -259,7 +258,7 @@ class TestEndpointImageProvider:
 
         mock_client.image_completion.assert_called_once()
         kwargs = mock_client.image_completion.call_args[1]
-        assert (kwargs.get("source_image")) == (b64)
+        assert kwargs.get("source_image") == b64
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_image_generation_raises_user_stopped_on_stop(self, mock_client_cls):
@@ -273,7 +272,7 @@ class TestEndpointImageProvider:
         provider.client = mock_client
 
         with pytest.raises(ToolExecutionError) as exc_info:
-            provider.generate("test prompt", cancel=_cancelled_scope())
+            provider.generate("test prompt", cancel=cancelled_scope())
         assert exc_info.value.code == "USER_STOPPED"
 
         # Modalities path: NetworkError(code="STOPPED") from request_with_tools
@@ -285,7 +284,7 @@ class TestEndpointImageProvider:
         provider_or.client = mock_client_openrouter
 
         with pytest.raises(ToolExecutionError) as exc_info:
-            provider_or.generate("test prompt", cancel=_cancelled_scope())
+            provider_or.generate("test prompt", cancel=cancelled_scope())
         assert exc_info.value.code == "USER_STOPPED"
 
         # Fallback http content path: NetworkError(code="STOPPED") from _save_url
@@ -301,7 +300,7 @@ class TestEndpointImageProvider:
 
         with patch("plugin.writer.images.image_utils.sync_request", side_effect=NetworkError("aborted", code="STOPPED")):
             with pytest.raises(ToolExecutionError) as exc_info:
-                provider_fb.generate("test prompt", cancel=_cancelled_scope())
+                provider_fb.generate("test prompt", cancel=cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
 
     def test_save_url_content_type_and_magic_validation(self, tmp_path, monkeypatch):
@@ -349,8 +348,8 @@ class TestEndpointImageProvider:
         client = LlmClient(config, MockContext())
         method, path, body, headers = client._get_shim().build_image_request("a cat", None, 1024, 1024, source_image="b64data")
         data = json.loads(body.decode("utf-8"))
-        assert ("image_url") in (data)
-        assert (data["image_url"]) == ("data:image/png;base64,b64data")
+        assert "image_url" in data
+        assert data["image_url"] == "data:image/png;base64,b64data"
 
     def test_openrouter_image_request_uses_input_references_for_edit(self):
         """OpenRouter /images img2img must send input_references, not top-level image_url.
@@ -363,8 +362,8 @@ class TestEndpointImageProvider:
         with patch.object(client, "_resolve_auth", return_value={"provider": "openrouter"}):
             method, path, body, headers = client._get_shim().build_image_request("make him a wizard", None, 1024, 1024, source_image="b64data")
         data = json.loads(body.decode("utf-8"))
-        assert ("image_url") not in (data)
-        assert (data["input_references"]) == ([{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}])
+        assert "image_url" not in data
+        assert data["input_references"] == [{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}]
 
     def test_openai_image_request_uses_images_edits_for_edit(self):
         """Official OpenAI img2img is POST /images/edits JSON images[].image_url, not generations image_url."""
@@ -373,22 +372,22 @@ class TestEndpointImageProvider:
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
             method, path, body, headers = client._get_shim().build_image_request("a cat", "gpt-image-2", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
-            assert (path.endswith("/images/generations"))
+            assert path.endswith("/images/generations")
             assert not (path.endswith("/images/edits"))
-            assert ("image_url") not in (data)
-            assert ("images") not in (data)
-            assert ("steps") not in (data)
+            assert "image_url" not in data
+            assert "images" not in data
+            assert "steps" not in data
             assert "response_format" not in data
 
             method, path, body, headers = client._get_shim().build_image_request(
                 "make him a wizard", "gpt-image-2", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        assert (path.endswith("/images/edits"))
-        assert ("image_url") not in (data)
-        assert (data["images"]) == ([{"image_url": "data:image/png;base64,b64data"}])
+        assert path.endswith("/images/edits")
+        assert "image_url" not in data
+        assert data["images"] == [{"image_url": "data:image/png;base64,b64data"}]
         assert "response_format" not in data
-        assert (data["model"]) == ("gpt-image-2")
+        assert data["model"] == "gpt-image-2"
 
     @pytest.mark.parametrize("model", ["dall-e-3", "dall-e-2"])
     def test_openai_dalle_rejects_edit(self, model):
@@ -410,26 +409,26 @@ class TestEndpointImageProvider:
         with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
             method, path, body, headers = client._get_shim().build_image_request("a cat", "google/flash-image-2.5", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
-            assert ("image_url") not in (data)
-            assert ("reference_images") not in (data)
-            assert ("size") not in (data)
-            assert (data["width"]) == (1024)
-            assert (data["height"]) == (1024)
+            assert "image_url" not in data
+            assert "reference_images" not in data
+            assert "size" not in data
+            assert data["width"] == 1024
+            assert data["height"] == 1024
 
             method, path, body, headers = client._get_shim().build_image_request(
                 "wide", "google/flash-image-2.5", 896, 512
             )
             data = json.loads(body.decode("utf-8"))
-            assert (data["width"]) == (896)
-            assert (data["height"]) == (512)
-            assert ("size") not in (data)
+            assert data["width"] == 896
+            assert data["height"] == 512
+            assert "size" not in data
 
             method, path, body, headers = client._get_shim().build_image_request(
                 "make him a wizard", "google/flash-image-2.5", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        assert ("image_url") not in (data)
-        assert (data["reference_images"]) == (["data:image/png;base64,b64data"])
+        assert "image_url" not in data
+        assert data["reference_images"] == ["data:image/png;base64,b64data"]
 
     def test_together_kontext_image_request_uses_image_url_for_edit(self):
         """FLUX.1 Kontext on Together documents a single image_url string."""
@@ -440,21 +439,21 @@ class TestEndpointImageProvider:
                 "a lake", "black-forest-labs/FLUX.1-kontext-pro", 896, 512
             )
             create = json.loads(body.decode("utf-8"))
-            assert (create["aspect_ratio"]) == ("16:9")
-            assert ("size") not in (create)
-            assert ("width") not in (create)
-            assert ("height") not in (create)
+            assert create["aspect_ratio"] == "16:9"
+            assert "size" not in create
+            assert "width" not in create
+            assert "height" not in create
 
             method, path, body, headers = client._get_shim().build_image_request(
                 "watercolor", "black-forest-labs/FLUX.1-kontext-pro", 1024, 1024, source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        assert (data["image_url"]) == ("data:image/png;base64,b64data")
-        assert ("reference_images") not in (data)
-        assert ("size") not in (data)
-        assert ("width") not in (data)
-        assert ("height") not in (data)
-        assert (data["aspect_ratio"]) == ("1:1")
+        assert data["image_url"] == "data:image/png;base64,b64data"
+        assert "reference_images" not in data
+        assert "size" not in data
+        assert "width" not in data
+        assert "height" not in data
+        assert data["aspect_ratio"] == "1:1"
 
     def test_failure_returns_non_empty_message(self):
         from plugin.framework.errors import NetworkError
@@ -547,8 +546,8 @@ class TestImageService:
         ):
             provider.generate("a dog", width=512, height=512, image_model="multimodal-custom-model")
 
-        assert (captured.get("model")) == ("multimodal-custom-model")
-        assert (captured.get("rwt_model")) == ("multimodal-custom-model")
+        assert captured.get("model") == "multimodal-custom-model"
+        assert captured.get("rwt_model") == "multimodal-custom-model"
 
     def test_openrouter_image_request_dedicated_routing(self):
         """Image models should route to image_completion on OpenRouter."""
@@ -575,10 +574,10 @@ class TestImageService:
         ):
             provider.generate("a dog", width=1024, height=1024, image_model="black-forest-labs/flux.2-klein-4b")
 
-        assert (captured.get("prompt")) == ("a dog")
-        assert (captured.get("model")) == ("black-forest-labs/flux.2-klein-4b")
-        assert (captured.get("width")) == (1024)
-        assert (captured.get("height")) == (1024)
+        assert captured.get("prompt") == "a dog"
+        assert captured.get("model") == "black-forest-labs/flux.2-klein-4b"
+        assert captured.get("width") == 1024
+        assert captured.get("height") == 1024
 
     def test_openrouter_chat_path_sends_image_config_aspect(self):
         """Gemini multimodal create must hint aspect_ratio / 0.5K via image_config."""
@@ -614,9 +613,9 @@ class TestImageService:
 
         body = captured["body"]
         assert isinstance(body, dict)
-        assert (body["modalities"]) == (["image"])
-        assert (body["image_config"]) == ({"aspect_ratio": "1:1", "image_size": "0.5K"})
-        assert ("size") not in (body)
+        assert body["modalities"] == ["image"]
+        assert body["image_config"] == {"aspect_ratio": "1:1", "image_size": "0.5K"}
+        assert "size" not in body
 
     def test_openrouter_chat_edit_omits_image_config(self):
         """Img2img must not send sidebar size/aspect; source image defines geometry."""
@@ -654,52 +653,46 @@ class TestImageService:
 
         body = captured["body"]
         assert isinstance(body, dict)
-        assert (body["modalities"]) == (["image"])
-        assert ("image_config") not in (body)
+        assert body["modalities"] == ["image"]
+        assert "image_config" not in body
 
 
 class TestCanonicalAspectRatio:
     def test_canonical_aspect_ratio_named_and_pixels(self):
-        assert (canonical_aspect_ratio(named="square")) == ("1:1")
-        assert (canonical_aspect_ratio(named="Square")) == ("1:1")
-        assert (canonical_aspect_ratio(named="Landscape (16:9)")) == ("16:9")
-        assert (canonical_aspect_ratio(named="landscape_3_2")) == ("3:2")
-        assert (canonical_aspect_ratio(1024, 1024)) == ("1:1")
-        assert (canonical_aspect_ratio(1024, 576)) == ("16:9")
-        assert (canonical_aspect_ratio(896, 512)) == ("16:9")
+        assert canonical_aspect_ratio(named="square") == "1:1"
+        assert canonical_aspect_ratio(named="Square") == "1:1"
+        assert canonical_aspect_ratio(named="Landscape (16:9)") == "16:9"
+        assert canonical_aspect_ratio(named="landscape_3_2") == "3:2"
+        assert canonical_aspect_ratio(1024, 1024) == "1:1"
+        assert canonical_aspect_ratio(1024, 576) == "16:9"
+        assert canonical_aspect_ratio(896, 512) == "16:9"
         # 1:2 is within an absolute 0.12 of 9:16, but 2:1 is not within 0.12
         # of 16:9. Both stay unmapped so the caller sends the pixel size.
-        assert (canonical_aspect_ratio(512, 1024)) is None
-        assert (canonical_aspect_ratio(1024, 512)) is None
-        assert (canonical_aspect_ratio(1024, 768)) == ("4:3")
-        assert (canonical_aspect_ratio(768, 1024)) == ("3:4")
+        assert canonical_aspect_ratio(512, 1024) is None
+        assert canonical_aspect_ratio(1024, 512) is None
+        assert canonical_aspect_ratio(1024, 768) == "4:3"
+        assert canonical_aspect_ratio(768, 1024) == "3:4"
 
     def test_canonical_resolution_tiers_and_clamps(self):
-        assert (canonical_resolution(512, 512)) == ("512")
-        assert (canonical_resolution(1024, 1024)) == ("1K")
-        assert (canonical_resolution(2048, 2048)) == ("2K")
-        assert (canonical_resolution(4096, 4096)) == ("4K")
-        assert (canonical_resolution(512, 512, family="openrouter_chat")) == ("0.5K")
-        assert (canonical_resolution(1024, 1024, family="openrouter_chat")) == ("1K")
-        assert (canonical_resolution(2048, 2048, family="openrouter_chat")) == ("2K")
-        assert (canonical_resolution(4096, 4096, family="openrouter_chat")) == ("4K")
-        assert (canonical_resolution(512, 512, family="grok")) == ("1k")
-        assert (canonical_resolution(1024, 1024, family="grok")) == ("1k")
-        assert (canonical_resolution(2048, 2048, family="grok")) == ("2k")
-        assert (canonical_resolution(4096, 4096, family="grok")) == ("2k")
-        assert (canonical_resolution(512, 512, family="imagen")) == ("1K")
-        assert (canonical_resolution(1024, 768, family="imagen")) == ("1K")
-        assert (canonical_resolution(2048, 2048, family="imagen")) == ("2K")
-        assert (canonical_resolution(4096, 4096, family="imagen")) == ("2K")
-        assert (canonical_resolution(0, 512)) is None
+        assert canonical_resolution(512, 512) == "512"
+        assert canonical_resolution(1024, 1024) == "1K"
+        assert canonical_resolution(2048, 2048) == "2K"
+        assert canonical_resolution(4096, 4096) == "4K"
+        assert canonical_resolution(512, 512, family="openrouter_chat") == "0.5K"
+        assert canonical_resolution(1024, 1024, family="openrouter_chat") == "1K"
+        assert canonical_resolution(2048, 2048, family="openrouter_chat") == "2K"
+        assert canonical_resolution(4096, 4096, family="openrouter_chat") == "4K"
+        assert canonical_resolution(512, 512, family="grok") == "1k"
+        assert canonical_resolution(1024, 1024, family="grok") == "1k"
+        assert canonical_resolution(2048, 2048, family="grok") == "2k"
+        assert canonical_resolution(4096, 4096, family="grok") == "2k"
+        assert canonical_resolution(512, 512, family="imagen") == "1K"
+        assert canonical_resolution(1024, 768, family="imagen") == "1K"
+        assert canonical_resolution(2048, 2048, family="imagen") == "2K"
+        assert canonical_resolution(4096, 4096, family="imagen") == "2K"
+        assert canonical_resolution(0, 512) is None
 
 
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
 
 
 def test_resolve_generation_size_enums():
@@ -903,8 +896,3 @@ def test_fetch_image_url_returns_body_and_suffix_and_rejects_denylisted_type():
         with pytest.raises(RuntimeError) as exc_info:
             fetch_image_url("https://example.com/error.html")
         assert "Invalid Content-Type" in str(exc_info.value)
-
-
-
-
-

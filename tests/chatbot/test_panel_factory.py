@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FACTORY = _REPO_ROOT / "plugin" / "chatbot" / "panel_factory.py"
@@ -96,10 +97,6 @@ def test_panel_factory_logger_name_is_explicit(rel_path: str, logger_name: str) 
     src = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
     assert "getLogger(__name__)" not in src
     assert f'logging.getLogger("{logger_name}")' in src
-
-
-class _MockDisposedException(Exception):
-    """Name must include DisposedException so is_disposal matches."""
 
 
 def _thin_panel_element():
@@ -299,7 +296,7 @@ def test_disposing_swallows_disposed_focus_restore():
 
     el = _thin_panel_element()
     el.frame_session = MagicMock()
-    el.frame_session.release_panel.side_effect = _MockDisposedException("bridge gone")
+    el.frame_session.release_panel.side_effect = DisposedException("bridge gone")
     el.disposing(None)
     assert el.rich_text_widget is None
 
@@ -320,7 +317,7 @@ def test_disposing_swallows_disposed_remove_window_listener():
 
     el = _thin_panel_element()
     root = MagicMock()
-    root.removeWindowListener.side_effect = _MockDisposedException("window gone")
+    root.removeWindowListener.side_effect = DisposedException("window gone")
     tp = MagicMock()
     tp.resize_listener = MagicMock()
     el.toolpanel = tp
@@ -847,7 +844,7 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=lambda _root, name: MagicMock() if name == "chat_mode_selector" else None,
     ), patch.object(
-        el, "_get_document_model", side_effect=_MockDisposedException("model disposed")
+        el, "_get_document_model", side_effect=DisposedException("model disposed")
     ):
         el._refresh_controls_from_config()
     el._update_backend_indicator.assert_called_once_with(root)

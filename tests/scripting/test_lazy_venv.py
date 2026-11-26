@@ -234,4 +234,3 @@ def test_declared_exports_exist_in_venv_module(facade_name: str, exports_attr: s
     assert exports, f"{facade_name}.{exports_attr} is empty"
     missing = sorted(name for name in exports if not hasattr(venv, name))
     assert not missing, f"{facade_name}: {missing} not defined in {venv_name}"
-

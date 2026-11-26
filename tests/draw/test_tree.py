@@ -28,6 +28,7 @@ from plugin.draw.tree import (
     shape_summary_line,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import DisposedException
 
 
 class _Pos:
@@ -102,10 +103,6 @@ class _Shape:
 
     def getByIndex(self, i: int) -> Any:
         return (self._children or [])[i]
-
-
-class _DisposedException(Exception):
-    pass
 
 
 class _SimpleNameValue:
@@ -205,9 +202,6 @@ def test_control_snapshot_listbox():
 def test_safe_attr_reraises_disposed():
     from plugin.draw.tree import _safe_attr
 
-    class DisposedException(Exception):
-        pass
-
     class DisposedObj:
         @property
         def Name(self):
@@ -225,9 +219,6 @@ def test_safe_attr_reraises_disposed():
 
 
 def test_control_snapshot_reraises_disposed():
-    class DisposedException(Exception):
-        pass
-
     class _DisposedModel:
         Name = "Agree"
 
@@ -363,14 +354,14 @@ def test_build_shape_tree_geometry_missing_property_degrades():
 def test_build_shape_tree_reraises_disposal_from_text_and_type():
     class _DisposedTextShape(_Shape):
         def getString(self) -> str | None:
-            raise _DisposedException("text disposed")
+            raise DisposedException("text disposed")
 
     with pytest.raises(DocumentDisposedError):
         build_shape_tree(_Shapes([_DisposedTextShape("TextShape")]))
 
     class _DisposedTypeShape(_Shape):
         def getShapeType(self) -> str:
-            raise _DisposedException("type disposed")
+            raise DisposedException("type disposed")
 
     with pytest.raises(DocumentDisposedError):
         build_shape_tree(_Shapes([_DisposedTypeShape("TextShape")]))
@@ -525,12 +516,12 @@ def test_find_shape_on_page_path_resolution():
     disp_group = _Shape("GroupShape", name="DispGroup")
 
     def _exploding_get_by_index(i: int):
-        raise _DisposedException("disposed during walk")
+        raise DisposedException("disposed during walk")
 
     disp_group.getByIndex = _exploding_get_by_index
     disp_group.getCount = lambda: 1
     disp_page = _Shapes([disp_group])
-    with pytest.raises(_DisposedException):
+    with pytest.raises(DisposedException):
         find_shape_on_page(disp_page, index="0.0")
 
 

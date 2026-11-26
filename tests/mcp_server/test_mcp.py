@@ -51,7 +51,7 @@ def test_health_endpoint(mcp_server):
     """Test the /health endpoint schema and status code."""
     url = f"{mcp_server}/health"
     req = urllib.request.Request(url, method="GET")
-    
+
     with urllib.request.urlopen(req, timeout=5) as response:
         assert response.getcode() == 200
         body = response.read().decode('utf-8')
@@ -106,11 +106,11 @@ def test_mcp_resources(mcp_server):
         "id": 2,
         "method": "resources/list"
     }
-    
+
     data_bytes = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(url, method="POST", data=data_bytes)
     req.add_header('Content-Type', 'application/json')
-    
+
     with urllib.request.urlopen(req, timeout=5) as response:
         assert response.getcode() == 200
         body = response.read().decode('utf-8')
@@ -317,6 +317,3 @@ def test_mcp_action_toggle_server_failure_shows_failure_dialog():
         mod._action_toggle_server()
 
     mock_fail_dlg.assert_called_once()
-
-
-

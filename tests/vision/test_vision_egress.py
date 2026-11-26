@@ -17,6 +17,7 @@ from plugin.vision.vision_egress import (
     source_image_note,
     vision_html_from_result,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 @pytest.mark.parametrize(
@@ -298,9 +299,6 @@ def test_calc_structured_fallback_uses_html_docling(mock_structured, mock_html):
 
 def test_prepare_vision_writer_insert_disposed_anchor_raises_document_disposed():
     from plugin.vision.vision_egress import prepare_vision_writer_insert
-
-    class DisposedException(Exception):
-        pass
 
     graphic = MagicMock()
     graphic.getName.return_value = "Image1"

@@ -390,6 +390,3 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
         assert label == manifest_titles[action]
         if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
             assert label == addons_titles[action]
-
-
-

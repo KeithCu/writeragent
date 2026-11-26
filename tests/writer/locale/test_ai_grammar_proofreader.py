@@ -1600,4 +1600,3 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
         assert len(harper_combined) == 1
         assert harper_combined[0]["rule_identifier"] == "r2"
         assert harper_uncached == []
-

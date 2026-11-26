@@ -52,4 +52,3 @@ def test_sheet_copy_move_hide_and_list_objects(ctx, doc):
     hide_err = _execute_calc_tool(doc, ctx, "sheet_hide", {"sheet": "Sheet1", "visible": False})
     assert hide_err.get("status") == "error", hide_err
     assert "only visible" in hide_err.get("message", "")
-

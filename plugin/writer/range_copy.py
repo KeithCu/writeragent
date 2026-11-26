@@ -1007,4 +1007,3 @@ def copy_xtext_into_doc(
     corrupts the heap on the XHTML export that follows.
     """
     _copy_xtext_by_portions(src_doc, src_text, dest_doc, math_records=math_records)
-

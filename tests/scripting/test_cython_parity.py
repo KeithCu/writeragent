@@ -126,7 +126,7 @@ def test_custom_object_parity():
     class CustomObject:
         def __str__(self):
             return "custom_str"
-            
+
     grid = [[CustomObject(), 1.0], [2.5, CustomObject()]]
     assert_cython_vs_python_parity(grid, VENV_CODE_ECHO, label="custom object parity")
 
@@ -168,5 +168,3 @@ def test_int_subclass_after_text_cell_parity() -> None:
             py_unpacked = host_unpack_split_grid(host_pack_split_grid(grid))
         assert cy_kinds == py_kinds
         assert cy_unpacked == py_unpacked
-
-

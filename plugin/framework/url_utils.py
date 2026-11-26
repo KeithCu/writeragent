@@ -177,4 +177,3 @@ def normalize_file_url(url: str) -> str:
     if raw.startswith("file:/") and not raw.startswith("file://"):
         return "file://" + raw[len("file:") :]
     return raw
-

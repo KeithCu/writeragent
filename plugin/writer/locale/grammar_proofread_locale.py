@@ -376,5 +376,3 @@ def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) 
             continue
         out.append((s, e, txt))
     return out
-
-

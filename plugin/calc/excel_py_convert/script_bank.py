@@ -297,5 +297,3 @@ def uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
     except Exception:
         log.debug("script bank note-cell probe failed for %s", code_sheet, exc_info=True)
     return False
-
-

@@ -14,27 +14,28 @@ import pytest
 from plugin.framework.errors import DocumentDisposedError
 from plugin.scripting import python_runner as pr
 from plugin.scripting.python_runner import format_result_for_writer, format_elapsed_time, is_shape_tool_status_result
+from plugin.tests.testing_utils import DisposedException
 
 class TestPythonRunnerFormatting:
     def test_format_elapsed_time(self):
         # Minutes and seconds
-        assert (format_elapsed_time(60.0)) == ("1m 0s")
-        assert (format_elapsed_time(75.3)) == ("1m 15s")
-        assert (format_elapsed_time(125.9)) == ("2m 5s")
-        
+        assert format_elapsed_time(60.0) == "1m 0s"
+        assert format_elapsed_time(75.3) == "1m 15s"
+        assert format_elapsed_time(125.9) == "2m 5s"
+
         # Seconds and hundreds
-        assert (format_elapsed_time(1.0)) == ("1.00s")
-        assert (format_elapsed_time(3.45)) == ("3.45s")
-        assert (format_elapsed_time(59.999)) == ("1m 0s") # rounded boundary case (1m 0s)
+        assert format_elapsed_time(1.0) == "1.00s"
+        assert format_elapsed_time(3.45) == "3.45s"
+        assert format_elapsed_time(59.999) == "1m 0s" # rounded boundary case (1m 0s)
 
         # Milliseconds (1-999 ms)
-        assert (format_elapsed_time(0.999)) == ("999 ms")
-        assert (format_elapsed_time(0.5)) == ("500 ms")
-        assert (format_elapsed_time(0.001)) == ("1 ms")
+        assert format_elapsed_time(0.999) == "999 ms"
+        assert format_elapsed_time(0.5) == "500 ms"
+        assert format_elapsed_time(0.001) == "1 ms"
 
         # Less than 1 millisecond
-        assert (format_elapsed_time(0.0005)) == ("<1 ms")
-        assert (format_elapsed_time(0.0)) == ("<1 ms")
+        assert format_elapsed_time(0.0005) == "<1 ms"
+        assert format_elapsed_time(0.0) == "<1 ms"
 
     @pytest.mark.parametrize(
         "value, expected, value_2, expected_2",
@@ -44,14 +45,14 @@ class TestPythonRunnerFormatting:
         ],
     )
     def test_format_string(self, value, expected, value_2, expected_2):
-        assert (format_result_for_writer(value)) == (expected)
-        assert (format_result_for_writer(value_2)) == (expected_2)
+        assert format_result_for_writer(value) == expected
+        assert format_result_for_writer(value_2) == expected_2
 
     def test_format_escapes_html_specials_for_insert(self):
-        assert (format_result_for_writer("<b>&</b>")) == ("&lt;b&gt;&amp;&lt;/b&gt;")
+        assert format_result_for_writer("<b>&</b>") == "&lt;b&gt;&amp;&lt;/b&gt;"
         table = format_result_for_writer([["<td>", "a&b"]])
-        assert ("<td>&lt;td&gt;</td>") in (table)
-        assert ("<td>a&amp;b</td>") in (table)
+        assert "<td>&lt;td&gt;</td>" in table
+        assert "<td>a&amp;b</td>" in table
 
 
     def test_is_shape_tool_status_result(self):
@@ -78,12 +79,12 @@ class TestPythonRunnerFormatting:
     def test_format_list_of_lists(self):
         data = [["A", "B"], [1, 2]]
         expected = '<table border="1"><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table>'
-        assert (format_result_for_writer(data)) == (expected)
+        assert format_result_for_writer(data) == expected
 
     def test_format_list_of_dicts(self):
         data = [{"Name": "Alice", "Age": 30}, {"Name": "Bob", "Age": 25}]
         expected = '<table border="1"><thead><tr><th>Name</th><th>Age</th></tr></thead><tbody><tr><td>Alice</td><td>30</td></tr><tr><td>Bob</td><td>25</td></tr></tbody></table>'
-        assert (format_result_for_writer(data)) == (expected)
+        assert format_result_for_writer(data) == expected
 
     def test_format_list_of_dicts_non_string_keys(self):
         data = [{1: "a", 2: "b"}, {1: "c", "3": "d"}]
@@ -133,25 +134,25 @@ class TestPythonRunnerFormatting:
             "summary_text": "Finish"
         }
         res = format_result_for_writer(data)
-        
+
         # Order should be: title, data, total, summary_text
         title_idx = res.find("My Title")
         data_idx = res.find("data")
         total_idx = res.find("total")
         summary_idx = res.find("Finish")
-        
-        assert (title_idx) < (data_idx)
-        assert (data_idx) < (total_idx)
-        assert (total_idx) < (summary_idx)
-        
+
+        assert title_idx < data_idx
+        assert data_idx < total_idx
+        assert total_idx < summary_idx
+
         # Priority keys (title, summary_text) should NOT have labels
         # but SHOULD be bold
-        assert ("<p><b>My Title</b></p>") in (res)
-        assert ("<p><b>Finish</b></p>") in (res)
-        assert ("<b>title:</b>") not in (res)
-        assert ("<b>summary_text:</b>") not in (res)
+        assert "<p><b>My Title</b></p>" in res
+        assert "<p><b>Finish</b></p>" in res
+        assert "<b>title:</b>" not in res
+        assert "<b>summary_text:</b>" not in res
         # Non-priority keys SHOULD have labels
-        assert ("<b>total:</b>") in (res)
+        assert "<b>total:</b>" in res
 
     def test_format_priority_keys_non_string(self):
         data = {
@@ -161,19 +162,19 @@ class TestPythonRunnerFormatting:
             "result": {"nested": "value"}
         }
         res = format_result_for_writer(data)
-        assert ("<p><b>12345</b></p>") in (res)
-        assert ("<p><b>99.9</b></p>") in (res)
-        assert ("<p><b>True</b></p>") in (res)
-        assert ("<p><b>{&#x27;nested&#x27;: &#x27;value&#x27;}</b></p>") in (res)
-        assert ("<b>title:</b>") not in (res)
-        assert ("<b>summary:</b>") not in (res)
-        assert ("<b>message:</b>") not in (res)
-        assert ("<b>result:</b>") not in (res)
+        assert "<p><b>12345</b></p>" in res
+        assert "<p><b>99.9</b></p>" in res
+        assert "<p><b>True</b></p>" in res
+        assert "<p><b>{&#x27;nested&#x27;: &#x27;value&#x27;}</b></p>" in res
+        assert "<b>title:</b>" not in res
+        assert "<b>summary:</b>" not in res
+        assert "<b>message:</b>" not in res
+        assert "<b>result:</b>" not in res
 
     def test_empty_or_none(self):
-        assert (format_result_for_writer(None)) == ("")
-        assert (format_result_for_writer([])) == ("")
-        assert (format_result_for_writer("")) == ("")
+        assert format_result_for_writer(None) == ""
+        assert format_result_for_writer([]) == ""
+        assert format_result_for_writer("") == ""
 
 
 def _calc_doc_with_selection(start_col: int = 0, start_row: int = 0):
@@ -273,10 +274,6 @@ def test_insert_result_into_calc_skips_shape_status_dict():
     rich.assert_not_called()
 
 
-class _DisposedException(Exception):
-    pass
-
-
 def _egress_spec(insert):
     return SimpleNamespace(
         post_venv_calc_only=False,
@@ -289,7 +286,7 @@ def _egress_spec(insert):
 def test_try_rps_post_venv_reraises_document_disposed():
     with pytest.raises(DocumentDisposedError):
         pr.try_rps_post_venv(
-            _egress_spec(MagicMock(side_effect=_DisposedException("gone"))),
+            _egress_spec(MagicMock(side_effect=DisposedException("gone"))),
             ctx=MagicMock(),
             doc=MagicMock(),
             result_data={"a": 1},
@@ -324,7 +321,7 @@ def test_finish_script_execution_reraises_document_disposed():
     )
     with (
         patch.object(pr, "is_calc", return_value=True),
-        patch.object(pr, "insert_result_into_calc", side_effect=_DisposedException("gone")),
+        patch.object(pr, "insert_result_into_calc", side_effect=DisposedException("gone")),
     ):
         with pytest.raises(DocumentDisposedError):
             pr._finish_script_execution(prepared, {"status": "ok", "result": "hi"})
@@ -366,5 +363,3 @@ def test_finish_script_execution_unsupported_document_keeps_took_suffix():
         outcome = pr._finish_script_execution(prepared, {"status": "ok", "result": "hi"})
     assert outcome["ok"] is False
     assert re.match(r"^Unsupported document type for result insertion\. \(took .+\)$", outcome["message"])
-
-

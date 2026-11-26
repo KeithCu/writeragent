@@ -55,8 +55,8 @@ def test_is_incompatible_model_for_provider_matrix(provider, model_id, compatibl
 class TestProviderSlugPolicy:
 
     def test_provider_requires_slug_model_id(self):
-        assert (provider_requires_slug_model_id("openrouter"))
-        assert (provider_requires_slug_model_id("together"))
+        assert provider_requires_slug_model_id("openrouter")
+        assert provider_requires_slug_model_id("together")
         assert not (provider_requires_slug_model_id("zai"))
         assert not (provider_requires_slug_model_id("deepseek"))
         assert not (provider_requires_slug_model_id("lmstudio"))
@@ -69,7 +69,7 @@ class TestPresetProviderDetection:
         for _label, url in ENDPOINT_PRESETS:
             normalized = normalize_endpoint_url(url)
             expected = _PRESET_EXPECTED_PROVIDER[normalized]
-            assert (get_provider_from_endpoint(normalized)) == (expected), f"preset url {url!r} normalized {normalized!r}"
+            assert get_provider_from_endpoint(normalized) == expected, f"preset url {url!r} normalized {normalized!r}"
 
 
 def test_is_openrouter_endpoint_matches_host_not_substring():
@@ -126,4 +126,3 @@ def test_provider_shim_routing():
     assert get_provider_shim_class("xai") is GrokShim
     assert get_provider_shim_class("openai") is OpenAIShim
     assert get_provider_shim_class("grok") is BaseProviderShim
-
