@@ -240,7 +240,7 @@ def test_duckdb_import_not_deep_wrapped():
     assert get_safe_module(duck, []) is duck
     r = sandbox_run("import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()", None)
     assert r['status'] == 'ok'
-    assert 'x' in str(r.get('result', '')) or 42 in str(r.get('result', ''))
+    assert r['result'] == {'x': {'0': 42}}
 
 def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
@@ -265,7 +265,6 @@ def test_harness_main_loop_integration():
 
 def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):
     """The manager's actual Popen path must drain stderr before waiting for a response."""
-    import plugin.scripting.venv_worker as venv_worker_module
     child = tmp_path / 'stderr_flood_worker.py'
     child.write_text(('\nimport pickle\nimport struct\nimport sys\n\nsys.stderr.buffer.write(b"x" * (128 * 1024))\nsys.stderr.buffer.flush()\n\n' + _STUB_WORKER_EMIT_READY + '\nwhile True:\n    header = sys.stdin.buffer.read(4)\n    if len(header) < 4:\n        break\n    size = struct.unpack("!I", header)[0]\n    payload = sys.stdin.buffer.read(size)\n    if len(payload) < size:\n        break\n    request = pickle.loads(payload)\n    response = {"id": request.get("id"), "status": "ok", "result": 42, "stdout": ""}\n    encoded = pickle.dumps(response, protocol=5)\n    sys.stdout.buffer.write(struct.pack("!I", len(encoded)) + encoded)\n    sys.stdout.buffer.flush()\n').lstrip(), encoding='utf-8')
     monkeypatch.setattr(venv_worker_module, '_HARNESS_PATH', str(child))
@@ -293,7 +292,6 @@ def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):
 
 def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
     """A child that dies once mid-IPC must be recycled; the retried turn should succeed."""
-    import plugin.scripting.venv_worker as venv_worker_module
     crash_once = tmp_path / 'crash_once'
     crash_once.write_text('1', encoding='utf-8')
     child = tmp_path / 'crash_once_worker.py'
@@ -314,9 +312,6 @@ def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
 @pytest.mark.skipif(sys.platform != "linux", reason="SIGKILL idle-death check is Linux-only")
 def test_idle_worker_sigkill_recovers_on_next_execute(monkeypatch):
     """Killing an idle real worker with SIGKILL respawns a fresh worker on the next execute."""
-    import signal
-
-    import plugin.scripting.venv_worker as venv_worker_module
 
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
@@ -447,7 +442,6 @@ def _pid_is_alive_win32(pid: int) -> bool:
 
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     """Timeout/crash cleanup must kill descendants (joblib/loky, DataLoader), not only the worker."""
-    import plugin.scripting.venv_worker as venv_worker_module
     child = tmp_path / 'tree_worker.py'
     child.write_text(('\nimport os\nimport subprocess\nimport sys\nimport time\n\n' + _STUB_WORKER_EMIT_READY + '\ngrandchild = subprocess.Popen(\n    [sys.executable, "-c", "import time; time.sleep(120)"],\n    stdout=subprocess.DEVNULL,\n    stderr=subprocess.DEVNULL,\n)\nsys.stderr.write(f"GRANDCHILD {grandchild.pid}\\n")\nsys.stderr.flush()\ntime.sleep(120)\n').lstrip(), encoding='utf-8')
     monkeypatch.setattr(venv_worker_module, '_HARNESS_PATH', str(child))
@@ -485,9 +479,7 @@ def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
 
 def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
     """A child that never reads stdin must not hold the warm-child pipe lock forever."""
-    from plugin.framework.child_runtime import Deadline
     from plugin.framework.warm_child import ChildSpec, WarmChild
-    import plugin.scripting.venv_worker as venv_worker_module
     child = tmp_path / 'blocked_stdin_worker.py'
     child.write_text(('import sys\n' + _STUB_WORKER_EMIT_READY + 'import time\ntime.sleep(60)\n').lstrip(), encoding='utf-8')
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
@@ -609,7 +601,6 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
     may_have_run must be set before dispatch; otherwise a RuntimeError from
     the handler causes the attempt loop to resend to a new child.
     """
-    import plugin.scripting.venv_worker as venv_worker_module
     mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': frame_type, 'id': 't1', 'tool': 'apply_content', 'args': {}}, protocol=5))
@@ -747,7 +738,6 @@ def test_partial_frame_timeout_does_not_replay():
     read timeout, a partial exec_started left may_have_run false and the
     outer handler ran the request again.
     """
-    from plugin.framework.ipc import IpcPartialFrameTimeout
     mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=IpcPartialFrameTimeout('python stream desynchronized: timeout mid-frame'))
@@ -785,7 +775,6 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
         mgr._read_frame_bytes(_Stdout(), 1.0, cancel=None)
 
 def test_manager_separate_pools_same_exe():
-    from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
     shutdown_venv_workers_for_tests()
     env = {'PATH': '/usr/bin:/bin'}
     default_mgr = PythonWorkerManager.get(sys.executable, env, pool=WORKER_POOL_DEFAULT)
@@ -885,7 +874,6 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
 @pytest.mark.parametrize('exc_type', [ValueError, OverflowError, TypeError])
 def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     """Unpack failures (ValueError, OverflowError, TypeError) after a finished tool call do not resend the script."""
-    import plugin.scripting.venv_worker as venv_worker_module
     mgr, proc = _mock_mgr()
     captured: dict[str, dict] = {}
 
@@ -922,7 +910,6 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     assert mgr._terminate_worker.call_count == 1
 
 def test_get_replaces_previous_interpreter_in_the_same_pool():
-    from plugin.framework.constants import WORKER_POOL_DEFAULT
     from plugin.scripting import venv_worker
     shutdown_venv_workers_for_tests()
     first = PythonWorkerManager.get('/tmp/python-a', {'PATH': '/usr/bin'})
@@ -947,7 +934,6 @@ def test_get_refreshes_env_for_the_next_spawn():
         shutdown_venv_workers_for_tests()
 
 def test_retired_worker_does_not_respawn():
-    from plugin.framework.constants import WORKER_POOL_DEFAULT
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-old-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
@@ -1671,7 +1657,6 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
 def test_io_session_starts_new_session_without_preexec(monkeypatch: pytest.MonkeyPatch) -> None:
     """setsid belongs on the C spawn path, not a Python preexec_fn."""
     import plugin.framework.managed_subprocess as ms
-    import plugin.scripting.venv_worker as venv_worker_module
     from plugin.scripting.venv_worker import _HARNESS_PATH
     popen = MagicMock()
     proc = MagicMock()
@@ -1876,9 +1861,6 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     assert mock_execute_calls[0]['allow_heartbeat'] is True
 
 def test_read_response_with_heartbeats_swallows_callback_exceptions():
-    from plugin.scripting.venv_worker import PythonWorkerManager
-    from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
-    import io
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr._serving_tool_call = False
     call_count = 0
@@ -2079,8 +2061,6 @@ def test_read_response_with_heartbeats_cancel() -> None:
 
 def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     """An oversize request fails before any write; the warm worker must survive."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    from plugin.framework.ipc import IpcFrameError
 
     def _pack(*args, **kwargs):
         raise IpcFrameError('payload too large')
@@ -2169,8 +2149,6 @@ def _setup_harness_main(
 
 
 def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatch):
-    import io
-    from plugin.framework.ipc import read_pickle_frame
     req_data = pack_pickle_frame({'id': 'req-ve', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()
@@ -2192,9 +2170,6 @@ def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatc
     assert 'traceback' in res and 'ValueError: custom value error' in res['traceback']
 
 def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(monkeypatch):
-    import io
-    import struct
-    from plugin.framework.ipc import read_pickle_frame
     payload = pickle.dumps([1, 2, 3], protocol=5)
     bad_frame = struct.pack('!I', len(payload)) + payload
     stdin = io.BytesIO(bad_frame)
@@ -2209,8 +2184,6 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
     assert 'must contain a dict' in res['message']
 
 def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monkeypatch):
-    import io
-    import struct
     bad_header = struct.pack('!I', DEFAULT_MAX_PAYLOAD_BYTES + 100) + b'extra'
     stdin = io.BytesIO(bad_header)
     stdout = io.BytesIO()
@@ -2220,7 +2193,6 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
     assert stdout.read() == b''
 
 def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
-    import io
     stdin = io.BytesIO(b'\x00\x00')
     stdout = io.BytesIO()
     harness = _setup_harness_main(monkeypatch, stdin, stdout)
@@ -2229,7 +2201,6 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
     assert stdout.read() == b''
 
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
-    import io
     from plugin.framework.ipc import IpcFrameReadError, read_pickle_frame
     req_data = pack_pickle_frame({'id': 'req-desync', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
@@ -2246,7 +2217,6 @@ def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     assert stdout.read() == b''
 
 def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(monkeypatch):
-    import io
     from plugin.framework.ipc import IpcPayloadSizeError, read_pickle_frame
     req_data = pack_pickle_frame({'id': 'req-pack-err', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
@@ -2268,7 +2238,6 @@ def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(m
     assert 'traceback' in res
 
 def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
-    import io
     from plugin.framework.ipc import UserStopped, read_pickle_frame
     req_data = pack_pickle_frame({'id': 'req-stop', 'action': 'execute', 'code': 'result = 1'})
     stdin = io.BytesIO(req_data)
@@ -2290,8 +2259,6 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
     assert 'Interrupted by user' in res['message']
 
 def test_harness_main_reads_claimed_stdin(monkeypatch):
-    import io
-    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     req_data = pack_pickle_frame({'id': 'req-claim-in', 'action': 'execute', 'code': 'result = 1'})
     claimed_stdin = io.BytesIO(req_data)
     stdout = io.BytesIO()

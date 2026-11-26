@@ -9,7 +9,6 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import importlib.metadata
-import logging
 import shutil
 import sys
 from io import BytesIO
@@ -318,7 +317,6 @@ def test_extract_text_real_docling_tiny_png():
 @pytest.mark.timeout(300)
 def test_extract_structure_real_docling_pdf_magic():
     """Vector PDF bytes must use the PDF backend (not IMAGE OCR)."""
-    from pathlib import Path
 
     _require_supported_docling()
     pytest.importorskip("PIL.Image")

@@ -379,7 +379,6 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     ctx = _ctx_with_doc(doc)
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     WorkbookState.for_doc(doc)
 
@@ -417,7 +416,6 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(
     ctx = _ctx_with_doc(doc)
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     WorkbookState.for_doc(doc)
 
@@ -450,7 +448,6 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
     ctx = _ctx_with_doc(doc)
 
     reset_calc_workbook_states()
-    from plugin.calc.python.workbook_state import WorkbookState
 
     WorkbookState.for_doc(doc)
 
@@ -951,7 +948,6 @@ def test_finalize_python_return_auto_spill_off_returns_matrix(monkeypatch: pytes
 
 def test_matrix_result_shapes_and_types(caplog: pytest.LogCaptureFixture) -> None:
     """matrix_result handles empty, 1x1 scalars, all-text [][]string, ragged mixed [][]any, errors, and nested lists."""
-    import logging
 
     caplog.set_level(logging.DEBUG, logger="plugin.calc.python.addin_values")
     with patch("uno.Any", side_effect=lambda t, v: (t, v)):
@@ -1294,7 +1290,6 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     out_spill = _function.execute_python_addin(ctx_spill, "num_spill_code", doc=doc_spill)
     assert isinstance(out_spill, float)
     assert struct.unpack("Q", struct.pack("d", out_spill))[0] & 0xFFFF == 503
-    from plugin.calc.python.workbook_state import WorkbookState
 
     st_spill = WorkbookState.for_doc(doc_spill)
     assert st_spill is not None
@@ -1382,8 +1377,6 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
 
 def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.doc_stubs import CalcRangeStub
-
-    from plugin.calc.python.workbook_state import WorkbookState
 
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",

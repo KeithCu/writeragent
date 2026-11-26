@@ -122,7 +122,6 @@ def test_cell_address_quotes_sheet_name(sheet_name, expected):
 
 def test_non_py_formula_is_rejected_before_parsing(monkeypatch):
     import plugin.calc.python.cell_discovery as cd
-    from plugin.calc.python.formula_edit import PyFormula
 
     calls: list[str] = []
 
@@ -181,7 +180,6 @@ def test_sheet_name_of_returns_empty_on_failure() -> None:
 
 def test_discovery_of_nameless_sheet_finds_nothing() -> None:
     import plugin.calc.python.cell_discovery as cd
-    from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub("")
     sheet.getCellByPosition(0, 0).setFormula('=PY("1")')

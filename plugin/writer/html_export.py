@@ -815,6 +815,26 @@ def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
             best_effort(lambda: close_scratch_document(copy), "_export_full: close copy failed")
 
 
+def _starwriter_without_deletions(model: Any, ctx: Any) -> str:
+    """Legacy StarWriter HTML of a hidden copy that has no pending deletions.
+
+    The StarWriter HTML writer (sw/source/filter/html) has no redline handling, so
+    exporting *model* itself prints struck text as live. The copy is loaded from flat
+    ODF with deleted breaks split (expand_tracked_deletions) and the change list removed;
+    a wholly struck paragraph keeps its place as an empty one.
+    """
+    fodt = _read_filter_text(model, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
+    readable = xhtml_post.drop_tracked_changes(xhtml_post.expand_tracked_deletions(fodt) or fodt)
+    with with_temp_buffer(readable, ext=FODT_EXTENSION) as (_path, url):
+        copy = load_scratch_document(get_desktop(ctx), url)
+        if copy is None:
+            raise ToolExecutionError("Could not read the document (no scratch document).")
+        try:
+            return _export_starwriter_html(copy).replace(xhtml_post.DELETED_MARK, "")
+        finally:
+            best_effort(lambda: close_scratch_document(copy), "_starwriter_without_deletions: close copy failed")
+
+
 def document_to_content(
     model: Any,
     ctx: Any,
@@ -900,14 +920,20 @@ def document_to_content(
         xhtml_error = e
         log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
 
-    # Fallback: legacy StarWriter export (so reads never hard-fail).
+    # Fallback: legacy StarWriter export (so reads never hard-fail); a read with
+    # pending deletions goes through a copy without them.
     try:
-        content = _export_starwriter_html(model)
+        deletions = bool(TrackedDeletions(model))
+        content = _starwriter_without_deletions(model, ctx) if deletions else _export_starwriter_html(model)
         content = finish(content, None, "the HTML export came back empty")
         if walk_warnings is not None:
-            warning = "XHTML export failed; content came from the legacy HTML export and has no style tokens."
-            if TrackedDeletions(model):
-                warning += " It still includes text that pending tracked deletions remove."
+            warning = (
+                "XHTML export failed, so this content came from the legacy HTML export and has no "
+                "style tokens. LibreOffice's XHTML filter stops on long numbered lists that share one "
+                "list style. For style tokens, read the document in parts with scope='range'."
+            )
+            if deletions:
+                warning += " Pending tracked deletions are left out; a wholly deleted paragraph shows as an empty one."
             walk_warnings.append(warning)
         return _done(content, "starwriter")
     except Exception as e:

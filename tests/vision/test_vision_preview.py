@@ -433,8 +433,6 @@ def test_run_vision_insert_reports_image_deleted():
 
 
 def test_run_vision_insert_partial_error_includes_deleted_note():
-    from plugin.framework.errors import ToolExecutionError
-
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()

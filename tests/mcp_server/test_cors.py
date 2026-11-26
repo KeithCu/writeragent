@@ -657,8 +657,6 @@ def test_dns_rebinding_protection_allows_configured_tunnel_host_live(mcp_server,
 
 
 def test_is_safe_host_allows_configured_bind_host():
-    from plugin.mcp_server.cors import is_safe_host
-
     assert is_safe_host("mybox.local:8766", bind_host="mybox.local")
     assert is_safe_host("192.168.1.5:8766", bind_host="192.168.1.5")
     assert not is_safe_host("evil.example:8766", bind_host="mybox.local")

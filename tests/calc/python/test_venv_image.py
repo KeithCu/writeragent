@@ -1920,7 +1920,7 @@ def test_existing_slot_user_stretch_kept_when_aspect_unchanged():
         insert_image_result_on_sheet(_make_png_payload(400, 200), code="plt.show()", doc=doc)
 
     assert slot0.getPropertyValue("GraphicURL") == "file:///tmp/stretch.png"
-    # Revert target: comparing the old graphic's aspect, not the box's, in _refresh_existing_plot
+    # _refresh_existing_plot compares the new bytes with the old graphic's aspect, not the box's.
     assert slot0.getSize() == Size(10000, 8000)
     assert slot0.getPosition() == Point(500, 600)
 

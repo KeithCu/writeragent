@@ -287,7 +287,6 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
 
 def test_visit_handler_leaves_page_store_empty():
     from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
-    from plugin.contrib.smolagents.memory import ToolCall
 
     params = WebAgentRunParams(
         smol_model=MagicMock(),
@@ -323,7 +322,6 @@ def test_visit_handler_leaves_page_store_empty():
 def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatch):
     from plugin.chatbot import web_pages
     from plugin.chatbot.web_pages import PageStore, PagedVisitTool
-    from plugin.chatbot.web_research import WebResearchToolCallingAgent
 
     monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
 
@@ -363,7 +361,6 @@ def test_web_research_agent_accepts_urls_array_when_parallel_flag_off(monkeypatc
 def test_web_research_single_url_status_callback(monkeypatch, url, expected):
     from plugin.chatbot import web_pages
     from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
-    from plugin.contrib.smolagents.memory import ToolCall
 
     monkeypatch.setattr(web_pages, "PARALLEL_WEB_FETCH", False)
     statuses: list[str] = []
@@ -401,7 +398,6 @@ def test_web_research_single_url_status_callback(monkeypatch, url, expected):
 
 def test_find_all_pages_status_is_not_blank():
     from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
-    from plugin.contrib.smolagents.memory import ToolCall
 
     statuses: list[str] = []
     params = WebAgentRunParams(
@@ -1350,7 +1346,6 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path, status):
 def test_chromium_cdp_enabled():
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.tests.testing_utils import MockContext
-    from unittest.mock import MagicMock
 
     ctx = MagicMock()
     ctx.ctx = MockContext()
@@ -1394,7 +1389,6 @@ def test_chromium_cdp_enabled():
 def test_cdp_connection_leak_early_exception():
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.tests.testing_utils import MockContext
-    from unittest.mock import MagicMock
 
     ctx = MagicMock()
     ctx.ctx = MockContext()

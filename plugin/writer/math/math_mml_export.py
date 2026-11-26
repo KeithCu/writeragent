@@ -430,7 +430,8 @@ def _is_math_embed(obj: Any) -> bool:
 def portion_math_embed(portion: Any) -> Any | None:
     """Return the Math TextEmbeddedObject from a text portion, or None.
 
-    Text portions have no property naming the embedded object (sw/source/core/unocore/unomap1.cxx).
+    Text portions have no property naming the embedded object
+    (``SwUnoPropertyMapProvider::GetTextPortionExtensionPropertyMap``, sw/source/core/unocore/unomap1.cxx).
     Writer exposes an as-character object only through the Frame portion's content enumeration
     (sw/source/core/unocore/unoport.cxx SwXTextPortion::createContentEnumeration). Text portions
     enumerate objects anchored nearby too, so only a Frame portion counts (otherwise the text

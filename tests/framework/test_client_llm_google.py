@@ -107,8 +107,8 @@ def test_google_image_completion(mock_ctx):
     assert "responseModalities" in data["generationConfig"]
     assert "IMAGE" in data["generationConfig"]["responseModalities"]
     assert data["generationConfig"]["imageConfig"]["aspectRatio"] == "1:1"
-    # gemini-2.5-flash-image documents aspectRatio only. imageSize used to be
-    # sent anyway, including "512", and a Google 400 is not retried.
+    # gemini-2.5-flash-image documents aspectRatio only. Sending imageSize
+    # (including "512") gets a Google 400, which is not retried.
     assert "imageSize" not in data["generationConfig"]["imageConfig"]
     assert data["contents"][0]["parts"] == [{"text": "Generate an image"}]
 
@@ -209,10 +209,10 @@ def test_google_parse_image_responses(mock_ctx):
     assert shim.parse_image_responses(data_multimodal) == ["img_b64_2"]
     assert shim.parse_image_responses(["nope"]) == []
 
-    # Safety blocks send content: null. That used to raise AttributeError.
+    # Safety blocks send content: null, which yields no images rather than AttributeError.
     assert shim.parse_image_responses({"candidates": [{"content": None}]}) == []
 
-    # "error": null is not a failure. The key check raised NetworkError("None").
+    # "error": null is not a failure; a key-presence check would raise NetworkError("None").
     assert shim.parse_image_responses({"error": None, "predictions": [{"bytesBase64Encoded": "img"}]}) == ["img"]
     with pytest.raises(NetworkError, match="bad key"):
         shim.parse_image_responses({"error": {"message": "bad key"}})
@@ -277,8 +277,6 @@ def test_google_tool_format():
 def test_gemini_shim_inline_data():
     """GoogleShim uses the OpenAI-compatible endpoint, so image_url parts pass through unchanged (no inlineData rewrite)."""
     from unittest.mock import MagicMock, patch
-    from plugin.framework.client.google_shim import GoogleShim
-    from plugin.framework.client.llm_client import LlmClient
 
     ctx = MagicMock()
     client = LlmClient({"endpoint": "https://generativelanguage.googleapis.com", "model": "gemini-1.5-flash"}, ctx)

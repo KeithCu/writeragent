@@ -1199,8 +1199,6 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
         patch("plugin.chatbot.panel_factory.wire_chatpanel_controls", side_effect=fake_wire),
     ):
-        import pytest
-
         with pytest.raises(UnoObjectError):
             el.getRealInterface()
         assert el._released is True
@@ -2039,7 +2037,7 @@ def test_sidebar_refresh_keeps_uncommitted_typed_text_and_follows_external_chang
         assert image_ctrl.text == "gpt-img"
         assert image_ctrl.selection == (7, 7)
 
-        # 2. Edited box whose text equals the newly stored value is set normally (no longer kept as uncommitted).
+        # 2. Edited box whose text equals the newly stored value is set normally, not kept as uncommitted.
         text_ctrl.setText("anthropic/claude-sonnet-4")
         save({"text_model": "anthropic/claude-sonnet-4"})
         el._populate_model_combos(text_ctrl, image_ctrl)

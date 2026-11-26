@@ -1258,12 +1258,12 @@ class ManageTableStructure(ToolWriterTableBase):
             result: dict[str, Any] = {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
             if tracked:
                 label = "Row" if axis_arg == "row" else "Column"
-                flag_tracked(result)
                 result["message"] = (
                     "%s marked for deletion as a tracked change: it stays in the table, "
                     "so later indexes do not shift, until the user accepts. Do not accept or reject it yourself."
                     % label
                 )
+                flag_tracked(result)
             return result
         except ValueError as ve:
             return self._tool_error(str(ve))

@@ -66,11 +66,11 @@ def test_draw_vision_unnamed_selected_graphic(ctx, doc):
         assert len(pairs) == 1
         assert pairs[0][1] is not None
 
-        captured: list[tuple[str, bytes]] = []
+        captured: list[bytes] = []
 
         def fake_run_vision(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, cancel: Any = None):
             del cancel, context, spec
-            captured.append(("", png_bytes))
+            captured.append(png_bytes)
             return {"status": "ok", "helper": "extract_text", "full_text": "draw ocr", "html": "<p>draw ocr</p>"}
 
         with patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision):

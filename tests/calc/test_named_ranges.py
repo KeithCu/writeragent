@@ -22,7 +22,6 @@ import pytest
 
 from com.sun.star.uno import RuntimeException
 
-from plugin.app import get_tools
 from plugin.framework.errors import UnoObjectError
 from plugin.tests.testing_utils import FakeUndoManager
 from plugin.calc.named_ranges import (
@@ -34,10 +33,7 @@ from plugin.calc.named_ranges import (
     _resolve_container,
 )
 from plugin.framework.tool import prepare_tool_call
-
-
-def _tool(name: str):
-    return get_tools().get(name)
+from tests.calc.tool_lookup import calc_tool
 
 
 def _doc_with_sheet_names(*names: str) -> MagicMock:
@@ -78,8 +74,8 @@ class _RecordingCellAddress:
 
 
 def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
-    # An unknown prefix used to leave the default sheet (0), so a relative
-    # name was anchored on the wrong sheet.
+    # An unknown prefix must be an error; leaving the default sheet (0) would
+    # anchor a relative name on the wrong sheet.
     table = sys.modules.get("com.sun.star.table")
     if table is None:
         table = MagicMock()
@@ -224,21 +220,21 @@ def test_named_range_tools_error_handling():
     ctx.doc = doc
 
     # 1. GetInfo not found
-    res_info = _tool("named_range_get_info").execute_safe(ctx, name="NonExistent")
+    res_info = calc_tool("named_range_get_info").execute_safe(ctx, name="NonExistent")
     assert res_info["status"] == "error"
     assert res_info["code"] == "NAMED_RANGE_NOT_FOUND"
     assert "named_range_list" in res_info["details"]["hint"]
 
     # 2. Add duplicate
     named_ranges.hasByName.return_value = True
-    tool_add = _tool("named_range_add")
+    tool_add = calc_tool("named_range_add")
     res_add = tool_add.execute_safe(ctx, name="ExistingRange", content="A1", scope="global", base_cell="A1")
     assert res_add["status"] == "error"
     assert res_add["code"] == "NAMED_RANGE_EXISTS"
 
     # 3. Edit not found
     named_ranges.hasByName.return_value = False
-    tool_edit = _tool("named_range_edit")
+    tool_edit = calc_tool("named_range_edit")
     res_edit = tool_edit.execute_safe(ctx, name="NonExistent", content="B1")
     assert res_edit["status"] == "error"
     assert res_edit["code"] == "NAMED_RANGE_NOT_FOUND"
@@ -252,12 +248,12 @@ def test_named_range_tools_error_handling():
     # 5. Delete not found
     named_ranges.hasByName.side_effect = None
     named_ranges.hasByName.return_value = False
-    res_del = _tool("named_range_delete").execute_safe(ctx, name="NonExistent")
+    res_del = calc_tool("named_range_delete").execute_safe(ctx, name="NonExistent")
     assert res_del["status"] == "error"
     assert res_del["code"] == "NAMED_RANGE_NOT_FOUND"
 
     # 6. CreateFromTitles invalid border (rejected by schema validator; uppercase enum coerces)
-    tool_titles = _tool("named_range_create_from_titles")
+    tool_titles = calc_tool("named_range_create_from_titles")
     prep = prepare_tool_call(
         tool_titles,
         SimpleNamespace(doc_type="calc"),
@@ -309,7 +305,7 @@ def test_named_range_create_from_titles_maps_border():
     ctx = MagicMock()
     ctx.doc = doc
 
-    tool = _tool("named_range_create_from_titles")
+    tool = calc_tool("named_range_create_from_titles")
     res_left = tool.execute_safe(ctx, range=["A1:B5"], border="left", scope="global")
     assert res_left["status"] == "ok"
     named_ranges.addNewFromTitles.assert_called_with(range_addr, LEFT)
@@ -378,7 +374,7 @@ def test_edit_rejects_illegal_rename_before_mutation():
     """Illegal new names never reach setName, and earlier fields stay unchanged."""
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
-    tool = _tool("named_range_edit")
+    tool = calc_tool("named_range_edit")
     res = tool.execute_safe(ctx, name="TaxRate", new_name="A1", content="$Sheet1.$B$1")
     assert res["status"] == "error"
     assert res["code"] == "INVALID_NAME"
@@ -403,7 +399,7 @@ def test_edit_renames_before_other_fields():
     nr.setContent.side_effect = lambda content: order.append(("content", content))
     nr.setType.side_effect = lambda mask: order.append(("type", str(mask)))
 
-    res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
+    res = calc_tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", flags=["print_area"])
     assert res["status"] == "ok"
     assert [step[0] for step in order] == ["name", "content", "type"]
     assert order[0] == ("name", "TaxRate2")
@@ -427,7 +423,7 @@ def test_edit_undoes_earlier_setters_when_a_later_setter_fails(fail_setter, extr
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
     fake = ctx.doc.getUndoManager.return_value
     getattr(nr, fail_setter).side_effect = RuntimeException(f"{fail_setter} rejected", None)
-    res = _tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", **extra_kwargs)
+    res = calc_tool("named_range_edit").execute_safe(ctx, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1", **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     for setter_name, expected_args in expected_prior:
@@ -443,30 +439,30 @@ def test_unqualified_name_prefers_sheet_local_shadow():
     sheet = _sheet("Sheet1", {"Total": local})
     ctx = _workbook("Sheet1", [sheet], {"Total": glob})
 
-    info = _tool("named_range_get_info").execute_safe(ctx, name="Total")
+    info = calc_tool("named_range_get_info").execute_safe(ctx, name="Total")
     assert info["status"] == "ok"
     assert info["result"]["scope"] == "Sheet1"
     assert info["result"]["content"] == "local"
 
-    forced = _tool("named_range_get_info").execute_safe(ctx, name="Total", scope="global")
+    forced = calc_tool("named_range_get_info").execute_safe(ctx, name="Total", scope="global")
     assert forced["result"]["scope"] == "global"
     assert forced["result"]["content"] == "global"
 
-    edit = _tool("named_range_edit").execute_safe(ctx, name="Total", content="$Sheet1.$C$1")
+    edit = calc_tool("named_range_edit").execute_safe(ctx, name="Total", content="$Sheet1.$C$1")
     assert edit["status"] == "ok"
     local.setContent.assert_called_once_with("$Sheet1.$C$1")
     glob.setContent.assert_not_called()
 
-    glob_edit = _tool("named_range_edit").execute_safe(ctx, name="Total", scope="global", content="$Sheet1.$D$1")
+    glob_edit = calc_tool("named_range_edit").execute_safe(ctx, name="Total", scope="global", content="$Sheet1.$D$1")
     assert glob_edit["status"] == "ok"
     glob.setContent.assert_called_once_with("$Sheet1.$D$1")
 
-    deleted = _tool("named_range_delete").execute_safe(ctx, name="Total")
+    deleted = calc_tool("named_range_delete").execute_safe(ctx, name="Total")
     sheet.NamedRanges.removeByName.assert_called_once_with("Total")
     ctx.doc.NamedRanges.removeByName.assert_not_called()
     assert deleted["status"] == "ok"
 
-    deleted_global = _tool("named_range_delete").execute_safe(ctx, name="Total", scope="global")
+    deleted_global = calc_tool("named_range_delete").execute_safe(ctx, name="Total", scope="global")
     ctx.doc.NamedRanges.removeByName.assert_called_once_with("Total")
     assert deleted_global["status"] == "ok"
 
@@ -483,21 +479,21 @@ def test_list_all_and_get_info_skip_hidden_sheets():
     sheet2 = _sheet("Sheet2", {"Other": other})
     ctx = _workbook("Sheet1", [sheet1, hidden_sheet, anon_sheet, sheet2], {"Global": _nr("Global", "g")})
 
-    listed = _tool("named_range_list").execute_safe(ctx, scope="all")
+    listed = calc_tool("named_range_list").execute_safe(ctx, scope="all")
     assert listed["status"] == "ok"
     found = {(item["scope"], item["name"]) for item in listed["result"]}
     assert found == {("global", "Global"), ("Sheet1", "Visible"), ("Sheet2", "Other")}
 
-    missing = _tool("named_range_get_info").execute_safe(ctx, name="Secret")
+    missing = calc_tool("named_range_get_info").execute_safe(ctx, name="Secret")
     assert missing["status"] == "error"
     assert missing["code"] == "NAMED_RANGE_NOT_FOUND"
 
-    explicit = _tool("named_range_get_info").execute_safe(ctx, name="Secret", scope="_hidden")
+    explicit = calc_tool("named_range_get_info").execute_safe(ctx, name="Secret", scope="_hidden")
     assert explicit["status"] == "ok"
     assert explicit["result"]["scope"] == "_hidden"
     assert explicit["result"]["content"] == "s"
 
-    fallback = _tool("named_range_get_info").execute_safe(ctx, name="Other")
+    fallback = calc_tool("named_range_get_info").execute_safe(ctx, name="Other")
     assert fallback["status"] == "ok"
     assert fallback["result"]["scope"] == "Sheet2"
 
@@ -509,7 +505,7 @@ def test_get_info_bare_sheet_qualified_name_resolves_sheet_scope():
     sheet1 = _sheet("Sheet1", {})
     ctx = _workbook("Sheet1", [sheet1, data_sheet], {})
 
-    info = _tool("named_range_get_info").execute_safe(ctx, name="Data.LocalName")
+    info = calc_tool("named_range_get_info").execute_safe(ctx, name="Data.LocalName")
     assert info["status"] == "ok"
     assert info["result"]["scope"] == "Data"
     assert info["result"]["name"] == "LocalName"
@@ -523,11 +519,11 @@ def test_edit_and_delete_resolve_sheet_qualified_name():
     sheet1 = _sheet("Sheet1", {})
     ctx = _workbook("Sheet1", [sheet1, data_sheet], {})
 
-    res_edit = _tool("named_range_edit").execute_safe(ctx, name="Data.LocalName", content="$Data.$B$1")
+    res_edit = calc_tool("named_range_edit").execute_safe(ctx, name="Data.LocalName", content="$Data.$B$1")
     assert res_edit["status"] == "ok"
     local.setContent.assert_called_once_with("$Data.$B$1")
 
-    res_del = _tool("named_range_delete").execute_safe(ctx, name="Data.LocalName")
+    res_del = calc_tool("named_range_delete").execute_safe(ctx, name="Data.LocalName")
     assert res_del["status"] == "ok"
     data_sheet.NamedRanges.removeByName.assert_called_once_with("LocalName")
 
@@ -540,7 +536,7 @@ def test_add_validates_name_and_flags():
     ctx = MagicMock()
     ctx.doc = doc
 
-    tool = _tool("named_range_add")
+    tool = calc_tool("named_range_add")
     res_bad_name = tool.execute_safe(ctx, name="A1", content="$Sheet1.$A$1", scope="global", base_cell="A1")
     assert res_bad_name["status"] == "error"
     assert res_bad_name["code"] == "INVALID_NAME"
@@ -556,7 +552,7 @@ def test_edit_rejects_unknown_flags_before_mutation():
     """NamedRangeEdit validates flags before setName or setContent mutations."""
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
-    tool = _tool("named_range_edit")
+    tool = calc_tool("named_range_edit")
     res = tool.execute_safe(ctx, name="TaxRate", new_name="TaxRate2", flags=["printarea"])
     assert res["status"] == "error"
     assert res["code"] == "INVALID_FLAGS"
@@ -568,13 +564,13 @@ def test_named_range_tools_missing_sheet_is_uno_object_error():
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {})
     ctx.doc.getSheets.return_value.getElementNames.return_value = ("Sheet1",)
 
-    res_info = _tool("named_range_get_info").execute_safe(ctx, name="X", scope="Nope")
+    res_info = calc_tool("named_range_get_info").execute_safe(ctx, name="X", scope="Nope")
     assert res_info["status"] == "error"
     assert res_info["code"] == "UNO_OBJECT_ERROR"
     assert "Available: Sheet1" in res_info["message"]
     assert "sheet_list" in res_info["details"]["hint"]
 
-    res_add = _tool("named_range_add").execute_safe(ctx, name="X", content="A1", scope="global", base_cell="Nope.B2")
+    res_add = calc_tool("named_range_add").execute_safe(ctx, name="X", content="A1", scope="global", base_cell="Nope.B2")
     assert res_add["status"] == "error"
     assert res_add["code"] == "UNO_OBJECT_ERROR"
     assert "Available: Sheet1" in res_add["message"]
@@ -584,7 +580,7 @@ def test_named_range_tools_missing_sheet_is_uno_object_error():
 
 def test_named_range_create_from_titles_two_ranges_is_invalid_param():
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {})
-    res = _tool("named_range_create_from_titles").execute_safe(ctx, range=["A1:B2", "C1:D2"])
+    res = calc_tool("named_range_create_from_titles").execute_safe(ctx, range=["A1:B2", "C1:D2"])
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     ctx.doc.NamedRanges.addNewFromTitles.assert_not_called()

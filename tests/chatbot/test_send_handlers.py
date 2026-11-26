@@ -562,7 +562,6 @@ def test_old_finish_key_does_not_finish_mode():
 
 
 def test_acp_approval_default_and_dead_turn():
-    from plugin.chatbot.send_handlers import SendHandlersMixin
     import unittest.mock as mock
 
     class DummyHost(SendHandlersMixin):
@@ -607,7 +606,6 @@ def test_acp_approval_default_and_dead_turn():
 
 
 def test_acp_approval_auto_approve_when_configured():
-    from plugin.chatbot.send_handlers import SendHandlersMixin
     from plugin.framework.config import save
     import unittest.mock as mock
 
@@ -683,7 +681,6 @@ def test_web_research_tool():
     ctx = MagicMock()
     ctx.ctx = MockContext()
     # Mock get_config logic inside web_research to avoid KeyError
-    from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
@@ -779,7 +776,6 @@ def test_web_research_tool_stop():
 
     ctx = MagicMock()
     ctx.ctx = MockContext()
-    from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     scope = SendCancellation()
     scope.cancel()
@@ -803,7 +799,6 @@ def test_web_research_tool_approval():
     # Setup mock context
     ctx = MagicMock()
     ctx.ctx = MockContext()
-    from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
@@ -1595,12 +1590,6 @@ def test_approval_dialog_submit_false_on_error():
 
 
 def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
-    from plugin.chatbot.chat_sidebar_mode import (
-        CHAT_MODE_LIBRARIAN,
-        CHAT_MODE_BRAINSTORMING,
-        SidebarModeController,
-        SidebarModeFlags,
-    )
     for mode_val in (
         CHAT_MODE_LIBRARIAN,
         CHAT_MODE_BRAINSTORMING,
@@ -1651,9 +1640,6 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
 
 
 def test_brainstorming_send_replaces_writing_plan_topic():
-    from plugin.chatbot.chat_sidebar_mode import (
-        CHAT_MODE_BRAINSTORMING,
-    )
     from tests.conftest import make_mock_send_button_listener
 
     send = make_mock_send_button_listener()

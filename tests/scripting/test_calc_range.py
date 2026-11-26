@@ -337,7 +337,6 @@ def test_calc_range_no_numpy_fallback():
 def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
     """A column past SHAPE_DIM is a Calc range. Deal must not assert."""
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
-    from plugin.scripting.calc_range import CalcRange, materialize_inputs
 
     rows = [[i] for i in range(DEAL_MAX_SHAPE_DIM + 1)]
     ranges = materialize_inputs(rows)
@@ -369,7 +368,6 @@ def test_calc_range_init_from_ndarray_and_dataframe():
 
 def test_ensure_rectangular_2d_non_sequence_row():
     """Non-sequence row items (e.g. int) become a single cell [row] instead of raising TypeError."""
-    from plugin.scripting.calc_range import ensure_rectangular_2d
 
     assert ensure_rectangular_2d([[1, 2], 3]) == [[1, 2], [3, None]]
     assert ensure_rectangular_2d([[1, 2], 3, [4, 5, 6]]) == [[1, 2, None], [3, None, None], [4, 5, 6]]
@@ -582,7 +580,6 @@ def test_materialize_calc_range_shape_assertion():
 
 def test_result_to_calc_grid_total_egress():
     """result_to_calc_grid handles dataframe with None body, iterables, and scalars."""
-    from plugin.scripting.calc_range import result_to_calc_grid
 
     # DataFrame payload with None body -> header row only
     df_wire = {
@@ -609,7 +606,6 @@ def test_whole_number_cells_arrive_as_int():
     import operator
 
     import numpy as np
-    import pytest
 
     from plugin.scripting.calc_range import materialize_calc_range, pack_calc_range_envelope
 

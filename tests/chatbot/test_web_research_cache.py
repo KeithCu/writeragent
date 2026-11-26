@@ -255,8 +255,8 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
 def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query():
     a = stem_set_from_word_key(SPACE_ELEVATOR_KEY_1, "english")
     b = stem_set_from_word_key(SPACE_ELEVATOR_KEY_2, "english")
-    union = a | b
-    assert (len(a & b) / len(union) if union else 0.0) < 0.40
+    assert a and b
+    assert len(a & b) / len(a | b) < 0.40
     assert research_cache_similarity(a, b) >= 0.40
 
 
@@ -346,7 +346,7 @@ def test_resolve_research_locale_reraises_disposed_document():
             resolve_research_locale(None, doc)
 
     # Thread-guard teardown raises DocumentDisposedError. That name does not
-    # contain DisposedException, so a name-only check used to swallow it and
+    # contain DisposedException, so a name-only check would swallow it and
     # cache the run as english.
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
@@ -615,7 +615,6 @@ def test_fluff_keeps_topical_words_after_normalization():
 
 
 def test_get_stemmer_unknown_language_falls_back_to_english(monkeypatch):
-    import sys
     import types
 
     from plugin.chatbot import web_research_cache as wrc

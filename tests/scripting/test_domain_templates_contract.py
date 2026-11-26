@@ -80,7 +80,7 @@ def test_per_helper_templates_are_executable(wiring_id, helper_names, module_pat
 
 
 def _assert_template_is_python_and_binds(code: str) -> None:
-    """Templates used to emit JSON ``null``/``false`` and call keyword-only args by position."""
+    """A template must be Python (no JSON ``null``/``false``) and pass keyword-only args by name."""
     tree = ast.parse(code)
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert names.isdisjoint({"null", "false", "true"})

@@ -172,8 +172,6 @@ def test_collect_post_test_death_application_error() -> None:
 
 
 def test_collect_post_test_death_soffice_exit() -> None:
-    import plugin.testing_runner as tr
-
     class _DeadProc:
         def poll(self) -> int:
             return 1
@@ -269,7 +267,6 @@ def test_native_suite_sort_key_windows_ordering(
     expected_before_pairs: list[tuple[str, str]],
 ) -> None:
     """Windows native suite ordering isolates leftover docs and recycle boundaries."""
-    import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "win32")
     names = [p.rsplit("/", 1)[-1] for p in sorted(paths, key=_native_suite_sort_key)]
@@ -279,7 +276,6 @@ def test_native_suite_sort_key_windows_ordering(
 
 def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
     """Linux PR CI must not defer draw_uno; POSIX still closes Math OLE."""
-    import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "linux")
     paths = [
@@ -318,7 +314,6 @@ def test_alias_runner_module_is_noop_when_imported() -> None:
 
 def test_exit_after_summary_hard_exits_on_clean_pass(monkeypatch) -> None:
     """GHA 35527291175: pyuno GC SIGABRT after total_passed must not fail make."""
-    import plugin.testing_runner as tr
 
     seen: list[int] = []
 
@@ -337,8 +332,6 @@ def test_exit_after_summary_hard_exits_on_clean_pass(monkeypatch) -> None:
 
 
 def test_exit_after_summary_keeps_systemexit_on_failure(monkeypatch) -> None:
-    import plugin.testing_runner as tr
-
     def boom(code: int) -> None:
         raise AssertionError(f"os._exit must not hide failures, got {code}")
 

@@ -427,7 +427,7 @@ def test_compare_periods_yoy():
     assert "change" in result["tables"][0]["columns"]
     assert result["metrics"]["agg"] == "sum"
     revenue = [row[1] for row in result["tables"][0]["rows"]]
-    assert 250 in revenue or 250.0 in revenue
+    assert 250 in revenue
 
 
 def test_compare_periods_mean_does_not_sum_prices():
@@ -435,7 +435,7 @@ def test_compare_periods_mean_does_not_sum_prices():
     assert result["status"] == "ok"
     assert result["metrics"]["agg"] == "mean"
     revenue = [row[1] for row in result["tables"][0]["rows"]]
-    assert 125 in revenue or 125.0 in revenue
+    assert 125 in revenue
 
 
 def test_compare_periods_rejects_unknown_agg():

@@ -88,8 +88,6 @@ def test_missing_array_returners(func_name):
 
 
 def test_plan_target_rejects_explicit_range_over_cell_limit():
-    import pytest
-
     from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target
     from plugin.framework.errors import CalcError
 

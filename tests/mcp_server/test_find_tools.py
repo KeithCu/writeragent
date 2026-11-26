@@ -158,7 +158,7 @@ def test_gating_keeps_other_tools():
 
 
 def test_tools_list_filters_is_current():
-    # Regression: the doc-type filtering (get_schemas -> supports_doc -> doc.supportsService)
+    # The doc-type filtering (get_schemas -> supports_doc -> doc.supportsService)
     # touches UNO, so it must run INSIDE the main-thread executor, not on the MCP request
     # thread -- otherwise the UNO thread guard fails tools/list with a 500. Affects every
     # mode (all pass the live doc to get_schemas), so delegate is enough to exercise it.

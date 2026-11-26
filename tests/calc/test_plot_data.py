@@ -15,15 +15,6 @@ from plugin.calc.viz import PlotDataTool
 from plugin.framework.errors import ToolExecutionError
 
 
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
-
-
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
 def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):

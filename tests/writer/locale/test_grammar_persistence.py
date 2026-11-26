@@ -970,3 +970,29 @@ class TestGrammarPersistence:
 
 
 
+
+
+class _ModelWrapper:
+    """Second PyUNO wrapper for one model: equal to the first, not the same Python object, no RuntimeUID."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _ModelWrapper) and other.key == self.key
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def test_persistence_for_model_matches_second_wrapper_without_runtime_uid() -> None:
+    from plugin.writer.locale import grammar_persistence as gp
+
+    gp.grammar_registry.doc_persistence_instances.clear()
+    try:
+        dp = gp.DocumentPersistence("doc-wrapper")
+        dp.model = _ModelWrapper("doc")
+        gp.grammar_registry.doc_persistence_instances["doc-wrapper"] = dp
+        assert gp.persistence_for_model(_ModelWrapper("doc")) is dp
+        assert gp.persistence_for_model(_ModelWrapper("other")) is None
+    finally:
+        gp.grammar_registry.clear_all()

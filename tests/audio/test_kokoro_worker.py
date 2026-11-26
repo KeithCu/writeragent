@@ -272,7 +272,6 @@ def test_handle_kokoro_job_misaki_exception_falls_back_to_espeak(tmp_path, monke
 
 def test_kokoro_worker_once_subprocess(tmp_path):
     import json
-    import subprocess
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     worker_script = os.path.join(repo_root, "plugin", "audio", "kokoro_worker.py")

@@ -177,7 +177,6 @@ def test_live_backend_roundtrip():
 @pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
 def test_concurrent_readers_share_one_backend_call(monkeypatch, fake_keystore, locked: bool):
     import threading
-    from plugin.framework import keystore
 
     fake_keystore.store["k"] = "secret-val"
     fake_keystore.locked = locked
@@ -223,7 +222,6 @@ def test_concurrent_readers_share_one_backend_call(monkeypatch, fake_keystore, l
 
 def test_stopped_waiter_leaves_without_locking_while_leader_caches(monkeypatch, fake_keystore):
     import threading
-    from plugin.framework import keystore
     from plugin.framework.send_cancellation import SendCancellation
 
     fake_keystore.store["k"] = "secret-val"
@@ -276,7 +274,6 @@ def test_stopped_waiter_leaves_without_locking_while_leader_caches(monkeypatch, 
 
 
 def test_already_stopped_scope_makes_no_backend_call(fake_keystore):
-    from plugin.framework import keystore
     from plugin.framework.send_cancellation import SendCancellation
 
     fake_keystore.store["k"] = "secret-val"
@@ -291,7 +288,6 @@ def test_already_stopped_scope_makes_no_backend_call(fake_keystore):
 def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monkeypatch):
     import ctypes
     import gc
-    from plugin.framework import keystore
     from plugin.framework.send_cancellation import SendCancellation
 
     cancelled = {"val": 0}
@@ -430,7 +426,6 @@ def test_libsecret_cancelled_lookup_raises_locked_and_retries_after_window(monke
 
 
 def test_keystore_unlocked_event_fires_only_after_locked_read(fake_keystore):
-    from plugin.framework import keystore
     from plugin.framework.event_bus import get_event_bus
 
     events: list[str] = []
@@ -471,8 +466,6 @@ def test_is_ref_matches_only_the_exact_form():
 
 
 def test_one_lock_shares_locked_window_across_names(fake_keystore):
-    from plugin.framework import keystore
-
     fake_keystore.store.update({"a": "va", "b": "vb"})
     fake_keystore.locked = True
 
@@ -493,7 +486,6 @@ def test_one_lock_shares_locked_window_across_names(fake_keystore):
 
 def test_one_lock_concurrent_reads_share_one_backend_call(fake_keystore):
     import threading
-    from plugin.framework import keystore
 
     fake_keystore.store.update({"a": "va", "b": "vb"})
     fake_keystore.locked = True
@@ -531,8 +523,6 @@ def test_one_lock_concurrent_reads_share_one_backend_call(fake_keystore):
 
 
 def test_keystore_stopped_does_not_latch_other_names(fake_keystore):
-    from plugin.framework import keystore
-
     fake_keystore.one_lock = True
     fake_keystore.store["b"] = "vb"
 
@@ -547,7 +537,6 @@ def test_keystore_stopped_does_not_latch_other_names(fake_keystore):
 
 
 def test_one_lock_success_clears_other_locked_marks_and_emits_unlocked(fake_keystore):
-    from plugin.framework import keystore
     from plugin.framework.event_bus import get_event_bus
 
     events: list[str] = []
@@ -583,8 +572,6 @@ def test_one_lock_success_clears_other_locked_marks_and_emits_unlocked(fake_keys
 
 
 def test_one_lock_missing_item_does_not_clear_latch(fake_keystore):
-    from plugin.framework import keystore
-
     fake_keystore.one_lock = True
 
     def stop_a(name: str) -> None:

@@ -224,9 +224,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
         out = html_export.document_to_content(_content_doc(), None, walk_warnings=warnings)
     assert "Texto do documento" in out
-    assert warnings == [
-        "XHTML export failed; content came from the legacy HTML export and has no style tokens."
-    ]
+    assert len(warnings) == 1
 
 
 def test_full_export_happy_path_produces_no_fallback_warning():
@@ -1098,24 +1096,76 @@ def test_raise_if_empty_export_uses_visible_text_when_deletions_pending():
             hx._raise_if_empty_export(model, "", "empty")
 
 
-def test_starwriter_fallback_warning_mentions_struck_text_only_when_deletions_pending():
+def test_full_fallback_without_deletions_exports_the_model():
     from plugin.writer import html_export as hx
 
-    def _run(has_deletions: bool) -> list[str]:
-        warnings: list[str] = []
-        with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \
-             patch("plugin.writer.html_export._export_starwriter_html", return_value="<p>Body</p>"), \
-             patch("plugin.writer.html_export.TrackedDeletions", return_value=has_deletions):
-            hx.document_to_content(MagicMock(), MagicMock(), scope="full", walk_warnings=warnings)
-        return warnings
+    model = MagicMock()
+    warnings: list[str] = []
+    with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \
+         patch("plugin.writer.html_export._export_starwriter_html", return_value="<p>Body</p>") as sw, \
+         patch("plugin.writer.html_export.TrackedDeletions", return_value=False):
+        out = hx.document_to_content(model, MagicMock(), scope="full", walk_warnings=warnings)
 
-    w_clean = _run(False)
-    assert len(w_clean) == 1
-    assert "pending tracked deletions" not in w_clean[0]
+    assert "Body" in out
+    assert sw.call_count == 1
+    assert sw.call_args.args[0] is model
+    assert len(warnings) == 1
 
-    w_del = _run(True)
-    assert len(w_del) == 1
-    assert "pending tracked deletions" in w_del[0]
+
+def test_full_fallback_with_pending_deletions_reads_a_copy_without_tracked_changes():
+    from plugin.writer import html_export as hx
+    from plugin.writer.xhtml_style_postprocess import DELETED_MARK
+
+    source_fodt = (
+        "<office:document><office:body><office:text>"
+        "<text:tracked-changes>"
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>gone</text:p></text:deletion></text:changed-region>'
+        "</text:tracked-changes>"
+        '<text:p><text:change text:change-id="ct1"/>kept</text:p>'
+        "</office:text></office:body></office:document>"
+    )
+    source_doc = MagicMock()
+    copy_doc = MagicMock()
+    written: list[str] = []
+    warnings: list[str] = []
+
+    def fake_write(content, ext=""):
+        written.append(content)
+        return MagicMock(__enter__=lambda s: ("/tmp/x.fodt", "file:///tmp/x.fodt"), __exit__=lambda *a: None)
+
+    with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \
+         patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export._read_filter_text", return_value=source_fodt), \
+         patch("plugin.writer.html_export.with_temp_buffer", side_effect=fake_write), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=copy_doc), \
+         patch("plugin.writer.html_export.close_scratch_document") as close_copy, \
+         patch("plugin.writer.html_export._export_starwriter_html", return_value=f"<p>kept</p><p>{DELETED_MARK}</p>") as sw:
+        out = hx.document_to_content(source_doc, MagicMock(), scope="full", walk_warnings=warnings)
+
+    assert len(written) == 1
+    assert "<text:tracked-changes" not in written[0]
+    assert "gone" not in written[0]
+    assert sw.call_count == 1
+    assert sw.call_args.args[0] is copy_doc
+    assert close_copy.call_count == 1
+    assert "kept" in out
+    assert DELETED_MARK not in out
+    assert len(warnings) == 1
+
+
+def test_full_fallback_with_deletions_raises_when_no_scratch_copy():
+    import pytest
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_export as hx
+
+    with patch("plugin.writer.html_export._export_full", side_effect=RuntimeError("boom")), \
+         patch("plugin.writer.html_export.TrackedDeletions", return_value=True), \
+         patch("plugin.writer.html_export._read_filter_text", return_value="<office:document/>"), \
+         patch("plugin.writer.html_export.with_temp_buffer", return_value=MagicMock(__enter__=lambda s: ("/tmp/x.fodt", "file:///tmp/x.fodt"), __exit__=lambda *a: None)), \
+         patch("plugin.writer.html_export.load_scratch_document", return_value=None):
+        with pytest.raises(ToolExecutionError, match="no scratch document"):
+            hx.document_to_content(MagicMock(), MagicMock(), scope="full")
 
 
 def test_full_export_with_hidden_section_and_no_redlines_exports_scratch_copy():

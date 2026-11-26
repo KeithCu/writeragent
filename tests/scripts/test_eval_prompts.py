@@ -4,8 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval system prompt is the production chat builder plus the eval note."""
 
-import pytest
-
 from plugin.framework.prompts import (
     get_chat_system_prompt_for_document,
     get_chat_system_prompt_for_kind,
@@ -19,13 +17,6 @@ from scripts.prompt_optimization.eval_prompts import (
     get_eval_system_prompt,
     replace_prompt_slice,
 )
-
-
-@pytest.fixture(autouse=True)
-def _register_prompt_hooks_for_eval_prompt_tests():
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-
-    register_writeragent_prompt_hooks()
 
 
 def test_writer_eval_prompt_equals_production_plus_note() -> None:

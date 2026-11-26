@@ -16,15 +16,6 @@ from plugin.calc.viz_auto_plot import task_hint_implies_plot
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE
 
 
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
-
-
 def test_forecast_task_hint_implies_plot_reused():
     assert task_hint_implies_plot("plot forecast with bands") is True
     assert task_hint_implies_plot("monthly forecast") is False

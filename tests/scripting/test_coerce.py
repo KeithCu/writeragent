@@ -99,7 +99,6 @@ def test_is_missing_value_covers_pandas_and_numpy():
 
 def test_dedupe_column_names_in_coerce():
     """dedupe_column_names produces unique labels and avoids colliding with pre-existing numbered suffixes."""
-    from plugin.scripting.venv.coerce import dedupe_column_names
 
     assert dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
     assert dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]

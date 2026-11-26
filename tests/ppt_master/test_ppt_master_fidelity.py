@@ -302,8 +302,6 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
 
 def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):
-    import subprocess
-
     from plugin.ppt_master import fidelity
 
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []

@@ -165,7 +165,6 @@ def test_host_unpack_mixed_int_float_columns():
 
 def test_child_pack_integer_ndarray_sets_column_kinds():
     np = pytest.importorskip("numpy")
-    from plugin.scripting.payload_codec import child_pack_result
 
     wire = child_pack_result(np.arange(12, dtype=np.int64).reshape(3, 4), force="always")
     assert wire["dtype"] == "float64"
@@ -428,7 +427,6 @@ def test_round_trip_split_grid_1d():
     # Unpack on host -> flat list.
     # A Python None in the list (hole) was packed via split_grid (nan in buffer, no strings entry).
     # With the egress policy, host unpack now preserves it as nan (Calc will show error for that slot).
-    import math
     host_unpacked_mixed = host_unpack_data(wire_child_mixed)
     assert host_unpacked_mixed[0] == 1.5
     assert host_unpacked_mixed[1] == "banana"
@@ -602,7 +600,6 @@ def test_none_cell_pack_produces_nan_in_buffer() -> None:
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
     wire = host_pack_data(grid, force="always")
     assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
-    import array
 
     buf = array.array("d")
     buf.frombytes(wire["buffer"])
@@ -632,7 +629,6 @@ def test_none_mixed_ingress_child_gets_python_none() -> None:
 def test_nan_egress_child_pack_host_unpack() -> None:
     """NumPy result with np.nan: host unpack preserves NaN (it becomes a Calc error on =PYTHON() egress)."""
     np = pytest.importorskip("numpy")
-    import math
     wire = child_pack_result(np.array([1.0, np.nan, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), force="always")
     back = host_unpack_data(wire)
     assert back[0] == pytest.approx(1.0)
@@ -646,7 +642,6 @@ def test_none_host_egress_round_trip() -> None:
     a pure-numeric range becomes nan on egress and surfaces as a Calc error (by design).
     """
     np = pytest.importorskip("numpy")
-    import math
     grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
     wire = host_pack_data(grid, force="always")
     arr = child_unpack_split_grid(wire)
@@ -1338,7 +1333,6 @@ def test_split_grid_boolean_roundtrip_fidelity():
     
     # 3. Test round-trip unpacking on host.
     # Holes (None) become bare NaN slots (no strings entry). Host unpack preserves nan (Calc error policy).
-    import math
     host_unpacked = host_unpack_data(wire)
     assert host_unpacked[0] == [True, "apple", 10]
     assert host_unpacked[1] == [False, "banana", 20]
@@ -1473,7 +1467,6 @@ def test_child_pack_grid_regression() -> None:
 def test_child_pack_non_contiguous_slices():
     """Verify that non-contiguous numpy slices pack successfully without zero-copy buffer issues."""
     np = pytest.importorskip("numpy")
-    from plugin.scripting.payload_codec import child_pack_result
     
     arr = np.arange(100, dtype=np.float64).reshape(10, 10)
     non_contiguous = arr[::2, ::2]  # Step slice creates non-contiguous array
@@ -1684,8 +1677,6 @@ def test_host_cython_status_line_report_only_by_default() -> None:
 
 
 def _reloadable_accelerator(monkeypatch: pytest.MonkeyPatch):
-    from plugin.scripting import payload_codec
-
     # load_cython_accelerator() rewrites these module globals
     monkeypatch.setattr(payload_codec, "_CYTHON_ACCELERATOR_LOCATION", payload_codec._CYTHON_ACCELERATOR_LOCATION)
     monkeypatch.setattr(payload_codec, "_CYTHON_ACCELERATOR_INACTIVE_REASON", None)
@@ -1711,7 +1702,6 @@ def test_host_pack_data_tuple_rows(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_host_pack_data_numpy_str(monkeypatch: pytest.MonkeyPatch) -> None:
     np = pytest.importorskip("numpy")
-    from plugin.scripting import payload_codec
 
     grid = [["0123", np.str_("0123")]]
 

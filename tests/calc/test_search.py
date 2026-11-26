@@ -11,18 +11,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.app import get_tools
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.tool import prepare_tool_call
-
-
-def _tool(name: str):
-    return get_tools().get(name)
+from tests.calc.tool_lookup import calc_tool
 
 
 @pytest.mark.parametrize("bad_max", [0, -1])
 def test_search_in_spreadsheet_invalid_max_results(bad_max):
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells") as mock_search:
         res = tool.execute_safe(ctx, pattern="test", regex=False, max_results=bad_max, all_sheets=False)
@@ -34,7 +30,7 @@ def test_search_in_spreadsheet_invalid_max_results(bad_max):
 
 @pytest.mark.parametrize("bad_max", ["five", True])
 def test_search_cells_schema_rejects_non_int_max_results(bad_max):
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     prep = prepare_tool_call(
         tool,
         types.SimpleNamespace(doc_type="calc"),
@@ -46,7 +42,7 @@ def test_search_cells_schema_rejects_non_int_max_results(bad_max):
 
 
 def test_search_in_spreadsheet_valid_max_results():
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[{"cell": "A1", "value": "test"}]) as mock_search:
         res = tool.execute_safe(ctx, pattern="test", regex=False, max_results=5, all_sheets=False)
@@ -58,7 +54,7 @@ def test_search_in_spreadsheet_valid_max_results():
 
 
 def test_search_in_spreadsheet_forwards_cancel():
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     scope = SendCancellation()
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=scope)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[]) as mock_search:
@@ -69,7 +65,7 @@ def test_search_in_spreadsheet_forwards_cancel():
 
 
 def test_search_in_spreadsheet_case_sensitive_explicit():
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[]) as mock_search:
         res = tool.execute_safe(ctx, pattern="test", regex=False, max_results=50, all_sheets=False, case_sensitive=True)
@@ -79,7 +75,7 @@ def test_search_in_spreadsheet_case_sensitive_explicit():
 
 
 def test_replace_in_spreadsheet_matched_case_sensitive():
-    tool = _tool("replace_cells")
+    tool = calc_tool("replace_cells")
     sheet = MagicMock()
     rd = MagicMock()
     sheet.createReplaceDescriptor.return_value = rd
@@ -102,7 +98,7 @@ def test_replace_in_spreadsheet_matched_case_sensitive():
 
 
 def test_search_in_spreadsheet_invalid_regex():
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
     res = tool.execute_safe(ctx, pattern="([a-", regex=True, max_results=50)
@@ -111,7 +107,7 @@ def test_search_in_spreadsheet_invalid_regex():
 
 
 def test_replace_in_spreadsheet_invalid_regex():
-    tool = _tool("replace_cells")
+    tool = calc_tool("replace_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock())
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
     res = tool.execute_safe(ctx, search="([a-", replace="x", regex=True)
@@ -120,7 +116,7 @@ def test_replace_in_spreadsheet_invalid_regex():
 
 
 def test_search_cells_empty_pattern_is_invalid_param():
-    tool = _tool("search_cells")
+    tool = calc_tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
     res = tool.execute_safe(ctx, pattern="")
     assert res["status"] == "error"

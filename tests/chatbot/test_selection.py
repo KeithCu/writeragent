@@ -458,7 +458,6 @@ def test_bind_selection_cancel_model_disposing_cancels_scope() -> None:
 
 
 def test_stream_completion_tasks_stopped_fn_aborts_subsequent_tasks() -> None:
-    from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
     from plugin.framework.send_cancellation import SendCancellation
 
     scope = SendCancellation()
@@ -497,7 +496,6 @@ def test_stream_completion_tasks_stopped_fn_aborts_subsequent_tasks() -> None:
 
 
 def test_stream_completion_tasks_stop_between_tasks() -> None:
-    from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
     from plugin.framework.send_cancellation import SendCancellation
     from plugin.framework.async_drain_guard import _notify_drain_idle
 

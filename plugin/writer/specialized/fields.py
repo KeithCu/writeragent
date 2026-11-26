@@ -137,10 +137,7 @@ class FieldsList(ToolWriterFieldBase):
             if service not in service_props:
                 try:
                     info = field.getPropertySetInfo()
-                    service_props[service] = {
-                        getattr(p, "Name", "")
-                        for p in (info.getProperties() or ())
-                    }
+                    service_props[service] = {p.Name for p in info.getProperties()}
                 except Exception as e:
                     reraise_if_disposed(e)
                     service_props[service] = set()

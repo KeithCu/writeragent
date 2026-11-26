@@ -15,15 +15,22 @@ synchronously on the main thread, so the brief intermediate author state is neve
 
 The actual colors are LibreOffice's automatic per-author choice (we cannot pick them) -- the two
 authors just guarantee two distinct colors. Inert (no swaps) unless ``begin()`` armed this thread.
+
+Before swapping, ``begin()`` saves the user's real name to ``writeragent_office_author.json``
+in the user config directory. At startup, ``restore_author_after_crash()`` writes that saved
+name back if the profile still holds one of the two agent author names.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
+import os
 import threading
 from typing import Any, Generator
 
+from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.i18n import get_lo_locale
 
 log = logging.getLogger(__name__)
@@ -31,8 +38,52 @@ log = logging.getLogger(__name__)
 # Distinct authors -> distinct by-author colors. Both read as the agent in the Manage dialog.
 INSERT_AUTHOR = "WriterAgent"
 DELETE_AUTHOR = "WriterAgent (deletions)"
+_AGENT_PROFILES: frozenset[tuple[str, str]] = frozenset({(INSERT_AUTHOR, ""), (DELETE_AUTHOR, "")})
+_SAVED_AUTHOR_FILE = "writeragent_office_author.json"
 
 _state = threading.local()
+
+
+def _saved_author_path() -> str | None:
+    config_dir = user_config_dir()
+    if not config_dir:
+        return None
+    return os.path.join(config_dir, _SAVED_AUTHOR_FILE)
+
+
+def _saved_prior() -> tuple[str, str] | None:
+    path = _saved_author_path()
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        log.warning("review_authors: could not read saved author from %s", path, exc_info=True)
+        return None
+    if not isinstance(data, dict):
+        return None
+    given = data.get("givenname")
+    sn = data.get("sn")
+    if isinstance(given, str) and isinstance(sn, str):
+        return (given, sn)
+    return None
+
+
+def _save_prior(prior: tuple[str, str]) -> None:
+    path = _saved_author_path()
+    if path is None:
+        return
+    try:
+        atomic_write_text(
+            path,
+            json.dumps({"givenname": prior[0], "sn": prior[1]}),
+            prefix=".office-author-",
+        )
+    except OSError:
+        log.warning("review_authors: could not save prior author to %s", path, exc_info=True)
 
 
 def _disarm() -> None:
@@ -100,7 +151,12 @@ def begin(ctx: Any) -> tuple[str, str] | None:
     try:
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
-        # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
+        if prior not in _AGENT_PROFILES and prior != _saved_prior():
+            _save_prior(prior)
+        # We commit the swap because LibreOffice stamps redlines with the committed UserProfile name.
+        # configmgr writes it to registrymodifications.xcu about 1 s later (configmgr/source/components.cxx
+        # WriteThread::execute), so a crash mid-edit can leave it on disk. The real name is saved first
+        # so restore_author_after_crash can put it back.
         _commit_author(access, INSERT_AUTHOR, "")
         _state.last = INSERT_AUTHOR
         _state.ctx = ctx
@@ -109,6 +165,23 @@ def begin(ctx: Any) -> tuple[str, str] | None:
         log.debug("review_authors.begin failed", exc_info=True)
         _disarm()
         return None
+
+
+def restore_author_after_crash(ctx: Any) -> None:
+    """At startup, put back the user's name if a crash left the profile on an agent author."""
+    try:
+        access = _author_access(ctx)
+        current = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
+        if current not in _AGENT_PROFILES:
+            return
+        saved = _saved_prior()
+        if saved is None:
+            log.warning("review_authors: profile author is %r and no saved name exists; leaving it", current)
+            return
+        _commit_author(access, *saved)
+        log.info("review_authors: restored office author %r after prior crash", saved)
+    except Exception:
+        log.exception("review_authors: startup author recovery failed")
 
 
 def end(ctx: Any, prior: tuple[str, str] | None) -> None:

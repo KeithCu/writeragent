@@ -11,36 +11,33 @@ from typing import Any
 
 from plugin.draw.tables import iter_table_shapes
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-
-def _exec_tool(doc: Any, ctx: Any, name: str, args: dict[str, Any]) -> str:
-    res = TestingFactory.execute_tool(doc, ctx, name, args, doc_type="draw")
-    return json.dumps(res) if isinstance(res, dict) else res
+from plugin.tests.testing_utils import with_native_doc
+from tests.draw.draw_tool_helpers import exec_tool_json
 
 
 @native_test
 @with_native_doc("draw")
 def test_draw_table_insert_and_read(ctx: Any, doc: Any) -> None:
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "ok", res
     assert res.get("cells_written") == 4, res
 
-    res_list = json.loads(_exec_tool(doc, ctx, "table_list", {}))
+    res_list = json.loads(exec_tool_json(doc, ctx, "table_list", {}, doc_type="draw"))
     assert res_list.get("status") == "ok", res_list
     tables = res_list.get("tables", [])
     assert len(tables) == 1, res_list
     assert tables[0].get("rows") == 2
     assert tables[0].get("cols") == 2
 
-    res_cells = json.loads(_exec_tool(doc, ctx, "table_get_cells", {}))
+    res_cells = json.loads(exec_tool_json(doc, ctx, "table_get_cells", {}, doc_type="draw"))
     assert res_cells.get("status") == "ok", res_cells
     assert res_cells.get("matrix") == [["A", "B"], ["C", "D"]]
 
@@ -49,11 +46,12 @@ def test_draw_table_insert_and_read(ctx: Any, doc: Any) -> None:
 @with_native_doc("draw")
 def test_draw_table_cell_get_string_available(ctx: Any, doc: Any) -> None:
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "ok", res
@@ -77,11 +75,12 @@ def test_draw_table_rejects_oversized_data(ctx: Any, doc: Any) -> None:
     undo_count_before = len(undo_mgr.getAllUndoActionTitles())
 
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 1, "columns": 1, "data": [["A", "B"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "error", res
@@ -94,23 +93,24 @@ def test_draw_table_rejects_oversized_data(ctx: Any, doc: Any) -> None:
 @with_native_doc("draw")
 def test_draw_table_grows_to_20x10(ctx: Any, doc: Any) -> None:
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 20, "columns": 10, "data": [["corner"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "ok", res
 
-    res_list = json.loads(_exec_tool(doc, ctx, "table_list", {}))
+    res_list = json.loads(exec_tool_json(doc, ctx, "table_list", {}, doc_type="draw"))
     assert res_list.get("status") == "ok", res_list
     tables = res_list.get("tables", [])
     assert len(tables) == 1, res_list
     assert tables[0].get("rows") == 20
     assert tables[0].get("cols") == 10
 
-    res_cells = json.loads(_exec_tool(doc, ctx, "table_get_cells", {}))
+    res_cells = json.loads(exec_tool_json(doc, ctx, "table_get_cells", {}, doc_type="draw"))
     assert res_cells.get("status") == "ok", res_cells
     matrix = res_cells.get("matrix", [])
     assert len(matrix) == 20
@@ -122,21 +122,23 @@ def test_draw_table_grows_to_20x10(ctx: Any, doc: Any) -> None:
 @with_native_doc("draw")
 def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "ok", res
 
     res_row = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_manage_structure",
             {"action": "insert", "axis": "row", "index": 0},
+            doc_type="draw",
         )
     )
     assert res_row.get("status") == "ok", res_row
@@ -144,11 +146,12 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
     assert res_row.get("cols") == 2
 
     res_col = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_manage_structure",
             {"action": "insert", "axis": "column", "index": 0},
+            doc_type="draw",
         )
     )
     assert res_col.get("status") == "ok", res_col
@@ -156,11 +159,12 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
     assert res_col.get("cols") == 3
 
     res_del_col = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_manage_structure",
             {"action": "delete", "axis": "column", "index": 0},
+            doc_type="draw",
         )
     )
     assert res_del_col.get("status") == "ok", res_del_col
@@ -168,21 +172,22 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
     assert res_del_col.get("cols") == 2
 
     res_del_row = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_manage_structure",
             {"action": "delete", "axis": "row", "index": 0},
+            doc_type="draw",
         )
     )
     assert res_del_row.get("status") == "ok", res_del_row
     assert res_del_row.get("rows") == 2
     assert res_del_row.get("cols") == 2
 
-    res_del = json.loads(_exec_tool(doc, ctx, "table_delete", {}))
+    res_del = json.loads(exec_tool_json(doc, ctx, "table_delete", {}, doc_type="draw"))
     assert res_del.get("status") == "ok", res_del
 
-    res_list = json.loads(_exec_tool(doc, ctx, "table_list", {}))
+    res_list = json.loads(exec_tool_json(doc, ctx, "table_list", {}, doc_type="draw"))
     assert res_list.get("status") == "ok", res_list
     assert res_list.get("tables") == []
 
@@ -194,11 +199,12 @@ def test_draw_table_insert_is_one_undo_step(ctx: Any, doc: Any) -> None:
     titles_before = list(undo_mgr.getAllUndoActionTitles())
 
     res = json.loads(
-        _exec_tool(
+        exec_tool_json(
             doc,
             ctx,
             "table_insert",
             {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
+            doc_type="draw",
         )
     )
     assert res.get("status") == "ok", res
@@ -216,8 +222,8 @@ def test_draw_table_insert_is_one_undo_step(ctx: Any, doc: Any) -> None:
 @with_native_doc("draw")
 def test_draw_table_insert_names_shape(ctx: Any, doc: Any) -> None:
     page = doc.getDrawPages().getByIndex(0)
-    res1 = json.loads(_exec_tool(doc, ctx, "table_insert", {"rows": 2, "columns": 2}))
-    res2 = json.loads(_exec_tool(doc, ctx, "table_insert", {"rows": 2, "columns": 2}))
+    res1 = json.loads(exec_tool_json(doc, ctx, "table_insert", {"rows": 2, "columns": 2}, doc_type="draw"))
+    res2 = json.loads(exec_tool_json(doc, ctx, "table_insert", {"rows": 2, "columns": 2}, doc_type="draw"))
     assert res1.get("status") == "ok", res1
     assert res2.get("status") == "ok", res2
     name1 = res1.get("name", "")

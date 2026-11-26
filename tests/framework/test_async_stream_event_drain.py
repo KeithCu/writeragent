@@ -97,7 +97,6 @@ def test_defer_until_drain_done_runs_immediately_when_blocking() -> None:
 
 
 def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.MonkeyPatch) -> None:
-    import queue
     from plugin.framework import async_stream
 
     q: queue.Queue = queue.Queue()
@@ -151,7 +150,6 @@ def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.Monk
 
 
 def test_async_callback_rearm_breaks_reference_cycles(monkeypatch: pytest.MonkeyPatch) -> None:
-    import queue
     from plugin.framework import async_stream
 
     # Stub the internal factory to a class that keeps a strong reference to fn
@@ -755,7 +753,6 @@ def test_enqueue_rolls_back_slice_when_poke_raises():
 
 def test_blocking_drain_suspends_automatic_gc_and_restores_it() -> None:
     """The blocking fallback holds SolarMutex between pumps; keep worker GC from freeing PyUNO there."""
-    import gc
 
     from plugin.framework import async_stream as stream_mod
     from plugin.framework.async_drain_guard import reset_sentry_state

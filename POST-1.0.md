@@ -15,7 +15,7 @@ Sources copied into `docs/post-1.0/`:
 - [followup-loop-audit-2026-11-24.md](docs/post-1.0/followup-loop-audit-2026-11-24.md) (Writer)
 - [followup-loop-audit-nonwriter-2026-11-24.md](docs/post-1.0/followup-loop-audit-nonwriter-2026-11-24.md)
 - [FOLLOWUPS-PROPOSAL-1124f.md](docs/post-1.0/FOLLOWUPS-PROPOSAL-1124f.md)
-- [OLD-NITS-0.9.6.md](docs/post-1.0/OLD-NITS-0.9.6.md) and [OLD-NITS-0.9.6.tsv](docs/post-1.0/OLD-NITS-0.9.6.tsv)
+- [OLD-NITS-0.9.6.md](docs/post-1.0/OLD-NITS-0.9.6.md)
 
 Of the 40 skipped 1124f rows, restatements and already-shipped items are
 omitted. Accepted limitations and the three carried deferred rows are
@@ -281,8 +281,7 @@ rows and the non-Writer audit decisions:
 
 162 nits gathered after 0.9.6, not queued. 161 are still open; 1 was
 already handled in the follow-ups ledger. Full list:
-[OLD-NITS-0.9.6.md](docs/post-1.0/OLD-NITS-0.9.6.md), with the machine
-table in [OLD-NITS-0.9.6.tsv](docs/post-1.0/OLD-NITS-0.9.6.tsv).
+[OLD-NITS-0.9.6.md](docs/post-1.0/OLD-NITS-0.9.6.md).
 
 | Area | Open | Area | Open |
 |---|---:|---|---:|

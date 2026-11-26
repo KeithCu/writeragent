@@ -258,8 +258,6 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(tmp_path):
 
 
 def _make_zero_frame_wav(pcm_bytes: bytes) -> bytes:
-    import io
-
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
@@ -923,7 +921,6 @@ def test_finalize_wav_header_odd_pcm_length(tmp_path):
 
 def test_host_callback_max_duration(monkeypatch):
     import time
-    from unittest.mock import MagicMock, patch
     from plugin.chatbot.audio_recorder import MAX_RECORDING_DURATION_SEC
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)

@@ -438,7 +438,7 @@ def test_fixed_and_dollar_half_up_and_negative():
     assert calc.fixed(-1.25, 1) == "-1.3"
     assert calc.fixed(1234.56, 1, True) == "1234.6"
     assert calc.fixed(1234.56, 1, False) == "1,234.6"
-    # Decimal('-0.00') used to format as "-0.00". A rounded zero has no sign.
+    # A rounded zero has no sign, so Decimal('-0.00') formats as "0.00", not "-0.00".
     assert calc.fixed(-0.001, 2) == "0.00"
     assert calc.fixed(-1.235, 2) == "-1.24"
 
@@ -599,8 +599,6 @@ def test_frequency_conversion_error_raises():
 
 def test_filter_criteria_truthiness():
     import struct
-    import numpy as np
-    from plugin.scripting.calc_range import CalcRange
     from plugin.scripting.venv.calc_functions_util import NA_NAN, formula_error_nan
 
     assert calc.filter([1, 2], ["#DIV/0!", 1]) == "#DIV/0!"
@@ -675,8 +673,6 @@ def test_dsum_error_criterion_matches_every_row():
 
 
 def test_d_h_approx_floor_counts_and_df():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     assert math.isnan(calc.hypgeomdist(-0.5, 2, 3, 10))
     assert math.isnan(calc.hypgeomdist(1, -0.5, 3, 10))
     assert math.isnan(calc.hypgeomdist(0, 2, -0.5, 10))
@@ -695,8 +691,6 @@ def test_d_h_approx_floor_counts_and_df():
 
 
 def test_fact_floor_and_limits():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     assert calc.fact(170.5) == float(math.factorial(170))
     assert calc.fact(2.9999999999999996) == 6.0
     neg = calc.fact(-1e-17)
@@ -716,8 +710,6 @@ def test_filter_no_match_and_errors_before_shape():
 
 
 def test_db_domain_and_fractional_period():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     for bad in (
         calc.db(1000, 2000, 6, 1),
         calc.db(1000000, 100000, 1201, 1),

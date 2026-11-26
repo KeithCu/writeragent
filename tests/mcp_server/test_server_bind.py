@@ -478,7 +478,7 @@ def test_tls_bad_cert_fails_before_bind():
     # pass invalid certs to cause an exception
     server = HttpServer(registry, port=0, use_ssl=True, ssl_cert="does-not-exist.pem", ssl_key="does-not-exist.pem")
 
-    with pytest.raises(Exception):
+    with pytest.raises(FileNotFoundError):
         server.start()
 
     assert not server.is_running()

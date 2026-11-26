@@ -367,9 +367,6 @@ def test_draw_nested_group_shapes_summary_edit_delete(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_writer_align_two_rectangles(ctx, doc):
-    from plugin.draw.shapes import AlignShapes, UpsertShape
-    from plugin.framework.tool import ToolContext
-
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
     page = doc.getDrawPages().getByIndex(0)
     start = page.getCount()
@@ -394,7 +391,6 @@ def test_writer_align_two_rectangles(ctx, doc):
 @with_native_doc("calc", reuse=False)
 def test_calc_shape_diagram_one_node(ctx, doc):
     from plugin.draw.shapes import CreateDiagram
-    from plugin.framework.tool import ToolContext
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="calc", services=None, caller="test")
     out = CreateDiagram().execute(
@@ -409,10 +405,6 @@ def test_calc_shape_diagram_one_node(ctx, doc):
 @native_test
 @with_native_doc("draw", reuse=False)
 def test_draw_shape_upsert_names_new_shapes(ctx, doc):
-    from plugin.draw.bridge import DrawBridge
-    from plugin.draw.shapes import UpsertShape
-    from plugin.framework.tool import ToolContext
-
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
     upsert = UpsertShape()
     first = upsert.execute(tctx, action="create", shape_type="rectangle", page=0, x=1000, y=1000, width=2000, height=1500)
@@ -453,7 +445,6 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     from plugin.doc.specialized_catalog import InnerToolCall
     from plugin.doc.specialized_shapes_context import summarize_shape_calls
     from plugin.draw.shapes import ConnectShapes, CreateDiagram, UpsertShape
-    from plugin.framework.tool import ToolContext
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
     page = doc.getDrawPages().getByIndex(0)
@@ -513,7 +504,6 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
 @with_native_doc("draw")
 def test_shape_upsert_fill_and_line_style_enums(ctx, doc):
     """FillStyle, LineStyle, and TextFitToSizeType enums apply and read back cleanly."""
-    import uno
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
     page = DrawBridge(doc).get_pages().getByIndex(0)
@@ -1461,9 +1451,7 @@ def test_writer_group_of_text_frames_is_an_error(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_writer_delete_grouped_text_boxes_uno(ctx, doc):
-    import os
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
-    from plugin.doc.compound_undo import undo_titles
     from tests.writer.docx_objects_fixture import build_grouped_text_boxes
 
     for anchor in (AT_PARAGRAPH, AS_CHARACTER):
@@ -1553,7 +1541,6 @@ def test_writer_group_frame_rejected_and_hidden_shape_warning_uno(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_writer_inline_shape_upsert_x_refused_uno(ctx, doc):
-    import os
     from com.sun.star.awt import Size
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
     from tests.writer.docx_objects_fixture import build_grouped_text_boxes
@@ -1813,6 +1800,7 @@ def test_writer_inline_shape_align_distribute_uno(ctx, doc):
 
     assert UpsertShape().execute(tctx, action="edit", index=0, y=-500)["status"] == "ok"
     assert UpsertShape().execute(tctx, action="edit", index=1, y=-1200)["status"] == "ok"
+    assert inline_shapes[0].getPosition().Y != inline_shapes[1].getPosition().Y
     res_top = AlignShapes().execute(tctx, indices=[0, 1], alignment="top", page=0)
     assert res_top["status"] == "ok", res_top
     assert inline_shapes[0].getPosition().Y == inline_shapes[1].getPosition().Y

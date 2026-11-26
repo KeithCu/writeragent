@@ -556,6 +556,7 @@ setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_FRAME", Mock
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_PAGE", MockBase)
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_PARAGRAPH", MockBase)
 setattr(sys.modules["com.sun.star.text.TextContentAnchorType"], "AT_CHARACTER", MockBase)
+setattr(_create_mock_module("com.sun.star.text.ControlCharacter"), "PARAGRAPH_BREAK", 0)
 setattr(text, "XFlatParagraph", MockXFlatParagraph)
 
 linguistic = _create_mock_module("com.sun.star.linguistic2")
