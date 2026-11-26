@@ -1050,12 +1050,12 @@ name; `test_pr_ci_shard_matrix_runs_every_shard` fails until the matrix
 matches, and `test_uno_shards_cover_every_suite_file_in_sorted_order`
 checks that every discovered file lands in exactly one non-empty shard.
 
-The `UNO Tests (<os>)` job (`test-uno`) is the required check. It waits for
-every shard with `always()` and fails unless all of them succeeded, so a
-failed, timed-out or cancelled shard turns it red instead of leaving it
-skipped. Its `needs` result spans every OS in the run, so on a multi-OS
-dispatch one failing shard turns every OS's aggregate red; the shard
-checks name the one that failed.
+There is no aggregate `UNO Tests` job. The UNO checks are the three
+`UNO Shard N/3 (<os>)` jobs, alongside `Test & Typecheck (<os>)`. A failed,
+timed-out or cancelled shard is red under its own check name. On a
+pull_request those names are `UNO Shard 1/3 (ubuntu-26.04)`,
+`UNO Shard 2/3 (ubuntu-26.04)`, and `UNO Shard 3/3 (ubuntu-26.04)`.
+A workflow_dispatch to another OS uses the same pattern with that OS.
 
 ## 2026-11 Windows skip experiment (TSLOP-WIN)
 

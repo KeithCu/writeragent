@@ -581,7 +581,7 @@ def test_pr_ci_shard_matrix_runs_every_shard() -> None:
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-ci.yml"
     jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
     assert jobs["test-uno-shard"]["strategy"]["matrix"]["shard"] == list(range(1, len(tr._UNO_SHARD_CUTS) + 2))
-    assert jobs["test-uno"]["needs"] == "test-uno-shard"
+    assert "test-uno" not in jobs
 
 
 def test_shard_option_limits_discovery_to_its_files(monkeypatch, tmp_path) -> None:

@@ -409,31 +409,3 @@ jobs:
           name: ci-debug-uno-${{ matrix.os }}-shard${{ matrix.shard }}-${{ github.run_id }}
           path: ${{ runner.temp }}/pytest-ci-debug/
           if-no-files-found: warn
-
-  # One required check per OS (branch protection and the pool's merge gate read
-  # "UNO Tests (ubuntu-26.04)"). always() makes it run and fail when a shard
-  # fails, times out or is cancelled, instead of being skipped (a skipped
-  # required check counts as passing). needs.<job>.result covers every shard of
-  # every OS in this run, so a multi-OS dispatch fails all aggregates when any
-  # shard fails; the shard checks show which one.
-  test-uno:
-    name: UNO Tests (${{ matrix.os }})
-    needs: test-uno-shard
-    if: ${{ always() && inputs.test_mock_sidebar != true }}
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    strategy:
-      matrix:
-        os: >-
-          ${{
-            github.event_name == 'pull_request' && fromJSON('["ubuntu-26.04"]') ||
-            (inputs.os == 'all' && fromJSON('["ubuntu-26.04", "macos-latest", "windows-latest"]') ||
-            fromJSON(format('["{0}"]', inputs.os || 'ubuntu-26.04')))
-          }}
-    steps:
-      - name: Check UNO shard results
-        env:
-          SHARDS_RESULT: ${{ needs.test-uno-shard.result }}
-        run: |
-          echo "UNO shards: $SHARDS_RESULT"
-          test "$SHARDS_RESULT" = "success"
