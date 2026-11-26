@@ -382,7 +382,6 @@ def test_stale_bookmark_anchor_is_not_paragraph_zero():
 @patch.object(DocumentService, 'find_paragraph_element')
 def test_get_page_for_paragraph_uses_find_element(mock_find):
     """Verify get_page_for_paragraph looks up the enumeration element instead of gotoNextParagraph."""
-    from plugin.doc.document_helpers import DocumentService
 
     mock_doc = MagicMock()
     mock_text = MagicMock()
@@ -412,7 +411,6 @@ def test_get_page_for_paragraph_uses_find_element(mock_find):
 @patch.object(DocumentService, 'find_paragraph_element')
 def test_get_page_for_paragraph_handles_zero_page(mock_find):
     """Verify get_page_for_paragraph temporarily unlocks if getPage() returns 0 (table stall)."""
-    from plugin.doc.document_helpers import DocumentService
 
     mock_doc = MagicMock()
     mock_text = MagicMock()
@@ -449,9 +447,6 @@ def test_get_page_for_paragraph_handles_zero_page(mock_find):
 @patch.object(DocumentService, 'find_paragraph_element')
 def test_get_page_for_paragraph_missing_element_raises(mock_find):
     """Verify get_page_for_paragraph raises ToolExecutionError when paragraph not found."""
-    import pytest
-    from plugin.doc.document_helpers import DocumentService
-    from plugin.framework.errors import ToolExecutionError
 
     mock_doc = MagicMock()
     mock_find.return_value = None
@@ -464,7 +459,6 @@ def test_get_page_for_paragraph_missing_element_raises(mock_find):
 @patch.object(DocumentService, 'find_paragraph_element')
 def test_get_page_for_paragraph_handles_nested_xtext_cursor(mock_find):
     """Verify get_page_for_paragraph succeeds when body createTextCursorByRange would fail."""
-    from plugin.doc.document_helpers import DocumentService
 
     mock_doc = MagicMock()
     mock_body = MagicMock()
@@ -504,9 +498,6 @@ def test_get_page_for_paragraph_handles_nested_xtext_cursor(mock_find):
 @patch.object(DocumentService, 'find_paragraph_element')
 def test_get_page_for_paragraph_persistent_zero_raises(mock_find):
     """Verify get_page_for_paragraph raises ToolExecutionError if getPage remains 0 after retry."""
-    import pytest
-    from plugin.doc.document_helpers import DocumentService
-    from plugin.framework.errors import ToolExecutionError
 
     mock_doc = MagicMock()
     mock_controller = MagicMock()
@@ -526,7 +517,6 @@ def test_get_page_for_paragraph_persistent_zero_raises(mock_find):
 
 def test_get_page_count_handles_nested_xtext_cursor():
     """Verify get_page_count succeeds even if body createTextCursorByRange would raise."""
-    from plugin.doc.document_helpers import DocumentService
 
     mock_doc = MagicMock()
     mock_body = MagicMock()
@@ -554,7 +544,6 @@ def test_get_page_count_handles_nested_xtext_cursor():
 def test_get_page_count_without_view_cursor_uses_statistics():
     """Verify get_page_count falls back to DocumentStatistics when controller lacks getViewCursor."""
     from types import SimpleNamespace
-    from plugin.doc.document_helpers import DocumentService
 
     mock_doc = MagicMock()
     mock_doc.getCurrentController.return_value = SimpleNamespace()  # no getViewCursor
@@ -1065,7 +1054,6 @@ def test_writer_anchor_note_reports_at_page_number():
 
 def test_watch_open_doc_types_reports_now_and_after_document_events(monkeypatch):
     from types import SimpleNamespace
-    from unittest.mock import MagicMock
 
     import plugin.doc.document_helpers as document_helpers
 
@@ -1099,8 +1087,6 @@ def test_watch_open_doc_types_reports_now_and_after_document_events(monkeypatch)
 
 
 def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypatch):
-    from unittest.mock import MagicMock
-
     import plugin.doc.document_helpers as document_helpers
     import plugin.framework.scratch_writer as scratch_writer
 
@@ -1139,7 +1125,6 @@ def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypat
 
 def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeypatch):
     from types import SimpleNamespace
-    from unittest.mock import MagicMock
 
     import plugin.doc.document_helpers as document_helpers
     import plugin.framework.scratch_writer as scratch_writer
@@ -1204,7 +1189,6 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
 def test_print_preview_controller_without_view_cursor(monkeypatch):
     from types import SimpleNamespace
 
-    from plugin.doc.document_helpers import DocumentService
     from plugin.framework.errors import UnoObjectError
 
     model = SimpleNamespace(getCurrentController=lambda: SimpleNamespace())

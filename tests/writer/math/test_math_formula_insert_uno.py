@@ -8,11 +8,34 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer import html_import
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_mathml_to_starmath, insert_writer_math_formula
+from tests.writer.doc_builders import body_paragraphs, body_texts
+
+
+def _merged_portions(para: Any) -> list[str]:
+    """Text runs and ``"Frame"`` markers of *para*, skipping redline marks and empty runs.
+
+    Adjacent text runs are joined, because Reject All can leave a paragraph's text split
+    across portions at a former redline boundary.
+    """
+    out: list[str] = []
+    for p in iter_elements(para.createEnumeration()):
+        ptype = p.getPropertyValue("TextPortionType")
+        if ptype == "Redline":
+            continue
+        if ptype == "Frame":
+            out.append("Frame")
+        elif s := p.getString():
+            if out and out[-1] != "Frame":
+                out[-1] += s
+            else:
+                out.append(s)
+    return out
 
 
 def _embed_count(doc: Any) -> int:
@@ -314,33 +337,6 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
     text = doc.getText()
     ctx_tool = ToolContext(doc, ctx, "writer", get_services(), "test")
 
-    def _paras(xtext: Any = text) -> list[Any]:
-        out = []
-        te = xtext.createEnumeration()
-        while enum_has_more(te):
-            el = te.nextElement()
-            if hasattr(el, "getString"):
-                out.append(el)
-        return out
-
-    def _portions(para: Any) -> list[str]:
-        out = []
-        pe = para.createEnumeration()
-        while enum_has_more(pe):
-            p = pe.nextElement()
-            ptype = p.getPropertyValue("TextPortionType")
-            if ptype == "Redline":
-                continue
-            if ptype == "Frame":
-                out.append("Frame")
-            elif p.getString():
-                s = p.getString()
-                if out and out[-1] != "Frame":
-                    out[-1] += s
-                else:
-                    out.append(s)
-        return out
-
     def _clear_untracked() -> None:
         doc.setPropertyValue("RecordChanges", False)
         text.setString("")
@@ -357,9 +353,9 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             r1 = get_tools().execute("apply_content", ctx_tool, content=r"<p>pre \(x\) and \(y\) post</p>", target="end")
             assert r1.get("status") == "ok", r1
             assert _embed_count(doc) == 2
-            paras1 = _paras()
+            paras1 = body_paragraphs(text)
             assert len(paras1) == 1 + extra
-            assert _portions(paras1[extra]) == ["pre ", "Frame", " and ", "Frame", " post"]
+            assert _merged_portions(paras1[extra]) == ["pre ", "Frame", " and ", "Frame", " post"]
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
                 assert _embed_count(doc) == 0 and not text.getString().strip()
@@ -369,9 +365,9 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             r2 = get_tools().execute("apply_content", ctx_tool, content=r"pre \(x\) post", target="end")
             assert r2.get("status") == "ok", r2
             assert _embed_count(doc) == 1
-            paras2 = _paras()
+            paras2 = body_paragraphs(text)
             assert len(paras2) == 1 + extra
-            assert _portions(paras2[extra]) == ["pre ", "Frame", " post"]
+            assert _merged_portions(paras2[extra]) == ["pre ", "Frame", " post"]
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
                 assert _embed_count(doc) == 0 and not text.getString().strip()
@@ -380,10 +376,10 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             _clear_untracked()
             r3 = get_tools().execute("apply_content", ctx_tool, content=r"<p>a \(x\)</p><p>b</p>", target="end")
             assert r3.get("status") == "ok", r3
-            paras3 = _paras()
+            paras3 = body_paragraphs(text)
             assert len(paras3) == 2 + extra
-            assert _portions(paras3[extra]) == ["a ", "Frame"]
-            assert _portions(paras3[extra + 1]) == ["b"]
+            assert _merged_portions(paras3[extra]) == ["a ", "Frame"]
+            assert _merged_portions(paras3[extra + 1]) == ["b"]
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
                 assert _embed_count(doc) == 0 and not text.getString().strip()
@@ -405,7 +401,7 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             tbl = doc.getTextTables().getByIndex(0)
             a1 = tbl.getCellByName("A1")
             assert "cell" in a1.getString()
-            paras4 = _paras()
+            paras4 = body_paragraphs(text)
             assert paras4[extra].getPropertyValue("ParaStyleName") == "Heading 1"
             list_paras = [
                 p
@@ -425,7 +421,7 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             _clear_untracked()
             r5 = get_tools().execute("apply_content", ctx_tool, content="a\n\n$$x$$\n\nb", target="end")
             assert r5.get("status") == "ok", r5
-            paras5 = _paras()[extra:]
+            paras5 = body_paragraphs(text)[extra:]
             assert [p.getString().strip() for p in paras5] == ["a", "", "b"]
             assert paras5[1].getPropertyValue("ParaAdjust") == 3
             if rec:
@@ -445,12 +441,12 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
                     "apply_content", ctx_tool, target="search", old_content="MATCH", content=new_c
                 )
                 assert r6.get("status") == "ok", r6
-                paras6 = _paras()
+                paras6 = body_paragraphs(text)
                 assert len(paras6) == 1
                 if rec:
                     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-                    paras6 = _paras()
-                assert _portions(paras6[0]) == expected_portions, (new_c, _portions(paras6[0]))
+                    paras6 = body_paragraphs(text)
+                assert _merged_portions(paras6[0]) == expected_portions, (new_c, _merged_portions(paras6[0]))
 
                 if rec:
                     _clear_untracked()
@@ -480,7 +476,7 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             assert r6h.get("status") == "ok", r6h
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-            paras6h = _paras()
+            paras6h = body_paragraphs(text)
             assert len(paras6h) == 1
             assert paras6h[0].getString() == "New title"
             assert paras6h[0].getPropertyValue("ParaStyleName") == "Heading 1"
@@ -500,9 +496,9 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             a1_7 = tbl7.getCellByName("A1")
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-            a1_paras = _paras(a1_7)
+            a1_paras = body_paragraphs(a1_7)
             assert len(a1_paras) == 1
-            assert _portions(a1_paras[0]) == ["cell ", "Frame", " end"]
+            assert _merged_portions(a1_paras[0]) == ["cell ", "Frame", " end"]
 
             # 8. Mid-body failed conversion stays in place and keeps following paragraphs
             from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
@@ -524,7 +520,7 @@ def test_mixed_math_import_paragraphs_styles_lists_cells_and_inline_uno(ctx: Any
             assert r8.get("status") == "ok", r8
             if rec:
                 execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-            paras8 = [p.getString() for p in _paras()]
+            paras8 = body_texts(text)
             assert paras8 == ["first", "second [Math import failed] bad third", "fourth"], paras8
         finally:
             doc.setPropertyValue("RecordChanges", False)
@@ -558,15 +554,6 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
             out.append("Frame" if ptype == "Frame" else p.getString())
         return out
 
-    def _paras() -> list[Any]:
-        out: list[Any] = []
-        pe = text.createEnumeration()
-        while enum_has_more(pe):
-            el = pe.nextElement()
-            if el.supportsService("com.sun.star.text.Paragraph"):
-                out.append(el)
-        return out
-
     for rec in (False, True):
         try:
             for pos in ("before", "after"):
@@ -582,7 +569,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 assert res.get("status") == "ok", res
                 assert res.get("inserted") is True, res
                 assert len(res.get("math_objects") or []) == 1, res
-                paras = _paras()
+                paras = body_paragraphs(text)
                 assert len(paras) == 1
                 expected_inline = ["mid ", "Frame", "MATCH end"] if pos == "before" else ["mid MATCH", "Frame", " end"]
                 assert _para_portions(paras[0]) == expected_inline, (rec, pos, _para_portions(paras[0]))
@@ -592,7 +579,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 else:
                     doc.getUndoManager().undo()
                 assert text.getString() == "mid MATCH end"
-                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert body_texts(text) == ["mid MATCH end"]
                 assert _embed_count(doc) == base_embeds
 
                 # 2. Block HTML with math
@@ -606,7 +593,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 )
                 assert res_blk.get("status") == "ok", res_blk
                 assert len(res_blk.get("math_objects") or []) == 1, res_blk
-                paras = _paras()
+                paras = body_paragraphs(text)
                 assert len(paras) == 2
                 math_idx, orig_idx = (0, 1) if pos == "before" else (1, 0)
                 assert _para_portions(paras[math_idx]) == ["A ", "Frame", " B"]
@@ -617,7 +604,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 else:
                     doc.getUndoManager().undo()
                 assert text.getString() == "mid MATCH end"
-                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert body_texts(text) == ["mid MATCH end"]
                 assert _embed_count(doc) == base_embeds
 
                 # 3. Display math centered paragraph
@@ -631,7 +618,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 )
                 assert res_disp.get("status") == "ok", res_disp
                 assert len(res_disp.get("math_objects") or []) == 1, res_disp
-                paras = _paras()
+                paras = body_paragraphs(text)
                 expected_disp = ["mid ", "", "MATCH end"] if pos == "before" else ["mid MATCH", "", " end"]
                 assert [p.getString() for p in paras] == expected_disp, (rec, pos, [p.getString() for p in paras])
                 assert _para_portions(paras[1]) == ["Frame"]
@@ -642,7 +629,7 @@ def test_position_before_after_math_uno(ctx: Any, doc: Any) -> None:
                 else:
                     doc.getUndoManager().undo()
                 assert text.getString() == "mid MATCH end"
-                assert [p.getString() for p in _paras()] == ["mid MATCH end"]
+                assert body_texts(text) == ["mid MATCH end"]
                 assert _embed_count(doc) == base_embeds
         finally:
             doc.setPropertyValue("RecordChanges", False)
@@ -731,42 +718,14 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
         text.insertString(cur, "tail", False)
         doc.getUndoManager().clear()
 
-    def _para_portions(para: Any) -> list[str]:
-        # Reject All can leave a paragraph's text split across adjacent portions at a former redline boundary.
-        out: list[str] = []
-        pe = para.createEnumeration()
-        while enum_has_more(pe):
-            p = pe.nextElement()
-            ptype = p.getPropertyValue("TextPortionType")
-            if ptype == "Redline":
-                continue
-            if ptype == "Frame":
-                out.append("Frame")
-            else:
-                s = p.getString()
-                if out and out[-1] != "Frame":
-                    out[-1] += s
-                else:
-                    out.append(s)
-        return out
-
-    def _paras() -> list[Any]:
-        out: list[Any] = []
-        pe = text.createEnumeration()
-        while enum_has_more(pe):
-            el = pe.nextElement()
-            if el.supportsService("com.sun.star.text.Paragraph"):
-                out.append(el)
-        return out
-
     def _snapshot() -> list[tuple[str, int, list[str]]]:
         return [
             (
                 str(el.getPropertyValue("ParaStyleName")),
                 int(el.getPropertyValue("OutlineLevel")),
-                _para_portions(el),
+                _merged_portions(el),
             )
-            for el in _paras()
+            for el in body_paragraphs(text)
         ]
 
     def _assert_redlines_only_insert_delete() -> None:
@@ -783,10 +742,10 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
         else:
             doc.getUndoManager().undo()
         assert _snapshot() == before_snap, (rec, _snapshot(), before_snap)
-        assert [int(p.getPropertyValue("ParaAdjust")) for p in _paras()] == before_adjusts
+        assert [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)] == before_adjusts
 
     def _heading_cursor() -> Any:
-        heading = _paras()[1]
+        heading = body_paragraphs(text)[1]
         return text.createTextCursorByRange(heading.getStart())
 
     for rec in (False, True):
@@ -794,7 +753,7 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             # 1. Caret at start of Heading 1
             _reset_doc("Alpha Beta")
             before_snap = _snapshot()
-            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
             doc.setPropertyValue("RecordChanges", rec)
             cur = _heading_cursor()
             cur.gotoStartOfParagraph(False)
@@ -811,14 +770,14 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                 ("Heading 1", 1, ["Alpha Beta"]),
                 ("Text body", 0, ["tail"]),
             ], (rec, snap)
-            assert _paras()[1].getPropertyValue("ParaAdjust") == 3
+            assert body_paragraphs(text)[1].getPropertyValue("ParaAdjust") == 3
             _restore_and_check(rec, before_snap, before_adj)
 
             # 2. Search replace of heading's first word (unrecorded only)
             if not rec:
                 _reset_doc("Alpha Beta")
                 before_snap = _snapshot()
-                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
                 res = apply_tool.execute(tool_ctx, target="search", old_content="Alpha", content="$$y=1$$")
                 assert res.get("status") == "ok", res
                 snap = _snapshot()
@@ -828,14 +787,14 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                     ("Heading 1", 1, [" Beta"]),
                     ("Text body", 0, ["tail"]),
                 ], snap
-                assert _paras()[1].getPropertyValue("ParaAdjust") == 3
+                assert body_paragraphs(text)[1].getPropertyValue("ParaAdjust") == 3
                 _restore_and_check(False, before_snap, before_adj)
 
             # 3. Caret at middle and end of self-following custom outline style
             for where in ("middle", "end"):
                 _reset_doc("AlphaBeta", heading_style=custom_style_name)
                 before_snap = _snapshot()
-                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+                before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
                 doc.setPropertyValue("RecordChanges", rec)
                 cur = _heading_cursor()
                 if where == "middle":
@@ -858,13 +817,13 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                     *expected_tail,
                     ("Text body", 0, ["tail"]),
                 ], (rec, where, snap)
-                assert _paras()[2].getPropertyValue("ParaAdjust") == 3
+                assert body_paragraphs(text)[2].getPropertyValue("ParaAdjust") == 3
                 _restore_and_check(rec, before_snap, before_adj)
 
             # 4. <h1>$$a$$ $$b$$ Title</h1> at end
             _reset_doc("Alpha Beta")
             before_snap = _snapshot()
-            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
             doc.setPropertyValue("RecordChanges", rec)
             res = apply_tool.execute(tool_ctx, target="end", content="<h1>$$a$$ $$b$$ Title</h1>")
             assert res.get("status") == "ok", res
@@ -874,7 +833,7 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                 ("Text body", 0, ["Frame"]),
                 ("Heading 1", 1, ["Title"]),
             ], (rec, snap)
-            paras = _paras()
+            paras = body_paragraphs(text)
             assert paras[-3].getPropertyValue("ParaAdjust") == 3
             assert paras[-2].getPropertyValue("ParaAdjust") == 3
             _restore_and_check(rec, before_snap, before_adj)
@@ -882,7 +841,7 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             # 5. $$a$$ $$b$$ at heading's end
             _reset_doc("Alpha")
             before_snap = _snapshot()
-            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
             doc.setPropertyValue("RecordChanges", rec)
             cur = _heading_cursor()
             cur.gotoEndOfParagraph(False)
@@ -899,7 +858,7 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
                 ("Text body", 0, ["Frame"]),
                 ("Text body", 0, ["tail"]),
             ], (rec, snap)
-            paras = _paras()
+            paras = body_paragraphs(text)
             assert paras[2].getPropertyValue("ParaAdjust") == 3
             assert paras[3].getPropertyValue("ParaAdjust") == 3
             _restore_and_check(rec, before_snap, before_adj)
@@ -907,13 +866,13 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             # 6. <h1>$$y=1$$</h1> at end keeps Heading 1 (deliberate exception)
             _reset_doc("Alpha")
             before_snap = _snapshot()
-            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in _paras()]
+            before_adj = [int(p.getPropertyValue("ParaAdjust")) for p in body_paragraphs(text)]
             doc.setPropertyValue("RecordChanges", rec)
             res = apply_tool.execute(tool_ctx, target="end", content="<h1>$$y=1$$</h1>")
             assert res.get("status") == "ok", res
             snap = _snapshot()
             assert snap[-1] == ("Heading 1", 1, ["Frame"]), (rec, snap)
-            assert _paras()[-1].getPropertyValue("ParaAdjust") == 3
+            assert body_paragraphs(text)[-1].getPropertyValue("ParaAdjust") == 3
             _restore_and_check(rec, before_snap, before_adj)
         finally:
             doc.setPropertyValue("RecordChanges", False)

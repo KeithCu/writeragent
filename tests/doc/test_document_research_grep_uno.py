@@ -10,7 +10,7 @@ import tempfile
 import uno
 
 from plugin.doc.document_research_grep import grep_nearby_files
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import enum_has_more, get_desktop
 from plugin.app import get_services
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -67,7 +67,7 @@ def _desktop_component_count(ctx) -> int:
         return 0
     enum = comps.createEnumeration()
     n = 0
-    while enum and enum.hasMoreElements():
+    while enum and enum_has_more(enum):
         enum.nextElement()
         n += 1
     return n

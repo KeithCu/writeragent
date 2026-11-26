@@ -476,7 +476,7 @@ def test_set_header_footer_enables_a_region_that_is_off():
 
 
 def test_scan_region_warns_when_portion_cap_is_hit(monkeypatch):
-    """A header walk that hits the cap used to drop later fields with no signal."""
+    """A header walk that hits the cap warns, so the fields past the cap are not dropped silently."""
     from plugin.writer import page as pg
 
     text_obj = MagicMock()

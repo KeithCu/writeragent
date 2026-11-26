@@ -69,7 +69,7 @@ def test_loop_terminates_when_all_blocked():
 
 
 def test_loop_handles_many_changes_without_cap():
-    # Far more than the old magic-200 bound: all must resolve, proving there's no truncation.
+    # Hundreds of changes: all must resolve, proving the loop has no count cap that truncates.
     tokens = ["t%d" % i for i in range(500)]
     n, left = _run_loop(tokens, blocked=set())
     assert n == 500 and left == []

@@ -15,12 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
+from plugin.framework.uno_context import enum_has_more
 from plugin.writer.html_export import document_to_content
 from plugin.writer.html_import import (
     insert_content_at_position as _insert_content_at_position,
     replace_preserving_format as _replace_text_preserving_format,
 )
 from plugin.writer.search import find_text_ranges
+from tests.writer.doc_builders import body_paragraphs
 
 def _move_cursor_by_offset(cursor, offset, expand=False):
     """Move cursor by offset in chunks to handle UNO's short (16-bit) limitation."""
@@ -29,13 +31,6 @@ def _move_cursor_by_offset(cursor, offset, expand=False):
         n = min(remaining, 8192)
         cursor.goRight(n, expand)
         remaining -= n
-
-
-def _tool_ctx(doc, ctx):
-    """Build ToolContext for writer tools (uses real get_services())."""
-    from plugin.app import get_services
-    from plugin.framework.tool import ToolContext
-    return ToolContext(doc, ctx, "writer", get_services(), "test")
 
 
 def _get_document_content(doc, ctx, params):
@@ -51,7 +46,7 @@ def _get_document_content(doc, ctx, params):
         if params.get("end") is not None:
             kwargs["end"] = params["end"]
     try:
-        return get_tools().execute("get_content", _tool_ctx(doc, ctx), **kwargs)
+        return get_tools().execute("get_content", writer_services_tool_context(doc, ctx), **kwargs)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -70,13 +65,13 @@ def _apply_document_content(doc, ctx, params):
     if params.get("all_matches") is not None:
         kwargs["all_matches"] = params["all_matches"]
     try:
-        return get_tools().execute("apply_content", _tool_ctx(doc, ctx), **kwargs)
+        return get_tools().execute("apply_content", writer_services_tool_context(doc, ctx), **kwargs)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 def _find_text(doc, params):
-    """Call find_text_ranges and return same dict shape as former _find_text."""
+    """Call find_text_ranges and wrap the hits in a ``{"status", "ranges"}`` dict."""
     search = params.get("search", "")
     case_sensitive = params.get("case_sensitive", True)
     try:
@@ -87,7 +82,7 @@ def _find_text(doc, params):
 
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import with_native_doc, writer_services_tool_context
 
 
 def _read_doc_text(d):
@@ -319,11 +314,7 @@ def _paragraph_strings(doc):
     """Body paragraph texts in document order (normalized)."""
     text = doc.getText()
     paras = []
-    enum = text.createEnumeration()
-    while enum.hasMoreElements():
-        el = enum.nextElement()
-        if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
-            continue
+    for el in body_paragraphs(text):
         cur = text.createTextCursorByRange(el.getStart())
         cur.gotoRange(el.getEnd(), True)
         paras.append(_normalize(cur.getString()))
@@ -654,7 +645,7 @@ def _first_para_portions(doc):
     para = doc.getText().createEnumeration().nextElement()
     pe = para.createEnumeration()
     out = []
-    while pe.hasMoreElements():
+    while enum_has_more(pe):
         p = pe.nextElement()
         if p.getPropertyValue("TextPortionType") == "Text" and p.getString():
             out.append((
@@ -800,7 +791,5 @@ def test_replace_is_one_undo_step_uno(ctx, doc):
     assert [(s, w) for s, w, _, _, _ in portions] == [
         ("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)
     ], portions
-
-
 
 

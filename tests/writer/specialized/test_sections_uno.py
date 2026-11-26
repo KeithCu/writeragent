@@ -20,6 +20,7 @@ from plugin.writer.specialized.sections import (
     SectionSetProtection,
     SectionSetVisibility,
 )
+from tests.writer.doc_builders import body_paragraphs, body_texts
 
 
 def _fill_paragraphs(doc, count=6):
@@ -29,14 +30,6 @@ def _fill_paragraphs(doc, count=6):
         if idx > 0:
             text.insertControlCharacter(cursor, 0, False)
         text.insertString(cursor, f"Paragraph {idx} lorem ipsum dolor sit amet.", False)
-
-
-def _paragraph_elements(doc):
-    enum = doc.getText().createEnumeration()
-    paras = []
-    while enum.hasMoreElements():
-        paras.append(enum.nextElement())
-    return paras
 
 
 def _save_odt_content_xml(doc):
@@ -61,7 +54,7 @@ def test_section_create_keeps_paragraphs_uno(ctx, doc):
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     orig_text = doc.getText().getString()
 
-    paras = _paragraph_elements(doc)
+    paras = body_paragraphs(doc.getText())
     sel_cur = doc.getText().createTextCursorByRange(paras[1].getStart())
     sel_cur.goRight(5, False)
     end_cur = doc.getText().createTextCursorByRange(paras[2].getStart())
@@ -73,7 +66,7 @@ def test_section_create_keeps_paragraphs_uno(ctx, doc):
     assert res["status"] == "ok"
     assert res["section_name"] == "Cols"
 
-    paras_after = _paragraph_elements(doc)
+    paras_after = body_paragraphs(doc.getText())
     assert len(paras_after) == 6
     assert doc.getText().getString() == orig_text
     assert paras_after[0].getPropertyValue("TextSection") is None
@@ -88,7 +81,7 @@ def test_section_create_keeps_paragraphs_uno(ctx, doc):
         end_locator="paragraph:5",
     )
     assert res_tail["status"] == "ok"
-    paras_tail = _paragraph_elements(doc)
+    paras_tail = body_paragraphs(doc.getText())
     assert paras_tail[4].getPropertyValue("TextSection").getName() == "Tail"
     assert paras_tail[5].getPropertyValue("TextSection").getName() == "Tail"
 
@@ -161,7 +154,7 @@ def test_section_delete_keeps_text_uno(ctx, doc):
     assert res["deleted"] is True
 
     assert doc.getText().getString() == orig_text
-    assert len(_paragraph_elements(doc)) == 5
+    assert len(body_paragraphs(doc.getText())) == 5
     assert not doc.getTextSections().hasByName("Outer")
     assert doc.getTextSections().hasByName("Inner")
 
@@ -340,7 +333,7 @@ def test_section_rename_and_margins_uno(ctx, doc):
     assert abs(info["left_margin_mm"] - 15) <= 0.02
     assert abs(info["right_margin_mm"] - 5) <= 0.02
 
-    paras = _paragraph_elements(doc)
+    paras = body_paragraphs(doc.getText())
     vc = doc.getCurrentController().getViewCursor()
     vc.gotoRange(paras[0].getStart(), False)
     outside_x = vc.getPosition().X
@@ -427,10 +420,7 @@ def test_section_starting_mid_deletion_hides_deleted_text_uno(ctx, doc):
 
     text = doc.getText()
     strike_across_paragraphs(doc, text)
-    enum = text.createEnumeration()
-    paras = []
-    while enum.hasMoreElements():
-        paras.append(enum.nextElement())
+    paras = body_paragraphs(text)
 
     # Wrap only middle + end + after paragraphs so the section starts mid-deletion.
     sec_cur = text.createTextCursorByRange(paras[2].getStart())
@@ -451,7 +441,6 @@ def test_section_starting_mid_deletion_hides_deleted_text_uno(ctx, doc):
 def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
     from plugin.framework.uno_context import execute_dispatch
-    from plugin.writer.specialized.sections import SectionCreate
 
     text = doc.getText()
 
@@ -465,13 +454,6 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
                 text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
             text.insertString(cur, line, False)
 
-    def _paras():
-        out = []
-        enum = text.createEnumeration()
-        while enum.hasMoreElements():
-            out.append(enum.nextElement())
-        return out
-
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
 
     # 1. Recording on, no pending change -> section_create is untracked, Reject All keeps text and section
@@ -483,7 +465,7 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
         assert doc.getRedlines().getCount() == 0
         assert doc.getPropertyValue("RecordChanges") is True
         execute_dispatch(ctx, doc.getCurrentController(), ".uno:RejectAllTrackedChanges")
-        assert [p.getString() for p in _paras()] == ["para0", "para1", "para2"]
+        assert body_texts(text) == ["para0", "para1", "para2"]
         assert doc.getTextSections().hasByName("S1")
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -491,7 +473,7 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
     # 2. Delete from mid p1 to mid p3: section on p2 refused; section on p1-p2 allowed and Accept matches baseline
     def _setup_del_p1_p3() -> None:
         _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
-        ps = _paras()
+        ps = body_paragraphs(text)
         del_cur = text.createTextCursorByRange(ps[1].getStart())
         del_cur.goRight(5, False)
         p3_mid = text.createTextCursorByRange(ps[3].getStart())
@@ -505,7 +487,7 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
 
     _setup_del_p1_p3()
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-    baseline_accept = [p.getString() for p in _paras()]
+    baseline_accept = body_texts(text)
 
     _setup_del_p1_p3()
     before_text = text.getString()
@@ -521,11 +503,11 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
     allowed = SectionCreate().execute(tctx, name="S_edge", locator="paragraph:1", end_locator="paragraph:2")
     assert allowed["status"] == "ok", allowed
     execute_dispatch(ctx, doc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-    assert [p.getString() for p in _paras()] == baseline_accept
+    assert body_texts(text) == baseline_accept
 
     # 3. Delete from mid p1 to p3 offset 0: section on p2 is also refused
     _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
-    ps = _paras()
+    ps = body_paragraphs(text)
     del_zero = text.createTextCursorByRange(ps[1].getStart())
     del_zero.goRight(5, False)
     del_zero.gotoRange(ps[3].getStart(), True)
@@ -546,7 +528,7 @@ def test_section_create_untracked_while_recording_and_span_guard_uno(ctx, doc):
 
     # 4. Insert redline past both ends (mid p1 to mid p3): section on p2 is refused
     _reset(["para0", "para1 text", "para2 text", "para3 text", "para4"])
-    ps = _paras()
+    ps = body_paragraphs(text)
     ins_cur = text.createTextCursorByRange(ps[1].getStart())
     ins_cur.goRight(5, False)
     doc.setPropertyValue("RecordChanges", True)

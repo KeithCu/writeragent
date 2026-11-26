@@ -1564,7 +1564,6 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
-    from tests.writer.test_html_import import make_paragraph_edge_range
 
     rng = make_paragraph_edge_range(True, True)
 

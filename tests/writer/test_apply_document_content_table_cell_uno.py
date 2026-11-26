@@ -6,12 +6,10 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Regression test: apply_content(target='search') editing text inside a
-# table cell. replace_preserving_format built its cursor on the document body text
-# (model.getText()) instead of the matched range's own XText (the cell), raising the
-# UNO RuntimeException "End of content node doesn't have the proper start node" and
-# leaving the cell uneditable. The fix uses target_range.getText(), so the cursor
-# resolves to the cell.
+# apply_content(target='search') editing text inside a table cell. replace_preserving_format
+# builds its cursor on the matched range's own XText (target_range.getText(), the cell); a
+# cursor on the body text (model.getText()) raises the UNO RuntimeException "End of content
+# node doesn't have the proper start node" and leaves the cell uneditable.
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
@@ -30,8 +28,8 @@ from tests.writer.doc_builders import (
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_edits_table_cell_uno(ctx, doc):
-    """Editing a cell's text via target='search' should work; it used to raise a
-    cursor RuntimeException (body XText vs the cell's XText)."""
+    """Editing a cell's text via target='search' works; a cursor on the body XText instead of
+    the cell's XText would raise RuntimeException."""
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(3, 2)
@@ -93,7 +91,7 @@ def test_empty_one_cell_leaves_the_table_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_empty_replacement_of_the_last_text_deletes_the_table_uno(ctx, doc):
-    """The office failure: blanking the table's only text used to leave the shell and report success."""
+    """Blanking the table's only text deletes the table instead of leaving an empty shell and reporting success."""
     text = doc.getText()
     insert_named_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     text.insertString(text.getEnd(), "KEEP_OUTSIDE", False)

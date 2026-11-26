@@ -1,5 +1,6 @@
 """Native tests for indexes bibliography v1 (cite insert, list, table)."""
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.specialized.indexes import (
@@ -14,11 +15,7 @@ from plugin.writer.specialized.indexes import (
     IndexesRefreshTocEntry,
     IndexesUpdateAll,
 )
-
-
-def _tool_ctx(ctx, doc):
-    # Argument order stays (ctx, doc) so existing call sites do not swap.
-    return native_writer_tool_context(doc, ctx)
+from tests.writer.doc_builders import body_texts
 
 
 @native_test
@@ -26,7 +23,7 @@ def _tool_ctx(ctx, doc):
 def test_indexes_cite_insert_list_and_table(ctx, doc):
     """Insert a cite, list it, place the bibliography table, then update."""
     doc.getText().setString("See the climate review. ")
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
 
     inserted = IndexesAddMark().execute(
         tctx,
@@ -79,7 +76,7 @@ def test_indexes_cite_insert_list_and_table(ctx, doc):
 @with_native_doc("writer")
 def test_indexes_list_bibliography_kind_uses_service_name(ctx, doc):
     """getImplementationName() is SwXDocumentIndex; kind must still be bibliography."""
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     IndexesCreate().execute(tctx, kind="bibliography", title="Works Cited", target="end", create_from_outline=True)
     listed = IndexesList().execute(tctx)
     assert listed.get("count") >= 1, listed
@@ -104,7 +101,7 @@ def _tab_paragraphs(doc):
     """Paragraphs that contain a tab. Generated TOC entries do; body headings do not."""
     enum = doc.getText().createEnumeration()
     found = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             chunk = para.getString() or ""
@@ -126,7 +123,7 @@ def _paint_entry(text, para, url, color=None):
 
 def _portion_color(doc, needle):
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             if needle not in (para.getString() or ""):
@@ -134,7 +131,7 @@ def _portion_color(doc, needle):
             portions = para.createEnumeration()
         except Exception:
             continue
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             try:
                 chunk = portion.getString() or ""
@@ -159,7 +156,7 @@ def test_toc_update_clears_direct_character_color_uno(ctx, doc):
     text = doc.getText()
     text.setString("")
     _add_heading(text, "Alpha title", True)
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     indexes = doc.getDocumentIndexes()
@@ -180,7 +177,7 @@ def _toc_fixture(ctx, doc):
     text.setString("")
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
@@ -235,14 +232,14 @@ def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
     enum = doc.getText().createEnumeration()
     beta_url = ""
     alpha_url = ""
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             chunk = para.getString() or ""
             portions = para.createEnumeration()
         except Exception:
             continue
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             try:
                 url = portion.getPropertyValue("HyperLinkURL") or ""
@@ -269,7 +266,7 @@ def _paragraph_looks(para):
         portions = para.createEnumeration()
     except Exception:
         return rows
-    while portions.hasMoreElements():
+    while enum_has_more(portions):
         portion = portions.nextElement()
         try:
             chunk = portion.getString() or ""
@@ -529,7 +526,7 @@ def test_delete_last_toc_entry_and_bad_occurrence_uno(ctx, doc):
     text.setString("")
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="end", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
@@ -656,7 +653,7 @@ def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
     # Phase 1: read link_style from alpha's first non-empty portion, assert non-empty.
     alpha_portions = alpha.createEnumeration()
     first_portion = None
-    while alpha_portions.hasMoreElements():
+    while enum_has_more(alpha_portions):
         p = alpha_portions.nextElement()
         if str(p.getString() or ""):
             first_portion = p
@@ -689,7 +686,7 @@ def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
     gamma = next(para for para in _tab_paragraphs(doc) if "Gamma title" in (para.getString() or ""))
     gamma_portions = gamma.createEnumeration()
     checked_gamma = 0
-    while gamma_portions.hasMoreElements():
+    while enum_has_more(gamma_portions):
         p = gamma_portions.nextElement()
         if not str(p.getString() or ""):
             continue
@@ -726,7 +723,7 @@ def test_insert_toc_entry_keeps_inherited_look_uno(ctx, doc):
     delta = next(para for para in _tab_paragraphs(doc) if "Delta title" in (para.getString() or ""))
     delta_portions = delta.createEnumeration()
     checked_delta = 0
-    while delta_portions.hasMoreElements():
+    while enum_has_more(delta_portions):
         p = delta_portions.nextElement()
         if not str(p.getString() or ""):
             continue
@@ -745,7 +742,7 @@ def test_toc_entry_insert_delete_without_a_toc_uno(ctx, doc):
     """No content index: insert and delete report that, and do not create one."""
     text = doc.getText()
     text.setString("Just a paragraph.")
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     deleted = IndexesDeleteTocEntry().execute(tctx, old_content="paragraph")
     assert deleted.get("status") == "error", deleted
     assert "table of contents" in deleted.get("message", ""), deleted
@@ -813,7 +810,7 @@ def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
     text.insertTextContent(text.getEnd(), table, False)
     table.setName("Taula69")
     table.getCellByName("A1").setString("Annex")
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
     toc = doc.getDocumentIndexes().getByIndex(0)
@@ -883,7 +880,7 @@ def test_list_toc_entries_with_a_paragraph_before_the_toc_uno(ctx, doc):
     _add_heading(text, "Alpha title", False)
     _add_heading(text, "Beta title", False)
     _add_body_paragraph(text, "After paragraph")
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(
         tctx, kind="toc", title="Contents", target="search", old_content="TOC_PLACEHOLDER", create_from_outline=True
     )
@@ -907,7 +904,7 @@ def test_list_toc_entries_links_on_request_uno(ctx, doc):
     text.setString("")
     _add_heading(text, "Alpha title", True)
     _add_heading(text, "Beta title", False)
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning", create_from_outline=True)
     assert created.get("status") == "ok", created
 
@@ -928,10 +925,9 @@ def test_list_toc_entries_links_on_request_uno(ctx, doc):
 @with_native_doc("writer")
 def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
     """index_add_mark on target='search' places mark at start and keeps matched text."""
-    from plugin.framework.uno_context import enum_has_more
 
     doc.getText().setString("alpha TARGET omega")
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     res = IndexesAddMark().execute(
         tctx,
         text="mark",
@@ -961,7 +957,7 @@ def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
 @with_native_doc("writer")
 def test_indexes_create_end_is_one_undo_step(ctx, doc):
     """index_create at target='end' groups insertion into one undo step."""
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     um = doc.getUndoManager()
     um.clear()
     res = IndexesCreate().execute(tctx, kind="toc", target="end", create_from_outline=True)
@@ -977,7 +973,7 @@ def test_indexes_create_end_is_one_undo_step(ctx, doc):
 def test_index_update_all_refuses_with_pending_redline_and_updates_clean_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     cur = text.createTextCursor()
     text.insertString(cur, "Heading One\n", False)
@@ -1017,7 +1013,6 @@ def test_index_update_all_refuses_with_pending_redline_and_updates_clean_uno(ctx
 @native_test
 @with_native_doc("writer")
 def test_refresh_toc_entry_recorded_two_links_reports_no_update_uno(ctx, doc):
-    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.record_changes import record_changes
 
     text, tctx, toc, protected, alpha, _beta = _toc_fixture(ctx, doc)
@@ -1057,7 +1052,6 @@ def test_index_create_recorded_search_and_pending_change_guard_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.uno_context import execute_dispatch
     from plugin.tests.testing_utils import TestingFactory
-    from plugin.writer.specialized.indexes import IndexesCreate
 
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     text = doc.getText()
@@ -1131,12 +1125,6 @@ def test_index_create_recorded_search_and_pending_change_guard_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
 
 
-def _body_paragraphs(text):
-    from plugin.doc.text_helpers import iter_elements
-
-    return [p.getString() for p in iter_elements(text.createEnumeration()) if hasattr(p, "getString")]
-
-
 def _clear_indexes(doc):
     indexes = doc.getDocumentIndexes()
     while indexes.getCount() > 0:
@@ -1150,7 +1138,7 @@ def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
     from plugin.framework.uno_context import execute_dispatch
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     controller = doc.getCurrentController()
 
@@ -1169,7 +1157,7 @@ def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
         assert rl.RedlineType == "Delete"
         assert str(rl.RedlineComment).startswith("wa-review:")
         execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-        assert _body_paragraphs(text) == ["hello ", "TOC", " world"]
+        assert body_texts(text) == ["hello ", "TOC", " world"]
 
         _clear_indexes(doc)
         text.setString("hello MATCH world")
@@ -1178,7 +1166,7 @@ def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
         )
         assert res2["status"] == "ok", res2
         execute_dispatch(ctx, controller, ".uno:RejectAllTrackedChanges")
-        assert _body_paragraphs(text) == ["hello ", "TOC", "MATCH world"]
+        assert body_texts(text) == ["hello ", "TOC", "MATCH world"]
 
         _clear_indexes(doc)
         text.setString("")
@@ -1193,7 +1181,7 @@ def test_index_create_search_in_record_mode_accept_and_reject_uno(ctx, doc):
         )
         assert res3["status"] == "ok", res3
         execute_dispatch(ctx, controller, ".uno:AcceptAllTrackedChanges")
-        paras3 = _body_paragraphs(text)
+        paras3 = body_texts(text)
         assert "a" in paras3 and "b" in paras3 and "TOC" in paras3, paras3
         assert "MATCH" not in text.getString()
 
@@ -1228,7 +1216,7 @@ def test_index_add_mark_in_record_mode_accept_and_reject_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements
     from plugin.framework.uno_context import enum_has_more, execute_dispatch
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     controller = doc.getCurrentController()
 
@@ -1302,7 +1290,7 @@ def test_index_create_after_pending_agent_mark_is_refused_uno(ctx, doc):
     from unittest.mock import patch
     from plugin.framework.uno_context import execute_dispatch
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     controller = doc.getCurrentController()
 
@@ -1335,7 +1323,7 @@ def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(c
     from plugin.framework.config import get_config, save
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     text.setString("body text")
     flag = "doc.agent_edit_review_mode"
@@ -1362,9 +1350,8 @@ def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(c
 @with_native_doc("writer")
 def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements, visible_range_text
-    from plugin.writer.specialized.indexes import IndexesRefreshTocEntry
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
     text.setString("Word OLD here")
     cur = text.createTextCursor()
