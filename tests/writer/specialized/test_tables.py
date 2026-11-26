@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.harness.strip_bundle import requires_asserts
+from tests.testing_utils import FakeUndoManager
 
 
 from plugin.framework.errors import ToolExecutionError
@@ -1276,6 +1277,29 @@ def test_tracked_delete_fails_closed_when_nothing_was_recorded():
     res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "left in place" in res["message"]
     assert res["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+
+
+def test_tracked_delete_failed_rollback_reports_rollback_failed():
+    table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
+    doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
+    um = FakeUndoManager(undo_error=RuntimeError("undo broke"))
+    doc.getUndoManager = lambda: um
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "error"
+    assert res["code"] == "ROLLBACK_FAILED"
+    assert "undo broke" in res["message"]
+    assert "left in place" in res["message"]
+
+
+def test_tracked_delete_clean_rollback_keeps_refusal():
+    table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
+    doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
+    um = FakeUndoManager()
+    doc.getUndoManager = lambda: um
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_DELETE_NOT_TRACKABLE"
+    assert um.undone == 1
 
 
 def test_tracked_delete_reports_an_untracked_removal():

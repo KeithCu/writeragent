@@ -648,9 +648,9 @@ class ApplyDocumentContent(ToolBase):
                 msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({mutate_err})."
             raise ToolExecutionError(msg, code="HYPERLINK_UPDATE_FAILED") from mutate_err
 
-        err = outcome.error
-        if err is not None and err.get("code") == "ROLLBACK_FAILED":
-            msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({err.get('message')})."
+        failed = outcome.rollback_failure
+        if failed is not None:
+            msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({failed.get('message')})."
             raise ToolExecutionError(msg, code="HYPERLINK_UPDATE_FAILED")
 
         return reports_holder[0] if reports_holder else []
@@ -688,8 +688,8 @@ class ApplyDocumentContent(ToolBase):
                         f"Failed to update shape text: {exc}",
                         code="TOOL_EXECUTION_ERROR",
                     )
-                if err is not None and err.get("code") == "ROLLBACK_FAILED":
-                    return err
+                if (failed := outcome.rollback_failure) is not None:
+                    return failed
                 if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
                     pass  # Failed shape replacement rolled back; fall through to delegation response below
                 else:
@@ -1550,9 +1550,9 @@ class ApplyDocumentContent(ToolBase):
             payload["attempted"] = count
             return payload
 
-        err = outcome.error
-        if err is not None and err.get("code") == "ROLLBACK_FAILED":
-            cause_msg = err.get("message", "unknown error")
+        failed = outcome.rollback_failure
+        if failed is not None:
+            cause_msg = failed.get("message", "unknown error")
             msg = (
                 "all_matches aborted after %d replacement(s); the document could not be "
                 "rolled back and may be partially edited (%s)."

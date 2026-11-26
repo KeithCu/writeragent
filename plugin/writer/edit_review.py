@@ -999,8 +999,8 @@ def record_html_atomically(
             "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
 
-    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
-        raise ToolExecutionError(outcome.error["message"])
+    if (failed := outcome.rollback_failure) is not None:
+        raise ToolExecutionError(failed["message"], code="ROLLBACK_FAILED")
 
     outcome.raise_mutate_error()
 
@@ -1064,10 +1064,10 @@ def _raise_batch_failure(outcome: UndoOutcome, mutate_errors: list[Exception]) -
     nothing recorded raises the rollback message rather than reporting a
     half-applied edit as success.
     """
-    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+    if (failed := outcome.rollback_failure) is not None:
         if mutate_errors:
             raise mutate_errors[0]
-        raise RuntimeError(outcome.error.get("message"))
+        raise RuntimeError(failed.get("message"))
     outcome.raise_mutate_error()
 
 

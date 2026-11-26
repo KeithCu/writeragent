@@ -14,7 +14,7 @@ import itertools
 import logging
 from typing import Any, Callable
 
-from plugin.doc.compound_undo import UndoStepOrRollback
+from plugin.doc.compound_undo import UndoStepOrRollback, rollback_failed_error
 from plugin.doc.text_helpers import (
     FAILED,
     KeepViewSelection,
@@ -777,12 +777,22 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
 
 
 def _mutate_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], Any]) -> Any:
-    """Run a Writer table mutation with optional review inside an undo rollback guard."""
+    """Run a Writer table mutation with optional review inside an undo rollback guard.
+
+    A failed rollback is reported as ROLLBACK_FAILED because the band, table or cell edit may
+    already be in the document.
+    """
     # The guard stays outside record_mutation, which keeps its own undo group open while apply
     # runs: XUndoManager.undo refuses inside an open context (impl_doUndoRedo in
     # framework/source/fwe/helper/undomanagerhelper.cxx).
-    with UndoStepOrRollback(doc, title):
-        return record_write(doc, uno_ctx, apply)[0]
+    group = UndoStepOrRollback(doc, title)
+    try:
+        with group:
+            return record_write(doc, uno_ctx, apply)[0]
+    except Exception as exc:
+        if group.rollback_error is not None:
+            raise rollback_failed_error(group.rollback_error, exc) from exc
+        raise
 
 
 def _protected_with_hosts(doc: Any, table: Any, names: list[str], nesting: dict[str, Any]) -> list[str]:

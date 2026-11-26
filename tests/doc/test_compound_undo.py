@@ -533,6 +533,7 @@ def test_commit_or_rollback_undo_failure_keeps_cause():
 
     outcome = commit_or_rollback(doc, "Title", mutate)
     assert outcome.error is not None
+    assert outcome.rollback_failure is outcome.error
     assert outcome.error["status"] == "error"
     assert outcome.error["code"] == "ROLLBACK_FAILED"
     assert "undo failed" in outcome.error["message"]
@@ -578,6 +579,7 @@ def test_commit_or_rollback_failed_leave_after_success_is_an_error():
 
     outcome = commit_or_rollback(doc, "Title", lambda: None)
     assert outcome.error is not None
+    assert outcome.rollback_failure is None
     assert outcome.error["status"] == "error"
     assert outcome.error["code"] == "UNDO_CONTEXT_LEAK"
     assert outcome.group_closed is False
