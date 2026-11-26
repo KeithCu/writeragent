@@ -532,8 +532,6 @@ def test_poisson_text_cumulative_flag():
 
 
 def test_npv_error_propagation_and_text_skip():
-    import struct
-
     assert calc.npv(0.1, "#N/A", "#DIV/0!") == "#N/A"
     assert calc.npv("#N/A", 100) == "#N/A"
     assert calc.npv("#DIV/0!", "#N/A") == "#DIV/0!"
@@ -596,7 +594,6 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
     # PERCENTRANK with huge significance returns quickly with NaN
     assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
     assert calc.percentrank([1, 2, 3], 2, 0.9999999999999999) == calc.percentrank([1, 2, 3], 2, 1)
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
     bad_sig = calc.percentrank([1, 2, 3], 2, 0.9)
     assert math.isnan(bad_sig) and nan_error_code(bad_sig) == 502
 
@@ -609,8 +606,6 @@ def test_na_returns_err_na_payload():
 
 
 def test_negbinomdist_and_permut_approx_floor():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     for bad in (
         calc.negbinomdist(-0.5, 2, 0.5),
         calc.negbinomdist(0, 1, 0.5),
@@ -632,8 +627,6 @@ def test_negbinomdist_and_permut_approx_floor():
 
 
 def test_prob_compares_dimensions():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     for bad in (
         calc.prob([[1, 2, 3]], [[0.2], [0.3], [0.5]], 1),
         calc.prob([[1, 2], [3, 4]], [[0.25, 0.25, 0.25, 0.25]], 1),
@@ -691,4 +684,3 @@ def test_blank_one_cell_args_in_prob_regex_and_numbervalue():
     assert calc.regex("abc", "b", blank) == "ac"
     assert calc.regex("None here", blank) == ""
     assert calc.numbervalue("1e3", ".", blank) == 1000.0
-

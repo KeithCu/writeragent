@@ -299,7 +299,9 @@ def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str]) -> ET.Element |
 def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
-    Each script goes to its ``index`` / ``scriptIndex`` attribute or, when it has none, to its document position. Indexed and unindexed scripts in one file are all kept; gaps become empty strings.
+    Each script goes to its ``index`` / ``scriptIndex`` attribute or, when it has none, to its
+    document position. Indexed and unindexed scripts in one file are all kept; gaps become empty
+    strings.
     """
     root = _read_xml(zf, "xl/pythonScripts.xml", issues)
     if root is None:

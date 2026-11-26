@@ -1232,7 +1232,8 @@ def reset_python_session(
         assert err is not None
         return err
 
-    # When no worker child is alive, return ok without execute() so Calc OnUnload does not spawn on the UNO thread and deadlock on SolarMutex during document teardown.
+    # When no worker child is alive, return ok without execute() so Calc OnUnload does not spawn on
+    # the UNO thread and deadlock on SolarMutex during document teardown.
     if not manager._is_worker_alive():
         return {"status": "ok"}
 
@@ -1248,7 +1249,8 @@ def reset_python_session(
 
 @background
 def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
-    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
+    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model
+    if embeddings pool). Safe to call from a background thread."""
     manager, err = _get_worker_manager(pool=pool)
     if manager is None:
         log.warning("warm_venv_worker skipped for pool %s: %s", pool, (err or {}).get("message"))

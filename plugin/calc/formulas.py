@@ -138,7 +138,7 @@ class ListCalcFunctions(ToolBase):
 
             arguments = func_data.get("Arguments") or ()
             arg_list = [
-                {"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)}
+                {"name": a.Name, "description": a.Description, "optional": a.IsOptional}
                 for a in arguments
             ]
 

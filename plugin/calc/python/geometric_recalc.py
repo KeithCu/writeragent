@@ -19,14 +19,13 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Mapping, final
 
-from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.address_utils import local_a1, parse_local, split_sheet_prefix
 from plugin.calc.python.cell_discovery import (
     MAX_PYTHON_CELLS_FOUND,
     discover_python_cells_on_sheet,
     sheet_name_of,
 )
 from plugin.calc.python.formula_edit import PyFormula
-from plugin.calc.address_utils import local_a1, parse_local
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, reset_sheet_modify_runtime_for_tests
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
@@ -468,7 +467,11 @@ def after_py_cell_save(doc: Any, cell: Any) -> None:
 
 
 def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
-    """Load the geometric UDProp on open. With the flag on, reconcile every sheet; with it off, still rebuild the strip-safe index so the eval strip works for cells that are already attached."""
+    """Load the geometric UDProp on open.
+
+    With the flag on, reconcile every sheet; with it off, still rebuild the strip-safe index so the
+    eval strip works for cells that are already attached.
+    """
     if doc is None or not uno_read(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
     if geometric_flag_enabled():

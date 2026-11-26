@@ -768,5 +768,3 @@ def test_hlookup_semantics():
     assert nan_error_code(calc.hlookup(NA_NAN, table, 2)) == 0x7FFF
     text_table = [["Alpha", "Banana"], [1, 2]]
     assert calc.hlookup("b*", text_table, 2, False) == 2
-
-

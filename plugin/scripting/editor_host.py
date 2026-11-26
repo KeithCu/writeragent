@@ -192,7 +192,12 @@ def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
 
 
 def reset_webview_probe_state_for_tests() -> None:
-    """Clear the webview probe caches and worker flags. Tests only; there is no production caller. The probe state is five module globals shared with the `webview-probe` worker under `_PROBE_LOCK`, not fields of an object a test could build fresh, so tests call this between cases."""
+    """Clear the webview probe caches and worker flags.
+
+    Tests only; there is no production caller. The probe state is five module globals shared with
+    the `webview-probe` worker under `_PROBE_LOCK`, not fields of an object a test could build
+    fresh, so tests call this between cases.
+    """
     global _probe_generation, _probe_wanted, _probe_running
     with _PROBE_LOCK:
         _PROBE_CACHE.clear()
@@ -363,7 +368,9 @@ def error_frame(message: str, exc: BaseException | None = None) -> dict[str, Any
 class DeferredEditorResult:
     """A save whose Monaco frame is delivered later, on the main thread.
 
-    ``start(deliver)`` runs the venv wait off the UI-thread save path so the dialog stays responsive. ``deliver`` is called once with the same dict a synchronous ``on_save`` would have returned.
+    ``start(deliver)`` runs the venv wait off the UI-thread save path so the dialog stays
+    responsive. ``deliver`` is called once with the same dict a synchronous ``on_save`` would have
+    returned.
     """
 
     _start: _EditorStart
@@ -536,14 +543,18 @@ class PersistentEditor:
         ManagedSubprocess.close() (SIGTERM, 3s, reaper) and kill_tree() (no wait, no pipe close) are a different shutdown.
         ``kill_process_tree`` runs even when ``poll()`` is already set. ``wait`` / ``proc.kill`` run only if the leader was alive before the tree kill.
         """
-        # terminate() clears self._proc under _stdin_lock before closing pipes so concurrent send/reader paths capture a stable proc reference or see None safely. Without that ordering, one thread can call poll() on None or write to a closed stdin.
+        # terminate() clears self._proc under _stdin_lock before closing pipes so concurrent
+        # send/reader paths capture a stable proc reference or see None safely. Without that
+        # ordering, one thread can call poll() on None or write to a closed stdin.
         with self._stdin_lock:
             proc = self._proc
             self._proc = None
         if proc is None:
             return
         try:
-            # kill_process_tree runs even when the leader already exited so Qt/WebEngine children from start_new_session do not survive a crash. Liveness is sampled first so we still wait/kill a leader this call terminated.
+            # kill_process_tree runs even when the leader already exited so Qt/WebEngine children
+            # from start_new_session do not survive a crash. Liveness is sampled first so we still
+            # wait/kill a leader this call terminated.
             leader_alive = proc.poll() is None
             kill_process_tree(proc)
             if leader_alive:
@@ -600,7 +611,9 @@ class PersistentEditor:
 
         if timed_out:
             log.warning("editor_host: stdin write timed out after %ss; editor unresponsive", VENV_IPC_WRITE_TIMEOUT_SEC)
-            # write_packed_frame_with_timeout caps stdin writes so a child that stops reading cannot block the UI thread indefinitely; a timed-out write tears down the editor because partial frames must not be reused.
+            # write_packed_frame_with_timeout caps stdin writes so a child that stops reading cannot
+            # block the UI thread indefinitely; a timed-out write tears down the editor because
+            # partial frames must not be reused.
             terminate_persistent_editor()
             detail = self.read_stderr_tail()
             raise RuntimeError(f"Editor unresponsive. {detail}")
@@ -620,7 +633,7 @@ class PersistentEditor:
             if generation != self._stderr_generation:
                 return
             self._stderr_tail.append(line)
-            # +1 matches the old sum(len(s) + 1) budget (one join newline per line).
+            # The budget is sum(len(s) + 1) over the tail (+1 for one join newline per line).
             # Recomputing that sum on every popleft is O(n²) while the drain
             # thread holds the lock. Keep a running total, updated by the
             # appended line and by each dropped line.
@@ -703,7 +716,9 @@ class PersistentEditor:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
-            # If this loop still owns a live process after EOF or disconnect, terminate() clears it so is_running does not keep a leader with no reader. Superseded or already-exited children are left alone.
+            # If this loop still owns a live process after EOF or disconnect, terminate() clears it
+            # so is_running does not keep a leader with no reader. Superseded or already-exited
+            # children are left alone.
             if still_ours and proc.poll() is None:
                 self.terminate()
 
@@ -893,7 +908,8 @@ class PersistentEditor:
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
-            # self.send() runs outside _save_lock so a write timeout can terminate the child without deadlocking the pipe reader, which also needs _save_lock in _on_save.
+            # self.send() runs outside _save_lock so a write timeout can terminate the child without
+            # deadlocking the pipe reader, which also needs _save_lock in _on_save.
             self.send(payload, session=captured)
 
         def _handle_save() -> None:
@@ -1229,7 +1245,9 @@ def _register_load_session(
     if blocked is None and existing is None and focused is not None and _dirty_blocks_replace(focused):
         blocked = focused
     if blocked is not None:
-        # Dirty buffers must not be replaced silently when switching mode or target; launch_monaco_editor must confirm or save first. Without this check, Run Script, init, and LaTeX edits could be overwritten without on_save or on_closed.
+        # Dirty buffers must not be replaced silently when switching mode or target;
+        # launch_monaco_editor must confirm or save first. Without this check, Run Script, init, and
+        # LaTeX edits could be overwritten without on_save or on_closed.
         raise DirtyBufferError(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )

@@ -1778,5 +1778,3 @@ def test_last_argument_error_wins_and_blank_text_range():
     assert nan_error_code(calc.encodeurl("")) == 519
     assert nan_error_code(calc.numbervalue(blank)) == 519
     assert calc.t(CalcRange([["hi"]])) == "hi"
-
-

@@ -10,6 +10,7 @@ import logging
 import os
 import uuid
 from typing import TYPE_CHECKING, Any, NamedTuple
+import uno
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
@@ -190,7 +191,9 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
             # A missing folder file fails here; passing the basename on would make DuckDB fail later with a generic IO or missing-FROM error.
             raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
         if ext in EXCEL_EXTENSIONS + (".ods",):
-            # Office files that exist preload into a table or raise: _read_sibling_office_file_as_grid returns a grid, raises ToolExecutionError, or the bridge's UnoObjectError for a missing sheet.
+            # Office files that exist preload into a table or raise:
+            # _read_sibling_office_file_as_grid returns a grid, raises ToolExecutionError, or the
+            # bridge's UnoObjectError for a missing sheet.
             office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
             preloaded[table_name] = {"grid": office_grid, "headers": headers}
             continue
@@ -296,7 +299,7 @@ def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
 
 
 def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
-    sheet_idx = int(getattr(addr, "Sheet", 0))
+    sheet_idx = int(addr.Sheet)
     sheet_name = str(doc.getSheets().getByIndex(sheet_idx).getName())
     return qualify_a1(sheet_name, format_range_address(addr, collapse_single=True))
 
@@ -383,16 +386,12 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
     The live workbook must not go through the ODS cache: unsaved edits would
     be skipped, and ``storeToURL`` would export a user-visible document.
     """
-    import uno
-
     url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
     return uno_read(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
 
 
 def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
-    import uno
-
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique temp name per writer: two cache writes sharing one .partial name would unlink each other's in-progress export.
     tmp = dest.parent / f"{dest.name}.{uuid.uuid4().hex}.partial"

@@ -146,7 +146,8 @@ class VenvProbeProgressDialog:
     def _parent_progress_dialog(self, dlg: Any) -> None:
         """Parent this modal to Settings before execute().
 
-        Parents the modal to Settings via createPeer so the progress window is anchored to the settings dialog instead of floating as a separate top-level window.
+        Parents the modal to Settings via createPeer so the progress window is anchored to the
+        settings dialog instead of floating as a separate top-level window.
         """
         parent = _dialog_parent_for_child(self._ctx, self._parent_dlg)
         try:

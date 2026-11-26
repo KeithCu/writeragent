@@ -2323,3 +2323,19 @@ def test_multiple_spills_in_one_debounce_drain_save_registry_once(monkeypatch: p
         assert len(saved_payloads) == 1
     finally:
         WorkbookState.forget_key(st.key)
+
+
+def test_one_cell_result_does_not_read_owned_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1 x 1 result needs no growth check, so a row delete does not make it read the old tail during recalc."""
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x")')
+    sheet.getCellByPosition(0, 1).setValue(2.0)
+    rec = _seen_record(sheet, 0, 0, "x", 2, 1)
+
+    def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("_rect_values must not be called for a 1 x 1 result")
+
+    monkeypatch.setattr(_spill, "_rect_values", _boom)
+    assert _spill._spill_is_blocked(MagicMock(), "x", sheet, "Sheet1", 0, 0, 1, 1, rec, (-1, 0)) is False

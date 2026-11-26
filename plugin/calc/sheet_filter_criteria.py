@@ -104,7 +104,8 @@ def resolve_filter_operator_code(operator: str) -> int:
     return code
 
 
-# Accepts every input: parse_sheet_filter_criterion's body raises ToolExecutionError(..., code="INVALID_PARAM") for a bad criterion, which @deal.raises declares.
+# Accepts every input: parse_sheet_filter_criterion's body raises ToolExecutionError(...,
+# code="INVALID_PARAM") for a bad criterion, which @deal.raises declares.
 def _deal_filter_criterion_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 

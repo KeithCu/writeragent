@@ -134,7 +134,7 @@ def _resolve_convert_units(
 def _finite_magnitude(value: Any, *, empty_message: str) -> float:
     """Float magnitude. A blank is an error, not zero.
 
-    RPC used ``float(text or "0")``, so an empty magnitude became a successful
+    ``float(text or "0")`` would turn an empty magnitude into a successful
     ``0 km/h``. Numeric 0 still converts. Non-finite values are rejected because
     Pint accepts ``nan m`` as a quantity.
     """

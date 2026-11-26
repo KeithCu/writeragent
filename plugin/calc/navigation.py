@@ -13,6 +13,7 @@ import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from urllib.parse import unquote
+import uno
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import query_interface, resolve_sheet_and_cell
@@ -294,8 +295,6 @@ def _add_caret_font_status_listener(control: Any, listener: Any) -> Any | None:
     peer = control.getPeer() if hasattr(control, "getPeer") else None
     if peer is None or not hasattr(peer, "queryDispatch"):
         return None
-    import uno
-
     # ORichTextPeer::queryDispatch matches on URL.Complete only.
     url = uno.createUnoStruct("com.sun.star.util.URL")
     setattr(url, "Complete", _CELL_LINK_STATUS_URL)
@@ -341,7 +340,7 @@ def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any 
 
         def statusChanged(self, ev: Any) -> None:
             try:
-                self.caret_addr = cell_address_from_font_state(getattr(ev, "State", None))
+                self.caret_addr = cell_address_from_font_state(ev.State)
                 if self.pending_until and time.monotonic() <= self.pending_until:
                     self.pending_until = 0.0
                     if self.caret_addr:
@@ -350,14 +349,14 @@ def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any 
                 log.exception("cell link status handler failed")
 
         def mousePressed(self, e: Any) -> None:
-            self.press = (int(getattr(e, "X", 0)), int(getattr(e, "Y", 0)))
+            self.press = (int(e.X), int(e.Y))
             self.pending_until = 0.0
 
         def mouseReleased(self, e: Any) -> None:
             try:
-                if getattr(e, "Buttons", 0) != _MB_LEFT or getattr(e, "ClickCount", 0) != 1:
+                if e.Buttons != _MB_LEFT or e.ClickCount != 1:
                     return
-                if getattr(e, "Modifiers", 0):
+                if e.Modifiers:
                     return
                 x, y = int(e.X), int(e.Y)
                 press, self.press = self.press, None

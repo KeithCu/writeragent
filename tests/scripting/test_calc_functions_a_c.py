@@ -513,4 +513,3 @@ def test_criteria_errors_averageif_no_match_and_choose_index_error():
     assert calc.choose("#DIV/0!", 10, 20) == "#DIV/0!"
     assert calc.choose(1, 5, "#DIV/0!") == 5
     assert nan_error_code(calc.choose(NA_NAN, 10, 20)) == 0x7FFF
-

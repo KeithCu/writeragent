@@ -76,12 +76,12 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
             details={"latex": latex},
         )
 
-    starmath = conv.starmath
-
     controller = doc.getCurrentController()
     if controller is None:
         raise ToolExecutionError(_("No active document view."), code="SYMBOLIC_ERROR")
     view_cursor = controller.getViewCursor()
+    # Bound to a local: the lambda below would not keep the None check made on conv.starmath above.
+    starmath = conv.starmath
     run_writer_mutation_with_optional_review(
         doc,
         ctx,
