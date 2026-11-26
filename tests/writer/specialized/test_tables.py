@@ -1795,76 +1795,6 @@ def test_wide_box(seps_per_row, cell_names, idx, expected):
         assert (grid[row][col][0], span, doomed) == expected
 
 
-@pytest.mark.parametrize(
-    ("grid", "idx", "expected"),
-    [
-        pytest.param(
-            _grid_from_seps([[6666], [3333, 6666]], ["A1", "B1", "A2", "B2", "C2"]),
-            0,
-            [("A1", 2)],
-            id="equal_merge",
-        ),
-        pytest.param(
-            [
-                [("A1", 0, 6666), ("B1", 6666, 10000)],
-                [(None, 0, 6666), ("B2", 6666, 10000)],
-                [("A3", 0, 3333), ("B3", 3333, 6666), ("C3", 6666, 10000)],
-            ],
-            0,
-            [("A1", 2)],
-            id="a1_b2_merged",
-        ),
-        pytest.param(
-            _grid_from_seps(
-                [[2000, 6000, 8000], [2000, 4000, 8000], [2000, 4000, 6000, 8000]],
-                ["A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2", "A3", "B3", "C3", "D3", "E3"],
-            ),
-            1,
-            [("B1", 2)],
-            id="staggered_five_col",
-        ),
-        pytest.param(
-            _grid_from_seps([[], [2500, 5000, 7500]], ["A1", "A2", "B2", "C2", "D2"]),
-            0,
-            [("A1", 4)],
-            id="banner_four_col_idx0",
-        ),
-        pytest.param(
-            _grid_from_seps([[], [2500, 5000, 7500]], ["A1", "A2", "B2", "C2", "D2"]),
-            2,
-            [("A1", 4)],
-            id="banner_four_col_idx2",
-        ),
-        pytest.param(
-            _grid_from_seps([[6000], [1500, 6000]], ["A1", "B1", "A2", "B2", "C2"]),
-            0,
-            None,
-            id="unequal_1500_6000",
-        ),
-        pytest.param(
-            _grid_from_seps([[], [999, 8998], [999, 3998, 8998]], ["A1", "A2", "B2", "C2", "A3", "B3", "C3", "D3"]),
-            0,
-            None,
-            id="docx_999_3998_8998",
-        ),
-        pytest.param(
-            [
-                [("A1", 0, 10000)],
-                [("A2", 0, 7199), ("B2", 7199, 10000)],
-                [("A3", 0, 6399), ("B3", 6399, 7199), (None, 7199, 10000)],
-            ],
-            2,
-            None,
-            id="covered_box_would_be_taken",
-        ),
-    ],
-)
-def test_column_split_plan(grid, idx, expected):
-    from plugin.writer.specialized.tables import _column_split_plan
-
-    assert _column_split_plan(grid, idx) == expected
-
-
 def test_delete_column_merged_first_row_is_not_last_column():
     names = [
         "A1",
@@ -1875,11 +1805,14 @@ def test_delete_column_merged_first_row_is_not_last_column():
     t = FakeTable(4, 1, cell_names=names, name="T")
     ctx = _ctx({"T": t})
     tool = ManageTableStructure()
+    expected_reason = {0: "spans 4 columns", 2: "first row has only 1"}
     for idx in (0, 2):
         res = tool.execute(ctx, action="delete", axis="column", name="T", index=idx)
         assert res["status"] == "error"
         assert res["code"] == "COLUMN_HAS_SPANNING_CELL"
-        assert "table_split_cell" in res["message"]
+        assert expected_reason[idx] in res["message"]
+        assert "table_set_cell" in res["message"]
+        assert "parts=" not in res["message"]
         assert "table_delete" not in res["message"]
         assert t._cols.removes == []
     oob = tool.execute(ctx, action="delete", axis="column", name="T", index=9)
