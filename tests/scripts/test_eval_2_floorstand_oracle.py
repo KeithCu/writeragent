@@ -4,9 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from docx import Document
-from odf.opendocument import OpenDocumentText
-from odf.text import P
+from tests.scripts.script_test_support import write_docx, write_odt
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 _REPO = Path(__file__).resolve().parents[2]
@@ -70,23 +68,6 @@ Order Analyst
 """
 
 
-def _write_docx(path: Path, text: str) -> Path:
-    doc = Document()
-    for line in text.strip().splitlines():
-        doc.add_paragraph(line)
-    doc.save(str(path))
-    return path
-
-
-def _write_odt(path: Path, text: str) -> Path:
-    doc = OpenDocumentText()
-    for line in text.strip().splitlines():
-        doc.text.addElement(P(text=line))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(path))
-    return path
-
-
 def _padded() -> str:
     return _PASSING + (" Follow-through on the holiday program. " * 8)
 
@@ -100,22 +81,22 @@ def test_gold_pair_passes() -> None:
 def test_passing_pair_odt_and_docx(tmp_path: Path) -> None:
     text = _padded()
     for memo in (
-        _write_odt(tmp_path / "ok.odt", text),
-        _write_docx(tmp_path / "ok.docx", text),
+        write_odt(tmp_path / "ok.odt", text),
+        write_docx(tmp_path / "ok.docx", text),
     ):
         result = score_artifacts(memo, _GOLD_BUDGET)
         assert result.passed, (memo.name, result.failures)
 
 
 def test_empty_memo_fails(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "empty.odt", "")
+    memo = write_odt(tmp_path / "empty.odt", "")
     result = score_artifacts(memo, _GOLD_BUDGET)
     assert not result.passed
     assert any("empty" in item or "word_count" in item for item in result.failures)
 
 
 def test_blank_scaffold_fails(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "memo.odt", _padded())
+    memo = write_odt(tmp_path / "memo.odt", _padded())
     scaffold = write_floorstand_budget_ods(tmp_path / FLOORSTAND_BUDGET_ODS_NAME)
     result = score_artifacts(memo, scaffold)
     assert not result.passed
@@ -187,7 +168,7 @@ def test_husk_body_fails() -> None:
 
 
 def test_resolve_sibling_workbook(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     book = write_floorstand_budget_ods(tmp_path / "final_workbook.ods")
     found_memo, found_book = resolve_floorstand_artifacts(memo)
     assert found_memo == memo
@@ -198,7 +179,7 @@ def test_resolve_sibling_workbook(tmp_path: Path) -> None:
 
 
 def test_resolve_skips_research_store_list(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / FLOORSTAND_EMAIL_NAME, _padded())
+    memo = write_odt(tmp_path / FLOORSTAND_EMAIL_NAME, _padded())
     (tmp_path / "Holiday Floorstand Store List Original.ods").write_bytes(b"PK")
     budget = write_floorstand_budget_ods(tmp_path / FLOORSTAND_BUDGET_ODS_NAME)
     found_memo, found_book = resolve_floorstand_artifacts(tmp_path)
@@ -207,19 +188,19 @@ def test_resolve_skips_research_store_list(tmp_path: Path) -> None:
 
 
 def test_headed_score_routes_to_floorstand_oracle(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     dest = tmp_path / "final_workbook.xlsx"
     dest.write_bytes(_GOLD_BUDGET.read_bytes())
     assert headed_main(["--task", "writer-calc-peer-write", "--score", str(memo)]) == 0
     other = tmp_path / "failcase"
     other.mkdir()
-    empty = _write_odt(other / "empty.odt", "")
+    empty = write_odt(other / "empty.odt", "")
     write_floorstand_budget_ods(other / FLOORSTAND_BUDGET_ODS_NAME)
     assert headed_main(["--task", "writer-calc-peer-write", "--score", str(empty)]) == 1
 
 
 def test_oracle_cli_json(tmp_path: Path, capsys) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     dest = tmp_path / "final_workbook.xlsx"
     dest.write_bytes(_GOLD_BUDGET.read_bytes())
     assert oracle_main(["--json", str(memo)]) == 0

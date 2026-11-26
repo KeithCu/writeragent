@@ -173,7 +173,7 @@ def test_pivot_create_on_apostrophe_sheet_uno(ctx, doc):
     sheet = sheets.getByName("O'Brien")
     rows = sheet.getCellRangeByName("D1:E6").getDataArray()
     assert any(row[0] == "Jan" for row in rows), f"Expected 'Jan' row in {rows}"
-    assert any(250 in row or 250.0 in row for row in rows), f"Expected total 250 in {rows}"
+    assert any(250 in row for row in rows), f"Expected total 250 in {rows}"
 
 
 @native_test

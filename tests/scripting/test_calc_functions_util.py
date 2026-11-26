@@ -246,8 +246,6 @@ def test_int_shift():
 
 
 def test_criteria_reduce():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
-
     # Same range for criteria and values
     assert criteria_reduce([10, 20, 30, 40], [([10, 20, 30, 40], ">20")], sum) == 70.0
 
@@ -408,8 +406,6 @@ def test_clean_paired_arrays():
 
 
 def test_round_half_up():
-    from plugin.scripting.venv.calc_functions_util import round_half_up
-
     assert round_half_up(2.5, 0) == Decimal("3")
     assert round_half_up(-2.5, 0) == Decimal("-3")
     assert round_half_up(1.25, 1) == Decimal("1.3")

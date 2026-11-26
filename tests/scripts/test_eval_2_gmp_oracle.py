@@ -6,9 +6,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from docx import Document
-from odf.opendocument import OpenDocumentText
-from odf.text import P
+from tests.scripts.script_test_support import write_docx, write_odt
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -60,23 +58,6 @@ misalignment. Mitigations: centralized vendor communication tracking
 """
 
 
-def _write_docx(path: Path, text: str) -> Path:
-    doc = Document()
-    for line in text.strip().splitlines():
-        doc.add_paragraph(line)
-    doc.save(str(path))
-    return path
-
-
-def _write_odt(path: Path, text: str) -> Path:
-    doc = OpenDocumentText()
-    for line in text.strip().splitlines():
-        doc.text.addElement(P(text=line))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(path))
-    return path
-
-
 def _fill_form(path: Path, values: dict[str, str]) -> Path:
     write_gmp_change_control_odg(path)
     with zipfile.ZipFile(path, "r") as zf:
@@ -126,8 +107,8 @@ def test_passing_pair_odt_and_docx(tmp_path: Path) -> None:
     text = _padded()
     form = _fill_form(tmp_path / "Change Control Form.odg", _filled_values())
     for memo in (
-        _write_odt(tmp_path / "ok.odt", text),
-        _write_docx(tmp_path / "ok.docx", text),
+        write_odt(tmp_path / "ok.odt", text),
+        write_docx(tmp_path / "ok.docx", text),
     ):
         result = score_artifacts(memo, form)
         assert result.passed, (memo.name, result.failures)
@@ -135,7 +116,7 @@ def test_passing_pair_odt_and_docx(tmp_path: Path) -> None:
 
 
 def test_empty_memo_fails(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "empty.odt", "")
+    memo = write_odt(tmp_path / "empty.odt", "")
     form = _fill_form(tmp_path / GMP_FORM_ODG_NAME, _filled_values())
     result = score_artifacts(memo, form)
     assert not result.passed
@@ -143,7 +124,7 @@ def test_empty_memo_fails(tmp_path: Path) -> None:
 
 
 def test_blank_form_fails(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "memo.odt", _padded())
+    memo = write_odt(tmp_path / "memo.odt", _padded())
     form = write_gmp_change_control_odg(tmp_path / GMP_FORM_ODG_NAME)
     result = score_artifacts(memo, form)
     assert not result.passed
@@ -290,7 +271,7 @@ def test_form_cite_still_fails_without_deliverable_cite() -> None:
 
 
 def test_resolve_sibling_form(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     form = _fill_form(tmp_path / "final_form.odg", _filled_values())
     found_memo, found_form = resolve_gmp_artifacts(memo)
     assert found_memo == memo
@@ -301,15 +282,15 @@ def test_resolve_sibling_form(tmp_path: Path) -> None:
 
 
 def test_headed_score_routes_to_gmp_oracle(tmp_path: Path) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     _fill_form(tmp_path / "final_form.odg", _filled_values())
     assert headed_main(["--task", "gmp-change-control", "--score", str(memo)]) == 0
-    empty = _write_odt(tmp_path / "empty.odt", "")
+    empty = write_odt(tmp_path / "empty.odt", "")
     assert headed_main(["--task", "gmp-change-control", "--score", str(empty)]) == 1
 
 
 def test_oracle_cli_json(tmp_path: Path, capsys) -> None:
-    memo = _write_odt(tmp_path / "final_memo.odt", _padded())
+    memo = write_odt(tmp_path / "final_memo.odt", _padded())
     _fill_form(tmp_path / "final_form.odg", _filled_values())
     assert oracle_main(["--json", str(memo)]) == 0
     out = capsys.readouterr().out

@@ -40,8 +40,6 @@ def test_address_utils():
     assert format_range(0, 0, 0, 0, collapse_single=False) == "A1:A1"
     assert format_range(0, 0, 0, 0, collapse_single=True) == "A1"
 
-    import pytest
-
     try:
         import deal
         pre_err = (ValueError, deal.PreContractError)
@@ -214,7 +212,6 @@ def test_a1_cell_re_skips_function_and_sheet_names():
 
 
 def test_parse_address_rejects_rows_past_calc_max():
-    import pytest
     from plugin.calc.address_utils import MAX_ROW, parse_address, parse_range_string
     assert parse_address("A1048576") == (0, MAX_ROW)
     with pytest.raises(ValueError, match="1048577"):
@@ -224,7 +221,6 @@ def test_parse_address_rejects_rows_past_calc_max():
 
 
 def test_parse_address_rejects_misplaced_dollar_signs():
-    import pytest
     from plugin.calc.address_utils import parse_address, parse_range_string
     for bad in ("A$1$", "A$B$1", "$A1$", "A1$B"):
         with pytest.raises(ValueError):

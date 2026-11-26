@@ -203,7 +203,6 @@ def test_control_snapshot_listbox():
 
 
 def test_safe_attr_reraises_disposed():
-    import pytest
     from plugin.draw.tree import _safe_attr
 
     class DisposedException(Exception):
@@ -226,9 +225,6 @@ def test_safe_attr_reraises_disposed():
 
 
 def test_control_snapshot_reraises_disposed():
-    import pytest
-    from plugin.framework.errors import DocumentDisposedError
-
     class DisposedException(Exception):
         pass
 

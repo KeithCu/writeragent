@@ -159,7 +159,7 @@ def test_target_from_load_does_not_stringify_aliases():
 
 
 def test_stamp_session_accepts_long_text():
-    """Script source is longer than the old deal caps."""
+    """Script source may be longer than DEAL_MAX_TOKEN."""
     from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 
     code = "x" * (DEAL_MAX_TOKEN + 50)

@@ -66,6 +66,8 @@ class FakePage:
 
 
 class FailingPosShape(FakeShape):
+    """A shape that refuses Position on both paths ``copy_prop`` tries (``setPropertyValue``, then attribute assignment)."""
+
     def setPropertyValue(self, name: str, value: Any) -> None:
         if name == "Position":
             raise RuntimeError("Failed to set Position")

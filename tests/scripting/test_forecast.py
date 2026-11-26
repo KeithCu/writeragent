@@ -162,7 +162,7 @@ def _indexed(frame: pd.DataFrame) -> pd.Series:
 
 
 def test_daily_series_infers_weekly_season_not_monthly():
-    # 30 daily rows used to become period 12 because n >= 24.
+    # 30 daily rows give a weekly season (7), not 12 just because n >= 24.
     dates = pd.date_range("2024-01-01", periods=30, freq="D")
     frame = pd.DataFrame({"Date": dates, "Value": [100.0 + (i % 7) for i in range(30)]})
     assert venv_forecast.Calendar.compute(_indexed(frame)).season == 7

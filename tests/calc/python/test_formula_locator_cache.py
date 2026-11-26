@@ -386,7 +386,6 @@ def test_formula_origin_from_located():
 
 def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:
     """locate_formula_cell_in_doc locates formula cell on non-active sheet."""
-    from plugin.tests.testing_utils import CalcSheetStub
 
     sheet1 = CalcSheetStub("Overview")
     sheet2 = CalcSheetStub("Viz_Gallery")

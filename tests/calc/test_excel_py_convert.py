@@ -697,7 +697,6 @@ def test_reverse_preserves_headers_false_and_return_type():
 
 def test_convert_dag_report_preserves_return_type_drops_legacy_ordering():
     """Legacy reports may still carry ordering_args; export must not put them on _xlws.PY."""
-    from plugin.calc.excel_py_convert.models import ConversionReport
     from plugin.calc.excel_py_convert.to_excel import convert_dag_report_to_excel, xlws_py_formula
 
     dag = ConversionReport.from_dict(
@@ -739,7 +738,6 @@ def test_dag_meta_payload_roundtrip():
         load_dag_meta_from_doc,
         store_dag_meta_on_doc,
     )
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
     from unittest.mock import MagicMock, patch
 
     report = ConversionReport(
@@ -1163,8 +1161,6 @@ def test_python_scripts_xml_escapes_text_nodes():
 
 
 def test_assign_script_bank_dedupes():
-    from plugin.calc.excel_py_convert.models import ConvertedCell
-
     a = ConvertedCell(
         sheet="S", cell="A1", direction="excel", original_code="", converted_code="x = data", data_args=["A1"], converted=True
     )
@@ -1236,8 +1232,6 @@ def test_cli_excel_write_xlsx(tmp_path: Path):
 
 def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
     """write_excel_python_xlsx must preserve entries in single-line [Content_Types].xml."""
-    from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     # Single line [Content_Types].xml with sheet1 and a py_code sheet to be dropped
@@ -1325,7 +1319,6 @@ def test_write_excel_python_xlsx_single_line_content_types(tmp_path: Path):
 
 def test_cell_string_value_inlinestr():
     """_cell_string_value must match both t='inlineStr' and t='inlinestr'."""
-    from xml.etree import ElementTree as ET
     from plugin.calc.excel_py_convert.parse_dag_formulas import _cell_string_value
 
     c1 = ET.fromstring('<c r="A1" t="inlineStr"><is><t>code string 1</t></is></c>')
@@ -1343,7 +1336,6 @@ def test_cell_string_value_inlinestr():
 
 def test_no_double_xml_unescape():
     """Formulas containing literal &lt; or &amp; must not be double unescaped."""
-    from xml.etree import ElementTree as ET
     from plugin.calc.excel_py_convert.parse_dag_formulas import _sheet_cell_map
     from plugin.calc.excel_py_convert.parse_excel_ooxml import _iter_py_cells
 
@@ -1377,7 +1369,6 @@ def test_no_double_xml_unescape():
 
 def test_resolve_refs_lookup_anchor_sheet_qualified_priority():
     """_lookup_anchor must prefer Sheet!A1 over bare A1 when sheet_hint is given."""
-    from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
     from plugin.calc.excel_py_convert.resolve_refs import _lookup_anchor
 
     snaps = {
@@ -1394,7 +1385,6 @@ def test_resolve_refs_lookup_anchor_sheet_qualified_priority():
     assert _lookup_anchor(model, "A1", sheet_hint="") == "Sheet1!A1:B10"
 
     # Multi-sheet model: hint for a sheet with no snapshot must NOT leak another sheet's bare key
-    from plugin.calc.excel_py_convert.models import SheetInfo
     model_multi = ExcelWorkbookModel(
         sheets=[SheetInfo("Sheet1", 0, ""), SheetInfo("Sheet2", 1, "")],
         anchor_snapshots={"Sheet1!A6": "Sheet1!A6:B10", "A6": "A6:B10", "Sheet2!A6": "Sheet2!A6:B12"},
@@ -1482,7 +1472,6 @@ def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
 
 def test_script_bank_name_collision_raises():
     """Two source sheets whose sanitized names would collide must receive distinct bank sheet names."""
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
     from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
     assert code_sheet_name_for("My_Sheet") == "py_code_My_Sheet"
@@ -1518,7 +1507,6 @@ def test_script_bank_name_collision_raises():
 
 def test_script_bank_truncation_collision_raises():
     """Two long sheet names truncating must receive distinct bank names <= 31 chars."""
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
     from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 
     name1 = "VeryLongSheetNameThatWillTruncate1"
@@ -1556,8 +1544,6 @@ def test_script_bank_truncation_collision_raises():
 
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     """Temporary files ({stem}_*.tmp) must be cleaned up on exception."""
-    from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     src = tmp_path / "temp_clean_src.xlsx"
     src.write_bytes(_dag_xlsx_bytes())
@@ -1600,9 +1586,6 @@ def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
 
 def test_write_excel_python_xlsx_patched_empty_element(tmp_path: Path):
     """write_excel_python_xlsx must not treat an Element with 0 children as falsy."""
-    from xml.etree import ElementTree as ET
-    from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
     # Minimal xlsx
     src = tmp_path / "empty_el_src.xlsx"
@@ -1682,9 +1665,7 @@ def test_single_line_content_types_with_mc_ignorable():
 
 def test_ensure_cell_missing_row_ordering():
     """_ensure_cell must insert missing rows and cells in strictly ascending order, including when r is omitted."""
-    from xml.etree import ElementTree as ET
 
-    from plugin.calc.excel_py_convert.ooxml_util import local_name
     from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
 
     # Worksheet with row 1 and row 5
@@ -2924,8 +2905,6 @@ def test_bank_defined_name_exact_matching(tmp_path: Path):
 
 
 def test_namespace_serialize_isolated_per_part():
-    from plugin.calc.excel_py_convert.ooxml_util import parse_and_extract_namespaces, serialize_xml_preserving_namespaces
-
     xml_a = b'<a:root xmlns:a="http://example.com/nsA"><a:child/></a:root>'
     xml_b = b'<b:root xmlns:b="http://example.com/nsB"><b:child/></b:root>'
 
@@ -3030,8 +3009,6 @@ def test_drop_py_code_sheets_sets_full_calc_on_load():
 
 
 def test_write_dag_formulas_xlsx_direction_guard(tmp_path: Path):
-    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx
-
     src = tmp_path / "dummy.xlsx"
     out = tmp_path / "out.xlsx"
     report = ConversionReport(direction="excel")

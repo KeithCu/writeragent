@@ -14,13 +14,9 @@ from unittest.mock import MagicMock, patch
 import uno
 from com.sun.star.uno import RuntimeException
 
-from plugin.app import get_tools
 from plugin.calc.conditional import _entry_to_dict
 from plugin.framework.tool import prepare_tool_call
-
-
-def _tool(name: str):
-    return get_tools().get(name)
+from tests.calc.tool_lookup import calc_tool
 
 
 def test_conditional_formatting_add_validation_errors():
@@ -32,7 +28,7 @@ def test_conditional_formatting_add_validation_errors():
     cell_styles.hasByName.return_value = True
     doc.getStyleFamilies.return_value.getByName.return_value = cell_styles
 
-    tool = _tool("conditional_formatting_add")
+    tool = calc_tool("conditional_formatting_add")
 
     # 1. Unknown operator rejected by schema validator; lowercase enum coerces
     for bad_op in ("INVALID_OP", "NONE"):
@@ -95,7 +91,7 @@ def test_conditional_formatting_remove_error_handling():
     cell_range.getPropertyValue.return_value = formats
     bridge.resolve_range_or_address.return_value = cell_range
 
-    tool = _tool("conditional_formatting_remove")
+    tool = calc_tool("conditional_formatting_remove")
 
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
         # 1. Remove by index when no formats exist
@@ -121,7 +117,7 @@ def test_conditional_formatting_remove_refuses_two_ranges():
     bridge.resolve_range_or_address.return_value.getPropertyValue.return_value = formats
 
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
-        res = _tool("conditional_formatting_remove").execute_safe(ctx, range=["A1:A10", "B1:B10"])
+        res = calc_tool("conditional_formatting_remove").execute_safe(ctx, range=["A1:A10", "B1:B10"])
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     assert res["message"] == "Pass exactly one range."
@@ -137,7 +133,7 @@ def test_conditional_formatting_list_error_handling():
     bridge = MagicMock()
     bridge.resolve_range_or_address.side_effect = RuntimeException("Failed to resolve range", None)
 
-    tool = _tool("conditional_formatting_list")
+    tool = calc_tool("conditional_formatting_list")
 
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
         res = tool.execute_safe(ctx, range=["A1:A10"])
@@ -165,7 +161,7 @@ def test_conditional_formatting_add_operator_path():
     cell_range.getPropertyValue.return_value = formats
     bridge.resolve_range_or_address.return_value = cell_range
 
-    tool = _tool("conditional_formatting_add")
+    tool = calc_tool("conditional_formatting_add")
 
     with (
         patch("plugin.calc.conditional.CalcBridge", return_value=bridge),
@@ -264,7 +260,7 @@ def test_conditional_formatting_list_used_area_and_range_handling():
     sheet.createCursor.return_value = cursor
     bridge.get_active_sheet.return_value = sheet
 
-    tool = _tool("conditional_formatting_list")
+    tool = calc_tool("conditional_formatting_list")
 
     with patch("plugin.calc.conditional.CalcBridge", return_value=bridge):
         # Bare string works via prepare_tool_call wrapping
@@ -312,7 +308,7 @@ def test_conditional_sub_agent_includes_style_list_not_style_create():
     from plugin.writer.styles import StyleCreate, StyleList
 
     registry = ToolRegistry(MagicMock())
-    registry.register(_tool("conditional_formatting_add"))
+    registry.register(calc_tool("conditional_formatting_add"))
     registry.register(StyleList())
     registry.register(StyleCreate())
     names = {t.name for t in registry.get_tools(doc_type="calc", active_domain="conditional_formatting", exclude_tiers=())}
@@ -327,7 +323,7 @@ def test_conditional_formatting_add_style_or_inline():
     cell_styles = MagicMock()
     cell_styles.hasByName.return_value = True
     doc.getStyleFamilies.return_value.getByName.return_value = cell_styles
-    tool = _tool("conditional_formatting_add")
+    tool = calc_tool("conditional_formatting_add")
 
     res_both = tool.execute_safe(ctx, range=["A1:A10"], operator="GREATER", formula1="10", style="Result", bg_color="red")
     assert res_both["status"] == "error"
@@ -385,7 +381,7 @@ def test_inline_style_reuse_reapplies_properties():
     cell_range.getPropertyValue.return_value = formats
     bridge.resolve_range_or_address.return_value = cell_range
 
-    tool = _tool("conditional_formatting_add")
+    tool = calc_tool("conditional_formatting_add")
     fake_fw = SimpleNamespace(BOLD=150.0, NORMAL=100.0)
     with (
         patch("plugin.calc.conditional.CalcBridge", return_value=bridge),

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -18,15 +18,6 @@ from plugin.calc.viz_auto_plot import (
     task_hint_implies_plot,
 )
 from plugin.framework.errors import DocumentDisposedError
-
-
-@pytest.fixture
-def calc_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "calc"
-    return ctx
 
 
 def test_task_hint_implies_plot():
