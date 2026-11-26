@@ -397,6 +397,7 @@ def test_reset_writer_page_regions_clears_first_page_and_shares(monkeypatch):
         "FooterTextLeft": None,
     }
     style.getPropertyValue.side_effect = props.get
+    style.getPropertyValues.return_value = (True, False)
     styles = MagicMock()
     styles.getElementNames.return_value = ("Standard",)
     styles.getByName.return_value = style
@@ -414,6 +415,43 @@ def test_reset_writer_page_regions_clears_first_page_and_shares(monkeypatch):
     header_first.setString.assert_called_with("")
     header_first.removeTextContent.assert_called_with(table)
     body.setPropertyValue.assert_called_with("PageDescName", "Standard")
+
+
+def test_reset_writer_page_regions_skips_style_with_header_and_footer_off():
+    """Untouched page styles read FirstIsShared as void, so only HeaderIsOn/FooterIsOn decide the skip."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+
+    style = MagicMock()
+    style.getPropertyValues.return_value = (False, False)
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value.getElementNames.return_value = ("First Page",)
+    doc.getStyleFamilies.return_value.getByName.return_value.getByName.return_value = style
+    body = doc.getText.return_value.createTextCursor.return_value
+
+    tu._reset_writer_page_regions(doc)
+
+    style.setPropertyValue.assert_not_called()
+    style.getPropertyValue.assert_not_called()
+    body.setPropertyValue.assert_called_with("PageDescName", "Standard")
+
+
+def test_reset_writer_doc_unlocks_controllers_when_wipe_raises():
+    """A pooled Writer left with locked controllers would never lay out again."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("bridge gone")
+
+    with pytest.raises(RuntimeError):
+        tu._reset_writer_doc(doc, ctx)
+
+    doc.lockControllers.assert_called_once_with()
+    doc.unlockControllers.assert_called_once_with()
 
 
 def test_create_native_doc_windows_skips_hidden_blank_after_bitmap(monkeypatch):
