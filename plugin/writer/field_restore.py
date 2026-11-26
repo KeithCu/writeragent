@@ -19,6 +19,8 @@ import re
 import uuid
 from typing import Any
 
+import uno
+
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
@@ -195,8 +197,6 @@ def _page_field_properties(title: str, props: dict[str, str]) -> list[tuple[str,
         ("NumberingType", PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
     ]
     if title == "page-number":
-        import uno
-
         pairs += [
             ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
             ("Offset", int(props.get("offset", "0"))),

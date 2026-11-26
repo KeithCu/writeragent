@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework import config
 from plugin.framework.errors import best_effort
+from plugin.framework.queue_executor import main
 from plugin.framework.quit_hooks import register_quit_hook
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
@@ -88,8 +89,8 @@ def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
     """Preserve the regional English dialects understood by Harper."""
     if a_locale is None:
         return None
-    language = str(getattr(a_locale, "Language", "") or "").strip()
-    country = str(getattr(a_locale, "Country", "") or "").strip()
+    language = a_locale.Language.strip()
+    country = a_locale.Country.strip()
     tag = language
     # Explicit Country wins over a plain Language; a Language that already
     # carries a region ("en-GB", "en_GB") keeps it; normalize splits and
@@ -179,8 +180,6 @@ class HarperRuntime:
         # has returned, so the spelling dialog would freeze until the walk released.
         # A timed acquire on the main thread keeps the dialog responsive; a missed
         # acquire writes nothing and the holder keeps the state it already set.
-        from plugin.framework.queue_executor import main
-
         if main.is_current():
             return self.lock.acquire(timeout=_UI_STATE_LOCK_WAIT_SEC)
         self.lock.acquire()
@@ -301,7 +300,8 @@ class HarperRuntime:
                 )
             except Exception as exc:
                 log.exception("[harper] Could not submit ensure job: %s", exc)
-                # The rollback is this same hold; a second timed acquire that fails would leave RESOLVING with no job, and a lint holder does not clear that bit.
+                # The rollback is this same hold. A second timed acquire that fails would
+                # leave RESOLVING with no job, and a lint holder does not clear that bit.
                 if self.state is HarperRuntimeState.RESOLVING:
                     self.state = HarperRuntimeState.IDLE
                 return False
@@ -470,7 +470,8 @@ class HarperLSClient:
             self.stdout_queue = out_queue
             emit_progress(self._heartbeat_fn, "Starting harper-ls…")
             # Explanations for non-default flags:
-            # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
+            # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not
+            #   pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
             # - new_session=False: child is not a session leader; close signals that process with terminate / kill.
             # - stderr=DEVNULL: no drain thread.
             # - register=False: shutdown_all must not kill_tree this child.
@@ -766,8 +767,6 @@ def _broadcast_proofread_again() -> None:
 
 def _schedule_proofread_again() -> None:
     try:
-        from plugin.framework.queue_executor import main
-
         main.post(_broadcast_proofread_again)
     except Exception as e:
         log.debug("[harper] Could not schedule PROOFREAD_AGAIN: %s", e)
@@ -831,7 +830,6 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         box: dict[str, Any] = {}
         done = threading.Event()
         cancel_event = threading.Event()
-        from plugin.framework.queue_executor import main
 
         # VCL proofreading has no Stop, so the dialog budget is 2 s; Dummy-* stays 15 s.
         budget = _DIALOG_LINT_BUDGET_SEC if main.is_current() else _LINT_BUDGET_SEC

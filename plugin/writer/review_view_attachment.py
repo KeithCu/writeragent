@@ -64,8 +64,7 @@ def layout_manager(model: Any) -> Any | None:
         frame = controller.getFrame()
         if frame is None:
             return None
-        lm = getattr(frame, "LayoutManager", None)
-        return lm
+        return frame.LayoutManager
     except Exception:
         log.debug("review_view_attachment: layout manager lookup failed", exc_info=True)
         return None

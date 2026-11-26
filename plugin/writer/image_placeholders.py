@@ -277,7 +277,7 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
             pic_obj: Any = obj
             kept = _read_picture(pic_obj, marker, name)
             in_region = (
-                getattr(kept.anchor, "value", "") != "AT_PAGE"
+                kept.anchor.value != "AT_PAGE"
                 and uno_read(lambda: uno_same(pic_obj.getAnchor().getText(), text_obj), False) is True
             )
         else:
@@ -318,7 +318,7 @@ def restore_region_images(model: Any, images: list[_RegionImage]) -> None:
             raise ToolExecutionError(f"Image {image.name!r} was lost during header/footer import.")
         imported = graphics.getByName(image.marker)
         kept = image.kept
-        if kept is None or getattr(kept.anchor, "value", "") == "AT_PAGE":
+        if kept is None or kept.anchor.value == "AT_PAGE":
             if image.no_data and kept is not None:
                 imported.Graphic = kept.graphic
             try:
@@ -429,7 +429,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
         search.SearchString = image.marker
         found = _find_marker(model, search)
         insert = (
-            getattr(image.anchor, "value", "") != "AT_PAGE"
+            image.anchor.value != "AT_PAGE"
             and _deleted_by_the_edit(model, image.original, image.name)
         )
         if found is None:

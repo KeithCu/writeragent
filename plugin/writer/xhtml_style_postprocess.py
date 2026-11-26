@@ -37,11 +37,12 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, final
 
+from plugin.framework.deal_shim import deal
+
 # Block tags that carry a paragraph style (read) and that produce exactly one paragraph on
-# import (write, where each consumes one positional data-lo-style slot). NOTE: <div> is
-# deliberately EXCLUDED — LibreOffice never emits a paragraph style on a <div>, and on write a
-# <div> is a transparent container (not its own paragraph). Treating it as a styleable block
-# desynced styles (read/write asymmetry); keeping it out makes both paths agree.
+# import (write, where each consumes one positional data-lo-style slot). <div> is excluded:
+# LibreOffice never emits a paragraph style on a <div>, and on write a <div> is a transparent
+# container, not a paragraph. Counting it would consume a data-lo-style slot that no paragraph owns.
 BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "pre"}
 
 _AUTOSTYLE_RE = re.compile(r"^P\d+$")
@@ -55,8 +56,6 @@ _TRAILING_EMPTY_P_RE = re.compile(
     r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
 _BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
-
-from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: isinstance(result, str))
@@ -734,8 +733,9 @@ def expand_tracked_deletions(fodt: str) -> str | None:
 
 
 # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl skips <text:section text:display="none">;
-# xmloff/source/text/XMLSectionExport.cxx writes text:display="condition" when IsVisible is false,
-# which odf2xhtml leaks into HTML as literal "display:condition; ".
+# XMLSectionExport::ExportRegularSectionStart (xmloff/source/text/XMLSectionExport.cxx) writes
+# text:display="condition" when IsVisible is false, which odf2xhtml leaks into HTML as literal
+# "display:condition; ".
 _HIDDEN_SECTION_DISPLAY_RE = re.compile(
     r'(<text:section\b[^<>]*?)\s+text:display="(?:none|condition)"([^<>]*>)',
 )
