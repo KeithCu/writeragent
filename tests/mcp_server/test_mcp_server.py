@@ -602,7 +602,6 @@ def test_dispatch_resets_response_started_for_subsequent_requests():
 
 def test_dispatch_client_disconnect_is_not_a_500():
     from http.client import HTTPMessage
-    from unittest.mock import patch
 
     handler = _bare_generic_handler({}, b"{}")
     handler.headers = HTTPMessage()
@@ -626,7 +625,6 @@ def test_dispatch_client_disconnect_is_not_a_500():
 
 def test_dispatch_body_read_reset_does_not_write_a_500():
     from http.client import HTTPMessage
-    from unittest.mock import patch
 
     handler = _bare_generic_handler({}, b"")
     handler.headers = HTTPMessage()

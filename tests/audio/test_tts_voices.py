@@ -432,7 +432,6 @@ def test_preferred_harvested_voice_prefers_aoede_for_gemini():
 def test_all_writeragent_locales_have_piper_model_mapping():
     import os
 
-    from plugin.audio.tts_voices import get_default_voice_for_locale
     from plugin.audio.voice_catalog import PIPER_VOICE_MODELS
 
     locales_dir = os.path.join(os.path.dirname(__file__), "..", "..", "locales")

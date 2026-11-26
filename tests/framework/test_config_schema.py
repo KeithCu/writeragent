@@ -96,7 +96,6 @@ def test_config_schema_import_populates_modules_and_defaults() -> None:
 
 def test_manifest_config_keys_are_known_in_schema() -> None:
     from plugin._manifest import MODULES
-    from plugin.framework.config_schema import is_known_config_key
 
     for mod in MODULES:
         if not isinstance(mod, dict):

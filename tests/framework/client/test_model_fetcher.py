@@ -310,9 +310,8 @@ class TestFetchAvailableImageModels:
 
     def test_local_memo_matches_keyword_image_fetch(self):
         # Settings reads the memo from the one /v1/models GET. painter is
-        # type=image, so the old memo was ["painter"] while the image fetch
-        # returned ["flux"]. Those lists must match, and the second read must
-        # not GET again.
+        # type=image while the keyword image fetch returns ["flux"]. The memo
+        # must match the fetch, and the second read must not GET again.
         from plugin.framework.client import model_fetcher as cfg
 
         payload = {'data': [{'id': 'flux'}, {'id': 'llama3.2'}, {'id': 'painter', 'type': 'image'}]}
@@ -1629,7 +1628,6 @@ def test_ui_thread_skips_provider_memo_until_key_read(fake_keystore):
     from plugin.framework import keystore
     from plugin.framework.client import model_fetcher
     from plugin.framework.config import get_api_key_for_endpoint, save
-    from plugin.framework.queue_executor import main
 
     url = "https://openrouter.ai/api"
     save({"api_keys_by_endpoint": {url: "sk-1"}})

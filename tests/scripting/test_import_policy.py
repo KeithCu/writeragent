@@ -17,14 +17,6 @@ from plugin.scripting.sandbox import (
     build_sandbox_policy,
     policy_blocked_imports,
 )
-import pytest
-
-
-@pytest.fixture(autouse=True)
-def _register_prompt_hooks_for_import_policy_tests():
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-
-    register_writeragent_prompt_hooks()
 
 
 def test_network_blocked_unless_enabled():

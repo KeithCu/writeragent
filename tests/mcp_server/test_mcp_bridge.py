@@ -130,9 +130,9 @@ def test_post_to_lo_real_http(monkeypatch):
         assert out["result"]["method"] == "tools/list"
     finally:
         srv.shutdown()
-# ---- stdio encoding: Windows mojibake regression ----
+# ---- stdio encoding: UTF-8 through the bridge on Windows ----
 
-# Exactly the shapes that came back corrupted through the bridge: a lowercase
+# Shapes that turn into mojibake when UTF-8 bytes go through a cp1252 stream: a lowercase
 # accent (U+00ED, bytes C3 AD), an em dash (U+2014, bytes E2 80 94), a cedilla
 # and a tilde. Written as escapes so this file's own encoding cannot mask a bug.
 _ACCENTED = "Excelent\u00edssimo \u2014 a\u00e7\u00e3o"

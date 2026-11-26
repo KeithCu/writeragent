@@ -662,8 +662,6 @@ def test_stream_tls_retry_does_not_backoff(_fast_retry_waits):
 
 
 def test_stream_connection_error_after_content_does_not_retry():
-    from plugin.framework.errors import NetworkError
-
     ctx = MockContext()
     client = LlmClient({"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "gpt-4"}, ctx)
     chunks: list[str] = []
@@ -831,7 +829,6 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
         _, _, json_data1, _ = client.make_chat_request(messages, max_tokens=50)
         _, _, json_data2, _ = client.make_chat_request(messages, max_tokens=50)
     
-    import json
     data = json.loads(json_data1)
     sys_content = data["messages"][0]["content"]
     marker = "[WriterAgent development build]"
@@ -991,7 +988,6 @@ def test_make_chat_request_coalesces_system_messages(client):
         mock_auth.return_value = {"provider": "anthropic"}
         
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
-        import json
         request_body = json.loads(json_data)
         
         # The system string should be a combination of the two
@@ -2532,7 +2528,6 @@ def test_adjust_image_body_for_rejection_no_match_returns_none():
 
 
 def test_image_completion_retries_on_not_supported(client):
-    from plugin.framework.errors import NetworkError
     client._get_shim = MagicMock()
     client._get_shim().parse_image_responses.return_value = ["/tmp/retried.png"]
     client._get_shim().build_image_request.return_value = ("POST", "/images", json.dumps({"resolution": "512"}).encode("utf-8"), {})
@@ -2555,8 +2550,6 @@ def test_image_completion_retries_on_not_supported(client):
 
 
 def test_image_completion_non_matching_error_reraises(client):
-    from plugin.framework.errors import NetworkError
-
     call_count = 0
     def mock_request_json(method, path, body, headers, **kwargs):
         nonlocal call_count
@@ -3339,8 +3332,6 @@ def test_fresh_remote_disconnected_still_shows_provider_busy(client):
 
 def test_stream_without_done_is_connection_lost(client):
     """A stream that closes without [DONE] or finish_reason is a drop."""
-    from plugin.framework.errors import NetworkError
-    import json
     resp = create_mock_http_response(sse_lines=[f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}'.encode()])
     chunks: list[str] = []
     with patch("http.client.HTTPSConnection") as mock_https:
@@ -3354,7 +3345,6 @@ def test_stream_without_done_is_connection_lost(client):
 def test_stream_on_content_disposed_exception_propagates_unchanged(client):
     """An on_content callback that raises a disposed exception propagates unchanged (not wrapped in NetworkError)."""
     from plugin.framework.errors import DocumentDisposedError
-    import json
 
     resp = create_mock_http_response(sse_lines=[f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}'.encode()])
 
@@ -3369,8 +3359,6 @@ def test_stream_on_content_disposed_exception_propagates_unchanged(client):
 
 def test_stream_error_too_many_tokens_is_not_overload(client, _fast_retry_waits):
     """An error message containing "too many tokens" is not treated as overload / not retried."""
-    from plugin.framework.errors import NetworkError
-    import json
 
     payload = json.dumps({"error": {"message": "too many tokens"}}).encode()
     bad = create_mock_http_response(sse_lines=[b"data: " + payload])
@@ -3386,7 +3374,6 @@ def test_stream_error_too_many_tokens_is_not_overload(client, _fast_retry_waits)
 
 def test_stream_error_too_many_requests_phrase_is_overload(client, _fast_retry_waits):
     """The full 429 reason phrase with no structured code still retries once."""
-    import json
 
     payload = json.dumps({"error": {"message": "Too Many Requests"}}).encode()
     bad = create_mock_http_response(sse_lines=[b"data: " + payload])
@@ -3454,7 +3441,6 @@ def test_sync_request_with_tools_wraps_parse_sync_response_error(client):
 def test_observe_provider_http_error_redacts_api_key_query_param(client, caplog):
     """_observe_provider_http_error must strip ?key=... query param and redact api_key from the logged path."""
     import logging
-    from unittest.mock import MagicMock
 
     client.config["api_key"] = "AIzaSySecretApiKey123"
     response = MagicMock()
@@ -3511,9 +3497,7 @@ def test_llm_client_passes_cache_session_id(mock_ctx):
 
 
 def test_chat_completion_sync_stop_checker_not_finish_reason():
-    from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.errors import ToolExecutionError
-    from plugin.framework.send_cancellation import SendCancellation
 
     client = LlmClient.__new__(LlmClient)
     client._owned = SendCancellation()

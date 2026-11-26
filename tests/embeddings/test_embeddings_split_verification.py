@@ -59,8 +59,6 @@ def test_embeddings_split_long_passage_does_not_precontract() -> None:
     _accepts_long_passage(_split_prose_passage_to_spans, too_long)
     _accepts_long_passage(_split_non_prose_passage_to_spans, too_long)
     if deal_pre_present(split_passage_locale_runs_to_chunk_meta):
-        import deal
-
         with pytest.raises(deal.PreContractError):
             # Pytest run-locale pre is still ascii_bounded; CrossHair is None-only.
             split_passage_locale_runs_to_chunk_meta(

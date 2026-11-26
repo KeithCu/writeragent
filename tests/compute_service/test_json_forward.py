@@ -897,8 +897,6 @@ def test_parse_multipart_vision_part_errors() -> None:
 
 
 def test_validate_session_id_rejects_padded_init_suffix() -> None:
-    from compute_service.json_forward import validate_session_id
-
     with pytest.raises(ExecuteRequestError) as exc_info:
         validate_session_id("foo:init ")
     assert exc_info.value.code == "INVALID_SESSION_ID"

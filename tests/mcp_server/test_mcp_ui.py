@@ -390,9 +390,6 @@ def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> N
 
 
 def test_build_mcp_config_snippet_with_custom_and_local_url():
-    import json
-    from plugin.mcp_server.mcp_ui import build_mcp_config_snippet
-
     local_snippet = build_mcp_config_snippet(port=18765)
     local_data = json.loads(local_snippet)
     assert local_data["mcpServers"]["libreoffice"]["url"] == "http://localhost:18765/mcp"
@@ -404,8 +401,6 @@ def test_build_mcp_config_snippet_with_custom_and_local_url():
 
 
 def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
-    import json
-    from unittest.mock import MagicMock
     from plugin.mcp_server.mcp_ui import (
         remember_tested_tunnel_url,
         sync_mcp_config_snippet,

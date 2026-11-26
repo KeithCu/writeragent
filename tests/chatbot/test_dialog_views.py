@@ -149,7 +149,6 @@ class TestInputBoxExtraTokens:
 
 class TestSettingsDialogLoad:
     def test_create_dialog_raises_when_loader_returns_none(self):
-        from plugin.chatbot.dialog_views import SettingsDialog
         from plugin.framework.errors import UnoObjectError
 
         view = SettingsDialog(MagicMock())
@@ -170,8 +169,6 @@ class TestSettingsInitialModelsFetch:
     def test_schedule_initial_models_fetch(
         self, endpoint: str, api_key: str | None, expected_scheduled: bool,
     ):
-        from plugin.chatbot.dialog_views import SettingsDialog
-
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
@@ -843,7 +840,6 @@ def test_populate_fields_skips_one_missing_control() -> None:
     UNO getControl raises for a name that is not in the XDL. Returning None
     is not the only miss.
     """
-    from plugin.chatbot.dialog_views import SettingsDialog
 
     dlg = MagicMock()
     text_ctrl = MagicMock()
@@ -872,8 +868,6 @@ def test_populate_fields_skips_one_missing_control() -> None:
 
 
 def test_extract_results_skips_control_that_raises() -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
-
     class _Text:
         def getText(self):
             return "hello"
@@ -898,8 +892,6 @@ def test_extract_results_skips_control_that_raises() -> None:
 
 
 def test_populate_fields_text_model_does_not_fetch_remote() -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
-
     dlg = MagicMock()
     text_ctrl = MagicMock()
     dlg.getControl.side_effect = lambda name: text_ctrl if name == "text_model" else None
@@ -986,8 +978,6 @@ def test_sync_api_key_preset_loads_saved_key() -> None:
     ],
 )
 def test_populate_fields_wires_audio_model_lru(ctrl_name: str, initial_val: str, lru_key: str) -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
-
     dlg = MagicMock()
     ctrl = MagicMock()
     dlg.getControl.side_effect = lambda name: ctrl if name == ctrl_name else None
@@ -1739,7 +1729,6 @@ def test_voice_combo_change_does_not_write_config_until_ok():
 
 def test_extract_results_skips_missing_control_and_reads_checkbox_bool():
     """Fields without an XDL control are omitted; otherwise OK would overwrite schema defaults with empty strings."""
-    from plugin.chatbot.dialog_views import SettingsDialog
 
     class _Text:
         def getText(self):
@@ -1955,8 +1944,6 @@ def test_bg_fetch_receives_typed_api_key():
 
 
 def test_settings_hf_button_uses_router():
-    from plugin.chatbot.dialog_views import SettingsDialog
-
     dialog = SettingsDialog.__new__(SettingsDialog)
     dialog._dlg = MagicMock()
     dialog._ctx = MagicMock()
@@ -2232,7 +2219,6 @@ def test_tts_test_progress_box_show_or_update(caplog):
 
 
 def test_settings_dialog_retries_on_config_validation_error() -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
     from plugin.framework.errors import ConfigValidationError
 
     dlg = MagicMock()
@@ -2271,7 +2257,6 @@ def test_settings_dialog_retries_on_config_validation_error() -> None:
 
 def test_settings_dialog_reinitializes_logging_after_apply_settings() -> None:
     """SettingsDialog must re-initialize logging after apply_settings_result succeeds."""
-    from plugin.chatbot.dialog_views import SettingsDialog
 
     dlg = MagicMock()
     dlg.execute.side_effect = [1, 0]
@@ -2375,7 +2360,6 @@ def test_key_storage_label_follows_endpoint(fake_keystore):
 
 
 def test_settings_ok_adopts_connections_the_editor_checked():
-    from plugin.chatbot.dialog_views import SettingsDialog
     from plugin.mcp_client import client as mcp_client
 
     entry = {"name": "home", "url": "http://127.0.0.1:8000/mcp"}
@@ -2483,7 +2467,6 @@ def test_endpoint_change_replaces_a_ref_in_the_key_field() -> None:
 
 
 def test_settings_open_with_ref_defers_keystore_read_to_worker(fake_keystore) -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
     from plugin.framework import keystore
     from plugin.framework.config import get_config, save
 
@@ -2754,7 +2737,6 @@ def test_test_connection_with_ref_reads_key_on_worker(fake_keystore) -> None:
 
 
 def test_settings_show_starts_config_secret_read(fake_keystore) -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
     from plugin.framework import keystore
     from plugin.framework.config import get_config, save
 

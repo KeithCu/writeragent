@@ -637,7 +637,6 @@ def test_error_body_read_failure_costs_one_retry(mode: str):
 
 def test_exchange_error_body_read_failures_stop_after_three_attempts():
     """Three failed error-body reads exhaust the budget. They must not stop after two."""
-    import http.client
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     read_error = ConnectionResetError("reset while reading error body")
@@ -744,7 +743,6 @@ def test_reused_socket_failure_before_response_resends_once(exc):
 
 def test_reused_socket_remote_disconnected_on_getresponse_resends_once():
     """RemoteDisconnected from getresponse() is still before any response bytes."""
-    import http.client
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     transport._pacer.min_interval_sec = 0
@@ -784,7 +782,6 @@ def test_reused_socket_remote_disconnected_on_getresponse_resends_once():
 
 def test_stale_resend_does_not_loop():
     """The free resend happens once. The next same failure leaves send()."""
-    import http.client
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     transport._pacer.min_interval_sec = 0

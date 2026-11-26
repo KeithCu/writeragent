@@ -148,7 +148,6 @@ def test_final_done():
 
 def test_final_done_empty_content_shows_out_of_tool_rounds_message():
     from plugin.framework.i18n import _
-    from plugin.chatbot.tool_loop_state import UIEffectKind, ToolLoopUIEffect
 
     expected_msg = _("Reached the maximum number of tool rounds.")
 
@@ -415,7 +414,6 @@ def test_truncate_delegate_task_accepts_long_ascii_and_unicode():
 
 def test_next_tool_delegate_keeps_full_task_on_spawn():
     """Sidebar line is a 120-char preview; SpawnToolWorkerEffect keeps the full task."""
-    import json
 
     from plugin.chatbot.tool_loop_actions import DELEGATE_TASK_CHAT_MAX
 
@@ -543,8 +541,6 @@ def test_tool_result_delegate_gateway_error():
 
 
 def test_tool_result_delegate_gateway_incomplete():
-    from plugin.chatbot.tool_loop_state import TriggerNextToolEffect, UpdateDocumentContextEffect
-
     state = create_base_state()
     event = create_event(
         EventKind.TOOL_RESULT,

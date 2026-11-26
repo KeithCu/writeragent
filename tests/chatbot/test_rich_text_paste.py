@@ -1267,7 +1267,6 @@ class TestFlattenTextTableCopy:
     )
     def test_cell_link_queue_consumption(self, portions_spec, queue, expected_spans):
         from plugin.calc.navigation import cell_link_registry
-        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
 
         control = MagicMock()
         model = MagicMock()
@@ -1299,7 +1298,6 @@ class TestFlattenTextTableCopy:
     def test_click_tag_only_on_text_drawn_as_link(self):
         """Underlined or href portions get the click tag; a code sample matching a pending label does not."""
         from plugin.calc.navigation import cell_link_registry
-        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
 
         control = MagicMock()
         model = MagicMock()
@@ -1374,7 +1372,6 @@ class TestFlattenTextTableCopy:
     def test_control_len_resyncs_after_post_insert_formatting_failure(self):
         """Simulate post-insert formatting raise after text landed; assert length resyncs and link span stays accurate."""
         from plugin.calc.navigation import cell_link_registry
-        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
 
         p1 = _para([_portion("first_portion")], fallback_text="first_fallback")
         p2 = _para([_portion("Sheet1.A1", href="cell://Sheet1.A1")], fallback_text="Sheet1.A1")
@@ -1425,7 +1422,6 @@ def test_plain_fallback_text_drops_script_and_unescapes():
 
 def test_plain_transcript_text_strips_html():
     from plugin.chatbot.rich_text_paste import plain_transcript_text
-    from unittest.mock import MagicMock
 
     session = MagicMock(history_notice="")
     session.messages = [

@@ -1208,8 +1208,6 @@ def _list_item_texts(payload):
 
 
 def test_iter_markdown_blocks_lists():
-    from plugin.notebook.writer_importer import _iter_markdown_blocks
-
     blocks = _iter_markdown_blocks(
         "Key terms:\n"
         "* **Array** - A list of numbers.\n"
@@ -1350,8 +1348,6 @@ def test_bourke_cells_5_and_8_direct():
 
 
 def test_iter_markdown_blocks_list_continuation():
-    from plugin.notebook.writer_importer import _iter_markdown_blocks
-
     source = (
         "* First line of item\n"
         "  continuation line for item\n"
@@ -1438,8 +1434,6 @@ def test_import_markdown_lists_and_bold_use_html(tmp_path, monkeypatch):
 
 
 def test_inline_markdown_nested_code_in_bold():
-    from plugin.notebook.writer_importer import _inline_markdown_to_html
-
     html = _inline_markdown_to_html("**`code` in bold**")
     assert html == "<strong><code>code</code> in bold</strong>"
 
@@ -1542,7 +1536,6 @@ def test_svg_pixel_size_reads_comma_viewbox():
 
 def test_import_mixed_html_img_cell_renders_markdown_and_image(tmp_path, monkeypatch):
     """HTML <img> + markdown in one cell: heading/list/link, relative image embed."""
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
 
     nb_dir = tmp_path / "fixtures"
     img_dir = tmp_path / "images"
@@ -1651,8 +1644,6 @@ def test_import_html_img_fixture_notebook(monkeypatch):
 
 
 def test_iter_markdown_blocks_fenced_code():
-    from plugin.notebook.writer_importer import _iter_markdown_blocks
-
     src1 = "# Title\n```python\n# comment\n- not a list\n```\nAfter"
     assert _iter_markdown_blocks(src1) == [
         ("h1", "Title"),
@@ -1683,8 +1674,6 @@ def test_iter_markdown_blocks_fenced_code():
 
 
 def test_iter_markdown_blocks_atx_keeps_hash_in_word():
-    from plugin.notebook.writer_importer import _iter_markdown_blocks
-
     assert _iter_markdown_blocks("## Learning C#") == [("h2", "Learning C#")]
     assert _iter_markdown_blocks("## Learning C# #") == [("h2", "Learning C#")]
     assert _iter_markdown_blocks("## foo # bar") == [("h2", "foo # bar")]
@@ -1703,8 +1692,6 @@ def test_inline_markdown_does_not_eat_intraword_or_spaced_stars():
 
 
 def test_inline_markdown_link_allows_one_paren_level():
-    from plugin.notebook.writer_importer import _inline_markdown_to_html
-
     wiki = "[Python](https://en.wikipedia.org/wiki/Python_(programming_language))"
     wiki_html = _inline_markdown_to_html(wiki)
     assert 'href="https://en.wikipedia.org/wiki/Python_(programming_language)"' in wiki_html
@@ -1804,8 +1791,6 @@ def test_remote_image_budget_stops_fetches(monkeypatch):
 
 
 def test_format_stream_strips_ansi_and_collapses_cr():
-    from plugin.notebook.writer_importer import format_output_text
-
     out1 = {"output_type": "stream", "text": "\x1b[31mred\x1b[0m\rdone\n"}
     assert format_output_text(out1) == "done\n"
 
@@ -1814,15 +1799,11 @@ def test_format_stream_strips_ansi_and_collapses_cr():
 
 
 def test_format_error_uses_ename_when_traceback_empty():
-    from plugin.notebook.writer_importer import format_output_text
-
     out = {"output_type": "error", "ename": "ValueError", "evalue": "bad", "traceback": []}
     assert format_output_text(out) == "ValueError: bad"
 
 
 def test_format_html_only_is_not_dumped():
-    from plugin.notebook.writer_importer import format_output_text
-
     out_html = {"output_type": "display_data", "data": {"text/html": "<p>x</p>"}}
     assert format_output_text(out_html) == "[non-text output: text/html]"
 

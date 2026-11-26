@@ -735,7 +735,7 @@ def test_run_stream_drain_loop_next_tool_and_approval():
     q = queue.Queue()
     q.put((StreamQueueKind.APPROVAL_REQUIRED, "Do you allow file access?", "read_file", '{"path": "test.txt"}', "req_1"))
     q.put((StreamQueueKind.NEXT_TOOL,))
-    # A true NEXT_TOOL return used to set job_done and drop this tail.
+    # NEXT_TOOL must not set job_done; otherwise this tail would be dropped.
     q.put((StreamQueueKind.CHUNK, "after-next"))
     q.put((StreamQueueKind.STREAM_DONE, "end"))
 

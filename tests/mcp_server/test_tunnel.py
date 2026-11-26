@@ -148,7 +148,6 @@ def test_parse_tailscale_url():
 def test_tailscale_funnel_stdout_publishes_url(monkeypatch):
     """One line at a time, as AsyncProcess._read_stream delivers funnel stdout."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     mgr = TunnelManager()
     background: list = []
@@ -337,8 +336,6 @@ def test_start_sets_last_error_unknown_provider(monkeypatch):
 
 def test_start_returns_false_when_status_is_failed_with_custom_message(monkeypatch):
     """start() returns False on TunnelStatus.FAILED regardless of last_error text."""
-    import dataclasses
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
@@ -585,7 +582,6 @@ def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
 def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
     """After provider/token restart, a stale exit waiter must not clear the replacement tailscale process."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     mgr = TunnelManager()
     exits: list = []
@@ -727,7 +723,6 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
 def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
     """Funnel config outlives the process. Reset it when leaving while reconnecting."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
@@ -1075,7 +1070,6 @@ def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, 
 
 def test_pytest_does_not_use_config_dir_for_tailscale_arm(monkeypatch, tmp_path):
     """Tailscale arm_path returns the marker file path next to writeragent.json without creating it."""
-    from plugin.mcp_server.tunnel import TailscaleProvider
 
     fake_config = tmp_path / "writeragent.json"
     fake_config.write_text("{}", encoding="utf-8")
@@ -1089,7 +1083,6 @@ def test_pytest_does_not_use_config_dir_for_tailscale_arm(monkeypatch, tmp_path)
 
 def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):
     """stop() must return while funnel reset is still inside pre_start."""
-    import threading
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
@@ -1163,7 +1156,6 @@ def test_test_tunnel_connectivity_binary_missing():
 
 def test_test_tunnel_connectivity_server_not_running():
     from plugin.mcp_server.tunnel import test_tunnel_connectivity
-    from unittest.mock import MagicMock
 
     mock_res = MagicMock()
     mock_res.stdout = "cloudflared version 2026.1.0\n"
@@ -1183,7 +1175,6 @@ def test_test_tunnel_connectivity_server_not_running():
 
 def test_test_tunnel_connectivity_live_probe_success():
     from plugin.mcp_server.tunnel import test_tunnel_connectivity
-    from unittest.mock import MagicMock
 
     mock_res = MagicMock()
     mock_res.stdout = "cloudflared version 2026.1.0\n"
@@ -1213,7 +1204,6 @@ def test_test_tunnel_connectivity_live_probe_success():
 
 def test_start_does_not_hold_lock_during_binary_probe(monkeypatch):
     """A hung provider --version must not block stop() or the tunnel lock."""
-    import threading
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
@@ -1278,10 +1268,8 @@ def test_stop_cancels_a_start_that_was_only_armed(monkeypatch):
 
 def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     """config:changed must return while provider --version is still running."""
-    import threading
 
     import plugin.mcp_server as mcp_mod
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
@@ -1413,7 +1401,6 @@ def test_binary_available_unknown_provider():
 
 def test_start_uses_binary_probe_error_verbatim(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     mgr = TunnelManager()
     with patch("plugin.mcp_server.tunnel.binary_available", return_value="cloudflared binary check timed out"):
@@ -1430,7 +1417,6 @@ def test_binary_available_unexpected_error_propagates():
 
 
 def test_notify_url_failure_is_logged(caplog):
-    import dataclasses
     import logging
     from plugin.mcp_server.tunnel_state import NotifyUrlAcquiredEffect, TunnelStatus
 
@@ -1479,7 +1465,6 @@ def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
 )
 def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
     """LibreOffice quit triggers funnel off in background without blocking."""
-    from plugin.mcp_server.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
@@ -1647,7 +1632,6 @@ def test_sync_tunnel_passes_resolved_keystore_token(monkeypatch, fake_keystore):
 
 
 def test_sync_tunnel_from_main_thread_reads_keystore_off_thread(monkeypatch, fake_keystore):
-    import threading
     import plugin.mcp_server as mcp_mod
     from plugin.framework import keystore
     from plugin.framework.queue_executor import main
@@ -1710,7 +1694,6 @@ def test_sync_tunnel_from_main_thread_reads_keystore_off_thread(monkeypatch, fak
 
 
 def test_sync_tunnel_two_syncs_during_blocked_read_only_newest_starts(monkeypatch, fake_keystore):
-    import threading
     import plugin.mcp_server as mcp_mod
     from plugin.framework import keystore
 

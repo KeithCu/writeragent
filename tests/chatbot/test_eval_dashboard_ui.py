@@ -18,8 +18,6 @@ from plugin.chatbot.eval_dashboard_ui import EvalDashboard, EvalRunListener
 
 
 def test_show_loads_eval_dialog_with_ctx() -> None:
-    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
-
     ctx = MagicMock()
     dash = EvalDashboard(ctx)
     dlg = MagicMock()
@@ -34,8 +32,6 @@ def test_show_loads_eval_dialog_with_ctx() -> None:
 
 
 def test_show_skips_execute_when_dialog_missing() -> None:
-    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
-
     dash = EvalDashboard(MagicMock())
     with patch("plugin.chatbot.eval_dashboard_ui.load_writeragent_dialog", return_value=None) as mock_load, \
          patch.object(dash, "_populate") as mock_populate:
@@ -47,8 +43,6 @@ def test_show_skips_execute_when_dialog_missing() -> None:
 
 
 def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
-    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
-
     dash = EvalDashboard(MagicMock())
     dialog = MagicMock()
     dash._dlg = dialog
@@ -83,7 +77,6 @@ def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
 
 def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
     """A text-model list already cached is painted without fetch_available_models."""
-    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
     from plugin.framework.client import model_fetcher as cfg
 
     endpoint = "http://127.0.0.1:11434"
@@ -262,7 +255,6 @@ def test_populate_locks_endpoint_so_edits_are_not_ignored() -> None:
 
 def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.MonkeyPatch) -> None:
     """Close disposes the dialog while the suite can still post. Ignore that window."""
-    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
 
     from plugin.framework.queue_executor import Policy, main
 

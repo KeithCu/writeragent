@@ -215,7 +215,6 @@ def test_async_stt_stop_in_flight_restores_ask_and_skips_send(tmp_path):
 
 def test_prepare_stt_reads_keystore_off_main_thread(fake_keystore, tmp_path):
     import threading
-    from plugin.chatbot.panel_voice import PanelVoiceController
     from plugin.framework import config as fw_config, keystore
     from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation

@@ -707,7 +707,6 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
 
 @pytest.mark.parametrize("stop_in_prompt", [False, True], ids=["no-stop", "stop-in-prompt"])
 def test_compact_reads_key_on_worker(fake_keystore, stop_in_prompt: bool) -> None:
-    import threading
     from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
     from plugin.framework import config as fw_config, keystore
     from plugin.framework.queue_executor import main
