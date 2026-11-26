@@ -519,7 +519,7 @@ def raise_if_pending_changes_untracked(model: Any) -> None:
         text, _start, _end = redline_bounds(rl)
         if _in_header_footer(text):
             continue
-        author = str(rl.getPropertyValue("RedlineAuthor") or "Unknown")
+        author = str(rl.getPropertyValue("RedlineAuthor") or "Unknown Author")
         if author not in seen:
             seen.add(author)
             authors.append(author)

@@ -420,7 +420,7 @@ def _alice_changes(doc, ctx):
     text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
     text.insertString(cur, "Clause two. Tail.", False)
 
-    prior_author = review_authors.office_author(ctx)
+    prior = review_authors.begin(ctx)
     try:
         review_authors.set_office_author(ctx, "Alice")
         with _recording(doc):
@@ -434,19 +434,25 @@ def _alice_changes(doc, ctx):
             ins_cur.gotoEnd(False)
             text.insertString(ins_cur, " Alice inserted.", False)
     finally:
-        review_authors.set_office_author(ctx, prior_author)
+        review_authors.end(ctx, prior)
 
 
 def _redline_snapshot(doc):
+    from plugin.framework.uno_context import enum_has_more
+
     out = []
     e = doc.getRedlines().createEnumeration()
-    while e.hasMoreElements():
+    while enum_has_more(e):
         rl = e.nextElement()
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
         cur = end.getText().createTextCursorByRange(start)
         cur.gotoRange(end, True)
-        out.append((str(rl.getPropertyValue("RedlineType")), str(rl.getPropertyValue("RedlineAuthor")), cur.getString()))
+        succ = rl.getPropertyValue("RedlineSuccessorData")
+        succ_dict = {pv.Name: pv.Value for pv in succ} if succ else {}
+        out.append(
+            (str(rl.getPropertyValue("RedlineType")), str(rl.getPropertyValue("RedlineAuthor")), cur.getString(), succ_dict)
+        )
     return out
 
 
@@ -500,31 +506,24 @@ def test_full_document_recorded_keeps_other_authors_changes_uno(ctx, doc):
                 )
                 assert res.get("status") == "ok", res
                 snap = _redline_snapshot(doc)
-                assert ("Delete", "Alice", "Alice deletes this.") in snap, snap
-
-                stacked = []
-                e = doc.getRedlines().createEnumeration()
-                while e.hasMoreElements():
-                    rl = e.nextElement()
-                    start = rl.getPropertyValue("RedlineStart")
-                    end = rl.getPropertyValue("RedlineEnd")
-                    cur = end.getText().createTextCursorByRange(start)
-                    cur.gotoRange(end, True)
-                    if cur.getString() == " Alice inserted.":
-                        succ = rl.getPropertyValue("RedlineSuccessorData")
-                        if succ:
-                            stacked.append({pv.Name: pv.Value for pv in succ})
                 assert any(
-                    s.get("RedlineType") == "Insert" and s.get("RedlineAuthor") == "Alice"
-                    for s in stacked
-                ), stacked
+                    rtype == "Delete" and author == "Alice" and rtext == "Alice deletes this."
+                    for rtype, author, rtext, _succ in snap
+                ), snap
+
+                assert any(
+                    rtext == " Alice inserted."
+                    and succ.get("RedlineType") == "Insert"
+                    and succ.get("RedlineAuthor") == "Alice"
+                    for _rtype, _author, rtext, succ in snap
+                ), snap
 
                 expected_authors = (
                     {review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR}
                     if mode == "record"
                     else {review_authors.office_author(ctx)}
                 )
-                for _rtype, author, rtext in snap:
+                for _rtype, author, rtext, _succ in snap:
                     if rtext == "Alice deletes this.":
                         assert author == "Alice"
                     else:

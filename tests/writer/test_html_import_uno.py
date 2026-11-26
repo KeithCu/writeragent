@@ -4022,11 +4022,12 @@ def test_table_insert_on_empty_paragraph_respects_direct_vs_style_page_break_uno
 def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> None:
     """Header inserts and body Format redlines pass; body table-cell inserts refuse when untracked."""
     from com.sun.star.awt.FontWeight import BOLD
+    from plugin.doc.text_helpers import iter_elements, redline_bounds
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import review_authors
     from plugin.writer.html_import import raise_if_pending_changes_untracked
 
-    prior_author = review_authors.office_author(ctx)
+    prior = review_authors.begin(ctx)
     try:
         review_authors.set_office_author(ctx, "Alice")
         text = doc.getText()
@@ -4045,14 +4046,17 @@ def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> Non
         b_cur.goRight(4, True)
         b_cur.setPropertyValue("CharWeight", BOLD)
 
+        seen_redlines = {
+            (str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)[0].getImplementationName())
+            for rl in iter_elements(doc.getRedlines().createEnumeration())
+        }
+        assert ("Insert", "SwXHeadFootText") in seen_redlines, seen_redlines
+        assert ("Format", "SwXBodyText") in seen_redlines, seen_redlines
+
         doc.setPropertyValue("RecordChanges", False)
         raise_if_pending_changes_untracked(doc)
 
-        doc.setPropertyValue("RecordChanges", True)
-        raise_if_pending_changes_untracked(doc)
-
-        # Body table-cell insertion by Bob with recording off must refuse.
-        doc.setPropertyValue("RecordChanges", False)
+        # Body table-cell insertion by Bob: recording on passes, recording off refuses.
         table = doc.createInstance("com.sun.star.text.TextTable")
         table.initialize(1, 1)
         end_cur = text.createTextCursor()
@@ -4064,6 +4068,8 @@ def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> Non
         cell = table.getCellByName("A1")
         cell.insertString(cell.createTextCursor(), "Cell ins", False)
 
+        raise_if_pending_changes_untracked(doc)
+
         doc.setPropertyValue("RecordChanges", False)
         try:
             raise_if_pending_changes_untracked(doc)
@@ -4073,4 +4079,4 @@ def test_raise_if_pending_changes_untracked_scope_uno(ctx: Any, doc: Any) -> Non
             raise AssertionError("Expected PENDING_TRACKED_CHANGES")
     finally:
         doc.setPropertyValue("RecordChanges", False)
-        review_authors.set_office_author(ctx, prior_author)
+        review_authors.end(ctx, prior)
