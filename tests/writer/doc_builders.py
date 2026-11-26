@@ -122,3 +122,28 @@ def list_redlines(doc: Any) -> list[dict[str, str]]:
 def list_redline_types(doc: Any) -> list[str]:
     """Return the ``RedlineType`` of each redline, in enumeration order."""
     return [redline["type"] for redline in list_redlines(doc)]
+
+
+def strike_substring(
+    doc: Any, xtext: Any, needle: str, *, ctx: Any = None, author: str | None = None
+) -> None:
+    """Strike the first occurrence of *needle* in *xtext* as a tracked deletion."""
+    from plugin.writer import review_authors
+
+    cur = xtext.createTextCursor()
+    cur.gotoStart(False)
+    idx = xtext.getString().index(needle)
+    cur.goRight(idx, False)
+    cur.goRight(len(needle), True)
+    prior = None
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        if author is not None:
+            assert ctx is not None
+            prior = review_authors.begin(ctx)
+            assert review_authors.set_office_author(ctx, author) is True
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        if author is not None:
+            review_authors.end(ctx, prior)

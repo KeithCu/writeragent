@@ -1,7 +1,7 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.search import SearchInDocument
-from tests.writer.doc_builders import build_chain_deletion_doc
+from tests.writer.doc_builders import build_chain_deletion_doc, reject_all_changes, strike_substring
 
 
 def _populate_search_doc(doc):
@@ -425,19 +425,35 @@ def test_chain_range_ignores_struck_text_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_chain_replace_keeps_text_after_struck_run_uno(ctx, doc):
-    from plugin.doc.text_helpers import read_visible_body
+    from plugin.doc.text_helpers import normalize_linebreaks, read_visible_body
     from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     text = doc.getText()
     build_chain_deletion_doc(doc, text)
+    raw_before = normalize_linebreaks(text.getString())
     tctx = native_writer_tool_context(doc, ctx)
-    res = ApplyDocumentContent().execute(
+
+    refused = ApplyDocumentContent().execute(
         tctx,
         target="search",
         old_content="Line 1\nLine 2 match",
         content="<p>Line 9</p><p>Line 8 match</p>",
     )
+    assert refused.get("status") == "error" and refused.get("code") == "MATCH_CROSSES_DELETION", refused
+    assert normalize_linebreaks(text.getString()) == raw_before
+    assert doc.getRedlines().getCount() == 2
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="search",
+            old_content="Line 1\nLine 2 match",
+            content="<p>Line 9</p><p>Line 8 match</p>",
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
     assert res.get("status") == "ok", res
     body = read_visible_body(doc)[0]
     assert "atch More" not in body.split("\n")
@@ -448,6 +464,9 @@ def test_chain_replace_keeps_text_after_struck_run_uno(ctx, doc):
 
     first_para = doc.getText().createEnumeration().nextElement()
     assert "GONE" in first_para.getString()
+
+    reject_all_changes(doc, ctx)
+    assert normalize_linebreaks(text.getString()) == "Keep GONE Line 1\nLine OLD 2 match More"
 
 
 @native_test
@@ -703,29 +722,6 @@ def test_find_text_ranges_metadata_and_input_field_limit_uno(ctx, doc):
     assert find_text_ranges(doc, "world") == [{"start": 9, "end": 14, "text": "world"}]
 
 
-def _strike_substring(doc, xtext, needle: str, *, ctx=None, author: str | None = None) -> None:
-    from plugin.writer import review_authors
-
-    cur = xtext.createTextCursor()
-    cur.gotoStart(False)
-    full = xtext.getString()
-    idx = full.index(needle)
-    cur.goRight(idx, False)
-    cur.goRight(len(needle), True)
-    prior = None
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        if author is not None:
-            assert ctx is not None
-            prior = review_authors.begin(ctx)
-            assert review_authors.set_office_author(ctx, author) is True
-        cur.setString("")
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
-        if author is not None:
-            review_authors.end(ctx, prior)
-
-
 @native_test
 @with_native_doc("writer", reuse=False)
 def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
@@ -756,10 +752,10 @@ def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
     frame_text = frame.getText()
     frame_text.setString("Word OLD4 here")
 
-    _strike_substring(doc, text, "OLD1 ")
-    _strike_substring(doc, cell_text, "OLD2 ")
-    _strike_substring(doc, header_text, "OLD3 ")
-    _strike_substring(doc, frame_text, "OLD4 ")
+    strike_substring(doc, text, "OLD1 ")
+    strike_substring(doc, cell_text, "OLD2 ")
+    strike_substring(doc, header_text, "OLD3 ")
+    strike_substring(doc, frame_text, "OLD4 ")
 
     res = SearchInDocument().execute(MockContext(doc, ctx), pattern="Word here")
     assert res["status"] == "ok", res
@@ -776,8 +772,8 @@ def test_search_crossing_deletion_containers_and_order_uno(ctx, doc):
 def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
     text = doc.getText()
     text.setString("Alpha ONE TWO Beta")
-    _strike_substring(doc, text, "ONE ", ctx=ctx, author="Alice")
-    _strike_substring(doc, text, "TWO ", ctx=ctx, author="Bob")
+    strike_substring(doc, text, "ONE ", ctx=ctx, author="Alice")
+    strike_substring(doc, text, "TWO ", ctx=ctx, author="Bob")
     redlines = doc.getRedlines()
     assert redlines.getCount() == 2
     assert len({redlines.getByIndex(i).RedlineAuthor for i in range(2)}) == 2
@@ -790,8 +786,8 @@ def test_search_crossing_adjacent_deletions_and_open_para_uno(ctx, doc):
 
     # Paragraph starting inside a deletion from the previous paragraph also finds its own crossing hit.
     text.setString("First GONE\rgone Lead MID Tail")
-    _strike_substring(doc, text, "GONE\ngone ")
-    _strike_substring(doc, text, "MID ")
+    strike_substring(doc, text, "GONE\ngone ")
+    strike_substring(doc, text, "MID ")
     assert doc.getRedlines().getCount() == 2
     r3 = tool.execute(mock_ctx, pattern="Lead Tail")
     assert r3["status"] == "ok" and r3["count"] == 1, r3
@@ -810,7 +806,7 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     inp.setPropertyValue("Content", "Lee")
     text.insertTextContent(cur, inp, False)
     text.insertString(cur, " OLD the fee", False)
-    _strike_substring(doc, text, "OLD ")
+    strike_substring(doc, text, "OLD ")
 
     tool = SearchInDocument()
     mock_ctx = MockContext(doc, ctx)
@@ -819,6 +815,7 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
 
     hit = tool.execute(mock_ctx, pattern="the fee")
     assert hit["status"] == "ok" and hit["count"] == 1, hit
+    assert hit["matches"][0]["text"] == "the fee", hit
 
     # Footnote anchor is also non-Text (U+007F), so a needle cannot cross it.
     text.setString("")
@@ -828,14 +825,16 @@ def test_search_crossing_skips_fields_and_finds_chained_and_anchor_uno(ctx, doc)
     text.insertTextContent(cur, fn, False)
     fn.getText().setString("note")
     text.insertString(cur, " OLD the fee", False)
-    _strike_substring(doc, text, "OLD ")
+    strike_substring(doc, text, "OLD ")
     assert tool.execute(mock_ctx, pattern="1 the fee")["count"] == 0
-    assert tool.execute(mock_ctx, pattern="the fee")["count"] == 1
+    fn_hit = tool.execute(mock_ctx, pattern="the fee")
+    assert fn_hit["count"] == 1, fn_hit
+    assert fn_hit["matches"][0]["text"] == "the fee", fn_hit
 
     # Two-paragraph needle with a deletion in both paragraphs, plus find_anchor_span crossing end anchor.
     text.setString("Start ONE here\rEnd TWO here and End here")
-    _strike_substring(doc, text, "ONE ")
-    _strike_substring(doc, text, "TWO ")
+    strike_substring(doc, text, "ONE ")
+    strike_substring(doc, text, "TWO ")
     chain_hits = find_all_ranges(doc, "Start here\nEnd here")
     assert len(chain_hits) == 1
     assert visible_range_text(doc, chain_hits[0]) == "Start here\nEnd here"

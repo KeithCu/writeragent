@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from plugin.writer.edit_review import (
     EditReviewSession,
+    edit_is_recorded,
     edit_review_wait_seconds,
     flag_tracked,
     review_recording_enabled,
@@ -45,6 +46,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
@@ -916,6 +918,8 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
+        deletions = TrackedDeletions(ctx.doc)
+        refuse_crossing = position == "replace" and not regex and not edit_is_recorded(ctx.doc)
         replaceable: list[dict[str, Any]] = []
 
         @functools.cache
@@ -928,7 +932,7 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 loc = "body"
             try:
-                text = (found.getString() or "")[:160]
+                text = (deletions.visible_text(found) if deletions else (found.getString() or ""))[:160]
             except Exception:
                 text = ""
             return loc, text
@@ -936,11 +940,10 @@ class ApplyDocumentContent(ToolBase):
         # occurrence is the index into the same body, table, and frame ranges the
         # edit path uses. Shape and comment previews sit in not_replaceable, so a
         # position in that list is not an occurrence.
-        deletions = TrackedDeletions(ctx.doc) if position == "replace" and not regex else None
         for idx, found in enumerate(ranges[:search_mod.DEFAULT_SEARCH_RESULTS]):
             loc, text = _match_snippet(found)
             row: dict[str, Any] = {"occurrence": idx, "location": loc, "text": text}
-            if deletions and search_mod.match_crosses_deletion(deletions, found):
+            if refuse_crossing and deletions.overlaps(found):
                 row["edit_refused"] = "MATCH_CROSSES_DELETION"
             if rewrites_outline:
                 # The override is one destination for the match execute would edit.
@@ -1010,7 +1013,7 @@ class ApplyDocumentContent(ToolBase):
                 "location": selected_location,
                 "text": selected_text,
             }
-            if deletions and search_mod.match_crosses_deletion(deletions, selected):
+            if refuse_crossing and deletions.overlaps(selected):
                 selected_match["edit_refused"] = "MATCH_CROSSES_DELETION"
             if rewrites_outline:
                 selected_match.update(self._outline_match_fields(selected, _plain, override))
@@ -1610,6 +1613,7 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         doc = ctx.doc
+        recorded = params.track_reviewable or is_recording_changes(doc)
         if params.anchor is not None:
             try:
                 found, miss_kind, mode = search_mod.find_anchor_span(
@@ -1633,6 +1637,8 @@ class ApplyDocumentContent(ToolBase):
                     "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
                     code="TABLE_IN_ANCHOR_RANGE",
                 )
+            elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
+                res = refused
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
             res.update(mode.result_fields())
@@ -1646,15 +1652,16 @@ class ApplyDocumentContent(ToolBase):
             params.case_sensitive,
             limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
         )
-        # Inserting beside a match leaves it untouched, and a regex match is raw text as LibreOffice finds it.
-        deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex else None
+        # Crossing matches are refused only when the edit is not recorded; inserting beside a match
+        # leaves it untouched, and a regex match is raw text as LibreOffice finds it.
+        deletions = TrackedDeletions(doc) if params.position == "replace" and not params.regex and not recorded else None
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
-        editable = [r for r in picked if not deletions or not search_mod.match_crosses_deletion(deletions, r)]
+        editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
         if picked and not editable:
             res = make_tool_error(
-                search_mod.CROSSES_DELETION_MESSAGE,
+                search_mod.UNRECORDED_CROSSES_DELETION_MESSAGE,
                 code="MATCH_CROSSES_DELETION",
                 top_level={"replaced_count": 0},
             )

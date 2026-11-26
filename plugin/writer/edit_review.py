@@ -116,6 +116,15 @@ def review_recording_enabled() -> bool:
     return get_agent_edit_review_mode() in ("record", "wait")
 
 
+def edit_is_recorded(doc: Any) -> bool:
+    """True when an agent edit of *doc* made now is recorded as a tracked change.
+
+    Review mode Record/Wait turns recording on for the edit; otherwise the user's own
+    Track Changes > Record decides.
+    """
+    return review_recording_enabled() or is_recording_changes(doc)
+
+
 @contextlib.contextmanager
 def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
     """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
@@ -195,7 +204,7 @@ def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_p
         return
     if replaced_pending:
         result["pending_review"] = True
-    elif not (review_recording_enabled() or is_recording_changes(doc)):
+    elif not edit_is_recorded(doc):
         return
     result["tracked"] = False
     existing = result.get("warning")

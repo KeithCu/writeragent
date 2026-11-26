@@ -6,7 +6,7 @@ from plugin.doc.text_helpers import clone_text_range, live_insert_range, live_se
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
-from plugin.writer.edit_review import next_agent_edit_undo_title, run_in_review_session
+from plugin.writer.edit_review import edit_is_recorded, next_agent_edit_undo_title, run_in_review_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -187,7 +187,7 @@ def insert_at_target(
         return tool._tool_error(str(ve))
     delete_match = replace_match and target == "search"
     if delete_match:
-        refused = search_mod.crossing_match_error(ctx.doc, cursor)
+        refused = search_mod.crossing_match_error(ctx.doc, cursor, recorded=edit_is_recorded(ctx.doc))
         if refused is not None:
             return refused
 

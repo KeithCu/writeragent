@@ -31,7 +31,7 @@ from typing import Any, Callable, cast
 
 import uno
 
-from plugin.doc.text_helpers import iter_elements, iter_portions
+from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
@@ -39,6 +39,7 @@ from plugin.framework.uno_context import create_property_value
 
 from plugin.writer.edit_review import (
     collapsed_anchor,
+    edit_is_recorded,
     flag_tracked,
     flag_untracked,
     next_agent_edit_undo_title,
@@ -63,6 +64,7 @@ from plugin.writer.specialized_base import (
     target_params,
 )
 from ..search import (
+    CROSSES_DELETION_MESSAGE,
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
     crossing_match_error,
@@ -879,7 +881,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         )
         if err is not None:
             return err
-        crossing_err = crossing_match_error(doc, found)
+        crossing_err = crossing_match_error(doc, found, recorded=edit_is_recorded(doc))
         if crossing_err is not None:
             return crossing_err
         preview, preview_error = self._preview(found, content, override)
@@ -1381,11 +1383,11 @@ class IndexesCreate(ToolWriterIndexBase):
                     code="INDEX_IN_TRACKED_CHANGE",
                 )
             strike = kwargs.get("target", "selection") == "search"
-            # index_create passes replace_match=False and strikes the match itself.
-            if strike:
-                crossing_err = crossing_match_error(doc, cursor)
-                if crossing_err is not None:
-                    return crossing_err
+            # index_create passes replace_match=False and strikes the match itself. This refuses even
+            # while recording, because inserting the index and then striking the match while recording
+            # moves one more character into the other author's deletion (test_indexes_refuse_crossing_deletion_uno).
+            if strike and TrackedDeletions(doc).overlaps(cursor):
+                return self._tool_error(CROSSES_DELETION_MESSAGE, code="MATCH_CROSSES_DELETION")
             # Insert first while recording so the Delete redline does not stretch over the index;
             # delete first otherwise so a match at paragraph end leaves no extra empty paragraph.
             if is_recording_changes(doc):

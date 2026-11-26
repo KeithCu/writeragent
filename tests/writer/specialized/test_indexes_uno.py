@@ -1350,6 +1350,8 @@ def test_index_create_search_on_own_pending_insertion_omits_pending_review_uno(c
 @with_native_doc("writer")
 def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements, visible_range_text
+    from plugin.writer.specialized.indexes import IndexesRefreshTocEntry
+    from tests.writer.doc_builders import reject_all_changes
 
     tctx = native_writer_tool_context(doc, ctx)
     text = doc.getText()
@@ -1369,6 +1371,17 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     )
     assert res_create["status"] == "error" and res_create["code"] == "MATCH_CROSSES_DELETION", res_create
     assert visible_range_text(doc, text) == "Word here"
+    assert doc.getRedlines().getCount() == 1
+
+    # index_create still refuses while recording because striking after insert shifts the deletion boundary.
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_create_rec = IndexesCreate().execute(
+            tctx, kind="toc", title="TOC", create_from_outline=True, target="search", old_content="Word here"
+        )
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res_create_rec["status"] == "error" and res_create_rec["code"] == "MATCH_CROSSES_DELETION", res_create_rec
     assert doc.getRedlines().getCount() == 1
 
     # Also test index_refresh_toc_entry on a TOC entry whose text crosses a deletion.
@@ -1397,3 +1410,13 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     assert res_refresh["status"] == "error" and res_refresh["code"] == "MATCH_CROSSES_DELETION", res_refresh
     assert doc.getRedlines().getCount() == 1
     assert visible_range_text(doc, entry_para) == "Heading \t1"
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_refresh_rec = IndexesRefreshTocEntry().execute(tctx, old_content="Heading \t1", content="New Title")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+    assert res_refresh_rec["status"] == "ok", res_refresh_rec
+    assert visible_range_text(doc, entry_para) == "New Title"
+    reject_all_changes(doc, ctx)
+    assert entry_para.getString() == "Heading 1\t1"
