@@ -193,6 +193,8 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         if err is not None:
             return err
 
+        old_label = note.getLabel() if "label" in kwargs else None
+
         def _edit() -> None:
             if "text" in kwargs:
                 note.setString(kwargs["text"])
@@ -204,7 +206,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         result: dict[str, Any] = {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
         if recording and "text" in kwargs:
             flag_tracked(result)
-        if "label" in kwargs:
+        if "label" in kwargs and kwargs["label"] != old_label:
             flag_untracked(
                 result,
                 ctx.doc,

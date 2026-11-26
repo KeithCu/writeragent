@@ -269,3 +269,37 @@ def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
     reject_all_changes(doc, ctx)
     assert note.getString() == "old body"
     assert note.getLabel() == "*"
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_insert_and_edit_off_mode_no_tracked_or_warning_uno(ctx, doc):
+    doc.getText().setString("probe text ")
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        tctx = native_writer_tool_context(doc, ctx)
+        ins_res = FootnotesInsert().execute(
+            tctx,
+            note="footnote",
+            text="plain note",
+            occurrence=0,
+        )
+        edit_res = FootnotesEdit().execute(
+            tctx,
+            note="footnote",
+            index=0,
+            text="updated note",
+            label="*",
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    for res in (ins_res, edit_res):
+        assert res["status"] == "ok", res
+        assert "tracked" not in res, res
+        assert "pending_review" not in res, res
+        assert "warning" not in res, res

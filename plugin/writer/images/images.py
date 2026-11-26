@@ -33,7 +33,6 @@ import typing
 from typing import Any
 import urllib.parse
 
-# Aliased: two methods below bind a local is_writer variable.
 from plugin.framework.errors import (
     NetworkError,
     ToolExecutionError,

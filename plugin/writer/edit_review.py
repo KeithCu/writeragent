@@ -170,9 +170,10 @@ def flag_tracked(result: dict[str, Any]) -> None:
 
     Callers decide from what was recorded (``record_write``'s recording state for inserts, a verified
     redline or primitive result, or ``EditReviewSession.left_tracked_changes``), never from the review
-    mode, which can change between the edit and the result. Call once per result after the message is final (the note is appended).
-    In Record/Wait the result also carries review_mode and the do-not-resolve note; the mode is read
-    here on every result because the user can switch it mid-session, and in Off the note is left out.
+    mode, which can change between the edit and the result. Call once per result after the message is
+    final (the note is appended). In Record/Wait the result also carries review_mode and the
+    do-not-resolve note; the mode is read here on every result because the user can switch it
+    mid-session, and in Off the note is left out.
     """
     result["tracked"] = True
     result["pending_review"] = True
