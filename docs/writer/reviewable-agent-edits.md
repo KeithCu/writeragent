@@ -165,9 +165,10 @@ made in `record_preserve_replace` in
   leftover. A change starting at a table has no text range for per-change inline resolution and
   resolves through Accept/Reject All or Manage. `TABLE_INSERT_FAILED` checks run inside the edit's
   undo group, so a failed table insert rolls the edit back. `full_document` refuses any hidden
-  or conditional section (`HIDDEN_SECTION`) or protected non-index section (`PROTECTED_SECTION`) outside headers
-  and footers and the tables and frames in them (a read-then-write would reveal hidden text or drop section
-  protection), and places new content outside a leading section
+  or conditional section (`HIDDEN_SECTION`), protected non-index section (`PROTECTED_SECTION`),
+  or pending tracked insertion or deletion by anyone while Track Changes is off (`PENDING_TRACKED_CHANGES`)
+  outside headers and footers and the tables and frames in them (recorded rewrites keep other authors'
+  deletions and stack on their insertions), and places new content outside a leading section
   or TOC (while recording, a paragraph is added untracked before a leading section and after a
   trailing one so Accept removes those sections whole; Reject leaves those empty paragraphs). `selection`
   refuses a range starting in a table and ending outside it (`SELECTION_SPANS_TABLE`), a floating object,

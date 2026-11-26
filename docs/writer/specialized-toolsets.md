@@ -504,8 +504,9 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
   nested tables (a full rewrite is supposed to replace the document), but it refuses when the
   document has any hidden or conditional section (`HIDDEN_SECTION`; a full read returns hidden text and
   re-importing it would drop the condition or make the section visible or delete it) or protected non-index section
-  (`PROTECTED_SECTION`, a read-then-write would replace them without their protection) outside headers and footers
-  and the tables and frames in them. A visible
+  (`PROTECTED_SECTION`, a read-then-write would replace them without their protection), or pending tracked insertions
+  or deletions by anyone while Track Changes is off (`PENDING_TRACKED_CHANGES`; recorded rewrites keep other
+  authors' deletions and stack on their insertions) outside headers and footers and the tables and frames in them. A visible
   leading section or TOC is replaced with new content placed outside it. `target='selection'`
   refuses when the range starts in a table and ends outside it (`SELECTION_SPANS_TABLE`) or
   when a floating image, shape, frame or OLE object, several objects, or a cell block is selected, or the view

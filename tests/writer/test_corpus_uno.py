@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ from plugin.app import get_tools
 from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory
+from plugin.writer import review_authors
 from tests.writer.corpus_fixture import (
     CONTRACT,
     LETTER,
@@ -245,6 +247,9 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
                 # and an empty one (setting "" also clears a picture in the cell).
                 if text and not _has_redline(table.getCellByName(cell)):
                     _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
+        if case.redlines:
+            refused = _tool(ctx, doc, "apply_content", target="full_document", content="<p>Replaced.</p>")
+            assert refused.get("status") == "error" and refused.get("code") == "PENDING_TRACKED_CHANGES", refused
         _assert_same("unchanged writes", before, _state(ctx, doc))
 
 
@@ -255,10 +260,15 @@ def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
         rejected = _body_text(doc)
     saved = path.with_name("saved" + path.suffix)
     with _opened(ctx, path) as doc:
-        before = len(list_redlines(doc))
+        before = Counter((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc))
         doc.setPropertyValue("RecordChanges", True)
         _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.new)
-        assert len(list_redlines(doc)) > before
+        after = Counter((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc))
+        assert not before - after, (before, after)
+        added = after - before
+        assert added
+        assert {a for _t, a in added} == {review_authors.office_author(ctx)}
+        assert {t for t, _a in added} <= {"Insert", "Delete"}
         edited = _counts(ctx, doc)
         doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
         reject_all_changes(doc, ctx)

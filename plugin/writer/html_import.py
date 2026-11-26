@@ -33,9 +33,11 @@ from plugin.doc.text_helpers import (
     clear_direct_numbering,
     go_right,
     iter_elements,
+    iter_elements_limited,
     language_at_start,
     live_insert_range,
     normalize_linebreaks as _normalize,
+    redline_bounds,
     reset_direct_char_formatting,
     reset_properties_to_default,
     set_paragraph_background,
@@ -416,6 +418,19 @@ def _in_index(element: Any) -> bool:
     return bool(sections) and sections[0].getPropertyValue("DocumentIndex") is not None
 
 
+def _in_header_footer(text: Any) -> bool:
+    """Return True when *text* lives inside a Writer header or footer.
+
+    Walks ``ParentText`` up through table cells and text frames
+    (``SwXCell::getPropertyValue`` in ``sw/source/core/unocore/unotbl.cxx`` and
+    ``SwXFrame::getPropertyValue`` in ``sw/source/core/unocore/unoframe.cxx``).
+    A page-anchored frame has ``ParentText == None`` and counts as body.
+    """
+    while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
+        text = text.getPropertyValue("ParentText")
+    return text is not None and text.getImplementationName() == "SwXHeadFootText"
+
+
 def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
     """Yield ``(name, section)`` for each text section outside headers and footers.
 
@@ -430,10 +445,7 @@ def _iter_body_sections(model: Any) -> Iterator[tuple[str, Any]]:
     sections = model.getTextSections()
     for name in sections.getElementNames():
         section = sections.getByName(name)
-        text = section.getAnchor().getText()
-        while text is not None and text.getImplementationName() in ("SwXCell", "SwXTextFrame"):
-            text = text.getPropertyValue("ParentText")
-        if text is None or text.getImplementationName() != "SwXHeadFootText":
+        if not _in_header_footer(section.getAnchor().getText()):
             yield name, section
 
 
@@ -482,6 +494,43 @@ def raise_if_protected_sections(model: Any) -> None:
             "Only if the user wants the protected text replaced, unprotect it first with section_set_protection."
             % ", ".join(repr(n) for n in names),
             code="PROTECTED_SECTION",
+        )
+
+
+def raise_if_pending_changes_untracked(model: Any) -> None:
+    """Refuse full_document when Track Changes is off over pending body Insert/Delete redlines.
+
+    Without recording, ``replace_full_document`` calls ``setString("")``, which removes every
+    redline in the body (``DocumentContentOperationsManager::DeleteRangeImplImpl``), whoever
+    made it. While recording, ``PreAppendDeleteRedline`` keeps another author's deletion and
+    ``PreAppendForeignRedline`` stacks the new deletion on another author's insertion, so nothing
+    is lost. Header and footer redlines are untouched by ``full_document`` and do not count.
+    Checks the live ``RecordChanges`` state, so record/wait mode (enabled by
+    ``EditReviewSession.__enter__``) passes.
+    """
+    if record_changes.is_recording_changes(model):
+        return
+    redlines = model.getRedlines()
+    authors: list[str] = []
+    seen: set[str] = set()
+    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+        if rl.getPropertyValue("RedlineType") not in ("Insert", "Delete"):
+            continue
+        text, _start, _end = redline_bounds(rl)
+        if _in_header_footer(text):
+            continue
+        author = str(rl.getPropertyValue("RedlineAuthor") or "Unknown")
+        if author not in seen:
+            seen.add(author)
+            authors.append(author)
+    if authors:
+        names = ", ".join(repr(a) for a in authors)
+        raise ToolExecutionError(
+            f"Document has pending tracked insertions or deletions (by {names}) and Track Changes is off, "
+            "so target='full_document' would remove them without review; nothing was changed. "
+            "Edit the text around them with target='search' (old_content, or start_anchor/end_anchor that do not span a tracked change). "
+            "To replace the whole document, ask the user to turn on Track Changes or the record/wait review mode first, or to resolve those changes.",
+            code="PENDING_TRACKED_CHANGES",
         )
 
 

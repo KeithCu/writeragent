@@ -1361,6 +1361,8 @@ class ApplyDocumentContent(ToolBase):
         headings = document_headings(ctx.doc)
         # Outer UndoStepOrRollback joins the link rewrite to the import as one Ctrl+Z.
         with UndoStepOrRollback(ctx.doc, next_agent_edit_undo_title()), session:
+            # Runs after the review session turns recording on and before delete_leading_tables changes anything.
+            html_import.raise_if_pending_changes_untracked(ctx.doc)
             # Delete-then-import inside one undo group: a failed import or a missing
             # table rolls the cleared document back.
             def mutate() -> html_import_styles.WriteReport:
