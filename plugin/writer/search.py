@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, cast
 
+import uno
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.doc.text_helpers import (
     FAILED,
     TrackedDeletions,
@@ -273,8 +275,6 @@ def validate_icu_regex(ctx: Any, pattern: str) -> str | None:
     matching the wrapper may produce false negatives or false positives. Main thread only, like
     every other UNO call in this module.
     """
-    import uno
-
     smgr = get_service_manager(ctx)
     if smgr is None:
         ctx = get_ctx()
@@ -1202,7 +1202,6 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
 
 def shape_is_as_character(shape: Any) -> bool:
     def anchored() -> bool:
-        from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
         return shape.getPropertyValue("AnchorType") == AS_CHARACTER
 
     return uno_read(anchored, False)
@@ -1433,7 +1432,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
 
 
 def shape_display_name(shape: Any) -> str:
-    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+    return shape.Name.strip() or "(unnamed shape)"
 
 
 def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
@@ -1454,8 +1453,8 @@ def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: b
         try:
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
-            content = getattr(field, "Content", "") or ""
-            author = (getattr(field, "Author", "") or "").strip()
+            content = field.Content
+            author = field.Author.strip()
         except Exception as exc:
             reraise_if_disposed(exc)
             log.debug("comment_matches: annotation field unreadable", exc_info=True)

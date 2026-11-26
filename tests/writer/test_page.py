@@ -25,16 +25,6 @@ from plugin.writer.page import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _stub_break_type(monkeypatch: pytest.MonkeyPatch) -> None:
-    # page.py imports PAGE_BEFORE at call time; the shared shell has none. 4 is the real UNO value.
-    monkeypatch.setitem(
-        sys.modules,
-        "com.sun.star.style.BreakType",
-        SimpleNamespace(PAGE_BEFORE=4),
-    )
-
-
 def test_get_page_style_properties_without_header_or_footer():
     """A new Writer document has header and footer off, and LibreOffice then leaves their
     measures void (None, checked live); None / 100.0 made the whole read fail."""
@@ -966,7 +956,6 @@ def test_page_break_anchor_not_found():
     doc = MagicMock()
     doc.getDrawPage.return_value = None
     doc.findFirst.return_value = None
-    # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature", occurrence=0)
     assert res["status"] == "error"
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"
@@ -1503,11 +1492,8 @@ def test_is_landscape_explicit_size_written_after_flag():
     style.setPropertyValue.assert_any_call("Height", 21000)
 
 
-def test_page_style_layout_read_and_write(monkeypatch: pytest.MonkeyPatch):
+def test_page_style_layout_read_and_write():
     from plugin.writer.page import get_page_style_properties, PageSetStyleProperties
-
-    psl = SimpleNamespace(ALL=0, LEFT=1, RIGHT=2, MIRRORED=3)
-    monkeypatch.setitem(sys.modules, "com.sun.star.style.PageStyleLayout", psl)
 
     doc = MagicMock()
     style = MagicMock()

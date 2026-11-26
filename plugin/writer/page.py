@@ -25,6 +25,9 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any
 
+from com.sun.star.style.BreakType import PAGE_BEFORE
+from com.sun.star.style.PageStyleLayout import ALL, LEFT, MIRRORED, RIGHT
+from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.doc.visual_helpers import color_param
 from plugin.doc.text_helpers import (
@@ -97,8 +100,6 @@ def _page_style_layout_to_uno(val: Any) -> Any:
     """Validate int 0..3 and return UNO PageStyleLayout enum constant."""
     if val not in (0, 1, 2, 3):
         raise ValueError("page_style_layout must be 0=ALL, 1=LEFT, 2=RIGHT, or 3=MIRRORED.")
-    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
-    from com.sun.star.style.PageStyleLayout import ALL, LEFT, RIGHT, MIRRORED
     return (ALL, LEFT, RIGHT, MIRRORED)[val]
 
 
@@ -1237,9 +1238,6 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     setString there can drop the image. Refuse before writing. An unreadable
     draw page raises, so the refuse fails closed; nothing has been written yet.
     """
-    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
-    from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
-
     for shape, anchor in _region_shapes(doc, text_obj)[0]:
         if uno_read(lambda: shape.getPropertyValue("AnchorType"), None) != AT_CHARACTER:
             continue
@@ -1614,8 +1612,6 @@ def _apply_page_break(para: Any, page_style: str | None, restart: int | None) ->
     the current sequence, so this function does not write 0. The offset is
     written after PageDescName. Nothing is read back.
     """
-    # UNO constant: com.sun.star names resolve only through PyUNO's import hook (pyuno/source/module/uno.py _uno_import), so it is imported when the function runs.
-    from com.sun.star.style.BreakType import PAGE_BEFORE
     para.setPropertyValue("BreakType", PAGE_BEFORE)
     if page_style is not None:
         para.setPropertyValue("PageDescName", page_style)

@@ -23,6 +23,7 @@ from plugin.doc.text_helpers import (
     iter_elements,
     normalize_linebreaks,
 )
+from plugin.draw import tables as draw_tables
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.i18n import _
@@ -916,10 +917,7 @@ class TableList(ToolWriterTableBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         if is_draw(ctx.doc):
-            # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-            from plugin.draw.tables import list_draw_tables
-
-            out = list_draw_tables(ctx.doc)
+            out = draw_tables.list_draw_tables(ctx.doc)
             return {"status": "ok", "count": len(out), "tables": out}
         tables = _tables(ctx.doc)
         nesting_by_name, hosted, cell_counts = _writer_nesting(ctx.doc)
@@ -993,17 +991,14 @@ class TableGetCells(ToolWriterTableBase):
         cell_raw = str(kwargs.get("cell") or "").strip()
         try:
             if is_draw(ctx.doc):
-                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-                from plugin.draw.tables import get_draw_cell, get_draw_cells, resolve_draw_table
-
-                entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
+                entry = draw_tables.resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
                 payload = _draw_ok(entry, name, rows=entry.get("rows"), cols=entry.get("cols"))
                 if cell_raw:
-                    text = get_draw_cell(entry, cell_raw)
+                    text = draw_tables.get_draw_cell(entry, cell_raw)
                     payload["cell"] = cell_raw
                     payload["matrix"] = [[text]]
                 else:
-                    payload["matrix"] = get_draw_cells(entry)
+                    payload["matrix"] = draw_tables.get_draw_cells(entry)
                 return payload
             table = _require_table(ctx.doc, name)
             rows, cols = table_dims(table)
@@ -1089,11 +1084,8 @@ class TableSetCell(ToolWriterTableBase):
         text = kwargs["text"]
         try:
             if is_draw(ctx.doc):
-                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-                from plugin.draw.tables import resolve_draw_table, set_draw_cell
-
-                entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
-                old, new = set_draw_cell(entry, cell_raw, str(text))
+                entry = draw_tables.resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
+                old, new = draw_tables.set_draw_cell(entry, cell_raw, str(text))
                 return _draw_ok(
                     entry,
                     name,
@@ -1225,16 +1217,13 @@ class ManageTableStructure(ToolWriterTableBase):
         insert = action == "insert"
         try:
             if is_draw(ctx.doc):
-                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-                from plugin.draw.tables import manage_draw_structure, resolve_draw_table
-
-                entry = resolve_draw_table(
+                entry = draw_tables.resolve_draw_table(
                     ctx.doc,
                     name=name,
                     page=kwargs.get("page"),
                     index=kwargs.get("shape_index"),
                 )
-                rows, cols = manage_draw_structure(entry, action, axis_arg, idx)
+                rows, cols = draw_tables.manage_draw_structure(entry, action, axis_arg, idx)
                 return _draw_ok(entry, name, rows=rows, cols=cols)
             table = _require_table(ctx.doc, name)
             band = table.getRows() if axis_arg == "row" else table.getColumns()
@@ -1468,13 +1457,10 @@ class TableInsert(ToolWriterTableBase):
             # insert_draw_table raises past the tool error. The Writer path
             # already catches; this matches it.
             if is_draw(ctx.doc):
-                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-                from plugin.draw.tables import insert_draw_table
-
                 if parent or cell_raw:
                     return self._tool_error("parent and cell are Writer-only (Draw has no nested text tables).")
                 try:
-                    result = insert_draw_table(ctx, **kwargs)
+                    result = draw_tables.insert_draw_table(ctx, **kwargs)
                 except ToolExecutionError as exc:
                     return format_error_payload(exc)
                 return result
@@ -1584,10 +1570,7 @@ class TableDelete(ToolWriterTableBase):
         name = str(kwargs.get("name") or "").strip()
         try:
             if is_draw(ctx.doc):
-                # Lazy: cross-app; Draw table helpers load only when the target is a Draw/Impress document.
-                from plugin.draw.tables import delete_draw_table
-
-                result = delete_draw_table(
+                result = draw_tables.delete_draw_table(
                     ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index")
                 )
                 return _raise_draw_result(result, "Delete failed")

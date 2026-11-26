@@ -113,7 +113,7 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
             continue
         model = shape.Control
         model_name = getattr(model, "Name", "") or ""
-        shape_name = getattr(shape, "Name", "") or ""
+        shape_name = shape.Name
         if model_name == wanted or shape_name == wanted:
             hits.append((i, shape))
     if len(hits) == 1:
@@ -188,7 +188,7 @@ _STACK_GAP = 400
 
 
 def _preferred_control_name(shape: Any) -> str:
-    shape_name = getattr(shape, "Name", "") or ""
+    shape_name = shape.Name
     model_name = getattr(getattr(shape, "Control", None), "Name", "") or ""
     return shape_name or model_name
 
@@ -485,7 +485,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             group_name = kwargs["group_name"]
         else:
             model.Name = name
-            group_name = getattr(model, "Name", "") or ""
+            group_name = model.Name
         shape.Name = name
 
         recorded = False
@@ -928,7 +928,7 @@ class FormEditControl(ToolWriterFormBase):
             **values,
         }
         if is_radio:
-            out["group_name"] = getattr(model, "Name", "")
+            out["group_name"] = model.Name
         return out
 
 

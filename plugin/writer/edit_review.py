@@ -5,7 +5,9 @@
 """Edit review session: agent edits land as reviewable tracked changes, and the agent
 learns the per-change outcome.
 
-We keep the session, streamed sessions and surgical helpers in one module, not split them, because they share the redline helpers and many call sites import from here (compound undo is in plugin.doc.compound_undo).
+The session, streamed sessions and surgical helpers stay in one module because they share
+the redline helpers and many call sites import from here (compound undo is in
+plugin.doc.compound_undo).
 
 One module owns the whole review story (recording state, author scoping, change tagging,
 anchoring, outcome detection, wait-for-review, cleanup), so entry points don't sprinkle
@@ -550,7 +552,8 @@ class EditReviewSession:
 
         group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
         try:
-            # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
+            # Every edit rescans all redlines instead of tracking deltas, because only a complete
+            # scan can fail closed; batches are capped at doc.agent_edit_max_surgical_runs.
             before, before_ok = self._redline_idents()
             if self._first_snapshot is None:
                 self._first_snapshot = (before, before_ok)
@@ -852,7 +855,8 @@ class EditReviewSession:
                     # The region's text as it reads NOW (after the user's accept/reject/edit), so the
                     # agent knows what actually resulted -- not just what it proposed. "" if the
                     # anchor paragraph is gone (e.g. a rejected pure insertion removed it).
-                    # We read the anchor again here, not reuse _outcome's read, because this runs once per change after review and keeps _outcome self-contained.
+                    # The anchor is read again here instead of reusing _outcome's read: this runs
+                    # once per change after review and keeps _outcome self-contained.
                     "final_text": _preview(self._change_text_at_anchor(record) or ""),
                 }
                 for record in self.changes
@@ -1144,7 +1148,8 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     for se in result.sub_edits:
         if _select_verified(se) is None:
-            # split_change offsets count code points, as goRight does (breakiterator_unicode.cxx: nextCharacters). A mismatch (field, hidden text) falls back to a whole-block replace.
+            # split_change offsets count code points, as goRight does (breakiterator_unicode.cxx
+            # nextCharacters). A mismatch (field, hidden text) falls back to a whole-block replace.
             log.debug("edit_review: surgical pre-flight offset mismatch; falling back to whole-block")
             _whole()
             return

@@ -212,6 +212,7 @@ def _clone_missing_paragraph_style(
     destination style family untouched for *name*.
     """
     try:
+        # Boundary: LibrePy ships this module without styles.py, and then no style is cloned.
         from .styles import copy_direct_style_properties
     except ImportError:
         return False
