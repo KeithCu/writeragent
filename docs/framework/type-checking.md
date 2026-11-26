@@ -166,7 +166,7 @@ Prefer **specific** ignore codes (`attr-defined`, `override`, `unresolved-import
 - **Narrowing**: `if x is not None` before use; avoid forcing the checker to assume values are defined.
 - **`cast(Any, …)`** / **`cast(Iterable, …)`** where stubs are thin or generators are not inferred as iterable.
 - **UNO interface overrides:** match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or **`ty`/pyright** report `invalid-method-override`.
-- **Registry / service construction**: dynamic class registration may need small ignores where instantiation is reflection-like ([`plugin/framework/service_registry.py`](../../plugin/framework/service_registry.py)).
+- **Registry / service construction**: dynamic class registration may need small ignores where instantiation is reflection-like ([`plugin/framework/service.py`](../../plugin/framework/service.py)).
 - **`threading.Lock | None` (and similar):** On Python before 3.13, `threading.Lock` is a factory (`builtin_function_or_method`), not a class — evaluating `Lock | None` at import time raises `TypeError` and can abort whole module loads (e.g. ChatbotModule → missing `librarian_onboarding`). Prefer **`from __future__ import annotations`** so PEP 604 unions are not evaluated at runtime (see [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.py)). Dev `.venv` is 3.13+ where `Lock` is a real type, so this bug is easy to miss locally; LibreOffice’s bundled Python is often older.
 
 ---
@@ -177,7 +177,7 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Framework**
 
-- [`plugin/framework/errors.py`](../../plugin/framework/errors.py), [`image_utils.py`](../../plugin/writer/image_utils.py), [`legacy_ui.py`](../../plugin/chatbot/legacy_ui.py), [`logging.py`](../../plugin/framework/logging.py), [`service.py`](../../plugin/framework/service.py), [`settings_dialog.py`](../../plugin/chatbot/settings_dialog.py), [`smol_agent.py`](../../plugin/chatbot/smol_agent.py), [`tool.py`](../../plugin/framework/tool.py)
+- [`plugin/framework/errors.py`](../../plugin/framework/errors.py), [`image_utils.py`](../../plugin/writer/images/image_utils.py), `legacy_ui.py`, [`logging.py`](../../plugin/framework/logging.py), [`service.py`](../../plugin/framework/service.py), [`settings_dialog.py`](../../plugin/chatbot/settings_dialog.py), [`smol_agent.py`](../../plugin/chatbot/smol_agent.py), [`tool.py`](../../plugin/framework/tool.py)
 
 **Entry / backends**
 
@@ -244,4 +244,3 @@ def actionPerformed(self, rEvent: ActionEvent) -> None:  # type: ignore[override
 
 1. **`make fix-uno`** when `import uno` fails in the venv.
 2. When adding features, follow the UNO patterns above, [Other recurring fixes](#other-recurring-fixes-non-uno), and—if you use Basedpyright—the **Basedpyright vs `ty` and mypy** section for strictness that may not show up in **`make ty`**.
-

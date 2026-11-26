@@ -6,7 +6,6 @@ Generated: 2026-11-24 21:31 EST
 - Raw NITs extracted: **163**
 - After deduplication: **162** (open: **161**, already handled in followups ledger: **1**)
 - By source kind (raw): chain-work: 147, followups-triage: 3, wa-reviews: 13
-- TSV: `/home/keithcu/Desktop/Python/wa-reviews/fable-structural/apps/chain-work/OLD-NITS-0.9.6.tsv`
 
 ## Per-area breakdown
 
