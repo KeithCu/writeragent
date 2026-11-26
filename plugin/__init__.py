@@ -73,23 +73,19 @@ def audit_plugin_roots(roots: list[str] | None = None) -> str:
     versions = {v for _unused, v in versioned_roots}
     code = "warn" if len(versions) == 1 else "error"
 
+    plugin_logger = logging.getLogger("plugin")
     audit_key = tuple(versioned_roots)
-    has_handlers = bool(logging.getLogger("plugin").handlers)
+    has_handlers = bool(plugin_logger.handlers)
 
-    should_log = False
-    if audit_key != _logged_audit_key:
-        should_log = True
-    elif has_handlers and not _logged_audit_to_file:
-        should_log = True
+    should_log = audit_key != _logged_audit_key or (has_handlers and not _logged_audit_to_file)
 
     if should_log:
         _logged_audit_key = audit_key
         _logged_audit_to_file = has_handlers
-        logger = logging.getLogger("plugin")
         if code == "warn":
             shared_version = versioned_roots[0][1]
             paths_str = "; ".join(path for path, _unused in versioned_roots)
-            logger.warning(
+            plugin_logger.warning(
                 "Dual OXT plugin roots at version %s: %s. "
                 "extend_path does not merge child packages; "
                 "the first root wins every plugin.<pkg> submodule.",
@@ -98,7 +94,7 @@ def audit_plugin_roots(roots: list[str] | None = None) -> str:
             )
         else:
             pairs_str = "; ".join(f"{path}={version}" for path, version in versioned_roots)
-            logger.error("Dual OXT plugin roots have different versions: %s. %s", pairs_str, _AUDIT_HINT)
+            plugin_logger.error("Dual OXT plugin roots have different versions: %s. %s", pairs_str, _AUDIT_HINT)
 
     return code
 

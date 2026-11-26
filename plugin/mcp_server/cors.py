@@ -40,25 +40,20 @@ _BASE_ALLOW_HEADERS = ("Content-Type", "Authorization", "Mcp-Session-Id", "X-Doc
 
 _EXPOSE_HEADERS = "Mcp-Session-Id, Mcp-Protocol-Version"
 
-# Loopback hosts formerly matched by ``_ORIGIN_RE``. No regex.
+# Loopback hostnames whose Origin is always allowed.
 _SAFE_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
 
-# URL-safe Origin alphabet (scheme/host/port, including IPv6 brackets).
-# ascii_bounded(DEAL_MAX_ORIGIN=32) still let SMT wander through urlparse +
-# ipaddress on punctuation junk (is_private_browser_origin 20:40 on the same run).
+# URL-safe Origin alphabet (scheme/host/port, including IPv6 brackets) for scripts/crosshair_domains.py.
 _ORIGIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/.-[]")
-# Access-Control-Request-Headers: token chars plus comma/space separators.
+# Access-Control-Request-Headers alphabet for scripts/crosshair_domains.py.
 _HEADER_LIST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-, _")
 
 PREFLIGHT_MAX_AGE = "86400"
 
 
 def deal_origin_ok(origin: object) -> bool:
-    # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
-    # Junk or oversized Origin values return False; send_cors_headers must not raise PreContractError.
+    # Any string passes: a browser Origin can be long or contain junk, and the body rejects what it cannot parse. Only a non-string fails the contract.
     return isinstance(origin, str)
-
-
 
 
 def deal_allow_headers_ok(value: object) -> bool:
@@ -67,8 +62,7 @@ def deal_allow_headers_ok(value: object) -> bool:
     return isinstance(value, str)
 
 
-
-# Raw user config: accept anything; the body drops what it cannot use.
+# Raw user config: accept anything; scripts/crosshair_domains.py patches this for SMT bounds.
 def _deal_origins_config_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
@@ -120,12 +114,7 @@ def normalize_origins_list(value: Any) -> list[str]:
     return list(dict.fromkeys(origin for origin in normalized if origin))
 
 
-@deal.pre(lambda origin: deal_origin_ok(origin))
-@deal.post(lambda result: isinstance(result, bool))
-def is_private_browser_origin(origin: str) -> bool:
-    # crosshair: off
-    """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
-    normalized = normalize_cors_origin(origin)
+def _is_private_browser_normalized(normalized: str | None) -> bool:
     if normalized is None:
         return False
     host = urlparse(normalized).hostname
@@ -139,6 +128,14 @@ def is_private_browser_origin(origin: str) -> bool:
         return False
     # Do not wrap in bool(): CrossHair SymbolicBool TypeError.
     return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
+@deal.pre(lambda origin: deal_origin_ok(origin))
+@deal.post(lambda result: isinstance(result, bool))
+def is_private_browser_origin(origin: str) -> bool:
+    # crosshair: off
+    """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
+    return _is_private_browser_normalized(normalize_cors_origin(origin))
 
 
 @deal.pre(lambda origins: _deal_origins_config_ok(origins))
@@ -162,12 +159,15 @@ def set_allow_private_origins(allow: bool) -> None:
     _allow_private_origins = bool(allow)
 
 
+def _is_extra_allowed_normalized(normalized: str | None) -> bool:
+    return normalized is not None and normalized in _extra_allowed_origins
+
+
 @deal.pre(lambda origin: deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
     # crosshair: off
-    normalized = normalize_cors_origin(origin)
-    return normalized is not None and normalized in _extra_allowed_origins
+    return _is_extra_allowed_normalized(normalize_cors_origin(origin))
 
 
 def reload_cors_policy_from_config(services: Any = None) -> None:
@@ -194,27 +194,21 @@ def is_safe_origin(origin: str) -> bool:
     if normalized is None:
         return False
     host = urlparse(normalized).hostname
-    if host is not None and host in _SAFE_LOOPBACK_HOSTS:
+    if host in _SAFE_LOOPBACK_HOSTS:
         return True
-    if is_extra_allowed_origin(origin):
+    if _is_extra_allowed_normalized(normalized):
         return True
-    if get_allow_private_origins() and is_private_browser_origin(origin):
-        return True
-    return False
+    return get_allow_private_origins() and _is_private_browser_normalized(normalized)
 
 
 def origin_is_forbidden(handler: Any) -> bool:
     """True when Origin is present and not on the allow list.
 
-    Missing Origin is allowed (CLI / curl / most MCP clients). Do not call
-    ``is_safe_origin`` until the value passes ``deal_origin_ok`` — junk or
-    huge Origins would raise ``deal.PreContractError`` into a 500.
+    Missing Origin is allowed (CLI / curl / most MCP clients).
     """
     origin = handler.headers.get("Origin")
     if not origin:
         return False
-    if not deal_origin_ok(origin):
-        return True
     return not is_safe_origin(origin)
 
 
@@ -242,7 +236,7 @@ def drain_request_body(handler: Any) -> None:
 
 def _write_forbidden(handler: Any) -> None:
     """Write the empty 403 shared by the Host and Origin rejections."""
-    handler._response_started = True
+    handler.mark_response_started()
     handler.send_response(403)
     handler.send_header("Content-Length", "0")
     handler.send_header("Connection", "close")

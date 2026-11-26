@@ -16,9 +16,15 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from plugin.embeddings.embeddings_fs import ParagraphChunk
 
 log = logging.getLogger(__name__)
+
+_DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_NEAR_SLOP = 10
 
 _CHUNKS_DDL = """
 CREATE TABLE IF NOT EXISTS chunks (
@@ -105,17 +111,15 @@ def _dbapi() -> Any:
     global _dbapi_mod
     if _dbapi_mod is not None:
         return _dbapi_mod
-    if hasattr(sqlite3.Connection, "enable_load_extension"):
-        _dbapi_mod = sqlite3
-        return _dbapi_mod
-    try:
-        from pysqlite3 import dbapi2 as pysqlite3
-    except ImportError:
-        _dbapi_mod = sqlite3
-        return _dbapi_mod
-    if hasattr(getattr(pysqlite3, "Connection", None), "enable_load_extension"):
-        _dbapi_mod = pysqlite3
-        return _dbapi_mod
+    if not hasattr(sqlite3.Connection, "enable_load_extension"):
+        try:
+            from pysqlite3 import dbapi2 as pysqlite3
+
+            if hasattr(pysqlite3.Connection, "enable_load_extension"):
+                _dbapi_mod = pysqlite3
+                return _dbapi_mod
+        except ImportError:
+            pass
     _dbapi_mod = sqlite3
     return _dbapi_mod
 
@@ -163,8 +167,13 @@ def _load_vec_extension(conn: sqlite3.Connection) -> None:
 def model_slug(model: str) -> str:
     """Generate a safe table/filename slug from a model name."""
     if not model:
-        model = "all-MiniLM-L6-v2"
+        model = _DEFAULT_MODEL
     return model.replace("/", "_").replace(":", "_").replace(" ", "_").replace("-", "_").replace(".", "_")
+
+
+def vec_table_name(model: str) -> str:
+    """Return the vec0 virtual table name for *model*."""
+    return f"vec_chunks_{model_slug(model)}"
 
 
 def _vec_table_ddl(tbl_name: str, dim: int) -> str:
@@ -202,10 +211,12 @@ def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | N
             mp_len = len(mp)
         elif mp in ("/", "\\") and target.startswith(mp):
             mp_len = 1
-        elif target.startswith(mp.rstrip("/\\") + "/") or target.startswith(mp.rstrip("/\\") + "\\"):
-            mp_len = len(mp.rstrip("/\\"))
         else:
-            continue
+            mp_trimmed = mp.rstrip("/\\")
+            if target.startswith(mp_trimmed + "/") or target.startswith(mp_trimmed + "\\"):
+                mp_len = len(mp_trimmed)
+            else:
+                continue
         if mp_len > best_len:
             best_len = mp_len
             best_part = part
@@ -259,13 +270,10 @@ def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = dbapi.connect(str(path))
     conn.row_factory = dbapi.Row
-    wanted = "wal" if path_is_local_disk(path.parent) else "delete"
     # WAL on a local disk; a known network filesystem uses DELETE so two
     # hosts do not share one WAL; an unrecognized type stays WAL.
-    if wanted == "wal":
-        res = conn.execute("PRAGMA journal_mode=WAL").fetchone()
-    else:
-        res = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+    wanted = "wal" if path_is_local_disk(path.parent) else "delete"
+    res = conn.execute(f"PRAGMA journal_mode={wanted}").fetchone()
     actual = str(res[0]).casefold() if res else ""
     if actual != wanted:
         log.warning(
@@ -297,9 +305,7 @@ def ensure_schema(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_chunks'"
         ).fetchone()
         if has_legacy_vec:
-            legacy_model = "all-MiniLM-L6-v2"
-            legacy_slug = model_slug(legacy_model)
-            legacy_tbl = f"vec_chunks_{legacy_slug}"
+            legacy_tbl = vec_table_name(_DEFAULT_MODEL)
             try:
                 conn.execute(f"ALTER TABLE vec_chunks RENAME TO {legacy_tbl}")
                 log.info("Migrated legacy vec_chunks table to %s", legacy_tbl)
@@ -307,17 +313,11 @@ def ensure_schema(
                 log.warning("Could not rename legacy vec_chunks table, dropping instead", exc_info=True)
                 conn.execute("DROP TABLE IF EXISTS vec_chunks")
 
-        active_model = model or "all-MiniLM-L6-v2"
-        slug = model_slug(active_model)
-        tbl_name = f"vec_chunks_{slug}"
-        has_vec = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (tbl_name,),
-        ).fetchone()
-        if not has_vec:
+        if not _vec_table_if_exists(conn, model):
             if dim is None or dim <= 0:
+                active_model = model or _DEFAULT_MODEL
                 raise ValueError(f"dim is required when creating vec_chunks table for model {active_model}")
-            conn.execute(_vec_table_ddl(tbl_name, dim))
+            conn.execute(_vec_table_ddl(vec_table_name(model), dim))
     conn.commit()
 
 
@@ -336,7 +336,7 @@ def rebuild_fts_corpus_index(conn: sqlite3.Connection) -> None:
 
 def corpus_chunk_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COUNT(*) AS c FROM chunks").fetchone()
-    return int(row["c"] if row else 0)
+    return int(row["c"])
 
 
 def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
@@ -373,8 +373,7 @@ def _missing_vector_chunk_row(row: Any) -> dict[str, Any]:
 
 
 def _vec_table_if_exists(conn: sqlite3.Connection, model: str) -> str | None:
-    slug = model_slug(model)
-    tbl_name = f"vec_chunks_{slug}"
+    tbl_name = vec_table_name(model)
     has_table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
         (tbl_name,),
@@ -430,7 +429,7 @@ def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
     conn.execute("INSERT INTO passages(rowid) VALUES (?)", (int(chunk_id),))
 
 
-def _delete_chunk_ids(conn: sqlite3.Connection, chunk_ids: list[int], *, with_fts: bool, with_vec: bool) -> None:
+def delete_chunk_ids(conn: sqlite3.Connection, chunk_ids: list[int], *, with_fts: bool, with_vec: bool) -> None:
     if not chunk_ids:
         return
     chunk_id_params = [(int(cid),) for cid in chunk_ids]
@@ -457,13 +456,12 @@ def delete_by_doc_para(
     with_vec: bool = False,
 ) -> int:
     """Remove all sub-chunks for one paragraph."""
-    doc_url = str(doc_url or "")
     rows = conn.execute(
         "SELECT chunk_id FROM chunks WHERE doc_url = ? AND para_index = ?",
         (doc_url, int(para_index)),
     ).fetchall()
     chunk_ids = [int(row["chunk_id"]) for row in rows]
-    _delete_chunk_ids(conn, chunk_ids, with_fts=with_fts, with_vec=with_vec)
+    delete_chunk_ids(conn, chunk_ids, with_fts=with_fts, with_vec=with_vec)
     conn.commit()
     return len(chunk_ids)
 
@@ -479,7 +477,6 @@ def delete_by_chunk_locator(
     with_vec: bool = False,
 ) -> int:
     """Remove one sub-chunk row by locator (any content_hash)."""
-    doc_url = str(doc_url or "")
     rows = conn.execute(
         """
         SELECT chunk_id FROM chunks
@@ -488,7 +485,7 @@ def delete_by_chunk_locator(
         (doc_url, int(para_index), int(char_start), int(char_end)),
     ).fetchall()
     chunk_ids = [int(row["chunk_id"]) for row in rows]
-    _delete_chunk_ids(conn, chunk_ids, with_fts=with_fts, with_vec=with_vec)
+    delete_chunk_ids(conn, chunk_ids, with_fts=with_fts, with_vec=with_vec)
     conn.commit()
     return len(chunk_ids)
 
@@ -501,7 +498,7 @@ def delete_paragraph_keys(
     with_vec: bool = False,
 ) -> int:
     deleted = 0
-    for key in keys or []:
+    for key in keys:
         doc_url = str(key.get("doc_url") or "")
         para_index = int(key.get("para_index") or 0)
         if "char_start" in key and "char_end" in key:
@@ -537,7 +534,7 @@ def _insert_chunk_row(
     file_mtime: float,
     with_fts: bool,
 ) -> int:
-    conn.execute(
+    cursor = conn.execute(
         """
         INSERT INTO chunks (
             doc_url, para_index, char_start, char_end, content_hash,
@@ -554,7 +551,8 @@ def _insert_chunk_row(
             body,
         ),
     )
-    chunk_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    assert cursor.lastrowid is not None
+    chunk_id = int(cursor.lastrowid)
     if with_fts:
         _fts_index_row(conn, chunk_id)
     return chunk_id
@@ -608,8 +606,7 @@ def upsert_chunk_with_vector(
 
         _load_vec_extension(conn)
         emb = np.asarray(vector, dtype=np.float32)
-        slug = model_slug(model)
-        tbl_name = f"vec_chunks_{slug}"
+        tbl_name = vec_table_name(model)
         conn.execute(
             f"INSERT OR REPLACE INTO {tbl_name}(chunk_id, embedding) VALUES (?, ?)",
             (chunk_id, emb),
@@ -625,7 +622,7 @@ def insert_paragraph_rows(
 ) -> int:
     """Insert paragraph-level rows (FTS-only path; no sub-chunk split)."""
     inserted = 0
-    for row in rows or []:
+    for row in rows:
         text = str(row.get("text") or "").strip()
         if not text:
             continue
@@ -657,19 +654,12 @@ def vec0_search(
     import numpy as np
 
     _load_vec_extension(conn)
-    slug = model_slug(model)
-    tbl_name = f"vec_chunks_{slug}"
-
-    # Check if table exists
-    has_table = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (tbl_name,),
-    ).fetchone()
-    if not has_table:
+    tbl_name = _vec_table_if_exists(conn, model)
+    if not tbl_name:
         return []
 
     count_row = conn.execute(f"SELECT COUNT(*) AS c FROM {tbl_name}").fetchone()
-    count = int(count_row["c"] if count_row else 0)
+    count = int(count_row["c"])
     if count == 0:
         return []
 
@@ -722,14 +712,11 @@ _BOOL_RE = re.compile(r"\b(AND|OR|NOT)\b", re.IGNORECASE)
 
 
 def _escape_fts_token(token: str) -> str:
-    cleaned = str(token or "").strip()
-    if not cleaned:
-        return '""'
-    escaped = cleaned.replace('"', '""')
+    escaped = token.replace('"', '""')
     return f'"{escaped}"'
 
 
-def build_match_query(query: str, *, near_slop: int = 10) -> str:
+def build_match_query(query: str, *, near_slop: int = DEFAULT_NEAR_SLOP) -> str:
     """Build an FTS5 MATCH expression (multi-word defaults to NEAR with slop)."""
     raw = str(query or "").strip()
     if not raw:
@@ -743,16 +730,14 @@ def build_match_query(query: str, *, near_slop: int = 10) -> str:
 
     near_match = _NEAR_SLASH_RE.search(raw)
     if near_match:
-        left_tokens = [t for t in near_match.group(1).split() if t.strip()]
-        right_tokens = [t for t in near_match.group(3).split() if t.strip()]
+        left_tokens = near_match.group(1).split()
+        right_tokens = near_match.group(3).split()
         dist = int(near_match.group(2))
         tokens = left_tokens + right_tokens
-        if not tokens:
-            raise ValueError("NEAR query has no terms")
         quoted = " ".join(_escape_fts_token(t) for t in tokens)
         return f"NEAR({quoted}, {dist})"
 
-    tokens = [t for t in raw.split() if t.strip()]
+    tokens = raw.split()
     if len(tokens) == 1:
         return _escape_fts_token(tokens[0])
     quoted = " ".join(_escape_fts_token(t) for t in tokens)
@@ -761,7 +746,7 @@ def build_match_query(query: str, *, near_slop: int = 10) -> str:
 
 def strip_fts_snippet_markers(snippet: str) -> str:
     """Remove FTS5 snippet() highlight brackets; readable plain text for agents and UI."""
-    return str(snippet or "").replace("[", "").replace("]", "")
+    return snippet.replace("[", "").replace("]", "")
 
 
 def fts_corpus_search(
@@ -769,12 +754,12 @@ def fts_corpus_search(
     query: str,
     *,
     k: int = 10,
-    near_slop: int = 10,
+    near_slop: int = DEFAULT_NEAR_SLOP,
     doc_url_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
     limit = max(1, min(int(k or 10), 50))
-    match_expr = build_match_query(str(query or ""), near_slop=near_slop)
+    match_expr = build_match_query(query, near_slop=near_slop)
 
     sql = """
         SELECT
@@ -827,14 +812,8 @@ def load_embeddings_for_candidates(
     if not candidates:
         return
     _load_vec_extension(conn)
-    slug = model_slug(model)
-    tbl_name = f"vec_chunks_{slug}"
-
-    # Check if table exists, fallback to legacy vec_chunks if it exists
-    has_table = conn.execute(
-        f"SELECT 1 FROM sqlite_master WHERE type='table' AND name='{tbl_name}'"
-    ).fetchone()
-    if not has_table:
+    tbl_name = _vec_table_if_exists(conn, model)
+    if not tbl_name:
         has_legacy = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_chunks'"
         ).fetchone()
@@ -854,7 +833,7 @@ def load_embeddings_for_candidates(
         batch_ids = ids[i : i + chunk_size]
         placeholders = ",".join("?" * len(batch_ids))
         query = f"SELECT chunk_id, embedding FROM {tbl_name} WHERE chunk_id IN ({placeholders})"
-        cursor = conn.execute(query, tuple(int(x) for x in batch_ids))
+        cursor = conn.execute(query, tuple(batch_ids))
         for row in cursor.fetchall():
             by_id[int(row["chunk_id"])] = row["embedding"]
     for cand in candidates:
@@ -872,7 +851,6 @@ def load_embeddings_for_candidates(
 
 def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, float | int]:
     """Return stored file_mtime, last_indexed_at, and indexed chunk count."""
-    doc_url = str(doc_url or "")
     row = conn.execute(
         "SELECT file_mtime, last_indexed_at FROM indexed_files WHERE doc_url = ?",
         (doc_url,),
@@ -881,7 +859,7 @@ def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, flo
         "SELECT COUNT(*) AS c FROM chunks WHERE doc_url = ?",
         (doc_url,),
     ).fetchone()
-    chunk_count = int(chunk_row["c"] if chunk_row else 0)
+    chunk_count = int(chunk_row["c"])
     if row is None:
         return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": chunk_count}
     return {
@@ -912,10 +890,8 @@ def mark_file_indexed_in_db(
     file_mtime: float,
     *,
     indexed_at: float,
-    paragraphs: dict[str, str] | None = None,
 ) -> None:
-    """Advance file timestamps and optionally replace paragraph content hashes."""
-    doc_url = str(doc_url or "")
+    """Advance file timestamps after a successful index pass."""
     conn.execute(
         """
         INSERT INTO indexed_files (doc_url, file_mtime, last_indexed_at)
@@ -926,24 +902,7 @@ def mark_file_indexed_in_db(
         """,
         (doc_url, float(file_mtime), float(indexed_at)),
     )
-    if paragraphs is None:
-        conn.commit()
-        return
-    conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
-    for para_key, para_hash in paragraphs.items():
-        try:
-            para_index = int(para_key)
-        except (TypeError, ValueError):
-            continue
-        conn.execute(
-            """
-            INSERT INTO indexed_paragraphs (doc_url, para_index, content_hash)
-            VALUES (?, ?, ?)
-            """,
-            (doc_url, para_index, str(para_hash)),
-        )
     conn.commit()
-
 
 
 def get_all_indexed_urls_in_db(conn: sqlite3.Connection) -> list[str]:
@@ -954,7 +913,6 @@ def get_all_indexed_urls_in_db(conn: sqlite3.Connection) -> list[str]:
 
 def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None:
     """Remove a file's freshness metadata from the index."""
-    doc_url = str(doc_url or "")
     conn.execute("DELETE FROM indexed_files WHERE doc_url = ?", (doc_url,))
     conn.execute("DELETE FROM indexed_paragraphs WHERE doc_url = ?", (doc_url,))
     conn.commit()
@@ -963,16 +921,15 @@ def remove_file_from_index_in_db(conn: sqlite3.Connection, doc_url: str) -> None
 def diff_chunk_rows_in_db(
     conn: sqlite3.Connection,
     doc_url: str,
-    chunks: list[Any],
+    chunks: list[ParagraphChunk],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db."""
-    from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
+    from plugin.embeddings.embeddings_fs import chunk_to_index_row
 
     to_index: list[dict[str, Any]] = []
     seen: set[tuple[str, int, int, int]] = set()
 
     stored: dict[tuple[int, int, int], str] = {}
-    doc_url = str(doc_url or "")
     if doc_url:
         rows = conn.execute(
             """
@@ -986,8 +943,6 @@ def diff_chunk_rows_in_db(
             stored[locator] = str(row["content_hash"] or "")
 
     for chunk in chunks:
-        if not isinstance(chunk, ParagraphChunk):
-            continue
         locator = (chunk.para_index, chunk.char_start, chunk.char_end)
         key = (chunk.doc_url, *locator)
         seen.add(key)
@@ -996,10 +951,10 @@ def diff_chunk_rows_in_db(
             continue
         to_index.append(chunk_to_index_row(chunk))
 
-    # Empty extracts still purge this document. Do not require chunks[0].
+    # An empty extract still purges this document's stored rows.
     to_delete: list[dict[str, Any]] = []
     if doc_url:
-        for (para_index, char_start, char_end), _stored_hash in stored.items():
+        for para_index, char_start, char_end in stored:
             if (doc_url, para_index, char_start, char_end) not in seen:
                 to_delete.append(
                     {
@@ -1011,12 +966,6 @@ def diff_chunk_rows_in_db(
                 )
 
     return to_index, to_delete
-
-
-def paragraph_body_for_locator(conn: sqlite3.Connection, doc_url: str, para_index: int) -> str:
-    """Concatenate embed sub-chunks for one ODF paragraph (ordered by char_start)."""
-    bodies = paragraph_bodies_for_locators(conn, {(str(doc_url or ""), int(para_index or 0))})
-    return bodies.get((str(doc_url or ""), int(para_index or 0)), "")
 
 
 def paragraph_bodies_for_locators(
@@ -1052,30 +1001,13 @@ def paragraph_bodies_for_locators(
     return {key: " ".join(p for p in parts if p) for key, parts in grouped.items()}
 
 
-def sync_file_paragraph_state_in_db(
-    conn: sqlite3.Connection,
-    doc_url: str,
-    chunks: list[Any],
-    file_mtime: float,
-    *,
-    indexed_at: float,
-) -> None:
-    """Advance file timestamps after a successful index pass."""
-    del chunks
-    mark_file_indexed_in_db(
-        conn,
-        doc_url,
-        file_mtime,
-        indexed_at=indexed_at,
-        paragraphs=None,
-    )
-
-
 __all__ = [
+    "DEFAULT_NEAR_SLOP",
     "connect_corpus_db",
     "corpus_chunk_count",
     "delete_by_chunk_locator",
     "delete_by_doc_para",
+    "delete_chunk_ids",
     "delete_paragraph_keys",
     "diff_chunk_rows_in_db",
     "ensure_schema",
@@ -1088,12 +1020,14 @@ __all__ = [
     "load_embeddings_for_candidates",
     "mark_file_indexed_in_db",
     "missing_vector_chunks",
-    "paragraph_body_for_locator",
+    "model_slug",
     "paragraph_bodies_for_locators",
+    "path_is_local_disk",
     "rebuild_fts_corpus_index",
     "remove_file_from_index_in_db",
     "stored_model_dim",
-    "sync_file_paragraph_state_in_db",
+    "strip_fts_snippet_markers",
     "upsert_chunk_with_vector",
     "vec0_search",
+    "vec_table_name",
 ]

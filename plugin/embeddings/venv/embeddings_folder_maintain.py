@@ -34,7 +34,6 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     mark_file_indexed_in_db,
     rebuild_fts_corpus_index,
     remove_file_from_index_in_db,
-    sync_file_paragraph_state_in_db,
 )
 from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
 
@@ -128,13 +127,13 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
             rows = [chunk_to_index_row(chunk) for chunk in chunks]
             hb.emit({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"}, immediate=True)
             if not rows:
-                sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+                mark_file_indexed_in_db(conn, entry.url, entry.modified, indexed_at=time.time())
                 continue
             phase = "embed" if build_vectors else "index"
             result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
             file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
             hb.emit({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "cold"}, immediate=True)
-            sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+            mark_file_indexed_in_db(conn, entry.url, entry.modified, indexed_at=time.time())
             indexed += len(rows)
             upserted += file_upserted
         row_count = corpus_chunk_count(conn)
@@ -205,7 +204,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
                     hb.emit({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "incremental"}, immediate=True)
                     indexed += len(to_index)
                 files_touched += 1
-                sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+                mark_file_indexed_in_db(conn, entry.url, entry.modified, indexed_at=time.time())
             else:
                 mark_file_indexed_in_db(conn, entry.url, entry.modified, indexed_at=time.time())
                 files_touched += 1

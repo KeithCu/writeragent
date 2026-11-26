@@ -151,6 +151,10 @@ class MockHandler:
         self.sent_headers = []
         self.headers_ended = False
         self.close_connection = False
+        self._response_started = False
+
+    def mark_response_started(self):
+        self._response_started = True
 
     def send_response(self, code, message=None):
         self.sent_responses.append(code)

@@ -1110,18 +1110,21 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
 
 
 def test_run_test_suite_unavailable_does_not_print_or_import() -> None:
-    """When tests are not bundled, _run_test_suite must not print or import the test module."""
+    """When tests are not bundled, _run_test_suite shows a dialog and does not print or import."""
+    fake_ctx = MagicMock()
     printed: list[str] = []
     with (
         patch("plugin.app.tests_bundled", return_value=False),
+        patch("plugin.main.get_ctx", return_value=fake_ctx),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
         patch("builtins.print", side_effect=lambda *args, **kw: printed.append(" ".join(map(str, args)))),
-        patch("plugin.main._show_tests_unavailable") as mock_unavailable,
         patch("importlib.import_module", side_effect=ModuleNotFoundError("unbundled")) as mock_import,
     ):
         main._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
 
     assert printed == []
-    mock_unavailable.assert_called_once_with("writer.format_tests")
+    mock_msgbox.assert_called_once()
+    assert mock_msgbox.call_args[0][:2] == (fake_ctx, "writer.format_tests")
     mock_import.assert_not_called()
 
 
@@ -1138,15 +1141,3 @@ def test_run_test_suite_failure_shows_dialog() -> None:
     ):
         main._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
         mock_msgbox.assert_called_once()
-
-
-def test_show_tests_unavailable_invokes_msgbox() -> None:
-    """_show_tests_unavailable invokes msgbox with package info."""
-    fake_ctx = MagicMock()
-    with (
-        patch("plugin.main.get_ctx", return_value=fake_ctx),
-        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
-    ):
-        main._show_tests_unavailable("writer.format_tests")
-        mock_msgbox.assert_called_once()
-        assert mock_msgbox.call_args[0][:2] == (fake_ctx, "writer.format_tests")

@@ -70,6 +70,7 @@ _LITERAL_VALUE_KEYS = _SCHEMA_DATA_KEYS | frozenset({"enum", "const"})
 _PROP_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
 _PROP_KEY_BAD_CHARS = re.compile(r"[^a-zA-Z0-9_.-]")
 _UNION_KEYS = ("anyOf", "oneOf")
+_COMBINATOR_KEYS = (*_UNION_KEYS, "allOf")
 _UNION_META_KEYS = ("title", "description", "default", "examples")
 
 # Keywords JSON Schema applies only to values of one type; branches whose extra keys are all
@@ -249,6 +250,16 @@ def collapse_const_unions(schema: Any) -> Any:
     return _rewrite(schema, collapse)
 
 
+def _fix_object_required(node: dict[str, Any]) -> None:
+    if node.get("type") != "object":
+        return
+    if not isinstance(node.get("properties"), dict):
+        node["properties"] = {}
+    required = node.get("required")
+    props = node["properties"]
+    node["required"] = [r for r in required if isinstance(r, str) and r in props] if isinstance(required, list) else []
+
+
 def _repair_object_shape(node: Any, *, _object_root: bool = False) -> Any:
     """Fill missing object ``type``/``properties`` and prune dangling ``required`` entries.
 
@@ -266,14 +277,7 @@ def _repair_object_shape(node: Any, *, _object_root: bool = False) -> Any:
     if _object_root or "properties" in repaired or "type" in node:
         if not repaired.get("type") and ("properties" in repaired or "required" in repaired):
             repaired["type"] = "object"
-        if repaired.get("type") == "object":
-            if not isinstance(repaired.get("properties"), dict):
-                repaired["properties"] = {}
-            required = repaired.get("required")
-            props = repaired.get("properties") or {}
-            repaired["required"] = (
-                [r for r in required if isinstance(r, str) and r in props] if isinstance(required, list) else []
-            )
+        _fix_object_required(repaired)
     return repaired
 
 
@@ -417,7 +421,7 @@ def _schema_branches(schema: Any, root: Any) -> list[dict[str, Any]]:
         return []
     found = [schema]
     nested: list[Any] = []
-    for key in (*_UNION_KEYS, "allOf"):
+    for key in _COMBINATOR_KEYS:
         variants = schema.get(key)
         if isinstance(variants, list):
             nested.extend(variants)
@@ -604,16 +608,9 @@ def _sanitize_node(node: Any, path: str) -> Any:
             required = out.get("required", [])
             required = required if isinstance(required, list) else []
             out["required"] = required + [key for key in lifted if key not in required]
-    # Repeats _repair_object_shape: inlining a $ref merges the target's own ``required``
-    # over the repaired node (resolve_local_schema_ref keeps target keys), which can name
-    # properties this node does not have.
-    if out.get("type") == "object":
-        if not isinstance(out.get("properties"), dict):
-            out["properties"] = {}
-        required = out.get("required")
-        out["required"] = (
-            [r for r in required if isinstance(r, str) and r in out["properties"]] if isinstance(required, list) else []
-        )
+    # Inlining a $ref merges the target's own ``required`` over the repaired node
+    # (resolve_local_schema_ref keeps target keys), which can name properties this node does not have.
+    _fix_object_required(out)
     return out
 
 
@@ -704,7 +701,7 @@ def _is_sendable(schema: dict[str, Any]) -> bool:
     non_null = [t for t in types if t != "null"]
     if not non_null or not all(isinstance(t, str) and t in _TYPE_KEYWORDS for t in non_null):
         return False
-    if any(k in schema for k in ("anyOf", "oneOf", "allOf")):
+    if any(k in schema for k in _COMBINATOR_KEYS):
         return False
     try:
         _check_arrays_have_items(schema, "")
@@ -769,7 +766,7 @@ def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
     for prop_name, prop_schema in props.items():
         if not isinstance(prop_schema, dict):
             raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has non-object schema")
-        if any(k in prop_schema for k in ("anyOf", "oneOf", "allOf")):
+        if any(k in prop_schema for k in _COMBINATOR_KEYS):
             raise ValueError(
                 f"MCP tool '{tool_name}': parameter {prop_name!r} has a union with no branch the model can be sent"
             )

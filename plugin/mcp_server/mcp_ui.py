@@ -30,6 +30,8 @@ from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
+from plugin.mcp_server.tunnel import normalize_provider
+from plugin.mcp_server.tunnel_state import DEFAULT_MCP_PORT
 
 log = logging.getLogger("writeragent.mcp.ui")
 
@@ -94,8 +96,7 @@ def _read_mcp_port(dlg: Any) -> int | None:
 
 def _read_tunnel_provider(dlg: Any) -> str:
     """Selected tunnel provider, defaulting to cloudflare."""
-    provider = get_control_text(get_optional(dlg, "mcp__tunnel_provider")).strip().lower()
-    return provider or "cloudflare"
+    return normalize_provider(get_control_text(get_optional(dlg, "mcp__tunnel_provider")))
 
 
 class CopyMcpConfigListener(BaseActionListener):
@@ -189,13 +190,12 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     # Same lock as remember and clear. A stop cannot drop the URL mid-read,
     # and a connect cannot publish into a gap.
     with _active_settings_dialog_lock:
-        cached = _tested_provider_tunnel_urls.get(selected_provider)
-        active_url = cached if isinstance(cached, str) and cached else None
+        active_url = _tested_provider_tunnel_urls.get(selected_provider)
     if not active_url:
         from plugin.mcp_server import current_tunnel
 
         tunnel = current_tunnel()
-        if tunnel and tunnel.is_running and getattr(tunnel, "provider", None) == selected_provider:
+        if tunnel and tunnel.is_running and tunnel.provider == selected_provider:
             active_url = tunnel.mcp_public_url()
             # No URL yet: write the template now; notify_tunnel_url_acquired refreshes it later.
             if active_url:
@@ -203,25 +203,13 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
 
     if not active_url:
         # Fall back to provider default template
-        active_url = _PROVIDER_DEFAULT_URLS.get(selected_provider, f"http://localhost:{port_val or 18765}/mcp")
+        active_url = _PROVIDER_DEFAULT_URLS.get(selected_provider, f"http://localhost:{port_val or DEFAULT_MCP_PORT}/mcp")
 
     set_control_text(snippet_ctrl, build_mcp_config_snippet(port=port_val, url=active_url))
 
 
-class McpTunnelEnabledListener(BaseListener, XItemListener):
-    """Update MCP client config snippet when tunnel_enabled checkbox is toggled."""
-
-    _dlg: Any
-
-    def __init__(self, dlg: Any) -> None:
-        self._dlg = dlg
-
-    def itemStateChanged(self, rEvent: ItemEvent) -> None:
-        sync_mcp_config_snippet(self._dlg)
-
-
 class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
-    """Update MCP client config snippet when tunnel provider dropdown is changed."""
+    """Update MCP client config snippet when tunnel settings or port change."""
 
     _dlg: Any
 
@@ -230,18 +218,6 @@ class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
-
-    def textChanged(self, rEvent: TextEvent) -> None:
-        sync_mcp_config_snippet(self._dlg)
-
-
-class McpPortTextListener(BaseListener, XTextListener):
-    """Update MCP client config snippet when MCP port is edited."""
-
-    _dlg: Any
-
-    def __init__(self, dlg: Any) -> None:
-        self._dlg = dlg
 
     def textChanged(self, rEvent: TextEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
@@ -267,7 +243,7 @@ class TestTunnelListener(BaseActionListener):
         provider = _read_tunnel_provider(self._dlg)
         port = _read_mcp_port(self._dlg)
         if port is None:
-            port = 18765
+            port = DEFAULT_MCP_PORT
 
         btn = get_optional(self._dlg, "mcp__test_tunnel")
         if btn:

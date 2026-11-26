@@ -9,9 +9,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict, cast
 
-from plugin.embeddings.venv.embeddings_ingest_graph import CHUNK_SIZE
+from plugin.embeddings.embeddings_split import CHUNK_SIZE
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
@@ -63,7 +63,7 @@ class SearchState(TypedDict):
 
 
 def embed_query(state: SearchState) -> dict[str, Any]:
-    model = str(state.get("model") or "")
+    model = state["model"]
     query = str(state.get("query") or "").strip()
     if not query:
         return {"query_vec": []}
@@ -79,9 +79,9 @@ def vec0_retrieve(state: SearchState) -> dict[str, Any]:
     if not query_vec:
         return {"candidates": []}
 
-    k = max(1, min(int(state.get("k") or 5), 50))
-    n_results = min(max(k * 3, k), 100)
-    model = str(state.get("model") or "")
+    k = state["k"]
+    n_results = min(k * 3, 100)
+    model = state["model"]
     doc_filter = state.get("doc_url_filter")
 
     conn = connect_corpus_db(str(state["db_path"]))
@@ -97,15 +97,6 @@ def vec0_retrieve(state: SearchState) -> dict[str, Any]:
     finally:
         conn.close()
     return {"candidates": candidates}
-
-
-def metadata_filter(state: SearchState) -> dict[str, Any]:
-    model = state.get("model")
-    candidates = state.get("candidates") or []
-    if model:
-        filtered = [c for c in candidates if c.get("embedding_model") == model]
-        return {"candidates": filtered}
-    return {"candidates": list(candidates)}
 
 
 # Maximal Marginal Relevance (MMR): after RRF (or vec retrieve) we often have several
@@ -159,7 +150,7 @@ def rerank(state: SearchState) -> dict[str, Any]:
 
     candidates = list(state.get("candidates") or [])
     candidates = expand_candidates_to_parent_paragraphs(str(state["db_path"]), candidates)
-    k = max(1, min(int(state.get("k") or 5), 50))
+    k = state["k"]
     query_vec = state.get("query_vec") or []
     if not candidates or not query_vec:
         return {"hits": candidates[:k]}
@@ -167,10 +158,8 @@ def rerank(state: SearchState) -> dict[str, Any]:
     with_embeddings = [c for c in candidates if c.get("embedding") is not None]
     without = [c for c in candidates if c.get("embedding") is None]
     if len(with_embeddings) >= k:
-        import numpy as np
-
         reranked = _max_marginal_relevance(
-            np.asarray(query_vec, dtype=np.float32),
+            query_vec,
             [c["embedding"] for c in with_embeddings],
             with_embeddings,
             k,
@@ -189,27 +178,18 @@ def rerank(state: SearchState) -> dict[str, Any]:
     return {"hits": hits}
 
 
-def format_hits(state: SearchState) -> dict[str, Any]:
-    return {"hits": list(state.get("hits") or [])}
-
-
 def _build_search_graph() -> Any:
     import importlib
-    from typing import cast
 
     lg = importlib.import_module("langgraph.graph")
     graph = lg.StateGraph(cast("Any", SearchState))
     graph.add_node("embed_query", embed_query)
     graph.add_node("vec0_retrieve", vec0_retrieve)
-    graph.add_node("metadata_filter", metadata_filter)
     graph.add_node("rerank", rerank)
-    graph.add_node("format_hits", format_hits)
     graph.add_edge(lg.START, "embed_query")
     graph.add_edge("embed_query", "vec0_retrieve")
-    graph.add_edge("vec0_retrieve", "metadata_filter")
-    graph.add_edge("metadata_filter", "rerank")
-    graph.add_edge("rerank", "format_hits")
-    graph.add_edge("format_hits", lg.END)
+    graph.add_edge("vec0_retrieve", "rerank")
+    graph.add_edge("rerank", lg.END)
     return graph.compile()
 
 
@@ -243,11 +223,11 @@ def search_embeddings_graph(
         "db_path": str(db_path),
         "model": model,
         "query": query,
-        "k": int(k or 5),
+        "k": max(1, min(int(k or 5), 50)),
         "doc_url_filter": doc_url_filter,
     }
     final = _get_search_graph().invoke(initial)
     return {"hits": list(final.get("hits") or [])}
 
 
-__all__ = ["search_embeddings_graph"]
+__all__ = ["public_hit_from_candidate", "search_embeddings_graph"]

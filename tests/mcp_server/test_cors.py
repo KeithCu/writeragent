@@ -107,6 +107,9 @@ def test_reject_forbidden_host():
         def end_headers(self):
             pass
 
+        def mark_response_started(self):
+            self._response_started = True
+
     safe = DummyHandler({"Host": "127.0.0.1:18765"})
     assert not reject_forbidden_host(safe)
     assert safe.sent_responses == []

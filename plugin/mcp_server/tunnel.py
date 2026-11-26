@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from plugin.framework.i18n import _
 from plugin.framework.subprocess_env import get_subprocess_creationflags
-from plugin.mcp_server.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
+from plugin.mcp_server.tunnel_state import DEFAULT_MAX_RETRIES, DEFAULT_MCP_PORT, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 if TYPE_CHECKING:
     from plugin.framework.worker_pool import AsyncProcess
@@ -45,6 +45,11 @@ log = logging.getLogger("writeragent.mcp.tunnel")
 
 DEFAULT_PROVIDER = "cloudflare"
 DEFAULT_BORE_SERVER = "bore.pub"
+
+
+def normalize_provider(name: str | None) -> str:
+    """Return normalized provider name, defaulting to DEFAULT_PROVIDER."""
+    return (name or DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER
 
 # ── Provider helpers (pure build/parse) ───────────────────────────────
 
@@ -419,8 +424,7 @@ class TailscaleProvider(Provider):
             err = (result.stderr or result.stdout or "").strip()[:500]
             log.warning("Tailscale funnel off exited %s (local MCP port %s): %s — %s", result.returncode, port, shown, err)
             return False
-        # A normal return on failure made _safe_post_stop delete the arm file.
-        # Only exit 0 may delete it.
+        # Only exit 0 returns True, because True lets the caller delete the arm file.
         log.info("Tailscale funnel off (local MCP port %s): %s", port, shown)
         return True
 
@@ -557,8 +561,8 @@ class TunnelManager:
 
     def _retire_snippet_provider(self, provider: str) -> None:
         """Drop the settings snippet cache for *provider* (no tunnel lock needed)."""
-        # In-memory cache plus a posted snippet refresh. Swallowing a failure
-        # left the settings snippet on a URL this provider no longer serves.
+        # Clears the in-memory cache and posts a snippet refresh. A failure propagates,
+        # so the snippet never stays on a URL this provider no longer serves.
         from plugin.mcp_server.mcp_ui import clear_tested_provider_tunnel_url
 
         clear_tested_provider_tunnel_url(provider)
@@ -615,7 +619,7 @@ class TunnelManager:
                 return
             ok = False
             try:
-                ok = reset.after_stop(port, timeout=timeout) is True
+                ok = reset.after_stop(port, timeout=timeout)
             except Exception:
                 log.exception("Tunnel post_stop failed for %s", provider_name)
             with self._lock:
@@ -773,11 +777,9 @@ class TunnelManager:
                 # Tailscale off hits the new port or the wrong provider.
                 provider = effect.provider or self._state.provider
                 port = effect.port
-                # RECONNECTING and FAILED already cleared _process in _on_exit.
-                # Requiring a live process skipped Tailscale funnel/serve reset
-                # when switching provider or disabling the tunnel. That config
-                # lives on tailscaled and kept the public URL pointed at the
-                # local MCP port. Retry exhaustion emits this effect too, with
+                # RECONNECTING and FAILED have already cleared _process in _on_exit, so the reset
+                # cannot depend on a live process: the Funnel config lives on tailscaled and would
+                # keep the public URL pointed at the local MCP port. Retry exhaustion emits this effect too, with
                 # the process already cleared. Reset whenever we leave that
                 # provider, including when the subprocess is already gone. An
                 # idle stop that was already STOPPED must not reset — settings
@@ -798,7 +800,6 @@ class TunnelManager:
 
             elif isinstance(effect, ScheduleRetryTimerEffect):
                 if self._reconnect_timer is not None:
-                    # Timer.cancel only sets an Event. It does not raise.
                     self._reconnect_timer.cancel()
                 log.info("Scheduling MCP tunnel reconnect in %.1fs (attempt %s/%s)", effect.delay_seconds, effect.attempt, effect.max_retries)
                 session = self._session
@@ -844,7 +845,6 @@ class TunnelManager:
                 return
             self._reconnect_timer = None
             effect = self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
-            session_snap = self._session
             if effect is not None:
                 provider_obj = self._providers[effect.provider]
                 reset = provider_obj.reset
@@ -853,7 +853,7 @@ class TunnelManager:
         # pre_start (Tailscale reset) must not run while this thread holds
         # _lock. stop() has to be able to take the lock during that CLI.
         if effect is not None and reset is not None:
-            self._finish_pending_launch(effect, session_snap, reset, reset_token)
+            self._finish_pending_launch(effect, session, reset, reset_token)
 
     def note_pending_start(self, token: object) -> None:
         """Arm *token* as the only start that may proceed until stop() or a newer arm."""
@@ -870,7 +870,7 @@ class TunnelManager:
         if main.policy is Policy.test_inline:
             return True
 
-        provider = (provider or DEFAULT_PROVIDER).strip().lower()
+        provider = normalize_provider(provider)
         token = (provider_token or "").strip()
         provider_obj = self._providers.get(provider)
         if provider_obj is None or provider_token is None:
@@ -916,7 +916,6 @@ class TunnelManager:
                         self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
             raise
 
-        reset_token = None
         effect = None
         with self._lock:
             if start_token is not None and self._pending_start is not start_token:
@@ -994,7 +993,7 @@ def tunnel_status_line(
         return None
     if public_url:
         return _("Public tunnel via {0} (no auth)").format(pname)
-    if tunnel and getattr(tunnel, "is_reconnecting", False):
+    if tunnel and tunnel.is_reconnecting:
         return _("Public tunnel via {0}: {1}").format(pname, tunnel.last_error or _("reconnecting…"))
     err = tunnel.last_error if tunnel else None
     if err:
@@ -1018,7 +1017,7 @@ def _health_probe_ok(url: str, timeout: float) -> bool:
         return False
 
 
-def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765) -> tuple[bool, str, Optional[str]]:
+def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = DEFAULT_MCP_PORT) -> tuple[bool, str, Optional[str]]:
     """Checks that the provider binary runs, whether local MCP /health answers, and whether a tunnel is already running.
 
     Does not validate provider credentials and does not start a tunnel.
@@ -1030,7 +1029,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
         sim_url = f"https://simulated-{provider}.example.com/mcp"
         return True, _("Tunnel test mode: {0} provider simulated successfully.").format(provider), sim_url
 
-    provider = (provider or DEFAULT_PROVIDER).strip().lower()
+    provider = normalize_provider(provider)
     cls = _PROVIDER_BY_NAME.get(provider)
     if not cls:
         return False, _("Unknown tunnel provider: {0}").format(provider), None
@@ -1052,7 +1051,7 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
 
     tunnel = current_tunnel()
     if tunnel and tunnel.is_running:
-        active_p = getattr(tunnel, "provider", None) or DEFAULT_PROVIDER
+        active_p = tunnel.provider or DEFAULT_PROVIDER
         active_url = tunnel.mcp_public_url()
         if active_url:
             base_url = normalize_public_base(tunnel.public_url or "")

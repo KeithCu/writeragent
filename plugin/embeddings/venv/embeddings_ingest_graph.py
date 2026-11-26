@@ -11,25 +11,27 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict, cast
 
 from plugin.embeddings.embeddings_cache import CorpusMeta
-from plugin.embeddings.embeddings_split import CHUNK_OVERLAP, CHUNK_SIZE
 from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_sqlite import (
+    _conn_operational_error,
     connect_corpus_db,
     corpus_chunk_count,
     delete_by_chunk_locator,
     delete_paragraph_keys,
     ensure_schema,
     missing_vector_chunks,
-    model_slug,
     stored_model_dim,
     upsert_chunk_with_vector,
+    vec_table_name,
 )
 
 log = logging.getLogger(__name__)
+
+_MODEL_EXPIRY_SECONDS = 7 * 24 * 3600
 
 
 class IngestState(TypedDict):
@@ -40,11 +42,27 @@ class IngestState(TypedDict):
     build_vectors: NotRequired[bool]
     rows: NotRequired[list[dict[str, Any]]]
     delete_keys: NotRequired[list[dict[str, Any]]]
-    documents: NotRequired[list[Any]]
     chunks: NotRequired[list[dict[str, Any]]]
     upserted: NotRequired[int]
     dim: NotRequired[int]
     heartbeat_fn: NotRequired[Any]
+
+
+def _prepare_schema(
+    conn: Any,
+    meta_path: str,
+    model: str,
+    *,
+    build_fts: bool,
+    build_vectors: bool,
+) -> tuple[int | None, bool]:
+    meta = CorpusMeta.load(meta_path)
+    dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
+    if dim is None and build_vectors:
+        dim = stored_model_dim(conn, model)
+    with_vec = build_vectors and dim is not None
+    ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=with_vec, model=model)
+    return dim, with_vec
 
 
 def rows_to_chunks(state: IngestState) -> dict[str, Any]:
@@ -73,17 +91,17 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     model = str(state.get("model") or "")
-    meta = CorpusMeta.load(str(state.get("meta_path") or ""))
-    dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        if dim is None and build_vectors:
-            dim = stored_model_dim(conn, model)
-
         # Cold build: embedding dim is unknown until embed runs; upsert creates vec_chunks.
-        with_vec = build_vectors and dim is not None
-        ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=with_vec, model=model)
+        _dim, with_vec = _prepare_schema(
+            conn,
+            str(state.get("meta_path") or ""),
+            model,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
         delete_paragraph_keys(
             conn,
             list(state.get("delete_keys") or []),
@@ -113,18 +131,17 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
     build_vectors = bool(state.get("build_vectors"))
     chunks = state.get("chunks") or []
     model = str(state.get("model") or "")
-    batch_size = max(1, EMBEDDINGS_INGEST_BATCH_SIZE)
+    batch_size = EMBEDDINGS_INGEST_BATCH_SIZE
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        meta = CorpusMeta.load(str(state.get("meta_path") or ""))
-        schema_dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
-
-        if schema_dim is None and build_vectors:
-            schema_dim = stored_model_dim(conn, model)
-
-        with_vec = build_vectors and schema_dim is not None
-        ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=with_vec, model=model)
+        schema_dim, with_vec = _prepare_schema(
+            conn,
+            str(state.get("meta_path") or ""),
+            model,
+            build_fts=build_fts,
+            build_vectors=build_vectors,
+        )
 
         # FTS-only ingest must not re-upsert chunks that merely lack a vector.
         missing_chunks = missing_vector_chunks(conn, model) if build_vectors else []
@@ -161,16 +178,16 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                     schema_dim = dim
                     with_vec = True
 
-            for chunk, vec in zip(window, vectors if build_vectors else [[] for _unused in window]):
+            for chunk, vec in zip(window, vectors):
                 if build_vectors and not vec:
                     continue
                 upsert_chunk_with_vector(
                     conn,
                     chunk,
-                    vec if build_vectors else [],
+                    vec,
                     model=model,
                     with_fts=build_fts,
-                    with_vec=with_vec if build_vectors else False,
+                    with_vec=with_vec,
                 )
                 upserted += 1
 
@@ -201,35 +218,29 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                 (model,),
             ).fetchall()
 
-            EXPIRY_TIME_S = 7 * 24 * 3600
             active_time = time.time()
-            vacuum_needed = False
-
             expired_models = []
             for row in other_models:
                 other_model = row["embedding_model"]
                 other_time = float(row["updated_at"])
-                if active_time - other_time > EXPIRY_TIME_S:
+                if active_time - other_time > _MODEL_EXPIRY_SECONDS:
                     expired_models.append(other_model)
 
             if expired_models:
                 for other_model in expired_models:
-                    other_slug = model_slug(other_model)
-                    conn.execute(f"DROP TABLE IF EXISTS vec_chunks_{other_slug}")
-                    log.info("Dropped expired embeddings table vec_chunks_%s", other_slug)
+                    other_tbl = vec_table_name(other_model)
+                    conn.execute(f"DROP TABLE IF EXISTS {other_tbl}")
+                    log.info("Dropped expired embeddings table %s", other_tbl)
 
                 conn.executemany(
                     "DELETE FROM model_metadata WHERE embedding_model = ?",
                     [(m,) for m in expired_models],
                 )
                 conn.commit()
-                vacuum_needed = True
-
-            if vacuum_needed:
                 try:
                     conn.execute("VACUUM")
-                except Exception:
-                    pass
+                except _conn_operational_error(conn) as exc:
+                    log.debug("VACUUM skipped after model expiry: %s", exc)
 
         return {"upserted": upserted, "dim": dim}
     finally:
@@ -238,10 +249,6 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
 
 def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> None:
     meta_path = Path(str(state.get("meta_path") or ""))
-    if not meta_path.parent:
-        return
-    from plugin.embeddings.embeddings_cache import CorpusMeta
-
     CorpusMeta.load(meta_path).update(
         schema_version=SCHEMA_VERSION,
         storage_backend="sqlite_vec",
@@ -254,7 +261,6 @@ def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> N
 
 def _build_ingest_graph() -> Any:
     import importlib
-    from typing import cast
 
     lg = importlib.import_module("langgraph.graph")
     graph = lg.StateGraph(cast("Any", IngestState))
@@ -299,9 +305,7 @@ def ingest_paragraphs(
     model = (model_name or "").strip()
     if not model and build_vectors:
         raise ValueError("embedding model name is required")
-    # An empty row list still enters the graph. fill_vector_gaps sets
-    # has_missing and calls ingest with no rows so the graph can embed chunks
-    # missing from vec_chunks. Returning here makes that pass a no-op.
+    # fill_vector_gaps keeps an empty call from returning here, so the graph can embed chunks that have no vector.
     if not rows and not delete_keys and not fill_vector_gaps:
         return {"indexed": 0, "dim": 0, "storage_backend": "sqlite_vec"}
 
@@ -322,4 +326,4 @@ def ingest_paragraphs(
     return {"indexed": upserted, "dim": dim, "storage_backend": "sqlite_vec"}
 
 
-__all__ = ["CHUNK_SIZE", "CHUNK_OVERLAP", "embed_and_upsert_batches", "ingest_paragraphs", "rows_to_chunks"]
+__all__ = ["embed_and_upsert_batches", "ingest_paragraphs", "rows_to_chunks"]

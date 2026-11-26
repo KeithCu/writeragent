@@ -404,8 +404,6 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     from plugin.mcp_server.mcp_ui import (
         remember_tested_tunnel_url,
         sync_mcp_config_snippet,
-        McpTunnelEnabledListener,
-        McpPortTextListener,
         McpTunnelProviderListener,
         _tested_provider_tunnel_urls,
     )
@@ -479,7 +477,7 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     # 6. Checkbox toggled back to unchecked -> immediately reverts to local URL
     mock_checkbox.getState.return_value = 0
     mock_checkbox.State = 0
-    listener = McpTunnelEnabledListener(mock_dlg)
+    listener = McpTunnelProviderListener(mock_dlg)
     listener.itemStateChanged(MagicMock())
     args, _ = mock_snippet.setText.call_args
     data = json.loads(args[0])
@@ -487,7 +485,7 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
 
     # 7. Port changed while unchecked -> updates local URL
     mock_port.getValue.return_value = 20000
-    port_listener = McpPortTextListener(mock_dlg)
+    port_listener = McpTunnelProviderListener(mock_dlg)
     port_listener.textChanged(MagicMock())
     args, _ = mock_snippet.setText.call_args
     data = json.loads(args[0])
