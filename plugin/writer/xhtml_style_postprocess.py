@@ -746,6 +746,17 @@ def show_hidden_sections(fodt: str) -> str:
     return _HIDDEN_SECTION_DISPLAY_RE.sub(r"\1\2", fodt)
 
 
+def drop_tracked_changes(fodt: str) -> str:
+    """Remove every ``<text:tracked-changes>`` block from flat ODF.
+
+    ODF keeps deleted text only inside these blocks
+    (``xmloff/source/text/XMLRedlineExport.cxx`` ``ExportChangedRegion``), so a
+    document loaded from the result has none of it. Body change markers stay
+    and load as plain text.
+    """
+    return _TRACKED_CHANGES_RE.sub("", fodt)
+
+
 # filter/source/xslt/odf2xhtml/export/xhtml/body.xsl has no template for these elements, so their
 # svg:title and text come out without a wrapper. draw:custom-shape and draw:g are dropped whole
 # (common/body.xsl), and draw:frame gets a wrapper (createDrawFrame).

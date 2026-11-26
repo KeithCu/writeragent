@@ -41,7 +41,7 @@ Measured on `2026-11-25` on base `96ffb0404` with `AUDIT-HOIST-LOOPS`, LibreOffi
 | no changes | 295 | 0 | get_tree heading_only | 0.858 | 0.278 |  |  |
 | no changes | 295 | 0 | get_tree default | 0.279 | 0.282 |  |  |
 | no changes | 295 | 0 | table_get_cells | 0.039 | 0.039 |  |  |
-| redlined, one list style | 301 | 484 | get_content full | 5.209 | 5.209 |  | XHTML export failed; content came from the legacy HTML export and has no style tokens. It still includes text that pending tracked deletions remove. |
+| redlined, one list style | 301 | 484 | get_content full | re-measure | re-measure |  | re-measure |
 
 Before vs. after `TrackedDeletions` binary search on the redlined 301-page fixture (median seconds; "Before" from `7fbf6accc`, "After" includes #4006):
 
@@ -58,5 +58,5 @@ Before vs. after `TrackedDeletions` binary search on the redlined 301-page fixtu
 - **`table_get_cells` (~1.8× slower than no-changes):** `TrackedDeletions.state_at` (`plugin/doc/text_helpers.py`) uses the same binary search per cell.
 - **`get_tree` (~1.7–1.8× slower median):** The portion walk in `paragraph_deletion_flags` runs twice on a cold tree (`build_heading_tree` in `plugin/doc/text_helpers.py` and `_load_tree_context` in `plugin/writer/tree.py`) and costs about 0.2 s on 300 pages. Gating it on deletions saved under 0.1 s on an insertion-only document, so it stays as is. First `get_tree heading_only` is also slower on both documents because it creates heading bookmarks (`ensure_heading_bookmarks`, 300 headings).
 - **`get_content` full (~1.8× slower median):** The hidden-copy XHTML export route adds modest overhead compared to `search`.
-- **Single shared list style falls back:** With 1,680 items in one list style (`shared_list=True`), LibreOffice's `odf2xhtml` XSLT hits `xsltMaxDepth` (3000) in `countListItem` / `countListItemTillStartValue` (`filter/source/xslt/odf2xhtml/export/xhtml/body.xsl`). `get_content` falls back to legacy StarWriter HTML export (`plugin/writer/html_export.py`), returning a warning that style tokens are missing and pending tracked deletions remain in the text.
+- **Single shared list style falls back:** LibreOffice's `odf2xhtml` XSLT hits `xsltMaxDepth` (3000) in `countListItem` / `countListItemTillStartValue` (`filter/source/xslt/odf2xhtml/export/xhtml/body.xsl`) at about 380 items of one style split across `text:list` blocks, and in the `listItemSibling` recursion at about 787 items in one `text:list` (measured on LibreOffice 26.8.3.1). `get_content` falls back to legacy StarWriter HTML export (`plugin/writer/html_export.py`), hiding pending tracked deletions via a hidden copy without `<text:tracked-changes>` and warning to use `scope='range'`.
 - **Intermittent `soffice` crash:** Both the planner (once in four runs) and #3999 runs saw `soffice` exit with `Unspecified Application Error` (`DisposedException` on the URP bridge), cause unknown.
