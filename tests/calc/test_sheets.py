@@ -12,14 +12,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.app import get_tools
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.tool import prepare_tool_call
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
-
-
-def _tool(name: str):
-    return get_tools().get(name)
+from tests.calc.tool_lookup import calc_tool
 
 
 def test_is_agent_visible_sheet_hides_leading_underscore():
@@ -57,7 +53,7 @@ def test_list_sheets_omits_leading_underscore_names():
     ctx = SimpleNamespace(
         doc=_sheets_doc("Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data")
     )
-    result = _tool("sheet_list").execute_safe(ctx)
+    result = calc_tool("sheet_list").execute_safe(ctx)
 
     assert result["status"] == "ok"
     assert result["result"] == [
@@ -76,7 +72,7 @@ def test_get_sheet_summary_rejects_leading_underscore_names():
         patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
     ):
         for hidden in ("_foo", "__Anonymous_Sheet_DB__0"):
-            result = _tool("get_sheet_summary").execute_safe(ctx, sheet=hidden)
+            result = calc_tool("get_sheet_summary").execute_safe(ctx, sheet=hidden)
             assert result["status"] == "error"
             assert hidden in result.get("message", "")
         analyzer_cls.return_value.get_sheet_summary.assert_not_called()
@@ -90,7 +86,7 @@ def test_get_sheet_summary_keeps_normal_names():
         patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
     ):
         analyzer_cls.return_value.get_sheet_summary.return_value = summary
-        result = _tool("get_sheet_summary").execute_safe(ctx, sheet="Sheet1")
+        result = calc_tool("get_sheet_summary").execute_safe(ctx, sheet="Sheet1")
 
     assert result["status"] == "ok"
     assert result["result"]["sheet_name"] == "Sheet1"
@@ -104,7 +100,7 @@ def test_get_sheet_summary_rejects_active_internal_sheet_with_invalid_param():
         patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
     ):
         analyzer_cls.return_value.get_sheet_summary.return_value = {"sheet_name": "__Anonymous_Sheet_DB__0"}
-        result = _tool("get_sheet_summary").execute_safe(ctx)
+        result = calc_tool("get_sheet_summary").execute_safe(ctx)
 
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAM"
@@ -113,7 +109,7 @@ def test_get_sheet_summary_rejects_active_internal_sheet_with_invalid_param():
 def test_create_sheet_inserts_at_end_and_reports_not_populated():
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
-    tool = _tool("sheet_create")
+    tool = calc_tool("sheet_create")
     ctx = SimpleNamespace(doc=MagicMock())
     sheets = MagicMock()
     sheets.getCount.return_value = 1
@@ -126,7 +122,7 @@ def test_create_sheet_inserts_at_end_and_reports_not_populated():
 
 
 def test_list_sheets_disposal_is_document_disposed():
-    tool = _tool("sheet_list")
+    tool = calc_tool("sheet_list")
     ctx = SimpleNamespace(doc=MagicMock())
     ctx.doc.getSheets.side_effect = DocumentDisposedError("gone")
     res = tool.execute_safe(ctx)
@@ -155,7 +151,7 @@ def _make_doc_with_sheets():
 def test_sheet_tool_missing_name_returns_uno_object_error(tool_name, kwargs, check_hint):
     doc, _ = _make_doc_with_sheets()
     ctx = SimpleNamespace(doc=doc)
-    res = _tool(tool_name).execute_safe(ctx, **kwargs)
+    res = calc_tool(tool_name).execute_safe(ctx, **kwargs)
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert "No sheet named 'NoSuchSheet'." in res["message"]
@@ -169,7 +165,7 @@ def test_sheet_tool_missing_name_returns_uno_object_error(tool_name, kwargs, che
 def test_rename_sheet_duplicate_new_name_returns_tool_error():
     doc, _ = _make_doc_with_sheets()
     ctx = SimpleNamespace(doc=doc)
-    res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Data")
+    res = calc_tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Data")
     assert res["status"] == "error"
     assert "already exists" in res["message"]
 
@@ -178,7 +174,7 @@ def test_create_sheet_validations():
     doc, sheets = _make_doc_with_sheets()
     sheets.getCount.return_value = 3
     ctx = SimpleNamespace(doc=doc)
-    tool = _tool("sheet_create")
+    tool = calc_tool("sheet_create")
 
     # Empty / whitespace
     res = tool.execute_safe(ctx, sheet="")
@@ -224,7 +220,7 @@ def test_create_sheet_success_payload_and_no_activation():
     doc.getCurrentController.return_value = controller
     ctx = SimpleNamespace(doc=doc)
 
-    res = _tool("sheet_create").execute_safe(ctx, sheet="Budget 2026")
+    res = calc_tool("sheet_create").execute_safe(ctx, sheet="Budget 2026")
     assert res["status"] == "ok"
     assert res["sheet"] == "Budget 2026"
     assert "Not activated" in res["message"]
@@ -243,7 +239,7 @@ def test_rename_sheet_set_name_noop_errors_and_does_not_migrate():
         "plugin.calc.sheets.migrate_sheet_rename"
     ) as migrate_mock:
         bridge_cls.return_value.get_sheet.return_value = sheet
-        res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Sheet Renamed")
+        res = calc_tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="Sheet Renamed")
         assert res["status"] == "error"
         assert "did not rename" in res["message"]
         migrate_mock.assert_not_called()
@@ -255,7 +251,7 @@ def test_rename_sheet_empty_name_error():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = sheet
-        res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="")
+        res = calc_tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="")
         assert res["status"] == "error"
         assert "cannot be empty" in res["message"]
 
@@ -270,7 +266,7 @@ def test_rename_sheet_case_only_rename_allowed():
         "plugin.calc.sheets.migrate_sheet_rename"
     ) as migrate_mock:
         bridge_cls.return_value.get_sheet.return_value = sheet
-        res = _tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="sheet1")
+        res = calc_tool("sheet_rename").execute_safe(ctx, old_name="Sheet1", new_name="sheet1")
         assert res["status"] == "ok"
         sheet.setName.assert_called_once_with("sheet1")
         migrate_mock.assert_called_once_with(doc, "Sheet1", "sheet1")
@@ -288,7 +284,7 @@ def test_delete_sheet_last_visible_sheet_guard():
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = sheet
-        res = _tool("sheet_delete").execute_safe(ctx, sheet="Sheet1")
+        res = calc_tool("sheet_delete").execute_safe(ctx, sheet="Sheet1")
         assert res["status"] == "error"
         assert "Cannot delete the only sheet" in res["message"]
         sheets.removeByName.assert_not_called()
@@ -303,13 +299,13 @@ def test_protect_sheet_already_in_target_state():
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.sheet_or_active.return_value = sheet
-        res = _tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=True)
+        res = calc_tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=True)
         assert res["status"] == "ok"
         assert "already protected" in res["message"]
         sheet.protect.assert_not_called()
 
         sheet.isProtected.return_value = False
-        res = _tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=False)
+        res = calc_tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=False)
         assert res["status"] == "ok"
         assert "already unprotected" in res["message"]
         sheet.unprotect.assert_not_called()
@@ -325,7 +321,7 @@ def test_protect_sheet_password_protected_unprotect():
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.sheet_or_active.return_value = sheet
-        res = _tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=False)
+        res = calc_tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=False)
         assert res["status"] == "error"
         assert "is password-protected" in res["message"]
 
@@ -340,7 +336,7 @@ def test_protect_sheet_state_not_changed_error():
 
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.sheet_or_active.return_value = sheet
-        res = _tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=True)
+        res = calc_tool("sheet_protect").execute_safe(ctx, sheet="Sheet1", protect=True)
         assert res["status"] == "error"
         assert "Failed to set sheet" in res["message"]
 
@@ -368,7 +364,7 @@ def test_sheet_copy_calls_copy_by_name_at_end():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        res = _tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Copy1")
+        res = calc_tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Copy1")
     assert res["status"] == "ok"
     sheets.copyByName.assert_called_once_with("Sheet1", "Copy1", 2)
 
@@ -378,12 +374,12 @@ def test_sheet_copy_position_and_name_validation():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        bad = _tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="_bad")
+        bad = calc_tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="_bad")
         assert bad["status"] == "error"
         assert "reserved" in bad["message"]
         sheets.copyByName.assert_not_called()
 
-        out = _tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Q2", position=99)
+        out = calc_tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Q2", position=99)
         assert out["status"] == "error"
         assert "out of range" in out["message"]
 
@@ -393,7 +389,7 @@ def test_sheet_move_calls_move_by_name():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        res = _tool("sheet_move").execute_safe(ctx, sheet="B", position=0)
+        res = calc_tool("sheet_move").execute_safe(ctx, sheet="B", position=0)
     assert res["status"] == "ok"
     sheets.moveByName.assert_called_once_with("B", 0)
 
@@ -403,7 +399,7 @@ def test_sheet_hide_last_visible_errors():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = sheets.getByName("Only")
-        res = _tool("sheet_hide").execute_safe(ctx, sheet="Only", visible=False)
+        res = calc_tool("sheet_hide").execute_safe(ctx, sheet="Only", visible=False)
     assert res["status"] == "error"
     assert "only visible" in res["message"]
 
@@ -425,7 +421,7 @@ def test_sheet_verbs_refuse_internal_sheet_with_one_sentence(tool_name, kwargs, 
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = hidden_sheet
-        res = _tool(tool_name).execute_safe(ctx, **kwargs)
+        res = calc_tool(tool_name).execute_safe(ctx, **kwargs)
     assert res == {
         "status": "error",
         "code": "INVALID_PARAM",
@@ -444,17 +440,17 @@ def test_insert_position_accepts_count_and_rejects_past_it():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        res_copy = _tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Q2", position=2)
+        res_copy = calc_tool("sheet_copy").execute_safe(ctx, source="Sheet1", new_name="Q2", position=2)
     assert res_copy["status"] == "ok"
     sheets.copyByName.assert_called_once_with("Sheet1", "Q2", 2)
 
     doc3, sheets3 = _doc_with_named_sheets("Sheet1", "Data", "Third")
     ctx3 = SimpleNamespace(doc=doc3)
-    res_create = _tool("sheet_create").execute_safe(ctx3, sheet="Fourth", position=3)
+    res_create = calc_tool("sheet_create").execute_safe(ctx3, sheet="Fourth", position=3)
     assert res_create["status"] == "ok"
     sheets3.insertNewByName.assert_called_once_with("Fourth", 3)
 
-    res_past = _tool("sheet_create").execute_safe(ctx3, sheet="Fifth", position=4)
+    res_past = calc_tool("sheet_create").execute_safe(ctx3, sheet="Fifth", position=4)
     assert res_past["status"] == "error"
     assert res_past["message"] == "Position 4 is out of range (0..3)."
 
@@ -464,7 +460,7 @@ def test_sheet_move_position_bound_is_count_minus_one():
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_sheet.return_value = MagicMock()
-        res = _tool("sheet_move").execute_safe(ctx, sheet="A", position=3)
+        res = calc_tool("sheet_move").execute_safe(ctx, sheet="A", position=3)
     assert res["status"] == "error"
     assert res["message"] == "Position 3 is out of range (0..2)."
     sheets.moveByName.assert_not_called()
@@ -480,7 +476,7 @@ def test_sheet_move_position_bound_is_count_minus_one():
     ],
 )
 def test_sheet_schema_rejects_wrong_types_before_execute(tool_name, kwargs):
-    tool = _tool(tool_name)
+    tool = calc_tool(tool_name)
     prep = prepare_tool_call(tool, SimpleNamespace(doc_type="calc"), tool_name, kwargs)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"

@@ -16,8 +16,6 @@ from plugin.scripting.sandbox import build_sandbox_policy
 
 
 def test_host_list_omits_workbook_init_script():
-    import pytest
-
     listed = host_list_named_python_scripts(
         user_scripts={"Mine": "a = 1"},
         document_scripts={"INIT": "b = 1", "Init": "c = 1", "Hello": "d = 1"},

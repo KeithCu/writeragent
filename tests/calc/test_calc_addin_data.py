@@ -67,7 +67,7 @@ def test_check_python_data_size_rejects_large():
     assert wire_cell_count(big) == 300_000
     err = check_python_data_size(big, max_cells=_schema_int("python_max_data_cells", "default", required=True))
     assert err is not None
-    assert "300000" in err or "300,000" in err.replace(",", "")
+    assert "300000" in err.replace(",", "")
 
 
 def test_check_python_data_size_ok():
@@ -332,7 +332,6 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
 
 def test_split_grid_logical_coercion_at_calc_ingress():
     """Verify that logical strings like "TRUE" and "FALSE" are coerced to bools during unwrap."""
-    from plugin.calc.calc_addin_data import _unwrap_cell
 
     # 1. Test unwrap cell directly
     assert _unwrap_cell("TRUE") is True
@@ -346,7 +345,6 @@ def test_split_grid_logical_coercion_at_calc_ingress():
 
 def test_unwrap_cell_comprehensive():
     """Verify unwrap_cell correctly normalizes standard types, formulas, and mocked UNO Any objects."""
-    from plugin.calc.calc_addin_data import _unwrap_cell
 
     # 1. Fast path exact types
     assert _unwrap_cell(1.0) == 1.0

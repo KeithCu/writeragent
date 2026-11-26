@@ -225,7 +225,7 @@ def test_refuse_catalog_sweep_without_models(monkeypatch, capsys) -> None:
 
 
 def test_generate_golds_passes_task_id_and_kind_prompt(monkeypatch, tmp_path) -> None:
-    """Draw/Calc golds used to run as Writer (no task_id, writer system prompt)."""
+    """Draw/Calc golds pass their task_id and get their own system prompt, not Writer's."""
     import llm_chat_eval
     from eval_prompts import get_eval_system_prompt
 

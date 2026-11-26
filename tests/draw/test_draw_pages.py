@@ -170,8 +170,6 @@ def test_bridge_duplicate_calls_doc_duplicate():
 
 
 def test_duplicate_slide_rejects_none_copy():
-    import pytest
-
     source = object()
     pages = MagicMock()
     pages.getCount.return_value = 2
@@ -222,8 +220,6 @@ def test_move_slide_failure():
 
 class _FakePages:
     def __init__(self, names: list[str]) -> None:
-        from types import SimpleNamespace
-
         self._pages = [SimpleNamespace(Name=name, getCount=lambda: 0) for name in names]
 
     def getCount(self) -> int:
@@ -349,8 +345,6 @@ def test_move_slide_reports_rollback_message():
 
 
 def test_add_slide_cleanup_reraises_dispose():
-    import pytest
-
     class DisposedException(Exception):
         pass
 
@@ -401,8 +395,6 @@ def test_set_active_page_delegates_and_is_not_a_mutation():
 
 
 def test_set_active_page_reraises_dispose():
-    import pytest
-
     class DisposedException(Exception):
         pass
 

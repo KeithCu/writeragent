@@ -401,7 +401,6 @@ def test_module_expression_still_cannot_cross():
 def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.MonkeyPatch) -> None:
     np = pytest.importorskip("numpy")
     import datetime
-    from plugin.scripting.venv import venv_sandbox as vs
 
     from plugin.scripting.venv import optional_import as oi
 
@@ -683,7 +682,6 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse(
 
 
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    import io
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
@@ -731,7 +729,6 @@ def test_harness_writes_execution_timeout_before_finalizing_thread_pool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Thread-pool fallback (Windows / non-main thread) must write EXECUTION_TIMEOUT before draining."""
-    import io
     import time
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
@@ -804,7 +801,6 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
     monkeypatch: pytest.MonkeyPatch,
     code: str,
 ) -> None:
-    import io
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
@@ -864,7 +860,6 @@ def test_harness_survives_worker_error_after_thread_pool_timeout(
 
 
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    import io
     import plugin.contrib.smolagents.local_python_executor as lpe
     from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     # compute_service/ is not in the OXT bundle that release_verify tests.
@@ -1102,13 +1097,10 @@ def test_sandbox_policy_shared_session_rebuild():
         assert r3["status"] == "error"
         assert "Import of socket is not allowed" in r3["message"]
     finally:
-        from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
         reset_sandbox_session(sid)
 
 
 def test_sandbox_policy_timeout_wins_over_subprocess():
-    import sys
-
     code_sub = f"""
 import subprocess
 subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
@@ -1122,8 +1114,6 @@ subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
 
 
 def test_extra_modules_override_blocklist() -> None:
-    from tests.scripting.sandbox_support import sandbox_run
-
     res = sandbox_run(
         "import socket\nresult = callable(socket.socket)",
         sandbox_policy={"extra_modules": "socket"},

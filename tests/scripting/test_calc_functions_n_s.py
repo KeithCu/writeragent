@@ -16,7 +16,6 @@ is not an error (text ignored, or a defined zero).
 from __future__ import annotations
 
 import math
-import struct
 
 import numpy as np
 import pytest
@@ -302,7 +301,7 @@ def test_rank_small_extract_numeric():
     assert math.isnan(calc.rank(float("nan"), [1, 2, 3]))
     na_rank = calc.rank(calc.na(), [1])
     assert isinstance(na_rank, float) and math.isnan(na_rank)
-    assert (struct.unpack("Q", struct.pack("d", na_rank))[0] & 0xFFFFFFFF) == 0x7FFF
+    assert nan_error_code(na_rank) == 0x7FFF
     assert math.isnan(calc.rank(1, []))
     assert math.isnan(calc.rank(1, ["a", "b"]))
     assert math.isnan(calc.rank(1, [float("nan")]))
@@ -386,7 +385,7 @@ def test_regex_occurrence_and_whole_match():
 
 
 def test_rept_length_cap_and_bad_count():
-    # Excel REPT allows 32767 characters. The old cap was 2**31 // 8.
+    # Excel REPT allows 32767 characters; one more is an error.
     assert len(calc.rept("a", 32767)) == 32767
     assert math.isnan(calc.rept("a", 32768))
     assert len(calc.rept("ab", 16383)) == 32766
@@ -532,8 +531,6 @@ def test_poisson_text_cumulative_flag():
 
 
 def test_npv_error_propagation_and_text_skip():
-    import struct
-
     assert calc.npv(0.1, "#N/A", "#DIV/0!") == "#N/A"
     assert calc.npv("#N/A", 100) == "#N/A"
     assert calc.npv("#DIV/0!", "#N/A") == "#DIV/0!"
@@ -544,7 +541,7 @@ def test_npv_error_propagation_and_text_skip():
     assert math.isclose(calc.npv(0.1, "12", 5), 5 / 1.1)
     for na_res in (calc.npv(0.1, 100, calc.na(), 100), calc.npv(calc.na(), 100)):
         assert isinstance(na_res, float) and math.isnan(na_res)
-        assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFF) == 0x7FFF
+        assert nan_error_code(na_res) == 0x7FFF
 
 
 def test_poisson_approx_floor():
@@ -596,7 +593,6 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
     # PERCENTRANK with huge significance returns quickly with NaN
     assert math.isnan(calc.percentrank([1, 2, 3], 2, 10**9))
     assert calc.percentrank([1, 2, 3], 2, 0.9999999999999999) == calc.percentrank([1, 2, 3], 2, 1)
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
     bad_sig = calc.percentrank([1, 2, 3], 2, 0.9)
     assert math.isnan(bad_sig) and nan_error_code(bad_sig) == 502
 
@@ -604,13 +600,11 @@ def test_oddfprice_basis_and_percentrank_huge_significance():
 def test_na_returns_err_na_payload():
     val = calc.na()
     assert math.isnan(val)
-    assert (struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFFFFFF) == 0x7FFF
+    assert nan_error_code(val) == 0x7FFF
     assert calc.isna(val) is True
 
 
 def test_negbinomdist_and_permut_approx_floor():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     for bad in (
         calc.negbinomdist(-0.5, 2, 0.5),
         calc.negbinomdist(0, 1, 0.5),
@@ -632,8 +626,6 @@ def test_negbinomdist_and_permut_approx_floor():
 
 
 def test_prob_compares_dimensions():
-    from plugin.scripting.venv.calc_functions_util import nan_error_code
-
     for bad in (
         calc.prob([[1, 2, 3]], [[0.2], [0.3], [0.5]], 1),
         calc.prob([[1, 2], [3, 4]], [[0.25, 0.25, 0.25, 0.25]], 1),
@@ -650,7 +642,7 @@ def test_sumsq_error_propagation():
     assert calc.sumsq([1, True]) == 2
     na_sq = calc.sumsq([calc.na()])
     assert isinstance(na_sq, float) and math.isnan(na_sq)
-    assert (struct.unpack("Q", struct.pack("d", na_sq))[0] & 0xFFFFFFFF) == 0x7FFF
+    assert nan_error_code(na_sq) == 0x7FFF
 
 
 def test_sumproduct_error_and_text_rules():

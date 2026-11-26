@@ -50,7 +50,7 @@ def test_role_from_label_priority_title_not_body():
 @pytest.mark.parametrize(
     "class_name, text, class_name_2, text_2, expected, expected_2",
     [
-        # A2: 'text' in 'titletextshape' used to return the title as body.
+        # 'text' is a substring of 'titletextshape'; a substring match would return the title as body.
         pytest.param("TitleTextShape", "Title", "OutlinerShape", "Body", 0, 1, id="test_body_does_not_match_title_text_shape"),
         pytest.param("OutlinerShape", "Body", "TitleTextShape", "Title", 1, 0, id="test_role_match_independent_of_shape_order"),
     ],

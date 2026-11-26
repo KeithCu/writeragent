@@ -715,7 +715,6 @@ def test_injected_query_folder_df_ignores_caller_scoped_dir(tmp_path, monkeypatc
 
 def test_sandboxed_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions):
     """A cell must not open another workbook's catalog by passing its session id."""
-    from plugin.scripting.venv.duckdb_sql import session_duckdb
     from tests.scripting.sandbox_support import sandbox_run
 
     other = "calc:file:///other-workbook"

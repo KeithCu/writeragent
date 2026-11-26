@@ -444,8 +444,6 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     assert handled is True
     mock_tool.assert_not_called()
     assert len(written) == 1
-    from plugin.framework.ipc import read_pickle_frame
-    import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
     assert resp["status"] == "error"
@@ -466,8 +464,6 @@ def test_handle_tool_call_frame_unpicklable_result():
         )
     assert handled is True
     assert len(written) == 1
-    from plugin.framework.ipc import read_pickle_frame
-    import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
     assert resp["status"] == "error"
@@ -514,8 +510,6 @@ def test_resolve_allowed_tools_indexes_and_exempt_domains():
 
 
 def test_handle_tool_call_frame_invalid_tool_name_type():
-    import io
-
     written: list[bytes] = []
     handled = handle_tool_call_frame(
         {"type": "tool_call", "id": "1", "tool": None},
@@ -638,7 +632,6 @@ def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
 
 
 def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
-    import io
     from plugin.framework.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
 
     first = True
@@ -667,7 +660,6 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
 
 
 def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
-    import pytest
     from plugin.framework.ipc import IpcPayloadSizeError
 
     def mock_pack(payload, **kwargs):
@@ -684,8 +676,6 @@ def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
 
 
 def test_handle_tool_call_frame_write_timeout_propagates():
-    import pytest
-
     def _timeout_write(_blob: bytes) -> None:
         raise RuntimeError("host RPC response timed out")
 

@@ -12,7 +12,7 @@ import pytest
 
 import plugin.scripting.calc_functions as calc
 from plugin.scripting.calc_range import CalcRange
-from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
 
 
 def test_address():
@@ -477,8 +477,6 @@ def test_a_c_approx_floor_counts_and_df():
 
 
 def test_aggregate_error_codes_and_count_modes():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
-
     assert calc.aggregate(9, 4, [1, "#DIV/0!", 3, "#N/A"]) == "#DIV/0!"
     assert calc.aggregate(4, 4, [1, "#DIV/0!", 3, "#N/A"]) == "#DIV/0!"
     res = calc.aggregate(9, 4, [1, DIV0_NAN, 3])
