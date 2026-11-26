@@ -772,3 +772,36 @@ def test_xhtml_to_semantic_html_drops_field_breaks_and_normalizes_following_nbsp
         '<span title="date">today</span> <span title="time">now</span>\xa0</p>'
     ) in out
     assert '<span>plain</span>\nkept' in out
+
+
+def test_drop_tracked_changes_keeps_body_markers_and_insertions():
+    from plugin.writer.xhtml_style_postprocess import drop_tracked_changes
+
+    fodt = (
+        "<office:document>"
+        "<office:automatic-styles>"
+        "<style:master-page><style:header>"
+        "<text:tracked-changes>"
+        '<text:changed-region text:id="ct0"><text:deletion><text:p>hdr gone</text:p></text:deletion></text:changed-region>'
+        "</text:tracked-changes>"
+        '<text:p><text:change text:change-id="ct0"/>hdr kept</text:p>'
+        "</style:header></style:master-page>"
+        "</office:automatic-styles>"
+        "<office:body><office:text>"
+        "<text:tracked-changes>"
+        '<text:changed-region text:id="ct1"><text:deletion><text:p>body gone</text:p></text:deletion></text:changed-region>'
+        '<text:changed-region text:id="ct2"><text:insertion/></text:changed-region>'
+        "</text:tracked-changes>"
+        '<text:p><text:change text:change-id="ct1"/>'
+        '<text:change-start text:change-id="ct2"/>added text<text:change-end text:change-id="ct2"/></text:p>'
+        "</office:text></office:body>"
+        "</office:document>"
+    )
+    out = drop_tracked_changes(fodt)
+    assert "<text:tracked-changes" not in out
+    assert "hdr gone" not in out
+    assert "body gone" not in out
+    assert "hdr kept" in out
+    assert '<text:change text:change-id="ct0"/>' in out
+    assert '<text:change text:change-id="ct1"/>' in out
+    assert '<text:change-start text:change-id="ct2"/>added text<text:change-end text:change-id="ct2"/>' in out

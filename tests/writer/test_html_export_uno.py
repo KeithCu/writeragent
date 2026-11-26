@@ -2439,3 +2439,58 @@ def test_outline_picture_link_and_text_outline_link_restore_uno(ctx, doc):
         assert _hrefs(range_html) == ["#1.Heading%20Target|outline", "#1.Heading%20Target|outline"], range_html
     finally:
         os.unlink(img_path)
+
+
+@native_test
+def test_shared_list_full_read_hides_tracked_deletions_uno(ctx):
+    """Shared-list XHTML fallback hides pending deletions and points at scope='range'."""
+    import os
+    import tempfile
+
+    import uno
+    from com.sun.star.beans import PropertyValue
+
+    from plugin.app import get_services
+    from plugin.framework.tool import ToolContext
+    from plugin.writer.get_document_content import GetDocumentContent
+    from tests.writer.redlined_contract_fixture import DELETED, INSERTED, build_redlined_contract
+
+    contract = build_redlined_contract(
+        articles=20,
+        sections=4,
+        clauses=7,
+        tables=2,
+        multi_every=40,
+        shared_list=True,
+    )
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "shared_list.fodt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(contract.xml)
+        url = uno.systemPathToFileUrl(path)
+        desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        hidden = PropertyValue()
+        hidden.Name, hidden.Value = "Hidden", True
+        doc = desktop.loadComponentFromURL(url, "_blank", 0, (hidden,))
+        assert doc is not None
+        try:
+            tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+            get_content = GetDocumentContent()
+
+            # Relies on odf2xhtml countListItem recursion hitting xsltMaxDepth on 560 shared-style items;
+            # if LibreOffice fixes that recursion, retarget this test to whatever triggers fallback.
+            full_res = get_content.execute(tool_ctx, scope="full", max_chars=500000)
+            assert full_res.get("status") == "ok", full_res
+            assert full_res.get("warning"), full_res
+            full_content = full_res.get("content") or ""
+            assert DELETED.strip() not in full_content
+            assert "whole struck clause" not in full_content
+            assert INSERTED.strip() in full_content
+            assert "Clause 1:" in full_content
+
+            range_res = get_content.execute(tool_ctx, scope="range", start=0, end=5000)
+            assert range_res.get("status") == "ok", range_res
+            assert not range_res.get("warning"), range_res
+            assert "data-lo-style" in (range_res.get("content") or "")
+        finally:
+            doc.close(True)
