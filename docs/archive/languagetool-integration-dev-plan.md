@@ -304,5 +304,3 @@ The queue dispatcher's `_run_grammar_check` will route checking requests sequent
 ### 4. Technical Advantages
 *   **Visual Consistency:** Since the LLM check is only invoked if the local engine is clean, sentences will never display overlapping or conflicting red lines from both engines simultaneously.
 *   **Cost/Token Efficiency:** Bypasses LLM API calls entirely for sentences containing simple typographical or grammatical mistakes (like misspelling a word), reserving LLM power for final-pass stylistic polish.
-
-

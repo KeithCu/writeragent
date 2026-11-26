@@ -157,5 +157,3 @@ As of June 2026, WriterAgent supports three offline, local linting engines as al
 *   **Wrapper:** Compiled Rust binary (`harper-cli`).
 *   **Key Strengths:** Sub-millisecond execution times, minimal memory consumption, zero dependencies (no Java or external runtime engines).
 *   **Setup:** Auto-downloads the native platform binary from GitHub releases.
-
-

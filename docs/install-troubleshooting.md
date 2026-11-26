@@ -102,4 +102,3 @@ If the file does not exist, the extension probably never started (wrong `.oxt`, 
 - Alternatively, open an issue on the [GitHub repository](https://github.com/KeithCu/writeragent/issues).
 
 Paste a **short snippet** of the log if you can. Do not attach API keys, full documents, or the entire log if it contains private text. Details: [bug-reporting.md](bug-reporting.md).
-
