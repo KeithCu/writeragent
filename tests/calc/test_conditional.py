@@ -213,10 +213,7 @@ def test_conditional_formatting_add_operator_path():
 
 def test_entry_to_dict():
     entry = MagicMock()
-    entry.queryInterface.return_value = None
-    op = MagicMock()
-    op.value = "GREATER"
-    entry.getOperator.return_value = op
+    entry.getConditionOperator.return_value = 3  # GREATER
     entry.getFormula1.return_value = "5"
     entry.getFormula2.return_value = "0"
     entry.getStyleName.return_value = "Result"
@@ -224,6 +221,7 @@ def test_entry_to_dict():
     d = _entry_to_dict(entry, 0)
     assert d == {
         "index": 0,
+        "operator_code": 3,
         "operator": "GREATER",
         "formula1": "5",
         "style": "Result",
@@ -231,10 +229,7 @@ def test_entry_to_dict():
 
     # BETWEEN keeps formula2 even when "0"
     entry_between = MagicMock()
-    entry_between.queryInterface.return_value = None
-    op_b = MagicMock()
-    op_b.value = "BETWEEN"
-    entry_between.getOperator.return_value = op_b
+    entry_between.getConditionOperator.return_value = 7  # BETWEEN
     entry_between.getFormula1.return_value = "-5"
     entry_between.getFormula2.return_value = "0"
     entry_between.getStyleName.return_value = "Result"

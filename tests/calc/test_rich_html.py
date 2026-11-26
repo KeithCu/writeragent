@@ -84,29 +84,6 @@ def test_insert_cell_html_rich_keeps_temp_writer_registered_as_scratch():
     assert scratch_writer.is_scratch_document(temp_doc) is True
 
 
-def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
-    """GHA 33699746211 had no step line: file-only log.info never reached Actions."""
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info/print stripped in release bundle")
-    from plugin.calc.rich_html import insert_cell_html_rich
-
-    calc_doc, cell, desktop, _temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
-    with (
-        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
-        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.html_import") as mock_fmt,
-    ):
-        mock_bridge = mock_bridge_cls.return_value
-        mock_bridge.get_cell_by_address.return_value = cell
-        mock_fmt.ensure_html_linebreaks.side_effect = lambda html: html
-        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
-    err = capsys.readouterr().err
-    assert "insert_cell_html_rich: load hidden Writer" in err
-    assert "insert_cell_html_rich: insert transferable" in err
-    assert "insert_cell_html_rich: release clipboard" in err
-
-
 def test_insert_cell_html_rich_error_names_the_last_step():
     from plugin.calc.rich_html import insert_cell_html_rich
 

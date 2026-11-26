@@ -26,26 +26,17 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
+from com.sun.star.awt import FontWeight
+from com.sun.star.awt.FontSlant import ITALIC, NONE
+from com.sun.star.document import EmptyUndoStackException
+from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
+from com.sun.star.table.CellHoriJustify import BLOCK, CENTER, LEFT, RIGHT, STANDARD
+from com.sun.star.util import MalformedNumberFormatException, NotNumericException
+
 if TYPE_CHECKING:
-    from com.sun.star.awt import FontWeight
-    from com.sun.star.awt.FontSlant import ITALIC, NONE
-    from com.sun.star.document import EmptyUndoStackException
-    from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
-    from com.sun.star.util import MalformedNumberFormatException, NotNumericException
     from plugin.calc.bridge import CalcBridge
     from plugin.calc.python.diagnostics import DiagnosticEntry
     from plugin.calc.python.formula_edit import PyFormula
-else:
-    try:
-        from com.sun.star.document import EmptyUndoStackException
-        from com.sun.star.util import MalformedNumberFormatException, NotNumericException
-        from com.sun.star.awt import FontWeight
-        from com.sun.star.awt.FontSlant import ITALIC, NONE
-        from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
-    except ImportError:
-        pass
 
 import uno
 

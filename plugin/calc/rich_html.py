@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 from plugin.doc.compound_undo import UndoStepOrRollback
@@ -80,14 +79,6 @@ def _take_hidden_writer(uno_ctx: Any) -> Any:
         raise ToolExecutionError("Could not create temporary Writer document")
     doc.getText().setString(_GUARD_TEXT)
     return doc
-
-
-def _step(name: str) -> str:
-    """log.info plus stderr flush so GHA names the last call on a hang; returns *name* for the error."""
-    msg = "insert_cell_html_rich: " + name
-    log.info(msg)
-    print(msg, file=sys.stderr, flush=True)
-    return name
 
 
 def _controller_get_transferable(controller: Any) -> Any:
@@ -154,14 +145,14 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     temp_doc = None
     transferable: Any = None
     try:
-        step = _step("load hidden Writer")
+        step = "load hidden Writer"
         temp_doc = _take_hidden_writer(uno_ctx)
 
         text = temp_doc.getText()
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        step = _step("insert HTML into hidden Writer")
+        step = "insert HTML into hidden Writer"
         html_import.insert_html_fragment_at_cursor(cursor, prepared, wrap=False, advance=True)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
@@ -173,7 +164,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         sel.goRight(len(_GUARD_TEXT) + 1, False)
         sel.gotoEnd(True)
         w_ctrl.select(sel)
-        step = _step("get transferable")
+        step = "get transferable"
         transferable = _controller_get_transferable(w_ctrl)
         # Do not read SystemClipboard before the paste. getContents() attaches
         # the Windows OLE clipboard thread and a later desktop enum can block.
@@ -185,15 +176,13 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             cell.getText().setString("")
 
             c_ctrl = doc.getCurrentController()
-            step = _step("select cell")
+            step = "select cell"
             c_ctrl.select(cell)
-            step = _step("insert transferable")
+            step = "insert transferable"
             ins = getattr(c_ctrl, "insertTransferable", None)
             if not callable(ins):
                 raise ToolExecutionError("Calc controller does not support insertTransferable.")
             ins(transferable)
-        # The clipboard must not keep this Writer's SwTransferable as owner after the paste.
-        step = _step("release clipboard")
     except ToolExecutionError:
         raise
     except Exception as e:

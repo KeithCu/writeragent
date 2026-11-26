@@ -20,9 +20,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 import uno
 from com.sun.star.awt import Point
+from com.sun.star.table.CellContentType import EMPTY, FORMULA, TEXT, VALUE
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
@@ -34,16 +35,6 @@ log = logging.getLogger(__name__)
 CELL_FLAG_DATETIME = 2  # com.sun.star.sheet.CellFlags.DATETIME
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 CELL_CONTENT_FLAGS = 23  # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16
-
-# Import CellContentType members from com.sun.star.table.CellContentType, not com.sun.star.table:
-# live PyUNO exposes enums as submodules; int fallbacks must still compare equal to uno.Enum from getType().
-try:
-    from com.sun.star.table.CellContentType import EMPTY, FORMULA, TEXT, VALUE
-except (ImportError, AttributeError):
-    EMPTY = cast("Any", 0)
-    VALUE = cast("Any", 1)
-    TEXT = cast("Any", 2)
-    FORMULA = cast("Any", 3)
 
 
 def range_args(raw: Any, *, exactly_one: bool = False) -> list[Any]:
@@ -102,10 +93,7 @@ def get_cell_geometry(sheet: Any, cell: Any) -> tuple[Any, Any]:
 
 def sheet_is_rtl(sheet: Any) -> bool:
     """True when sheet writing direction is right-to-left (TableLayout == 1)."""
-    try:
-        return int(sheet.TableLayout) == 1
-    except (AttributeError, TypeError, ValueError):
-        return False
+    return sheet.TableLayout == 1
 
 
 def selection_top_left_cell(controller: Any, sheet: Any) -> Any | None:
@@ -229,8 +217,7 @@ def resolve_document_locale(doc: Any) -> Any:
     """Return document CharLocale, or en-US when Language is empty or unreadable."""
     try:
         locale = doc.getPropertyValue("CharLocale")
-        language = getattr(locale, "Language", None) or ""
-        if language:
+        if locale.Language:
             return locale
     except Exception as e:
         if is_disposal(e):

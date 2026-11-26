@@ -535,7 +535,11 @@ setattr(awt, "Point", MockPoint)
 setattr(awt, "Rectangle", MockRectangle)
 setattr(awt, "Size", MockSize)
 setattr(awt, "FontWeight", MockBase)
-setattr(awt, "FontSlant", MockBase)
+font_slant = _create_mock_module("com.sun.star.awt.FontSlant")
+font_slant.NONE = 0
+font_slant.OBLIQUE = 1
+font_slant.ITALIC = 2
+setattr(awt, "FontSlant", font_slant)
 setattr(awt, "XMouseListener", MockBase)
 
 
@@ -577,6 +581,10 @@ setattr(sheet, "ConditionOperator", MockBase)
 setattr(sheet, "ConditionOperator2", MockBase)
 setattr(sheet, "FilterOperator2", MockBase)
 
+formula_result = _create_mock_module("com.sun.star.sheet.FormulaResult")
+formula_result.ERROR = 4
+setattr(sheet, "FormulaResult", formula_result)
+
 
 class MockCellFlags:
     FORMULA = 16
@@ -600,16 +608,24 @@ class MockCellAddress:
 
 
 setattr(table, "CellAddress", MockCellAddress)
+setattr(table, "BorderLineStyle", MockBase)
+setattr(table, "CellRangeAddress", MockBase)
+setattr(table, "TableSortField", MockBase)
 
+cell_content_type = _create_mock_module("com.sun.star.table.CellContentType")
+cell_content_type.EMPTY = 0
+cell_content_type.VALUE = 1
+cell_content_type.TEXT = 2
+cell_content_type.FORMULA = 3
+setattr(table, "CellContentType", cell_content_type)
 
-class MockCellContentType:
-    EMPTY = 0
-    VALUE = 1
-    TEXT = 2
-    FORMULA = 3
-
-
-setattr(table, "CellContentType", MockCellContentType)
+cell_hori_justify = _create_mock_module("com.sun.star.table.CellHoriJustify")
+cell_hori_justify.STANDARD = 0
+cell_hori_justify.LEFT = 1
+cell_hori_justify.CENTER = 2
+cell_hori_justify.RIGHT = 3
+cell_hori_justify.BLOCK = 4
+setattr(table, "CellHoriJustify", cell_hori_justify)
 
 lang = _create_mock_module("com.sun.star.lang")
 

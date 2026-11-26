@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Translate P1 Calc formulas to ``=PY()`` Python source via vendored AST."""
+"""Translate Calc formulas to ``=PY()`` Python source via vendored AST."""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
@@ -320,7 +320,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "SWITCH": _arity("SWITCH", 2, None, _emit_switch),
     "AND": _arity("AND", 1, None, lambda a: f"all([{', '.join(a)}])"),
     "OR": _arity("OR", 1, None, lambda a: f"any([{', '.join(a)}])"),
-    # Text (P2)
+    # Text
     "CONCATENATE": lambda a: f'"".join(calc.py_str(x) for x in [{", ".join(a)}])',
     "CONCAT": lambda a: f'"".join(calc.py_str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
     "LEFT": _calc("left", 1, 2),
@@ -336,28 +336,28 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "FIND": _arity("FIND", 2, 3, lambda a: f"np.float64(calc.py_str({a[1]}).find(calc.py_str({a[0]})) + 1)"),
     "SEARCH": _arity("SEARCH", 2, 3, lambda a: f"np.float64(calc.py_str({a[1]}).lower().find(calc.py_str({a[0]}).lower()) + 1)"),
     "VALUE": _exact("VALUE", 1, "np.asarray({0}, dtype=np.float64)"),
-    # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
+    # Date & Time — use auto-imported ``dt`` (datetime as dt)
     "TODAY": lambda _a: "np.float64(dt.date.today().toordinal() - 693594)",
     # Day 0 is 1899-12-30 and the fraction is the time of day, matching ScGetActTime.
     "NOW": lambda _a: "np.float64((dt.datetime.now() - dt.datetime(1899, 12, 30)) / dt.timedelta(days=1))",
     "YEAR": _exact("YEAR", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).year)"),
     "MONTH": _exact("MONTH", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).month)"),
     "DAY": _exact("DAY", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).day)"),
-    # Statistical (P2)
+    # Statistical
     "STDEV": _at_least_one("STDEV", "np.std({0}, ddof=1)"),
     "STDEVP": _at_least_one("STDEVP", "np.std({0}, ddof=0)"),
     "VAR": _at_least_one("VAR", "np.var({0}, ddof=1)"),
     "VARP": _at_least_one("VARP", "np.var({0}, ddof=0)"),
     "TRANSPOSE": _exact("TRANSPOSE", 1, "np.asarray({0}).T.tolist()"),
-    # Lookup & Reference (P2)
+    # Lookup & Reference
     "VLOOKUP": _calc("vlookup", 3, 4),
     "HLOOKUP": _calc("hlookup", 3, 4),
     "INDEX": _calc("index", 2, 3),
     "MATCH": _arity("MATCH", 2, 3, _emit_match),
-    # Logical (P2)
+    # Logical
     "IFERROR": _exact("IFERROR", 2, "calc.iferror(lambda: {0}, {1})"),
     "IFNA": _exact("IFNA", 2, "calc.ifna(lambda: {0}, {1})"),
-    # Math & Trig (P2)
+    # Math & Trig
     "ASIN": _exact("ASIN", 1, "np.arcsin({0})"),
     "ACOS": _exact("ACOS", 1, "np.arccos({0})"),
     "ATAN": _exact("ATAN", 1, "np.arctan({0})"),
@@ -391,7 +391,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "UNICODE": _calc("unicode", 1, 1),
     "BESSELI": _calc("besseli", 2, 2),
     "BESSELJ": _calc("besselj", 2, 2),
-    # Date & Time (P2)
+    # Date & Time
     "DATE": _calc("date", 3, 3),
     "HOUR": _exact("HOUR", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).hour)"),
     "MINUTE": _exact("MINUTE", 1, "np.float64((dt.datetime.fromordinal(693594) + dt.timedelta(days=np.float64({0}))).minute)"),
@@ -415,7 +415,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     # Date & Time (EOMONTH, NETWORKDAYS)
     "EOMONTH": _calc("eomonth", 2, 2),
     "NETWORKDAYS": _calc("networkdays", 2, 3),
-    # Tier A — high-frequency gaps
+    # Information, rounding and other common functions
     "SUBTOTAL": _arity("SUBTOTAL", 1, 2, lambda a: f"calc.subtotal({a[0]}, {a[1]})" if len(a) > 1 else f"calc.subtotal(9, {a[0]})"),
     "ISBLANK": _calc("isblank", 1, 1),
     "ISNUMBER": _calc("isnumber", 1, 1),
@@ -433,7 +433,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "EDATE": _calc("edate", 2, 2),
     "DATEDIF": _calc("datedif", 3, 3),
     "SUMPRODUCT": _calc("sumproduct", 1),
-    # Tier B — info, stats, text, misc
+    # Information, text and other functions
     "ISTEXT": _calc("istext", 1, 1),
     "ISLOGICAL": _calc("islogical", 1, 1),
     "ISERR": _calc("iserr", 1, 1),
@@ -456,7 +456,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "WEEKDAY": _calc("weekday", 1, 2),
     "WEEKNUM": _calc("weeknum", 1, 2),
     "WORKDAY": _calc("workday", 2, 3),
-    # Group B — Financial 2
+    # Financial
     "DOLLARDE": _calc("dollarde", 2, 2),
     "DOLLARFR": _calc("dollarfr", 2, 2),
     "DURATION": _calc("duration", 5, 6),
@@ -472,7 +472,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ODDFPRICE": _calc("oddfprice", 8, 9),
     "ODDFYIELD": _calc("oddfyield", 8, 9),
     "ODDLPRICE": _calc("oddlprice", 7, 8),
-    # Tier C — dynamic array helpers (LO 24.8+)
+    # Dynamic array helpers (LO 24.8+)
     "FILTER": _calc("filter", 2, 3),
     "SORT": _calc("sort", 1, 3),
     "UNIQUE": _calc("unique", 1, 3),
@@ -606,7 +606,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IMSUM": _calc("imsum", 1),
     "IMTAN": _calc("imtan", 1, 1),
     "IMTANH": _calc("imtanh", 1, 1),
-    # Group E
+    # Matrix and regression
     "LINEST": _calc("linest", 1, 4),
     "LOGEST": _calc("logest", 1, 4),
     "MDETERM": _calc("mdeterm", 1, 1),

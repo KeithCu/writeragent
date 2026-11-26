@@ -130,7 +130,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 | [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py) | Tools + UNO helpers + `_OPS` |
 | [`plugin/calc/base.py`](../../plugin/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Range resolution |
-| [`plugin/calc/specialized.py`](../../plugin/calc/specialized.py) | `delegate_to_subagent` |
+| [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py) | `delegate_to_subagent` (`DelegateToSubagent`) |
 | [`specialized-toolsets.md`](specialized-toolsets.md) | Delegation overview |
 | [`sheet-filter.md`](sheet-filter.md) | **Separate feature:** standard sheet filter / AutoFilter (`sheet_filter` domain) |
 ---

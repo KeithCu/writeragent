@@ -23,7 +23,7 @@ from typing import Any, TypeGuard
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
+from plugin.calc.calc_utils import FORMULA
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
 from plugin.calc.python.formula_edit import (
@@ -57,30 +57,16 @@ log = logging.getLogger(__name__)
 
 
 def _cell_formula_strings(cell: Any) -> list[str]:
-    """Collect formula strings LibreOffice may expose for the cell.
-
-    Non-formula cells can still return PY-looking getFormula() text; require FORMULA getType()
-    (or int stub 3). For untyped mocks, ignore strings that do not start with '=' or '{'.
-    """
-    content: bool | None = None
-    if hasattr(cell, "getType"):
-        kind = cell.getType()
-        # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
-        # stub/fallback FORMULA. Both checks are required.
-        if kind == FORMULA or kind == 3:
-            content = True
-        elif kind in (EMPTY, VALUE, TEXT) or isinstance(kind, int):
-            return []
+    """Collect formula strings LibreOffice exposes for a formula cell."""
+    if cell.getType() != FORMULA:
+        return []
     out: list[str] = []
     f = cell.getFormula()
     if f:
         out.append(f)
-    for prop in ("FormulaLocal", "Formula"):
-        val = uno_read(lambda: cell.getPropertyValue(prop), None)
-        if val and str(val) not in out:
-            out.append(str(val))
-    if content is None:
-        out = [s for s in out if s.lstrip().startswith(("=", "{"))]
+    local = uno_read(lambda: cell.getPropertyValue("FormulaLocal"), None)
+    if local and str(local) not in out:
+        out.append(str(local))
     return out
 
 

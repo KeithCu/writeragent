@@ -33,12 +33,7 @@ from plugin.calc.python.addin_values import published_err_code
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more
 
-try:
-    from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
-except ImportError:
-    from typing import cast
-
-    RESULT_ERROR = cast("Any", 4)
+from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
 
 log = logging.getLogger(__name__)
 

@@ -222,7 +222,7 @@ flowchart LR
 | `preserve.py` | Preserve constants, normalize existing PY cells under the preserve rule, enrich number formats, and write output |
 | `range_clip.py` | Clip whole-column/row PY data refs to a workbook sheet's used area |
 | `graph.py` | Dependency graph and circular-reference groups |
-| `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
+| `translate.py` | Translate Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
 | `vectorize.py` | Finds filled-down columns one shared `=PY()` can compute |
 | `emit.py` | Emit `=PY()` formulas and build converted output models |
 | `verify.py` | Verify converted cells against ingest snapshot oracles |

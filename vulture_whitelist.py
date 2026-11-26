@@ -136,7 +136,7 @@ _.DataSourceName  # attribute: plugin/writer/specialized/mail_merge.py:535
 _.DeepResearchSessionTool  # class: plugin/chatbot/deep_research_session.py:88
 _.DeepResearchWebTool  # class: plugin/chatbot/deep_research_session.py:55
 _.DelegateReadDocument  # class: plugin/doc/document_research_specialized.py:109
-_.DelegateToSpecializedCalc  # class: plugin/calc/specialized.py:31
+_.DelegateToSubagent  # class: plugin/doc/specialized_base.py:305
 _.DelegateToSpecializedDraw  # class: plugin/draw/specialized.py:31
 _.DelegateToSpecializedWriter  # class: plugin/writer/specialized_base.py:115
 _.DelegateToolDomains  # class: plugin/doc/python_domain_specialized.py:382

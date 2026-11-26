@@ -1064,7 +1064,6 @@ def prepare_auto_spill(
     formula_row = origin.row
     formula_col = origin.col
     sheet_name = origin.sheet_name
-    log.debug("Spill: checking formula cell at %r on sheet %r for code %r", (formula_row, formula_col), sheet_name, code)
 
     load_spill_registry_for_doc(doc, state)
 
@@ -1087,8 +1086,6 @@ def prepare_auto_spill(
         log.exception("Failed to register modify listener on sheet")
 
     delta = _used_end_delta(state, sheet, sheet_name)
-
-    log.debug("Spill: previous record for cell %r: %r", reg_key, previous_record)
 
     if _spill_is_blocked(
         doc, code, sheet, sheet_name, formula_row, formula_col, num_rows, num_cols, previous_record, delta
@@ -1146,7 +1143,7 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
     late to change the add-in return; on collision, the cell keeps its own value
     while ``prepare_auto_spill`` still schedules clearing old neighbor cells.
     """
-    log.debug("Spill: scheduling off-main deferred locate code=%r", code)
+    log.debug("Spill: scheduling off-main deferred locate")
     known_state = WorkbookState.known(doc)
     # If no WorkbookState exists yet (off-main eval before UI open/arm), the pending mark is
     # skipped; a scalar before _arm_on_ui runs has no state to dispatch on.
