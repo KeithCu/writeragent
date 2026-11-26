@@ -40,8 +40,7 @@ from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, available_miss_details, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_service_manager, uno_same
-from plugin.writer.edit_review import flag_tracked, flag_untracked
-from plugin.writer.html_import import run_writer_mutation_with_optional_review
+from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
 from plugin.writer.search import shape_is_as_character, shape_text_boxes
 from plugin.writer.specialized_base import ToolWriterShapeBase, grouped_text_box_error
 from plugin.writer.styles import para_adjust_to_uno
@@ -1508,9 +1507,9 @@ class DeleteShape(_AnyDocumentShapeTool):
         try:
             if picture:
                 tracked = bool(
-                    run_writer_mutation_with_optional_review(
+                    record_write(
                         ctx.doc, ctx.ctx, lambda: delete_graphic(ctx.ctx, ctx.doc, shape)
-                    )
+                    )[0]
                 )
             else:
                 if boxes:

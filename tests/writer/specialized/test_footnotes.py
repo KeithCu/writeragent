@@ -10,6 +10,7 @@ from plugin.writer.specialized.footnotes import (
 class FakeCtx:
     def __init__(self, doc):
         self.doc = doc
+        self.ctx = MagicMock()
         self.selection_pin = None
 
 def test_footnotes_insert():
