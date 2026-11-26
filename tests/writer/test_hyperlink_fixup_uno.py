@@ -1368,3 +1368,19 @@ def test_outline_hyperlink_in_and_after_content_control_uno(ctx, doc):
                 assert ("Overview", "#Intro|outline") in urls2, urls2
         finally:
             doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_dry_run_preview_url_matches_written_url_uno(ctx, doc):
+    for old_content, content in (("Old title", "Old &amp; new"), (" title", " New")):
+        text, cursor = _clear(doc)
+        _append_linked(text, cursor, "Old title", _OUTLINE)
+        preview = _apply(doc, ctx, old_content=old_content, content=content, dry_run=True)
+        assert preview.get("status") == "ok", (old_content, content, preview)
+        preview_url = preview["replaceable"][0]["hyperlinks"][0]["hyperlink_url_after"]
+        edit = _apply(doc, ctx, old_content=old_content, content=content)
+        assert edit.get("status") == "ok", (old_content, content, edit)
+        rows = _portion_urls(doc)
+        written_urls = {url for _chunk, url in rows if url}
+        assert written_urls == {preview_url}, (old_content, content, preview_url, rows)
