@@ -85,7 +85,6 @@ def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     return '<!DOCTYPE html>\n<html>\n<head>\n%s\n</head>\n<body>\n%s\n</body>\n</html>' % (head, html_content)
 
 
-
 def ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
@@ -113,7 +112,6 @@ def ensure_html_linebreaks(content: str) -> str:
     return _wrap_html_fragment("\n".join(out))
 
 
-
 def html_to_plain_text(html_string: str) -> str:
     """Convert HTML to plain search text matching LibreOffice paragraph structure.
 
@@ -130,7 +128,6 @@ def html_to_plain_text(html_string: str) -> str:
     return html_to_search_text(stripped).strip()
 
 
-
 def _parked_cursor(cursor: Any) -> Any:
     """A cursor parked at *cursor*'s end, in the same ``XText``.
 
@@ -143,7 +140,6 @@ def _parked_cursor(cursor: Any) -> Any:
     the imported content in any text.
     """
     return cursor.getText().createTextCursorByRange(cursor.getEnd())
-
 
 
 _LINK_TAG_RE = re.compile(r"<(/?)a(?=[\s/>])([^>]*)>", re.IGNORECASE)
@@ -329,7 +325,6 @@ def _place_formulas(
         insert_writer_math_formula(model, cursor, res.starmath, display_block=False)
         attempts.append(_math_attempt_entry(seg, snippet, ok=True))
     return attempts
-
 
 
 def _insert_start_anchor(text_obj: Any, cursor: Any) -> Any:
@@ -622,7 +617,6 @@ def _insert_mixed_or_plain_html(
     )
 
 
-
 def insert_html_at_cursor(
     model: Any,
     ctx: Any,
@@ -800,8 +794,6 @@ def _drop_empty_paragraph_before_table(text_obj: Any, import_start: Any) -> None
     first_para.dispose()
 
 
-
-
 def _uno_service_true(obj: Any, service: str) -> bool:
     """``supportsService`` is true only for sal_Bool True or integer 1."""
     val = uno_read(lambda: obj.supportsService(service), False)
@@ -856,7 +848,6 @@ def paragraph_has_non_text_portion(
         ignore_markers=ignore_markers,
         ignore_bookmarks=ignore_bookmarks,
     ) is not None
-
 
 
 def _cursor_paragraph_has_content(cursor: Any) -> bool:
@@ -1367,29 +1358,16 @@ def _resolve_selection_range(model: Any, selection: Any | None) -> tuple[Any, An
     return rng, rng_text, cursor
 
 
-def _prepare_block_range_replace(
-    rng: Any,
-    content: str,
-    *,
-    clear_target: Any,
-    author_deletion: bool = False,
+def _block_range_replace_flags(
+    rng: Any, content: str
 ) -> tuple[bool, bool, html_import_styles.StyleSkipCode | None]:
-    """Compute style/whole-paragraph flags for *rng* and clear partial ranges.
+    """Return ``(apply_styles, whole_paragraphs, note)`` for replacing *rng* with block *content*.
 
-    *clear_target* and *author_deletion* preserve existing caller differences:
-    ``replace_single_range_with_content`` clears through its cursor and authors
-    the deletion, whereas ``insert_content_at_position`` clears through *rng*
-    without authoring.
+    Read these before *rng* is cleared. When ``whole_paragraphs`` is False the caller empties
+    *rng* itself, through the range and deletion author it uses for its own deletions.
     """
     apply_styles, note = _lo_style_for_replaced_range(content, rng)
-    whole_paragraphs = _range_covers_whole_paragraphs(rng)
-    if not whole_paragraphs:
-        if author_deletion:
-            with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-                clear_target.setString("")
-        else:
-            clear_target.setString("")
-    return apply_styles, whole_paragraphs, note
+    return apply_styles, _range_covers_whole_paragraphs(rng), note
 
 
 def _import_block_range_replace(
@@ -1403,7 +1381,7 @@ def _import_block_range_replace(
     whole_paragraphs: bool,
     note: html_import_styles.StyleSkipCode | None,
 ) -> html_import_styles.WriteReport:
-    """Import block/mixed *content* into *rng* after ``_prepare_block_range_replace``."""
+    """Import block/mixed *content* into *rng* after ``_block_range_replace_flags`` and the caller's clear."""
     if whole_paragraphs:
         report = _replace_whole_paragraphs(model, ctx, rng, content, apply_styles=apply_styles)
     else:
@@ -1503,9 +1481,9 @@ def _insert_at_selection(
         return report
 
     # Whole-paragraph block selections go through _replace_whole_paragraphs.
-    apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
-        rng, content, clear_target=rng
-    )
+    apply_styles, whole_paragraphs, note = _block_range_replace_flags(rng, content)
+    if not whole_paragraphs:
+        rng.setString("")
     return _import_block_range_replace(
         model,
         ctx,
@@ -1562,7 +1540,6 @@ def insert_content_at_position(
         if position == "selection":
             return _insert_at_selection(model, ctx, prepared, selection, recording=recording)
         raise ToolExecutionError("Unknown position: %s" % position)
-
 
 
 def _deletion_author() -> Any:
@@ -1789,15 +1766,11 @@ def replace_single_range_with_content(
         # the block style.
         if inline_preserve:
             apply_styles, whole_paragraphs, note = False, False, None
+        else:
+            apply_styles, whole_paragraphs, note = _block_range_replace_flags(text_range, prepared)
+        if not whole_paragraphs:
             with _deletion_author():  # author the deletion distinctly (split by-author coloring)
                 cursor.setString("")
-        else:
-            apply_styles, whole_paragraphs, note = _prepare_block_range_replace(
-                text_range,
-                prepared,
-                clear_target=cursor,
-                author_deletion=True,
-            )
         try:
             return _import_block_range_replace(
                 model,
@@ -1824,8 +1797,6 @@ def replace_single_range_with_content(
                     code="TABLE_BLOCK_IN_CELL",
                 ) from e
             raise
-
-
 
 
 def _clear_region(model: Any, text_obj: Any) -> tuple[Any, Any]:
@@ -2045,7 +2016,6 @@ def plain_text_if_markup(text: str) -> str:
     return text
 
 
-
 def content_has_block_markup(content: str | None) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
@@ -2067,7 +2037,6 @@ def content_is_block(content: str | None) -> bool:
     return content_has_block_markup(content) or "\n" in (
         html_import_styles.expand_escapes(prose) if formulas else content
     )
-
 
 
 def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:

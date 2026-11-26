@@ -699,6 +699,11 @@ def apply_paragraph_style_preserving_direct_char(
             unreviewed_notes.append(
                 "The cleared direct font or character formatting is not a tracked change and cannot be rejected."
             )
+        # Rejecting a ParagraphFormat redline resets the list attributes and runs DelNumRules
+        # (lcl_RejectRedline, DocumentRedlineManager.cxx), so a list item comes back at the top
+        # level. The redline is still recorded: LibreOffice records nothing for a style change
+        # (SwDoc::SetTextFormatColl, docfmt.cxx, only under AutoFormat), so it is the user's only
+        # way to reject the new style. style_format_text skips such paragraphs instead.
         if any(state.numbered for state in states):
             unreviewed_notes.append("Rejecting the style change may not restore list levels or numbers.")
         if unrestorable:
@@ -2174,8 +2179,10 @@ class StyleFormatText(ToolWriterStyleBase):
             # After the character write: Reject All works backwards, and rejecting a Format redline
             # over a whole paragraph also drops the paragraph's direct formatting (SwDoc::ResetAttrs),
             # so the ParagraphFormat redline must be rejected last. Rejecting it on a list item or a
-            # heading drops the list level or numbering (DelNumRules in lcl_RejectRedline), so those
-            # get none.
+            # heading resets the list level (DelNumRules in lcl_RejectRedline), so those paragraphs
+            # get none: a direct property the user cannot reject costs less than a clause that loses
+            # its number. apply_style records them anyway, because there the redline is the only
+            # way to reject the style.
             recordable = [s for s in states if s.recorded or not s.numbered]
             recorded, failed, unrestorable = _record_paragraph_formats(recordable, para_author)
             complete = not failed and not incomplete and len(recordable) == len(states)
