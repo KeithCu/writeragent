@@ -247,3 +247,98 @@ def test_office_author(
     monkeypatch.setattr(review_authors, "_author_access", lambda _ctx: FakeAuthorAccess(store))
     monkeypatch.setattr(review_authors, "get_lo_locale", lambda _ctx: locale)
     assert review_authors.office_author(object()) == expected
+
+
+@pytest.mark.parametrize("stuck_author", [review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR])
+def test_restore_after_crash_puts_back_saved_name(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+    monkeypatch: pytest.MonkeyPatch,
+    stuck_author: str,
+) -> None:
+    store, _commits = fake_profile
+    ctx = object()
+
+    review_authors.begin(ctx)
+    if stuck_author == review_authors.DELETE_AUTHOR:
+        store["givenname"] = review_authors.DELETE_AUTHOR
+    monkeypatch.setattr(review_authors, "_state", threading.local())
+
+    review_authors.restore_author_after_crash(ctx)
+    assert store == {"givenname": "OriginalGiven", "sn": "OriginalSn"}
+
+
+def test_restore_after_crash_keeps_real_user_name(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+) -> None:
+    store, commits = fake_profile
+    ctx = object()
+
+    prior = review_authors.begin(ctx)
+    review_authors.end(ctx, prior)
+
+    store["givenname"] = "Alice"
+    store["sn"] = "Smith"
+    commits_before = len(commits)
+
+    review_authors.restore_author_after_crash(ctx)
+    assert len(commits) == commits_before
+    assert store == {"givenname": "Alice", "sn": "Smith"}
+
+
+@pytest.mark.parametrize("raw_content", [None, "{", '["x"]'])
+def test_restore_after_crash_without_usable_saved_name_leaves_profile(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+    raw_content: str | None,
+) -> None:
+    store, commits = fake_profile
+    ctx = object()
+    store["givenname"] = review_authors.INSERT_AUTHOR
+    store["sn"] = ""
+
+    if raw_content is not None:
+        path = review_authors._saved_author_path()
+        assert path is not None
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+
+    commits_before = len(commits)
+    review_authors.restore_author_after_crash(ctx)
+    assert len(commits) == commits_before
+    assert store == {"givenname": review_authors.INSERT_AUTHOR, "sn": ""}
+
+
+def test_nested_begin_keeps_saved_user_name(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, _commits = fake_profile
+    ctx = object()
+
+    review_authors.begin(ctx)
+    review_authors.begin(ctx)
+    monkeypatch.setattr(review_authors, "_state", threading.local())
+
+    review_authors.restore_author_after_crash(ctx)
+    assert store == {"givenname": "OriginalGiven", "sn": "OriginalSn"}
+
+
+def test_begin_swaps_when_saved_name_cannot_be_written(
+    clean_state: None,
+    fake_profile: tuple[dict[str, str], list[dict[str, str]]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, _commits = fake_profile
+    ctx = object()
+
+    def _failing_write(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("read-only profile")
+
+    monkeypatch.setattr(review_authors, "atomic_write_text", _failing_write)
+
+    prior = review_authors.begin(ctx)
+    assert prior == ("OriginalGiven", "OriginalSn")
+    assert store["givenname"] == review_authors.INSERT_AUTHOR

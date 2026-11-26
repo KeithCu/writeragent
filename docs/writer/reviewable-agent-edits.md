@@ -117,6 +117,12 @@ other path releases it, including a successful non-wait edit.
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
   by-author coloring renders new vs removed text in two distinct colors.
+* Crash recovery for the office author:
+  * The user's real name is saved to `<profile>/user/config/writeragent_office_author.json` before
+    the first swap, and whenever that name changes.
+  * At startup, WriterAgent writes it back if the profile name is still `WriterAgent` or
+    `WriterAgent (deletions)` with an empty surname.
+  * A profile stuck before this fix (no file) is left alone, with a warning in the log.
 * Format redlines recorded by `style_format_text` and character `apply_style` in record/wait mode
   when the document is recording during the call are authored `WriterAgent` so formatting the
   agent's own pending insertion folds into it and keeps it rejectable (`PreAppendFormatRedline` in
