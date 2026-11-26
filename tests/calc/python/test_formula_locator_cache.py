@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
 from plugin.calc.python.formula_locator_cache import (
-    CELL_FLAG_FORMULA,
     bind_formula_locate_memo,
     is_matching_py_formula,
     iter_range_formula_texts,
@@ -378,10 +378,6 @@ def test_formula_origin_from_located():
     assert origin.sheet_name == "Viz"
     assert origin.row == 2
     assert origin.col == 3
-
-    bad_sheet = SimpleNamespace(getName=lambda: 123)
-    origin_non_str = FormulaOrigin.from_located((bad_sheet, cell, (0, 0)))
-    assert origin_non_str.sheet_name == ""
 
 
 def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:

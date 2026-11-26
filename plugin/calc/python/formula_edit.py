@@ -509,14 +509,10 @@ def build_editor_formula_save(
     data_binding_text: str | None = None,
 ) -> str:
     """Build ``=PY("…")`` for formula-mode save."""
-    if data_binding_text is not None:
-        data_args = parse_data_binding_text(data_binding_text)
-        if parsed_parts is not None:
-            return parsed_parts.render(new_code, data_args=data_args)
-        return PyFormula.compose(new_code, data_args)
+    data_args = None if data_binding_text is None else parse_data_binding_text(data_binding_text)
     if parsed_parts is not None:
-        return parsed_parts.render(new_code)
-    return PyFormula.compose(new_code, [])
+        return parsed_parts.render(new_code, data_args=data_args)
+    return PyFormula.compose(new_code, data_args)
 
 
 def _python_parses(code: str) -> bool:

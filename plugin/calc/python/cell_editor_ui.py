@@ -132,9 +132,9 @@ class NativePythonCellEditorDialog:
         self._loading = True
         self._set_cell_addr()
         code_ctrl = self._ctrl("CodeEdit")
-        set_control_text(code_ctrl, initial_code or "")
+        set_control_text(code_ctrl, initial_code)
         set_control_text(self._ctrl("DataEdit"), editor.data_binding_display(self._parsed_parts))
-        plain = editor.editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
+        plain = editor.editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code, follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
         self._set_status(_("Ready"))
@@ -171,7 +171,7 @@ class NativePythonCellEditorDialog:
                 self._doc,
                 self._cell,
                 parsed_parts=self._parsed_parts,
-                new_code=str(get_control_text(self._ctrl("CodeEdit")) or ""),
+                new_code=get_control_text(self._ctrl("CodeEdit")),
                 save_as_plain=save_as_plain,
                 data_binding_text=data_text,
                 code_cell=self._code_cell,
@@ -182,13 +182,15 @@ class NativePythonCellEditorDialog:
                 return
             self._parsed_parts = editor.parts_after_save(self._parsed_parts, outcome, data_text)
             self._dirty = False
-            if isinstance(outcome.get("code"), str) or isinstance(outcome.get("data_binding"), str):
+            new_code_out = outcome.get("code")
+            new_binding_out = outcome.get("data_binding")
+            if isinstance(new_code_out, str) or isinstance(new_binding_out, str):
                 self._loading = True
                 try:
-                    if isinstance(outcome.get("code"), str):
-                        set_control_text(self._ctrl("CodeEdit"), outcome["code"])
-                    if isinstance(outcome.get("data_binding"), str):
-                        set_control_text(self._ctrl("DataEdit"), outcome["data_binding"])
+                    if isinstance(new_code_out, str):
+                        set_control_text(self._ctrl("CodeEdit"), new_code_out)
+                    if isinstance(new_binding_out, str):
+                        set_control_text(self._ctrl("DataEdit"), new_binding_out)
                 finally:
                     self._loading = False
             self._set_status(str(outcome.get("status_ok_text") or _("Saved.")))
@@ -232,7 +234,6 @@ class NativePythonCellEditorDialog:
             log.exception("NativePythonCellEditorDialog._open failed")
             self._open_failure_detail = exception_traceback(exc)
             self.close()
-            return
 
     def _wire_listeners(self, dlg: Any) -> None:
         owner = self

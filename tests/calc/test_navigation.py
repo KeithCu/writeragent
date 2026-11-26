@@ -349,7 +349,7 @@ def test_status_dispatch_disposing_keeps_mouse_listener():
 
     listener, dispatch = _attached_status_listener(MagicMock())
     listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "A1")))
-    listener.disposing(dispatch)
+    listener.disposing(SimpleNamespace(Source=dispatch))
     assert listener.caret_addr is None
     assert listener in _CELL_LINK_LISTENERS.values()
     listener.disposing(MagicMock())

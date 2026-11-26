@@ -19,13 +19,10 @@
 
 Provides built-in Calc function discovery and arbitrary formula pre-evaluation tools.
 
-> [!NOTE]
-> **EvaluateFormula Sheet-Copy Pattern**:
-> Unlike standard empty-worksheet insertion which fails to resolve relative or unqualified cell
-> references (e.g. `=A1+B1` evaluates to 0 on an empty sheet), `EvaluateFormula` uses a robust,
-> side-effect-free Sheet-Copy Pattern. It duplicates the active sheet to a temporary hidden sheet,
-> writes the formula at a bare cell coordinate on that copy (a sheet prefix is not followed, and a
-> defined name is rejected), and deletes the copied sheet in a `finally` block before returning.
+``EvaluateFormula`` copies the active sheet to a temporary sheet, writes the formula
+at a bare cell coordinate on the copy (a sheet prefix is not followed, and a defined
+name is rejected), reads the result, and removes the copy in a ``finally``. An empty
+scratch sheet would evaluate ``=A1+B1`` to 0.
 """
 
 from __future__ import annotations
@@ -33,6 +30,14 @@ from __future__ import annotations
 from plugin.framework.constants import now_aware
 import logging
 from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from com.sun.star.document import EmptyUndoStackException
+else:
+    try:
+        from com.sun.star.document import EmptyUndoStackException
+    except ImportError:
+        pass
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
@@ -67,25 +72,20 @@ class _EvaluationUndoGuard:
     def __enter__(self) -> _EvaluationUndoGuard:
         doc = self.doc
         self.was_modified = uno_read(lambda: bool(doc.isModified()), False)
-        if hasattr(doc, "getUndoManager"):
-            self.undo_mgr = doc.getUndoManager()
-        if self.undo_mgr:
-            self.was_possible = uno_read(lambda: bool(self.undo_mgr.isUndoPossible()), False)
-            if self.was_possible:
-                try:
-                    self.undo_mgr.enterHiddenUndoContext()
-                    self.hidden_context_entered = True
-                except Exception as e:
-                    if is_disposal(e):
-                        raise
-                    if "EmptyUndoStackException" not in type(e).__name__:
-                        raise
+        self.undo_mgr = doc.getUndoManager()
+        self.was_possible = uno_read(lambda: bool(self.undo_mgr.isUndoPossible()), False)
+        if self.was_possible:
+            try:
+                self.undo_mgr.enterHiddenUndoContext()
+                self.hidden_context_entered = True
+            except EmptyUndoStackException:
+                pass
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        if self.hidden_context_entered and self.undo_mgr:
+        if self.hidden_context_entered:
             quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
-        elif self.undo_mgr and not self.was_possible and self.sheet_removed:
+        elif not self.was_possible and self.sheet_removed:
             quiet_probe_cleanup(self.undo_mgr.clear, "clear")
 
         if self.sheet_removed and not self.was_modified:
@@ -202,13 +202,11 @@ class EvaluateFormula(ToolCalcErrorBase):
 
         sheets = doc.getSheets()
 
-        # Resolve the active sheet to copy from
         active_sheet = CalcBridge(doc).get_active_sheet()
         active_name = active_sheet.getName()
         ref_pos = make_cell_address(active_sheet.getRangeAddress().Sheet, col, row)
         formula_string = to_api(doc, formula_string, ref_pos)
 
-        # Ensure name uniqueness
         counter = 0
         while True:
             temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_{counter}__"
@@ -217,7 +215,6 @@ class EvaluateFormula(ToolCalcErrorBase):
             counter += 1
 
         with _EvaluationUndoGuard(doc) as undo_guard:
-            # Copy active sheet with all its data
             sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
             cleanup_msg = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
             try:
@@ -250,13 +247,13 @@ class EvaluateFormula(ToolCalcErrorBase):
             cell = sheet.getCellByPosition(col, row)
         except Exception as e:
             reraise_if_disposed(e)
-            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}", code="INVALID_PARAM")
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}", code="INVALID_PARAM")
 
         try:
             cell.setFormula(formula_string)
         except Exception as e:
             reraise_if_disposed(e)
-            return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
+            return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {e}")
 
         error_code = cell.Error
         if error_code != 0:

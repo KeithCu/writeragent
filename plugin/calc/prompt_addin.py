@@ -12,7 +12,7 @@ import sys
 # --- Minimal stdlib-only bootstrap (MUST be before any "from plugin..." import) ---
 # unopkg writeRegistryInfo loads this file before the extension root is on sys.path.
 _this = os.path.abspath(__file__)
-for __ in range(3):  # plugin/calc/prompt_addin.py → plugin/calc/ → plugin/ → extension root
+for _idx in range(3):  # plugin/calc/prompt_addin.py → plugin/calc/ → plugin/ → extension root
     _this = os.path.dirname(_this)
 if _this not in sys.path:
     sys.path.insert(0, _this)

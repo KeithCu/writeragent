@@ -59,7 +59,7 @@ CONV_OOO = 0  # com.sun.star.sheet.AddressConvention.OOO
 CONV_XL_A1 = 1  # com.sun.star.sheet.AddressConvention.XL_A1
 GROUP_SPECIAL = 0  # com.sun.star.sheet.FormulaMapGroup.SPECIAL
 GROUP_ARRAY_SEPARATORS = 2  # com.sun.star.sheet.FormulaMapGroup.ARRAY_SEPARATORS
-GROUP_ALL = 0x7FFFFFFF  # com.sun.star.sheet.FormulaMapGroup.ALL_EXCEPT_SPECIAL
+GROUP_ALL_EXCEPT_SPECIAL = 0x7FFFFFFF  # com.sun.star.sheet.FormulaMapGroup.ALL_EXCEPT_SPECIAL
 SPECIAL_BAD = 7  # com.sun.star.sheet.FormulaMapGroupSpecialOffset.BAD
 _SHEET_RELATIVE = 16  # com.sun.star.sheet.ReferenceFlags.SHEET_RELATIVE
 
@@ -99,11 +99,7 @@ def accepted(
 
 def make_cell_address(sheet: int = 0, column: int = 0, row: int = 0) -> Any:
     """Create a ``com.sun.star.table.CellAddress`` UNO struct."""
-    addr: Any = uno.createUnoStruct("com.sun.star.table.CellAddress")
-    setattr(addr, "Sheet", sheet)
-    setattr(addr, "Column", column)
-    setattr(addr, "Row", row)
-    return addr
+    return uno.createUnoStruct("com.sun.star.table.CellAddress", Sheet=sheet, Column=column, Row=row)
 
 
 class FormulaDialects:
@@ -133,8 +129,8 @@ class FormulaDialects:
         self._array_open = seps.get("{")
         self._array_seps = frozenset(v for k, v in seps.items() if k in (";", ","))
 
-        api_map = mapper.getAvailableMappings(API_LANGUAGE, GROUP_ALL)
-        xl_map = mapper.getAvailableMappings(XL_ENGLISH, GROUP_ALL)
+        api_map = mapper.getAvailableMappings(API_LANGUAGE, GROUP_ALL_EXCEPT_SPECIAL)
+        xl_map = mapper.getAvailableMappings(XL_ENGLISH, GROUP_ALL_EXCEPT_SPECIAL)
         self._api = self._make_parser(self._doc, CONV_OOO, api_map)
         self._excel = self._make_parser(self._doc, CONV_XL_A1, xl_map)
         self._excel_refs = self._make_parser(self._doc, CONV_XL_A1, None)

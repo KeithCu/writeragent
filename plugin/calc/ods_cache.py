@@ -112,7 +112,7 @@ def lookup_cached_ods(source_path: str) -> Path | None:
     entry = cache_entry(source_path)
     if entry is None:
         return None
-    if not entry.ods.is_file() or not entry.meta.is_file():
+    if not entry.ods.is_file():
         return None
     meta = read_sidecar_meta(entry.meta)
     if meta is None:

@@ -47,8 +47,6 @@ def verify_converted_cells(
     """Compare converted cell values against the source ingest oracle."""
     failed: list[VerifyMismatch] = []
     for addr in report.converted:
-        if addr not in source.cells:
-            continue
         oc = output.cells.get(addr)
         if oc is None or not oc.formula or not is_py_formula_text(oc.formula):
             failed.append(
@@ -59,8 +57,6 @@ def verify_converted_cells(
                     message="missing PY formula",
                 )
             )
-            continue
-        if addr not in actual_values:
             continue
         expected = source.cells[addr].value
         actual = actual_values[addr]

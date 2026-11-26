@@ -9,7 +9,7 @@
 """LibreOffice ``FilterOperator2`` labels and sheet-filter criterion parsing (no UNO import at top level).
 
 Pure JSON → UNO-field parsing for Calc standard filter (``TableFilterField2``),
-plus stable ``FilterOperator2`` code labels (no UNO import at module level).
+plus stable ``FilterOperator2`` code labels.
 Colocated with ``sheet_filter.py`` in this package.
 """
 
@@ -156,7 +156,7 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     if not op_name:
         raise ToolExecutionError("Each criterion needs 'operator' (FilterOperator2 name).", code="INVALID_PARAM")
     op_code = resolve_filter_operator_code(op_name)
-    op_label = _normalize_operator_name(op_name)
+    op_label = FILTER_OPERATOR2_LABELS[op_code]
     conn = filter_connection_code(
         None if (is_first or raw.get("connection") is None) else str(raw["connection"])
     )

@@ -323,6 +323,7 @@ try:
     _mock_uno.systemPathToFileUrl = MagicMock(side_effect=pyuno.systemPathToFileUrl)
 except Exception:
     _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=_file_url_to_system_path_without_pyuno)
+_mock_uno.createUnoStruct = MagicMock(side_effect=lambda _name, *a, **kw: types.SimpleNamespace(**kw))
 sys.modules["uno"] = _mock_uno
 
 
@@ -659,6 +660,7 @@ _uno_exception(lang, "IllegalArgumentException", _UnoRuntimeException, ArgumentP
 _uno_exception(lang, "IndexOutOfBoundsException", _UnoException)
 _uno_exception(container, "NoSuchElementException", _UnoException)
 _uno_exception(util, "MalformedNumberFormatException", _UnoException, CheckPos=0)
+_uno_exception(util, "NotNumericException", _UnoException)
 
 class MockXSidebarPanel: pass
 class MockXToolPanel: pass
@@ -745,6 +747,7 @@ setattr(frame, "XTerminateListener", MockBase)
 
 # Shared UNO mock modules loaded once for the session.
 document = _create_mock_module("com.sun.star.document")
+_uno_exception(document, "EmptyUndoStackException", _UnoException)
 setattr(document, "ChangedByOthersRequest", MockChangedByOthersRequest)
 setattr(document, "LockedOnSavingRequest", MockLockedOnSavingRequest)
 setattr(document, "OwnLockOnDocumentRequest", MockOwnLockOnDocumentRequest)

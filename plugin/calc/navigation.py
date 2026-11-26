@@ -18,6 +18,7 @@ import uno
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import query_interface, resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
+from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseMouseListener, BaseStatusListener
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class CellLinkSpanRegistry:
             try:
                 self._refs[key] = weakref.ref(control, _on_gc)
             except TypeError:
+                # A control that cannot be weak-referenced keeps its spans until clear.
                 pass
         self._spans.setdefault(key, []).append((start, end, address))
 
@@ -110,7 +112,7 @@ def _normalize_a1(a1: str) -> tuple[int, int] | None:
 
 def normalize_cell_address(raw: str) -> str | None:
     """Return a canonical cell or range address (``Sheet1.B2``, ``B2``, ``Sheet1.A1:B5``) or *None*."""
-    text = (raw or "").strip()
+    text = raw.strip()
     for prefix in ("cell://", WRITERAGENT_CELL_URL_PREFIX):
         if text.lower().startswith(prefix):
             # Writer's HTML import percent-encodes link targets (SwHTMLParser::NewAnchor,
@@ -296,8 +298,7 @@ def _add_caret_font_status_listener(control: Any, listener: Any) -> Any | None:
     if peer is None or not hasattr(peer, "queryDispatch"):
         return None
     # ORichTextPeer::queryDispatch matches on URL.Complete only.
-    url = uno.createUnoStruct("com.sun.star.util.URL")
-    setattr(url, "Complete", _CELL_LINK_STATUS_URL)
+    url = uno.createUnoStruct("com.sun.star.util.URL", Complete=_CELL_LINK_STATUS_URL)
     dispatch = peer.queryDispatch(url, "", 0)
     if dispatch is None:
         return None
@@ -331,7 +332,7 @@ def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any 
             self.status_dispatch: Any = None
 
         def disposing(self, Source: Any) -> None:
-            if self.status_dispatch is not None and Source == self.status_dispatch:
+            if self.status_dispatch is not None and uno_same(Source.Source, self.status_dispatch):
                 self.status_dispatch = None
                 self.caret_addr = None
                 return

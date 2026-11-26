@@ -51,25 +51,15 @@ def _data_value_schema(description: str) -> dict[str, Any]:
     return {"type": "array", "items": {"type": "array", "items": {}}, "description": description}
 
 
-_IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
-
-
-def _with_import_note(text: str) -> str:
-    """Insert the sandbox import policy when the tool schema is built."""
-    note = python_venv_auto_imports_note()
-    if _IMPORT_NOTE_MARKER in text:
-        return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
-    return text
-
-
 def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, Any]]:
     """Build the description and JSON parameter schema for the given document type."""
+    note = python_venv_auto_imports_note()
     props: dict[str, Any] = {"code": dict(_CODE_PROP)}
     if doc_type == "calc":
         props["data_range"] = dict(_DATA_RANGE_SCHEMA)
         props["data"] = _data_value_schema("Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).")
         base_desc = (
-            f"Run Python code. {_RESULT_NOTE} "
+            f"Run Python code. {_RESULT_NOTE} {note}"
             "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
             "`data` / `ranges` (one address → `data` is that CalcRange; several → `data` is the `ranges` list). "
             "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
@@ -79,20 +69,19 @@ def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, A
         props["data_range"] = {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION}
         props["data"] = _data_value_schema("(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).")
         base_desc = (
-            f"Run Python code in the configured venv. {_RESULT_NOTE} "
+            f"Run Python code in the configured venv. {_RESULT_NOTE} {note}"
             "In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
             "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
         )
     else:
         where = "slide/page" if doc_type in ("draw", "impress") else "file"
         base_desc = (
-            f"Run Python code in the configured venv. {_RESULT_NOTE} "
+            f"Run Python code in the configured venv. {_RESULT_NOTE} {note}"
             f"Use document tools to read or change the {where}; this tool does not inject spreadsheet `data`."
         )
 
     hint = format_matplotlib_plot_hint(doc_type=doc_type)
-    text = f"{base_desc} {hint}" if hint else base_desc
-    desc = _with_import_note(text)
+    desc = f"{base_desc} {hint}" if hint else base_desc
     params = {"type": "object", "properties": props, "required": ["code"]}
     return desc, params
 
@@ -145,9 +134,9 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
     failures: list[Exception] = []
     for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
         try:
-            # Pass ctx.doc: without doc= egress uses getCurrentComponent (the front
-            # window). Report inserted only after the main-thread call returns; a
-            # silent return is not success.
+            # Pass ctx.doc: egress raises ImageEgressError without a document. main.call returns
+            # only after the main-thread insert finished, so a path is reported as inserted only
+            # when the shape is on the sheet.
             main.call(insert_image_result_on_sheet, img, doc=ctx.doc, image_index=i, image_path=path, image_count=len(images))
         except Exception as exc:
             log.warning("insert_plots_and_report: plot insert failed: %s", exc)
@@ -206,7 +195,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         # fresh namespace. With no session id, host tool RPC uses
         # get_active_document and wa.draw / wa.shape bind to the front window.
         script_session_id = pin_script_document(ctx.doc)
-        scope = ctx.send_cancellation
 
         try:
             res = run_code_in_user_venv(
@@ -214,7 +202,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
-                cancel=scope,
+                cancel=ctx.send_cancellation,
             )
         finally:
             release_script_document(script_session_id)

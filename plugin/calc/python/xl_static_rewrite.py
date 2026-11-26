@@ -3,8 +3,7 @@
 
 Gated by ``scripting.xl_static_rewrite`` (Settings → Python → Rewrite xl() ranges, default off;
 applied by ``editor.apply_cell_save`` for formula and ``=PY($A$1)`` follow saves). No live sheet
-reads —
-ranges become normal formula precedents; call sites become ``data`` (one binding) or
+reads — ranges become normal formula precedents; call sites become ``data`` (one binding) or
 ``data[i]`` (two or more). On the one-to-many transition only, prior sugar-shaped bare
 ``data`` uses are migrated to ``data[0]`` (skipped when the script binds or imports ``data``).
 """
@@ -14,7 +13,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -40,7 +39,7 @@ class _XlLiteralCall:
     end: int
     address: str
     key: str
-    header_mode: str  # "omit" | "true" | "false"
+    header_mode: Literal["omit", "true", "false"]
 
 
 @dataclass
@@ -53,8 +52,8 @@ class XlStaticRewriteResult:
     changed: bool
 
 
-def _header_mode_from_call(node: ast.Call) -> str:
-    mode = "omit"
+def _header_mode_from_call(node: ast.Call) -> Literal["omit", "true", "false", "bad"]:
+    mode: Literal["omit", "true", "false"] = "omit"
     for kw in node.keywords:
         if kw.arg != "headers":
             return "bad"
@@ -65,7 +64,7 @@ def _header_mode_from_call(node: ast.Call) -> str:
 
 
 def _address_key(ref: str) -> str | None:
-    sheet, a1 = split_sheet_prefix((ref or "").strip())
+    sheet, a1 = split_sheet_prefix(ref.strip())
     parts = a1.split(":")
     if len(parts) > 2 or not all(is_cell_token(p) for p in parts):
         return None
@@ -135,7 +134,7 @@ def iter_xl_calls(
 def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str], list[tuple[int, int]]]:
     """Locate direct ``xl("A1…")`` calls; report dynamic / invalid forms as issues."""
     issues: list[str] = []
-    src = code or ""
+    src = code
     try:
         tree = ast.parse(src)
     except SyntaxError as exc:
@@ -198,7 +197,7 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     """
     # ast.parse + A1 regex hang under deep check even at DEAL_MAX_SOURCE.
     # crosshair: off
-    existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
+    existing = [a.strip() for a in (existing_data_args or []) if a and a.strip()]
     calls, issues, bare_spans = _find_static_xl_literals(code)
     if issues or not calls:
         return XlStaticRewriteResult(code=code, data_args=list(existing), issues=issues, changed=False)

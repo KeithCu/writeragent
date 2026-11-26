@@ -630,8 +630,8 @@ def test_onnew_records_geometric_session_inline_on_uno_thread():
         open_geo.assert_called_once_with(ctx, doc)
 
 
-def test_oncreate_without_resolvable_doc_still_runs_geometric_open():
-    """Leftover OnCreate Source is often the Writer keeper — the open hook still runs."""
+def test_oncreate_without_resolvable_doc_skips_geometric_open():
+    """OnCreate with no resolvable document returns before posting the open job."""
     ctx = MagicMock()
     listener = _installed(ctx)
 
@@ -650,7 +650,7 @@ def test_oncreate_without_resolvable_doc_still_runs_geometric_open():
         listener.on_document_event(_CreateEvent())
         convert.assert_not_called()
         marshal.assert_not_called()
-        open_geo.assert_called_once_with(ctx, None)
+        open_geo.assert_not_called()
 
 
 def test_geometric_open_job_wires_unload_listener():

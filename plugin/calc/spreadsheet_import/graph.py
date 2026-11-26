@@ -17,9 +17,9 @@ if TYPE_CHECKING:
 def build_dependency_graph(model: SheetModel) -> dict[str, list[str]]:
     """Map each formula-like cell to in-scope precedent addresses it depends on."""
     graph: dict[str, list[str]] = {}
-    for addr in sorted(addr for addr, cell in model.cells.items() if cell.type in FORMULA_LIKE_TYPES):
-        cell = model.cells[addr]
-        graph[addr] = [p for p in cell.precedents if p in model.cells and model.cells[p].type != "empty"]
+    for addr, cell in sorted(model.cells.items()):
+        if cell.type in FORMULA_LIKE_TYPES:
+            graph[addr] = [p for p in cell.precedents if p in model.cells and model.cells[p].type != "empty"]
     return graph
 
 
@@ -32,7 +32,7 @@ def find_circular_groups(graph: dict[str, list[str]]) -> list[list[str]]:
     return [
         group
         for group in _strongly_connected_groups(graph)
-        if len(group) > 1 or group[0] in graph.get(group[0], ())
+        if len(group) > 1 or group[0] in graph[group[0]]
     ]
 
 
@@ -55,7 +55,7 @@ def _strongly_connected_groups(graph: dict[str, list[str]]) -> list[list[str]]:
         scc_stack.append(node)
         on_stack.add(node)
         # A precedent can sit on the sheet without being a formula-graph node.
-        return iter(sorted({p for p in graph.get(node, ()) if p in graph}))
+        return iter(sorted({p for p in graph[node] if p in graph}))
 
     for root in sorted(graph):
         if root in index:

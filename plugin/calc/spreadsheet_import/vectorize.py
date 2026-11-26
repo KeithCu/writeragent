@@ -145,7 +145,7 @@ def detect_vectorized_columns(
     def _flush() -> None:
         if len(current_cells) >= 2 and current_key is not None:
             _col, code, ref_col, _row_offset = current_key
-            # CalcRange has __array__ but no arithmetic operators (calc_range.py:242).
+            # CalcRange has __array__ but no arithmetic operators (CalcRange.__array__, plugin/scripting/calc_range.py).
             # Multi-arg =PY() passes all arguments in data[], so index data[0] (the column range)
             # by int(data[1]) (the 0-based row offset). The element-wise gate has already rejected
             # string constants, so this only touches the name `data`.
