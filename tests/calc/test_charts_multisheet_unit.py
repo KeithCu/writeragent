@@ -936,7 +936,7 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
         with pytest.raises(ToolExecutionError) as ei1:
             SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
         assert ei1.value.code == "INVALID_PARAM"
-        assert "Reference names sheet" in ei1.value.message
+        assert "Position names sheet" in ei1.value.message
         charts.addNewByName.assert_not_called()
 
         # 2. Invalid position address (range or unparseable)

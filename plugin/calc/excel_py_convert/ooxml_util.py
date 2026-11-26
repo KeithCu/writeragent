@@ -94,6 +94,7 @@ def cell_string_value(c: ET.Element, shared: list[str]) -> str:
     # t is already lowercased. Compare to "inlinestr", or an inline-string
     # bank cell never matches "inlineStr".
     t = (c.attrib.get("t") or "").lower()
+    # Some writers omit t="inlineStr" on <c><is><t>...</t></is></c> cells; read <is> whenever t is absent or inlineStr.
     is_el = find_child(c, "is") if t in ("", "inlinestr") else None
     if is_el is not None:
         return "".join(el.text for el in is_el.iter() if local_name(el.tag) == "t" and el.text)

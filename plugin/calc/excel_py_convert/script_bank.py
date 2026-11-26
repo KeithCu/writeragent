@@ -260,7 +260,7 @@ def is_py_code_bank_sheet(
         return False
     for c in find_all(ws_root, "c"):
         if (c.attrib.get("r") or "").replace("$", "").upper() == CODE_SHEET_NOTE_CELL:
-            if cell_string_value(c, shared_strings) == CODE_SHEET_NOTE:
+            if cell_string_value(c, shared_strings).strip() == CODE_SHEET_NOTE:
                 return True
     return False
 

@@ -39,7 +39,7 @@ from plugin.doc.visual_helpers import color_param, parse_color_to_uno_int
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_and_name
+from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_and_name, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
@@ -120,12 +120,13 @@ def _normalize_clsid_value(clsid: Any) -> str:
     return str(clsid)
 
 
+def _clsid_key(clsid: Any) -> str:
+    return _normalize_clsid_value(clsid).strip().lower().strip("{}")
+
+
 def is_chart_clsid(clsid: Any) -> bool:
-    s = _normalize_clsid_value(clsid).strip()
-    if not s:
-        return False
-    c = s.lower().strip("{}")
-    return c in RECOGNIZED_CHART_CLSIDS
+    key = _clsid_key(clsid)
+    return bool(key) and key in RECOGNIZED_CHART_CLSIDS
 
 
 def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
@@ -139,9 +140,9 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
             raise
         raw = None
 
-    normalized = _normalize_clsid_value(raw).strip()
-    if normalized:
-        return normalized.lower().strip("{}") in RECOGNIZED_CHART_CLSIDS
+    key = _clsid_key(raw)
+    if key:
+        return key in RECOGNIZED_CHART_CLSIDS
 
     # Missing CLSID: Writer embeds fall back to getDiagram() check
     if is_embed:
@@ -954,6 +955,13 @@ class SheetCharts:
             target_name = target_sheet_name or sheet.getName()
             try:
                 bare_pos, _unused = split_sheet_and_name(pos_str, target_name)
+            except ValueError as exc:
+                pos_prefix = split_sheet_prefix(pos_str)[0]
+                raise ToolExecutionError(
+                    f"Position names sheet '{pos_prefix}' but placement sheet is '{target_name}'.",
+                    code="INVALID_PARAM",
+                ) from exc
+            try:
                 parse_address(bare_pos)
                 cell_obj = sheet.getCellRangeByName(bare_pos)
                 # Calc cells expose Position/Size properties, not getPosition()/getSize().
@@ -1304,6 +1312,7 @@ class DrawPage:
                 continue
             try:
                 def _on_draw_probe_error(idx: int, exc: Exception) -> None:
+                    # called only within this iteration
                     _chart_list_failure(exc, errors, page=i, index=idx)
 
                 for j, (shape, _parent, shape_type) in enumerate(

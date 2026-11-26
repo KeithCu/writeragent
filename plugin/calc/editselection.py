@@ -63,10 +63,9 @@ def _cells_to_edit(
     cells: list[tuple[int, int, str]] = []
     skipped_formula = False
     for r_i, row_vals in enumerate(formula_array):
-        for c_i, raw_val in enumerate(row_vals):
+        for c_i, cell_text in enumerate(row_vals):
             if len(cells) >= _MAX_CELLS:
                 return cells, skipped_formula
-            cell_text = raw_val
             if not cell_text:
                 continue
             col_abs = start_col + c_i

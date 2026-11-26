@@ -120,7 +120,7 @@ def test_explain_error_precedents_preserve_formula_order():
     inspector = MagicMock()
     cell = MagicMock()
     cell.getError.return_value = 532
-    cell.getFormula.return_value = "=Z9+A1+M5+A1"
+    cell.getFormula.return_value = "=Z9+A1+M5+B2+K7+D4+G8+A1"
     sheet = MagicMock()
     sheet.getCellByPosition.return_value = cell
     sheet.getName.return_value = "Sheet1"
@@ -139,8 +139,9 @@ def test_explain_error_precedents_preserve_formula_order():
     with patch("plugin.calc.error_detector.fetch_formula_dep_chain", return_value=None):
         res = detector.explain_error("C1")
 
-    assert [p["address"] for p in res["precedents"]] == ["Z9", "A1", "M5"]
-    assert seen == ["Z9", "A1", "M5"]
+    expected = ["Z9", "A1", "M5", "B2", "K7", "D4", "G8"]
+    assert [p["address"] for p in res["precedents"]] == expected
+    assert seen == expected
 
 
 def test_explain_error_dep_chain_failure_is_swallowed():

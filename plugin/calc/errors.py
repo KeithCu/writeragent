@@ -29,7 +29,7 @@ from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
-from plugin.calc.error_detector import _MAX_EXPLAINED_ERRORS, ErrorDetector, truncation_hint
+from plugin.calc.error_detector import MAX_EXPLAINED_ERRORS, ErrorDetector, truncation_hint
 from plugin.framework.errors import make_tool_ok
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class DetectErrors(ToolCalcErrorBase):
     name: str | None = "detect_errors"
     description: str = (
         f"Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. "
-        f"Explanations are capped at {_MAX_EXPLAINED_ERRORS} per range; truncated and total_error_count report any remainder."
+        f"Explanations are capped at {MAX_EXPLAINED_ERRORS} per range; truncated and total_error_count report any remainder."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. {CALC_SHEET_PREFIX_NOTE}"}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]

@@ -43,7 +43,7 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 # Cap per range (one detect_and_explain call), matching the other large-result caps.
-_MAX_EXPLAINED_ERRORS = 50
+MAX_EXPLAINED_ERRORS = 50
 
 # LibreOffice Calc error types and descriptions.
 # `code` is what the cell shows, matching ScGlobal::GetErrorString (sc/source/core/data/global.cxx):
@@ -271,9 +271,9 @@ class ErrorDetector:
         """
         errors = self.detect_errors(range_str)
         detailed = []
-        truncated = len(errors) > _MAX_EXPLAINED_ERRORS
+        truncated = len(errors) > MAX_EXPLAINED_ERRORS
 
-        for item in errors[:_MAX_EXPLAINED_ERRORS]:
+        for item in errors[:MAX_EXPLAINED_ERRORS]:
             address = item["address"]
             try:
                 detailed.append(self.explain_error(address))
