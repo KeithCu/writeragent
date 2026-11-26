@@ -6,6 +6,7 @@ import pytest
 from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer import range_copy as rc
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 @pytest.fixture(autouse=True)
@@ -13,17 +14,6 @@ def _clear_scratch_style_holds():
     rc._scratch_style_holds.clear()
     yield
     rc._scratch_style_holds.clear()
-
-
-class _Enum:
-    def __init__(self, items: list) -> None:
-        self._items = list(items)
-
-    def hasMoreElements(self) -> bool:
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
 
 
 def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
@@ -38,10 +28,10 @@ def test_copy_cell_xtext_copies_direct_char_formatting() -> None:
 
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = FakeUnoEnum([portion])
 
     src_cell = MagicMock()
-    src_cell.createEnumeration.return_value = _Enum([para])
+    src_cell.createEnumeration.return_value = FakeUnoEnum([para])
 
     dest_doc = MagicMock()
     dest_cell = MagicMock()
@@ -426,9 +416,9 @@ def test_copy_flow_into_xtext_one_paragraph_text_then_field():
 
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion_text, portion_field])
+    para.createEnumeration.return_value = FakeUnoEnum([portion_text, portion_field])
 
-    src_text.createEnumeration.return_value = _Enum([para])
+    src_text.createEnumeration.return_value = FakeUnoEnum([para])
 
     dest_text = MagicMock()
     cursor = MagicMock()
@@ -467,16 +457,16 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
     p1_portion.getString.return_value = "A"
     para1 = MagicMock()
     para1.supportsService.return_value = False
-    para1.createEnumeration.return_value = _Enum([p1_portion])
+    para1.createEnumeration.return_value = FakeUnoEnum([p1_portion])
 
     p2_portion = MagicMock()
     p2_portion.getPropertyValue.return_value = "Text"
     p2_portion.getString.return_value = "B"
     para2 = MagicMock()
     para2.supportsService.return_value = False
-    para2.createEnumeration.return_value = _Enum([p2_portion])
+    para2.createEnumeration.return_value = FakeUnoEnum([p2_portion])
 
-    src_text.createEnumeration.return_value = _Enum([para1, para2])
+    src_text.createEnumeration.return_value = FakeUnoEnum([para1, para2])
 
     dest_text = MagicMock()
     cursor = MagicMock()
@@ -518,13 +508,13 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
     frame_portion = MagicMock()
     frame_portion.getPropertyValue.side_effect = lambda name: "Frame" if name == "TextPortionType" else None
     frame_portion.getString.return_value = ""
-    frame_portion.createContentEnumeration.return_value = _Enum([shape])
+    frame_portion.createContentEnumeration.return_value = FakeUnoEnum([shape])
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([frame_portion])
-    para.createContentEnumeration.return_value = _Enum([])
+    para.createEnumeration.return_value = FakeUnoEnum([frame_portion])
+    para.createContentEnumeration.return_value = FakeUnoEnum([])
     src_text = MagicMock()
-    src_text.createEnumeration.return_value = _Enum([para])
+    src_text.createEnumeration.return_value = FakeUnoEnum([para])
 
     dest_text = MagicMock()
     dest_cursor = MagicMock()
@@ -657,25 +647,15 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
 def test_copy_cell_xtext_clones_frame_graphic_only_when_graphics_true():
     from plugin.writer import range_copy as rc
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     frame_portion = MagicMock()
     frame_portion.getPropertyValue.side_effect = lambda k: "Frame" if k == "TextPortionType" else None
 
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([frame_portion])
+    para.createEnumeration.return_value = FakeUnoEnum([frame_portion])
 
     src_cell = MagicMock()
-    src_cell.createEnumeration.side_effect = lambda: _Enum([para])
+    src_cell.createEnumeration.side_effect = lambda: FakeUnoEnum([para])
     dest_cell = MagicMock()
 
     with (
@@ -693,16 +673,6 @@ def test_iter_nested_texts_walks_nested_tables():
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import iter_nested_texts
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     def _rows():
         r = MagicMock()
         r.getPropertyValue.return_value = True
@@ -712,7 +682,7 @@ def test_iter_nested_texts_walks_nested_tables():
         return rows
 
     inner_cell = MagicMock()
-    inner_cell.createEnumeration.return_value = _Enum([])
+    inner_cell.createEnumeration.return_value = FakeUnoEnum([])
     inner_tbl = MagicMock()
     inner_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
     inner_tbl.getRows.return_value = _rows()
@@ -720,7 +690,7 @@ def test_iter_nested_texts_walks_nested_tables():
     inner_tbl.getCellByName.return_value = inner_cell
 
     outer_cell = MagicMock()
-    outer_cell.createEnumeration.return_value = _Enum([inner_tbl])
+    outer_cell.createEnumeration.return_value = FakeUnoEnum([inner_tbl])
     outer_tbl = MagicMock()
     outer_tbl.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
     outer_tbl.getRows.return_value = _rows()
@@ -728,23 +698,13 @@ def test_iter_nested_texts_walks_nested_tables():
     outer_tbl.getCellByName.return_value = outer_cell
 
     root = MagicMock()
-    root.createEnumeration.return_value = _Enum([outer_tbl])
+    root.createEnumeration.return_value = FakeUnoEnum([outer_tbl])
     assert list(iter_nested_texts(MagicMock(), root, DeletionState())) == [root, outer_cell, inner_cell]
 
 
 def test_iter_nested_texts_skips_struck_table():
     from plugin.doc.text_helpers import DeletionState
     from plugin.writer.range_copy import iter_nested_texts
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     cell = MagicMock()
     tbl = MagicMock()
@@ -753,7 +713,7 @@ def test_iter_nested_texts_skips_struck_table():
     tbl.getCellByName.return_value = cell
 
     root = MagicMock()
-    root.createEnumeration.return_value = _Enum([tbl])
+    root.createEnumeration.return_value = FakeUnoEnum([tbl])
     with patch("plugin.writer.range_copy.table_is_struck", return_value=True):
         assert list(iter_nested_texts(MagicMock(), root, DeletionState())) == [root]
 

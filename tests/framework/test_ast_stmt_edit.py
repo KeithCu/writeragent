@@ -175,4 +175,3 @@ def test_remove_only_statement_in_except_handler_keeps_pass() -> None:
     ast.parse(out)
     assert "pass" in out
     assert "print(1)" not in out
-

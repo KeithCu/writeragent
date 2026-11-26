@@ -12,12 +12,10 @@ import pytest
 
 from plugin.framework.errors import DocumentDisposedError
 from plugin.scripting.helper_domain import run_domain
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_run_trusted_analysis_sheet_disposal_propagates():
-    class DisposedException(Exception):
-        pass
-
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([[1]], None)),

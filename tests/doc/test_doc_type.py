@@ -208,6 +208,3 @@ def test_uno_service_for_distinct_label() -> None:
     assert uno_service_for_distinct_label(" Calc ") == frozenset({_CALC_SERVICE})
     assert uno_service_for_distinct_label("unknown") == frozenset()
     assert uno_service_for_distinct_label(None) == frozenset()
-
-
-

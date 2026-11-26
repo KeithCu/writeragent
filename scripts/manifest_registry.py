@@ -84,7 +84,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
 
     tabs = []
     pages = []
-    
+
     # LibrePy ships only module tabs (General/Image are hidden at runtime).
     tab_x = 5 if librepy_flavor else 131
     page_num = 3
@@ -123,11 +123,11 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
 
                 ctrl_id = f"{prefix}__{field_name}" if prefix else field_name
                 label_text = schema.get("label", field_name.replace("_", " ").title() + ":")
-                
+
                 # Support custom positioning
                 field_x = str(schema.get("x", 110))
                 field_w = str(schema.get("width", 144))
-                
+
                 # Track max control height in current row
                 ctrl_h = int(schema.get("height", 14))
                 if ctrl_h > row_height:
@@ -208,12 +208,12 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                         ctrl_el.set(_dlg("help-text"), hover)
                     if label_el is not None:
                         label_el.set(_dlg("help-text"), hover)
-                
+
                 if not schema.get("inline"):
                     curr_y += (row_height + 2) if row_height > 14 else 16
                     row_height = 0
             return curr_y
-            
+
         y = add_fields(name.replace(".", "_"), config, y)
         if children:
             for child_m in children:
@@ -236,7 +236,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                     label=sep_label,
                 )
                 y = add_fields(child_m["name"].replace(".", "_"), child_cfg, y)
-        
+
         # Add dlg:page to all elements in this page
         for el in board.iter():
             if el != board and "menupopup" not in el.tag and "menuitem" not in el.tag:
@@ -250,7 +250,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
             child_str = child_str.replace(f"xmlns:ns0=\"{_DLG_NS}\" ", "")
             child_str = child_str.replace("ns0:", "dlg:")
             page_str += "  " + child_str + "\n"
-            
+
         pages.append(f"  <!-- === Page {page_num}: {name.title()} Settings === -->\n{page_str}")
         page_num += 1
 

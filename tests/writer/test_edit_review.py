@@ -19,6 +19,7 @@ from plugin.writer.edit_review import (
     review_recording_enabled,
 )
 from plugin.writer.review_scan import make_agent_token, session_token_prefix
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 @pytest.mark.parametrize(
@@ -913,7 +914,7 @@ def test_portion_type_closed_document_raises():
 
     class _Closed:
         def getPropertyValue(self, name):
-            raise type("DisposedException", (Exception,), {})("closed")
+            raise DisposedException("closed")
 
     with pytest.raises(DocumentDisposedError):
         _portion_type(_Closed())
@@ -951,23 +952,12 @@ class _SkipPortion:
         return self._text
 
 
-class _SkipEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class _SkipPara:
     def __init__(self, portions):
         self._portions = list(portions)
 
     def createEnumeration(self):
-        return _SkipEnum(self._portions)
+        return FakeUnoEnum(self._portions)
 
     def getString(self):
         return "RAW"
@@ -978,7 +968,7 @@ class _SkipRange:
         self._paragraphs = list(paragraphs)
 
     def createEnumeration(self):
-        return _SkipEnum(self._paragraphs)
+        return FakeUnoEnum(self._paragraphs)
 
     def getString(self):
         return "WHOLE"
@@ -1013,7 +1003,7 @@ def test_string_skipping_redline_closed_portion_raises():
 
     class _ClosedPortion(_SkipPortion):
         def getPropertyValue(self, name):
-            raise type("DisposedException", (Exception,), {})("closed")
+            raise DisposedException("closed")
 
     span = _SkipRange([_SkipPara([_ClosedPortion("Text", text="x")])])
     with pytest.raises(DocumentDisposedError):
@@ -1025,17 +1015,6 @@ class _BlockPortion:
         self.TextPortionType = portion_type
 
 
-class _BlockEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class _BlockPara:
     def __init__(self, portion_types):
         self._portion_types = list(portion_types)
@@ -1044,7 +1023,7 @@ class _BlockPara:
         return name == "com.sun.star.text.Paragraph"
 
     def createEnumeration(self):
-        return _BlockEnum([_BlockPortion(t) for t in self._portion_types])
+        return FakeUnoEnum([_BlockPortion(t) for t in self._portion_types])
 
 
 class _Block:
@@ -1055,7 +1034,7 @@ class _Block:
         raise AssertionError("_block_safe_for_surgical must not walk the block text")
 
     def createEnumeration(self):
-        return _BlockEnum(self._paras)
+        return FakeUnoEnum(self._paras)
 
 
 def test_block_safe_for_surgical_accepts_clean_single_paragraph():
@@ -1545,7 +1524,7 @@ def test_left_tracked_changes_keeps_first_snapshot_across_mutations():
 
 def test_string_skipping_redline_inside_content_control():
     from plugin.writer.edit_review import _string_skipping_redline
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     para = FakeUnoPara([
         FakeUnoPortion("Text", "xx "),
@@ -1571,7 +1550,7 @@ def test_string_skipping_redline_inside_content_control():
 
 def test_string_skipping_redline_across_paragraphs():
     from plugin.writer.edit_review import _string_skipping_redline
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     p1 = FakeUnoPara([
         FakeUnoPortion("Text", "Start "),
@@ -1644,7 +1623,7 @@ def test_string_skipping_redline_across_paragraphs():
 )
 def test_string_skipping_redline_paragraph_breaks(make_paras, skip_type, expected):
     from plugin.writer.edit_review import _string_skipping_redline
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     text_range = MagicMock()
     text_range.createEnumeration.side_effect = lambda: FakeUnoEnum(make_paras(FakeUnoPara, FakeUnoPortion))
@@ -1665,4 +1644,3 @@ def test_record_write_non_writer_runs_apply_without_touching_record_changes():
     assert recording is False
     apply_fn.assert_called_once_with()
     doc.setPropertyValue.assert_not_called()
-

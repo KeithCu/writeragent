@@ -287,6 +287,3 @@ def test_librepy_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeyp
             mock_bg.assert_not_called()
     finally:
         editor_host.reset_webview_probe_state_for_tests()
-
-
-

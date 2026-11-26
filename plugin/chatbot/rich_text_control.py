@@ -1482,4 +1482,3 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
         finally:
             if was_readonly and model is not None:
                 set_prop(model, "ReadOnly", True)
-

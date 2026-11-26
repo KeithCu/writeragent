@@ -406,5 +406,3 @@ def test_inline_style_reuse_reapplies_properties():
     assert style_props["CharColor"] == 0xFFFFFF
     assert style_props["CharWeight"] == fake_fw.BOLD
     assert style_props["Hidden"] is True
-
-

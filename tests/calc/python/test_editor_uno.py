@@ -320,4 +320,3 @@ def test_follow_ref_save_lifts_xl_and_cell_evaluates(ctx, doc):
         raise unittest.SkipTest("=PY() worker did not evaluate in headless profile (before_val != 42.0)")
     assert _py_cell_error_code(formula_cell) == 0
     assert float(formula_cell.getValue()) == 7.0
-

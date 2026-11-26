@@ -581,6 +581,3 @@ def test_stop_is_a_quit_hook() -> None:
     from plugin.writer.locale.grammar_work_queue import grammar_queue
 
     assert grammar_queue.stop in quit_hooks._hooks
-
-
-

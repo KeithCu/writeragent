@@ -797,5 +797,3 @@ def test_monaco_unchanged_dollar_data_does_not_rewrite_formula_and_error_keeps_b
         assert on_save("result = data", True, "D1:D2")["type"] == "saved"
         assert mock_set_formula.call_count == 0
     assert formula_cell.getFormula() == "=PY($A$1;D1:D2)"
-
-

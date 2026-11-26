@@ -31,6 +31,7 @@ from plugin.writer.hyperlink_fixup import (
     restore_outline_hyperlinks,
     substitute_if_present,
 )
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 _OUTLINE = "#1.Old title|outline"
@@ -109,20 +110,6 @@ class _Slice:
         self.raise_props = raise_props
         self.direct = direct
         self.link_style = link_style
-
-
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-        self._i = 0
-
-    def hasMoreElements(self):
-        return self._i < len(self._items)
-
-    def nextElement(self):
-        item = self._items[self._i]
-        self._i += 1
-        return item
 
 
 class _Doc:
@@ -240,7 +227,7 @@ class _Cursor:
         raise AttributeError(name)
 
     def createEnumeration(self):
-        return _Enum([_Paragraph(self.doc)])
+        return FakeUnoEnum([_Paragraph(self.doc)])
 
     def setPropertyValue(self, name, value):
         self.doc.writes.append((name, value))
@@ -283,7 +270,7 @@ class _Paragraph:
         return name == "com.sun.star.text.Paragraph"
 
     def createEnumeration(self):
-        return _Enum(_Portion(self.doc, sl) for sl in self.doc.slices)
+        return FakeUnoEnum(_Portion(self.doc, sl) for sl in self.doc.slices)
 
 
 class _Portion:

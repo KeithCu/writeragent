@@ -723,5 +723,3 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
         if uno_same(other, model):
             return p
     return None
-
-

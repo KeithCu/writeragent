@@ -1076,4 +1076,3 @@ def test_enumerated_matching_models_skips_model_whose_predicate_raises(monkeypat
 
     results = session_manager._enumerated_matching_models(MagicMock(), _pred)
     assert [unwrap_uno(m) for m in results] == [valid]
-

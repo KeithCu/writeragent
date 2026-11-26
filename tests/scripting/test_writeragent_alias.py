@@ -302,5 +302,3 @@ def test_namespace_stub_unbound_scripts_message(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(AttributeError, match="only available while a Python script is running"):
         ns.scripts
     assert getattr(ns, "scripts", None) is None
-
-

@@ -1016,5 +1016,3 @@ def test_writer_agent_grammar_status_config_change_emits_cleared() -> None:
         assert all(e.get("phase") == "cleared" for e in events)
     finally:
         bus.unsubscribe("grammar:status", _on_status)
-
-

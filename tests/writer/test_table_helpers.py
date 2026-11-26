@@ -11,10 +11,7 @@ from typing import Any
 import pytest
 
 from plugin.writer.table_helpers import set_cell_string, fill_table_cells, table_dims
-
-
-class DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException
 
 
 class _FakeBand:

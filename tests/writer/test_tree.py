@@ -98,41 +98,41 @@ class TestTreeServiceSearch:
 
     def test_no_match(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "NonExistent")
-        assert (res) is None
+        assert res is None
 
     def test_empty_search(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "")
-        assert (res) is None
+        assert res is None
         res = self.tree_svc._find_heading_by_text(self.doc, "   ")
-        assert (res) is None
+        assert res is None
 
     def test_invalidate_by_key_does_not_call_doc_key(self):
         self.tree_svc._tree_cache["uid:1"] = {"text": "stale"}
         self.doc_svc.doc_key.side_effect = RuntimeError("must not touch the model")
         self.tree_svc._on_cache_invalidated(key="uid:1")
-        assert ("uid:1") not in (self.tree_svc._tree_cache)
+        assert "uid:1" not in self.tree_svc._tree_cache
 
     def test_invalidate_doc_none_clears_all(self):
         self.tree_svc._tree_cache["uid:1"] = {"text": "a"}
         self.tree_svc._tree_cache["uid:2"] = {"text": "b"}
         self.tree_svc._on_cache_invalidated(doc=None)
-        assert (self.tree_svc._tree_cache) == ({})
+        assert self.tree_svc._tree_cache == {}
 
     def test_unknown_key_is_not_stored(self):
         self.doc_svc.doc_key.return_value = UNKNOWN_DOC_KEY
         root = self.tree_svc.build_heading_tree(self.doc)
-        assert (root["children"][0]["text"]) == ("Introduction")
-        assert (self.tree_svc._tree_cache) == ({})
+        assert root["children"][0]["text"] == "Introduction"
+        assert self.tree_svc._tree_cache == {}
 
     def test_fingerprint_change_rebuilds_without_invalidate_event(self):
         """GHA 35466498641: Windows modify listener can miss insertString."""
         self.doc.CharacterCount = 10
         first = self.tree_svc.build_heading_tree(self.doc)
         cached = self.tree_svc.build_heading_tree(self.doc)
-        assert (cached) is (first)
+        assert cached is first
         self.doc.CharacterCount = 16
         second = self.tree_svc.build_heading_tree(self.doc)
-        assert (second) is not (first)
+        assert second is not first
 
     def test_chapter_number_optional_and_locator(self):
         class _Labeled(ElementStub):
@@ -156,20 +156,20 @@ class TestTreeServiceSearch:
         doc7 = root["children"][0]
         alpha = doc7["children"][0]
         bare = root["children"][1]
-        assert (doc7["chapter_number"]) == ("3")
-        assert (doc7["text"]) == ("DOCUMENT 7")
-        assert (alpha["chapter_number"]) == ("3.1")
-        assert (alpha["text"]) == ("Section Alpha")
-        assert ("chapter_number") not in (bare)
+        assert doc7["chapter_number"] == "3"
+        assert doc7["text"] == "DOCUMENT 7"
+        assert alpha["chapter_number"] == "3.1"
+        assert alpha["text"] == "Section Alpha"
+        assert "chapter_number" not in bare
 
         hit = self.tree_svc.resolve_writer_locator(doc, "chapter_number", "3.1")
-        assert (hit["para_index"]) == (1)
+        assert hit["para_index"] == 1
         ordinal = self.tree_svc.resolve_writer_locator(doc, "heading", "1.1")
-        assert (ordinal["para_index"]) == (1)
+        assert ordinal["para_index"] == 1
         with pytest.raises(ToolExecutionError) as raised:
             self.tree_svc.resolve_writer_locator(doc, "chapter_number", "1.1")
-        assert ("chapter_number:1.1") in (str(raised.value))
-        assert ("sibling-ordinal") in (str(raised.value))
+        assert "chapter_number:1.1" in str(raised.value)
+        assert "sibling-ordinal" in str(raised.value)
 
     def test_resolve_page_locator_unlocks_even_if_gotoRange_raises(self):
         doc = MagicMock()

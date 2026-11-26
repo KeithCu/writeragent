@@ -18,10 +18,10 @@ class TestGetProviderDefaults:
         assert merged.count("hexgrad/Kokoro-82M") == 1
 
     def test_resolve_model_id_requires_ids_dict(self):
-        assert (resolve_model_id({"": 0, "ids": ""}, 0)) is None
-        assert (resolve_model_id({"ids": None}, "openrouter")) is None
-        assert (resolve_model_id({"ids": {"openrouter": "x"}}, "openrouter")) == ("x")
-        assert (resolve_model_id({"ids": {"release": ()}}, "release")) is None
+        assert resolve_model_id({"": 0, "ids": ""}, 0) is None
+        assert resolve_model_id({"ids": None}, "openrouter") is None
+        assert resolve_model_id({"ids": {"openrouter": "x"}}, "openrouter") == "x"
+        assert resolve_model_id({"ids": {"release": ()}}, "release") is None
 
     def test_gpt_oss_20b_not_stray_on_openrouter(self):
         # Same slug as Together/Groq. Without it, an OpenRouter sidebar treats
@@ -34,12 +34,12 @@ class TestGetProviderDefaults:
         from plugin.framework.default_models import DEFAULT_MODELS
 
         row = next((m for m in DEFAULT_MODELS if m.get("ids", {}).get("mock") == "writeragent-mock"), None)
-        assert (row) is not None
+        assert row is not None
         assert not (row.get("default_text"))
         # Must not become the custom-endpoint Settings default.
-        assert (get_provider_defaults("custom").get("text_model")) is None
-        assert (resolve_model_id(row, "openai")) is None
-        assert (resolve_model_id(row, "custom")) is None
+        assert get_provider_defaults("custom").get("text_model") is None
+        assert resolve_model_id(row, "openai") is None
+        assert resolve_model_id(row, "custom") is None
 
     def test_chat_audio_rows_are_not_speech_fallbacks(self):
         # CHAT|AUDIO with neither stt nor tts flag must not become the speech default.
@@ -77,5 +77,3 @@ class TestGetProviderDefaults:
         assert isinstance(caps, int) and (caps & ModelCapability.TOOLS)
         assert get_model_capability("deepseek-flash", "https://api.deepseek.com") & ModelCapability.CHAT
         assert get_model_capability("nonexistent-model", "https://openrouter.ai/api") == ModelCapability.NONE
-
-

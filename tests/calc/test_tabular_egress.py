@@ -253,4 +253,3 @@ def test_insert_failure_undoes_partial_grid(mock_bridge, mock_manipulator_cls):
 
     assert fake_undo.entered == ["WriterAgent: Insert result"]
     assert fake_undo.undone == 1
-

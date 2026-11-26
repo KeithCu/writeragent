@@ -85,5 +85,3 @@ def apply_sidebar_height_for_width(
             panel_window.setPosSize(0, 0, eff_w, current_h, _POS_SIZE_FLAGS)
 
     return (eff_w, current_h), layout_size
-
-

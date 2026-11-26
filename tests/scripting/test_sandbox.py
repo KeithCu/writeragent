@@ -848,7 +848,3 @@ def test_dangerous_modules_fallback_matches_vendored(monkeypatch):
     monkeypatch.setitem(sys.modules, spec.name, bare)
     spec.loader.exec_module(bare)
     assert bare.DANGEROUS_MODULES == tuple(vendored)
-
-
-
-

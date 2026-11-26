@@ -6,10 +6,8 @@
 
 import uno  # noqa: F401
 
-from plugin.doc.text_helpers import selection_cursor_snapshot
-from plugin.framework.tool import SelectionPin
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.selection import SetSelection
 from tests.writer.doc_builders import build_chain_deletion_doc
@@ -31,8 +29,7 @@ def test_set_selection_updates_pin_for_later_apply_content_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(found)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
 
     res_sel = SetSelection().execute(tctx, search_text="Outro")
     assert res_sel.get("status") == "ok", res_sel

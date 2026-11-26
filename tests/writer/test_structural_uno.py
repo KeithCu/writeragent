@@ -27,7 +27,7 @@ def test_structural_tools_execution(ctx, doc):
     registry = get_tools()
     list_bm_tool = registry.get("bookmark_list")
     assert list_bm_tool is not None, "list_bookmarks tool not found in registry"
-    
+
     bm_res = list_bm_tool.execute(mock_ctx)
     assert bm_res["status"] == "ok", f"BookmarkList failed: {bm_res}"
     assert isinstance(bm_res["bookmarks"], list), "BookmarkList should return a list"

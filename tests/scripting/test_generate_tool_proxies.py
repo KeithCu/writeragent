@@ -122,12 +122,22 @@ def test_generate_module_output_is_valid_python():
     code = generate_module(tools)
     # Should compile without error
     compile(code, "<generated>", "exec")
-    
+
     assert "class _FootnoteProxy:" in code
     assert "def insert(self, text: str) -> _Item:" in code
     assert 'return _result(call_host_tool("footnote_insert", text=text))' in code
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
+
+
+def test_generate_module_ends_with_one_newline():
+    """ruff W391 strips extra trailing blank lines, so the checked-in module must match the generator."""
+    tools = [
+        _as_tool(MockTool("footnote_insert", "Insert footnote.", {"type": "object", "properties": {}}, specialized_domain="footnotes")),
+    ]
+    code = generate_module(tools)
+    assert code.endswith(")\n")
+    assert not code.endswith("\n\n")
 
 
 def test_generate_module_domain_with_slash_is_a_valid_identifier():
@@ -1250,4 +1260,3 @@ def test_paged_iteration_raises_on_later_page_error():
     with pytest.raises(RuntimeError, match="page 2 failed") as exc_info:
         next(it)
     assert getattr(exc_info.value, "code", None) == "LIST_FAIL"
-

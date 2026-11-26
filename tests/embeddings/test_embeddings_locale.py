@@ -202,4 +202,3 @@ def test_extract_odf_paragraph_runs_returns_none_on_missing_content_xml(tmp_path
     with zipfile.ZipFile(nocontent, "w") as zf:
         zf.writestr("styles.xml", b"<xml/>")
     assert loc_mod.extract_odf_paragraph_runs(str(nocontent)) is None
-

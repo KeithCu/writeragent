@@ -599,5 +599,3 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
     mock_canvas.assert_not_called()
     assert "Document canvas" not in instructions
-
-

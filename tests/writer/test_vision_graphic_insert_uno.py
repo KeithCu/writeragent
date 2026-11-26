@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-import os
 
 from plugin.doc.visual_helpers import list_graphic_objects
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.vision.vision_egress import prepare_vision_writer_insert
 from plugin.writer.html_import import insert_html_at_cursor
 from plugin.writer.images.image_tools import insert_image_at_locator
@@ -19,24 +18,11 @@ from plugin.writer.images.image_tools import insert_image_at_locator
 _VISION_HTML_FIXTURE = "<p>Vision OCR line after image.</p>"
 
 
-def _vision_test_logo_path() -> str:
-    """Return logo_32.png in dev tree or release bundle (assets path is remapped)."""
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
-        path = os.path.join(root, *rel.split("/"))
-        if os.path.isfile(path):
-            return path
-    return os.path.join(root, "extension", "assets", "logo_32.png")
-
-
-_logo_path = _vision_test_logo_path()
-
 
 @native_test
 @with_native_doc("writer")
 def test_vision_html_insert_keeps_selected_graphic(ctx, doc):
-    assert os.path.isfile(_logo_path), f"fixture image missing: {_logo_path}"
-    graphic = insert_image_at_locator(ctx, doc, _logo_path, width_mm=20, height_mm=20)
+    graphic = insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=20, height_mm=20)
     assert graphic is not None, "failed to insert fixture image"
 
     controller = doc.getCurrentController()
@@ -59,14 +45,13 @@ def test_vision_html_insert_after_each_graphic_preserves_intervening_text(ctx, d
     """Select a range covering two images + text; insert by name must not delete the text."""
     from plugin.doc.visual_helpers import graphic_objects_in_selection
 
-    assert os.path.isfile(_logo_path), f"fixture image missing: {_logo_path}"
     text = doc.getText()
     text.setString("")
 
     cursor = text.createTextCursor()
     text.insertString(cursor, "BEFORE ", False)
 
-    g1 = insert_image_at_locator(ctx, doc, _logo_path, width_mm=15, height_mm=15)
+    g1 = insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     assert g1 is not None
     name1 = g1.getName()
 
@@ -74,7 +59,7 @@ def test_vision_html_insert_after_each_graphic_preserves_intervening_text(ctx, d
     intervening = "BETWEEN_IMAGES"
     text.insertString(cursor, intervening, False)
 
-    g2 = insert_image_at_locator(ctx, doc, _logo_path, width_mm=15, height_mm=15)
+    g2 = insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     assert g2 is not None
     name2 = g2.getName()
 
@@ -145,13 +130,12 @@ def test_as_char_ocr_insert_after_graphic_keeps_following_text(ctx, doc):
     """As-char insert (insert_image_at_locator) must not split following text or add an empty para above the image."""
     from plugin.doc.visual_helpers import anchor_type_index, safe_get_property
 
-    assert os.path.isfile(_logo_path), f"fixture image missing: {_logo_path}"
     text = doc.getText()
     text.setString("")
     cursor = text.createTextCursor()
     text.insertString(cursor, "HEAD", False)
 
-    graphic = insert_image_at_locator(ctx, doc, _logo_path, width_mm=15, height_mm=15)
+    graphic = insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     assert graphic is not None, "failed to insert as-char fixture image"
     assert anchor_type_index(safe_get_property(graphic, "AnchorType", None)) == 1, "expected AS_CHARACTER"
     graphic.setName("ocr-aschar")

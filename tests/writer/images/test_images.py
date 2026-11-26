@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import DisposedException, TestingFactory
 
 
 from plugin.doc.document_research_tools import ListNearbyFiles
@@ -1387,9 +1387,6 @@ def test_image_crop_and_info_unmeasurable_graphic():
 def test_image_list_disposed_anchor_type_raises_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
@@ -2479,4 +2476,3 @@ def test_image_insert_passes_pinned_selection_cursor_to_locator():
 
     assert res["status"] == "ok"
     assert mock_insert.call_args.kwargs["text_cursor"] is pinned_cursor
-

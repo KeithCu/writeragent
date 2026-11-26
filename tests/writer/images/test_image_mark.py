@@ -346,6 +346,3 @@ def test_image_mark_highlights_coerced_from_strings_and_int_color():
     assert prep.error is None
     marks = image_mark.parse_marks(prep.kwargs["highlights"], "px", 100, 100, (0, 0, 100, 100))
     assert marks == [((1, 2, 3, 4), "highlight", 0x0000FF)]
-
-
-

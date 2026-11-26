@@ -293,16 +293,16 @@ def summarize_rows(rows: list[dict[str, Any]], *, leg: str) -> dict[str, Any]:
     correct_top_3 = sum(1 for r in labeled if r.get("legs", {}).get(leg, {}).get("correct_top_3"))
     total_mrr = sum(r.get("legs", {}).get(leg, {}).get("mrr", 0.0) for r in labeled)
     total = len(labeled)
-    
+
     pct = (100.0 * correct / total) if total else 0.0
     pct_top_3 = (100.0 * correct_top_3 / total) if total else 0.0
     mean_mrr = (total_mrr / total) if total else 0.0
-    
+
     by_set: dict[str, dict[str, Any]] = {}
     for r in labeled:
         set_name = str(r.get("set") or "unknown")
         bucket = by_set.setdefault(
-            set_name, 
+            set_name,
             {"labeled": 0, "correct": 0, "correct_top_3": 0, "mrr_sum": 0.0}
         )
         bucket["labeled"] += 1
@@ -312,12 +312,12 @@ def summarize_rows(rows: list[dict[str, Any]], *, leg: str) -> dict[str, Any]:
         if leg_data.get("correct_top_3"):
             bucket["correct_top_3"] += 1
         bucket["mrr_sum"] += leg_data.get("mrr", 0.0)
-        
+
     return {
-        "leg": leg, 
-        "labeled": total, 
-        "correct": correct, 
-        "accuracy_pct": round(pct, 1), 
+        "leg": leg,
+        "labeled": total,
+        "correct": correct,
+        "accuracy_pct": round(pct, 1),
         "correct_top_3": correct_top_3,
         "accuracy_top_3_pct": round(pct_top_3, 1),
         "mean_mrr": round(mean_mrr, 3),

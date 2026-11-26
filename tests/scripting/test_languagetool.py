@@ -196,4 +196,3 @@ def test_init_failure_names_locale_and_keeps_cause() -> None:
         assert "download failed" in msg
         assert exc_info.value.__cause__ is cause
         assert len(cache) == 0
-

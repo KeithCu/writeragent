@@ -442,4 +442,3 @@ def test_short_ambiguous_dip_does_not_end_run():
     assert back.silence_ms == 0
     assert back.speech_ms == 900
     assert not back.should_stop
-

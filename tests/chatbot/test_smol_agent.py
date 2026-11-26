@@ -41,8 +41,8 @@ class TestToolcallingPromptExamples:
         marker = "CUSTOM_EXAMPLES_MARKER_XYZ123"
         agent = ToolCallingAgent(tools=[], model=model, system_prompt_examples=marker)
         prompt = agent.initialize_system_prompt()
-        assert (marker) in (prompt)
-        assert ("__EXAMPLES_BLOCK__") not in (prompt)
+        assert marker in prompt
+        assert "__EXAMPLES_BLOCK__" not in prompt
 
     def test_get_examples_block_delegate_uses_specialized_workflow_finished(self):
         from plugin.chatbot.smol_examples import get_examples_block
@@ -56,8 +56,8 @@ class TestToolcallingPromptExamples:
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("web_research")
-        assert ('"name": "final_answer"') in (block)
-        assert ("workflow_finished") not in (block)
+        assert '"name": "final_answer"' in block
+        assert "workflow_finished" not in block
 
     def test_get_examples_block_web_research_matches_parallel_flag(self, monkeypatch):
         from plugin.chatbot import web_pages
@@ -84,8 +84,8 @@ class TestToolcallingPromptExamples:
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("librarian")
-        assert ("reply_to_user") in (block)
-        assert ("workflow_finished") not in (block)
+        assert "reply_to_user" in block
+        assert "workflow_finished" not in block
 
     @pytest.mark.parametrize(
         ("key", "expected_key"),
@@ -463,12 +463,12 @@ def test_smol_tool_adapter_read_only_target_rejects_mutation():
         mock_main.assert_not_called()
         tool.execute.assert_not_called()
         tool.execute_safe.assert_not_called()
-        assert (out["status"]) == ("error")
-        assert (out["code"]) == ("READ_ONLY_TARGET")
-        assert ("read-only") in (out["message"])
-        assert (out["details"]["tool_name"]) == (tool.name)
-        assert (out["details"]["caller"]) == ("document_research")
-        assert (out["details"]["doc_type"]) == ("writer")
+        assert out["status"] == "error"
+        assert out["code"] == "READ_ONLY_TARGET"
+        assert "read-only" in out["message"]
+        assert out["details"]["tool_name"] == tool.name
+        assert out["details"]["caller"] == "document_research"
+        assert out["details"]["doc_type"] == "writer"
 
 
 def test_smol_tool_adapter_read_only_target_allows_non_mutation():
@@ -484,7 +484,7 @@ def test_smol_tool_adapter_read_only_target_allows_non_mutation():
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(p="v")
     tool.execute.assert_called_once()
-    assert (out["status"]) == ("ok")
+    assert out["status"] == "ok"
 
 
 def test_smol_tool_adapter_resolves_dynamic_parameters():
@@ -502,7 +502,7 @@ def test_smol_tool_adapter_resolves_dynamic_parameters():
     ctx.doc_type = "writer"
     tool = DynamicTool()
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="specialized")
-    
+
     assert "writer_param" in adapter.inputs
     assert "p" not in adapter.inputs
 
@@ -702,15 +702,15 @@ class TestLibrarianSmol:
         # Verify that they are instances of smolagents.tools.BaseTool
         from plugin.contrib.smolagents.tools import BaseTool
 
-        assert (isinstance(smol_memory, BaseTool))
-        assert (isinstance(smol_reply, BaseTool))
-        assert ("switch_to_document_mode") in (smol_reply.inputs)
+        assert isinstance(smol_memory, BaseTool)
+        assert isinstance(smol_reply, BaseTool)
+        assert "switch_to_document_mode" in smol_reply.inputs
 
         # Verify inputs conversion
-        assert ("key") in (smol_memory.inputs)
-        assert ("content") in (smol_memory.inputs)
-        assert (smol_memory.inputs["key"]["type"]) == ("string")
-        assert (smol_memory.inputs["content"]["type"]) == ("string")
+        assert "key" in smol_memory.inputs
+        assert "content" in smol_memory.inputs
+        assert smol_memory.inputs["key"]["type"] == "string"
+        assert smol_memory.inputs["content"]["type"] == "string"
 
         # Verify forward call marshals execute onto the drain thread
         memory_tool.execute = MagicMock(return_value={"status": "ok"})
@@ -718,11 +718,11 @@ class TestLibrarianSmol:
             mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
             smol_memory.forward(key="favorite_color", content="blue")
         mock_main.assert_called_once()
-        assert (mock_main.call_args[0][0]) is (memory_tool.execute)
+        assert mock_main.call_args[0][0] is memory_tool.execute
         memory_tool.execute.assert_called_once()
         args, kwargs = memory_tool.execute.call_args
-        assert (kwargs["key"]) == ("favorite_color")
-        assert (kwargs["content"]) == ("blue")
+        assert kwargs["key"] == "favorite_color"
+        assert kwargs["content"] == "blue"
 
     def test_agent_initialization_with_adapted_tools(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
@@ -740,10 +740,10 @@ class TestLibrarianSmol:
             model=model,
             final_answer_tool_name="reply_to_user",
         )
-        assert (len(agent.tools)) == (2)  # memory + reply_to_user (no stock final_answer)
-        assert ("memory_upsert") in (agent.tools)
-        assert ("reply_to_user") in (agent.tools)
-        assert ("switch_to_document_mode") not in (agent.tools)
+        assert len(agent.tools) == 2  # memory + reply_to_user (no stock final_answer)
+        assert "memory_upsert" in agent.tools
+        assert "reply_to_user" in agent.tools
+        assert "switch_to_document_mode" not in agent.tools
 
     def test_switch_mode_extraction(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
@@ -764,8 +764,8 @@ class TestLibrarianSmol:
             if res["status"] == "error":
                 print(f"DEBUG: Tool execution error: {res.get('message')}")
 
-            assert (res["status"]) == ("switch_mode")
-            assert (res["result"]) == ("See you in document mode!")
+            assert res["status"] == "switch_mode"
+            assert res["result"] == "See you in document mode!"
 
     def test_upsert_memory_calls_chat_append_callback(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
@@ -788,13 +788,13 @@ class TestLibrarianSmol:
             tool = LibrarianOnboardingTool()
             res = tool.execute(ctx, query="hi")
 
-        assert (res.get("status")) == ("ok")
-        assert (res.get("status")) != ("switch_mode")
+        assert res.get("status") == "ok"
+        assert res.get("status") != "switch_mode"
         chat_append.assert_called_once()
         line = chat_append.call_args[0][0]
-        assert ("Memory update") in (line)
-        assert ("nickname") in (line)
-        assert ("Bob") in (line)
+        assert "Memory update" in line
+        assert "nickname" in line
+        assert "Bob" in line
 
     def test_librarian_onboarding_tool_passes_existing_memory_to_instructions(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
@@ -807,18 +807,18 @@ class TestLibrarianSmol:
              patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent") as mock_agent_class:
             mock_store = mock_store_class.return_value
             mock_store.read.return_value = '{"favorite_color": "blue", "name": "Alice"}'
-            
+
             mock_agent = mock_agent_class.return_value
             mock_agent.run.return_value = [fa]
 
             tool = LibrarianOnboardingTool()
             tool.execute(ctx, query="hi")
-            
-            assert (mock_agent_class.called)
+
+            assert mock_agent_class.called
             kwargs = mock_agent_class.call_args.kwargs
-            assert ("instructions") in (kwargs)
-            assert ("[USER PROFILE / MEMORY]") in (kwargs["instructions"])
-            assert ('{"favorite_color": "blue", "name": "Alice"}') in (kwargs["instructions"])
+            assert "instructions" in kwargs
+            assert "[USER PROFILE / MEMORY]" in kwargs["instructions"]
+            assert '{"favorite_color": "blue", "name": "Alice"}' in kwargs["instructions"]
 
     def test_librarian_onboarding_caps_long_user_memory(self, mock_get_api, mock_get_int):
         from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -941,9 +941,9 @@ class TestSmolMixedToolCalls:
         # 5. Verify outputs
         # Should have ActionOutput with is_final_answer=True
         final_outputs = [o for o in outputs if isinstance(o, ActionOutput)]
-        assert (len(final_outputs)) == (1)
-        assert (final_outputs[0].is_final_answer)
-        assert (final_outputs[0].output) == ("Finished!")
+        assert len(final_outputs) == 1
+        assert final_outputs[0].is_final_answer
+        assert final_outputs[0].output == "Finished!"
 
     def test_two_tool_calls_run_in_order_on_one_thread(self):
         """Several calls in one ChatMessage must not fan out to a thread pool."""
@@ -998,10 +998,10 @@ class TestSmolMixedToolCalls:
         outputs = list(agent._step_stream(memory_step))
 
         tool_outputs = [o for o in outputs if isinstance(o, ToolOutput)]
-        assert (len(tool_outputs)) == (2)
-        assert ([p for p, _tid in order]) == (["first", "second"])
-        assert (len({tid for _p, tid in order})) == (1)
-        assert (order[0][1]) == (threading.get_ident())
+        assert len(tool_outputs) == 2
+        assert [p for p, _tid in order] == ["first", "second"]
+        assert len({tid for _p, tid in order}) == 1
+        assert order[0][1] == threading.get_ident()
 
 
 class _WebSearchStubTool(ToolBase):
@@ -1057,10 +1057,10 @@ class TestSmolCallingToolsEchoParsing:
 
         tool_outputs = [o for o in outputs if isinstance(o, ToolOutput)]
         final_outputs = [o for o in outputs if isinstance(o, ActionOutput)]
-        assert (len(tool_outputs)) == (1)
+        assert len(tool_outputs) == 1
         assert not (final_outputs[0].is_final_answer if final_outputs else True)
-        assert (memory_step.tool_calls[0].name) == ("web_search")
-        assert (memory_step.tool_calls[0].arguments) == ({"query": "test query"})
+        assert memory_step.tool_calls[0].name == "web_search"
+        assert memory_step.tool_calls[0].arguments == {"query": "test query"}
 
 
 class TestSmolImplicitFinalAnswerJson:
@@ -1095,10 +1095,10 @@ class TestSmolImplicitFinalAnswerJson:
         outputs = list(agent._step_stream(memory_step))
 
         final_outputs = [o for o in outputs if isinstance(o, ActionOutput)]
-        assert (len(final_outputs)) == (1)
-        assert (final_outputs[0].is_final_answer)
-        assert (final_outputs[0].output) == ("<h1>Title</h1>\n<p>Para</p>")
-        assert ('{"answer"') not in (str(final_outputs[0].output))
+        assert len(final_outputs) == 1
+        assert final_outputs[0].is_final_answer
+        assert final_outputs[0].output == "<h1>Title</h1>\n<p>Para</p>"
+        assert '{"answer"' not in str(final_outputs[0].output)
 
 
 
@@ -1124,14 +1124,14 @@ class TestSmolToolMarshaling:
 
             res_write = tool.forward(key="user_memory", content="User likes Python")
 
-            assert (res_write.get("status")) == ("ok")
-            assert (mock_call.call_count) == (1)
+            assert res_write.get("status") == "ok"
+            assert mock_call.call_count == 1
 
             memory_file = os.path.join(tmpdir, "memories", "USER.md")
-            assert (os.path.exists(memory_file))
+            assert os.path.exists(memory_file)
             with open(memory_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                assert (data.get("user_memory")) == ("User likes Python")
+                assert data.get("user_memory") == "User likes Python"
 
     @patch("plugin.framework.queue_executor.main.call")
     def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_call):
@@ -1143,14 +1143,14 @@ class TestSmolToolMarshaling:
 
         res = tool.forward(answer="All done", switch_to_document_mode=True)
 
-        assert (res.get("status")) == (mode.leave_status)
-        assert (res.get("result")) == ("All done")
-        assert (res.get("message")) == ("All done")
-        assert (mock_call.call_count) == (0)
+        assert res.get("status") == mode.leave_status
+        assert res.get("result") == "All done"
+        assert res.get("message") == "All done"
+        assert mock_call.call_count == 0
 
         res2 = tool.forward(answer="Hello")
         assert res2 == {"status": "ok", "result": "Hello"}
-        assert (mock_call.call_count) == (0)
+        assert mock_call.call_count == 0
 
     def test_max_steps_string_with_reply_spec_is_incomplete(self):
         """When agent reaches max steps and returns a string without reply_to_user, status is incomplete."""
@@ -1758,4 +1758,3 @@ def test_partial_turn_rejected_finish_then_max_steps_is_incomplete(turn_calls):
     assert out["message"] == "ran out of steps"
     assert out["edits"] == {"edit_doc": 1}
     assert "result" not in out
-

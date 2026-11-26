@@ -2357,7 +2357,7 @@ def test_recorded_insert_at_empty_paragraph_reject_restores_style_uno(ctx: Any, 
 
         # Accept and single-undo check for <p>Body</p> via ApplyDocumentContent
         from plugin.writer.apply_document_content import ApplyDocumentContent
-    
+
         _setup_empty_middle()
         doc.getUndoManager().clear()
         res = ApplyDocumentContent().execute(

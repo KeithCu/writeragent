@@ -7,10 +7,6 @@
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -24,22 +20,12 @@ from plugin.framework.subprocess_env import (
     scrub_subprocess_env,
 )
 from plugin.scripting.sandbox import wrap_command_for_sandbox
+from tests.harness.crosshair import assert_crosshair_clean
 from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.subprocess_env.scrub_subprocess_env"
 _CROSSHAIR_TARGET_WRAP = "plugin.scripting.sandbox.wrap_command_for_sandbox"
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 def _assert_scrubbed(out: dict[str, str]) -> None:
@@ -179,22 +165,8 @@ def test_hypothesis_scrub_invariants(base: dict[str, str]) -> None:
 @pytest.mark.slow
 @pytest.mark.timeout(600)  # two crosshair runs, each capped at 300s; the global 60s cut it off
 def test_crosshair_scrub_subprocess_env_fqn_if_available() -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
     for target in (_CROSSHAIR_TARGET, _CROSSHAIR_TARGET_WRAP):
-        result = subprocess.run(
-            [crosshair_path, "check", "-v", "--report_all", target],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        combined = f"{result.stdout}\n{result.stderr}".strip()
-        print(f"CrossHair output for {target}:\n{combined}")
-        errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-        assert not errors, f"CrossHair counterexamples found for {target}:\n" + "\n".join(errors)
-        if result.returncode == 2:
-            pytest.fail(f"CrossHair internal error for {target} (exit 2):\n{combined}")
+        assert_crosshair_clean(target)
 
 
 def test_scrub_env_accepts_long_values() -> None:
@@ -310,4 +282,3 @@ def test_scrub_subprocess_env_keep() -> None:
     assert "PYTHONHOME" not in scrubbed
     assert "API_KEY" not in scrubbed
     assert scrubbed.get("USER") == "alice"
-

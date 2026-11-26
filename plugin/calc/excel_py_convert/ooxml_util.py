@@ -247,4 +247,3 @@ def rewrite_zip(
     finally:
         with contextlib.suppress(OSError):
             tmp_path.unlink()
-

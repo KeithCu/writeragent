@@ -754,7 +754,7 @@ def test_datedif_units_match_libreoffice_and_do_not_raise():
     # Day 31 rolled through a short February still matches LO (can be negative).
     assert calc.datedif(_excel_serial(2021, 1, 31), _excel_serial(2021, 3, 1), "MD") == -2.0
 
-    assert calc.datedif(start, end, "D") == (_excel_serial(2021, 3, 1) - start)
+    assert calc.datedif(start, end, "D") == _excel_serial(2021, 3, 1) - start
     assert math.isnan(calc.datedif("bad", end, "D"))
     assert math.isnan(calc.datedif(end, start, "D"))
 

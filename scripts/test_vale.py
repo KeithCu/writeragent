@@ -35,15 +35,15 @@ user_config_dir = "/tmp/writeragent_vale_test"
 print(f"\n--- Step 2: Initializing config directory at '{user_config_dir}' ---")
 try:
     from plugin.scripting.venv.vale import run_vale_check
-    
+
     # We run a check with sample text, which will trigger first-run setup (.vale.ini and vale sync)
     text = "We should utilize active voice to collaborate together, which is very unique. The button was clicked by the user at 12 pm noon because we are looking to achieve a synergistic reaction. Obviously, there are some weasel words here, but we are executing checks on this sentence. Do not make assumptions, as this is a simple opportunity. Hopefully it works now."
     print("Running initial check (this will download Microsoft, Google, and write-good style guides on first run)...")
-    
+
     start = time.monotonic()
     res = run_vale_check(text, user_config_dir, "Microsoft,Google,write-good")
     print(f"Check completed in {time.monotonic() - start:.3f}s")
-    
+
     print("\n--- Results ---")
     errors = res.get("errors", [])
     print(f"Found {len(errors)} style warnings:")

@@ -322,7 +322,3 @@ def test_escape_prose_angle_brackets():
     assert escape_prose_angle_brackets("2 < 3") == "2 &lt; 3"
     assert escape_prose_angle_brackets("4 > 1") == "4 > 1"
     assert escape_prose_angle_brackets("") == ""
-
-
-
-

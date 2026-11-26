@@ -896,5 +896,3 @@ def test_import_large_code_cell_stores_full_source_uno(ctx, doc):
             ipynb_path.unlink()
         except OSError:
             pass
-
-

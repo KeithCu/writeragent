@@ -17,6 +17,7 @@ from plugin.writer.edit_review import (
     collapsed_anchor,
     paragraph_window_text,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 class FakeCursor:
@@ -227,9 +228,6 @@ def test_apply_document_content_edited_context_wired(mode, kwargs):
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.edit_review import _is_blocking_redline, collapsed_anchor, paragraph_window_text
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass

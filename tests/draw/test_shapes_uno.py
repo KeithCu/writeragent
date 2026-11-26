@@ -20,7 +20,7 @@ from plugin.draw.tree import GetDrawTree, find_shape_on_page
 from plugin.framework.tool import ToolContext
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from tests.testing_utils import with_native_doc
+from tests.testing_utils import logo_32_path, with_native_doc
 
 
 def _group_two_rectangles(ctx, doc, doc_type):
@@ -1308,9 +1308,8 @@ def test_shape_create_diagram_arrowheads_uno(ctx, doc):
 def test_shape_delete_writer_picture_while_recording_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.images.image_tools import insert_image_at_locator
-    from tests.writer.images.test_images_uno import _logo_path
 
-    insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
+    insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     assert doc.getGraphicObjects().getCount() == 1
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
     doc.setPropertyValue("RecordChanges", True)
@@ -1804,4 +1803,3 @@ def test_writer_inline_shape_align_distribute_uno(ctx, doc):
     res_top = AlignShapes().execute(tctx, indices=[0, 1], alignment="top", page=0)
     assert res_top["status"] == "ok", res_top
     assert inline_shapes[0].getPosition().Y == inline_shapes[1].getPosition().Y
-

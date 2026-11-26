@@ -342,7 +342,7 @@ def test_cache_route_openrouter_caps_at_256():
     )
     data = json.loads(body)
     assert len(data.get("session_id", "")) == 256
-    assert data["session_id"] == ("é" * 256)
+    assert data["session_id"] == "é" * 256
 
     # Same id on anthropic/claude-sonnet-4.5 still sets body session_id (OpenRouter, not native Anthropic)
     _method, _url, body2, _headers2 = shim.build_chat_request(
@@ -350,7 +350,7 @@ def test_cache_route_openrouter_caps_at_256():
     )
     data2 = json.loads(body2)
     assert len(data2.get("session_id", "")) == 256
-    assert data2["session_id"] == ("é" * 256)
+    assert data2["session_id"] == "é" * 256
 
 
 def test_cache_route_openai_prompt_cache_key():

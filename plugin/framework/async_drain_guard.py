@@ -236,4 +236,3 @@ def reset_sentry_state() -> None:
         _owner_thread_ident = None
         _drain_depth = 0
         _suppressed_vcl_count = 0
-

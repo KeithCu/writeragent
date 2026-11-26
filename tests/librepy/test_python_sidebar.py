@@ -1034,7 +1034,3 @@ def test_cell_selection_matches_cell_diagnostic():
     mock_set_text.assert_called_once()
     detail_arg = mock_set_text.call_args[0][1]
     assert "err2" in detail_arg
-
-
-
-

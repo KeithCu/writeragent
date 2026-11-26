@@ -28,38 +28,7 @@ from plugin.ppt_master.pptx_build import (
     ensure_project_pptx,
     find_project_pptx,
 )
-
-
-def _pid_is_alive_win32(pid: int) -> bool:
-    if sys.platform != "win32":
-        return False
-    import ctypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
-    handle = kernel32.OpenProcess(access, False, pid)
-    if not handle:
-        return ctypes.get_last_error() == 5
-    exit_code = ctypes.c_ulong()
-    still_active = 259
-    alive = (
-        bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)))
-        and exit_code.value == still_active
-    )
-    kernel32.CloseHandle(handle)
-    return alive
-
-
-def pid_is_alive(pid: int | None) -> bool:
-    if pid is None or pid <= 0:
-        return False
-    if sys.platform == "win32":
-        return _pid_is_alive_win32(int(pid))
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+from plugin.tests.testing_utils import pid_is_alive
 
 
 def _wait_grandchild_gone(gpid: int, timeout: float = 5.0) -> bool:

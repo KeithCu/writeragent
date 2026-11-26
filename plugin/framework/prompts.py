@@ -873,4 +873,3 @@ def get_specialized_domain_catalog(*args: Any, **kwargs: Any) -> list[dict[str, 
 def format_specialized_domains_description(*args: Any, **kwargs: Any) -> str:
     _unused_entries, domain_description = _require_prompt_catalog()
     return domain_description(*args, **kwargs)
-

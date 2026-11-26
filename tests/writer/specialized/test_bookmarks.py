@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import FakeUnoEnum, TestingFactory
 from plugin.writer.specialized.bookmarks import (
     BookmarkCreate,
     BookmarkDelete,
@@ -221,20 +221,6 @@ def test_ensure_heading_bookmarks_never_stores():
     doc.store.assert_not_called()
 
 
-class _Enum:
-    def __init__(self, items):
-        self.items = list(items)
-        self.idx = 0
-
-    def hasMoreElements(self):
-        return self.idx < len(self.items)
-
-    def nextElement(self):
-        item = self.items[self.idx]
-        self.idx += 1
-        return item
-
-
 class _Para:
     def __init__(self, text, level):
         self.text = text
@@ -288,7 +274,7 @@ class _HeadingDoc:
 
     def createEnumeration(self):
         self.enumeration_count += 1
-        return _Enum(self.paras)
+        return FakeUnoEnum(self.paras)
 
     def getBookmarks(self):
         return self
@@ -724,5 +710,3 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
     bm_map, all_names = svc._read_mcp_bookmark_map_and_names(doc, para_ranges=None)
     assert bm_map == {}
     assert all_names == []
-
-

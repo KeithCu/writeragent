@@ -32,4 +32,3 @@ def test_get_forecast_template_anomaly_helper():
     assert "anomaly_detection_time_series" in code
     assert "stl_residual" in code
     assert "from writeragent.scripting.forecast import anomaly_detection_time_series" in code
-

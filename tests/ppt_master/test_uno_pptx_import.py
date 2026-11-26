@@ -23,6 +23,7 @@ from plugin.draw.shape_clone import ClonedShape
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
 from tests.draw.shape_fakes import FailingPosShape, FakePage, FakeShape
 from tests.harness.strip_bundle import skip_if_release_build
+from plugin.tests.testing_utils import DisposedException
 
 _NOTES = "com.sun.star.presentation.NotesShape"
 _HEADER = "com.sun.star.presentation.HeaderShape"
@@ -240,10 +241,6 @@ def test_empty_source_does_not_touch_the_target(monkeypatch):
 
 
 
-class DisposedException(Exception):
-    pass
-
-
 class _Shape:
     def __init__(self, shape_type: str, text: str = "") -> None:
         self.shape_type = shape_type
@@ -372,9 +369,6 @@ def test_copy_shapes_to_page_reimports_graphics_with_context():
 
 
 def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
-    class DisposedException(Exception):
-        pass
-
     class RuntimeException(Exception):
         pass
 

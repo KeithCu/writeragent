@@ -22,6 +22,7 @@ from plugin.chatbot.tool_loop import StreamErrorOutcome, ToolCallingMixin, strea
 from plugin.chatbot.tool_loop_state import ToolLoopState
 from plugin.chatbot.send_state import SendButtonState, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
+from plugin.tests.testing_utils import DisposedException
 
 class MockSession:
     def __init__(self):
@@ -148,17 +149,13 @@ def test_document_context_error_handling(test_instance, mock_get_tools):
             pass
         MockRuntimeException.__name__ = "RuntimeException"
 
-        class MockDisposedException(Exception):
-            pass
-        MockDisposedException.__name__ = "DisposedException"
-
         class LiveDoc:
             def getImplementationName(self):
                 return "SwXTextDocument"
 
         class DeadDoc:
             def getImplementationName(self):
-                raise MockDisposedException("doc gone")
+                raise DisposedException("doc gone")
 
         # RuntimeException against live doc -> reading-error, not closed
         test_instance.responses.clear()
@@ -1570,5 +1567,3 @@ def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_too
         items.append(q.get_nowait())
     assert items == [(StreamQueueKind.STOPPED,)]
     assert client.stream_request_with_tools.call_count == 0
-
-

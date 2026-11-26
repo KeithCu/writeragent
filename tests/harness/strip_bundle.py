@@ -125,5 +125,3 @@ requires_asserts = pytest.mark.skipif(
     asserts_stripped(),
     reason="assert statements stripped in release bundle or under python -O",
 )
-
-

@@ -13,6 +13,7 @@ from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_form
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.errors import DocumentDisposedError
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 _GETPY = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1"; A1:A2)'
@@ -80,10 +81,6 @@ def test_maybe_rewrite_skips_non_calc():
 
 def test_maybe_rewrite_none_doc():
     assert maybe_rewrite_collabora_py_formulas(None) == 0
-
-
-class _FakeDisposedException(Exception):
-    pass
 
 
 class _FakeAddr:
@@ -215,7 +212,7 @@ def test_maybe_rewrite_partial_failure_restores_is_modified():
 def test_maybe_rewrite_disposal_reraises_document_disposed():
     def _dispose_on_sheet_1(sheet_idx: int, _value: str) -> None:
         if sheet_idx == 1:
-            raise _FakeDisposedException("document disposed")
+            raise DisposedException("document disposed")
 
     clean = _FakeCalcDoc([_GETPY, _GETPY], modified=False, on_set_formula=_dispose_on_sheet_1)
     with pytest.raises(DocumentDisposedError):
@@ -225,14 +222,14 @@ def test_maybe_rewrite_disposal_reraises_document_disposed():
 
 
 def test_maybe_rewrite_is_modified_disposal_raises():
-    doc = _FakeCalcDoc([], is_modified_exc=_FakeDisposedException("gone"))
+    doc = _FakeCalcDoc([], is_modified_exc=DisposedException("gone"))
     with pytest.raises(DocumentDisposedError):
         maybe_rewrite_collabora_py_formulas(doc)
     assert doc.locked is False
 
 
 def test_maybe_rewrite_unlock_disposal_raises():
-    doc = _FakeCalcDoc([], unlock_exc=_FakeDisposedException("gone"))
+    doc = _FakeCalcDoc([], unlock_exc=DisposedException("gone"))
     with pytest.raises(DocumentDisposedError):
         maybe_rewrite_collabora_py_formulas(doc)
 

@@ -1096,6 +1096,3 @@ def test_translate_omitted_args_and_lookup_helpers():
     assert _eval("=HLOOKUP(2.5;A1:C2;2)", CalcRange([[1, 2, 3], [10, 20, 30]])) == 20
     assert _eval('=IFNA(INDEX(A1:A2;9);"x")', CalcRange([[1], [2]])) == "#REF!"
     assert _eval('=IFNA(INDEX(A1:A2;MATCH(99;A1:A2;0));"x")', CalcRange([[1], [2]])) == "x"
-
-
-

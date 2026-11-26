@@ -32,6 +32,7 @@ from plugin.notebook.notebook_runner import (
     run_cells,
     update_in_prompt,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def _code_for_field(_doc: object, field_name: str) -> str:
@@ -864,7 +865,7 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
                 "traceback": "InterpreterError: name 'car' is not defined",
             },
             apply=rec_apply,
-            
+
         ) as mocks,
     ):
         run_cell_for_doc_hex(ctx, doc, hex_id)
@@ -1250,8 +1251,8 @@ def test_run_cells_error_continues_unless_stopped():
         read_code=_code_for_field,
         execute=_exec,
         apply=_apply,
-        
-        
+
+
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1279,8 +1280,8 @@ def _run_cells_with(exec_fn, apply_fn=None, doc=None):
         read_code=_code_for_field,
         execute=exec_fn,
         apply=_apply,
-        
-        
+
+
     ):
         result = run_cells(ctx, doc, start_index=0)
     return result, applied, state
@@ -1331,9 +1332,6 @@ def test_run_cells_child_timeout_continues_batch():
 
 
 def test_run_cells_document_disposed_mid_batch_stops_quietly():
-    class DisposedException(Exception):
-        pass
-
     def _exec(_ctx, _doc, code):
         return {"status": "ok", "result": None, "stdout": ""}
 
@@ -1365,9 +1363,6 @@ def test_run_cells_live_document_runtime_exception_propagates():
 
 
 def test_run_cells_document_disposed_mid_batch_value_error_stops_quietly():
-    class DisposedException(Exception):
-        pass
-
     def _exec(_ctx, _doc, code):
         return {"status": "ok", "result": None, "stdout": ""}
 
@@ -1540,7 +1535,7 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
         patch_read_code=False,
         execute=_exec,
         apply=_apply_scoped,
-        
+
     ):
         result = run_cells(ctx, doc)
 
@@ -1583,4 +1578,3 @@ def test_run_cell_leaves_no_stop_state():
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
     assert notebook_runner._stop_flags == {}
-

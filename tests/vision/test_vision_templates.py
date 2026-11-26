@@ -31,4 +31,3 @@ def test_extract_structure_template_is_executable():
     assert call_spec.get("helper") == "extract_structure"
     params = call_spec.get("params")
     assert params == {}
-

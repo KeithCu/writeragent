@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 import os
-import struct
 import tempfile
-import zlib
 from typing import Any
 from unittest.mock import patch
 
@@ -20,30 +18,18 @@ from plugin.tests.testing_utils import (
     _windows_should_skip_draw_family_close,
     close_draw_family_doc,
     settle_after_draw_family_close,
+    unique_png_bytes,
     with_native_doc,
 )
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 from plugin.writer.images.image_tools import insert_image_at_locator
 
 
-def _make_unique_png_bytes(r: int, g: int, b: int) -> bytes:
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    signature = b"\x89PNG\r\n\x1a\n"
-    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-    raw = b"\x00" + bytes([r, g, b])
-    idat = chunk(b"IDAT", zlib.compress(raw))
-    iend = chunk(b"IEND", b"")
-    return signature + ihdr + idat + iend
-
-
 def _write_temp_png(r: int, g: int, b: int) -> str:
     fd, path = tempfile.mkstemp(suffix=".png", prefix="wa_draw_vision_")
     os.close(fd)
     with open(path, "wb") as handle:
-        handle.write(_make_unique_png_bytes(r, g, b))
+        handle.write(unique_png_bytes(r, g, b))
     return path
 
 

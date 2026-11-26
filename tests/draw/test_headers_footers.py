@@ -1,3 +1,5 @@
+from plugin.tests.testing_utils import DisposedException
+
 # WriterAgent — unit tests for Impress header/footer tool arg handling
 
 
@@ -83,9 +85,6 @@ class TestGetPage:
         from plugin.draw.headers_footers import _get_page
         from plugin.framework.errors import WriterAgentException
 
-        class DisposedException(Exception):
-            pass
-
         ctx = MagicMock()
         mock_pages = MagicMock()
         mock_pages.getCount.return_value = 3
@@ -113,9 +112,6 @@ class TestAccessorsAndCollector:
 
         shape.getString.side_effect = RuntimeError("failed")
         assert _get_text(shape) == ""
-
-        class DisposedException(Exception):
-            pass
 
         shape.getString.side_effect = DisposedException("disposed")
         import pytest
@@ -356,9 +352,6 @@ def test_set_text_disposed_reraises():
     import pytest
     from plugin.draw.headers_footers import _set_text
 
-    class DisposedException(Exception):
-        pass
-
     class Shape:
         def setString(self, _text):
             raise DisposedException("disposed")
@@ -375,6 +368,3 @@ def test_set_text_disposed_reraises():
         _set_text(Shape(), "hello")
     with pytest.raises(DocumentDisposedError):
         _set_text(LookupDisposed(), "hello")
-
-
-

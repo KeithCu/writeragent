@@ -818,7 +818,9 @@ Do not drop a shape proxy and immediately fetch the same shape again (for exampl
 
 ### Share Writer builders; prove a mock twin before deleting
 
-Writer UNO suites build bodies and tables, list paragraphs (`body_paragraphs`, `body_texts`, `body_shape`, which take any `XText`: body, header or cell) and resolve redlines (`accept_all_changes`, `reject_all_changes`, `list_redlines`) through `tests/writer/doc_builders.py`; do not add a local paragraph walker or `DispatchHelper` wrapper. Call `native_writer_tool_context` / `writer_services_tool_context` from `tests/testing_utils.py` directly for tool contexts. Document lifecycle stays in `tests/testing_utils.py`.
+Writer UNO suites build bodies and tables (`reset_body`, `set_body_text`), find text (`find_first`), list paragraphs (`body_paragraphs`, `body_texts`, `body_shape`, which take any `XText`: body, header or cell) and resolve redlines (`accept_all_changes`, `reject_all_changes`, `list_redlines`) through `tests/writer/doc_builders.py`; do not add a local paragraph walker or `DispatchHelper` wrapper. Call `native_writer_tool_context` / `writer_services_tool_context` from `tests/testing_utils.py` directly for tool contexts, or `pinned_writer_tool_context` when the tool must act on the current selection after the test moves the caret. Document lifecycle stays in `tests/testing_utils.py`.
+
+Shared fakes and helpers also live in `tests/testing_utils.py`; import them instead of writing a local copy: `DisposedException` (a bare stand-in that `is_disposal` matches by type name), `FakeUnoEnum` (a list-backed `XEnumeration`), `cancelled_scope()`, `pid_is_alive(pid)`, `unique_png_bytes(r, g, b)` and `logo_32_path()`. Keep a local class only when it does something different, such as an enumeration that raises mid-walk or a disposal type with a renamed `__name__`. CrossHair `*_verification.py` tests call `assert_crosshair_clean` from `tests/harness/crosshair.py`.
 A mock test may be deleted as a duplicate only when breaking the production line makes the UNO twin fail.
 
 ## Findings: Unspecified Application Error

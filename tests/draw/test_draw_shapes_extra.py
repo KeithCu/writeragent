@@ -8,6 +8,7 @@ import pytest
 
 from plugin.draw.shapes import AlignShapes, CreateDiagram, DistributeShapes
 from plugin.framework.tool import prepare_tool_call
+from plugin.tests.testing_utils import DisposedException
 
 
 class _Pos:
@@ -197,10 +198,6 @@ def test_create_diagram_null_arrowhead_is_omitted():
     conn_kw = mock_conn.call_args.kwargs
     assert conn_kw["line_end"] == "arrow"
     assert "line_start" not in conn_kw
-
-
-class DisposedException(Exception):
-    """Type name matches is_disposal."""
 
 
 def _align_page(side_effect):

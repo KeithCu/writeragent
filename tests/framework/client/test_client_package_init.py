@@ -45,5 +45,3 @@ def test_import_requests_does_not_load_llm_client(value):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-
-

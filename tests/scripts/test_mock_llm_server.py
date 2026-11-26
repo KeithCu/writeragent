@@ -2096,5 +2096,3 @@ def test_image_delay_sleep(monkeypatch):
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200
         assert 1.25 in sleep_calls
-
-

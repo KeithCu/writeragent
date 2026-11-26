@@ -7,7 +7,7 @@ mechanism under change recording.
 
 from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
 from plugin.writer.specialized.footnotes import FootnotesDelete, FootnotesEdit, FootnotesInsert
 from tests.writer.doc_builders import list_redline_types, reject_all_changes
 
@@ -140,9 +140,6 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.specialized.footnotes import FootnotesInsert
 
     text = doc.getText()
@@ -157,8 +154,7 @@ def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(found)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = FootnotesInsert().execute(tctx, note="footnote", text="Pinned note")

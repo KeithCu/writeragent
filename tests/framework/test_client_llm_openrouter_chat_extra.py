@@ -33,4 +33,3 @@ def test_merge_nested_provider_dicts() -> None:
     merge_openrouter_chat_extra(base, {"provider": {"order": ["a", "b"]}})
     assert base["provider"]["allow_fallbacks"] is True
     assert base["provider"]["order"] == ["a", "b"]
-

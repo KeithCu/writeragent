@@ -8,17 +8,7 @@ from plugin.writer.field_restore import (
     restore_field_placeholders,
     rewrite_exported_field_spans,
 )
-
-
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_rewrite_exported_field_spans_matches_body_xhtml():
@@ -214,7 +204,7 @@ def test_restore_fields_by_cursor_single_walk_first_token_first(portions_fn, exp
 
     class _Para:
         def createEnumeration(self):
-            return _Enum([_Portion(s, f"p{idx}") for idx, s in enumerate(portion_strs)])
+            return FakeUnoEnum([_Portion(s, f"p{idx}") for idx, s in enumerate(portion_strs)])
 
     class _Text:
         def __init__(self):
@@ -226,7 +216,7 @@ def test_restore_fields_by_cursor_single_walk_first_token_first(portions_fn, exp
 
         def createEnumeration(self):
             self.enum_calls += 1
-            return _Enum([_Para()])
+            return FakeUnoEnum([_Para()])
 
     text = _Text()
 
@@ -278,7 +268,7 @@ def test_restore_fields_in_region_without_document_search():
 
     class _Para:
         def createEnumeration(self):
-            return _Enum([_Portion()])
+            return FakeUnoEnum([_Portion()])
 
     class _Text:
         def __init__(self):
@@ -288,7 +278,7 @@ def test_restore_fields_in_region_without_document_search():
             return self.plain
 
         def createEnumeration(self):
-            return _Enum([_Para()])
+            return FakeUnoEnum([_Para()])
 
         def createTextCursorByRange(self, start):
             cursor = MagicMock()
@@ -343,7 +333,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
             self.s = s
 
         def createEnumeration(self):
-            return _Enum([_Portion(self.s)])
+            return FakeUnoEnum([_Portion(self.s)])
 
     go_right_calls = []
 
@@ -355,7 +345,7 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
             return self.plain
 
         def createEnumeration(self):
-            return _Enum([_Para(para1_text), _Para(para2_text)])
+            return FakeUnoEnum([_Para(para1_text), _Para(para2_text)])
 
         def createTextCursorByRange(self, start):
             cursor = MagicMock()
@@ -416,25 +406,25 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
 
     class _Para2:
         def createEnumeration(self):
-            return _Enum([
+            return FakeUnoEnum([
                 _Portion("bad", raise_kind=True),
                 _Portion(tok_date),
             ])
 
     class _Para3:
         def createEnumeration(self):
-            return _Enum([_Portion("bad", raise_string=True)])
+            return FakeUnoEnum([_Portion("bad", raise_string=True)])
 
     class _Para4:
         def createEnumeration(self):
-            return _Enum([_Portion(tok_page)])
+            return FakeUnoEnum([_Portion(tok_page)])
 
     class _Text:
         def getString(self):
             return full_text
 
         def createEnumeration(self):
-            return _Enum([_Para1(), _Para2(), _Para3(), _Para4()])
+            return FakeUnoEnum([_Para1(), _Para2(), _Para3(), _Para4()])
 
         def createTextCursorByRange(self, start):
             c = MagicMock()
@@ -461,25 +451,24 @@ def test_restore_fields_by_cursor_portion_disposal_raises():
 
     nonce = "test1234"
     tok = f"[[WA-FIELD:{nonce}:page-number]]"
-    disposed_exc_type = type("DisposedException", (Exception,), {})
 
     class _Portion:
         def getPropertyValue(self, name):
-            raise disposed_exc_type("gone")
+            raise DisposedException("gone")
 
         def getString(self):
             return tok
 
     class _Para:
         def createEnumeration(self):
-            return _Enum([_Portion()])
+            return FakeUnoEnum([_Portion()])
 
     class _Text:
         def getString(self):
             return tok
 
         def createEnumeration(self):
-            return _Enum([_Para()])
+            return FakeUnoEnum([_Para()])
 
     text = _Text()
     model = MagicMock()
@@ -586,7 +575,7 @@ def test_insert_restored_field_create_failure_raises():
 
 def test_insert_restored_field_disposal_is_not_a_tool_error():
     model, text_range, _field, text = _mock_field_range()
-    model.createInstance.side_effect = type("DisposedException", (Exception,), {})("gone")
+    model.createInstance.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         _insert_restored_field(model, text_range, "date")
     text.insertTextContent.assert_not_called()
@@ -610,7 +599,7 @@ def test_insert_restored_field_page_number_subtype_failure_does_not_insert():
 
 def test_insert_restored_field_property_disposal_raises_document_disposed_error():
     model, text_range, field, text = _mock_field_range()
-    field.setPropertyValue.side_effect = type("DisposedException", (Exception,), {})("disposed")
+    field.setPropertyValue.side_effect = DisposedException("disposed")
     with pytest.raises(DocumentDisposedError):
         _insert_restored_field(model, text_range, "date")
     text.insertTextContent.assert_not_called()
@@ -708,12 +697,12 @@ def test_restore_field_placeholders_in_table_cell_walk():
 
     class _Para:
         def createEnumeration(self):
-            return _Enum([_Portion()])
+            return FakeUnoEnum([_Portion()])
 
-    cell.createEnumeration.side_effect = lambda: _Enum([_Para()])
+    cell.createEnumeration.side_effect = lambda: FakeUnoEnum([_Para()])
     table.getCellByName.return_value = cell
 
-    body_enum = _Enum([table])
+    body_enum = FakeUnoEnum([table])
     body.createEnumeration.side_effect = lambda: body_enum
 
     model = MagicMock()
@@ -747,7 +736,7 @@ def test_restore_field_placeholders_find_first_fallback_accepts_cell_hit_in_body
     cell.getString.return_value = tok
     table.getCellByName.return_value = cell
 
-    body.createEnumeration.side_effect = lambda: _Enum([table])
+    body.createEnumeration.side_effect = lambda: FakeUnoEnum([table])
 
     model = MagicMock()
     model.getText.return_value = body
@@ -790,7 +779,7 @@ def test_restore_field_placeholders_remaining_cell_token_raises_tool_execution_e
     cell.getString.return_value = f"Cell with {tok}"
     table.getCellByName.return_value = cell
 
-    body.createEnumeration.side_effect = lambda: _Enum([table])
+    body.createEnumeration.side_effect = lambda: FakeUnoEnum([table])
 
     model = MagicMock()
     model.getText.return_value = body
@@ -818,11 +807,11 @@ def test_find_tokens_prefilter_skips_non_matching_paragraphs_and_walks_unreadabl
     portion = MagicMock()
     portion.getPropertyValue.return_value = "Text"
     portion.getString.return_value = "[[WA-MATH:n1:0]]"
-    para_unreadable.createEnumeration.return_value = _Enum([portion])
+    para_unreadable.createEnumeration.return_value = FakeUnoEnum([portion])
 
     xtext = MagicMock()
     xtext.getString.return_value = "[[WA-MATH:n1:0]]"
-    xtext.createEnumeration.return_value = _Enum([para_skip, para_unreadable])
+    xtext.createEnumeration.return_value = FakeUnoEnum([para_skip, para_unreadable])
     cur = MagicMock()
     cur.goRight.return_value = True
     cur.getString.return_value = "[[WA-MATH:n1:0]]"
@@ -859,11 +848,11 @@ def test_find_tokens_joins_soft_page_break_and_stops_at_text_field():
 
     para = MagicMock()
     para.getString.return_value = "ab[[WA-MATH:n1:0]][[WA-MATH:1n1:1]]"
-    para.createEnumeration.return_value = _Enum([p1, p_spb, p2, p3, p_field, p4])
+    para.createEnumeration.return_value = FakeUnoEnum([p1, p_spb, p2, p3, p_field, p4])
 
     xtext = MagicMock()
     xtext.getString.return_value = "ab[[WA-MATH:n1:0]][[WA-MATH:1n1:1]]"
-    xtext.createEnumeration.return_value = _Enum([para])
+    xtext.createEnumeration.return_value = FakeUnoEnum([para])
 
     cur = MagicMock()
     cur.goRight.return_value = True
@@ -881,7 +870,7 @@ def test_find_tokens_joins_soft_page_break_and_stops_at_text_field():
 def test_find_tokens_finds_token_nested_in_content_control():
     import re
     from plugin.writer.field_restore import find_tokens
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     prefix = "[[WA-FIELD:n2:"
     token_re = re.compile(r"\[\[WA-FIELD:n2:[^\]]+\]\]")

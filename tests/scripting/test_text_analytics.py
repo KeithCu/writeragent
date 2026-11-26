@@ -18,6 +18,7 @@ import pytest
 from plugin.scripting import text_analytics as ta
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_loads_a_model_and_analyzes():
@@ -468,19 +469,6 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
         lambda el, state=None: getattr(el, "text", ""),
     )
 
-    class FakeEnum:
-        def __init__(self, elements):
-            self.elements = list(elements)
-            self.idx = 0
-
-        def hasMoreElements(self):
-            return self.idx < len(self.elements)
-
-        def nextElement(self):
-            el = self.elements[self.idx]
-            self.idx += 1
-            return el
-
     class FakeDoc:
         def __init__(self, elements):
             self.elements = elements
@@ -489,7 +477,7 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
             return self
 
         def createEnumeration(self):
-            return FakeEnum(self.elements)
+            return FakeUnoEnum(self.elements)
 
     doc1 = FakeDoc([
         FakeEl("Introduction"),
@@ -539,20 +527,7 @@ def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
             return self
 
         def createEnumeration(self):
-            class Enum:
-                def __init__(self):
-                    self.items = [FakeEl("Hi"), FakeEl("x")]
-                    self.i = 0
-
-                def hasMoreElements(self):
-                    return self.i < len(self.items)
-
-                def nextElement(self):
-                    it = self.items[self.i]
-                    self.i += 1
-                    return it
-
-            return Enum()
+            return FakeUnoEnum([FakeEl("Hi"), FakeEl("x")])
 
     call_count = 0
 
@@ -897,9 +872,6 @@ def test_payload_has_content_and_error():
 def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class DisposedDoc:
@@ -1097,7 +1069,7 @@ def test_linguistic_profile_skips_empty_pos(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_get_writer_sections_hides_multi_paragraph_tracked_deletions(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
@@ -1133,6 +1105,3 @@ def test_get_writer_sections_hides_multi_paragraph_tracked_deletions(monkeypatch
     assert "Visible start" in sections[0]
     assert "visible ending" in sections[0]
     assert "deleted" not in sections[0]
-
-
-

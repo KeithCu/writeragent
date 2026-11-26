@@ -1476,6 +1476,3 @@ def test_save_selected_script_builtin_skips_closed_document():
         assert save_selected_script(doc, "[Vision] extract_text", "x", allow_builtin_skip=False) == read_only_helper_message()
         with pytest.raises(DocumentDisposedError):
             save_selected_script(doc, "[Doc] Report", "x")
-
-
-

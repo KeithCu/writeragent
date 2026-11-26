@@ -1,5 +1,5 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
-# Copyright (c) 2026 KeithCu 
+# Copyright (c) 2026 KeithCu
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ def _execute(doc, ctx, name, args, domain="calc"):
 def test_calc_enhanced_chart(ctx, doc):
     # 1. Setup data
     _execute(doc, ctx, "write_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
-    
+
     # 2. Create 3D Stacked Chart
     res = _execute(doc, ctx, "chart_upsert", {
         "data_range": "A1:B3",
@@ -37,7 +37,7 @@ def test_calc_enhanced_chart(ctx, doc):
     })
     assert res.get("status") == "ok", f"Create failed: {res}"
     chart_name = res.get("name")
-    
+
     # 3. Verify Info
     info = _execute(doc, ctx, "chart_get_info", {"name": chart_name})
     assert info.get("status") == "ok"
@@ -46,7 +46,7 @@ def test_calc_enhanced_chart(ctx, doc):
     assert info.get("title") == "3D Chart Test"
     assert info.get("x_axis_title") == "X Axis"
     assert info.get("y_axis_title") == "Y Axis"
-    
+
     # 4. Edit properties
     edit_res = _execute(doc, ctx, "chart_upsert", {
         "name": chart_name,
@@ -55,7 +55,7 @@ def test_calc_enhanced_chart(ctx, doc):
         "y_axis_title": "New Y"
     })
     assert edit_res.get("status") == "ok"
-    
+
     info2 = _execute(doc, ctx, "chart_get_info", {"name": chart_name})
     assert info2.get("is_3d") is False
     assert info2.get("y_axis_title") == "New Y"
@@ -116,16 +116,16 @@ def test_draw_chart_polymorphic(ctx, doc):
     }, domain="draw")
     assert res.get("status") == "ok", f"Draw create failed: {res}"
     name = res.get("name")
-    
+
     # 2. Info
     info = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="draw")
     assert info.get("is_3d") is True
     assert info.get("title") == "Slide Chart"
-    
+
     # 3. Delete
     del_res = _execute(doc, ctx, "chart_delete", {"name": name}, domain="draw")
     assert del_res.get("status") == "ok"
-    
+
     list_res = _execute(doc, ctx, "chart_list", {}, domain="draw")
     assert len(list_res.get("charts", [])) == 0
 

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.writer.search import iter_comment_hits, describe_match_location, _header_footer_label
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 # ---- fakes ----------------------------------------------------------------
@@ -82,19 +83,8 @@ class FakeDoc:
 
         class Fields:
             def createEnumeration(self):
-                return FakeEnum(outer._fields)
+                return FakeUnoEnum(outer._fields)
         return Fields()
-
-
-class FakeEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
 
 
 class FakeAnnotation:

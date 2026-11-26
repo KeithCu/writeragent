@@ -24,6 +24,7 @@ from plugin.calc.forecast import ForecastDataTool
 from plugin.calc.optimize import OptimizeDataTool
 from plugin.calc.viz import PlotDataTool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_output_anchor_quoted_dotted_sheet_and_range():
@@ -60,9 +61,6 @@ def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thre
 
 
 def _disposed():
-    class DisposedException(Exception):
-        pass
-
     return DisposedException("Binary URP bridge disposed during call")
 
 

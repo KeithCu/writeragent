@@ -595,4 +595,3 @@ def test_xdl_all_ids_classified():
         ctrl_id = elem.attrib.get(f"{{{ns['dlg']}}}id")
         if ctrl_id and ctrl_id != "ChatPanelDialog":
             assert ctrl_id in all_classified, f"Unclassified XDL control: {ctrl_id}"
-

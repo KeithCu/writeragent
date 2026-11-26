@@ -1232,5 +1232,3 @@ def test_resolve_peer_target_reraises_peer_uid():
         with patch("plugin.doc.peer_message.get_runtime_uid", side_effect=_uid):
             with pytest.raises(RuntimeError, match="UNO thread violation"):
                 resolve_peer_target(object(), self_doc, "peer-uid")
-
-

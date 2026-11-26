@@ -17,6 +17,7 @@ from plugin.draw.tables import (
     _ensure_table_dims,
 )
 from plugin.writer.specialized.tables import TableDelete, TableGetCells, TableInsert
+from plugin.tests.testing_utils import DisposedException
 
 
 class _Cell:
@@ -215,10 +216,6 @@ def test_insert_table_rejects_zero_rows():
     assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
 
 
-class DisposedException(Exception):
-    """Type name matches is_disposal."""
-
-
 @pytest.mark.parametrize(
     ("is_disposed", "page_idx"),
     [
@@ -382,9 +379,6 @@ def test_insert_table_failure_cleanup(_table_insert_env, failure_stage, exc, mat
 
 def test_table_model_reraises_disposed():
     from plugin.draw.tables import _table_model
-
-    class DisposedException(Exception):
-        pass
 
     shape = MagicMock(spec=["getModel"])
     shape.getModel.side_effect = DisposedException("closed")

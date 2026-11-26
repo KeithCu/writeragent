@@ -49,33 +49,33 @@ class EvalRunner:
         self.passed = 0
         self.failed = 0
         self.total_cost = 0.0
-        
+
         # Ensure fresh pricing for benchmarks
         fetch_openrouter_pricing(ctx)
-        
+
         # Build API config for this specific run
         self.api_config = get_api_config()
         if model_name:
             self.api_config["model"] = model_name
-        
+
         self.client = LlmClient(self.api_config, ctx)
 
     def run_test(self, name, task, category="Writer", verify_fn=None):
         """Run a single benchmark test with optional verification function."""
         log.info(f"[Eval] Running {name}...")
-        
+
         # 0. Capture state before (open document: main thread).
         pre_state = _call_on_main(self._get_document_state, category)
-        
+
         # 1. Capture initial state/context
         system_prompt = _call_on_main(get_chat_system_prompt_for_document, self.doc, "")
         doc_context = _call_on_main(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
-        
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Document Context:\n{doc_context}\n\nTask: {task}"}
         ]
-        
+
         # Choose tools based on category
         registry = _call_on_main(get_tools)
         doc_type = category.lower()
@@ -83,17 +83,17 @@ class EvalRunner:
             tools = _call_on_main(registry.get_schemas, "openai")
         else:
             tools = _call_on_main(registry.get_schemas, "openai", doc_type=doc_type)
-            
+
         start_time = time.time()
         try:
             # 2. Execute agent turn
             response = self.client.request_with_tools(messages, max_tokens=1024, tools=tools)
-            
+
             # Accurate cost calculation
             usage = response.get("usage", {})
             turn_cost = calculate_cost(self.ctx, usage, self.api_config.get("model"))
             self.total_cost += turn_cost
-            
+
             # 3. Process tool calls
             tool_calls = response.get("tool_calls", [])
             for tc in tool_calls:
@@ -104,7 +104,7 @@ class EvalRunner:
                 t_args = safe_json_loads(t_args_str)
                 if not isinstance(t_args, dict):
                     t_args = {}
-                
+
                 # Execute the tool on the main thread (the HTTP turn is not).
                 try:
                     from plugin.framework.tool import ToolContext
@@ -116,7 +116,7 @@ class EvalRunner:
                     _call_on_main(_run_tool)
                 except Exception as e:
                     log.error(f"[Eval] Tool {t_name} failed: {e}")
-            
+
             # 4. Success Verification
             passed = False
             if verify_fn:
@@ -124,14 +124,14 @@ class EvalRunner:
             else:
                 # Use LLM-as-a-Judge for semantic verification
                 passed = self._verify_with_judge(name, task, category)
-                
+
             if passed:
                 self.passed += 1
                 self.results.append({"name": name, "status": "OK", "cost": turn_cost, "latency": time.time() - start_time})
             else:
                 self.failed += 1
                 self.results.append({"name": name, "status": "FAIL (Verification)", "cost": turn_cost, "latency": time.time() - start_time})
-                
+
         except Exception as e:
             self.failed += 1
             self.results.append({"name": name, "status": f"ERROR: {str(e)}", "cost": 0, "latency": time.time() - start_time})
@@ -145,7 +145,7 @@ class EvalRunner:
         log.info(f"[Eval] Judging {name}...")
         # Snapshot current state on the main thread; the judge call itself is HTTP.
         doc_context = _call_on_main(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
-        
+
         judge_prompt = f"""
 You are an expert evaluator for LibreOffice automation.
 The user wanted to perform this task: {task}
@@ -154,18 +154,18 @@ In the context of this document type: {category}
 Current Document Content/State:
 {doc_context}
 
-Did the model successfully complete the requested task? 
+Did the model successfully complete the requested task?
 Respond with only 'YES' or 'NO' and a short reason on the next line.
 """
         try:
             # Use request_with_tools for a blocking call to the judge
             response = self.client.request_with_tools([{"role": "user", "content": judge_prompt}], max_tokens=100)
-            
+
             # Track judge cost
             usage = response.get("usage", {})
             cost = calculate_cost(self.ctx, usage, self.api_config.get("model"))
             self.total_cost += cost
-            
+
             content = (response.get("content") or "").upper()
             return "YES" in content
         except Exception as e:
@@ -184,7 +184,7 @@ Respond with only 'YES' or 'NO' and a short reason on the next line.
         total = self.passed + self.failed
         acc = (self.passed / total * 100) if total > 0 else 0
         ipd = (self.passed / self.total_cost) if self.total_cost > 0 else 0
-        
+
         summary = [
             f"Benchmark Results for {self.model_name or 'Default Model'}:",
             f"  Passed: {self.passed} / {total} ({acc:.1f}%)",
@@ -205,7 +205,7 @@ def run_benchmark_suite(ctx, doc, model_name=None, categories=["Writer", "Calc"]
     paint once per test. It must not touch UNO itself; the dashboard posts it.
     """
     runner = EvalRunner(ctx, doc, model_name, on_test_finished=on_test_finished)
-    
+
     # 📝 WRITER TESTS (20)
     if "Writer" in categories:
         # Essentials
@@ -214,7 +214,7 @@ def run_benchmark_suite(ctx, doc, model_name=None, categories=["Writer", "Calc"]
         runner.run_test("Writer: Comment Management", "Add a comment 'Review this' to the word 'Uncertain'.", category="Writer")
         runner.run_test("Writer: Bullet Consistency", "Ensure all bullet points in this list end with a period.", category="Writer")
         runner.run_test("Writer: Font Audit", "Change all text in 'Comic Sans' to 'Inter'.", category="Writer")
-        
+
         # Advanced
         runner.run_test("Writer: Table Engineering", "Convert this comma-separated list into a 2-column table with headers.", category="Writer")
         runner.run_test("Writer: Markdown Import", "Replace the second paragraph with a Markdown table from the clipboard.", category="Writer")
@@ -222,7 +222,7 @@ def run_benchmark_suite(ctx, doc, model_name=None, categories=["Writer", "Calc"]
         runner.run_test("Writer: Section Break", "Insert a section break and set the next page to Landscape orientation.", category="Writer")
         runner.run_test("Writer: Bulk Cleanup", "Remove all double spaces and ensure every sentence is followed by exactly one space.", category="Writer")
         runner.run_test("Writer: Header/Footer", "Add page numbers in the footer and the document title in the header.", category="Writer")
-        
+
         # Expert
         runner.run_test("Writer: Style Consistency", "Find all text in 'Default' style and change it to 'Quotations'.", category="Writer")
         runner.run_test("Writer: Track Changes Audit", "Accept all changes made by 'Reviewer A' but reject all by 'Reviewer B'.", category="Writer")
@@ -242,7 +242,7 @@ def run_benchmark_suite(ctx, doc, model_name=None, categories=["Writer", "Calc"]
         runner.run_test("Calc: Row Clean", "Remove all empty rows in Sheet1.", category="Calc")
         runner.run_test("Calc: Auto-Formatting", "Highlight all cells in Column D greater than 1000 in Red.", category="Calc")
         runner.run_test("Calc: Lookup Logic", "Use VLOOKUP to find the price of 'Apple' from the 'Prices' sheet.", category="Calc")
-        
+
         # Advanced
         runner.run_test("Calc: Data Sorting", "Sort A1:D100 by 'Revenue' descending, after detecting the column.", category="Calc")
         runner.run_test("Calc: Error Debugging", "The formula in D10 is failing. Find out why and fix it.", category="Calc")
@@ -250,7 +250,7 @@ def run_benchmark_suite(ctx, doc, model_name=None, categories=["Writer", "Calc"]
         runner.run_test("Calc: Validation", "Restrict Column F to only allow dates between 2020 and 2025.", category="Calc")
         runner.run_test("Calc: Data Transpose", "Take the row headers from A1:E1 and turn them into column headers in A1:A5.", category="Calc")
         runner.run_test("Calc: Pivot Setup", "Create a pivot table summary of this data onto a new sheet.", category="Calc")
-        
+
         # Expert
         runner.run_test("Calc: Auto-Charting", "Create a line chart for the trends in A1:B12.", category="Calc")
         runner.run_test("Calc: Data Recovery", "Fix the broken CSV import that shifted everything by one column.", category="Calc")

@@ -76,5 +76,3 @@ class TestWriterToolsSmoke:
         for s in schemas:
             assert "description" in s["function"]
             assert "parameters" in s["function"]
-
-

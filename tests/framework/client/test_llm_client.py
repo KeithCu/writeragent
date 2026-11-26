@@ -400,5 +400,3 @@ class TestStreamingHttpErrors:
                 lambda t: None,
             )
         assert str(ctx.value) == "HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down"
-
-

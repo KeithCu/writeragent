@@ -32,6 +32,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     release_sticky_session,
     set_selector_mode_with_flags,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_mode_labels_match_modes_for_length_and_order():
@@ -92,9 +93,6 @@ def test_mode_from_selector_error_handling():
     flags = SidebarModeFlags()
     ctrl.getSelectedItemPos.side_effect = RuntimeError("Bridge failure")
     assert mode_from_selector_with_flags(ctrl, flags) == CHAT_MODE_CHAT
-
-    class DisposedException(Exception):
-        pass
 
     ctrl.getSelectedItemPos.side_effect = DisposedException("object disposed")
     with pytest.raises(DisposedException):
@@ -239,4 +237,3 @@ def test_librarian_mode_finished_applies_chat_mode():
     mock_set.assert_called_once()
     assert mock_set.call_args[0][1] == CHAT_MODE_CHAT
     listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
-

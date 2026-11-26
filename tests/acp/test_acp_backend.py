@@ -96,9 +96,9 @@ class TestDefaultExtraArgs:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (len(backend._extra_args)) == (2)
-        assert (backend._extra_args[0]) == ("--config")
-        assert ("my file.json") in (backend._extra_args[1])
+        assert len(backend._extra_args) == 2
+        assert backend._extra_args[0] == "--config"
+        assert "my file.json" in backend._extra_args[1]
 
     def test_windows_split_strips_quotes_and_keeps_backslashes(self):
         """posix=False keeps \\ , then one wrapping quote pair is removed.
@@ -168,8 +168,8 @@ class TestDefaultExtraArgs:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) == (expected)
-        assert (backend._extra_args) == ([])
+        assert backend._binary_path == expected
+        assert backend._extra_args == []
 
     @pytest.mark.parametrize(
         "backend_cls,binary",
@@ -202,7 +202,7 @@ class TestDefaultExtraArgs:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._extra_args) == ([])
+        assert backend._extra_args == []
 
 
 class TestBinaryDiscovery:
@@ -215,8 +215,8 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value="/usr/bin/hermes"),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) == ("/custom/bin/hermes")
-        assert (backend._extra_args) == (["acp"])
+        assert backend._binary_path == "/custom/bin/hermes"
+        assert backend._extra_args == ["acp"]
 
     def test_which_used_when_config_path_empty(self):
         with (
@@ -225,8 +225,8 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value="/usr/bin/opencode"),
         ):
             backend = OpenCodeBackend()
-        assert (backend._binary_path) == ("/usr/bin/opencode")
-        assert (backend._extra_args) == (["acp"])
+        assert backend._binary_path == "/usr/bin/opencode"
+        assert backend._extra_args == ["acp"]
 
     def test_which_used_when_config_path_empty_antigravity(self):
         with (
@@ -235,8 +235,8 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value="/usr/bin/agy"),
         ):
             backend = AntigravityBackend()
-        assert (backend._binary_path) == ("/usr/bin/agy")
-        assert (backend._extra_args) == (["acp"])
+        assert backend._binary_path == "/usr/bin/agy"
+        assert backend._extra_args == ["acp"]
 
     def test_missing_config_path_warns_and_falls_back(self, caplog):
         caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
@@ -246,7 +246,7 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value="/usr/bin/hermes"),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) == ("/usr/bin/hermes")
+        assert backend._binary_path == "/usr/bin/hermes"
         assert any(r.levelname == "WARNING" for r in caplog.records)
 
     def test_empty_config_path_does_not_warn(self, caplog):
@@ -257,7 +257,7 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value="/usr/bin/hermes"),
         ):
             HermesBackend()
-        assert ("agent_backend.path") not in (caplog.text)
+        assert "agent_backend.path" not in caplog.text
 
     def test_home_local_bin_used_when_not_on_path(self):
         home_bin = os.path.join(os.path.expanduser("~"), ".local", "bin", "hermes")
@@ -275,8 +275,8 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) == (home_bin)
-        assert (backend._extra_args) == (["acp"])
+        assert backend._binary_path == home_bin
+        assert backend._extra_args == ["acp"]
 
     def test_is_available_path_fallback_applies_defaults(self):
         with (
@@ -286,15 +286,15 @@ class TestBinaryDiscovery:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) is None
+        assert backend._binary_path is None
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path="", args="")),
             patch("os.path.isfile", return_value=False),
             patch("shutil.which", return_value="/opt/path/hermes"),
         ):
-            assert (backend.is_available(None))
-        assert (backend._binary_path) == ("/opt/path/hermes")
-        assert (backend._extra_args) == (["acp"])
+            assert backend.is_available(None)
+        assert backend._binary_path == "/opt/path/hermes"
+        assert backend._extra_args == ["acp"]
 
     def test_is_available_caches_path_hit(self):
         with (
@@ -390,7 +390,7 @@ class TestBinaryDiscovery:
         monkeypatch.setattr("plugin.acp.acp_backend.shutil.which", lambda binary_name: None)
         backend = _bare_backend()
         backend.binary_name = name
-        assert (backend._find_binary()) == (str(binary))
+        assert backend._find_binary() == str(binary)
 
 
 class TestMergedUpdateHandler:
@@ -422,26 +422,26 @@ class TestMergedUpdateHandler:
             (StreamQueueKind.TOOL_CALL, tool_call),
             (StreamQueueKind.TOOL_RESULT, tool_result),
         ]
-        assert (self._events(self.backend._handle_acp_update, update)) == (expected)
+        assert self._events(self.backend._handle_acp_update, update) == expected
 
     def test_dict_content_text(self):
         update = {"content": {"type": "text", "text": "Hi"}}
-        assert (self._events(self.backend._handle_acp_update, update)) == ([(StreamQueueKind.CHUNK, "Hi")])
+        assert self._events(self.backend._handle_acp_update, update) == [(StreamQueueKind.CHUNK, "Hi")]
 
     def test_dict_content_tool_call(self):
         item = {"type": "tool_call", "name": "search"}
         update = {"content": item}
-        assert (self._events(self.backend._handle_acp_update, update)) == ([(StreamQueueKind.TOOL_CALL, item)])
+        assert self._events(self.backend._handle_acp_update, update) == [(StreamQueueKind.TOOL_CALL, item)]
 
     def test_dict_content_tool_result(self):
         item = {"type": "tool_result", "content": "done"}
         update = {"content": item}
-        assert (self._events(self.backend._handle_acp_update, update)) == ([(StreamQueueKind.TOOL_RESULT, item)])
+        assert self._events(self.backend._handle_acp_update, update) == [(StreamQueueKind.TOOL_RESULT, item)]
 
     def test_missing_or_unknown_content_is_noop(self):
-        assert (self._events(self.backend._handle_acp_update, {"keys": "only"})) == ([])
-        assert (self._events(self.backend._handle_acp_update, {"content": "plain"})) == ([])
-        assert (self._events(self.backend._handle_acp_update, None)) == ([])
+        assert self._events(self.backend._handle_acp_update, {"keys": "only"}) == []
+        assert self._events(self.backend._handle_acp_update, {"content": "plain"}) == []
+        assert self._events(self.backend._handle_acp_update, None) == []
 
 
 class TestPromptResultContentBlocks:
@@ -472,13 +472,13 @@ class TestPromptResultContentBlocks:
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        assert ((StreamQueueKind.CHUNK, "Hello from ACP")) in (events)
-        assert ((StreamQueueKind.TOOL_CALL, tool_call)) in (events)
-        assert ((StreamQueueKind.TOOL_RESULT, tool_result)) in (events)
-        assert ((StreamQueueKind.STREAM_DONE, None)) in (events)
+        assert (StreamQueueKind.CHUNK, "Hello from ACP") in events
+        assert (StreamQueueKind.TOOL_CALL, tool_call) in events
+        assert (StreamQueueKind.TOOL_RESULT, tool_result) in events
+        assert (StreamQueueKind.STREAM_DONE, None) in events
         mock_conn.stop.assert_not_called()
-        assert (backend._conn) is mock_conn
-        assert (backend._session_id) == ("sess-1")
+        assert backend._conn is mock_conn
+        assert backend._session_id == "sess-1"
 
 
 def _arm_rpc(conn):
@@ -573,32 +573,32 @@ class TestSessionUpdateDiscriminator:
 
     def test_agent_message_chunk_is_answer_text(self):
         update = {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Hello"}}
-        assert (self._events(update)) == ([(StreamQueueKind.CHUNK, "Hello")])
+        assert self._events(update) == [(StreamQueueKind.CHUNK, "Hello")]
 
     def test_agent_thought_chunk_is_thinking_not_answer(self):
         update = {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "Let me think"}}
         events = self._events(update)
-        assert (events) == ([(StreamQueueKind.THINKING, "Let me think")])
-        assert ((StreamQueueKind.CHUNK, "Let me think")) not in (events)
+        assert events == [(StreamQueueKind.THINKING, "Let me think")]
+        assert (StreamQueueKind.CHUNK, "Let me think") not in events
 
     def test_user_message_chunk_is_not_saved_as_answer(self):
         update = {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "echo"}}
-        assert (self._events(update)) == ([])
+        assert self._events(update) == []
 
     def test_tool_call_is_queued(self):
         update = {"sessionUpdate": "tool_call", "toolCallId": "call_001", "title": "Analyzing Python code", "kind": "other", "status": "pending"}
         events = self._events(update)
-        assert (len(events)) == (1)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
-        assert (events[0][1]["id"]) == ("call_001")
-        assert (events[0][1]["title"]) == ("Analyzing Python code")
-        assert (events[0][1]["status"]) == ("pending")
+        assert len(events) == 1
+        assert events[0][0] == StreamQueueKind.TOOL_CALL
+        assert events[0][1]["id"] == "call_001"
+        assert events[0][1]["title"] == "Analyzing Python code"
+        assert events[0][1]["status"] == "pending"
 
     def test_tool_call_update_in_progress_is_tool_activity(self):
         update = {"sessionUpdate": "tool_call_update", "toolCallId": "call_001", "status": "in_progress"}
         events = self._events(update)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
-        assert (events[0][1]["status"]) == ("in_progress")
+        assert events[0][0] == StreamQueueKind.TOOL_CALL
+        assert events[0][1]["status"] == "in_progress"
 
     def test_tool_call_update_in_progress_with_content_is_activity(self):
         """Streaming content is not a finished result.
@@ -614,14 +614,14 @@ class TestSessionUpdateDiscriminator:
             "content": [{"type": "content", "content": {"type": "text", "text": "partial"}}],
         }
         events = self._events(update)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
+        assert events[0][0] == StreamQueueKind.TOOL_CALL
         pending = {"sessionUpdate": "tool_call_update", "toolCallId": "call_001", "status": "pending", "rawOutput": {"partial": True}}
-        assert (self._events(pending)[0][0]) == (StreamQueueKind.TOOL_CALL)
+        assert self._events(pending)[0][0] == StreamQueueKind.TOOL_CALL
 
     def test_tool_call_update_content_without_status_is_a_result(self):
         update = {"sessionUpdate": "tool_call_update", "toolCallId": "call_001", "rawOutput": {"ok": True}}
         events = self._events(update)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_RESULT)
+        assert events[0][0] == StreamQueueKind.TOOL_RESULT
 
     def test_tool_call_update_completed_is_tool_result(self):
         update = {
@@ -631,9 +631,9 @@ class TestSessionUpdateDiscriminator:
             "content": [{"type": "content", "content": {"type": "text", "text": "done"}}],
         }
         events = self._events(update)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_RESULT)
-        assert (events[0][1]["id"]) == ("call_001")
-        assert (events[0][1]["content"][0]["content"]["text"]) == ("done")
+        assert events[0][0] == StreamQueueKind.TOOL_RESULT
+        assert events[0][1]["id"] == "call_001"
+        assert events[0][1]["content"][0]["content"]["text"] == "done"
 
     def test_tool_call_update_cancelled_without_content_is_tool_result(self):
         update = {
@@ -642,16 +642,16 @@ class TestSessionUpdateDiscriminator:
             "status": "cancelled",
         }
         events = self._events(update)
-        assert (events[0][0]) == (StreamQueueKind.TOOL_RESULT)
+        assert events[0][0] == StreamQueueKind.TOOL_RESULT
         assert _tool_stream_kind(update) == StreamQueueKind.TOOL_RESULT
 
     def test_legacy_non_str_text_is_not_queued(self):
         update = {"content": [{"type": "text", "text": {"not": "a string"}}, {"type": "text", "text": "kept"}]}
-        assert (self._events(update)) == ([(StreamQueueKind.CHUNK, "kept")])
+        assert self._events(update) == [(StreamQueueKind.CHUNK, "kept")]
 
     def test_unrelated_session_update_is_not_merged_into_answer(self):
         update = {"sessionUpdate": "usage_update", "used": 10, "size": 100, "content": {"type": "text", "text": "nope"}}
-        assert (self._events(update)) == ([])
+        assert self._events(update) == []
 
 
 class TestPermissionResult:
@@ -672,14 +672,14 @@ class TestPermissionResult:
     def test_description_comes_from_title_and_option_names(self):
         backend = _bare_backend()
         events = self._request(backend)
-        assert (len(events)) == (1)
+        assert len(events) == 1
         kind, description, tool_name, tool_call, msg_id = events[0]
-        assert (kind) == (StreamQueueKind.APPROVAL_REQUIRED)
-        assert (description) == ("Edit main.py\nAlways allow\nAllow once\nReject always\nReject")
-        assert ("NOT THIS") not in (description)
-        assert (tool_name) == ("edit")
-        assert (tool_call["title"]) == ("Edit main.py")
-        assert (msg_id) == (5)
+        assert kind == StreamQueueKind.APPROVAL_REQUIRED
+        assert description == "Edit main.py\nAlways allow\nAllow once\nReject always\nReject"
+        assert "NOT THIS" not in description
+        assert tool_name == "edit"
+        assert tool_call["title"] == "Edit main.py"
+        assert msg_id == 5
 
     @pytest.mark.parametrize(
         "value, value_2",
@@ -753,9 +753,9 @@ class TestPermissionResult:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(conn, "session/request_permission", {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS}, 8, q)
-        assert (_drain(q)) == ([])
+        assert _drain(q) == []
         conn.send_response.assert_called_once_with(8, result={"outcome": {"outcome": "cancelled"}})
-        assert (backend._pending_permissions) == ({})
+        assert backend._pending_permissions == {}
 
     def test_second_answer_is_not_sent(self):
         backend = _bare_backend()
@@ -765,7 +765,7 @@ class TestPermissionResult:
         self._request(backend, msg_id=5)
         backend.submit_approval(5, True)
         backend.submit_approval(5, False)
-        assert (conn.send_response.call_count) == (1)
+        assert conn.send_response.call_count == 1
 
     def test_permission_without_id_is_not_queued(self, caplog):
         caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
@@ -781,9 +781,9 @@ class TestPermissionResult:
             None,
             q,
         )
-        assert (_drain(q)) == ([])
+        assert _drain(q) == []
         conn.send_response.assert_not_called()
-        assert (backend._pending_permissions) == ({})
+        assert backend._pending_permissions == {}
         assert any(r.levelname == "WARNING" for r in caplog.records)
 
     def test_permission_without_id_after_stop_is_not_queued(self, caplog):
@@ -801,9 +801,9 @@ class TestPermissionResult:
             None,
             q,
         )
-        assert (_drain(q)) == ([])
+        assert _drain(q) == []
         conn.send_response.assert_not_called()
-        assert (backend._pending_permissions) == ({})
+        assert backend._pending_permissions == {}
         assert any(r.levelname == "WARNING" for r in caplog.records)
 
     def test_permission_with_unhashable_id_is_cancelled(self, caplog):
@@ -861,13 +861,13 @@ class TestStopAndShutdown:
 
         conn.send_notification.assert_not_called()
         conn.send_response.assert_called_once_with(7, result={"outcome": {"outcome": "cancelled"}})
-        assert ("session/interrupt") not in (str(conn.send_notification.call_args_list))
+        assert "session/interrupt" not in str(conn.send_notification.call_args_list)
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._session_id) == ("sess-1")
+        assert backend._conn is conn
+        assert backend._session_id == "sess-1"
         # The dialog lost the race: Stop already answered.
         backend.submit_approval(7, True)
-        assert (conn.send_response.call_count) == (1)
+        assert conn.send_response.call_count == 1
 
     def test_stop_cancels_permission_on_the_request_connection(self):
         backend = _bare_backend()
@@ -902,7 +902,7 @@ class TestStopAndShutdown:
         conn.send_notification.assert_called_once_with("session/cancel", {"sessionId": "sess-1"})
         arm.assert_called_once_with(backend._inflight_token, conn)
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
+        assert backend._conn is conn
 
     def test_stop_cancel_uses_the_inflight_connection_and_session(self):
         backend = _bare_backend()
@@ -944,11 +944,11 @@ class TestStopAndShutdown:
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
-        assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
+        assert (StreamQueueKind.STREAM_DONE, None) in _drain(q)
         conn.stop.assert_not_called()
         conn.send_notification.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._session_id) == ("sess-1")
+        assert backend._conn is conn
+        assert backend._session_id == "sess-1"
 
     def test_session_creation_failure_keeps_a_live_cli(self):
         backend = _bare_backend()
@@ -963,9 +963,9 @@ class TestStopAndShutdown:
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.ERROR) in (kinds)
+        assert StreamQueueKind.ERROR in kinds
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
+        assert backend._conn is conn
 
     def test_send_error_when_process_fails(self):
         backend = _bare_backend()
@@ -973,7 +973,7 @@ class TestStopAndShutdown:
         q = queue.Queue()
         backend.send(queue=q, user_message="test", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.ERROR) in (kinds)
+        assert StreamQueueKind.ERROR in kinds
 
     def test_stop_during_prompt_keeps_the_cli_when_the_prompt_returns(self):
         backend = _bare_backend()
@@ -1003,16 +1003,16 @@ class TestStopAndShutdown:
             target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope),
         )
         worker.start()
-        assert (started.wait(timeout=2))
+        assert started.wait(timeout=2)
         backend.stop()
         worker.join(timeout=2)
-        assert (worker.is_alive()) is False
+        assert worker.is_alive() is False
         conn.send_notification.assert_called_with("session/cancel", {"sessionId": "sess-9"})
         conn.send_response.assert_any_call(4, result={"outcome": {"outcome": "cancelled"}})
         conn.stop.assert_not_called()
-        assert ((StreamQueueKind.STOPPED, None)) in (_drain(q))
-        assert (backend._conn) is conn
-        assert (backend._session_id) == ("sess-9")
+        assert (StreamQueueKind.STOPPED, None) in _drain(q)
+        assert backend._conn is conn
+        assert backend._session_id == "sess-9"
 
     def test_stop_grace_kills_when_the_prompt_does_not_return(self):
         backend = _bare_backend()
@@ -1040,15 +1040,15 @@ class TestStopAndShutdown:
             target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope),
         )
         worker.start()
-        assert (started.wait(timeout=2))
+        assert started.wait(timeout=2)
         with patch("plugin.acp.acp_backend._CANCEL_GRACE_SEC", 0.05):
             backend.stop()
             worker.join(timeout=2)
-        assert (worker.is_alive()) is False
+        assert worker.is_alive() is False
         conn.stop.assert_called()
-        assert ((StreamQueueKind.STOPPED, None)) in (_drain(q))
-        assert (backend._conn) is None
-        assert (backend._session_id) is None
+        assert (StreamQueueKind.STOPPED, None) in _drain(q)
+        assert backend._conn is None
+        assert backend._session_id is None
 
     def test_request_does_not_send_when_this_turn_is_already_stopped(self):
         backend = _bare_backend()
@@ -1058,7 +1058,7 @@ class TestStopAndShutdown:
             backend._request(conn, "session/prompt", {}, 1)
         conn.send_request.assert_not_called()
         assert backend._inflight_token is None
-        assert (backend._prompt_done.is_set()) is True
+        assert backend._prompt_done.is_set() is True
 
     def test_stop_just_before_the_prompt_does_not_send_it(self):
         backend = _bare_backend()
@@ -1078,12 +1078,12 @@ class TestStopAndShutdown:
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
         conn.send_request.assert_not_called()
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._session_id) == ("sess-1")
+        assert backend._conn is conn
+        assert backend._session_id == "sess-1"
 
     def test_stop_before_session_new_is_stopped_not_a_session_error(self):
         backend = _bare_backend()
@@ -1105,11 +1105,11 @@ class TestStopAndShutdown:
         scope = SendCancellation()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
         conn.send_request.assert_not_called()
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
+        assert backend._conn is conn
 
     def test_grace_kills_only_the_turn_that_is_still_inflight(self):
         backend = _bare_backend()
@@ -1126,9 +1126,9 @@ class TestStopAndShutdown:
         backend._kill_turn_if_still_inflight(token, conn)
         conn.send_response.assert_called_once_with(9, result={"outcome": {"outcome": "cancelled"}})
         conn.stop.assert_called_once()
-        assert (backend._conn) is None
-        assert (backend._session_id) is None
-        assert (backend._ready) is False
+        assert backend._conn is None
+        assert backend._session_id is None
+        assert backend._ready is False
 
     def test_grace_does_not_kill_after_the_turn_moves(self):
         backend = _bare_backend()
@@ -1143,13 +1143,13 @@ class TestStopAndShutdown:
         backend._conn = conn
         backend._kill_turn_if_still_inflight(other_token, conn)
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._session_id) == ("sess")
+        assert backend._conn is conn
+        assert backend._session_id == "sess"
 
         backend._kill_turn_if_still_inflight(token, conn)
         conn.stop.assert_called_once()
-        assert (backend._conn) is None
-        assert (backend._session_id) is None
+        assert backend._conn is None
+        assert backend._session_id is None
 
     def test_stop_grace_with_overlapping_second_send(self):
         backend = _bare_backend()
@@ -1226,7 +1226,7 @@ class TestStopAndShutdown:
         backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
-        assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
+        assert _drain(q) == [(StreamQueueKind.STOPPED, None)]
         backend._ensure_connection.assert_not_called()
         backend._ensure_session.assert_not_called()
         assert scope.is_cancelled() is True
@@ -1246,14 +1246,14 @@ class TestStopAndShutdown:
         backend._ensure_connection = ensure_connection
         q = queue.Queue()
         backend.send(queue=q, user_message="one", document_context=None, document_url=None)
-        assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
+        assert (StreamQueueKind.STREAM_DONE, None) in _drain(q)
         backend.stop()
         backend.send(queue=q, user_message="two", document_context=None, document_url=None)
         second = _drain(q)
-        assert ((StreamQueueKind.STREAM_DONE, None)) in (second)
-        assert (StreamQueueKind.STOPPED) not in ([event[0] for event in second])
-        assert (conn.send_request.call_count) == (2)
-        assert (backend._session_id) == ("sess-1")
+        assert (StreamQueueKind.STREAM_DONE, None) in second
+        assert StreamQueueKind.STOPPED not in [event[0] for event in second]
+        assert conn.send_request.call_count == 2
+        assert backend._session_id == "sess-1"
         conn.stop.assert_not_called()
 
     def test_release_of_a_replaced_connection_keeps_the_new_session(self):
@@ -1268,11 +1268,11 @@ class TestStopAndShutdown:
         backend._release_connection(old)
         old.stop.assert_called_once()
         new.stop.assert_not_called()
-        assert (backend._conn) is new
-        assert (backend._session_id) == ("sess-new")
-        assert (backend._ready) is True
-        assert (backend._session_prompted) is True
-        assert (backend._session_url) == ("file:///a.odt")
+        assert backend._conn is new
+        assert backend._session_id == "sess-new"
+        assert backend._ready is True
+        assert backend._session_prompted is True
+        assert backend._session_url == "file:///a.odt"
 
     def test_release_of_the_current_connection_clears_the_session(self):
         backend = _bare_backend()
@@ -1284,11 +1284,11 @@ class TestStopAndShutdown:
         backend._session_prompted = True
         backend._release_connection(conn)
         conn.stop.assert_called_once()
-        assert (backend._conn) is None
-        assert (backend._session_id) is None
-        assert (backend._ready) is False
-        assert (backend._session_prompted) is False
-        assert (backend._session_url) is None
+        assert backend._conn is None
+        assert backend._session_id is None
+        assert backend._ready is False
+        assert backend._session_prompted is False
+        assert backend._session_url is None
 
     def test_previous_stop_does_not_abort_the_next_send(self):
         backend = _bare_backend()
@@ -1304,7 +1304,7 @@ class TestStopAndShutdown:
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
-        assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
+        assert (StreamQueueKind.STREAM_DONE, None) in _drain(q)
         conn.stop.assert_not_called()
 
     def test_notification_callback_is_registered_before_session_new(self):
@@ -1347,8 +1347,8 @@ class TestStopAndShutdown:
         backend._ensure_connection = ensure_connection
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
-        assert (order.index("callback")) < (order.index("session/new"))
-        assert ((StreamQueueKind.CHUNK, "during-new")) in (_drain(q))
+        assert order.index("callback") < order.index("session/new")
+        assert (StreamQueueKind.CHUNK, "during-new") in _drain(q)
 
     def test_overlapping_send_waits_for_first_send_finally(self):
         backend = _bare_backend()
@@ -1574,14 +1574,14 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
         conn.send_request.assert_not_called()
         # Stop during spawn leaves the child. The next send continues
         # initialize because the process is not ready yet.
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._ready) is False
+        assert backend._conn is conn
+        assert backend._ready is False
 
     def test_cancel_during_spawn_does_not_prompt(self):
         backend = self._backend()
@@ -1596,8 +1596,8 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
         assert scope.is_cancelled() is True
         conn.send_request.assert_not_called()
 
@@ -1616,12 +1616,12 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.ERROR not in kinds
         conn.send_request.assert_not_called()
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
-        assert (backend._ready) is False
+        assert backend._conn is conn
+        assert backend._ready is False
 
     def test_cold_start_initializes_without_sleeping(self):
         backend = self._backend()
@@ -1629,11 +1629,11 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend._ensure_connection()
         conn.send_request.assert_called_once()
-        assert (conn.send_request.call_args.args[0]) == ("initialize")
+        assert conn.send_request.call_args.args[0] == "initialize"
         params = conn.send_request.call_args.args[1]
-        assert (params["clientCapabilities"]["fs"]) == ({"readTextFile": False, "writeTextFile": False})
-        assert (params["clientInfo"]["version"]) == (EXTENSION_VERSION)
-        assert (backend._ready) is True
+        assert params["clientCapabilities"]["fs"] == {"readTextFile": False, "writeTextFile": False}
+        assert params["clientInfo"]["version"] == EXTENSION_VERSION
+        assert backend._ready is True
 
     def test_initialize_warns_on_protocol_version_mismatch(self, caplog):
         backend = self._backend()
@@ -1660,9 +1660,9 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", side_effect=AssertionError("spawned")):
             backend._ensure_connection()
         conn.start.assert_not_called()
-        assert (conn.send_request.call_args.args[0]) == ("initialize")
-        assert (backend._ready) is True
-        assert (backend._conn) is conn
+        assert conn.send_request.call_args.args[0] == "initialize"
+        assert backend._ready is True
+        assert backend._conn is conn
 
     def test_dead_child_is_dropped_and_replaced(self):
         backend = self._backend()
@@ -1674,9 +1674,9 @@ class TestStartupWait:
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=fresh):
             backend._ensure_connection()
         dead.stop.assert_called()
-        assert (backend._conn) is fresh
-        assert (backend._session_id) is None
-        assert (backend._ready) is True
+        assert backend._conn is fresh
+        assert backend._session_id is None
+        assert backend._ready is True
 
     def test_dead_process_includes_stderr_tail(self):
         backend = self._backend()
@@ -1714,7 +1714,7 @@ class TestUnknownAcpRequest:
         q = queue.Queue()
         backend._dispatch_notification(conn, "fs/read_text_file", {"path": "a"}, 7, q)
         conn.send_response.assert_called_once_with(7, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
-        assert (_drain(q)) == ([])
+        assert _drain(q) == []
 
     def test_notification_is_not_rejected(self):
         backend = _bare_backend()
@@ -1729,7 +1729,7 @@ class TestUnknownAcpRequest:
             q,
         )
         conn.send_response.assert_not_called()
-        assert (_drain(q)) == ([(StreamQueueKind.CHUNK, "hi")])
+        assert _drain(q) == [(StreamQueueKind.CHUNK, "hi")]
 
     def test_session_update_with_id_is_acknowledged(self):
         """A request-shaped session/update must be answered or the agent blocks."""
@@ -1745,7 +1745,7 @@ class TestUnknownAcpRequest:
             q,
         )
         conn.send_response.assert_called_once_with(9, result={})
-        assert ((StreamQueueKind.CHUNK, "hi")) in (_drain(q))
+        assert (StreamQueueKind.CHUNK, "hi") in _drain(q)
 
     def test_unknown_method_while_stopped_is_still_rejected(self):
         backend = _bare_backend()
@@ -1755,7 +1755,7 @@ class TestUnknownAcpRequest:
         q = queue.Queue()
         backend._dispatch_notification(conn, "fs/read_text_file", {}, 3, q)
         conn.send_response.assert_called_once_with(3, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
-        assert (_drain(q)) == ([])
+        assert _drain(q) == []
 
     @pytest.mark.parametrize(
         "method",
@@ -1899,12 +1899,12 @@ class TestSessionId:
             backend.send(queue=q, user_message="two", document_context="doc-v2", document_url="file:///a.odt", system_prompt="MANUAL")
         new_calls = [params for method, params in calls if method == "session/new"]
         prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
-        assert (len(new_calls)) == (1)
-        assert (len(prompts)) == (2)
+        assert len(new_calls) == 1
+        assert len(prompts) == 2
         first = [block["text"] for block in prompts[0]]
         second = [block["text"] for block in prompts[1]]
-        assert ("MANUAL\n\n") in (first)
-        assert ("MANUAL\n\n") not in (second)
+        assert "MANUAL\n\n" in first
+        assert "MANUAL\n\n" not in second
         assert any("doc-v1" in text for text in first)
         assert any("doc-v2" in text for text in second)
         assert "doc-v1" in first[-1]
@@ -1912,7 +1912,7 @@ class TestSessionId:
         assert "doc-v2" in second[-1]
         assert "two" in second[:-1]
         conn.stop.assert_not_called()
-        assert (backend._session_id) == ("sess-1")
+        assert backend._session_id == "sess-1"
 
     def test_different_document_url_starts_a_new_session(self):
         backend = _bare_backend()
@@ -1940,9 +1940,9 @@ class TestSessionId:
             backend.send(queue=q, user_message="two", document_context="doc", document_url="file:///b.odt", system_prompt="MANUAL")
         new_urls = [params["cwd"] for method, params in calls if method == "session/new"]
         prompts = [params["prompt"] for method, params in calls if method == "session/prompt"]
-        assert (len(new_urls)) == (2)
-        assert (len(prompts)) == (2)
-        assert ("MANUAL\n\n") in ([block["text"] for block in prompts[1]])
+        assert len(new_urls) == 2
+        assert len(prompts) == 2
+        assert "MANUAL\n\n" in [block["text"] for block in prompts[1]]
         conn.stop.assert_not_called()
 
     def test_prompt_blocks_carry_blank_line_separators_around_user_text(self):
@@ -1969,7 +1969,7 @@ class TestSessionId:
             backend._ensure_session(document_url=None)
             backend._ensure_session(document_url="")
         conn.send_request.assert_called_once()
-        assert (backend._session_url) == ("")
+        assert backend._session_url == ""
 
     def test_session_new_failure_leaves_a_live_process(self):
         backend = _bare_backend()
@@ -1980,7 +1980,7 @@ class TestSessionId:
             with pytest.raises(RuntimeError, match="nope"):
                 backend._ensure_session(document_url="file:///a.odt")
         conn.stop.assert_not_called()
-        assert (backend._conn) is conn
+        assert backend._conn is conn
 
     def test_session_new_failure_drops_a_dead_process(self):
         backend = _bare_backend()
@@ -1991,7 +1991,7 @@ class TestSessionId:
             with pytest.raises(RuntimeError, match="died"):
                 backend._ensure_session(document_url="file:///a.odt")
         conn.stop.assert_called()
-        assert (backend._conn) is None
+        assert backend._conn is None
 
     def test_missing_process_without_stop_is_an_error(self):
         backend = _bare_backend()
@@ -2000,8 +2000,8 @@ class TestSessionId:
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
-        assert (StreamQueueKind.ERROR) in (kinds)
-        assert (StreamQueueKind.STOPPED) not in (kinds)
+        assert StreamQueueKind.ERROR in kinds
+        assert StreamQueueKind.STOPPED not in kinds
 
     def test_ensure_session_without_process_raises(self):
         backend = _bare_backend()
@@ -2024,8 +2024,8 @@ class TestSessionId:
         backend._ensure_connection = lambda cancel=None: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
-        assert ("session/prompt") not in (methods)
-        assert (StreamQueueKind.ERROR) in ([event[0] for event in _drain(q)])
+        assert "session/prompt" not in methods
+        assert StreamQueueKind.ERROR in [event[0] for event in _drain(q)]
 
     def test_missing_session_id_raises(self):
         backend = _bare_backend()
@@ -2121,15 +2121,15 @@ def _prompt_events(result: object):
 class TestStopReason:
     def test_refusal_is_an_error(self):
         events = _prompt_events({"stopReason": "refusal"})
-        assert (StreamQueueKind.ERROR) in ([event[0] for event in events])
-        assert (StreamQueueKind.STREAM_DONE) not in ([event[0] for event in events])
+        assert StreamQueueKind.ERROR in [event[0] for event in events]
+        assert StreamQueueKind.STREAM_DONE not in [event[0] for event in events]
 
     def test_max_tokens_keeps_the_partial_answer(self):
         events = _prompt_events({"stopReason": "max_tokens"})
         kinds = [event[0] for event in events]
-        assert (StreamQueueKind.STATUS) in (kinds)
-        assert (StreamQueueKind.STREAM_DONE) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STATUS in kinds
+        assert StreamQueueKind.STREAM_DONE in kinds
+        assert StreamQueueKind.ERROR not in kinds
         status = next(event[1] for event in events if event[0] == StreamQueueKind.STATUS and "token" in str(event[1]).lower())
         assert "token" in status.lower()
 
@@ -2137,27 +2137,27 @@ class TestStopReason:
         events = _prompt_events({"stopReason": "max_turn_requests"})
         kinds = [event[0] for event in events]
         assert any(event[0] == StreamQueueKind.STATUS and "request" in str(event[1]).lower() for event in events)
-        assert (StreamQueueKind.STREAM_DONE) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STREAM_DONE in kinds
+        assert StreamQueueKind.ERROR not in kinds
 
     def test_end_turn_is_stream_done(self):
         kinds = [event[0] for event in _prompt_events({"stopReason": "end_turn"})]
-        assert (StreamQueueKind.STREAM_DONE) in (kinds)
-        assert (StreamQueueKind.ERROR) not in (kinds)
+        assert StreamQueueKind.STREAM_DONE in kinds
+        assert StreamQueueKind.ERROR not in kinds
 
     def test_cancelled_is_stopped(self):
         kinds = [event[0] for event in _prompt_events({"stopReason": "cancelled"})]
-        assert (StreamQueueKind.STOPPED) in (kinds)
-        assert (StreamQueueKind.STREAM_DONE) not in (kinds)
+        assert StreamQueueKind.STOPPED in kinds
+        assert StreamQueueKind.STREAM_DONE not in kinds
 
     def test_non_dict_result_is_an_error(self):
         kinds = [event[0] for event in _prompt_events(["not-a-result"])]
-        assert (StreamQueueKind.ERROR) in (kinds)
-        assert (StreamQueueKind.STREAM_DONE) not in (kinds)
+        assert StreamQueueKind.ERROR in kinds
+        assert StreamQueueKind.STREAM_DONE not in kinds
 
     def test_missing_result_is_stream_done(self):
         kinds = [event[0] for event in _prompt_events(None)]
-        assert (StreamQueueKind.STREAM_DONE) in (kinds)
+        assert StreamQueueKind.STREAM_DONE in kinds
 
 
 class TestSessionCwd:
@@ -2189,14 +2189,14 @@ class TestSessionCwd:
         doc = tmp_path / "note.odt"
         doc.write_text("x", encoding="utf-8")
         url = "file://localhost" + doc.as_uri()[len("file://") :]
-        assert (_directory_from_document_url(url)) == (str(tmp_path))
+        assert _directory_from_document_url(url) == str(tmp_path)
 
     def test_remote_file_host_is_not_a_local_directory(self, monkeypatch):
         from plugin.acp.acp_backend import _directory_from_document_url
 
         monkeypatch.setattr("plugin.acp.acp_backend.os.name", "posix")
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: True)
-        assert (_directory_from_document_url("file://server/share/doc.odt")) is None
+        assert _directory_from_document_url("file://server/share/doc.odt") is None
 
     def test_unc_file_url_on_windows(self, monkeypatch):
         import ntpath
@@ -2206,7 +2206,7 @@ class TestSessionCwd:
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.dirname", ntpath.dirname)
         unc_dir = ntpath.dirname(r"\\server\share\doc.odt")
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: path == unc_dir)
-        assert (_directory_from_document_url("file://server/share/doc.odt")) == (unc_dir)
+        assert _directory_from_document_url("file://server/share/doc.odt") == unc_dir
 
     def test_unc_missing_directory_is_none(self, monkeypatch):
         import ntpath
@@ -2215,7 +2215,7 @@ class TestSessionCwd:
         monkeypatch.setattr("plugin.acp.acp_backend.os.name", "nt")
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.dirname", ntpath.dirname)
         monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: False)
-        assert (_directory_from_document_url("file://server/share/doc.odt")) is None
+        assert _directory_from_document_url("file://server/share/doc.odt") is None
 
 
 
@@ -2917,4 +2917,3 @@ class TestAntigravityManagedLogArgs:
         assert cmd_line.count("--log-file") == 1
         assert "/custom/agy.log" in cmd_line
         assert backend._agent_log_path == "/custom/agy.log"
-

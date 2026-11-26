@@ -380,4 +380,3 @@ def test_seed_tree_requires_vendor(tmp_path: Path) -> None:
     tree.mkdir()
     with pytest.raises(RuntimeError, match="vendor"):
         lo_profile.seed_tree(tree, tmp_path / "profile")
-

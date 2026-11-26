@@ -18,6 +18,7 @@ from plugin.framework.uno_context import (
     resolve_document_by_url,
     set_fallback_ctx,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_get_ctx_with_uno():
@@ -40,7 +41,7 @@ def test_get_ctx_with_uno():
     set_fallback_ctx(None)
     try:
         with patch.dict(sys.modules, {'uno': mock_uno}):
-            assert (get_ctx() == mock_ctx)
+            assert get_ctx() == mock_ctx
             mock_uno.getComponentContext.assert_called_once()
         assert sys.modules.get("uno") is not mock_uno and "uno" in sys.modules
     finally:
@@ -58,7 +59,7 @@ def test_get_ctx_fallback():
         return orig_import(name, globals, locals, fromlist, level)
     try:
         with patch.object(builtins, '__import__', failing_import):
-            assert (get_ctx() == mock_fallback)
+            assert get_ctx() == mock_fallback
     finally:
         set_fallback_ctx(None)
 
@@ -70,7 +71,7 @@ def test_get_ctx_fallback_uno_returns_none():
     with patch.dict(sys.modules, {'uno': mock_uno}):
         try:
             set_fallback_ctx(mock_fallback)
-            assert (get_ctx() == mock_fallback)
+            assert get_ctx() == mock_fallback
         finally:
             set_fallback_ctx(None)
 
@@ -233,9 +234,6 @@ def test_get_active_document_reraises_disposed_desktop():
     """A disposed desktop is not "no document"."""
     from plugin.framework.uno_context import get_active_document
 
-    class DisposedException(Exception):
-        pass
-
     with (
         patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("desktop gone")),
         pytest.raises(DocumentDisposedError),
@@ -246,9 +244,6 @@ def test_get_active_document_reraises_disposed_desktop():
 def test_get_active_document_reraises_disposed():
     """A document that dies mid-call must not look like nothing is open."""
     from plugin.framework.uno_context import get_active_document
-
-    class DisposedException(Exception):
-        pass
 
     desktop = MagicMock()
     desktop.getCurrentComponent.side_effect = DisposedException("gone")
@@ -484,10 +479,7 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     comps.createEnumeration.return_value = enum
     enum.hasMoreElements.return_value = True
 
-    # Simulate nextElement raising a disposed-like exception
-    class DisposedException(Exception):
-        pass
-
+    # Simulate nextElement raising a disposed-like exception.
     # We construct a mock exception that has "disposed" in its string representation or is com.sun.star.lang.DisposedException
     exc = DisposedException("com.sun.star.lang.DisposedException: document is closed")
     # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
@@ -980,9 +972,6 @@ def test_match_by_url_normalizes_file_percent_encoding():
 
 
 def test_disposed_element_does_not_hide_a_later_match():
-    class DisposedException(Exception):
-        pass
-
     bad = MagicMock()
     bad.getURL.side_effect = DisposedException("gone")
     good = _resolve_model("file:///docs/a.odt", "uid-a")
@@ -1025,9 +1014,6 @@ def test_stuck_next_element_does_not_spin():
 
 
 def test_resolve_reraises_when_desktop_is_disposed():
-    class DisposedException(Exception):
-        pass
-
     with patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("dead")):
         with pytest.raises(DocumentDisposedError):
             resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
@@ -1053,9 +1039,6 @@ def test_empty_inputs_never_match():
 
 
 def test_resolve_reraises_when_enumeration_is_disposed():
-    class DisposedException(Exception):
-        pass
-
     desktop = MagicMock()
     enum = MagicMock()
     enum.hasMoreElements.side_effect = DisposedException("enum dead")
@@ -1081,9 +1064,6 @@ def test_get_runtime_uid_present_missing_and_error():
 
 
 def test_resolve_reraises_when_next_element_is_disposed():
-    class DisposedException(Exception):
-        pass
-
     calls = {"next": 0, "more": 0}
 
     def has_more():
@@ -1158,4 +1138,3 @@ def test_same_file_needs_file_identity(tmp_path):
     zero_stat = os.stat_result((0o100644, 0, 0, 1, 0, 0, 3, 0, 0, 0))
     with patch("plugin.framework.uno_context.os.stat", return_value=zero_stat):
         assert _resolve_by_url([open_doc], second.as_uri()) == (None, None)
-

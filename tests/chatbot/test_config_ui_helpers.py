@@ -52,9 +52,9 @@ class TestSyncSidebarTextModel:
         with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
             result = sync_sidebar_text_model(ctrl)
 
-        assert (result) == ('anthropic/claude-3.7-sonnet')
-        assert (self.config_data['text_model']) == ('anthropic/claude-3.7-sonnet')
-        assert (self.config_data[f'model_lru@{self.endpoint}']) == (['anthropic/claude-3.7-sonnet'])
+        assert result == 'anthropic/claude-3.7-sonnet'
+        assert self.config_data['text_model'] == 'anthropic/claude-3.7-sonnet'
+        assert self.config_data[f'model_lru@{self.endpoint}'] == ['anthropic/claude-3.7-sonnet']
         # Model id and LRU list are one save, not set_text_model plus a second write.
         assert len(self.config_writes) == 1
         assert set(self.config_writes[0]) == {'text_model', f'model_lru@{self.endpoint}'}
@@ -71,7 +71,7 @@ class TestSyncSidebarTextModel:
         text_model_writes = [
             c for c in self.mock_mf_save.call_args_list if 'text_model' in c.args[0]
         ]
-        assert (text_model_writes) == ([])
+        assert text_model_writes == []
         assert all('text_model' not in write for write in self.config_writes)
         assert len(self.config_writes) <= 1
 
@@ -82,12 +82,12 @@ class TestSyncSidebarTextModel:
 
         result = sync_sidebar_text_model(ctrl)
 
-        assert (result) is None
-        assert (self.config_data['text_model']) == ('openai/gpt-oss-120b:nitro')
+        assert result is None
+        assert self.config_data['text_model'] == 'openai/gpt-oss-120b:nitro'
         self.mock_mf_save.assert_not_called()
 
     def test_missing_control_returns_none(self):
-        assert (sync_sidebar_text_model(None)) is None
+        assert sync_sidebar_text_model(None) is None
 
     def test_sync_then_get_api_config_uses_pasted_model(self):
         """After sync, LlmClient config built via get_api_config must match the combobox."""
@@ -118,7 +118,7 @@ class TestSyncSidebarTextModel:
 
             from plugin.framework.config import get_api_config
 
-            assert (get_api_config()['model']) == ('anthropic/claude-3.7-sonnet')
+            assert get_api_config()['model'] == 'anthropic/claude-3.7-sonnet'
 
 
 def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
@@ -200,8 +200,8 @@ class TestPopulateComboboxWithLruFetchOptions:
         populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:8080', remote_models=['m1', 'm2'])
         ctrl.addItems.assert_called()
         items = ctrl.addItems.call_args[0][0]
-        assert ('m1') in (items)
-        assert ('m2') in (items)
+        assert 'm1' in items
+        assert 'm2' in items
 
     def test_together_empty_lru_merges_default_text_model(self):
         'Defaults still appear when keyed without a remote catalog.'
@@ -214,7 +214,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         )
         ctrl.addItems.assert_called()
         items = ctrl.addItems.call_args[0][0]
-        assert ('openai/gpt-oss-120b') in (items)
+        assert 'openai/gpt-oss-120b' in items
 
     def test_empty_current_val_uses_lru_head_after_sidebar_style_pick(self):
         'Simulates Settings _apply_dropdowns passing "" — active pick must stay LRU head so setText is not a stale model.'
@@ -237,8 +237,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             remote_models=['some/other-model', 'openai/gpt-oss-120b'],
         )
         items = ctrl.addItems.call_args[0][0]
-        assert (items[0]) == ('openrouter/free')
-        assert ('openai/gpt-oss-120b:nitro') in (items)
+        assert items[0] == 'openrouter/free'
+        assert 'openai/gpt-oss-120b:nitro' in items
         ctrl.setText.assert_called_with('openai/gpt-oss-120b:nitro')
 
     def test_openrouter_free_model_prioritized_at_top(self):
@@ -253,7 +253,7 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='test-key',
         )
         items = ctrl.addItems.call_args[0][0]
-        assert (items[0]) == ('openrouter/free')
+        assert items[0] == 'openrouter/free'
 
     def test_openrouter_nitro_current_val_not_stray(self):
         ctrl = MagicMock()
@@ -264,7 +264,7 @@ class TestPopulateComboboxWithLruFetchOptions:
                 ctrl, current_val, 'model_lru', endpoint, api_key_override='test-key',
             )
         call_args = ctrl.addItems.call_args[0][0]
-        assert (current_val) in (call_args)
+        assert current_val in call_args
         ctrl.setText.assert_called_with(current_val)
 
     def test_openrouter_no_api_key_shows_placeholder_only(self):
@@ -273,7 +273,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ep = 'https://openrouter.ai/api'
         populate_combobox_with_lru(ctrl, 'llama3.2', 'model_lru', ep, api_key_override='')
         items = list(ctrl.addItems.call_args[0][0])
-        assert (items) == (['(Enter API Key to load models)'])
+        assert items == ['(Enter API Key to load models)']
         ctrl.setText.assert_called_with('(Enter API Key to load models)')
 
     def test_ollama_model_filtered_on_openrouter(self):
@@ -283,8 +283,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             ctrl, 'llama3.2', 'model_lru', 'https://openrouter.ai/api', api_key_override='',
         )
         items = ctrl.addItems.call_args[0][0]
-        assert ('llama3.2') not in (items)
-        assert ('(Enter API Key to load models)') in (items)
+        assert 'llama3.2' not in items
+        assert '(Enter API Key to load models)' in items
 
     def test_lmstudio_without_key_is_not_auth_blocked(self):
         # localhost:1234 is LM Studio. An empty key is allowed, same as Ollama.
@@ -308,8 +308,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('llama3') in (items)
-        assert ('(Enter API Key to load models)') not in (items)
+        assert 'llama3' in items
+        assert '(Enter API Key to load models)' not in items
         ctrl.setText.assert_called_with('llama3')
 
     def test_ollama_image_fetch_ok_no_image_models_shows_specific_placeholder(self):
@@ -320,8 +320,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             remote_models=[], api_key_override='',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('(No image models on this endpoint)') in (items)
-        assert ('(Connection failed)') not in (items)
+        assert '(No image models on this endpoint)' in items
+        assert '(Connection failed)' not in items
 
     def test_connection_failed_only_when_no_catalog(self):
         # Not 11434 or 1234: those are Ollama and LM Studio. An unknown local
@@ -330,19 +330,19 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://127.0.0.1:9', api_key_override='')
         items = list(ctrl.addItems.call_args[0][0])
-        assert (items) == (['(Connection failed)'])
+        assert items == ['(Connection failed)']
 
     def test_populate_combobox_stray_model_filtering(self):
         ctrl = MagicMock()
-        
+
         # Scenario: Current val is a Google model, but we just switched to Z.ai (no catalog).
         current_val = "google/gemini-3.1-flash-lite-preview"
         endpoint = "https://api.z.ai/api/paas/v4"
-        
+
         # Mock get_config to return empty LRU
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             populate_combobox_with_lru(ctrl, current_val, "model_lru", endpoint)
-                
+
         # Verify that ctrl.addItems was called with the placeholder, NOT the stray Gemini model
         call_args = ctrl.addItems.call_args[0][0]
         assert "(Enter API Key to load models)" in call_args
@@ -377,8 +377,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='test-key',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('google/gemini-2.5-flash-image') in (items)
-        assert ('openai/gpt-5-image') in (items)
+        assert 'google/gemini-2.5-flash-image' in items
+        assert 'openai/gpt-5-image' in items
 
     def test_openrouter_stt_remote_transcription_ids_not_slug_filtered(self):
         """Speech-tab STT remote_models are the transcription list, not slug-filtered chat ids."""
@@ -395,9 +395,9 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='test-key',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('mistralai/voxtral-mini-transcribe') in (items)
+        assert 'mistralai/voxtral-mini-transcribe' in items
         # No whisper/asr/transcribe substring; keyword filter would have dropped it.
-        assert ('google/gemini-2.5-flash') in (items)
+        assert 'google/gemini-2.5-flash' in items
         ctrl.setText.assert_called_with('mistralai/voxtral-mini-transcribe')
 
     @pytest.mark.parametrize(
@@ -453,10 +453,10 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='test-key',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('hexgrad/kokoro-82m') in (items)
-        assert ('x-ai/grok-voice-tts-1.0') in (items)
-        assert ('microsoft/mai-voice-2') in (items)
-        assert ('hexgrad/Kokoro-82M') not in (items)
+        assert 'hexgrad/kokoro-82m' in items
+        assert 'x-ai/grok-voice-tts-1.0' in items
+        assert 'microsoft/mai-voice-2' in items
+        assert 'hexgrad/Kokoro-82M' not in items
         ctrl.setText.assert_called_with('hexgrad/kokoro-82m')
 
     def test_together_tts_keeps_catalog_and_drops_chat_models(self):
@@ -472,7 +472,7 @@ class TestPopulateComboboxWithLruFetchOptions:
             api_key_override='test-key',
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('openai/gpt-oss-120b') not in (items)
+        assert 'openai/gpt-oss-120b' not in items
         for mid in (
             'hexgrad/Kokoro-82M',
             'cartesia/sonic',
@@ -539,13 +539,13 @@ class TestPopulateComboboxWithLruFetchOptions:
 
     def test_populate_combobox_placeholder_no_provider(self):
         ctrl = MagicMock()
-        
+
         # Scenario: Unknown endpoint, no catalog.
         endpoint = "https://unknown.provider/api"
-        
+
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             populate_combobox_with_lru(ctrl, "", "model_lru", endpoint)
-                
+
         call_args = ctrl.addItems.call_args[0][0]
         assert "(Connection failed)" in call_args
 
@@ -594,9 +594,9 @@ class TestPopulateComboboxWithLruFetchOptions:
             remote_models=["glm-5.2", "glm-4.7"], api_key_override="zai-key",
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ("glm-5.2") in (items)
-        assert ("glm-4.7") in (items)
-        assert ("(Connection failed)") not in (items)
+        assert "glm-5.2" in items
+        assert "glm-4.7" in items
+        assert "(Connection failed)" not in items
 
     def test_set_text_model_via_populate_does_not_persist_connection_failed(self):
         from plugin.framework.client.model_fetcher import set_text_model, get_text_model
@@ -613,10 +613,10 @@ class TestPopulateComboboxWithLruFetchOptions:
         )
         set_val = ctrl.setText.call_args[0][0]
         set_text_model(set_val, update_lru=False)
-        assert (self.config_data.get("text_model")) == ("glm-5.2")
+        assert self.config_data.get("text_model") == "glm-5.2"
         with patch("plugin.framework.client.model_fetcher.get_config", side_effect=lambda k, d=None: self.config_data.get(k, d)):
             with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://api.z.ai/api/paas"):
-                assert (get_text_model()) == ("glm-5.2")
+                assert get_text_model() == "glm-5.2"
 
     def test_deepseek_bare_model_not_filtered(self):
         ctrl = MagicMock()
@@ -627,8 +627,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             remote_models=["deepseek-flash", "deepseek-v4-pro"], api_key_override="ds-key",
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ("deepseek-flash") in (items)
-        assert ("deepseek-v4-pro") in (items)
+        assert "deepseek-flash" in items
+        assert "deepseek-v4-pro" in items
 
     def test_together_bare_model_filtered(self):
         ctrl = MagicMock()
@@ -639,8 +639,8 @@ class TestPopulateComboboxWithLruFetchOptions:
             remote_models=["llama3.2", "openai/gpt-oss-120b"], api_key_override="tg-key",
         )
         items = list(ctrl.addItems.call_args[0][0])
-        assert ("llama3.2") not in (items)
-        assert ("openai/gpt-oss-120b") in (items)
+        assert "llama3.2" not in items
+        assert "openai/gpt-oss-120b" in items
 
     def test_populate_combobox_with_bad_port_does_not_raise(self):
         ctrl = MagicMock()
@@ -824,6 +824,3 @@ def test_keep_text_yields_to_missing_key_placeholder():
             keep_text=True,
         )
     ctrl.setText.assert_called_with("(Enter API Key to load models)")
-
-
-

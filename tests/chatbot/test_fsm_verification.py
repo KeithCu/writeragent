@@ -11,10 +11,6 @@ Hypothesis: light budgets under ``make verify``; deep via ``make vhs``.
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
@@ -42,6 +38,7 @@ from plugin.chatbot.tool_loop_state import (
     next_state as tool_loop_next_state,
     stopped_effects_exclude_tool_spawns,
 )
+from tests.harness.crosshair import assert_crosshair_clean
 from tests.chatbot.fsm_hyp_support import (
     audio_recorder_events,
     audio_recorder_states,
@@ -51,37 +48,6 @@ from tests.chatbot.fsm_hyp_support import (
     tool_loop_events,
     tool_loop_states,
 )
-
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
-
-
-def _run_crosshair(module: str, timeout: int = 600) -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", module],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output ({module}):\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, f"CrossHair counterexamples in {module}:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2) for {module}:\n{combined}")
-
 
 def test_audio_error_always_reports_error_status() -> None:
     for status in ("idle", "initializing", "recording", "error"):
@@ -168,7 +134,7 @@ def test_hypothesis_send_state_sequences(state: SendButtonState, events) -> None
 )
 @pytest.mark.slow
 def test_crosshair_send_state_if_available(value) -> None:
-    _run_crosshair(value)
+    assert_crosshair_clean(value, timeout=600)
 
 @pytest.mark.parametrize(
     "value, timeout",
@@ -179,6 +145,4 @@ def test_crosshair_send_state_if_available(value) -> None:
 @pytest.mark.slow
 def test_crosshair_tool_loop_state_if_available(value, timeout) -> None:
     # next_state is # crosshair: off; module check covers pure helpers with @deal.
-    _run_crosshair(value, timeout=timeout)
-
-
+    assert_crosshair_clean(value, timeout=timeout)

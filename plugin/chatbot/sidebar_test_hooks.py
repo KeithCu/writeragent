@@ -3224,4 +3224,3 @@ def dispatch_undo(*, ctx: Any = None) -> None:
 
         uno_ctx = get_ctx()
     undo(frame, uno_ctx)
-

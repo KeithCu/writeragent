@@ -118,4 +118,3 @@ def test_apply_sidebar_height_for_width_disposed_does_not_escape():
     (eff_w, current_h), layout = apply_sidebar_height_for_width(panel, parent_raising, 300)
     assert eff_w == 180  # fallback
     assert layout is not None
-

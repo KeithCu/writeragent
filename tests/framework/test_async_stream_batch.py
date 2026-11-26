@@ -14,16 +14,11 @@ from plugin.framework.send_cancellation import SendCancellation
 
 
 
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
-
-
 from plugin.framework.stream_batch import BatchingStreamQueue, DeadlineThread, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.stream_test_helpers import DummyToolkit, _drain
+from plugin.tests.testing_utils import cancelled_scope
 
 
 class TestAsyncStreamErrorHandling:
@@ -40,7 +35,7 @@ class TestAsyncStreamErrorHandling:
         q.put((StreamQueueKind.THINKING, 'thinking...'))
         q.put((StreamQueueKind.STREAM_DONE, 'final'))
         run_stream_drain_loop(q, toolkit, outcome, on_chunk, on_stream_done, on_stopped, on_error)
-        assert (outcome.done is True)
+        assert outcome.done is True
         on_chunk.assert_any_call('hello ', False)
         on_chunk.assert_any_call('thinking...', True)
         on_stream_done.assert_called_once_with((StreamQueueKind.STREAM_DONE, 'final'))
@@ -56,11 +51,11 @@ class TestAsyncStreamErrorHandling:
             raise ValueError('Processing failed')
         q.put((StreamQueueKind.CHUNK, 'bad data'))
         run_stream_drain_loop(q, toolkit, outcome, faulty_on_chunk, MagicMock(), MagicMock(), on_error)
-        assert (outcome.done is True)
-        assert (on_error.call_count == 1)
+        assert outcome.done is True
+        assert on_error.call_count == 1
         error_payload = on_error.call_args[0][0]
-        assert (error_payload['status'] == 'error')
-        assert ('Processing failed' in error_payload['message'])
+        assert error_payload['status'] == 'error'
+        assert 'Processing failed' in error_payload['message']
 
 
 def _run_with_failing_handler(monkeypatch, kind, items, make_on_error):
@@ -422,7 +417,7 @@ def test_stop_applies_flushed_batcher_text():
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=lambda _e: None,
-        cancel=_cancelled_scope(),
+        cancel=cancelled_scope(),
         flush_pending=flush_pending,
     )
     assert outcome.done is True

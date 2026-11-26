@@ -393,4 +393,3 @@ def normalize_inner_result(
         calls,
         expect_edits=expects_edits(domains),
     )
-

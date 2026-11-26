@@ -1692,7 +1692,7 @@ def run_all_tests(ctx: Any) -> str:
                     _progress("SUITE skip remaining: URP already disposed")
                     break
                 filename = os.path.basename(module_path)
-                
+
                 # Construct a unique module name for sys.modules to avoid collisions
                 # during the recursive walk.
                 rel_path = os.path.relpath(module_path, tests_root)

@@ -18,6 +18,7 @@ from plugin.framework.doc_type import (
     WEB_DOCUMENT_SERVICE,
     WRITER_DOCUMENT_SERVICE,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 class FakePropertyInfo:
@@ -671,9 +672,6 @@ def test_get_active_draw_page_reraises_disposed() -> None:
 
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     class DisposedDoc:
         def getCurrentController(self):
             raise DisposedException("closed")
@@ -698,9 +696,6 @@ def test_list_graphic_objects_reraises_disposed() -> None:
 
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     class DisposedDrawDoc:
         def getDrawPages(self):
             raise DisposedException("closed")
@@ -714,9 +709,6 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
     from plugin.doc.visual_helpers import _graphics_in_text_range, safe_get_property, selected_graphic_object
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass
@@ -862,9 +854,6 @@ def test_safe_property_helpers_reraise_disposed():
 
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     class DisposedPropertyObject(FakePropertyObject):
         def setPropertyValue(self, name: str, value: object) -> None:
             raise DisposedException("closed")
@@ -882,9 +871,6 @@ def test_safe_property_helpers_reraise_disposed():
 def test_safe_try_method_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     class DisposedRemovable:
         def remove(self):
             raise DisposedException("closed")
@@ -895,9 +881,6 @@ def test_safe_try_method_reraise_disposed():
 
 def test_graphic_from_object_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     class GraphicDisposedObject:
         def getPropertyValue(self, name: str):
@@ -913,9 +896,6 @@ def test_graphic_from_object_reraise_disposed():
 
 def test_graphic_objects_in_selection_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     class DisposedWriterDoc(FakeWriterDoc):
         def getCurrentController(self):

@@ -41,7 +41,7 @@ from plugin.writer.inline_review import (
     scan_redline_view,
 )
 from plugin.writer.review_scan import TOKEN_PREFIX, agent_change_presence, redline_identity_key, redline_is_agent_change
-from tests.testing_utils import agent_changes
+from tests.testing_utils import agent_changes, FakeUnoEnum
 
 
 def _sign(n):
@@ -121,17 +121,6 @@ class FakeRedline:
         return self._props[name]
 
 
-class FakeEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class FakeRedlines:
     def __init__(self, items, raise_enum=False, count=None, raise_count=False):
         self._items = items
@@ -142,7 +131,7 @@ class FakeRedlines:
     def createEnumeration(self):
         if self._raise:
             raise RuntimeError("enum boom")
-        return FakeEnum(self._items)
+        return FakeUnoEnum(self._items)
 
     def getCount(self):
         if self._raise_count:
@@ -1050,7 +1039,7 @@ class _CountingRedlines:
 
     def createEnumeration(self):
         self.enums += 1
-        return FakeEnum(list(self._items))
+        return FakeUnoEnum(list(self._items))
 
     def getCount(self):
         return len(self._items)
@@ -1549,5 +1538,3 @@ def test_overlapping_resolve_ignores_multi_text_token_elsewhere():
         res = _resolve_overlapping_agent_changes(model, MagicMock(), t1, accept=True)
     assert res.status == ResolveStatus.RESOLVED
     assert res.resolved_count == 2
-
-

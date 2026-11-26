@@ -20,6 +20,7 @@ from plugin.chatbot.web_research_cache import (
     store_research_cache_embeddings,
 )
 from plugin.embeddings.embedding_client import EmbeddingBatch
+from plugin.tests.testing_utils import DisposedException
 
 SPACE_ELEVATOR_KEY_1 = (
     "challenges concept conclusion dynamics elevator energy engineering focusing including "
@@ -330,9 +331,6 @@ def test_store_embeddings_skips_row_whose_parent_was_evicted(tmp_path):
 
 def test_resolve_research_locale_reraises_disposed_document():
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass

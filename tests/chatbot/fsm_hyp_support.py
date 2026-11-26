@@ -161,6 +161,3 @@ def tool_loop_events(draw):
             },
         )
     return ToolLoopEvent(kind, {})
-
-
-

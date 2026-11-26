@@ -266,4 +266,3 @@ def store_sentence_result(
 
     active_payload = [d for d in payload if ignore_set.allows(str(d.get("rule_identifier", "")))]
     return active_payload
-

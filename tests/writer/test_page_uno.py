@@ -13,11 +13,12 @@ does not require refuse-on-set. The remaining tests pin
 
 from __future__ import annotations
 
-import os
 
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
+    logo_32_path,
+    pinned_writer_tool_context,
     TestingFactory,
     with_native_doc,
     writer_services_tool_context,
@@ -38,16 +39,6 @@ from plugin.writer.page import (
     copy_page_style,
     resolve_page_style,
 )
-
-
-def _header_logo_path() -> str:
-    """Return logo_32.png in the dev tree or a remapped release bundle."""
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
-        path = os.path.join(root, *rel.split("/"))
-        if os.path.isfile(path):
-            return path
-    return os.path.join(root, "extension", "assets", "logo_32.png")
 
 
 def _style_name(doc):
@@ -77,8 +68,7 @@ def _set_props(doc, ctx, **kwargs):
 @native_test
 @with_native_doc("writer")
 def test_header_logo_visible_to_scan_and_get(ctx, doc):
-    path = _header_logo_path()
-    assert os.path.isfile(path), "fixture image missing: %s" % path
+    path = logo_32_path()
 
     placed = insert_image_into_header_footer(
         doc, path, "header", width_mm=15, height_mm=15, title="HEADER_LOGO", ctx=ctx)
@@ -523,8 +513,7 @@ def test_copy_page_style_keeps_footer_field_and_graphic(ctx, doc):
     Probes C1, C3, C4. HTML import does not carry AT_PARAGRAPH graphics, so the
     cloner re-creates them on the draw page.
     """
-    logo = _header_logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     graphic = _graphic_from_provider(ctx, _file_url_for_path(logo))
     assert graphic is not None, "GraphicProvider could not load the fixture"
 
@@ -586,8 +575,7 @@ def test_replace_footer_keeps_field_and_graphic(ctx, doc):
     so a getString() index would miss "274". "Annex 1: Intro" is split by a bold
     run so the match has to span portions.
     """
-    logo = _header_logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     graphic = _graphic_from_provider(ctx, _file_url_for_path(logo))
     assert graphic is not None, "GraphicProvider could not load the fixture"
 
@@ -656,7 +644,7 @@ def test_replace_footer_keeps_field_and_graphic(ctx, doc):
 @with_native_doc("writer")
 def test_replace_footer_refuses_character_anchor_inside_match(ctx, doc):
     """AT_CHARACTER inside the match is refused and the footer text stays."""
-    logo = _header_logo_path()
+    logo = logo_32_path()
     graphic = _graphic_from_provider(ctx, _file_url_for_path(logo))
     assert graphic is not None
 
@@ -995,7 +983,7 @@ def test_page_style_clone_copies_cell_and_nested_cell_logos_uno(ctx, doc):
     outer.initialize(1, 1)
     header.insertTextContent(header.getStart(), outer, False)
     outer_cell = outer.getCellByName("A1")
-    logo_url = _file_url_for_path(_header_logo_path())
+    logo_url = _file_url_for_path(logo_32_path())
     g_outer = doc.createInstance("com.sun.star.text.TextGraphicObject")
     g_outer.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
     g_outer.setPropertyValue("AnchorType", AT_PARAGRAPH)
@@ -1037,7 +1025,7 @@ def test_page_style_clone_preserves_graphic_layout_and_image_only_header_uno(ctx
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
 
-    logo_url = _file_url_for_path(_header_logo_path())
+    logo_url = _file_url_for_path(logo_32_path())
     crop = GraphicCrop(100, 50, 25, 75)
     gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
     gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, logo_url))
@@ -1213,7 +1201,7 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
     header.insertString(cur, "second", False)
 
     gfx = doc.createInstance("com.sun.star.text.TextGraphicObject")
-    gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, _file_url_for_path(_header_logo_path())))
+    gfx.setPropertyValue("Graphic", _graphic_from_provider(ctx, _file_url_for_path(logo_32_path())))
     gfx.setPropertyValue("AnchorType", AT_PARAGRAPH)
     gfx.setPropertyValue("Width", 300)
     gfx.setPropertyValue("Height", 300)
@@ -1243,9 +1231,6 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
 @with_native_doc("writer")
 def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
     from com.sun.star.style.BreakType import NONE, PAGE_BEFORE
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.page import PageInsertBreak
 
     text = doc.getText()
@@ -1258,8 +1243,7 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(cur)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = PageInsertBreak().execute(tctx)
@@ -1358,7 +1342,7 @@ def test_replace_header_after_inline_logo_uno(ctx, doc):
     cur = header.createTextCursor()
     g = doc.createInstance("com.sun.star.text.TextGraphicObject")
     g.setPropertyValue("AnchorType", AS_CHARACTER)
-    g.setPropertyValue("GraphicURL", _file_url_for_path(_header_logo_path()))
+    g.setPropertyValue("GraphicURL", _file_url_for_path(logo_32_path()))
     header.insertTextContent(cur, g, False)
     header.insertString(cur, " OldText", False)
 

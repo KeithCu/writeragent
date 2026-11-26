@@ -196,4 +196,3 @@ def test_struck_math_formula_skipped_and_live_tex_injected_uno(ctx, doc):
     html = document_to_content(doc, ctx, scope="full")
     assert "x + 2" in html or "x+2" in html, html
     assert "a + 1" not in html and "a+1" not in html, html
-

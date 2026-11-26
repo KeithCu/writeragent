@@ -17,32 +17,32 @@ class TestExcelXlShim:
         r0 = CalcRange([[1, 2], [3, 4]])
         xl = make_xl((r0,))
         out = xl("%P2%")
-        assert (out) is (r0)
+        assert out is r0
 
     def test_headers_true_dataframe(self):
         r0 = CalcRange([["a", "b"], [1, 2]])
         xl = make_xl((r0,))
         df = xl("%P2%", headers=True)
-        assert (list(df.columns)) == (["a", "b"])
-        assert (df.iloc[0].tolist()) == ([1, 2])
+        assert list(df.columns) == ["a", "b"]
+        assert df.iloc[0].tolist() == [1, 2]
 
     def test_headers_false_no_header_row(self):
         r0 = CalcRange([["a", "b"], [1, 2]])
         xl = make_xl((r0,))
         df = xl("%P2%", headers=False)
         # First row stays data; synthetic column names.
-        assert (df.iloc[0].tolist()) == (["a", "b"])
+        assert df.iloc[0].tolist() == ["a", "b"]
 
     def test_p3_second_input(self):
         r0 = CalcRange([[1]])
         r1 = CalcRange([[9]])
         xl = make_xl((r0, r1))
-        assert (xl("%P3%")) is (r1)
+        assert xl("%P3%") is r1
 
     def test_case_insensitive_token(self):
         r0 = CalcRange([[1]])
         xl = make_xl((r0,))
-        assert (xl("%p2%")) is (r0)
+        assert xl("%p2%") is r0
 
     @pytest.mark.parametrize(
         "value, value_2",
@@ -56,7 +56,7 @@ class TestExcelXlShim:
         with pytest.raises(ValueError) as ctx:
             xl(value)
         err = str(ctx.value)
-        assert ("no matching data binding") in err
+        assert "no matching data binding" in err
         assert value_2 in err
 
 
@@ -64,7 +64,7 @@ class TestExcelXlShim:
         xl = make_xl((CalcRange([[1]]),))
         with pytest.raises(ValueError) as ctx:
             xl("A1")
-        assert ("no live sheet reads") in (str(ctx.value))
+        assert "no live sheet reads" in str(ctx.value)
 
     def test_non_string_ref_raises(self):
         xl = make_xl(())
@@ -122,6 +122,3 @@ def test_excel_xl_invalid_ref() -> None:
 
     with pytest.raises(ValueError):
         xl_fn("%P99%")  # out of bounds
-
-
-

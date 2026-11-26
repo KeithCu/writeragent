@@ -110,4 +110,3 @@ def test_parse_response_chunk_flattens_list_content():
     chunk = {"choices": [{"delta": {"content": [{"type": "text", "text": "hi"}]}}]}
     content, _finish, _thinking, _delta = shim.parse_response_chunk(chunk)
     assert content == "hi"
-

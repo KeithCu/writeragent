@@ -18,6 +18,7 @@ from plugin.draw.pages import (
     RenameSlide,
     SetActivePage,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def _ctx():
@@ -345,9 +346,6 @@ def test_move_slide_reports_rollback_message():
 
 
 def test_add_slide_cleanup_reraises_dispose():
-    class DisposedException(Exception):
-        pass
-
     ctx = _impress_ctx()
     page = MagicMock()
     with (
@@ -395,9 +393,6 @@ def test_set_active_page_delegates_and_is_not_a_mutation():
 
 
 def test_set_active_page_reraises_dispose():
-    class DisposedException(Exception):
-        pass
-
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
@@ -508,9 +503,6 @@ def test_list_pages_returns_index_name_and_title():
 
 
 def test_list_pages_reraises_dispose_from_name():
-    class DisposedException(Exception):
-        pass
-
     class _DisposedPage:
         @property
         def Name(self) -> str:
@@ -634,9 +626,6 @@ def test_read_slide_text_skips_failing_shapes():
 
 
 def test_read_slide_text_reraises_dispose():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     ctx.doc.supportsService.return_value = True
     ctx.active_page_index = 0

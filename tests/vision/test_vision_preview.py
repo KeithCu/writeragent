@@ -14,6 +14,7 @@ from plugin.chatbot.module_config_dialog import PreviewImage
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled
 from plugin.vision.vision_preview import render_preview_page, run_vision_insert, run_vision_preview
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_preview_uses_first_selected_image_and_dialog_values():
@@ -488,9 +489,6 @@ def test_run_vision_insert_counts_only_images_with_text():
 
 
 def test_preview_closed_document_raises_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     doc = MagicMock()
     cancel = SendCancellation()
@@ -619,4 +617,3 @@ def test_run_vision_insert_keeps_distinct_same_name_shapes():
 
     assert status == "Inserted 2 images."
     assert inserted_graphics == [shape_a, shape_b]
-

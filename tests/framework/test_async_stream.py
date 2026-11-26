@@ -18,12 +18,7 @@ from plugin.framework.async_stream import DrainOutcome, StreamQueue, _format_age
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit, _drain
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
+from plugin.tests.testing_utils import cancelled_scope
 
 
 def test_run_async_worker_with_drain_next_tool_keeps_pumping():
@@ -901,7 +896,7 @@ def test_stop_checker_on_stopped_raise_is_not_an_error():
     outcome, _applied, errors, _stopped, _done = _drain(
         [(StreamQueueKind.CHUNK, "hello")],
         on_stopped=on_stopped,
-        cancel=_cancelled_scope(),
+        cancel=cancelled_scope(),
     )
     assert outcome.done is True
     assert stopped == [True]
