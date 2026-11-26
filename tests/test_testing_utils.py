@@ -437,21 +437,17 @@ def test_reset_writer_page_regions_skips_style_with_header_and_footer_off():
     body.setPropertyValue.assert_called_with("PageDescName", "Standard")
 
 
-def test_reset_writer_doc_unlocks_controllers_when_wipe_raises():
-    """A pooled Writer left with locked controllers would never lay out again."""
+def test_reset_writer_doc_does_not_lock_controllers():
+    """Under lockControllers, CI's LibreOffice 26.2.7 aborted (SalAbort) wiping a pooled Writer that held a table of contents."""
     from unittest.mock import MagicMock
 
     import plugin.tests.testing_utils as tu
 
     doc = MagicMock()
-    ctx = MagicMock()
-    ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("bridge gone")
 
-    with pytest.raises(RuntimeError):
-        tu._reset_writer_doc(doc, ctx)
+    tu._reset_writer_doc(doc, MagicMock())
 
-    doc.lockControllers.assert_called_once_with()
-    doc.unlockControllers.assert_called_once_with()
+    doc.lockControllers.assert_not_called()
 
 
 def test_create_native_doc_windows_skips_hidden_blank_after_bitmap(monkeypatch):

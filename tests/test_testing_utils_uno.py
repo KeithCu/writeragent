@@ -35,6 +35,16 @@ def _dirty_writer_doc(doc) -> None:
     cur.setPropertyValue("CharStyleName", "Emphasis")
     cur.setPropertyValue("CharWeight", 150.0)
     cur.setPropertyValue("CharStrikeout", 1)
+    # An untracked table of contents built from the outline: its entries sit in sections that
+    # deleting the body empties and the wipe then removes.
+    doc.setPropertyValue("RecordChanges", False)
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    toc.setPropertyValue("CreateFromOutline", True)
+    text.insertTextContent(cur, toc, False)
+    toc.update()
+    doc.setPropertyValue("RecordChanges", True)
 
     families = doc.getStyleFamilies()
     page = families.getByName("PageStyles").getByName("Standard")
@@ -56,8 +66,9 @@ def test_pooled_writer_wipe_leaves_next_document_clean(ctx):
     with TestingFactory.native_doc(ctx, doc_type="writer") as reused:
         # A wipe that leaves the pool dirty makes native_doc close it and open a new document.
         assert reused is doc
-        assert not reused.hasControllersLocked()
         assert reused.getText().getString() == ""
+        assert not reused.getDocumentIndexes().hasElements()
+        assert not reused.getTextSections().hasElements()
         assert not reused.getTextTables().hasElements()
         assert not reused.getRedlines().createEnumeration().hasMoreElements()
         assert reused.getPropertyValue("RecordChanges") is False
