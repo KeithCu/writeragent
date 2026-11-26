@@ -17,6 +17,7 @@
 """Tests for consolidated plugin.framework.tool."""
 
 import pytest
+import sys
 import threading
 import time
 import types
@@ -78,6 +79,16 @@ def test_tool_context_derive():
     assert pin.applies_to(doc_a) is True
     assert pin.applies_to(object()) is False
     assert pin.applies_to(None) is False
+
+def test_selection_pin_applies_to_second_wrapper_of_same_document():
+    """PyUNO can hand out a second wrapper for one document; the pin still applies to it."""
+    doc_a = object()
+    doc_a_wrapper = object()
+    pin = SelectionPin(object(), doc_a)
+    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {doc_a, doc_a_wrapper}):
+        assert pin.applies_to(doc_a_wrapper) is True
+        assert pin.applies_to(object()) is False
+
 
 # ── Tool Base Tests ──────────────────────────────────────────────────
 

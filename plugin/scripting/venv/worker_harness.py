@@ -71,7 +71,7 @@ def _clean_str(val: Any) -> str | None:
 
 def emit_heartbeat(stream: BinaryIO | Any, payload: dict[str, Any]) -> None:
     # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
-    # _write_all's header and payload are separate writes; a second thread in
+    # write_all's header and payload are separate writes; a second thread in
     # a host tool_call would otherwise split the length prefix. The lock is not
     # reentrant: do not call emit on the thread that is inside exchange_tool_call.
     write_child_ipc_frame(

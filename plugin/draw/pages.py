@@ -20,7 +20,7 @@ import logging
 from typing import Any, Literal
 
 from plugin.framework.doc_type import is_impress
-from plugin.draw.bridge import DrawBridge, page_size
+from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError, notes_text, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY, DRAW_REQUIRED_PAGE_PROPERTY
 from plugin.draw.masters import iter_masters
 from plugin.draw.placeholders import slide_title
@@ -255,7 +255,7 @@ def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] =
         if is_group(shape):
             continue
         addr = _shape_tree_address(path)
-        shape_name = str(getattr(shape, "Name", "") or "")
+        shape_name = shape.Name
         matrix = table_cells_for_shape(shape)
         if matrix is not None:
             if table_mode == "tsv":
@@ -293,8 +293,6 @@ class ReadSlideText(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import notes_text
-
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
@@ -335,8 +333,6 @@ class SearchSlides(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import notes_text
-
         raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
         if type(raw_max) is not int or raw_max < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
@@ -485,8 +481,6 @@ class MoveSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import PageExchangeRollbackError
-
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
         bridge = DrawBridge(ctx.doc)

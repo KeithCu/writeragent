@@ -69,7 +69,8 @@ def _truncate_reasoning_string(value: str) -> str:
 )
 @deal.ensure(lambda text_parts, meta, delta, result: meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
-    """Append thinking text as each SSE delta arrives; meta records replay shape (first non-empty delta picks the source, and a later reasoning.encrypted fragment forces reasoning_details because that blob has to be echoed)."""
+    """Append thinking text as each SSE delta arrives; meta records replay shape (first non-empty delta picks the source,
+    and a later reasoning.encrypted fragment forces reasoning_details because that blob has to be echoed)."""
     # delta string fields are product-sized (up to PRESERVE_REASONING_MAX_CHARS);
     # cannot shrink without a new DEAL_MAX split. Pytest still runs @deal.
     # crosshair: off

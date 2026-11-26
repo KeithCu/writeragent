@@ -69,6 +69,7 @@ from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import (
     get_active_document,
     get_ctx,
+    get_desktop,
 )
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
@@ -79,24 +80,22 @@ EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 
 log = logging.getLogger(__name__)
 
+import plugin.app as app
+import plugin.bootstrap as bootstrap
 from plugin.bootstrap import (
     MainBootstrapJob as BaseMainBootstrapJob,
 )
-from plugin.framework.main_shared import ExtensionProtocolHandler, report_action_failure
+from plugin.framework.main_shared import ExtensionProtocolHandler, open_dialog_safely, register_action_handler, report_action_failure
 
 
 def _install_terminate_listener(ctx: Any) -> None:
     """Register a desktop XTerminateListener to clean up child processes on app exit."""
-    import plugin.app as app
-
     # The first successful addTerminateListener is process-lifetime and is not
     # removed or replaced; a failed install leaves the global None so the next
     # bootstrap retries.
-    if app._terminate_listener is not None:
+    if app.terminate_listener() is not None:
         return
     try:
-        from plugin.framework.uno_context import get_desktop
-
         desktop = get_desktop(ctx)
         if desktop is None:
             return
@@ -119,7 +118,7 @@ def _install_terminate_listener(ctx: Any) -> None:
 
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
-        app._terminate_listener = listener
+        app.set_terminate_listener(listener)
     except Exception:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
@@ -132,15 +131,13 @@ def _register_writeragent_prompt_hooks() -> None:
 
 
 def _writeragent_bootstrap_finish(ctx: Any) -> None:
-    import plugin.app as app
-    import plugin.bootstrap as bootstrap
-
     from plugin.framework.queue_executor import Policy, main
 
     from plugin.framework.service import ServiceRegistry
 
-    app._services = ServiceRegistry()
-    app._services.register("uno", ctx)
+    services = ServiceRegistry()
+    app.set_services(services)
+    services.register("uno", ctx)
 
     # Skip terminate listener when running under the eval harness.
     # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
@@ -150,36 +147,38 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     from plugin.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import get_event_bus
 
-    app._services.register("document", DocumentService())
-    app._services.register("events", get_event_bus())
+    services.register("document", DocumentService())
+    services.register("events", get_event_bus())
 
     from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_tool_filters
 
-    app._tools = ToolRegistry(app._services)
-    register_writeragent_tool_filters(app._tools)
-    app._services.register("tools", app._tools)
-    app._services.register("main_thread", main)
+    tools = ToolRegistry(services)
+    app.set_tools(tools)
+    register_writeragent_tool_filters(tools)
+    services.register("tools", tools)
+    services.register("main_thread", main)
 
     bootstrap.mark_initialized()
 
     from plugin.framework.module_base import ModuleLoader
 
     module_phase_failed = False
+    modules = app.loaded_modules()
     try:
-        app._modules.extend(ModuleLoader.load_modules(app._services))
+        modules.extend(ModuleLoader.load_modules(services))
     except Exception as exc:
         module_phase_failed = True
         log.exception("bootstrap failed while loading modules")
         bootstrap.set_bootstrap_error(exc)
-        # Module load failure marks uninitialized when _modules is empty so bootstrap can retry.
-        if not app._modules:
+        # Module load failure marks uninitialized when no module loaded, so bootstrap can retry.
+        if not modules:
             bootstrap.mark_uninitialized()
             return
 
-    for mod in app._modules:
+    for mod in modules:
         try:
-            mod.start_background(app._services)
+            mod.start_background(services)
         except Exception as exc:
             module_phase_failed = True
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
@@ -192,7 +191,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         # always queues menu_status.publish with run_in_background.
         from plugin.framework.worker_pool import run_in_background
 
-        app._services.get("events").subscribe(
+        services.get("events").subscribe(
             "menu:update", lambda **kw: run_in_background(menu_status.publish)
         )
 
@@ -239,9 +238,7 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
     """
     from plugin.chatbot.dialogs import msgbox
 
-    from plugin.app import tests_bundled
-
-    if not tests_bundled():
+    if not app.tests_bundled():
         _show_tests_unavailable(test_name)
         return
 
@@ -269,8 +266,6 @@ def register_core_handlers() -> None:
     """Register core application handlers during bootstrap."""
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
-    from plugin.framework.main_shared import open_dialog_safely, register_action_handler
-    from plugin.framework.uno_context import get_active_document
 
     def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
         try:
@@ -386,10 +381,8 @@ class MainBootstrapJob(BaseMainBootstrapJob):
         init_logging(ctx)
 
     def on_start(self, ctx: Any) -> None:
-        from plugin.app import bootstrap
-
         try:
-            bootstrap(self.ctx)
+            app.bootstrap(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
@@ -405,12 +398,10 @@ class MainBootstrapJob(BaseMainBootstrapJob):
         except Exception:  # UNO boundary: XJobExecutor.trigger entry point
             log.exception("MainBootstrapJob.trigger: init_logging failed")
 
-        from plugin.app import bootstrap, dispatch_command
-
         try:
             if Event and ("." in Event or Event.startswith("plugin.")):
                 cmd = Event[7:] if Event.startswith("plugin.") else Event
-                dispatch_command(cmd)
+                app.dispatch_command(cmd)
                 return
 
             model = get_active_document(self.ctx)
@@ -419,7 +410,7 @@ class MainBootstrapJob(BaseMainBootstrapJob):
             doc_type = get_document_type(model)
             if doc_type in (DocumentType.WRITER, DocumentType.CALC) and Event in ("ExtendSelection", "EditSelection"):
                 # Accelerators call bootstrap before ExtendSelection/EditSelection handlers run.
-                bootstrap()
+                app.bootstrap()
                 from plugin.chatbot.selection import do_selection_action_for_document
 
                 do_selection_action_for_document(self.ctx, model, Event == "EditSelection")
@@ -440,13 +431,11 @@ class DispatchHandler(ExtensionProtocolHandler):
     # ── XDispatch ────────────────────────────────────────────────
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
-        from plugin.app import dispatch_command
-
         command = command_from_dispatch_url(URL)
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
-            dispatch_command(command)
+            app.dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
 
@@ -481,15 +470,12 @@ g_ImplementationHelper.addImplementation(
 )  # implemented services (only 1)
 g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_NAME, DispatchHandler.SERVICE_NAMES)
 
-from plugin.app import bind_writeragent
-
-
 def bind() -> None:
     """Register WriterAgent finish hooks (first call wins).
 
     Out-of-office hosts must call this before ``plugin.app.bootstrap`` or ``get_tools()``.
     """
-    bind_writeragent(
+    app.bind_writeragent(
         finish=_writeragent_bootstrap_finish,
         register_prompt_hooks=_register_writeragent_prompt_hooks,
     )

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from compute_service import error_codes as ec
 from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
-from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
 from plugin.framework.child_runtime import announce_ready, die_with_parent, error_dict
 
 log = logging.getLogger("compute_service.worker")
@@ -63,7 +63,7 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
     """Decode one child IPC payload using RestrictedUnpickler."""
     try:
         return RestrictedUnpickler(io.BytesIO(payload)).load()
-    except _PICKLE_LOAD_ERRORS as exc:
+    except PICKLE_LOAD_ERRORS as exc:
         raise ValueError(str(exc)) from exc
 
 

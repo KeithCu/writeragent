@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from plugin.bootstrap import bootstrap_extension
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
+from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import get_action_handler, report_action_failure
 
 log = logging.getLogger(__name__)
@@ -58,8 +59,6 @@ def bootstrap(ctx: Any | None = None) -> None:
     again in the future if startup performance becomes a concern.
     """
     if _finish is None:
-        from plugin.framework.errors import WriterAgentException
-
         raise WriterAgentException(
             "WriterAgent bootstrap is not bound to a finish handler.",
             code="BOOTSTRAP_FAILED",
@@ -84,8 +83,6 @@ def get_services() -> Any:
     if _services is None:
         bootstrap()
     if _services is None:
-        from plugin.framework.errors import WriterAgentException
-
         raise WriterAgentException(
             "Service registry is unavailable because bootstrap did not finish.",
             code="BOOTSTRAP_FAILED",
@@ -108,13 +105,39 @@ def get_tools() -> ToolRegistry:
     if _tools is None:
         bootstrap()
     if _tools is None:
-        from plugin.framework.errors import WriterAgentException
-
         raise WriterAgentException(
             "Tool registry is unavailable because bootstrap did not finish.",
             code="BOOTSTRAP_FAILED",
         )
     return _tools
+
+
+def set_services(services: ServiceRegistry) -> None:
+    """Publish the service registry that ``plugin.main`` bootstrap finish builds."""
+    global _services
+    _services = services
+
+
+def set_tools(tools: ToolRegistry) -> None:
+    """Publish the tool registry that ``plugin.main`` bootstrap finish builds."""
+    global _tools
+    _tools = tools
+
+
+def loaded_modules() -> list[ModuleBase]:
+    """The live list of loaded modules; bootstrap finish extends it in place."""
+    return _modules
+
+
+def terminate_listener() -> Any | None:
+    """The desktop XTerminateListener installed at bootstrap, or None before it is installed."""
+    return _terminate_listener
+
+
+def set_terminate_listener(listener: Any) -> None:
+    """Record the installed desktop XTerminateListener; it is never removed for the process lifetime."""
+    global _terminate_listener
+    _terminate_listener = listener
 
 
 def tests_bundled() -> bool:
@@ -172,8 +195,6 @@ def dispatch_command(command: str) -> None:
 
     bootstrap_error = bootstrap_mod.bootstrap_error()
     if bootstrap_error is not None:
-        from plugin.framework.errors import WriterAgentException
-
         raise WriterAgentException(
             f"WriterAgent did not finish starting: {bootstrap_error}",
             code="BOOTSTRAP_FAILED",

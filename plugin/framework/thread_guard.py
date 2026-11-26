@@ -46,6 +46,7 @@ from __future__ import annotations
 import functools
 import os
 import threading
+import traceback
 import logging
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Generator, Iterator
@@ -153,8 +154,6 @@ def _notify_thread_violation(msg: str) -> None:
     if main.policy is Policy.test_inline:
         return
     # Capture full stack trace for display
-    import traceback
-
     stack_trace = "".join(traceback.format_stack())
     full_msg = f"{msg}\n\nStack trace:\n{stack_trace}"
     # Marshal bootstrap (_get_async_callback) holds MainThread._init_lock.

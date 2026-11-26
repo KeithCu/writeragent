@@ -39,10 +39,13 @@ hung stream is aborted, not a race to mutex away.
 
 from __future__ import annotations
 
+import base64
 import collections
 import json
 import logging
+import os
 import re
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
@@ -61,7 +64,7 @@ from plugin.framework.send_cancellation import SendCancellation, get_current_sen
 
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
-from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
+from plugin.framework.errors import NetworkError, ToolExecutionError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
@@ -171,8 +174,6 @@ def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | Non
     if not isinstance(data, dict):
         return None
 
-    from .base_provider_shim import closest_named_aspect
-
     changed = False
     # Example: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
     for param in ("resolution", "aspect_ratio", "size", "output_format"):
@@ -200,7 +201,14 @@ def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | Non
 
 
 from .openai_shim import get_provider_shim_class
-from .base_provider_shim import accepted_effort_body, remember_accepted_effort
+from .base_provider_shim import (
+    accepted_effort_body,
+    closest_named_aspect,
+    effort_omit_body,
+    effort_parameter_unsupported,
+    effort_retry_bodies,
+    remember_accepted_effort,
+)
 
 
 class LlmClient:
@@ -259,8 +267,6 @@ class LlmClient:
             if scope.is_cancelled():
                 return None
             if slot["pending"] is None:
-                from .base_provider_shim import effort_omit_body, effort_parameter_unsupported, effort_retry_bodies
-
                 if effort_parameter_unsupported(str(exc)):
                     slot["unsupported"] = True
                     omitted = effort_omit_body(body_bytes)
@@ -452,8 +458,8 @@ class LlmClient:
 
         messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         # One allow-list, including properties {}, runs here before any shim
-        # builds the request. Otherwise each shim forwarded the model's tool
-        # call unchanged, and hallucinated kwargs on a no-arg tool stayed in
+        # builds the request. Otherwise each shim would forward the model's tool
+        # call unchanged, and hallucinated kwargs on a no-arg tool would stay in
         # the request until execute. OpenAI and Anthropic then format the
         # same checked call.
         from plugin.framework.tool_schema import normalize_outbound_tool_calls
@@ -596,9 +602,6 @@ class LlmClient:
         STT-only models use the transcription endpoint only; chat+audio STT models may
         try chat completions first. See docs/chat/audio-architecture.md.
         """
-        import uuid
-        import os
-        import base64
         from plugin.framework.client.model_fetcher import has_native_audio
 
         # Determine model
@@ -1345,7 +1348,5 @@ class LlmClient:
         # client latch means the user stopped. No cancel scope: grammar and forms
         # still receive the historical string, including "".
         if scope is not None and self._stop_latched(scope):
-            from plugin.framework.errors import ToolExecutionError
-
             raise ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
         return result.get("content") or ""

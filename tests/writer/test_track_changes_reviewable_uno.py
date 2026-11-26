@@ -442,7 +442,7 @@ def test_full_document_untracked_refuses_over_pending_changes_uno(ctx, doc):
         before_undo = undo_titles(doc)
 
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+            native_writer_tool_context(doc, ctx), target="full_document", content=["<p>New body.</p>"]
         )
         assert res.get("status") == "error", res
         assert res.get("code") == "PENDING_TRACKED_CHANGES", res
@@ -454,12 +454,12 @@ def test_full_document_untracked_refuses_over_pending_changes_uno(ctx, doc):
     _reset(doc, ctx, "Plain start.")
     with _saved_config(doc, ctx, {_FLAG: "record"}):
         seed = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="end", content=["<p>Agent added.</p>"]
+            native_writer_tool_context(doc, ctx), target="end", content=["<p>Agent added.</p>"]
         )
         assert seed.get("status") == "ok", seed
         save({_FLAG: "off"})
         res2 = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="full_document", content=["<p>Wipe all.</p>"]
+            native_writer_tool_context(doc, ctx), target="full_document", content=["<p>Wipe all.</p>"]
         )
         assert res2.get("status") == "error", res2
         assert res2.get("code") == "PENDING_TRACKED_CHANGES", res2
@@ -477,7 +477,7 @@ def test_full_document_recorded_keeps_other_authors_changes_uno(ctx, doc):
             doc.setPropertyValue("RecordChanges", user_rec)
             try:
                 res = ApplyDocumentContent().execute(
-                    _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+                    native_writer_tool_context(doc, ctx), target="full_document", content=["<p>New body.</p>"]
                 )
                 assert res.get("status") == "ok", res
                 snap = _redline_snapshot(doc)
@@ -504,7 +504,7 @@ def test_full_document_recorded_keeps_other_authors_changes_uno(ctx, doc):
                     else:
                         assert author in expected_authors, (mode, author, rtext)
 
-                _accept_all(doc, ctx)
+                accept_all_changes(doc, ctx)
                 assert doc.getText().getString().rstrip("\r\n") == "New body."
             finally:
                 doc.setPropertyValue("RecordChanges", False)

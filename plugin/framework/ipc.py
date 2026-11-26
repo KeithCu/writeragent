@@ -487,7 +487,7 @@ class UserStopped(BaseException):
 # or it skips the bad-frame handler. A short BININT, BINFLOAT, or FRAME header
 # outside a pickle frame raises struct.error, and callers only treat ValueError
 # as a bad frame.
-_PICKLE_LOAD_ERRORS = (
+PICKLE_LOAD_ERRORS = (
     pickle.UnpicklingError,
     EOFError,
     AttributeError,
@@ -512,7 +512,7 @@ def pack_pickle_frame(
     return struct.pack("!I", len(payload)) + payload
 
 
-def _write_all(stream: IO[Any], data: bytes | str) -> None:
+def write_all(stream: IO[Any], data: bytes | str) -> None:
     """Write every byte of *data*, then flush.
 
     ``write()`` once, ignoring the count, is not enough. The child IPC stream
@@ -542,7 +542,7 @@ def write_pickle_frame(
 
     The cap lives on ``pack_pickle_frame``.
     """
-    _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
+    write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
 
 def _write_bytes_until_joined(
@@ -563,7 +563,7 @@ def _write_bytes_until_joined(
 
     def _writer() -> None:
         try:
-            _write_all(stream, payload)
+            write_all(stream, payload)
         except Exception as exc:
             errors.append(exc)
 
@@ -641,10 +641,10 @@ def write_packed_frame_with_timeout(
     fd = _stream_fileno(stream)
     if fd is None:
         # Popen pipes always have an int fileno. This is BytesIO and mocks.
-        # _write_all has no deadline, so a real pipe that landed here would
+        # write_all has no deadline, so a real pipe that landed here would
         # wedge the caller that holds the worker lock.
         log.debug("write_packed_frame_with_timeout: no int fileno; writing without a deadline")
-        _write_all(stream, frame)
+        write_all(stream, frame)
         return
     if sys.platform == "win32":
         _write_bytes_until_joined(stream, frame, timeout_sec, is_alive=is_alive)
@@ -977,7 +977,7 @@ def unpack_pickle_frame(payload: bytes) -> Any:
     """
     try:
         return _SafeUnpickler(io.BytesIO(payload)).load()
-    except _PICKLE_LOAD_ERRORS as exc:
+    except PICKLE_LOAD_ERRORS as exc:
         # A length-valid truncated payload raises EOFError or KeyError, not only
         # UnpicklingError. Map them to ValueError. The worker turns that into
         # WORKER_IPC_ERROR and kills the child instead of replaying.
@@ -1221,9 +1221,9 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
     """
     line = json.dumps(payload) + "\n"
     try:
-        _write_all(cast("Any", stream), line)
+        write_all(cast("Any", stream), line)
     except TypeError:
-        _write_all(cast("Any", stream), line.encode("utf-8"))
+        write_all(cast("Any", stream), line.encode("utf-8"))
 
 
 def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> str | None:

@@ -26,6 +26,15 @@ from plugin.framework.send_cancellation import SendCancelled
 from plugin.framework.tool import ToolBase, ToolContext
 
 
+def _local_clock_context() -> str:
+    """Local date and time line that MCP tool results carry."""
+    # Weight: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server,
+    # sessions; about 60 modules) that this tool module does not otherwise need.
+    from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
+
+    return format_mcp_clock_context()
+
+
 class ListNearbyFiles(ToolBase):
     """List office files in the active document's directory (or LO Work folder if untitled)."""
 
@@ -93,12 +102,9 @@ class ListOpenDocuments(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
-            from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
-
             docs = get_open_documents(ctx.ctx, ctx.doc)
             # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
-            return {"status": "ok", "documents": docs, "current_local_datetime": format_mcp_clock_context()}
+            return {"status": "ok", "documents": docs, "current_local_datetime": _local_clock_context()}
 
         try:
             return main.run(_run)
@@ -149,9 +155,6 @@ class GetGuidance(ToolBase):
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document
         # open, serve the neutral index / the always-available generic topics.
-        # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
-        from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
-
         is_mcp = ctx.caller == "mcp"
         # An unrecognised or closed document reads the Writer guidance.
         doc_type = None if ctx.doc is None else (doc_type_str_from_doc(ctx.doc) or "writer")
@@ -166,7 +169,7 @@ class GetGuidance(ToolBase):
             # WriterAgent's own LLM calls already carry today's date (response_normalizers.prepare_chat_messages);
             # MCP hosts may drop initialize.instructions, so an MCP index call carries the clock (#374 Bug 1).
             if is_mcp:
-                index["current_local_datetime"] = format_mcp_clock_context()
+                index["current_local_datetime"] = _local_clock_context()
             return index
         section = get_section(raw, doc_type, include_mcp=is_mcp)
         if section is None:

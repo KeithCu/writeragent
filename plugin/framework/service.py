@@ -26,6 +26,7 @@ will confuse shutdown order.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from abc import ABC
 from dataclasses import dataclass
@@ -75,8 +76,6 @@ def iter_named_concrete_subclasses(module: Any, base: type, *skip_bases: type) -
     ``base`` itself is skipped. ``skip_bases`` drops further families
     (for example ``ToolBaseDummy``). Callers instantiate; this only finds classes.
     """
-    import inspect
-
     for _cls_name, obj in inspect.getmembers(module, inspect.isclass):
         if not issubclass(obj, base) or obj is base:
             continue

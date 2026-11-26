@@ -2287,7 +2287,7 @@ def replace_preserving_format(
     ctx: Any = None,
     in_undo_context: bool = False,
     split_author: bool = True,
-) -> None:
+) -> bool:
     """Replace text in *target_range* with *new_text* run by run, preserving formatting.
 
     Untracked new text takes the run's formatting (bold, italic, font, color, link, etc.).
@@ -2311,6 +2311,8 @@ def replace_preserving_format(
     that can roll back a half-applied edit, so it is used only when BOTH ``split_author`` and
     ``in_undo_context`` hold; otherwise the atomic single-op path keeps those edits
     all-or-nothing.
+
+    Returns False when *new_text* already equals the range text, so nothing was written.
     """
     # Use the range's OWN text object, not the document body. When target_range
     # lives inside a table cell, model.getText() (the body) is the wrong XText and
@@ -2323,7 +2325,7 @@ def replace_preserving_format(
     new_text = _normalize(new_text)
 
     if new_text == old_text:
-        return
+        return False
 
     # One replace is several UNO actions; group them so one Ctrl+Z reverts it.
     with WriterCompoundUndo(model, _("WriterAgent: Replace text")):
@@ -2331,6 +2333,7 @@ def replace_preserving_format(
             _replace_recorded(model, text, target_range, old_text, new_text, split_author and in_undo_context)
         else:
             _replace_untracked(text, target_range, old_text, new_text)
+    return True
 
 
 def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:

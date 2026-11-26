@@ -13,6 +13,10 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent, ToolOutput
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.monitoring import LogLevel
 from plugin.contrib.smolagents.tools import Tool
+from plugin.chatbot.smol_examples import get_examples_block
+from plugin.chatbot.web_research_chat import clip_sub_agent_history
+from plugin.framework.errors import ToolExecutionError, format_error_payload
+from plugin.framework.prompts import get_chat_response_format_instructions
 from plugin.ppt_master.venv.ipc import UserStopped, emit_worker_event, rpc_tool
 from plugin.ppt_master.venv.model import HostRpcModel
 from plugin.ppt_master.venv.path_ops import resolve_project_file, resolve_under_root, run_script
@@ -185,8 +189,6 @@ def _build_tools() -> list[Tool]:
 
 
 def _build_instructions(*, topic: str | None, ctx_block: str) -> str:
-    from plugin.framework.prompts import get_chat_response_format_instructions
-
     parts = [
         "PPT-MASTER MODE (venv worker):\n",
         "Follow the loaded SKILL workflow. Use scripts and project files on disk; export via host UNO tools.\n",
@@ -210,8 +212,6 @@ def _is_user_stopped(exc: BaseException | None) -> bool:
 
 
 def _user_stopped_payload() -> dict[str, Any]:
-    from plugin.framework.errors import ToolExecutionError, format_error_payload
-
     return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
 
@@ -227,8 +227,6 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     skill = load_skill_context()
     if not skill.get("ok"):
         return {"status": "error", "message": skill.get("block", "PPT-Master data root not configured.")}
-
-    from plugin.chatbot.smol_examples import get_examples_block
 
     instructions = _build_instructions(topic=topic, ctx_block=str(skill.get("block", "")))
     tools = _build_tools()
@@ -248,8 +246,6 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
         system_prompt_examples=get_examples_block("ppt-master"),
         verbosity_level=LogLevel.OFF,
     )
-
-    from plugin.chatbot.web_research_chat import clip_sub_agent_history
 
     history_text = clip_sub_agent_history(history_text)
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"

@@ -147,8 +147,10 @@ class FindTools(ToolBase):
             )
 
         schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
-        # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+        # Weight: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server,
+        # sessions; about 60 modules) that this tool module does not otherwise need.
         from plugin.mcp_server.mcp_protocol import drop_unavailable_domains
+
         schemas = drop_unavailable_domains(schemas, registry, ctx.ctx)
 
         tools: list[dict[str, Any]] = []

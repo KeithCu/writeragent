@@ -227,3 +227,37 @@ def test_text_fallback_rejects_uno_integer_one():
 
     assert find_form_control_model_by_name(doc, "nb_cell_0_code") is None
 
+
+class _DocWrapper:
+    """Stand-in for two PyUNO wrappers of one document: distinct objects that compare equal."""
+
+    def __init__(self, draw_page: MagicMock) -> None:
+        self._draw_page = draw_page
+
+    def getDrawPage(self) -> MagicMock:
+        return self._draw_page
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _DocWrapper) and other._draw_page is self._draw_page
+
+    def __hash__(self) -> int:
+        return id(self._draw_page)
+
+
+def test_control_lookup_scope_reuses_index_for_second_wrapper_of_same_doc():
+    code_model = MagicMock()
+    code_model.Name = "nb_cell_1_code"
+    code_shape = MagicMock()
+    code_shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    code_shape.Control = code_model
+    dp = MagicMock()
+    dp.getCount.return_value = 1
+    dp.getByIndex.return_value = code_shape
+    doc = _DocWrapper(dp)
+    same_doc = _DocWrapper(dp)
+
+    with control_lookup_scope(doc):
+        with control_lookup_scope(same_doc):
+            assert find_form_control_model_by_name(same_doc, "nb_cell_1_code") is code_model
+
+    assert dp.getByIndex.call_count == 1

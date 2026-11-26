@@ -1,4 +1,5 @@
-# WriterAgent - moved from plugin.framework.prompts (framework must not import applications)
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Lives in plugin.doc rather than plugin.framework because framework must not import applications.
 """Peer messaging prompt blocks and outer/inner tool-result annotations."""
 from __future__ import annotations
 

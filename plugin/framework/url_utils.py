@@ -25,7 +25,7 @@ from plugin.framework.deal_shim import deal
 def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
     """Return True when *url* is an extension menu/protocol dispatch URL."""
     prefix = extension_id + ":"
-    return str(getattr(url, "Protocol", None) or "").startswith(prefix) or str(getattr(url, "Complete", None) or "").startswith(prefix)
+    return url.Protocol.startswith(prefix) or url.Complete.startswith(prefix)
 
 
 def dispatch_command_from_url(url: Any) -> str:
@@ -38,10 +38,10 @@ def dispatch_command_from_url(url: Any) -> str:
     populate ``Complete`` (``org.extension.librepy:main.settings``); derive Path
     from that so menu handlers still run.
     """
-    path = str(getattr(url, "Path", None) or "").strip().lstrip("/")
+    path = url.Path.strip().lstrip("/")
     if path:
         return path
-    before, colon, after = str(getattr(url, "Complete", None) or "").strip().partition(":")
+    before, colon, after = url.Complete.strip().partition(":")
     return after.lstrip("/") if colon else before
 
 

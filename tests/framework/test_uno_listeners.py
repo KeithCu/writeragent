@@ -434,8 +434,9 @@ def test_install_view_doc_listener() -> None:
     ctrl2 = MagicMock()
     source = MagicMock()
     source.getCurrentController.return_value = ctrl2
-    evt_load = MagicMock(spec=["EventName", "Source"])
+    evt_load = MagicMock(spec=["EventName", "ViewController", "Source"])
     evt_load.EventName = "OnLoadFinished"
+    evt_load.ViewController = None
     evt_load.Source = source
     listener.on_document_event(evt_load)
     assert registered == [ctrl, ctrl2]

@@ -428,6 +428,18 @@ def test_run_turn_mixed_finish_returns_whole_message(tmp_path: Path, monkeypatch
     assert result == {"status": "finished", "result": message}
 
 
+def test_run_turn_keeps_first_finish_message(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.runner import PptMasterFinishedTool
+
+    result = _run_scripted_turn(
+        monkeypatch,
+        turns=[[("ppt_master_finished", {"message": "first"}), ("ppt_master_finished", {"message": "second"})]],
+        tools=[PptMasterFinishedTool()],
+    )
+
+    assert result == {"status": "finished", "result": "first"}
+
+
 def test_run_turn_empty_finish_message_uses_default(monkeypatch: pytest.MonkeyPatch):
     from plugin.ppt_master.venv.runner import PptMasterFinishedTool
 

@@ -11,7 +11,8 @@
 #   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor_shell.js
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
 #   - Host Bridge:              plugin/scripting/editor_host.py
-# Parent-to-child types that the child queues are PARENT_TO_CHILD_TYPES in this file, and a new type is added there only when the host sends it and editor_shell.js or scripts_manager.js handles it.
+# Parent-to-child types that the child queues are PARENT_TO_CHILD_TYPES in this file, and a new type is added there only
+# when the host sends it and editor_shell.js or scripts_manager.js handles it.
 # Child-to-parent types are CHILD_TO_PARENT_TYPES; a new one is added there, sent from venv/editor_main.py, and handled in PersistentEditor._incoming_handlers.
 # =========================================================================================
 
@@ -25,12 +26,12 @@ from plugin.framework.deal_shim import (
     deal,
 )
 from plugin.framework.ipc import (
-    _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcPayloadSizeError,
     pack_pickle_frame,
     read_frame_payload,
     unpack_pickle_frame,
+    write_all,
 )
 
 __all__ = [
@@ -131,7 +132,7 @@ def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
     """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
     # crosshair: off
     frame = pack_message(message)
-    _write_all(stream, frame)
+    write_all(stream, frame)
 
 
 def message_type(message: dict[str, Any]) -> str:

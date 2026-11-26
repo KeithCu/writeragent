@@ -748,7 +748,7 @@ def test_search_slides_page_and_shape_name():
     page = MagicMock()
     with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
         with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
-            "plugin.draw.bridge.notes_text", return_value="Note line"
+            "plugin.draw.pages.notes_text", return_value="Note line"
         ):
             pages = MagicMock()
             pages.getCount.return_value = 1
@@ -768,7 +768,7 @@ def test_search_slides_page_and_shape_name():
     # Explicit case_sensitive=True
     with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
         with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
-            "plugin.draw.bridge.notes_text", return_value="Note line"
+            "plugin.draw.pages.notes_text", return_value="Note line"
         ):
             bridge_cls.return_value.get_pages.return_value = pages
             out_cs = SearchSlides().execute(ctx, pattern="H", case_sensitive=True)
@@ -782,7 +782,7 @@ def test_search_slides_cap_hint():
     units = [(0, "S", "hit")] * 5
     with patch("plugin.draw.pages.iter_shape_text_units", return_value=units), patch(
         "plugin.draw.pages.DrawBridge"
-    ) as bridge_cls, patch("plugin.draw.bridge.notes_text", return_value=None):
+    ) as bridge_cls, patch("plugin.draw.pages.notes_text", return_value=None):
         pages = MagicMock()
         pages.getCount.return_value = 1
         pages.getByIndex.return_value = MagicMock()
@@ -850,7 +850,7 @@ def test_schema_defaults_match_omitted_behavior():
     units = [(0, "S", "hit")] * 25
     with patch("plugin.draw.pages.iter_shape_text_units", return_value=units), patch(
         "plugin.draw.pages.DrawBridge"
-    ) as bridge_cls, patch("plugin.draw.bridge.notes_text", return_value=None):
+    ) as bridge_cls, patch("plugin.draw.pages.notes_text", return_value=None):
         pages = MagicMock()
         pages.getCount.return_value = 1
         pages.getByIndex.return_value = MagicMock()
