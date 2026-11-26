@@ -26,7 +26,7 @@ from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, is_disposal, uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import supports_service, uno_same
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class DrawBridge:
         return self._pages
 
     def get_active_page(self) -> Any | None:
-        if hasattr(self.doc, "supportsService") and self.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+        if supports_service(self.doc, "com.sun.star.sheet.SpreadsheetDocument"):
             try:
                 controller = self.doc.getCurrentController()
                 sheet = None

@@ -188,7 +188,7 @@ class BookmarkService(ServiceBase):
         A failed read returns {}.
         """
         try:
-            bm_map, _ = self._read_mcp_bookmark_map_and_names(doc, para_ranges=para_ranges)
+            bm_map, _unused = self._read_mcp_bookmark_map_and_names(doc, para_ranges=para_ranges)
             return bm_map
         except Exception as exc:
             reraise_if_disposed(exc)

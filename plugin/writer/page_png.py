@@ -15,6 +15,7 @@ import uno
 from plugin.doc.text_helpers import clone_text_range, jump_view_cursor_to_page
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.thread_guard import unwrap_uno
+from plugin.framework.uno_context import uno_any
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -60,7 +61,7 @@ def export_current_page_png(
         # FilterData must travel as a typed Any through uno.invoke; a plain tuple is dropped and the
         # page renders at 96 DPI (same as image_mark.bake). GraphicExportFilter ignores the
         # target unless both PixelWidth and PixelHeight are non-zero (GraphicExportFilter.cxx filterRenderDocument).
-        filter_data = cast("Any", uno).Any(
+        filter_data = uno_any(
             "[]com.sun.star.beans.PropertyValue",
             (PropertyValue(Name="PixelWidth", Value=w), PropertyValue(Name="PixelHeight", Value=h)),
         )

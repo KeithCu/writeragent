@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections import Counter
 import logging
 import re
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import uno
 
@@ -36,6 +36,7 @@ from plugin.framework.appearance import get_theme_colors
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import enum_has_more, uno_any
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -269,8 +270,6 @@ def _tighten_list_indent(body_range: Any) -> None:
     Modifies NumberingRules for paragraphs with NumberingIsNumber to tight
     values suitable for the narrow sidebar.
     """
-    from plugin.framework.uno_context import enum_has_more
-
     enum = body_range.createEnumeration()
 
     processed_levels = set()
@@ -301,7 +300,7 @@ def _tighten_list_indent(body_range: Any) -> None:
                 if p.Name == "LeftMargin":
                     log.debug("_tighten_list_indent: level=%d orig LeftMargin=%s text=%r", level, p.Value, para.getString()[:40])
                     p.Value = abs(flo) + 115 + level * 225
-            any_props = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", cast("Any", tuple(props)))
+            any_props = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
             uno.invoke(rules, "replaceByIndex", (level, any_props))
             para.NumberingRules = rules
             return True

@@ -173,7 +173,7 @@ def test_chart_upsert_edit_nonexistent_chart_returns_error():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with (
-        patch("plugin.calc.charts._supports_service", return_value=True),
+        patch("plugin.calc.charts.supports_service", return_value=True),
         patch.object(SheetCharts, "find", return_value=None),
     ):
         res_edit_nf = _tool("chart_upsert").execute_safe(ctx, name="NonExistentChart")
@@ -209,9 +209,16 @@ def _empty_uno_struct(*_args, **_kwargs):
     return SimpleNamespace()
 
 
+def _calc_doc() -> MagicMock:
+    """A Calc model stand-in: ``supportsService`` answers True only for SpreadsheetDocument."""
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    return doc
+
+
 def _calc_chart_create_parts():
     ctx = MagicMock()
-    ctx.doc = MagicMock()
+    ctx.doc = _calc_doc()
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
     charts = MagicMock()
@@ -390,7 +397,7 @@ def test_edit_legend_failure_does_not_remove_existing_chart():
     from plugin.calc.charts import _drop_failed_chart_insert
 
     ctx = MagicMock()
-    ctx.doc = MagicMock()
+    ctx.doc = _calc_doc()
     with (
         patch.object(SheetCharts, "find", return_value=ChartRef(MagicMock(), MagicMock(), "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()),
@@ -560,7 +567,7 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
     chart_obj = MagicMock()
     chart_doc = MagicMock()
     chart_doc.setDiagram.side_effect = DisposedException("gone")
-    ctx: Any = SimpleNamespace(doc=MagicMock())
+    ctx: Any = SimpleNamespace(doc=_calc_doc())
     with (
         patch.object(SheetCharts, "find", return_value=ChartRef(chart_obj, MagicMock(), "calc_sheet")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),

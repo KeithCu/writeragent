@@ -33,6 +33,7 @@ from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import supports_service
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
@@ -72,11 +73,7 @@ def owning_calc_doc(sheet: Any) -> Any | None:
     for _hop in range(4):
         if current is None:
             return None
-        supports: Any = getattr(current, "supportsService", None)
-        # Real UNO returns a Python bool (pyuno_runtime.cxx, Runtime::any2PyObject,
-        # TypeClass_BOOLEAN); any other answer does not name an owner, and the
-        # dispatcher's stored document is used instead.
-        if callable(supports) and uno_read(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
+        if supports_service(current, "com.sun.star.sheet.SpreadsheetDocument"):
             return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):

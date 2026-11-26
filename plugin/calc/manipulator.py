@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from itertools import chain
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
@@ -81,7 +81,7 @@ from plugin.framework.errors import CalcError, Diagnostic, WriterAgentException,
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.thread_guard import unwrap_uno
-from plugin.framework.uno_context import get_ctx
+from plugin.framework.uno_context import get_ctx, uno_any
 
 
 log = logging.getLogger("writeragent.calc")
@@ -1214,7 +1214,7 @@ class CellManipulator:
         sort_desc = list(cell_range.createSortDescriptor())
         for p in sort_desc:
             if p.Name == "SortFields":
-                p.Value = cast("Any", uno).Any("[]com.sun.star.table.TableSortField", tuple(fields))
+                p.Value = uno_any("[]com.sun.star.table.TableSortField", tuple(fields))
             elif p.Name == "ContainsHeader":
                 p.Value = has_header
 

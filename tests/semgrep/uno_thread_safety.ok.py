@@ -66,3 +66,10 @@ def narrow_except(doc):
         doc.getText()
     except ValueError:
         return None
+
+
+def _ok_uno_any(value):
+    from plugin.framework.uno_context import uno_any
+
+    # ok: uno-any-cast-outside-owner
+    return uno_any("[]string", value)

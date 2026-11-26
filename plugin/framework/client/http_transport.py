@@ -147,7 +147,7 @@ class LlmHttpTransport:
         return scheme, host, port
 
     def pacing_key_for_model(self, model: str | None = None) -> str:
-        _, host, port = self._endpoint_parts()
+        _unused, host, port = self._endpoint_parts()
         endpoint = self._current_endpoint()
         explicit = bool(self._openrouter_getter and self._openrouter_getter())
         return pacing_key(host, model, port=port, openrouter=is_openrouter_endpoint(endpoint, explicit_is_openrouter=explicit))

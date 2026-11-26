@@ -54,7 +54,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
-from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
+from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, supports_service, uno_same
 from plugin.writer.edit_review import flag_tracked, flag_untracked, flag_untracked_delete, record_write
 from plugin.writer.record_changes import insert_recorded_content
 from plugin.writer.specialized_base import ToolWriterChartBase
@@ -71,19 +71,6 @@ class ChartRef(NamedTuple):
     page_index: int | None = None
 
 
-def _supports_service(obj: Any, service_name: str) -> bool:
-    """Helper to check if a UNO object supports a service."""
-    if obj is None or not hasattr(obj, "supportsService"):
-        return False
-    try:
-        return obj.supportsService(service_name)
-    except Exception as exc:
-        # Re-raise document disposal; other errors become a false service miss.
-        if is_disposal(exc):
-            raise
-        return False
-
-
 def _is_draw_doc(doc: Any) -> bool:
     """Draw or Impress. DrawingDocument is probed first, then PresentationDocument.
 
@@ -91,7 +78,7 @@ def _is_draw_doc(doc: Any) -> bool:
     both services, so the OR is true). A disposed document raises on the first
     call either way; either probe order is equivalent for live documents.
     """
-    return _supports_service(doc, "com.sun.star.drawing.DrawingDocument") or _supports_service(
+    return supports_service(doc, "com.sun.star.drawing.DrawingDocument") or supports_service(
         doc, "com.sun.star.presentation.PresentationDocument"
     )
 
@@ -919,9 +906,9 @@ def chart_host(doc: Any) -> SheetCharts | WriterEmbeds | DrawPage:
     The registry only offers chart tools on these four services
     (``_ChartTool.uno_services``), so the final raise is for direct calls.
     """
-    if _supports_service(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+    if supports_service(doc, "com.sun.star.sheet.SpreadsheetDocument"):
         return SheetCharts(doc)
-    if _supports_service(doc, "com.sun.star.text.TextDocument"):
+    if supports_service(doc, "com.sun.star.text.TextDocument"):
         return WriterEmbeds(doc)
     if _is_draw_doc(doc):
         return DrawPage(doc)

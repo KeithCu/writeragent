@@ -427,7 +427,7 @@ def load_settings(
     env = os.environ if environ is None else environ
 
     # Warn when known env vars from the map (or PYTHON_COMPUTE_API_KEY) are present but empty
-    known_empty_check = {env_name for env_name, _ in _ENV_FIELD_MAP} | {"PYTHON_COMPUTE_API_KEY"}
+    known_empty_check = {env_name for env_name, _unused in _ENV_FIELD_MAP} | {"PYTHON_COMPUTE_API_KEY"}
     for var_name in sorted(known_empty_check):
         if var_name in env and not env[var_name]:
             log.warning("Environment variable %s is empty; ignoring", var_name)

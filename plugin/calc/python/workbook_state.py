@@ -51,7 +51,7 @@ class Debounce:
             if self._timer is not None:
                 self._timer.cancel()
             return
-        next_deadline = min(deadline for _, deadline in self._entries.values())
+        next_deadline = min(deadline for _unused, deadline in self._entries.values())
         delay = max(0.0, next_deadline - time.monotonic())
         if self._timer is None:
 

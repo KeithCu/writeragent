@@ -279,7 +279,7 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
             min_df=1,
             strip_accents="unicode",
         )
-        X = vectorizer.fit_transform([d for _, d in filtered])
+        X = vectorizer.fit_transform([d for _unused, d in filtered])
         if X.shape[1] < 2:
             return {"topics": [], "note": "insufficient distinct terms"}
 

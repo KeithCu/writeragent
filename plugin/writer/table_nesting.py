@@ -20,24 +20,12 @@ from plugin.doc.text_helpers import (
     iter_portions,
 )
 from plugin.framework.errors import ToolExecutionError, uno_read
-
-
-def _service_named(obj: Any, name: str) -> bool:
-    """True if *obj* supports *name*. Prefer supportsService; fall back to names."""
-
-    def via_supports_service() -> bool | None:
-        ss = getattr(obj, "supportsService", None)
-        return bool(ss(name)) if callable(ss) else None
-
-    found = uno_read(via_supports_service, None)
-    if found is not None:
-        return found
-    return uno_read(lambda: name in (obj.getSupportedServiceNames() or ()), False)
+from plugin.framework.uno_context import supports_service
 
 
 def _is_text_table(obj: Any) -> bool:
     """True for a Writer TextTable."""
-    return _service_named(obj, "com.sun.star.text.TextTable")
+    return supports_service(obj, "com.sun.star.text.TextTable")
 
 
 def _container_xtext(obj: Any) -> Any | None:
@@ -47,7 +35,7 @@ def _container_xtext(obj: Any) -> Any | None:
     cell would destroy it — so discovery walks into the frame. A TextSection
     is a range of the same XText, not a separate one, so it is not a container.
     """
-    if not _service_named(obj, "com.sun.star.text.TextFrame"):
+    if not supports_service(obj, "com.sun.star.text.TextFrame"):
         return None
     return uno_read(lambda: obj.getText(), None)
 
@@ -95,7 +83,7 @@ def _iter_nested_tables(xtext: Any, *, into_containers: bool = True) -> Iterator
 def _host_paragraphs(cell: Any) -> Iterator[Any]:
     """Direct paragraph children of a host cell (frame text is a different XText)."""
     for element in iter_elements(uno_read(lambda: cell.createEnumeration(), None)):
-        if not _is_text_table(element) and _service_named(element, "com.sun.star.text.Paragraph"):
+        if not _is_text_table(element) and supports_service(element, "com.sun.star.text.Paragraph"):
             yield element
 
 

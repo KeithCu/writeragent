@@ -70,7 +70,7 @@ def audit_plugin_roots(roots: list[str] | None = None) -> str:
     if len(versioned_roots) <= 1:
         return "ok"
 
-    versions = {v for _, v in versioned_roots}
+    versions = {v for _unused, v in versioned_roots}
     code = "warn" if len(versions) == 1 else "error"
 
     audit_key = tuple(versioned_roots)
@@ -88,7 +88,7 @@ def audit_plugin_roots(roots: list[str] | None = None) -> str:
         logger = logging.getLogger("plugin")
         if code == "warn":
             shared_version = versioned_roots[0][1]
-            paths_str = "; ".join(path for path, _ in versioned_roots)
+            paths_str = "; ".join(path for path, _unused in versioned_roots)
             logger.warning(
                 "Dual OXT plugin roots at version %s: %s. "
                 "extend_path does not merge child packages; "

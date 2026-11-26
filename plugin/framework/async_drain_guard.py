@@ -201,7 +201,7 @@ def _notify_drain_idle() -> None:
 
     _idle_notify.active = True
     try:
-        for _ in range(_IDLE_NOTIFY_MAX_PASSES):
+        for _unused in range(_IDLE_NOTIFY_MAX_PASSES):
             _idle_notify.again = False
             # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
             # calls ``get_drain_owner()``, which takes this same non-reentrant lock.

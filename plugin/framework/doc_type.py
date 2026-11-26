@@ -219,7 +219,8 @@ def is_draw(model: Any) -> bool:
 
 def is_impress(model: Any) -> bool:
     """Return True if model is an Impress document."""
-    if model is None or not hasattr(model, "supportsService"):
-        return False
-    return bool(model.supportsService(IMPRESS_DOCUMENT_SERVICE))
+    # Bundle boundary: the compute bundle (scripts/build_compute_bundle.py) ships this module without uno_context.py.
+    from plugin.framework.uno_context import supports_service
+
+    return supports_service(model, IMPRESS_DOCUMENT_SERVICE)
 

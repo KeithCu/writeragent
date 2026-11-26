@@ -28,13 +28,13 @@ from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.tool_schema import page_index_param
-from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
+from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, supports_service, uno_same
 from plugin.writer.edit_review import flag_tracked, record_write
 from plugin.writer.html_import import non_text_portion_type, replace_preserving_format
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
-from ..range_copy import cells_all_tracked_deleted, supports_service, writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import cells_all_tracked_deleted, writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import check_grid, check_table_band, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
@@ -656,9 +656,7 @@ def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
         if uno_read(lambda: redline.getPropertyValue("RedlineType"), None) != "Insert":
             return True
         start = uno_read(lambda: redline.getPropertyValue("RedlineStart"), None)
-        if start is None or not uno_read(
-            lambda: supports_service(start, "com.sun.star.text.TextTable"), False
-        ):
+        if start is None or not supports_service(start, "com.sun.star.text.TextTable"):
             return True
         start_name = uno_read(start.getName, None)
         if start_name not in pos:
@@ -666,9 +664,7 @@ def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
         i = pos[start_name]
         j = len(names)
         end = uno_read(lambda: redline.getPropertyValue("RedlineEnd"), None)
-        if end is not None and uno_read(
-            lambda: supports_service(end, "com.sun.star.text.TextTable"), False
-        ):
+        if end is not None and supports_service(end, "com.sun.star.text.TextTable"):
             end_name = uno_read(end.getName, None)
             if end_name in pos:
                 j = pos[end_name]

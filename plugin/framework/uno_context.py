@@ -54,6 +54,7 @@ from plugin.framework.errors import (
     suppress_disposed,
     uno_call,
     uno_disposal_message,
+    uno_read,
 )
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import _UnoThreadGuardProxy, main_thread_only, unwrap_uno
@@ -714,6 +715,31 @@ def create_property_value(name: str, value: Any) -> Any:
     p.Name = name
     p.Value = value
     return p
+
+
+def uno_any(type_name: str, value: Any) -> Any:
+    """Return ``uno.Any(type_name, value)``, a value carrying an explicit UNO type.
+
+    PyUNO accepts a ``uno.Any`` only as a ``uno.invoke`` argument or an add-in
+    return value. The ``uno`` stubs do not declare ``Any``, so this is the one
+    place that casts the module to reach it.
+    """
+    # Host boundary: unit tests and child processes import this module without PyUNO.
+    import uno
+
+    return cast("Any", uno).Any(type_name, value)
+
+
+def supports_service(obj: Any, name: str) -> bool:
+    """True when UNO object *obj* reports service *name*.
+
+    Real PyUNO returns a Python ``bool`` for ``sal_Bool`` (``Runtime::any2PyObject``,
+    ``TypeClass_BOOLEAN``, ``pyuno/source/module/pyuno_runtime.cxx``); ``is True``
+    keeps a pytest ``MagicMock`` answer from counting as a match. ``None``, an
+    object without ``supportsService`` and any other failure give False; a
+    disposed document re-raises as ``DocumentDisposedError``.
+    """
+    return uno_read(lambda: obj.supportsService(name) is True, False)
 
 
 def property_arg(args: Any, name: str) -> Any:

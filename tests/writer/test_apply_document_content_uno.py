@@ -349,7 +349,7 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
 
 def _body_structure(doc):
     from plugin.doc.text_helpers import iter_elements
-    from plugin.writer.range_copy import supports_service
+    from plugin.framework.uno_context import supports_service
 
     out = []
     for el in iter_elements(doc.getText().createEnumeration()):

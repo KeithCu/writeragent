@@ -137,7 +137,7 @@ def _role_miss_error_kwargs(page: Any, scan: list[_ScanRow] | None = None) -> di
         return extra
     extra["hint"] = _EMPTY_PLACEHOLDER_HINT
     extra["suggest_layout"] = "text"
-    extra["shape_text_count"] = sum(1 for _, _, _, _, _, has_text in scan if has_text)
+    extra["shape_text_count"] = sum(1 for _unused, _unused2, _unused3, _unused4, _unused5, has_text in scan if has_text)
     fallback: list[dict[str, Any]] = []
     for i, _shape, class_name, _type_role, name, has_text in scan:
         if not has_text and (class_name or name):

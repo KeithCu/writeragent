@@ -70,7 +70,7 @@ def apply_sidebar_height_for_width(
     with suppress_disposed("apply_sidebar_height_for_width", logger=log):
         parent_w, parent_h = _pos_size(parent_window)
         # Read current actual size *before* we decide.
-        _, panel_h = _pos_size(panel_window)
+        _unused, panel_h = _pos_size(panel_window)
 
         # Width is negotiated here; height stays whatever LO/deck already allocated.
         current_h = panel_h if panel_h > 0 else (parent_h if parent_h > 0 else _LAYOUT_PREFERRED)

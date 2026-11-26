@@ -502,7 +502,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    key_slot, url, _ = built
+    key_slot, url, _unused = built
     memo = _get_catalog_memo(endpoint, api_key_override)
     if memo.ids is not None:
         return list(memo.ids)
@@ -593,7 +593,7 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    key_slot, _url, _ = built
+    key_slot, _url, _unused = built
     memo = _get_catalog_memo(endpoint, api_key_override)
     provider = get_provider_from_endpoint(key_slot)
 
@@ -823,11 +823,11 @@ def _memo_models_or_fetch(
         # Non-OpenRouter hosts populate both slices from one /v1/models GET, so a miss
         # means that request failed and retrying it here would double a timeout; only
         # OpenRouter needs a separate GET (/v1/images/models) for the other slice.
-        if any(w_kind == "text" for w_kind, _ in done) and text_ids is None:
+        if any(w_kind == "text" for w_kind, _unused in done) and text_ids is None:
             text_ids = cached_text_models(endpoint)
             if text_ids is None and kind != "text" and provider == "openrouter":
                 text_ids = fetch_available_models(endpoint)
-        if any(w_kind == "image" for w_kind, _ in done) and image_ids is None:
+        if any(w_kind == "image" for w_kind, _unused in done) and image_ids is None:
             image_ids = cached_image_models(endpoint)
             if image_ids is None and kind != "image" and provider == "openrouter":
                 image_ids = fetch_available_image_models(endpoint)

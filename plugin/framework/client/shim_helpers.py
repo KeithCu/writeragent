@@ -119,7 +119,7 @@ def split_snapshot_text(content: Any) -> tuple[Any, str | None]:
         if isinstance(last, dict) and last.get("type") == "text":
             txt = last.get("text")
             if isinstance(txt, str) and SNAPSHOT_HEADER in txt:
-                sub_body, _ = split_snapshot_text(txt)
+                sub_body, _unused = split_snapshot_text(txt)
                 if sub_body:
                     new_parts = list(content[:-1]) + [dict(last, text=sub_body)]
                 else:

@@ -22,6 +22,7 @@ from plugin.draw.designs import (
 )
 from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
 from plugin.draw.shape_clone import ClonedShape
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.url_utils import path_to_file_url
 
 _STUB_CLONED_SHAPE = ClonedShape(
@@ -320,7 +321,7 @@ def test_apply_design_disposed_doc_is_not_unsupported():
 
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = DisposedException("closed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         ApplyDesign().execute(ctx, design="Metropolis")
 
 

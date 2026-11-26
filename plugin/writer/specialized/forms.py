@@ -732,7 +732,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
             pos = page_cursors.for_page(dp).next_position(h)
-            shape, _, _ = DrawShapes().safe_create_shape(
+            shape, _unused, _unused2 = DrawShapes().safe_create_shape(
                 doc, dp, "com.sun.star.drawing.TextShape", Point(pos.X, pos.Y), Size(w, h)
             )
             shape.setString(plain)

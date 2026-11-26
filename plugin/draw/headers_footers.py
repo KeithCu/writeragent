@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator
 
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 from plugin.framework.tool_schema import page_index_param
+from plugin.framework.uno_context import supports_service
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -101,7 +102,7 @@ def _hf_shape_hit(shape: Any, svc: str, base: str, *, strict: bool) -> bool:
             st = shape.getShapeType()
         if st and (st == svc or str(st).endswith("." + base)):
             return True
-        return bool(hasattr(shape, "supportsService") and shape.supportsService(svc))
+        return supports_service(shape, svc)
     if not hasattr(shape, "getSupportedServiceNames"):
         return False
     suffix = "." + base
@@ -234,7 +235,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
         if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
             _read_impress_master_hf_shapes(page, props)
         else:
-            props_to_fetch = [uno_prop for _, uno_prop, _, _ in _FIELDS] + ["DateTimeFormat"]
+            props_to_fetch = [uno_prop for _unused, uno_prop, _unused2, _unused3 in _FIELDS] + ["DateTimeFormat"]
             for prop_name in props_to_fetch:
                 try:
                     props[prop_name] = page.getPropertyValue(prop_name)

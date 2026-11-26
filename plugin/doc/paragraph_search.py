@@ -16,6 +16,7 @@ from typing import Any
 from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.uno_context import supports_service
 
 
 def compile_search_pattern(
@@ -75,21 +76,9 @@ def search_paragraph_texts(
 
 
 # Same service string as text_helpers.build_heading_tree and document_research_grep.
+# ``XText.createEnumeration`` also yields ``SwXTextTable``, which does not support
+# this service and is not an ``XTextRange`` (no ``getStart`` / ``getEnd``).
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
-
-
-def _is_text_paragraph(element: Any) -> bool:
-    """True when *element* is an ``XTextRange`` paragraph.
-
-    ``XText.createEnumeration`` also yields ``SwXTextTable``. Tables do not
-    support this service and are not ``XTextRange`` (no ``getStart`` /
-    ``getEnd``). Stand-ins without ``supportsService`` count when they expose
-    ``getStart`` so unit tests can pass plain range objects.
-    """
-    supports = getattr(element, "supportsService", None)
-    if callable(supports):
-        return bool(supports(_PARAGRAPH_SERVICE))
-    return callable(getattr(element, "getStart", None))
 
 
 def get_paragraph_ranges(model: Any) -> list[Any]:
@@ -150,7 +139,7 @@ def _index_outside_paragraphs(
 
 def paragraph_entries(para_ranges: list[Any]) -> list[tuple[int, Any]]:
     """Filtered enumeration entries for text paragraphs."""
-    return [(idx, para) for idx, para in enumerate(para_ranges) if _is_text_paragraph(para)]
+    return [(idx, para) for idx, para in enumerate(para_ranges) if supports_service(para, _PARAGRAPH_SERVICE)]
 
 
 def find_paragraph_for_range(
@@ -252,7 +241,7 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
         match_start = anchor.getStart()
         if match_start is None:
             return False
-        if _is_text_paragraph(element):
+        if supports_service(element, _PARAGRAPH_SERVICE):
             cmp_start = text_obj.compareRegionStarts(match_start, element.getStart())
             cmp_end = text_obj.compareRegionStarts(match_start, element.getEnd())
             if isinstance(cmp_start, bool) or not isinstance(cmp_start, int):

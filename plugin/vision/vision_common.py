@@ -344,7 +344,7 @@ def table_from_span_cells(
     """Build a rectangular table dict with spans from cell objects with row/col offsets."""
     if num_rows <= 0 or num_cols <= 0:
         return None
-    grid: list[list[str]] = [["" for _ in range(num_cols)] for _ in range(num_rows)]
+    grid: list[list[str]] = [["" for _unused in range(num_cols)] for _unused2 in range(num_rows)]
     # Rectangular grid: kept body rows are min(num_rows - 1, MAX_TABLE_ROWS).
     # Clip rowspan in this walk. Row 0 is the header, so a header span that
     # covers every kept body row has rowspan last_kept + 1 (the test with

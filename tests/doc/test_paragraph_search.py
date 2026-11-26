@@ -62,6 +62,9 @@ def test_find_paragraph_for_range_binary_search_hit():
         def getEnd(self):
             return self.n + 10
 
+        def supportsService(self, name):
+            return name == "com.sun.star.text.Paragraph"
+
     class _TextObj:
         def compareRegionStarts(self, a, b):
             if a < b:

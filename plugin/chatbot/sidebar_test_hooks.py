@@ -984,7 +984,7 @@ def _apply_fake_tts(mode: str) -> None:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:
                                 p.kill()
-                        for _ in range(50):
+                        for _unused in range(50):
                             if all(p.poll() is not None for p in _FAKE_TTS_PROCS.values()):
                                 break
                             time.sleep(0.01)
@@ -1003,7 +1003,7 @@ def _apply_fake_tts(mode: str) -> None:
                         _fake_tts_refresh_locked()
 
                     def _poll_idle() -> None:
-                        for _ in range(100):
+                        for _unused in range(100):
                             time.sleep(0.02)
                             with _FAKE_TTS_LOCK:
                                 if _FAKE_TTS_MODE == "off":
@@ -1094,7 +1094,7 @@ def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
     if command.startswith(_DEBUG_SIDEBAR_PREFIX):
         rest = command[len(_DEBUG_SIDEBAR_PREFIX) :]
     rest = rest.lstrip(".?")
-    op_part, _, extra = rest.partition("&")
+    op_part, _unused, extra = rest.partition("&")
     op = (op_part or "SNAPSHOT").upper().replace("-", "_")
     uid = ""
     for part in extra.split("&"):

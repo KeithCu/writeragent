@@ -44,6 +44,8 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `get_extension_url` | Package location URL, else `vnd.sun.star.extension://<id>`. |
 | `get_extension_path` | Filesystem path of the OXT when the package URL is `file://`. |
 | `create_property_value` / `property_arg` | Construct `com.sun.star.beans.PropertyValue` / read property by `Name`. |
+| `uno_any` | `uno.Any(type_name, value)` for a typed sequence or struct passed through plain `uno.invoke(...)` (or returned from an add-in). The only `cast("Any", uno)` in `plugin/`; Opengrep rule `uno-any-cast-outside-owner` blocks it elsewhere. |
+| `supports_service` | `obj.supportsService(name) is True`; `None`, an object without the method, or any non-disposal error gives `False`, and disposal raises `DocumentDisposedError`. The one service-name probe for Writer, Calc, Draw and doc helpers. |
 | `product_display_name` / `is_libreharper` | User-visible product name / LibreHarper probe. |
 | `get_active_document` | `desktop.getCurrentComponent()` (Start Center possible when nothing is open). |
 | `get_document_from_frame` | Model from a sidebar frame controller (preferred over Desktop for panels). |

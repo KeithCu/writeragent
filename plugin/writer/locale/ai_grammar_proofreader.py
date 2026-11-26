@@ -135,13 +135,8 @@ def _harper_module() -> types.ModuleType:
 
 
 def _is_text_document(model: Any) -> bool:
-    """True only when UNO reports a Writer model. ``supportsService`` is the only probe; ``None`` or an object without it is not a document."""
-    if model is None:
-        return False
-    supports = getattr(model, "supportsService", None)
-    if not callable(supports):
-        return False
-    return bool(supports(_TEXT_DOCUMENT_SERVICE))
+    """True only when UNO reports a Writer model; ``None`` is not a document."""
+    return uno_context.supports_service(model, _TEXT_DOCUMENT_SERVICE)
 
 
 def _current_component(desktop: Any) -> Any | None:

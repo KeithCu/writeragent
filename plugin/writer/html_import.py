@@ -47,7 +47,7 @@ from plugin.framework.constants import HTML_WRITER_FILTER
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets, html_to_search_text, text_has_real_html_tag
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import create_property_value
+from plugin.framework.uno_context import create_property_value, uno_any
 from . import field_restore, html_import_styles, html_ruby, hyperlink_fixup, image_placeholders, record_changes
 from .html_export import strip_html_boilerplate
 from .math.html_math_segment import (
@@ -1092,7 +1092,7 @@ def _restore_host_para_props(
         return
     _clean, _styles, block_paras, _skipped = html_import_styles.extract_block_lo_styles(content)
     explicit_uno = (
-        {uno_prop for uno_prop, _ in html_import_styles.parse_data_lo_para(block_paras[0])[0].values()}
+        {uno_prop for uno_prop, _unused in html_import_styles.parse_data_lo_para(block_paras[0])[0].values()}
         if block_paras and block_paras[0]
         else set()
     )
@@ -1100,7 +1100,6 @@ def _restore_host_para_props(
         prop for group in _SHARED_ITEM_GROUPS if group & explicit_uno for prop in group
     }
     states = {name: first_para.getPropertyState(name).value for name in kept_para}
-    uno_rt = cast("Any", uno)
     recording = record_changes.is_recording_changes(model)
     with record_changes.record_changes(model, False) if recording else contextlib.nullcontext():
         for name, value in kept_para.items():
@@ -1114,11 +1113,7 @@ def _restore_host_para_props(
             if name not in shared_with_explicit and states[name] == "DIRECT_VALUE":
                 continue
             if name == "ParaTabStops":
-                uno_rt.invoke(
-                    first_para,
-                    "setPropertyValue",
-                    (name, uno_rt.Any("[]com.sun.star.style.TabStop", value)),
-                )
+                uno.invoke(first_para, "setPropertyValue", cast("Any", (name, uno_any("[]com.sun.star.style.TabStop", value))))
             else:
                 first_para.setPropertyValue(name, value)
 
