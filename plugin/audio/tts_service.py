@@ -67,8 +67,8 @@ _SPEECH_HTML_TAG_RE = re.compile(
     r"""(?:\s+[\w:-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))*\s*/?>""",
     re.IGNORECASE,
 )
-# Stars must hug the word. The old [*]{1,3}([^*]+)[*]{1,3} treated "2 * 3 * 4"
-# as italic and deleted the multiplication signs.
+# Stars must hug the word; a looser [*]{1,3}([^*]+)[*]{1,3} would treat "2 * 3 * 4"
+# as italic and delete the multiplication signs.
 _SPEECH_EMPH_RE = re.compile(r"(?<![\w*])\*{1,3}(\S(?:.*?\S)?)\*{1,3}(?![\w*])")
 _CHUNK_BREAK_RE = re.compile(r"[.!?。！？](?:\s+|$)")
 
@@ -302,7 +302,7 @@ def clean_text_for_speech(text: str) -> str:
 
     cleaned = _SPEECH_EMPH_RE.sub(r"\1", cleaned)
 
-    # Known tags only. The old any-letter pattern treated "a<b and c>d" as <b ...>.
+    # Known tags only; an any-letter pattern would treat "a<b and c>d" as <b ...>.
     cleaned = _SPEECH_HTML_TAG_RE.sub("", cleaned)
 
     # Remove raw URLs

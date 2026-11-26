@@ -27,6 +27,9 @@ import uno
 from plugin.framework.constants import get_plugin_dir
 from plugin.framework.uno_context import (
     create_property_value,
+    desktop_create_is_unsafe,
+    get_ctx,
+    get_desktop,
     get_extension_url,
     get_service_manager,
     resolve_package_extension_id,
@@ -119,8 +122,6 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
     if w is not None:
         wins.append(w)
     try:
-        from plugin.framework.uno_context import desktop_create_is_unsafe, get_ctx, get_desktop
-
         if desktop_create_is_unsafe():
             return wins
         if ctx is None:
@@ -223,8 +224,6 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
     """
     try:
         from com.sun.star.beans import PropertyValue
-
-        from plugin.framework.uno_context import get_ctx, get_service_manager
 
         if ctx is None:
             ctx = get_ctx()

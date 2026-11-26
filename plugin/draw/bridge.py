@@ -825,8 +825,7 @@ class DrawBridge:
             if is_disposal(exc):
                 raise
             log.debug("get_active_page_index failed", exc_info=True)
-        # Callers outside this package require an int. A total miss still
-        # reports 0; an empty page and a missing getNumber() no longer do.
+        # Callers outside this package require an int, so a total miss reports 0.
         return 0
 
 
@@ -899,7 +898,9 @@ def set_notes_text(page: Any, text: str) -> bool:
 
 @main_thread_only
 def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
-    """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass the chat signature."""
+    """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned
+    with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass
+    the chat signature."""
     try:
         if model is None:
             return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"

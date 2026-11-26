@@ -63,7 +63,7 @@ _SUPPORTED_SERVICE_NAMES = (
 
 def _url_from_descriptor(descriptor: Any) -> str:
     for prop in descriptor:
-        if getattr(prop, "Name", "") == "URL":
+        if prop.Name == "URL":
             return str(prop.Value or "")
     return ""
 

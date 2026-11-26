@@ -188,10 +188,8 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     orig_env = os.environ.get("WRITERAGENT_EVAL_HARNESS")
     try:
         os.environ["WRITERAGENT_EVAL_HARNESS"] = "1"
-        monkeypatch.setattr(
-            "plugin.framework.uno_context.get_desktop",
-            MagicMock(side_effect=AssertionError("get_desktop must not be called")),
-        )
+        for target in ("plugin.framework.uno_context.get_desktop", "plugin.main.get_desktop"):
+            monkeypatch.setattr(target, MagicMock(side_effect=AssertionError("get_desktop must not be called")))
         bootstrap.mark_uninitialized()
         app._modules = []
         bootstrap.clear_bootstrap_error()
@@ -260,7 +258,7 @@ def test_terminate_listener_runs_only_quit_hooks(monkeypatch):
     listeners: list = []
     fake_desktop = MagicMock()
     fake_desktop.addTerminateListener = listeners.append
-    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx: fake_desktop)
+    monkeypatch.setattr("plugin.main.get_desktop", lambda ctx: fake_desktop)
 
     app._terminate_listener = None
     main._install_terminate_listener(MagicMock())
@@ -300,7 +298,7 @@ def test_terminate_listener_cooperative_hook_before_supervisor_sweep(monkeypatch
     listeners: list = []
     fake_desktop = MagicMock()
     fake_desktop.addTerminateListener = listeners.append
-    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx: fake_desktop)
+    monkeypatch.setattr("plugin.main.get_desktop", lambda ctx: fake_desktop)
 
     app._terminate_listener = None
     main._install_terminate_listener(MagicMock())

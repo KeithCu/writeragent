@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
 import logging
 import os
 from abc import ABC
@@ -144,9 +146,6 @@ class ModuleLoader:
 
             # Dynamic ModuleBase initialization
             try:
-                import importlib
-                import inspect
-
                 mod_pkg = importlib.import_module(import_path)
                 module_class = None
 

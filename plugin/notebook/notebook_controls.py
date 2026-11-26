@@ -367,13 +367,12 @@ def _claim_container(
 ) -> bool:
     """True if a snapshot match is still in ``_listener_refs``.
 
-    Bugfix: Previously, container comparisons ran under ``_lock``.
-    ``uno_same`` falls back to ``==`` and ``uno.isSame`` UNO calls, while
-    ``on_disposing`` and document-event handlers take ``_lock`` when already
-    holding SolarMutex, creating a lock-order inversion risk.
-    To fix this, we snapshot ``_listener_refs`` under ``_lock``, compare
-    containers outside ``_lock`` with ``uno_same``, and recheck listener
-    identity under ``_lock``. If another caller appended to ``_listener_refs``
+    Container comparisons run outside ``_lock``: ``uno_same`` falls back to
+    ``==`` and ``uno.isSame`` UNO calls, while ``on_disposing`` and
+    document-event handlers take ``_lock`` when already holding SolarMutex, so
+    comparing under ``_lock`` would risk a lock-order inversion. This snapshots
+    ``_listener_refs`` under ``_lock``, compares containers outside ``_lock``
+    with ``uno_same``, and rechecks listener identity under ``_lock``. If another caller appended to ``_listener_refs``
     during comparison, we retry; otherwise, if ``listener`` and ``container_lis``
     are provided and no live match was found, we append both before returning False.
     """

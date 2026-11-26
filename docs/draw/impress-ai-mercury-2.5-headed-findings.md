@@ -130,7 +130,7 @@ Takeaways that change the plan below:
 1. **A is the root-cause fix and needs no refresh workaround.** `page.Layout = 1` instantiates the title/body placeholders synchronously. The earlier worry that placeholders only appear “after retries” is unfounded on this build — the retries were the model re-running layout work, not a settle delay.
 2. **`insertNewByIndex` leaves `Layout=20` but no placeholder shapes.** So a fresh slide both lies to `slide_get_layout` (`two_column_and_object`) and gives role lookup nothing to find. Setting a layout on `slide_add` fixes both symptoms.
 3. **Use `"text"` (id 1), not `"title"`, as the Impress content default.** In `_LAYOUTS`, `title`=0 is a title+subtitle title slide, `text`=1 is Title + Content (title + body outline), and `title_only`=10 is title only.
-4. **Placeholder role/class tagging is effectively dead on this LibreOffice build.** `shape.ClassName` and `getPropertyValue("PresObj")` raise, and shape `Name` is empty, so `_list_placeholders` emits `{index, text}` with no `role`/`class`, and `_find_placeholder` matches only via strategy 3 (positional: first text = title, second = body). That is why title/body targeted correctly *after* layout, and why the errors were empty *before*.
+4. **Placeholder role/class tagging is effectively dead on this LibreOffice build.** `shape.ClassName` and `getPropertyValue("PresObj")` raise, and shape `Name` is empty, so `_list_placeholders` emits `{index, text}` with no `role`/`class`, and `find_placeholder` matches only via strategy 3 (positional: first text = title, second = body). That is why title/body targeted correctly *after* layout, and why the errors were empty *before*.
 5. **The broad `"Text"` pattern in `_PLACEHOLDER_ROLES["body"]` is latent, not this bug's cause.** It could mis-target the title only on builds that expose `ClassName`; keep it as hardening, not as the failure to chase.
 
 ---
@@ -161,7 +161,7 @@ Same for `'body'`. Concurrent `placeholder_list` often reported `"count": 0` / e
 
 - `plugin/draw/pages.py` — `AddSlide.execute` → `DrawBridge.create_slide(...)` (no layout argument today; description is only “Inserts a new slide at index”)
 - `plugin/draw/transitions.py` — `slide_set_layout` / `slide_get_layout`; layout name `"text"` (and peers) already exist in `_LAYOUTS` / `_LAYOUT_NAMES`
-- Downstream consumer: `plugin/draw/placeholders.py` — `placeholder_set_text` / `_find_placeholder` / `_list_placeholders`
+- Downstream consumer: `plugin/draw/placeholders.py` — `placeholder_set_text` / `find_placeholder` / `_list_placeholders`
 
 **Proposed change (concrete)**
 
@@ -215,11 +215,11 @@ Note: on the probe build the role/class labels were absent — `_list_placeholde
 
 **Problem**
 
-`_PLACEHOLDER_ROLES["body"]` includes the very broad `"Text"` pattern (`plugin/draw/placeholders.py:27`). In `_find_placeholder` strategy 1 the loop is shape-outer / candidate-inner (`placeholders.py:42-57`), so for `role="body"` on a slide whose first shape is `TitleTextShape`, `"text" in "titletextshape"` matches and the **title is returned as the body**. This is latent on the probe build (it never exposes `ClassName`, so strategy 1 does not fire) but is a real wrong-target bug on any build that does.
+`_PLACEHOLDER_ROLES["body"]` includes the very broad `"Text"` pattern (`plugin/draw/placeholders.py:27`). In `find_placeholder` strategy 1 the loop is shape-outer / candidate-inner (`placeholders.py:42-57`), so for `role="body"` on a slide whose first shape is `TitleTextShape`, `"text" in "titletextshape"` matches and the **title is returned as the body**. This is latent on the probe build (it never exposes `ClassName`, so strategy 1 does not fire) but is a real wrong-target bug on any build that does.
 
 **Where**
 
-- `plugin/draw/placeholders.py` — `_PLACEHOLDER_ROLES` (line 27), `_find_placeholder` strategy 1 (lines 42–57); `_list_placeholders` uses the same map for labels.
+- `plugin/draw/placeholders.py` — `_PLACEHOLDER_ROLES` (line 27), `find_placeholder` strategy 1 (lines 42–57); `_list_placeholders` uses the same map for labels.
 
 **Proposed change (concrete)**
 
@@ -315,12 +315,12 @@ Placeholder 'title' not found.   details.available = []
 
 That is true but **not actionable**: it does not say “slide has no presentation placeholders; try slide_set_layout('text')” or “shapes exist as TitleTextShape/OutlinerShape — use index / get_tree.” In the successful run’s document snapshot, content often appeared as `TitleTextShape` / `OutlinerShape` even when role lookup failed — `_list_placeholders` only includes shapes with `getString`, and role tagging depends on `ClassName` patterns in `_PLACEHOLDER_ROLES`.
 
-The probe confirmed the mechanism: before layout the slide has **zero** shapes, so `available` is genuinely empty (not a lookup failure); after layout it has `TitleTextShape` + `OutlinerShape`, but `ClassName`/`PresObj` raise and `Name` is empty on this build, so no `role`/`class` is ever attached and `_find_placeholder` resolves by position only. That means C1's hint is the main payoff here, and C2 must not assume clean class tags exist.
+The probe confirmed the mechanism: before layout the slide has **zero** shapes, so `available` is genuinely empty (not a lookup failure); after layout it has `TitleTextShape` + `OutlinerShape`, but `ClassName`/`PresObj` raise and `Name` is empty on this build, so no `role`/`class` is ever attached and `find_placeholder` resolves by position only. That means C1's hint is the main payoff here, and C2 must not assume clean class tags exist.
 
 **Where**
 
 - `plugin/draw/placeholders.py`
-  - `_find_placeholder` / `_list_placeholders` / `_PLACEHOLDER_ROLES`
+  - `find_placeholder` / `_list_placeholders` / `_PLACEHOLDER_ROLES`
   - `SetPlaceholderText.execute` error branch (~line 213): `return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))`
 
 **Proposed change (concrete)** — two tiers; implement one or both:
@@ -348,7 +348,7 @@ If `_list_placeholders` is empty but `get_tree`-style text shapes exist, include
 
 **C2 — Optional write fallback (more aggressive)**
 
-New parameter `fallback: "none"|"text_shapes"` (default `"none"`). When role miss and fallback enabled (or always for chat caller), write to first/second text shape by the same positional heuristic already in `_find_placeholder` strategy 3 — but only if those shapes exist. Or map `TitleTextShape` → title, `OutlinerShape` → body by `ClassName` even when not tagged as PresObj roles.
+New parameter `fallback: "none"|"text_shapes"` (default `"none"`). When role miss and fallback enabled (or always for chat caller), write to first/second text shape by the same positional heuristic already in `find_placeholder` strategy 3 — but only if those shapes exist. Or map `TitleTextShape` → title, `OutlinerShape` → body by `ClassName` even when not tagged as PresObj roles.
 
 **Why this vs alternatives**
 

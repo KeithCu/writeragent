@@ -59,6 +59,7 @@ from plugin.framework.errors import (
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.uno_context import uno_same
 from plugin.framework.queue_executor import main
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
@@ -115,7 +116,7 @@ class SelectionPin:
 
     def applies_to(self, doc: Any) -> bool:
         """True when *doc* is the document this pin was captured from."""
-        return doc is not None and self.doc == doc
+        return doc is not None and uno_same(self.doc, doc)
 
 
 class ToolContext:

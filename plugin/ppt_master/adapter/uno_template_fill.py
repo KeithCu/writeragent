@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.placeholders import _find_placeholder
+from plugin.draw.placeholders import find_placeholder
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 
 
@@ -34,15 +34,15 @@ def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any 
             for _key, text in replacements.items():
                 if not text:
                     continue
-                shape, _ph_idx = _find_placeholder(page, _key)
+                shape, _ph_idx = find_placeholder(page, _key)
                 if shape is not None and hasattr(shape, "setString"):
                     shape.setString(text)
                     filled += 1
         elif isinstance(replacements, str) and replacements.strip():
             # For a raw string, try to write to the body or title
-            shape, _ph_idx = _find_placeholder(page, "body")
+            shape, _ph_idx = find_placeholder(page, "body")
             if shape is None:
-                shape, _ph_idx = _find_placeholder(page, "title")
+                shape, _ph_idx = find_placeholder(page, "title")
             if shape is not None and hasattr(shape, "setString"):
                 shape.setString(replacements)
                 filled += 1

@@ -176,6 +176,7 @@ def test_prepare_vision_writer_insert_inserts_paragraph_break_and_collapses_view
     anchor = MagicMock()
     text = MagicMock()
     anchor_cursor = MagicMock()
+    anchor_cursor.isCollapsed.return_value = False
     text.createTextCursorByRange.return_value = anchor_cursor
     anchor.getText.return_value = text
 
@@ -224,6 +225,7 @@ def test_prepare_vision_writer_insert_prefers_image_name_over_selection():
     text = MagicMock()
     cursor = MagicMock()
     cursor.getStart.return_value = "pos"
+    cursor.isCollapsed.return_value = False
     text.createTextCursorByRange.return_value = cursor
     anchor.getText.return_value = text
     named.getAnchor.return_value = anchor

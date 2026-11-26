@@ -143,7 +143,7 @@ def _normalize_clsid_value(clsid: Any) -> str:
         return ""
 
 
-def _is_chart_clsid(clsid: Any) -> bool:
+def is_chart_clsid(clsid: Any) -> bool:
     s = _normalize_clsid_value(clsid).strip()
     if not s:
         return False
@@ -163,7 +163,7 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
         raw = None
 
     if _normalize_clsid_value(raw).strip():
-        return _is_chart_clsid(raw)
+        return is_chart_clsid(raw)
 
     # Missing CLSID: Writer embeds fall back to getDiagram() check
     if is_embed:

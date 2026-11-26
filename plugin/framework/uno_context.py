@@ -50,13 +50,13 @@ from plugin.framework.constants import (
     EXTENSION_ID_WRITERAGENT,
 )
 from plugin.framework.errors import (
-    _uno_disposal_message,
     reraise_if_disposed,
     suppress_disposed,
     uno_call,
+    uno_disposal_message,
 )
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.thread_guard import _UnoThreadGuardProxy, main_thread_only, unwrap_uno
 from plugin.framework.url_utils import normalize_file_url
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
@@ -258,8 +258,6 @@ def _stable_component_context(ctx: Any) -> Any:
     is already stable. MainThread still unwraps before it stores a
     context; that compare is on the raw target.
     """
-    from plugin.framework.thread_guard import _UnoThreadGuardProxy
-
     if ctx is None or isinstance(ctx, _UnoThreadGuardProxy):
         return ctx
     slot = _component_context_proxies.get(id(ctx))
@@ -363,7 +361,7 @@ def get_active_document(ctx: Any | None = None) -> Any:
         # DisposedException from get_desktop() is a plain Exception, so a
         # dying desktop looks like nothing open. uno_call already re-raises
         # disposal from getCurrentComponent.
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
+        reraise_if_disposed(e, uno_disposal_message(e), object_type="Desktop")
         log.exception("get_active_document unexpected exception")
         return None
 
@@ -550,8 +548,6 @@ def uno_same(a: Any, b: Any) -> bool:
         is_same = getattr(uno, "isSame", None)
         if not callable(is_same):
             return False
-        from plugin.framework.thread_guard import unwrap_uno
-
         # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
         # which is truthy. Real PyUNO returns a bool.
         return is_same(unwrap_uno(a), unwrap_uno(b)) is True
@@ -620,7 +616,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
                 yield model
     except Exception as e:
         if strict:
-            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
+            reraise_if_disposed(e, uno_disposal_message(e), object_type="Desktop")
         return
 
 
@@ -669,7 +665,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 if model_stat is not None and os.path.samestat(model_stat, target_stat):
                     return resolved(model)
     except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
+        reraise_if_disposed(e, uno_disposal_message(e), object_type="Desktop")
         log.exception("resolve_document_by_url enumeration error")
     return (None, None)
 

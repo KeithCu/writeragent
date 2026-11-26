@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.errors import _uno_disposal_message, best_effort, reraise_if_disposed
+from plugin.framework.errors import best_effort, reraise_if_disposed, uno_disposal_message
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import create_property_value, get_desktop, get_runtime_uid
 
@@ -136,12 +136,12 @@ def _close_scratch_doc(doc: Any) -> None:
 
 @main_thread_only
 def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
-    """Empty *doc* of everything a template can put in it. True when the doc is clean afterwards.
+    """Empty *doc* of template content or leftovers from a reused scratch doc. True when clean afterwards.
 
     Not just the body text: a letterhead template is often an empty table or a logo
-    anchored to the page, whose body string is "" -- testing the text alone left that
-    table in the scratch doc, and it came back in range reads. So tables, text frames
-    and drawing shapes are disposed explicitly, then the text is cleared.
+    anchored to the page, whose body string is "". Testing the text alone would leave
+    that table in the scratch doc and it would come back in range reads, so tables,
+    text frames and drawing shapes are disposed explicitly before the text is cleared.
 
     When *keep_chars* > 0, that many leading characters stay in place so a reused
     Writer keeps its first paragraph and deleted content cannot leave formatting
@@ -155,7 +155,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
             container = getattr(doc, supplier)()
             names = list(container.getElementNames())
         except Exception as e:
-            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+            reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
             continue
         for name in names:
             try:
@@ -163,7 +163,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
                     container.getByName(name).dispose()
                     removed = True
             except Exception as e:
-                reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+                reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
                 log.debug("clear_writer_body: could not dispose %s %r", supplier, name, exc_info=True)
     try:
         page = doc.getDrawPage()
@@ -177,10 +177,10 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
                 if page.getCount() < before:
                     removed = True
             except Exception as e:
-                reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+                reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
                 continue
     except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+        reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
     try:
         text = doc.getText()
@@ -196,10 +196,10 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
             # SwXText::setString adds nodes so a leading table or section can be deleted.
             text.setString("")
     except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+        reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
         log.debug("clear_writer_body failed", exc_info=True)
     if removed:
-        log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
+        log.debug("clear_writer_body: removed leftover content from a scratch Writer")
 
     try:
         return (
@@ -209,7 +209,7 @@ def clear_writer_body(doc: Any, *, keep_chars: int = 0) -> bool:
             and not (doc.getText().getString() or "")[keep_chars:].strip()
         )
     except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Writer")
+        reraise_if_disposed(e, uno_disposal_message(e), object_type="Writer")
         return False
 
 

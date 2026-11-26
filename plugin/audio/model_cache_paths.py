@@ -86,8 +86,7 @@ def resolve_kokoro_model_paths() -> tuple[Path, Path]:
 
     A non-empty ``KOKORO_MODEL_PATH`` / ``KOKORO_VOICES_PATH`` locks that file:
     the path is used even when it is missing, and a probed copy is not
-    substituted. That matches the old ``env or default`` assignment, which
-    never searched another directory after an override was set.
+    substituted: an override never searches another directory.
 
     Otherwise each filename is taken from the first probe directory that has
     it. When one file is present and the other is not, the missing path is

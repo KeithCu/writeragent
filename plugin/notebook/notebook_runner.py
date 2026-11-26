@@ -20,7 +20,7 @@ from plugin.framework.errors import document_is_disposed
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.send_cancellation import get_current_send_cancellation, is_cancelled
-from plugin.framework.uno_context import enum_has_more, get_active_document, process_events_to_idle
+from plugin.framework.uno_context import enum_has_more, get_active_document, get_ctx, get_toolkit, process_events_to_idle
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, find_cell_by_hex, load_registry, save_registry
 from plugin.notebook.layout import (
@@ -151,8 +151,6 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     busy_key = doc_key(doc)
 
     def _run() -> dict[str, Any]:
-        from plugin.framework.send_cancellation import get_current_send_cancellation
-
         try:
             # Both Stop buttons run on the UI thread; this wait is pump_idle=False,
             # so the per-doc Event cannot flip during the pipe wait — read it once here.
@@ -241,13 +239,11 @@ def _same_paragraph(a: Any, b: Any) -> bool:
 def _paragraph_has_frame(cursor: Any) -> bool:
     """True when the paragraph contains an in-flow ControlShape / graphic (▶ or field).
 
-    A Writer text cursor enumerates paragraphs, not text portions. The old
-    body called ``createEnumeration`` on that cursor and read ``TextPortionType``
-    on each paragraph. That raises ``UnknownPropertyException``; the catch
-    turned it into ``getattr`` and returned False, so every Run / Run All
-    treated ▶ and code-field paragraphs as frameless. The document-wide
-    portion scan under that ``return`` never ran. Expand to the enclosing
-    paragraph, take that paragraph, then enumerate its portions.
+    A Writer text cursor enumerates paragraphs, not text portions: reading
+    ``TextPortionType`` on those paragraphs raises ``UnknownPropertyException``,
+    and Run / Run All would treat ▶ and code-field paragraphs as frameless.
+    So this expands to the enclosing paragraph, takes that paragraph, then
+    enumerates its portions.
     """
     para_rng = _enclosing_paragraph(cursor.getText(), cursor)
     paras = para_rng.createEnumeration()
@@ -727,8 +723,8 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
     target.gotoStartOfParagraph(False)
     # Only a paragraph that already had text can be mashed onto the next
     # cell's chrome. On an empty output slot everything after the 32k
-    # insert cap is still our stdout; splitting it restyled the tail as
-    # Heading 2, which then stopped the next clear at that heading.
+    # insert cap is still our stdout; splitting it would restyle the tail as
+    # Heading 2, which would then stop the next clear at that heading.
     had_text = bool(_paragraph_string(target).strip())
     _apply_para_style(target, output_style)
     text.insertString(target, display, False)
@@ -784,8 +780,7 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     """
     # *para* is a text cursor. Its enumeration yields the paragraph;
     # portions are on that paragraph. Reading TextPortionType on the
-    # cursor's elements raised UnknownPropertyException, the catch hid it,
-    # and this always returned None.
+    # cursor's own elements raises UnknownPropertyException.
     paras = para.createEnumeration()
     if not enum_has_more(paras):
         return None
@@ -834,9 +829,9 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
     text = doc.getText()
 
     # Walk only the paragraph before this cell's code field. A document-wide
-    # search for the first ``In [n]:`` rewrote cell 1's gutter when this
-    # cell's ControlShape was missing (the importer no longer writes
-    # ``Cell N: Code``).
+    # search for the first ``In [n]:`` would rewrite cell 1's gutter when this
+    # cell's ControlShape is missing (the importer does not write a
+    # ``Cell N: Code`` heading to search for).
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
     cursor = text.createTextCursorByRange(shape.getAnchor()) if shape is not None else None
     if cursor is None or not cursor.gotoPreviousParagraph(False):
@@ -1035,7 +1030,6 @@ def _pump_between_notebook_cells(ctx: Any) -> None:
     def _pump() -> None:
         from plugin.framework.async_drain_guard import get_drain_owner
         from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
-        from plugin.framework.uno_context import get_toolkit
 
         pump_main_thread_work_queue(max_items=1)
         if get_drain_owner() is not None:
@@ -1128,8 +1122,6 @@ def run_all_for_doc(ctx: Any, doc: Any) -> RunResult | None:
 
 
 def _doc_from_frame(ctx: Any | None = None, frame: Any | None = None) -> tuple[Any, Any]:
-    from plugin.framework.uno_context import get_ctx
-
     resolved = ctx if ctx is not None else get_ctx()
     doc = None
     if frame is not None and hasattr(frame, "getController"):

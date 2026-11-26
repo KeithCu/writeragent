@@ -508,14 +508,14 @@ def test_is_cancelled_predicate():
 
 
 def test_scope_unset_is_shared():
-    """Verify _SCOPE_UNSET is identical across modules under a fresh import order."""
+    """Verify SCOPE_UNSET is identical across modules under a fresh import order."""
     import subprocess
     import sys
 
     code = (
         "import plugin.framework.send_cancellation as sc\n"
         "import plugin.framework.queue_executor as qe\n"
-        "assert sc._SCOPE_UNSET is qe._SCOPE_UNSET\n"
+        "assert sc.SCOPE_UNSET is qe.SCOPE_UNSET\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 

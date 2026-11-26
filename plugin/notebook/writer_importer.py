@@ -39,6 +39,7 @@ import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Generator, final
+from urllib.parse import unquote
 
 
 from plugin.contrib.nbformat import read_ipynb
@@ -85,8 +86,8 @@ _MAX_REMOTE_IMAGES = 8
 _REMOTE_IMAGE_BUDGET_SEC = 4.0
 
 # Writer paragraph styles (document locale usually provides these English names).
-# Markdown ATX uses Heading 1/2. Cell chrome (Heading 3 "Cell N: …" / Heading 4
-# "Output") is no longer written — Jupyter has neither.
+# Markdown ATX uses Heading 1/2. Cells get no Heading 3 "Cell N: …" / Heading 4
+# "Output" chrome, because Jupyter has neither.
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
 
@@ -252,8 +253,8 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return
-    # Cell chrome no longer writes Heading 3 / Heading 4; zxx stays because a raw HTML cell
-    # can still produce them through StarWriter, and File -> Open is a fresh document.
+    # Cell chrome does not write Heading 3 / Heading 4; zxx stays on them because a raw HTML
+    # cell can still produce them through StarWriter, and File -> Open is a fresh document.
     for style_name in ("Standard", _STYLE_BODY, STYLE_MD_H1, STYLE_MD_H2, "Heading 3", "Heading 4", _STYLE_OUTPUT, STYLE_NOTEBOOK_IN):
         resolved = resolve_para_style(doc, style_name)
         if not resolved:
@@ -412,8 +413,8 @@ def _unglue_last_paragraph(doc: Any) -> None:
     AS_CHARACTER field, so Writer moves the whole block and leaves a page hole.
     Call this immediately before inserting a code cell. In-gutter keep-with-next
     is also off so In+field is not one unsplittable brick. The UNO name for
-    keep-with-next is ``ParaKeepTogether``; the old ``ParaKeepWithNext`` set
-    ran first, raised UnknownPropertyException and skipped the real unglue.
+    keep-with-next is ``ParaKeepTogether``; ``ParaKeepWithNext`` does not exist
+    and setting it raises UnknownPropertyException.
     """
     def unglue() -> None:
         cursor = _cursor_at_end(doc.getText())
@@ -1341,8 +1342,6 @@ def _read_image_capped(path: str) -> bytes | None:
 
 def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _RemoteImageBudget) -> tuple[bytes, str] | None:
     """Return (raw, hint) when *src* is a reachable image; None on miss."""
-    from urllib.parse import unquote
-
     cleaned = _split_markdown_image_src(src)
     if not cleaned:
         return None
@@ -1608,14 +1607,14 @@ def _import_cells(
                 # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
                 bm_name = entry.output_start_bookmark
                 if not insert_output_start_bookmark(doc, bm_name):
-                    # A saved name with no bookmark made later runs look for an
-                    # anchor that was never created and append output in the
-                    # wrong place. Drop the claim; the runner then uses the
-                    # code-field paragraph instead.
+                    # A saved name with no bookmark would make later runs look for
+                    # an anchor that does not exist and append output in the wrong
+                    # place. Drop the claim; the runner then uses the code-field
+                    # paragraph instead.
                     log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
                     entry.output_start_bookmark = ""
-                # Interleave in notebook order. Used to dump all text, then all
-                # images, so [display image, print(...)] rendered print-then-image.
+                # Interleave in notebook order; writing all text and then all images
+                # would render [display image, print(...)] as print-then-image.
                 segments = _format_outputs_for_body(outputs, idx, execution_count=ec)
                 for kind, payload in segments:
                     if kind == "text":

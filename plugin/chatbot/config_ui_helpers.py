@@ -30,7 +30,7 @@ from plugin.framework.default_models import (
 )
 from plugin.framework.client.model_fetcher import filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.model_lru import (
-    _is_model_combobox_placeholder,
+    is_model_combobox_placeholder,
     drop_typed_partials,
     sanitize_model_combobox_value,
     lru_config_key,
@@ -125,7 +125,7 @@ def _resolve_display_model_for_combobox(
     if not to_show:
         return ""
     first = to_show[0]
-    if _is_model_combobox_placeholder(first):
+    if is_model_combobox_placeholder(first):
         return first
 
     preferred = ""
@@ -208,7 +208,7 @@ def populate_combobox_with_lru(
 
     to_show: list[str] = []
     # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
-    lru_clean = drop_typed_partials([str(m) for m in lru if not _is_model_combobox_placeholder(str(m))])
+    lru_clean = drop_typed_partials([str(m) for m in lru if not is_model_combobox_placeholder(str(m))])
     lru_head = ""
     if not auth_blocked:
         to_show = _filter_models_for_provider(lru_clean, provider)
@@ -283,7 +283,7 @@ def populate_combobox_with_lru(
         elif curr_val_str not in to_show:
             to_show.insert(0, curr_val_str)
 
-    to_show = [m for m in _filter_models_for_provider(to_show, provider) if not _is_model_combobox_placeholder(m)]
+    to_show = [m for m in _filter_models_for_provider(to_show, provider) if not is_model_combobox_placeholder(m)]
 
     # If the list is empty (no catalog and no defaults), add a helpful placeholder
     if not to_show:

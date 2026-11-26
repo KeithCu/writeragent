@@ -129,7 +129,8 @@ class FormulaProcessPool(BaseProcessPool):
             entry.users += 1
             lock = entry.lock
 
-        # Session gate acquire honors this request's timeout_sec instead of blocking for the holder's full cell budget, so busy sessions do not pin listener threads and permits indefinitely.
+        # Session gate acquire honors this request's timeout_sec instead of blocking for the holder's full cell budget,
+        # so busy sessions do not pin listener threads and permits indefinitely.
         acquired = lock.acquire(timeout=max(float(timeout_sec), 0.0))
         try:
             yield acquired

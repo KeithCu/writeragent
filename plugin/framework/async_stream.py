@@ -67,7 +67,7 @@ from plugin.framework.async_drain_guard import (
     release_drain_owner,
 )
 from plugin.framework.queue_executor import (
-    _marshal_thread_tag,
+    marshal_thread_tag,
     async_callback_for_drain_rearm,
     main,
     pump_ui_idle,
@@ -450,8 +450,7 @@ def _process_batch(
             outcome.done = True
 
 
-# Idle re-arm. Same cadence as the old ``Queue.get(0.1)`` wait, inside the
-# 50–100 ms band. Immediate re-arm is used only when items are already queued,
+# Idle re-arm: a 100 ms cadence, the top of the 50–100 ms band. Immediate re-arm is used only when items are already queued,
 # so an empty stream does not spin the main thread.
 _DRAIN_IDLE_REARM_SEC = 0.1
 
@@ -459,7 +458,8 @@ _DRAIN_IDLE_REARM_SEC = 0.1
 # (vcl/osx/salinst.cxx DoYield) and Windows (PostMessage SAL_MSG_USEREVENT
 # retrieved before input/paint) continuously re-posted user events can starve
 # input and paint; on GTK they can starve VCL repaint idles (user events at
-# G_PRIORITY_HIGH_IDLE+30, scheduler at G_PRIORITY_LOW, vcl/unx/gtk3/gtkdata.cxx).
+# G_PRIORITY_HIGH_IDLE+30 in GtkSalData::TriggerUserEventProcessing, scheduler at G_PRIORITY_LOW
+# in create_sal_gtk_timeout, vcl/unx/gtk3/gtkdata.cxx).
 _DRAIN_MAX_IMMEDIATE_REARMS = 3
 _DRAIN_YIELD_GAP_SEC = 0.02
 
@@ -914,7 +914,7 @@ def run_stream_drain_loop(
         show_search_thinking=show_search_thinking,
         outcome=outcome,
     )
-    log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
+    log.debug("run_stream_drain_loop start %s", marshal_thread_tag())
     # Deferrals after this call belong to this drain (or run now if it is
     # blocking or refused), never to an older drain still open elsewhere.
     clear_drain_capture()
@@ -1018,9 +1018,9 @@ def _run_stream_drain_blocking(
                         # pump_ui_idle drains one item. A healthy backlog of 2+
                         # still has remaining > 0; that is not a blocked worker.
                         if remaining >= marshal_depth:
-                            log.warning("drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s", remaining, _marshal_thread_tag())
+                            log.warning("drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s", remaining, marshal_thread_tag())
                         else:
-                            log.debug("drain_idle: stream queue empty, marshal depth %d -> %d %s", marshal_depth, remaining, _marshal_thread_tag())
+                            log.debug("drain_idle: stream queue empty, marshal depth %d -> %d %s", marshal_depth, remaining, marshal_thread_tag())
                     continue
 
                 try:

@@ -362,8 +362,9 @@ def test_new_doc_listener_on_document_event():
 
         # Event without ViewController registers Source.getCurrentController()
         mock_reg.reset_mock()
-        evt2 = MagicMock(spec=["EventName", "Source"])
+        evt2 = MagicMock(spec=["EventName", "ViewController", "Source"])
         evt2.EventName = "OnLoadFinished"
+        evt2.ViewController = None
         evt2.Source = MagicMock()
         controller = MagicMock()
         evt2.Source.getCurrentController.return_value = controller

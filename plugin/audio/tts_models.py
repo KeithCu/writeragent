@@ -10,6 +10,7 @@ import contextlib
 import enum
 import logging
 import os
+import shutil
 import socket
 import tempfile
 import threading
@@ -128,8 +129,6 @@ def _check_disk_space(dest: str, min_bytes: int) -> bool:
     if min_bytes <= 1:
         return True
     try:
-        import shutil
-
         check_dir = os.path.dirname(dest)
         while check_dir and not os.path.exists(check_dir):
             parent = os.path.dirname(check_dir)
