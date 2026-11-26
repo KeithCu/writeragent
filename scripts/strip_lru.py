@@ -16,18 +16,18 @@ def clear_lru():
         if p.exists():
             config_file = p
             break
-            
+
     if not config_file:
         print("Could not find writeragent.json in expected locations.")
         return
 
     print(f"Found config at: {config_file}")
-    
+
     # Backup
     backup_file = config_file.with_suffix(".json.bak")
     print(f"Creating backup at: {backup_file}")
     shutil.copy2(config_file, backup_file)
-    
+
     # Load
     with open(config_file, "r", encoding="utf-8") as f:
         try:
@@ -43,7 +43,7 @@ def clear_lru():
     # Filter out LRU keys
     original_keys = list(config.keys())
     lru_keys = [k for k in original_keys if "_lru" in k]
-    
+
     if not lru_keys:
         print("No LRU keys found in config.")
         return
@@ -56,7 +56,7 @@ def clear_lru():
     # Save
     with open(config_file, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4)
-        
+
     print("Successfully stripped LRU lists.")
 
 if __name__ == "__main__":

@@ -9,12 +9,7 @@ from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
+from plugin.tests.testing_utils import cancelled_scope
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +152,7 @@ def test_transport_stop_checker_suppresses_retry():
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
 
     assert err.value.code == "STOPPED"
@@ -187,7 +182,7 @@ def test_transport_stop_before_retry_does_not_emit_status():
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
             status_callback=statuses.append,
         )
     assert err.value.code == "STOPPED"
@@ -234,7 +229,7 @@ def test_transport_send_stop_already_set_does_not_open_or_send():
             "/v1/chat/completions",
             b"{}",
             headers={"Content-Type": "application/json"},
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -326,7 +321,7 @@ def test_transport_send_stop_on_open_socket_does_not_reconnect():
             "/v1/chat/completions",
             b"{}",
             headers={"User-Agent": "test"},
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -903,7 +898,7 @@ def test_stream_stop_before_send_raises_stopped():
             b"{}",
             {},
             consume,
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
 
@@ -920,7 +915,7 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
                 path="/v1/chat/completions",
                 retries_left=2,
                 retry_log_message="retrying",
-                cancel=_cancelled_scope(),
+                cancel=cancelled_scope(),
             )
     assert err.value.code == "STOPPED"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
@@ -1061,6 +1056,3 @@ def test_http_error_redacts_path_secret_in_details_and_message(caplog):
     assert secret_uuid not in exc_info.value.details["url"]
     assert "<redacted>" in exc_info.value.details["url"]
     assert secret_uuid not in caplog.text
-
-
-

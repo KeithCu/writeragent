@@ -8,16 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import os
-import struct
 import tempfile
-import zlib
 from typing import Any
 from unittest.mock import patch
 
 from plugin.doc.visual_helpers import list_graphic_objects
 from plugin.framework.errors import DocumentDisposedError
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import unique_png_bytes, with_native_doc
 from plugin.vision.vision_runner import run_and_insert_vision_for_selection, run_trusted_vision
 from plugin.writer.images.image_tools import insert_image_at_locator
 from tests.writer.doc_builders import accept_all_changes
@@ -25,26 +23,11 @@ from tests.writer.doc_builders import accept_all_changes
 _PNG_COLORS = ((255, 0, 0), (0, 255, 0), (0, 0, 255))
 
 
-def _make_unique_png_bytes(r: int, g: int, b: int) -> bytes:
-    """Minimal 1x1 RGB PNG so each embedded graphic exports distinct bytes."""
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    signature = b"\x89PNG\r\n\x1a\n"
-    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-    raw = b"\x00" + bytes([r, g, b])
-    idat = chunk(b"IDAT", zlib.compress(raw))
-    iend = chunk(b"IEND", b"")
-    return signature + ihdr + idat + iend
-
-
 def _write_temp_png(r: int, g: int, b: int) -> str:
     fd, path = tempfile.mkstemp(suffix=".png", prefix="wa_vision_test_")
     os.close(fd)
     with open(path, "wb") as handle:
-        handle.write(_make_unique_png_bytes(r, g, b))
+        handle.write(unique_png_bytes(r, g, b))
     return path
 
 

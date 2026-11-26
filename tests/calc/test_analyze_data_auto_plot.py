@@ -18,6 +18,7 @@ from plugin.calc.viz_auto_plot import (
     task_hint_implies_plot,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_task_hint_implies_plot():
@@ -128,9 +129,6 @@ def test_analyze_data_auto_plot_does_not_marshal_viz_read(
 
 
 def _disposed():
-    class DisposedException(Exception):
-        pass
-
     return DisposedException("Binary URP bridge disposed during call")
 
 

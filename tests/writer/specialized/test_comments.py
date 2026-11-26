@@ -9,17 +9,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized.comments import CommentList
-
-
-class _FiniteEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 def test_read_annotation_falls_back_to_paragraph_context():
@@ -96,7 +86,7 @@ def test_comment_scan_tasks_with_prefixes():
 
     doc = MagicMock()
     fields = MagicMock()
-    fields.createEnumeration.side_effect = lambda: _FiniteEnum([f1, f2, f3, f4])
+    fields.createEnumeration.side_effect = lambda: FakeUnoEnum([f1, f2, f3, f4])
     doc.getTextFields.return_value = fields
     doc.getText.return_value = MagicMock()
 
@@ -112,7 +102,7 @@ def test_comment_scan_tasks_with_prefixes():
     assert [t["prefix"] for t in res["tasks"]] == ["TODO-AI", "NOTE"]
 
     # Filter by specific prefix
-    fields.createEnumeration.side_effect = lambda: _FiniteEnum([f1, f2, f3, f4])
+    fields.createEnumeration.side_effect = lambda: FakeUnoEnum([f1, f2, f3, f4])
     res_filtered = CommentScanTasks().execute(ctx, prefix_filter="NOTE", unresolved_only=True)
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
@@ -135,7 +125,7 @@ def test_add_comment_reply_unknown_parent():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     res = AddComment().execute(MagicMock(doc=doc), content="a reply", parent_name="no-such-comment")
     assert res["status"] == "error"
     assert res.get("comment_added") is False
@@ -169,8 +159,8 @@ def test_add_comment_reply_via_parent_name_skips_search():
     def _enum():
         calls["n"] += 1
         if calls["n"] <= 2:
-            return _FiniteEnum([parent])
-        return _FiniteEnum([parent, reply])
+            return FakeUnoEnum([parent])
+        return FakeUnoEnum([parent, reply])
 
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     doc_text = MagicMock()
@@ -221,7 +211,7 @@ def _fields_that_grow():
 
     def _enum():
         calls["n"] += 1
-        return _FiniteEnum([] if calls["n"] == 1 else [field])
+        return FakeUnoEnum([] if calls["n"] == 1 else [field])
 
     fields.createEnumeration.side_effect = _enum
     return fields
@@ -258,7 +248,7 @@ def test_add_comment_errors_when_annotation_does_not_register():
     found.getText.return_value = MagicMock()
     doc.findFirst.return_value = found
     empty = MagicMock()
-    empty.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    empty.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     doc.getTextFields.return_value = empty
     res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
     assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
@@ -361,7 +351,7 @@ def test_delete_comment_thread_selection(
     doc.getText.return_value = text_obj
     host = MagicMock()
     fields = [_make_comment_field(name, parent, author, host=host) for name, parent, author in specs]
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum(fields)
     ctx = MagicMock(doc=doc)
 
     res = CommentDelete().execute(ctx, **kwargs)
@@ -374,7 +364,7 @@ def test_comment_resolve_miss_returns_error():
     from plugin.writer.specialized.comments import CommentResolve
 
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.return_value = _FiniteEnum([])
+    doc.getTextFields.return_value.createEnumeration.return_value = FakeUnoEnum([])
     ctx = MagicMock(doc=doc)
 
     res = CommentResolve().execute(ctx, name="missing", author="AI")
@@ -401,7 +391,7 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
     doc.createInstance.return_value = reply_field
 
     doc.getTextFields.return_value.createEnumeration.side_effect = (
-        lambda: _FiniteEnum([field, reply_field]) if inserted[0] else _FiniteEnum([field])
+        lambda: FakeUnoEnum([field, reply_field]) if inserted[0] else FakeUnoEnum([field])
     )
 
     ctx = MagicMock(doc=doc)
@@ -440,7 +430,7 @@ def test_comment_resolve_assigns_non_empty_name():
     doc.createInstance.return_value = reply_field
 
     doc.getTextFields.return_value.createEnumeration.side_effect = (
-        lambda: _FiniteEnum([field, reply_field]) if inserted[0] else _FiniteEnum([field])
+        lambda: FakeUnoEnum([field, reply_field]) if inserted[0] else FakeUnoEnum([field])
     )
     ctx = MagicMock(doc=doc)
 
@@ -541,7 +531,7 @@ def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
     _setup_mock_undo_manager(doc)
     field = _make_comment_field("target", host=MagicMock())
     doc.createInstance.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
@@ -573,7 +563,7 @@ def test_comments_none_author_and_content_do_not_raise():
 
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -619,7 +609,7 @@ def test_comment_check_stop_whole_value():
 
     # 1. Nonstop and Stop logging do not trip stop
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([
         make_field("MCP-WORKFLOW", "Status: nonstop\nTask: Stop logging"),
     ])
     ctx = MagicMock(doc=doc)
@@ -628,7 +618,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is False
 
     # 2. Status: pause trips stop
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([
         make_field("MCP-WORKFLOW", "Status: pause"),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -636,7 +626,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is True
 
     # 3. Bare stop line trips stop
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([
         make_field("MCP-WORKFLOW", "step: 1\nstop"),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -644,7 +634,7 @@ def test_comment_check_stop_whole_value():
     assert res["workflow_stop"] is True
 
     # 4. Unresolved STOP now comment sets stop_signals
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([
         make_field("Reviewer", "STOP now please", resolved=False),
     ])
     res = CommentCheckStop().execute(ctx)
@@ -697,7 +687,7 @@ def test_comment_list_isolates_bad_comment():
 
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_bad, field_good])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field_bad, field_good])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -718,7 +708,7 @@ def test_comment_list_propagates_real_disposal_from_item():
 
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_bad])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field_bad])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -746,7 +736,7 @@ def test_comment_list_per_property_try_keeps_good_properties():
     doc = MagicMock()
     doc.getText.return_value = MagicMock()
 
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
     ctx = MagicMock(doc=doc)
@@ -854,7 +844,7 @@ def test_comment_delete_second_removal_raises_rolls_back():
 
     host.removeTextContent.side_effect = remove_side_effect
 
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_a, field_b])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field_a, field_b])
     ctx = MagicMock(doc=doc)
 
     res = CommentDelete().execute(ctx, name="A")
@@ -872,7 +862,7 @@ def test_comment_delete_locked_undo_manager():
     mgr.isLocked.return_value = True
     host = MagicMock()
     field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_a])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field_a])
     ctx = MagicMock(doc=doc)
 
     res = CommentDelete().execute(ctx, name="A")
@@ -888,7 +878,7 @@ def test_comment_resolve_locked_undo_manager():
     mgr = _setup_mock_undo_manager(doc)
     mgr.isLocked.return_value = True
     field = _make_comment_field("target")
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     ctx = MagicMock(doc=doc)
 
     res = CommentResolve().execute(ctx, name="target", author="AI")
@@ -907,7 +897,7 @@ def test_comment_list_author_filter_skips_location_helper_on_mismatch():
     field_mismatch.supportsService.return_value = True
     field_mismatch.getPropertyValue.side_effect = lambda p: "Bob" if p == "Author" else ""
 
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field_mismatch, field_match])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field_mismatch, field_match])
 
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
@@ -929,7 +919,7 @@ def test_comment_scan_tasks_reraises_disposal():
     field = MagicMock()
     field.supportsService.return_value = True
     field.getPropertyValue.side_effect = DocumentDisposedError("disposed on Content")
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
 
     doc_svc = MagicMock()
     doc_svc.get_paragraph_ranges.return_value = []
@@ -951,7 +941,7 @@ def test_comment_scan_tasks_reraises_disposal():
         return ""
 
     field2.getPropertyValue.side_effect = get_prop
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field2])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field2])
 
     with pytest.raises(DocumentDisposedError):
         CommentScanTasks().execute(ctx, unresolved_only=True)
@@ -959,7 +949,7 @@ def test_comment_scan_tasks_reraises_disposal():
 
 def test_comment_list_without_annotations_skips_paragraph_scan():
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     ctx = MagicMock(doc=doc)
     res = CommentList().execute(ctx, author_filter="Rev", start_index=0, max_comments=100)
     assert res == {
@@ -976,7 +966,7 @@ def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
     from plugin.writer.specialized.comments import CommentScanTasks
 
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     ctx = MagicMock(doc=doc)
     assert CommentScanTasks().execute(ctx, unresolved_only=True) == {"status": "ok", "tasks": [], "count": 0}
     ctx.services.document.get_paragraph_ranges.assert_not_called()
@@ -997,7 +987,7 @@ def test_add_comment_reads_document_assigned_name():
 
     def _enum():
         calls["n"] += 1
-        return _FiniteEnum([] if calls["n"] == 1 else [listed])
+        return FakeUnoEnum([] if calls["n"] == 1 else [listed])
 
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     doc.createInstance.return_value.getPropertyValue.return_value = ""
@@ -1023,7 +1013,7 @@ def test_add_comment_reply_reads_assigned_name():
 
     def _enum():
         calls["n"] += 1
-        return _FiniteEnum([parent]) if calls["n"] <= 2 else _FiniteEnum([parent, reply])
+        return FakeUnoEnum([parent]) if calls["n"] <= 2 else FakeUnoEnum([parent, reply])
 
     doc.getTextFields.return_value.createEnumeration.side_effect = _enum
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
@@ -1041,7 +1031,7 @@ def test_comment_list_paging_and_author_filter_order():
         _make_comment_field("n2", author="Other"),
     ]
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum(fields)
     ctx = MagicMock(doc=doc)
 
     def _reader(field: Any) -> dict[str, Any]:
@@ -1080,7 +1070,7 @@ def test_comment_edit_sets_content_only():
     field = _make_comment_field("C1", author="A")
     doc = MagicMock()
     _setup_mock_undo_manager(doc)
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     ctx = MagicMock(doc=doc)
 
     res = CommentEdit().execute(ctx, name="C1", content="Updated")
@@ -1092,7 +1082,7 @@ def test_comment_edit_miss_and_empty_content():
     from plugin.writer.specialized.comments import CommentEdit
 
     doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([])
     ctx = MagicMock(doc=doc)
 
     miss = CommentEdit().execute(ctx, name="missing", content="x")
@@ -1109,7 +1099,7 @@ def test_comment_edit_locked_undo_manager():
     mgr = _setup_mock_undo_manager(doc)
     mgr.isLocked.return_value = True
     field = _make_comment_field("target")
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeUnoEnum([field])
     ctx = MagicMock(doc=doc)
 
     res = CommentEdit().execute(ctx, name="target", content="new")
@@ -1125,4 +1115,3 @@ def test_comment_list_start_index_type_stops_at_validator():
     prep = prepare_tool_call(CommentList(), ctx, "comment_list", {"start_index": "abc"})
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
-

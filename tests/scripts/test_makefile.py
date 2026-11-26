@@ -158,4 +158,3 @@ def test_check_lo_python_rejects_interpreter_without_officehelper(tmp_path: Path
     assert "cannot import officehelper" in combined
     assert "project .venv" in combined
     assert "-m plugin.testing_runner" not in combined
-

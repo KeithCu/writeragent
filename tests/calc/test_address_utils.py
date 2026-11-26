@@ -335,4 +335,3 @@ def test_split_axis():
     assert split_axis("$A:$B") == ("col", "A", "B")
     assert split_axis("A1:B2") is None
     assert split_axis("invalid") is None
-

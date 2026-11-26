@@ -588,7 +588,7 @@ def _grid_is_numeric_only(grid: list[Any] | list[list[Any]]) -> bool:
 def venv_transform_cases() -> list[VenvTransformCase]:
     """Subset of grids × transforms for worker integration tests."""
     cases: list[VenvTransformCase] = []
-    
+
     # Single-range cases (existing)
     key_grids = [
         c for c in all_ab_grid_cases()

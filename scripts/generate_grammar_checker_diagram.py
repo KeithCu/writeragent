@@ -128,7 +128,7 @@ class GrammarCheckerFlowchart:
                 color=FlowColor.UI_FLOW,
                 shape="box"
             ),
-            
+
             # Delay / Cache Components (Reds)
             FlowNode(
                 id="enqueue",
@@ -172,7 +172,7 @@ class GrammarCheckerFlowchart:
                 color=FlowColor.DELAY_CACHE,
                 shape="box"
             ),
-            
+
             # LLM Processing (Greens)
             FlowNode(
                 id="filter_uncached",
@@ -228,7 +228,7 @@ class GrammarCheckerFlowchart:
             FlowEdge("batch_check", "cap_text", "nStart == 0"),
             FlowEdge("cap_text", "split_sentences", ""),
             FlowEdge("split_sentences", "cache_lookup", ""),
-            
+
             # Cache hit paths
             FlowEdge("cache_lookup", "return_cached", "All cached"),
             FlowEdge("cache_lookup", "partial_cache_hit", "Partial hit"),
@@ -237,13 +237,13 @@ class GrammarCheckerFlowchart:
             FlowEdge("cache_lookup", "enqueue", "Cache miss"),
             FlowEdge("enqueue", "emit_status", ""),
             FlowEdge("enqueue", "return_empty", ""),
-            
+
             # Queue processing path
             FlowEdge("enqueue", "work_queue", "Add with seq#"),
             FlowEdge("work_queue", "debounce", "Worker thread waits"),
             FlowEdge("debounce", "deduplicate", "Pause expired\nBatch collected"),
             FlowEdge("deduplicate", "filter_uncached", "Survivors after dedup"),
-            
+
             # LLM processing path
             FlowEdge("filter_uncached", "llm_concurrency", "Has uncached sentences"),
             FlowEdge("llm_concurrency", "llm_request", "Acquired lane"),
@@ -251,11 +251,11 @@ class GrammarCheckerFlowchart:
             FlowEdge("parse_response", "normalize_errors", "Parsed items"),
             FlowEdge("normalize_errors", "cache_put", "Normalized errors"),
             FlowEdge("cache_put", "emit_status", "Cached complete"),
-            
+
             # Cache compaction
             FlowEdge("cache_put", "prefix_compaction", "If incomplete sentence"),
             FlowEdge("prefix_compaction", "sentence_cache", "Evict prefix predecessors"),
-            
+
             # Skip paths
             FlowEdge("check_enabled", "return_empty", "Disabled", "Disabled"),
             FlowEdge("batch_check", "return_empty", "nStart != 0", "Incremental call"),
@@ -268,13 +268,13 @@ class GrammarCheckerFlowchart:
         lines.append("    %% Grammar Checker Async Architecture - Top to Bottom")
         lines.append("    %% Blues: UI flow, Reds: Delays/Caches, Greens: LLM Processing")
         lines.append("")
-        
+
         # Color definitions
         lines.append("    classDef ui_flow fill:#4169e1,color:white,stroke:#000080")
         lines.append("    classDef delay_cache fill:#dc143c,color:white,stroke:#8b0000")
         lines.append("    classDef processing fill:#228b22,color:white,stroke:#006400")
         lines.append("")
-        
+
         # Node definitions with shapes
         # Mermaid flowchart shapes: box (default), round (stadium), diamond, cylinder
         for node in self.nodes:
@@ -292,7 +292,7 @@ class GrammarCheckerFlowchart:
                 lines.append(f"    {node.id}[\"{node.label}\"]")
             lines.append(f"    class {node.id} {node.color.value}")
         lines.append("")
-        
+
         # Edge definitions
         for edge in self.edges:
             from_id = edge.from_node
@@ -304,7 +304,7 @@ class GrammarCheckerFlowchart:
                 lines.append(f"    {from_id} -- \"{label}\" --> {to_id}")
             else:
                 lines.append(f"    {from_id} --> {to_id}")
-        
+
         return "\n".join(lines)
 
     def to_markdown(self) -> str:
@@ -364,7 +364,7 @@ class GrammarCheckerFlowchart:
         lines.append("Writer shows grammar squiggles (on next LO proofreading pass)")
         lines.append("```")
         lines.append("")
-        
+
         # Component legend
         lines.append("## Color Legend")
         lines.append("")
@@ -374,7 +374,7 @@ class GrammarCheckerFlowchart:
         lines.append("| Red (#dc143c) | Delays/Caches | Queue, debounce, deduplication, sentence cache |")
         lines.append("| Green (#228b22) | LLM Processing | LLM requests, parsing, error normalization |")
         lines.append("")
-        
+
         # Shape legend
         lines.append("## Shape Legend")
         lines.append("")
@@ -385,7 +385,7 @@ class GrammarCheckerFlowchart:
         lines.append("| Diamond | Decision/Condition |")
         lines.append("| Cylinder | Data Store/Cache |")
         lines.append("")
-        
+
         # Key Components
         lines.append("## Key Components")
         lines.append("")
@@ -410,7 +410,7 @@ class GrammarCheckerFlowchart:
         lines.append("   - `split_into_sentences()`, `normalize_errors_for_text()`")
         lines.append("   - Sentence scheduling helpers; `parse_grammar_json` re-exported from locale")
         lines.append("")
-        
+
         # Flow Details
         lines.append("## Detailed Flow Notes")
         lines.append("")
@@ -446,7 +446,7 @@ class GrammarCheckerFlowchart:
         lines.append("- Fixed budget: GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512")
         lines.append("- `llm_request_lane()` prevents concurrent grammar/chat LLM calls")
         lines.append("")
-        
+
         return "\n".join(lines)
 
 

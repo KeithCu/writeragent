@@ -202,5 +202,3 @@ def test_parse_update_xml_ignores_nested_metadata():
     ident, ver = parse_update_xml(data)
     assert ident == "org.extension.writeragent"
     assert ver == "0.7.1"
-
-

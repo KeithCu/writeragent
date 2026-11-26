@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.writer.edit_review import tag_agent_redlines
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 class FakeRedline:
@@ -43,17 +44,6 @@ class FakeRedline:
         self.comment = val
 
 
-class FakeEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class FakeRedlines:
     def __init__(self, items, count=None):
         self._items = items
@@ -63,7 +53,7 @@ class FakeRedlines:
         return len(self._items) if self._count is None else self._count
 
     def createEnumeration(self):
-        return FakeEnum(self._items)
+        return FakeUnoEnum(self._items)
 
 
 class FakeModel:

@@ -660,5 +660,3 @@ def test_rps_prepared_and_finish_keeps_distinct_same_name_shapes():
 
     assert out["ok"] is True
     assert inserted_graphics == [shape_b]
-
-

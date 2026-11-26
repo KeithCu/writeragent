@@ -22,6 +22,7 @@ from plugin.scripting.document_scripts import (
     set_document_scripts,
 )
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_report_run_outcome_sets_status_via_set_control_text():
@@ -54,13 +55,8 @@ def test_report_script_dialog_error_disposed_document():
     dlg = MagicMock()
     dlg.getControl.return_value = None
 
-    class MockDisposedException(Exception):
-        pass
-
-    MockDisposedException.__name__ = "DisposedException"
-
     with patch.object(ui, "msgbox") as mock_box:
-        ui._report_script_dialog_error(ctx, dlg, MockDisposedException("disposed"), "Delete")
+        ui._report_script_dialog_error(ctx, dlg, DisposedException("disposed"), "Delete")
     mock_box.assert_called_once()
     assert "no longer open" in mock_box.call_args.args[2]
 
@@ -91,9 +87,6 @@ def test_report_script_dialog_error_bare_runtime_exception_shows_its_text():
     ids=["toolkit_teardown", "close_button", "set_visible_disposed"],
 )
 def test_native_dialog_close(toolkit_teardown, set_visible_raises, expected_dispose_calls):
-    class DisposedException(Exception):
-        pass
-
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._closed = False
     dlg = MagicMock()
@@ -1066,4 +1059,3 @@ def test_execute_and_insert_result_releases_pin_when_venv_raises():
     assert outcome.get("ok") is False
     assert "boom" in outcome.get("message", "")
     mock_release.assert_called_once_with("doc:tok")
-

@@ -647,7 +647,7 @@ def test_header_read_does_not_repeat_run_formatting_uno(ctx, doc):
 
     p2 = lines[1]
     assert "data-lo-para" not in p2, p2
-    assert ("font-weight:bold" in p2 or "<strong>Bold</strong>" in p2 or "<b>Bold</b>" in p2), p2
+    assert "font-weight:bold" in p2 or "<strong>Bold</strong>" in p2 or "<b>Bold</b>" in p2, p2
     assert "plain" in p2 and "font-weight:bold" not in p2.split("Bold", 1)[1], p2
 
     p3 = lines[2]

@@ -135,4 +135,3 @@ def write_sidecar_meta(meta_path: Path, abs_path: str, mtime_ns: int, size: int)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
-

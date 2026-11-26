@@ -13,6 +13,7 @@ from plugin.chatbot.dialogs import (
     format_exception_detail,
     _collect_xdl_load_diagnostics,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_show_approval_dialog_disposes_without_flipping_yes():
@@ -462,9 +463,6 @@ def test_collect_xdl_load_diagnostics_reports_missing_file(tmp_path):
 def test_get_optional_reraises_disposed_and_returns_none_when_missing():
     from plugin.chatbot.dialogs import get_optional
 
-    class DisposedException(Exception):
-        pass
-
     class RuntimeException(Exception):
         pass
 
@@ -703,4 +701,3 @@ class TestSetProp:
         model = _Model()
         set_prop(model, "PositionX", 42)
         assert model.last == ("PositionX", 42)
-

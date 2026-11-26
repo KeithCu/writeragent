@@ -239,4 +239,3 @@ def test_forecast_sheet_write_failure_keeps_the_result(
     assert result["sheet_write_error"] == "disk full"
     assert result["metrics"] == {"periods": 6}
     mock_auto_plot.assert_called_once()
-

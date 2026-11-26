@@ -617,4 +617,3 @@ def test_read_secret_in_background_calls_on_done_when_read_raises(monkeypatch):
             is_closed=lambda: False,
         )
     assert done_calls == ["after_error"]
-

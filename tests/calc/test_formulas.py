@@ -10,6 +10,7 @@ from plugin.calc.calc_utils import FORMULA, VALUE
 from plugin.calc.error_detector import ERROR_TYPES
 from plugin.calc.formulas import EvaluateFormula, formula_evaluation_error_message
 from plugin.framework.tool import ToolContext, prepare_tool_call
+from plugin.tests.testing_utils import DisposedException
 
 
 @pytest.fixture(autouse=True)
@@ -342,9 +343,6 @@ def test_evaluate_formula_none_parameters():
 
 
 def test_evaluate_formula_set_formula_raising():
-    class DisposedException(Exception):
-        pass
-
     doc = _EvalDoc()
     doc.temp_cell.raise_on_set_formula = RuntimeError("Unexpected syntax error")
     res = EvaluateFormula().execute(_eval_ctx(doc), formula="=BAD()", cell="B2")
@@ -381,7 +379,6 @@ def test_evaluate_formula_flags_array_results():
 def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(monkeypatch):
     # A return inside finally would turn a DisposedException from the
     # evaluation into a "Failed to clean up" tool error.
-    DisposedException = type("DisposedException", (Exception,), {})
     doc = _EvalDoc(undo_possible=False, modified=False)
     doc.sheets.raise_on_remove = RuntimeError("Lock contention")
 
@@ -394,7 +391,6 @@ def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(mon
 
 
 def test_evaluate_formula_cleanup_disposal_is_document_disposed():
-    DisposedException = type("DisposedException", (Exception,), {})
     doc = _EvalDoc(undo_possible=False, modified=False)
     doc.sheets.raise_on_remove = DisposedException("gone")
 
@@ -403,7 +399,6 @@ def test_evaluate_formula_cleanup_disposal_is_document_disposed():
 
 
 def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch):
-    DisposedException = type("DisposedException", (Exception,), {})
     doc = _EvalDoc(undo_possible=False, modified=False)
 
     def _disposed_cell(_col: int, _row: int):

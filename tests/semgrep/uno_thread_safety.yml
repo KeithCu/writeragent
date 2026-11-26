@@ -356,6 +356,3 @@ rules:
         - "**/tests/calc/**"
         - "**/tests/doc/**"
         - "**/tests/framework/**"
-
-
-

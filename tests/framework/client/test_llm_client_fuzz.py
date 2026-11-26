@@ -126,5 +126,3 @@ class TestStreamingFuzz:
 
         # The error is formatted by format_error_message, verify it caught the TypeError from accumulate_delta
         assert "Unexpected, list delta entry `index` value is not an integer" in str(ctx.value)
-
-

@@ -17,14 +17,11 @@ import pytest
 
 from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.writer import change_context_menu, review_view_attachment as rva
+from plugin.tests.testing_utils import DisposedException
 
 
 def _registered_controllers(registry: dict[str, Any]) -> list[tuple[Any, Any]]:
     return [(c, i) for att in registry.values() for c, i, _h in att.controllers]
-
-
-class DisposedException(Exception):
-    pass
 
 
 class RuntimeException(Exception):

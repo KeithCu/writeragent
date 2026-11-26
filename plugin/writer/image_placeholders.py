@@ -489,4 +489,3 @@ def keep_placeholder_images(
     yield swapped
     if kept:
         _restore_image_placeholders(model, kept)
-

@@ -33,5 +33,3 @@ def test_truncate_chat_context():
 
     # Non-int limit -> empty prefix plus marker
     assert truncate_chat_context("hello world", "50") == CHAT_DOCUMENT_TRUNCATED_MARKER
-
-

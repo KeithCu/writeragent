@@ -7,6 +7,7 @@ from plugin.chatbot.dialog_views import (
     SettingsDialog,
     setup_module_tabs,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 class TestInputBoxExtraTokens:
@@ -68,7 +69,7 @@ class TestInputBoxExtraTokens:
             result = input_box(ctx, "msg", "title", "")
 
         mock_load.assert_called_once_with("EditInputDialog", ctx)
-        assert (result) == (("", ""))
+        assert result == ("", "")
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
@@ -223,10 +224,10 @@ class TestEndpointCombinedListener:
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=run_later):
             listener.itemStateChanged(event)
 
-        assert (len(apply_calls)) == (1)
-        assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
+        assert len(apply_calls) == 1
+        assert apply_calls[0][0][0] == 'https://openrouter.ai/api'
         assert apply_calls[0][1].get('models') is None
-        assert (len(bg_calls)) == (1)
+        assert len(bg_calls) == 1
         assert bg_calls[0][2] == "cartesia/sonic-2"
         assert bg_calls[0][0] == listener._debounce_gen - 50
 
@@ -253,7 +254,7 @@ class TestEndpointCombinedListener:
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()):
             listener.itemStateChanged(event)
 
-        assert (len(apply_calls)) == (1)
+        assert len(apply_calls) == 1
         assert apply_calls[0][1].get('models') is None
         listener._bg_fetch.assert_called_once()
 
@@ -314,11 +315,11 @@ class TestEndpointCombinedListener:
 
         stt_calls = [c for c in populate_calls if c['lru_key'] == 'audio_model_lru']
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
-        assert (len(stt_calls)) == (1)
-        assert (stt_calls[0]['remote_models']) == (speech_ids)
-        assert ('openrouter/fusion') not in (stt_calls[0]['remote_models'])
-        assert (len(text_calls)) == (1)
-        assert (text_calls[0]['remote_models']) is not None
+        assert len(stt_calls) == 1
+        assert stt_calls[0]['remote_models'] == speech_ids
+        assert 'openrouter/fusion' not in stt_calls[0]['remote_models']
+        assert len(text_calls) == 1
+        assert text_calls[0]['remote_models'] is not None
 
     def test_apply_dropdowns_clears_combo_current_on_provider_switch(self):
         """Provider change must not seed populate with leftover foreign slugs."""
@@ -357,10 +358,10 @@ class TestEndpointCombinedListener:
             listener._apply_dropdowns('https://api.together.xyz', models=None)
 
         by_key = {c['lru_key']: c for c in populate_calls}
-        assert (by_key['model_lru']['current']) == ('')
-        assert (by_key['audio_model_lru']['current']) == ('')
-        assert (by_key['image_model_lru']['current']) == ('')
-        assert (by_key['model_lru']['endpoint']) == ('https://api.together.xyz')
+        assert by_key['model_lru']['current'] == ''
+        assert by_key['audio_model_lru']['current'] == ''
+        assert by_key['image_model_lru']['current'] == ''
+        assert by_key['model_lru']['endpoint'] == 'https://api.together.xyz'
 
     def test_apply_dropdowns_drops_openrouter_slug_from_together_list(self):
         """Regression: uncatalogued OpenRouter LRU ids must not reappear on Together."""
@@ -403,16 +404,16 @@ class TestEndpointCombinedListener:
                     listener._apply_dropdowns('https://api.together.xyz', models=None)
 
         text_items = list(text_ctrl.addItems.call_args[0][0])
-        assert (sticky) not in (text_items)
-        assert (text_ctrl.setText.call_args[0][0]) != (sticky)
-        assert ('MiniMaxAI/MiniMax-M3') in (text_items)
+        assert sticky not in text_items
+        assert text_ctrl.setText.call_args[0][0] != sticky
+        assert 'MiniMaxAI/MiniMax-M3' in text_items
 
         stt_items = list(stt_ctrl.addItems.call_args[0][0])
-        assert (stt_sticky) not in (stt_items)
-        assert ('nvidia/parakeet-tdt-0.6b-v3') in (stt_items)
-        assert ('openai/whisper-large-v3') in (stt_items)
+        assert stt_sticky not in stt_items
+        assert 'nvidia/parakeet-tdt-0.6b-v3' in stt_items
+        assert 'openai/whisper-large-v3' in stt_items
         image_items = list(image_ctrl.addItems.call_args[0][0])
-        assert ('openai/gpt-5-image') not in (image_items)
+        assert 'openai/gpt-5-image' not in image_items
 
 
 class TestSettingsEnhancements:
@@ -520,7 +521,7 @@ class TestSettingsEnhancements:
             listener.on_action_performed(MagicMock())
 
         mock_copy.assert_called_once_with(ctx, '{"mcpServers": {}}')
-        assert (btn_model.Label) == ("✓ Copied!")
+        assert btn_model.Label == "✓ Copied!"
 
     def test_mcp_port_text_listener_updates_snippet(self):
         from plugin.mcp_server.mcp_ui import McpPortTextListener
@@ -544,8 +545,8 @@ class TestSettingsEnhancements:
 
         mock_set_text.assert_called_once()
         args = mock_set_text.call_args[0]
-        assert (args[0]) == (snippet_ctrl)
-        assert ("19999") in (args[1])
+        assert args[0] == snippet_ctrl
+        assert "19999" in args[1]
 
 
 def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
@@ -597,10 +598,10 @@ class TestProviderButtonIcons:
         from plugin.chatbot.dialog_views import provider_icon_filename
 
         # Explicit px= is the post-menu-map target (16 / 32 / 48).
-        assert (provider_icon_filename("openrouter", px=16)) == ("openrouter_16.png")
-        assert (provider_icon_filename("huggingface", px=16)) == ("huggingface_16.png")
-        assert (provider_icon_filename("together", px=32)) == ("together_32.png")
-        assert (provider_icon_filename("nvidia", px=48)) == ("nvidia_48.png")
+        assert provider_icon_filename("openrouter", px=16) == "openrouter_16.png"
+        assert provider_icon_filename("huggingface", px=16) == "huggingface_16.png"
+        assert provider_icon_filename("together", px=32) == "together_32.png"
+        assert provider_icon_filename("nvidia", px=48) == "nvidia_48.png"
 
     def test_provider_icon_maps_menu_dpi_to_48_on_hidpi(self):
         from plugin.chatbot.dialog_views import provider_icon_filename
@@ -608,19 +609,19 @@ class TestProviderButtonIcons:
         with patch(
             "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=32
         ):
-            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
+            assert provider_icon_filename("openrouter", ctx=MagicMock()) == "openrouter_48.png"
         with patch(
             "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=16
         ):
-            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_16.png")
+            assert provider_icon_filename("openrouter", ctx=MagicMock()) == "openrouter_16.png"
         with patch(
             "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=24
         ):
-            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_32.png")
+            assert provider_icon_filename("openrouter", ctx=MagicMock()) == "openrouter_32.png"
         with patch(
             "plugin.chatbot.dialog_views.resolve_menu_icon_pixel_size", return_value=40
         ):
-            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
+            assert provider_icon_filename("openrouter", ctx=MagicMock()) == "openrouter_48.png"
 
     def test_apply_sets_image_url_from_extension_assets(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
@@ -635,8 +636,8 @@ class TestProviderButtonIcons:
         ):
             apply_provider_button_icon(ctrl, ctx, "openrouter")
 
-        assert (model.ImageURL) == ("file:///tmp/oxt/assets/openrouter_16.png")
-        assert (model.ImagePosition) == (1)
+        assert model.ImageURL == "file:///tmp/oxt/assets/openrouter_16.png"
+        assert model.ImagePosition == 1
 
     def test_apply_uses_dpi_selected_asset(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
@@ -652,7 +653,7 @@ class TestProviderButtonIcons:
             apply_provider_button_icon(ctrl, ctx, "nvidia")
 
         pick.assert_called_once_with("nvidia", ctx=ctx)
-        assert (model.ImageURL) == ("file:///tmp/oxt/assets/nvidia_32.png")
+        assert model.ImageURL == "file:///tmp/oxt/assets/nvidia_32.png"
 
     def test_provider_icon_macos_picks_16(self, monkeypatch):
         from plugin.chatbot.dialog_views import provider_icon_filename
@@ -2033,9 +2034,6 @@ def test_settings_cleanup_does_not_swallow_remove_failure():
 
 
 def test_settings_cleanup_disposed_control_still_detaches_others_and_disposes():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     dialog = SettingsDialog(ctx)
     dlg = MagicMock()
@@ -2062,9 +2060,6 @@ def test_settings_cleanup_disposed_control_still_detaches_others_and_disposes():
 
 
 def test_settings_show_preserves_original_exception_when_cleanup_hits_disposed_control():
-    class DisposedException(Exception):
-        pass
-
     class UncaughtFatalError(BaseException):
         pass
 

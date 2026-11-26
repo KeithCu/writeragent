@@ -780,4 +780,3 @@ def test_efficient_frontier_drops_datetime_and_keeps_year(monkeypatch):
     passed = mean.call_args[0][0]
     assert list(passed.columns) == ["Year", "AAPL", "MSFT"]
     assert list(passed["AAPL"]) == [0.01, 0.02]
-

@@ -12,6 +12,7 @@ import pytest
 
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.scratch_writer import clear_writer_body, new_blank_writer
+from plugin.tests.testing_utils import DisposedException
 
 
 def _scratch_doc(text="", tables=(), frames=(), shapes=0):
@@ -128,8 +129,6 @@ def test_clear_writer_body_cannot_spin_on_a_page_that_never_empties():
 
 def test_clear_writer_body_reraises_disposal():
     """A disposed scratch doc must not look like an empty one."""
-    class DisposedException(Exception):
-        pass
 
     doc = MagicMock()
     doc.getTextTables.side_effect = DisposedException("dead")

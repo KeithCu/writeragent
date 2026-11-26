@@ -227,7 +227,7 @@ BULLET_LIST = """* Pack the crate
 * File the docket.
 - Seal the hatch
 Note: do not bullet this line
-"""
+"""  # noqa: W291 - the trailing spaces after "Oslo" are part of the messy input
 
 BULLET_CONSISTENCY = {
     "document_content": BULLET_LIST,

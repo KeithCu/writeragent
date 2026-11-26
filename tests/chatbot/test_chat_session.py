@@ -518,5 +518,3 @@ def test_messages_for_request_tool_list_content_separates_tail():
     body, snap = split_snapshot_text(last["content"])
     assert body == tool_parts
     assert snap == snapshot_text("Doc")
-
-

@@ -464,5 +464,3 @@ def test_install_defers_view_registration_past_scratch_load(monkeypatch, review_
     desktop.loadComponentFromURL.side_effect = _load
     scratch_writer.load_scratch_document(desktop, "private:factory/swriter")
     assert rva.attachment_key(scratch_model) not in review_registry
-
-

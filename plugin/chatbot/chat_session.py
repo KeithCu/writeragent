@@ -269,4 +269,3 @@ def message_text(content: Any, *, strip_html: bool = False) -> str:
 
         return strip_html_tags(text)
     return text
-

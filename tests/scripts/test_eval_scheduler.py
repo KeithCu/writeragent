@@ -88,7 +88,7 @@ def test_select_pack_scripted_skips_flag_on_auto() -> None:
     assert "no scripted replay" in selected.notes[0]
     assert "python_shapes_flag" in selected.notes[0]
     assert "python_shapes_flag" not in ids
-    assert (lo_ids - {"python_shapes_flag"}) <= ids
+    assert lo_ids - {"python_shapes_flag"} <= ids
     only_flag = [ex for ex in examples if ex.task_id == "python_shapes_flag"]
     refused = select_pack(only_flag, cli_backend="auto", explicit=True, student="scripted")
     assert refused.error

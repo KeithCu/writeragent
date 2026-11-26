@@ -88,7 +88,7 @@ class TestConfigSync:
         self.config_data['text_model'] = ''
         with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(get_event_bus(), 'emit') as mock_emit:
             set_text_model('new-chat-model')
-            assert (self.config_data.get('text_model')) == ('new-chat-model')
+            assert self.config_data.get('text_model') == 'new-chat-model'
             mock_lru.assert_called_once_with('new-chat-model', 'model_lru', '')
             mock_emit.assert_not_called()
 
@@ -102,7 +102,7 @@ class TestConfigSync:
         self.config_data['text_model'] = ''
         with patch('plugin.framework.model_lru.update_lru_history') as mock_lru:
             set_text_model('chat-only', update_lru=False)
-            assert (self.config_data.get('text_model')) == ('chat-only')
+            assert self.config_data.get('text_model') == 'chat-only'
             mock_lru.assert_not_called()
 
     def test_get_text_model_ignores_legacy_model_key(self):
@@ -112,9 +112,9 @@ class TestConfigSync:
         with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value='http://localhost:11434'), \
              patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'), \
              patch('plugin.framework.client.model_fetcher.get_provider_defaults', return_value={'text_model': 'default-model'}):
-            assert (get_text_model()) == ('default-model')
-        assert (self.config_data.get('text_model')) == ('')
-        assert (self.config_data.get('model')) == ('legacy-model')
+            assert get_text_model() == 'default-model'
+        assert self.config_data.get('text_model') == ''
+        assert self.config_data.get('model') == 'legacy-model'
 
     def test_model_lru_endpoint_isolation(self):
         endpoint_a = 'http://localhost:11434'
@@ -125,14 +125,14 @@ class TestConfigSync:
              patch('plugin.framework.model_lru.save', side_effect=lambda p: self.config_data.update(p)), \
              patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a):
             set_text_model('model-on-a', update_lru=True)
-        assert (self.config_data.get(f'model_lru@{endpoint_a}')) == (['model-on-a'])
-        assert (self.config_data.get(f'model_lru@{endpoint_b}')) == (['other-model'])
+        assert self.config_data.get(f'model_lru@{endpoint_a}') == ['model-on-a']
+        assert self.config_data.get(f'model_lru@{endpoint_b}') == ['other-model']
 
     def test_set_image_model_endpoint(self):
         self.config_data['image_model'] = ''
         with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(get_event_bus(), 'emit') as mock_emit:
             set_image_model('new-endpoint-model')
-            assert (self.config_data.get('image_model')) == ('new-endpoint-model')
+            assert self.config_data.get('image_model') == 'new-endpoint-model'
             mock_lru.assert_called_once_with('new-endpoint-model', 'image_model_lru', '')
             mock_emit.assert_not_called()
 
@@ -144,15 +144,15 @@ class TestConfigSync:
 
     def test_get_image_model(self):
         self.config_data['image_model'] = 'end-1'
-        assert (get_image_model()) == ('end-1')
+        assert get_image_model() == 'end-1'
 
     def test_get_api_key_for_endpoint_missing(self):
-        assert (get_api_key_for_endpoint('http://localhost:11434')) == ('')
+        assert get_api_key_for_endpoint('http://localhost:11434') == ''
 
     def test_get_api_key_for_endpoint_existing(self):
         self.config_data['api_keys_by_endpoint'] = {'http://localhost:11434': 'test-key-123'}
-        assert (get_api_key_for_endpoint('http://localhost:11434')) == ('test-key-123')
-        assert (get_api_key_for_endpoint('http://localhost:11434/')) == ('test-key-123')
+        assert get_api_key_for_endpoint('http://localhost:11434') == 'test-key-123'
+        assert get_api_key_for_endpoint('http://localhost:11434/') == 'test-key-123'
 
 
 class TestConfigSyncFileIO:
@@ -215,11 +215,11 @@ class TestConfigSyncFileIO:
 
     def test_save_api_key_file_io(self):
         save({"api_keys_by_endpoint": {'http://api.openai.com': 'sk-1234'}})
-        assert (os.path.exists(self.config_path))
+        assert os.path.exists(self.config_path)
         data = self._load_written()
-        assert ('api_keys_by_endpoint') in (data)
-        assert (data['api_keys_by_endpoint'].get('http://api.openai.com')) == ('sk-1234')
-        assert (get_api_key_for_endpoint('http://api.openai.com')) == ('sk-1234')
+        assert 'api_keys_by_endpoint' in data
+        assert data['api_keys_by_endpoint'].get('http://api.openai.com') == 'sk-1234'
+        assert get_api_key_for_endpoint('http://api.openai.com') == 'sk-1234'
 
     def test_reasoning_effort_is_per_endpoint_and_normalized(self):
         from plugin.framework.config import get_api_config, get_reasoning_effort_for_endpoint, set_reasoning_effort_for_endpoint
@@ -284,22 +284,22 @@ class TestConfigSyncFileIO:
     def test_get_api_key_file_io_missing_file(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
-        assert (get_api_key_for_endpoint('http://api.missing.com')) == ('')
+        assert get_api_key_for_endpoint('http://api.missing.com') == ''
 
     def test_corrupt_config_file_io(self):
         corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
         reset_config_for_tests()
-        assert (get_api_key_for_endpoint('http://api.openai.com')) == ('')
+        assert get_api_key_for_endpoint('http://api.openai.com') == ''
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
-            assert (f.read()) == (corrupt)
+            assert f.read() == corrupt
         with pytest.raises(ConfigError):
             save({"api_keys_by_endpoint": {'http://api.openai.com': 'sk-recovered'}})
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == corrupt
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
-            assert (f.read()) == (corrupt)
+            assert f.read() == corrupt
         backups = [e for e in os.listdir(self.temp_dir.name) if e.startswith(os.path.basename(self.config_path) + CONFIG_BACKUP_SUFFIX)]
         assert len(backups) == 1
 
@@ -434,11 +434,11 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(broken)
         reset_config_for_tests()
-        assert (get_config('text_model')) == ('gpt')
+        assert get_config('text_model') == 'gpt'
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
-            assert (f.read()) == (broken)
+            assert f.read() == broken
         data = self._load_written()
-        assert (data['text_model']) == ('gpt')
+        assert data['text_model'] == 'gpt'
 
     def test_get_config_repair_persist_does_not_drop_concurrent_set(self):
         """GET-path repair persist must not rewrite over a concurrent save."""
@@ -472,11 +472,11 @@ class TestConfigSyncFileIO:
         t_write.join(timeout=15)
         assert not (t_read.is_alive())
         assert not (t_write.is_alive())
-        assert (errors) == ([])
+        assert errors == []
         reset_config_for_tests()
         data = self._load_written()
-        assert (data.get("image_model")) == ("flux-keep")
-        assert (data.get("text_model")) == ("gpt")
+        assert data.get("image_model") == "flux-keep"
+        assert data.get("text_model") == "gpt"
 
     def test_long_malformed_config_repair_falls_through(self):
         """A body over DEAL_MAX_SOURCE must not raise PreContractError out of config load."""
@@ -494,10 +494,10 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
         reset_config_for_tests()
-        assert (get_config('calc_prompt_max_tokens')) == (4096)
-        assert (os.path.exists(self._backup_path()))
+        assert get_config('calc_prompt_max_tokens') == 4096
+        assert os.path.exists(self._backup_path())
         with open(self.config_path, 'r', encoding='utf-8') as f:
-            assert (f.read()) == (corrupt)
+            assert f.read() == corrupt
 
     def test_valid_config_no_backup_on_set(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -505,7 +505,7 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         save({'text_model': 'other'})
         assert not (os.path.exists(self._backup_path()))
-        assert (self._load_written()['text_model']) == ('other')
+        assert self._load_written()['text_model'] == 'other'
 
     def test_out_of_range_temperature_does_not_discard_api_keys(self):
         """One invalid numeric field must not collapse the whole config to {}."""
@@ -516,18 +516,18 @@ class TestConfigSyncFileIO:
                 "text_model": "gpt",
             }, f)
         reset_config_for_tests()
-        assert (get_config("text_model")) == ("gpt")
-        assert (get_api_key_for_endpoint("https://api.openai.com")) == ("sk-keep")
-        assert (get_config("temperature")) == (1.0)
+        assert get_config("text_model") == "gpt"
+        assert get_api_key_for_endpoint("https://api.openai.com") == "sk-keep"
+        assert get_config("temperature") == 1.0
         data = self._load_written()
-        assert (data["api_keys_by_endpoint"]["https://api.openai.com"]) == ("sk-keep")
-        assert (data["temperature"]) == (1.0)
+        assert data["api_keys_by_endpoint"]["https://api.openai.com"] == "sk-keep"
+        assert data["temperature"] == 1.0
 
     def test_empty_temperature_uses_schema_default(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"temperature": ""}, f)
         reset_config_for_tests()
-        assert (get_config("temperature")) == (-1.0)
+        assert get_config("temperature") == -1.0
 
     def test_get_api_config_omits_default_temperature(self):
         """Schema default -1 means leave temperature out so the provider picks."""
@@ -536,9 +536,9 @@ class TestConfigSyncFileIO:
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
         reset_config_for_tests()
-        assert (get_config("temperature")) == (-1.0)
+        assert get_config("temperature") == -1.0
         cfg = get_api_config()
-        assert ("temperature") not in (cfg)
+        assert "temperature" not in cfg
 
     def test_get_api_config_includes_explicit_temperature(self):
         from plugin.framework.config import get_api_config
@@ -547,14 +547,14 @@ class TestConfigSyncFileIO:
             json.dump({"temperature": 0.3}, f)
         reset_config_for_tests()
         cfg = get_api_config()
-        assert (cfg.get("temperature")) == (0.3)
+        assert cfg.get("temperature") == 0.3
 
     def test_failed_api_key_write_does_not_leak_into_cache(self):
         reset_config_for_tests()
         with patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")):
             with pytest.raises(ConfigError):
                 save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-new"}})
-        assert (get_api_key_for_endpoint("https://api.openai.com")) == ("")
+        assert get_api_key_for_endpoint("https://api.openai.com") == ""
 
     def test_save_default_heals_out_of_range_neighbor(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
@@ -608,8 +608,8 @@ class TestConfigSyncFileIO:
         assert get_config('chatbot.max_tool_rounds') == CONFIG_DEFAULTS['chatbot.max_tool_rounds']
         with pytest.raises(ConfigError) as err_ctx:
             get_config('unknown_key')
-        assert (err_ctx.value.details.get('key')) == ('unknown_key')
-        assert ('unknown_key') in (str(err_ctx.value))
+        assert err_ctx.value.details.get('key') == 'unknown_key'
+        assert 'unknown_key' in str(err_ctx.value)
         with pytest.raises(ConfigError):
             get_config('some_new_lru')
         with pytest.raises(ConfigError):
@@ -620,40 +620,40 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'audio.tts_short_answers': False, 'text_model': 'keep-me'}, f)
         reset_config_for_tests()
-        assert (get_config('audio.tts_short_answers')) is False
+        assert get_config('audio.tts_short_answers') is False
 
         save({'text_model': 'still-me'})
         data = self._load_written()
-        assert (data.get('audio.tts_short_answers')) is False
-        assert (data.get('text_model')) == ('still-me')
-        assert (get_config('audio.tts_short_answers')) is False
+        assert data.get('audio.tts_short_answers') is False
+        assert data.get('text_model') == 'still-me'
+        assert get_config('audio.tts_short_answers') is False
 
     def test_stale_calc_prompt_max_tokens_upgraded_and_persisted(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt', 'calc_prompt_max_tokens': 70}, f)
         reset_config_for_tests()
-        assert (get_config('calc_prompt_max_tokens')) == (4096)
+        assert get_config('calc_prompt_max_tokens') == 4096
         data = self._load_written()
         # Default 4096 is omitted from JSON file on disk
-        assert ('calc_prompt_max_tokens') not in (data)
-        assert (data['text_model']) == ('gpt')
+        assert 'calc_prompt_max_tokens' not in data
+        assert data['text_model'] == 'gpt'
 
     def test_calc_prompt_max_tokens_at_or_above_100_preserved(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'calc_prompt_max_tokens': 150}, f)
         reset_config_for_tests()
-        assert (get_config('calc_prompt_max_tokens')) == (150)
+        assert get_config('calc_prompt_max_tokens') == 150
         data = self._load_written()
-        assert (data['calc_prompt_max_tokens']) == (150)
+        assert data['calc_prompt_max_tokens'] == 150
 
     def test_writeragent_config_validate_bumps_stale_prompt_tokens(self):
         from plugin.framework.config_schema import validate
 
         out = validate({"calc_prompt_max_tokens": 70})
-        assert (out["calc_prompt_max_tokens"]) == (4096)
+        assert out["calc_prompt_max_tokens"] == 4096
 
         out2 = validate({"calc_prompt_max_tokens": 150})
-        assert (out2["calc_prompt_max_tokens"]) == (150)
+        assert out2["calc_prompt_max_tokens"] == 150
         with pytest.raises(ConfigError):
             get_config('some_custom_map')
 
@@ -672,23 +672,23 @@ class TestConfigSyncFileIO:
             real_write(path, data)
 
         with patch('plugin.framework.config._write_config_file', side_effect=counting_write):
-            assert (get_config('calc_prompt_max_tokens')) == (4096)
-        assert (len(writes)) == (1)
+            assert get_config('calc_prompt_max_tokens') == 4096
+        assert len(writes) == 1
         data = self._load_written()
-        assert ('calc_prompt_max_tokens') not in (data)
-        assert (data['text_model']) == ('gpt')
+        assert 'calc_prompt_max_tokens' not in data
+        assert data['text_model'] == 'gpt'
 
     def test_valid_calc_prompt_file_is_not_rewritten_on_get(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt', 'calc_prompt_max_tokens': 150}, f)
         reset_config_for_tests()
         with patch('plugin.framework.config._write_config_file') as mocked_write:
-            assert (get_config('calc_prompt_max_tokens')) == (150)
-            assert (get_config('text_model')) == ('gpt')
+            assert get_config('calc_prompt_max_tokens') == 150
+            assert get_config('text_model') == 'gpt'
         mocked_write.assert_not_called()
         data = self._load_written()
-        assert (data['calc_prompt_max_tokens']) == (150)
-        assert (data['text_model']) == ('gpt')
+        assert data['calc_prompt_max_tokens'] == 150
+        assert data['text_model'] == 'gpt'
 
     def test_set_config_one_key_does_not_rewrite_other_keys(self):
         # A real change patches that key only. Defaults already stored, and
@@ -769,7 +769,7 @@ class TestConfigSyncFileIO:
             assert mock_emit.call_args.kwargs["value"] == "other"
             assert mock_emit.call_args.kwargs["keys"] == ("text_model",)
         data = self._load_written()
-        assert (data.get('text_model')) == ('other')
+        assert data.get('text_model') == 'other'
 
     def test_set_config_omitted_default_does_not_write_or_emit(self):
         """A key left out of the file is already the schema default.
@@ -793,7 +793,7 @@ class TestConfigSyncFileIO:
 
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == before
-        assert (get_config('request_timeout')) == (120)
+        assert get_config('request_timeout') == 120
 
         with patch.object(get_event_bus(), 'emit') as mock_emit:
             save({'request_timeout': 60})
@@ -803,8 +803,8 @@ class TestConfigSyncFileIO:
             assert mock_emit.call_args.kwargs["value"] == 60
             assert mock_emit.call_args.kwargs["keys"] == ("request_timeout",)
         data = self._load_written()
-        assert (data.get('request_timeout')) == (60)
-        assert (data.get('text_model')) == ('custom-model')
+        assert data.get('request_timeout') == 60
+        assert data.get('text_model') == 'custom-model'
 
     def test_two_writers_keep_both_keys(self):
         """Two writers that each change a different key must not drop either key.
@@ -821,9 +821,9 @@ class TestConfigSyncFileIO:
         )
         reset_config_for_tests()
         data = self._load_written()
-        assert (data.get('text_model')) == ('from-writer-a')
-        assert (data.get('image_model')) == ('from-writer-b')
-        assert (data.get('custom_unrecognized_key')) == ('from-earlier-writer')
+        assert data.get('text_model') == 'from-writer-a'
+        assert data.get('image_model') == 'from-writer-b'
+        assert data.get('custom_unrecognized_key') == 'from-earlier-writer'
 
     def test_update_config_keeps_both_map_keys(self):
         """update_config_mapping applies fn to the value just read, under one lock."""
@@ -873,7 +873,7 @@ class TestConfigSyncFileIO:
         assert mock_emit.call_args.kwargs['key'] == ''
         assert set(mock_emit.call_args.kwargs['keys']) == {'image_model', 'request_timeout'}
         data = self._load_written()
-        assert (data) == ({
+        assert data == ({
             'endpoint': 'http://localhost:8000',
             'text_model': 'keep-me',
             'custom_unrecognized_key': 'stay',
@@ -925,7 +925,7 @@ class TestConfigSyncFileIO:
             save({'chatbot.extend_selection_max_tokens': 'not-a-number'})
 
         data = self._load_written()
-        assert (data.get('chatbot.extend_selection_max_tokens')) == (1200)
+        assert data.get('chatbot.extend_selection_max_tokens') == 1200
 
     def test_set_config_out_of_range_raises_and_keeps_file(self):
         """module.yaml ints are module keys.
@@ -943,97 +943,97 @@ class TestConfigSyncFileIO:
             save({'chatbot.edit_selection_max_new_tokens': '99999'})
 
         data = self._load_written()
-        assert ('chatbot.extend_selection_max_tokens') not in (data)
-        assert ('chatbot.edit_selection_max_new_tokens') not in (data)
-        assert (data.get('text_model')) == ('keep-me')
-        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
-        assert (get_config('chatbot.edit_selection_max_new_tokens')) == (1000)
-        assert ('temperature') not in (data)
-        assert ('chat_max_tokens') not in (data)
-        assert ('saved_python_scripts') not in (data)
+        assert 'chatbot.extend_selection_max_tokens' not in data
+        assert 'chatbot.edit_selection_max_new_tokens' not in data
+        assert data.get('text_model') == 'keep-me'
+        assert get_config('chatbot.extend_selection_max_tokens') == 1000
+        assert get_config('chatbot.edit_selection_max_new_tokens') == 1000
+        assert 'temperature' not in data
+        assert 'chat_max_tokens' not in data
+        assert 'saved_python_scripts' not in data
 
         # Bounds themselves are still legal, and a real write still omits defaults.
         save({'chatbot.extend_selection_max_tokens': '10'})
         save({'chatbot.edit_selection_max_new_tokens': '4096'})
         data = self._load_written()
-        assert (data.get('chatbot.extend_selection_max_tokens')) == (10)
-        assert (data.get('chatbot.edit_selection_max_new_tokens')) == (4096)
-        assert (data.get('text_model')) == ('keep-me')
-        assert ('temperature') not in (data)
-        assert ('chat_max_tokens') not in (data)
-        assert ('saved_python_scripts') not in (data)
+        assert data.get('chatbot.extend_selection_max_tokens') == 10
+        assert data.get('chatbot.edit_selection_max_new_tokens') == 4096
+        assert data.get('text_model') == 'keep-me'
+        assert 'temperature' not in data
+        assert 'chat_max_tokens' not in data
+        assert 'saved_python_scripts' not in data
 
     def test_set_config_log_level_runtime_default_omitted(self):
         save({'text_model': 'custom-model'})
         save({'core.log_level': get_config('core.log_level')})
         data = self._load_written()
-        assert ('core.log_level') not in (data)
-        assert (data.get('text_model')) == ('custom-model')
+        assert 'core.log_level' not in data
+        assert data.get('text_model') == 'custom-model'
 
     def test_set_config_log_level_non_default_persisted(self):
         save({'core.log_level': 'INFO'})
         data = self._load_written()
-        assert (data.get('core.log_level')) == ('INFO')
+        assert data.get('core.log_level') == 'INFO'
 
     def test_set_config_omits_default_value(self):
         # Setting a value to its default does not write to an empty or non-existent file
         save({'endpoint': 'http://localhost:11434'})
         if os.path.exists(self.config_path):
             data = self._load_written()
-            assert ('endpoint') not in (data)
-        assert (get_config('endpoint')) == ('http://localhost:11434')
+            assert 'endpoint' not in data
+        assert get_config('endpoint') == 'http://localhost:11434'
 
     def test_set_config_only_persists_non_defaults(self):
         save({'text_model': 'custom-model'})
         data = self._load_written()
-        assert (data) == ({'text_model': 'custom-model'})
+        assert data == {'text_model': 'custom-model'}
         with open(self.config_path, 'r', encoding='utf-8') as f:
             text = f.read()
-        assert (text.startswith('//'))
+        assert text.startswith('//')
 
     def test_parse_config_json_text_strips_schema_comment(self):
         raw = CONFIG_SCHEMA_COMMENT + '{\n    "text_model": "custom-model"\n}\n'
         data = parse_config_json_text(raw)
-        assert (data) == ({'text_model': 'custom-model'})
+        assert data == {'text_model': 'custom-model'}
 
     def test_set_config_reverting_to_default_removes_key(self):
         save({'request_timeout': 60})
         data = self._load_written()
-        assert (data.get('request_timeout')) == (60)
+        assert data.get('request_timeout') == 60
 
         # Resetting back to default (120) removes it from file
         save({'request_timeout': 120})
         data = self._load_written()
-        assert ('request_timeout') not in (data)
-        assert (get_config('request_timeout')) == (120)
+        assert 'request_timeout' not in data
+        assert get_config('request_timeout') == 120
 
     def test_is_default_value_types(self):
         from plugin.framework.config_schema import is_default_value
 
-        assert (is_default_value('endpoint', 'http://localhost:11434'))
-        assert (is_default_value('endpoint', 'http://localhost:11434/'))
+        assert is_default_value('endpoint', 'http://localhost:11434')
+        assert is_default_value('endpoint', 'http://localhost:11434/')
         assert not (is_default_value('endpoint', 'https://api.openai.com/v1'))
-        assert (is_default_value('request_timeout', 120))
-        assert (is_default_value('request_timeout', '120'))
+        assert is_default_value('request_timeout', 120)
+        assert is_default_value('request_timeout', '120')
         assert not (is_default_value('request_timeout', 60))
-        assert (is_default_value('parallel_tool_calls', False))
-        assert (is_default_value('parallel_tool_calls', 'false'))
+        assert is_default_value('parallel_tool_calls', False)
+        assert is_default_value('parallel_tool_calls', 'false')
         assert not (is_default_value('parallel_tool_calls', True))
-        assert (is_default_value('prompt_lru', []))
+        assert is_default_value('prompt_lru', [])
         assert not (is_default_value('prompt_lru', ['a']))
         assert not (is_default_value('unknown_key_xyz', 'val'))
         # core.log_level default is DEBUG in a checkout (plugin/tests present), WARN in a shipped OXT
-        assert (is_default_value('core.log_level', get_config('core.log_level')))
+        assert is_default_value('core.log_level', get_config('core.log_level'))
         assert not (is_default_value('core.log_level', 'INFO'))
 
     def test_future_default_change_applies_when_omitted(self):
         # File only contains user customization for text_model
         save({'text_model': 'my-model'})
         data = self._load_written()
-        assert ('chatbot.extend_selection_max_tokens') not in (data)
+        assert 'chatbot.extend_selection_max_tokens' not in data
 
         # In current version, get_config returns current default (1000)
-        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
+        assert get_config('chatbot.extend_selection_max_tokens') == 1000
 
         # Simulate a future update that changes the default in manifest schema (MODULES)
         mock_modules = [{
@@ -1048,7 +1048,7 @@ class TestConfigSyncFileIO:
         with _patch_manifest(mock_modules):
             reset_config_for_tests()
             # Because chatbot.extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
-            assert (get_config('chatbot.extend_selection_max_tokens')) == (2000)
+            assert get_config('chatbot.extend_selection_max_tokens') == 2000
 
     def test_set_config_does_not_drop_another_writers_keys(self):
         """A later one-key save must keep keys an earlier writer stored."""
@@ -1068,9 +1068,9 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         save({'request_timeout': 60})
         data = self._load_written()
-        assert (data['request_timeout']) == (60)
+        assert data['request_timeout'] == 60
         for key, value in original.items():
-            assert (data[key]) == (value)
+            assert data[key] == value
 
     def test_set_config_non_json_value_raises_config_error(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
@@ -1096,9 +1096,9 @@ class TestConfigValidateTypeCasting:
             "image_steps": "30",  # String int
         })
 
-        assert (validated["temperature"]) == (0.7)
-        assert (validated["chat_max_tokens"]) == (16384)
-        assert (validated["image_steps"]) == (30)
+        assert validated["temperature"] == 0.7
+        assert validated["chat_max_tokens"] == 16384
+        assert validated["image_steps"] == 30
 
         # Test dynamic YAML schema type casting (e.g. mcp.mcp_port)
         mock_modules = [{
@@ -1118,13 +1118,13 @@ class TestConfigValidateTypeCasting:
             validated_extra = validate({
                 "mcp.mcp_port": "8765,00",  # German locale format
             })
-            assert (validated_extra["mcp.mcp_port"]) == (8765)
+            assert validated_extra["mcp.mcp_port"] == 8765
 
     def test_yaml_backed_key_extra_config_type_casting(self):
         from plugin.framework.config_schema import validate
 
         validated = validate({"chatbot.web_cache_max_mb": "50,0"})
-        assert (validated["chatbot.web_cache_max_mb"]) == (50)
+        assert validated["chatbot.web_cache_max_mb"] == 50
 
     def test_schema_option_label_canonicalization_from_manifest(self):
         from plugin.framework.config_schema import validate
@@ -1149,7 +1149,7 @@ class TestConfigValidateTypeCasting:
              patch("plugin.framework.config_schema._", side_effect=fake_gettext):
             validated = validate({"demo.mode": "Translated Fast"})
 
-        assert (validated["demo.mode"]) == ("fast")
+        assert validated["demo.mode"] == "fast"
 
     def test_config_validation_constraints(self):
         from plugin.framework.config_schema import validate
@@ -1157,21 +1157,21 @@ class TestConfigValidateTypeCasting:
         # temperature > 1.0
         with pytest.raises(ConfigValidationError) as ctx:
             validate({"temperature": 1.5})
-        assert (ctx.value.code) == ("INVALID_TEMPERATURE")
+        assert ctx.value.code == "INVALID_TEMPERATURE"
 
         # chat_max_tokens < 0
         with pytest.raises(ConfigValidationError) as ctx:
             validate({"chat_max_tokens": -5})
-        assert (ctx.value.code) == ("INVALID_CHAT_MAX_TOKENS")
+        assert ctx.value.code == "INVALID_CHAT_MAX_TOKENS"
 
         # request_timeout <= 0
         with pytest.raises(ConfigValidationError) as ctx:
             validate({"request_timeout": 0})
-        assert (ctx.value.code) == ("INVALID_REQUEST_TIMEOUT")
+        assert ctx.value.code == "INVALID_REQUEST_TIMEOUT"
 
         # endpoint preset resolution
         validated = validate({"endpoint": "OpenRouter"})
-        assert (validated["endpoint"]) == ("https://openrouter.ai/api")
+        assert validated["endpoint"] == "https://openrouter.ai/api"
 
     def test_validate_api_config_without_model_lru(self):
         with patch.dict(sys.modules, {"plugin.framework.model_lru": None}):
@@ -1179,8 +1179,8 @@ class TestConfigValidateTypeCasting:
                 "endpoint": "https://example.invalid",
                 "model": "glm-5.2",
             })
-        assert (ok)
-        assert (err) == ("")
+        assert ok
+        assert err == ""
 
 
 def test_get_config_before_init_warns_once(caplog):
@@ -1428,15 +1428,15 @@ class TestValidateApiConfigPlaceholders:
             "model": "(Connection failed)",
         })
         assert not (ok)
-        assert ("valid model") in (err.lower())
+        assert "valid model" in err.lower()
 
     def test_accepts_real_model(self):
         ok, err = validate_api_config({
             "endpoint": "https://api.z.ai/api/paas",
             "model": "glm-5.2",
         })
-        assert (ok)
-        assert (err) == ("")
+        assert ok
+        assert err == ""
 
 
 def test_resolve_config_path_from_ctx_wraps_uno_attribute_error_as_config_error():

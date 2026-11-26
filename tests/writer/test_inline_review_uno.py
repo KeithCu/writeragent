@@ -24,21 +24,15 @@ from plugin.writer.inline_review import (
     scan_redline_view,
 )
 from plugin.writer.review_scan import agent_change_presence
-from tests.writer.doc_builders import accept_all_changes, reset_body
+from tests.writer.doc_builders import accept_all_changes, find_first, reset_body
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
-
-
-def _find(doc, needle):
-    sd = doc.createSearchDescriptor()
-    sd.setSearchString(needle)
-    return doc.findFirst(sd)
 
 
 def _tracked_replace(doc, old, new):
     """Replace the first occurrence of *old* with *new* as a tracked Delete+Insert."""
     text = doc.getText()
-    found = _find(doc, old)
+    found = find_first(doc, old)
     assert found is not None, "setup: %r not found" % old
     doc.setPropertyValue("RecordChanges", True)
     c = text.createTextCursorByRange(found)
@@ -48,13 +42,13 @@ def _tracked_replace(doc, old, new):
 
 
 def _caret_in(doc, needle):
-    f = _find(doc, needle)
+    f = find_first(doc, needle)
     assert f is not None, "caret target %r not found" % needle
     doc.getCurrentController().getViewCursor().gotoRange(f.getStart(), False)
 
 
 def _para_with(doc, needle):
-    f = _find(doc, needle)
+    f = find_first(doc, needle)
     if f is None:
         return None
     t = f.getText().createTextCursorByRange(f.getStart())
@@ -156,7 +150,7 @@ def _agent_edit(doc, ctx, *pairs):
 
 def _tracked_replace_fn(doc, old, new):
     def fn():
-        found = _find(doc, old)
+        found = find_first(doc, old)
         assert found is not None, "agent edit target %r not found" % old
         text = found.getText()
         c = text.createTextCursorByRange(found)
@@ -317,7 +311,7 @@ def test_resolve_spares_user_redline_in_same_paragraph_uno(ctx, doc):
     assert ok, "the agent change must resolve precisely, sparing the user's redline: %r" % msg
     assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "the agent change was accepted"
     assert _redline_count(doc) < before, "the agent change's marks were resolved"
-    assert _redline_count(doc) >= 1 and _find(doc, "fast") is not None, \
+    assert _redline_count(doc) >= 1 and find_first(doc, "fast") is not None, \
         "the user's own redline must remain pending and untouched, got %d redlines" % _redline_count(doc)
 
 
@@ -368,7 +362,7 @@ def test_resolve_reject_one_of_several_agent_changes_in_paragraph_uno(ctx, doc):
     assert ok, "rejecting one of several must work: %r" % msg
     left = agent_changes(doc)
     assert len(left) == 1 and left[0]["new"] == "One", "only the targeted change rejected: %r" % left
-    assert _find(doc, "gamma") is not None, "reject restored the original 'gamma'"
+    assert find_first(doc, "gamma") is not None, "reject restored the original 'gamma'"
 
 
 @native_test
@@ -382,7 +376,7 @@ def test_resolve_all_skips_change_sharing_paragraph_with_user_redline_uno(ctx, d
     resolved = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert resolved == 2, "both agent changes resolve, got %d" % resolved
     assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "all agent changes resolved"
-    assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
+    assert find_first(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
 @native_test
@@ -405,7 +399,7 @@ def test_resolve_all_with_feedback_reports_skipped_then_silent_when_clean_uno(ct
     n_overlap, msg_overlap = resolve_all_with_feedback(doc, ctx, True)
     assert n_overlap == 1, "only the clean-paragraph agent change resolves, got %d" % n_overlap
     assert msg_overlap and "Manage" in msg_overlap, "skipped overlapping change must mention Manage: %r" % msg_overlap
-    assert _find(doc, "cat") is not None, "user redline remains"
+    assert find_first(doc, "cat") is not None, "user redline remains"
 
     # All-clean run -> no message.
     reset_body(doc, ctx, "Clean one.", "Clean two.")
@@ -426,7 +420,7 @@ def test_resolve_all_stacked_agent_pair_with_non_overlapping_user_redline_uno(ct
     resolved = _resolve_all_agent_changes(doc, ctx, True).resolved
     assert resolved == 2, "both agent tokens resolve, got %d" % resolved
     assert not (agent_change_presence(doc, stop_at_first=True)[0] > 0), "all agent changes resolved"
-    assert _find(doc, "fast") is not None, "the user's 'fast' redline remains"
+    assert find_first(doc, "fast") is not None, "the user's 'fast' redline remains"
 
 
 @native_test
@@ -450,7 +444,7 @@ def test_resolve_all_whitespace_adjacent_user_redline_skipped_uno(ctx, doc):
     assert len(remaining) == 1 and "Bravo" in (remaining[0]["old"] + remaining[0]["new"]), (
         "middle agent edit must stay pending: %r" % remaining
     )
-    assert _find(doc, "UserEdit") is not None, "the user's 'UserEdit' redline remains"
+    assert find_first(doc, "UserEdit") is not None, "the user's 'UserEdit' redline remains"
     assert _redline_count(doc) >= 1, "at least one redline remains"
 
 
@@ -529,7 +523,7 @@ def test_fast_travel_none_when_no_changes_uno(ctx, doc):
 def test_fast_travel_visits_across_text_objects_uno(ctx, doc):
     reset_body(doc, ctx, "Intro paragraph, no change.", "Body one.", "Body two.")
     cursor = doc.getText().createTextCursor()
-    r = _find(doc, "Body one.")
+    r = find_first(doc, "Body one.")
     assert r is not None
     cursor.gotoRange(r.getEnd(), False)
     table = doc.createInstance("com.sun.star.text.TextTable")
@@ -566,7 +560,7 @@ def test_leading_table_agent_replace_not_eligible_inline_but_resolves_all_uno(ct
     reset_body(doc, ctx, "Intro", "Replace me", "Outro")
     session = EditReviewSession(doc, ctx, enabled=True)
     with session:
-        rng = _find(doc, "Replace me")
+        rng = find_first(doc, "Replace me")
         assert rng is not None
         record_html_atomically(
             session,
@@ -699,4 +693,3 @@ def test_resolve_one_of_two_agent_row_deletes_in_same_table_uno(ctx, doc):
             assert doc.getTextTables().getByName(t_name).getRows().getCount() == expected_rows
     finally:
         save({"doc.agent_edit_review_mode": prev})
-

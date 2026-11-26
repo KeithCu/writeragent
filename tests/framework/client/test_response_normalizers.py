@@ -176,7 +176,7 @@ def test_openai_compatible_shim_parse_sync_response(shim_cls):
 def test_anthropic_shim_parse_sync_response():
     client_mock = MagicMock()
     shim = AnthropicShim(client_mock)
-    
+
     mock_payload = {
         "type": "message",
         "content": [
@@ -186,7 +186,7 @@ def test_anthropic_shim_parse_sync_response():
         "stop_reason": "tool_use",
         "usage": {"input_tokens": 20, "output_tokens": 10}
     }
-    
+
     content, finish_reason, tool_calls, usage, images, message = shim.parse_sync_response(mock_payload)
     assert content == "Hello from Anthropic"
     assert finish_reason == "tool_calls"

@@ -937,5 +937,3 @@ def test_doc_event_skips_non_writer_doc():
     with patch("plugin.notebook.notebook_controls.load_registry") as mock_load:
         lis.on_document_event(event)
         mock_load.assert_not_called()
-
-

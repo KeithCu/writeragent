@@ -799,5 +799,3 @@ def test_reload_cors_bad_or_empty_origins_does_not_crash(bad_or_empty):
         assert "https://valid.example.com" in get_extra_allowed_origins()
     else:
         assert get_extra_allowed_origins() == frozenset()
-
-

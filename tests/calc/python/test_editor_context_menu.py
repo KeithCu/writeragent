@@ -20,6 +20,7 @@ from plugin.calc.python.editor_context_menu import (
 )
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import set_package_extension_id
+from plugin.tests.testing_utils import DisposedException
 
 
 @pytest.mark.parametrize(
@@ -229,9 +230,6 @@ def test_register_controller_dedups_uno_identity():
 
 
 def test_prune_survives_disposed_exception():
-    class DisposedException(Exception):
-        pass
-
     mod._registered_controllers.clear()
 
     model1 = MagicMock()

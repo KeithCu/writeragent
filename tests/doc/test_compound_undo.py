@@ -5,7 +5,7 @@ import pytest
 
 from plugin.doc.compound_undo import UndoLock, UndoStepOrRollback, WriterCompoundUndo, _is_undo_locked, undo_titles
 from plugin.framework.errors import DocumentDisposedError
-from plugin.tests.testing_utils import FakeUndoManager
+from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
 class _MockUndoManager:
@@ -97,14 +97,10 @@ def test_writer_compound_undo_locked_manager_never_enters_or_leaves():
     assert doc.undo.left is False
 
 
-class _DisposedException(Exception):
-    pass
-
-
 def test_writer_compound_undo_reraises_disposal_from_enter():
     class _DisposedDoc:
         def getUndoManager(self):
-            raise _DisposedException("gone")
+            raise DisposedException("gone")
 
     with pytest.raises(DocumentDisposedError):
         WriterCompoundUndo(_DisposedDoc(), "WriterAgent: disposed")
@@ -114,7 +110,7 @@ def test_writer_compound_undo_reraises_disposal_from_leave():
     doc = _MockDoc()
 
     def _leave():
-        raise _DisposedException("gone")
+        raise DisposedException("gone")
 
     setattr(doc.undo, "leaveUndoContext", _leave)
     cu = WriterCompoundUndo(doc, "WriterAgent: disposed")
@@ -216,7 +212,7 @@ def test_writer_compound_undo_try_enter_returns_none_when_unavailable():
 
 def test_writer_compound_undo_try_enter_reraises_disposal():
     doc_disp = MagicMock()
-    doc_disp.getUndoManager.side_effect = _DisposedException("doc disposed")
+    doc_disp.getUndoManager.side_effect = DisposedException("doc disposed")
     with pytest.raises(DocumentDisposedError):
         WriterCompoundUndo.try_enter(doc_disp, "WriterAgent: disp")
 
@@ -279,7 +275,7 @@ def test_undo_titles_none_when_unreadable():
 
 def test_undo_titles_reraises_disposal():
     doc = MagicMock()
-    doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = _DisposedException("gone")
+    doc.getUndoManager.return_value.getAllUndoActionTitles.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         undo_titles(doc)
 
@@ -389,9 +385,9 @@ def test_undo_step_or_rollback_skips_rollback_on_disposal():
     doc = _doc_with_undo(fake)
     step = UndoStepOrRollback(doc, "WriterAgent: test")
 
-    with pytest.raises(_DisposedException):
+    with pytest.raises(DisposedException):
         with step:
-            raise _DisposedException("gone")
+            raise DisposedException("gone")
 
     assert step.rolled_back is False
     assert fake.undone == 0

@@ -486,4 +486,3 @@ def test_worker_log_open_failure_does_not_raise(tmp_path, monkeypatch) -> None:
                 root.removeHandler(h)
                 h.close()
         root.setLevel(saved_level)
-

@@ -20,6 +20,7 @@ from plugin.draw.shape_clone import (
     reimport_graphic,
 )
 from tests.draw.shape_fakes import FailingPosShape, FakePage, FakeShape
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_clone_shape_sets_geometry_after_add():
@@ -88,9 +89,6 @@ def test_copy_prop_falls_back_to_attribute_access():
 
 
 def test_copy_prop_disposal_propagates():
-    class DisposedException(Exception):
-        pass
-
     src = MagicMock()
     src.getPropertyValue.side_effect = DisposedException("disposed")
     dest = MagicMock()
@@ -226,9 +224,6 @@ def test_clone_group_shape_with_children():
 
 
 def test_reimport_graphic_disposed_propagates():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     src_shape = MagicMock()
     src_shape.getPropertyValue.side_effect = DisposedException("disposed")
@@ -439,9 +434,6 @@ def test_failed_group_child_removes_the_whole_group_clone():
 
 
 def test_disposal_during_clone_does_not_touch_the_container():
-    class DisposedException(Exception):
-        pass
-
     src = FakeShape("com.sun.star.drawing.RectangleShape", {"Position": (1, 2)})
     clone = FakeShape("com.sun.star.drawing.RectangleShape")
     clone.setPropertyValue = MagicMock(side_effect=DisposedException("disposed"))  # type: ignore[method-assign]
@@ -452,4 +444,3 @@ def test_disposal_during_clone_does_not_touch_the_container():
     with pytest.raises(DisposedException):
         clone_shape(doc, page, src)
     page.remove.assert_not_called()
-

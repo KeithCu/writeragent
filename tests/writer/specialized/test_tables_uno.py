@@ -7,7 +7,7 @@ import uno  # noqa: F401
 
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import pinned_writer_tool_context, TestingFactory, with_native_doc
 from plugin.writer.specialized.tables import (
     ManageTableStructure,
     TableDelete,
@@ -1068,9 +1068,6 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
 @native_test
 @with_native_doc("writer")
 def test_table_insert_uses_pinned_caret_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -1082,8 +1079,7 @@ def test_table_insert_uses_pinned_caret_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(cur)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = TableInsert().execute(tctx, rows=1, columns=1)

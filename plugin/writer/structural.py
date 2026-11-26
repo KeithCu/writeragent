@@ -411,4 +411,3 @@ class CloneHeadingBlock(ToolBaseDummy):
         msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
 
         return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
-

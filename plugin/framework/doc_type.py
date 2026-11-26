@@ -222,4 +222,3 @@ def is_impress(model: Any) -> bool:
     if model is None or not hasattr(model, "supportsService"):
         return False
     return bool(model.supportsService(IMPRESS_DOCUMENT_SERVICE))
-

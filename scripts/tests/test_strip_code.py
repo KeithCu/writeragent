@@ -586,4 +586,3 @@ def test_strip_production_code_compute_service_preserves_log_and_print(tmp_path:
     assert "@deal.pre" not in stripped
     assert "print(" in stripped
     assert "log.info(" in stripped
-

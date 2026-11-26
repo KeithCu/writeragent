@@ -2032,5 +2032,3 @@ def test_web_mode_passes_no_approval_when_prompt_off():
     ):
         panel._execute_web_research_effect("query", MagicMock())
     assert seen["approval_callback"] is None
-
-

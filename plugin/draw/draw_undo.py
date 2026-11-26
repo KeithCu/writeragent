@@ -21,10 +21,10 @@ log = logging.getLogger(__name__)
 
 def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_texts: list[str], title: str):  # type: ignore[no-untyped-def]
     """Factory for custom undo action for Draw/Impress text shape edits.
-    
+
     Returns an XUndoAction implementation that captures original text and registers with
     the document's UndoManager to produce one Ctrl+Z step.
-    
+
     Args:
         text_objects: List of (text_obj, original_text) tuples
         final_texts: List of final text values after edits (filled during streaming)
@@ -32,7 +32,7 @@ def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_tex
     """
     import unohelper
     from com.sun.star.document import XUndoAction
-    
+
     class _DrawTextEditUndoActionImpl(unohelper.Base, XUndoAction):
         """Custom undo action for Draw/Impress text shape edits."""
 
@@ -62,7 +62,7 @@ def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_tex
                         text_obj.setString(self._final_texts[i])
                     except Exception:
                         log.debug("DrawTextEditUndoAction.redo: setString failed for one object", exc_info=True)
-    
+
     return _DrawTextEditUndoActionImpl()
 
 

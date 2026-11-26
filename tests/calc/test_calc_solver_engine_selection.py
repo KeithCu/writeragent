@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.analysis import pick_solver
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 class _FakeSolver:
@@ -21,20 +22,6 @@ class _FakeSolver:
 
     def getImplementationName(self) -> str:
         return self._impl_name
-
-
-class _FakeEnum:
-    def __init__(self, items: list[Any]):
-        self._items = items
-        self._idx = 0
-
-    def hasMoreElements(self) -> bool:
-        return self._idx < len(self._items)
-
-    def nextElement(self) -> Any:
-        item = self._items[self._idx]
-        self._idx += 1
-        return item
 
 
 class _FakeFactory:
@@ -64,8 +51,8 @@ class _FakeSmgr:
             raise val
         return val
 
-    def createContentEnumeration(self, _svc: str) -> _FakeEnum:
-        return _FakeEnum(self._factories)
+    def createContentEnumeration(self, _svc: str) -> FakeUnoEnum:
+        return FakeUnoEnum(self._factories)
 
 
 class TestPickSolver:

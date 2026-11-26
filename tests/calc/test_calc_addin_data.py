@@ -33,6 +33,7 @@ from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 from plugin.scripting.config_limits import _schema_int
 from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_none_returns_none():
@@ -274,9 +275,6 @@ def test_normalize_data_range_addresses_scalar_unchanged():
 
 
 def test_resolve_python_data_disposal_propagates():
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock()
     with patch("plugin.calc.calc_addin_data.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):

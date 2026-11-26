@@ -300,4 +300,3 @@ def test_sidebar_only_domain_tools_are_unlisted():
                 f"Sidebar-only tool {tool.name!r} (domain={domain!r}) must be tier 'unlisted'"
             )
     assert seen_domains == sidebar_only
-

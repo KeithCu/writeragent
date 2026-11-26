@@ -1627,5 +1627,3 @@ def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:
 def page_not_found_message(page: int, total: int) -> str:
     """Format the error message for an out-of-range 0-based page index."""
     return f"Page {page} does not exist (document has {total} page(s); first page = 0)."
-
-

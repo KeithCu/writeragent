@@ -385,5 +385,3 @@ def get_default_models() -> Sequence[ModelConfig]:
     Excludes gold-only models so typical multi_eval runs stay cheap.
     """
     return [m for m in MODELS if m.openrouter_id not in GOLD_ONLY_MODEL_IDS]
-
-

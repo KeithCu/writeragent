@@ -46,4 +46,3 @@ def test_export_project_to_doc_forwards_cancel_and_returns_error_on_stop(tmp_pat
     assert res.get("status") == "error"
     assert res.get("code") == "PPTX_BUILD_FAILED"
     assert "PPTX build stopped." in res.get("message", "")
-

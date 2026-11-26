@@ -18,10 +18,7 @@ from plugin.draw.comments import (
 )
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.tool import prepare_tool_call
-
-
-class _DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 class _FakePoint:
@@ -57,22 +54,6 @@ class _FakeAnnotation:
         self.Initials = initials
         self.DateTime = date
         self.Position = _FakePoint(x, y) if x is not None and y is not None else None
-
-
-class _FakeEnum:
-    def __init__(self, items: list[Any]):
-        self._items = list(items)
-        self._pos = 0
-
-    def hasMoreElements(self) -> bool:
-        return self._pos < len(self._items)
-
-    def nextElement(self) -> Any:
-        if self._pos >= len(self._items):
-            raise IndexError("NoSuchElementException")
-        item = self._items[self._pos]
-        self._pos += 1
-        return item
 
 
 class _MockUndoManager:
@@ -127,8 +108,8 @@ class _FakePage:
         if not self._anns:
             return None
         if self._hide_new_in_enum:
-            return _FakeEnum([])
-        return _FakeEnum(self._anns)
+            return FakeUnoEnum([])
+        return FakeUnoEnum(self._anns)
 
     def createAndInsertAnnotation(self) -> _FakeAnnotation:
         ann = _FakeAnnotation()
@@ -141,7 +122,7 @@ class _FakePage:
 
 class _BrokenEnumPage(_FakePage):
     def createAnnotationEnumeration(self):
-        raise _DisposedException("page disposed")
+        raise DisposedException("page disposed")
 
 
 class _PageContainer:

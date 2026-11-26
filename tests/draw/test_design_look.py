@@ -455,4 +455,3 @@ def test_picture_tag_normalizes_case_backslashes_and_directories():
     assert _picture_tag(["./Pictures\\A.PNG", "Pictures/Sub/B.JPG"]) == "illustrated"
     assert _picture_tag(["Pictures/A.PNG", "Pictures/B.PNG", "Pictures/C.PNG"]) == "illustrated"
     assert _picture_tag(["Thumbnails/thumbnail.png", "Pictures/notes.txt"]) == ""
-

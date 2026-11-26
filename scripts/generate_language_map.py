@@ -3,9 +3,9 @@ import geopandas as gpd
 
 # List of supported language codes
 langs = [
-    "de", "es", "fr", "it", "ja", "ko", "pl", "pt", "ru", "zh_CN", "zh_TW", 
-    "hi_IN", "id", "bn_IN", "ur_PK", "nl", "sv", "da", "fi", "ca", "el", 
-    "cs", "hu", "ro", "nb_NO", "nn_NO", "uk", "tr", "sk", "bg", "hr", 
+    "de", "es", "fr", "it", "ja", "ko", "pl", "pt", "ru", "zh_CN", "zh_TW",
+    "hi_IN", "id", "bn_IN", "ur_PK", "nl", "sv", "da", "fi", "ca", "el",
+    "cs", "hu", "ro", "nb_NO", "nn_NO", "uk", "tr", "sk", "bg", "hr",
     "lt", "lv", "et"
 ]
 

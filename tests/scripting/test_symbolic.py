@@ -443,4 +443,3 @@ def test_latex_to_math_object_caps_length():
     res_cue = latex_to_math_object(latex="x^{2}")
     assert res_cue["status"] == "ok"
     assert res_cue["latex"] == "x^{2}"
-

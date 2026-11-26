@@ -61,6 +61,24 @@ def seed_styled_body(doc: Any, paragraphs: Sequence[tuple[str, str]]) -> None:
         cursor.setPropertyValue("ParaStyleName", style)
 
 
+def set_body_text(doc: Any, text_value: str) -> None:
+    """Replace the whole Writer body with *text_value* (``\n`` starts a new paragraph)."""
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    text.insertString(cur, text_value, False)
+
+
+def find_first(doc: Any, needle: str) -> Any:
+    """Return the first range matching *needle* (plain search), or ``None``."""
+    sd = doc.createSearchDescriptor()
+    sd.setSearchString(needle)
+    return doc.findFirst(sd)
+
+
 def body_paragraphs(text: Any) -> list[Any]:
     """Return the paragraphs directly inside *text* (body, header or cell), skipping tables."""
     return [el for el in iter_elements(text.createEnumeration()) if el.supportsService(_PARAGRAPH)]

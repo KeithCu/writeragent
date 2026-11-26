@@ -12,6 +12,7 @@ from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer import html_import_styles
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.search import MatchMode
+from plugin.tests.testing_utils import DisposedException
 
 def _edit_ctx():
     ctx = MagicMock()
@@ -1077,7 +1078,7 @@ def test_outline_undo_reraises_disposal_on_mutate_error():
     doc = MagicMock()
     session = MagicMock()
     session.changes = []
-    disposed = type("DisposedException", (Exception,), {})("gone")
+    disposed = DisposedException("gone")
     outcome = UndoOutcome(rolled_back=True, mutate_error=disposed)
 
     with patch("plugin.writer.apply_document_content.commit_or_rollback", return_value=outcome):
@@ -1157,7 +1158,7 @@ def test_outline_undo_propagates_disposed_document():
     session.changes = []
 
     def disposed_run():
-        raise type("DisposedException", (Exception,), {})("gone")
+        raise DisposedException("gone")
 
     with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         with pytest.raises(DocumentDisposedError):
@@ -1194,7 +1195,7 @@ def test_shape_edit_refuses_without_undo_context():
 
 def test_shape_edit_enter_disposed_reraises():
     ctx = _edit_ctx()
-    ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    ctx.doc.getUndoManager.side_effect = DisposedException("gone")
     shape = MagicMock()
     shape.Name = "Box"
     with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
@@ -1310,7 +1311,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     assert res["partial_failure"] is True
 
     def replace_disposed(*_args, **_kwargs):
-        raise type("DisposedException", (Exception,), {})("gone")
+        raise DisposedException("gone")
 
     with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
@@ -1358,7 +1359,7 @@ def test_position_after_cell_probe_reraises_disposed():
     from plugin.writer import html_import
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
+    cursor.getPropertyValue.side_effect = DisposedException("gone")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
@@ -1376,7 +1377,7 @@ def test_emptied_table_delete_reraises_disposed():
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
          patch("plugin.writer.apply_document_content.record_table_deletions",
-                      side_effect=type("DisposedException", (Exception,), {})("gone")):
+                      side_effect=DisposedException("gone")):
         with pytest.raises(Exception) as exc_info:
             ApplyDocumentContent().execute(
                 ctx, target="search", old_content="x", content="")
@@ -1406,7 +1407,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
         assert res_override["code"] == "HYPERLINK_UPDATE_FAILED"
         assert "Could not read the outline hyperlink" in res_override["message"]
 
-    disposed_exc = type("DisposedException", (Exception,), {})("gone")
+    disposed_exc = DisposedException("gone")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
@@ -1481,7 +1482,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
         assert "Could not read the outline hyperlink" in res_override["message"]
         preserve.assert_not_called()
 
-    disposed_exc = type("DisposedException", (Exception,), {})("gone")
+    disposed_exc = DisposedException("gone")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=disposed_exc), \
@@ -1515,7 +1516,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
 
 def test_outline_undo_disposed_undo_manager_reraises():
     doc = MagicMock()
-    doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    doc.getUndoManager.side_effect = DisposedException("gone")
     session = MagicMock()
     session.changes = []
     with pytest.raises(DocumentDisposedError):
@@ -1524,7 +1525,7 @@ def test_outline_undo_disposed_undo_manager_reraises():
 
 def test_all_matches_disposed_undo_manager_reraises():
     ctx = _edit_ctx()
-    ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    ctx.doc.getUndoManager.side_effect = DisposedException("gone")
     with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
         with pytest.raises(DocumentDisposedError):

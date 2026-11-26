@@ -86,14 +86,14 @@ def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str, data
 def test_strip_html_tags_streaming_equivalence() -> None:
     full_text = "<div class='test'>Hello <b>World</b>! 3 < 5</div>"
     s1 = strip_html_tags(full_text)
-    
+
     stripper = StreamingHTMLStripper()
     chunk1 = stripper.feed("<div class='test'>Hello ")
     chunk2 = stripper.feed("<b>World</b>! 3 < 5")
     chunk3 = stripper.feed("</div>")
     final = stripper.finalize()
     s2 = chunk1 + chunk2 + chunk3 + final
-    
+
     assert s1 == s2
     assert "Hello World! 3 < 5" in s1
 

@@ -12,8 +12,9 @@ import unittest
 
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import (
-    TestingFactory,
     execute_calc_tool as _execute_calc_tool,
+    pinned_writer_tool_context,
+    TestingFactory,
     with_native_doc,
 )
 
@@ -345,8 +346,6 @@ def test_chart_delete_writer_anchors_uno(ctx, doc):
 @with_native_doc("writer")
 def test_writer_chart_position_cursor_uses_pinned_caret_uno(ctx, doc):
     from plugin.calc.charts import ChartUpsert
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -359,8 +358,7 @@ def test_writer_chart_position_cursor_uses_pinned_caret_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(cur)
 
-    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
-    tool_ctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tool_ctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = ChartUpsert().execute_safe(

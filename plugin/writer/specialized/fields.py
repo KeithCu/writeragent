@@ -509,4 +509,3 @@ class DocumentPropertiesSet(ToolBase):
                     removed=removed,
                 )
         return {"status": "ok", "updated": updated, "removed": removed}
-

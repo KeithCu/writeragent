@@ -247,4 +247,3 @@ def get_calc_context_for_chat(
             raise DocumentDisposedError("Calc document disposed", object_type="calc") from exc
         log.exception("get_calc_context_for_chat error: %s", exc)
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
-

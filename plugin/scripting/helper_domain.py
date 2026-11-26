@@ -713,6 +713,3 @@ def insert_helper_result_into_calc(
         start_col=start_col,
         start_row=start_row,
     )
-
-
-

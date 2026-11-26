@@ -24,7 +24,7 @@ from plugin.calc.calc_utils import (
     standard_temporal_format_keys,
 )
 from plugin.framework.errors import DocumentDisposedError
-from plugin.tests.testing_utils import CalcDocStub
+from plugin.tests.testing_utils import CalcDocStub, DisposedException
 
 
 class TestGetCellGeometry:
@@ -122,9 +122,6 @@ class TestSheetAndCellResolution:
         assert resolve_sheet_and_cell(None, "A1") is None
 
     def test_resolve_sheet_and_cell_disposal_propagates(self):
-        class DisposedException(Exception):
-            pass
-
         doc = MagicMock()
         doc.getCurrentController.side_effect = DisposedException("disposed")
         doc.getSheets.side_effect = DisposedException("disposed")
@@ -230,9 +227,6 @@ def test_resolve_document_locale(monkeypatch):
     fallback_err = resolve_document_locale(doc)
     assert fallback_err.Language == "en"
     assert fallback_err.Country == "US"
-
-    class DisposedException(Exception):
-        pass
 
     doc.getPropertyValue.side_effect = DisposedException("disposed")
     with pytest.raises(DisposedException):

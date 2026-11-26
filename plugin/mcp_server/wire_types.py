@@ -186,4 +186,3 @@ def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_er
     if is_error:
         out["isError"] = True
     return out
-

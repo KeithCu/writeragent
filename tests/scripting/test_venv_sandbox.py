@@ -2292,4 +2292,3 @@ def test_shared_run_without_init_session_keeps_init_bindings(fresh_sandbox_sessi
     assert first["status"] == "ok", first
     second = sandbox_run("result = HELPER + 1", session_id=sid)
     assert second["status"] == "ok" and second["result"] == 2, second
-

@@ -21,6 +21,7 @@ from plugin.writer.specialized.indexes import (
     is_bibliography_text_field,
     resolve_bibliographic_type,
 )
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_canonicalize_bibliography_field_name():
@@ -375,9 +376,6 @@ def test_indexes_list_cites_filters_bibliography_fields():
 
 
 def test_list_cites_fields_read_disposal_is_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     tool = IndexesListCites()
     ctx = MagicMock()
     fields_enum = MagicMock()
@@ -614,20 +612,6 @@ class _LinkPortion:
         return ""
 
 
-class _ElementEnum:
-    def __init__(self, items):
-        self._items = list(items)
-        self._at = 0
-
-    def hasMoreElements(self):
-        return self._at < len(self._items)
-
-    def nextElement(self):
-        item = self._items[self._at]
-        self._at += 1
-        return item
-
-
 class _IndexPara:
     """One paragraph the TOC walk can contain or leave outside the anchor."""
 
@@ -654,7 +638,7 @@ class _IndexPara:
         raise KeyError(name)
 
     def createEnumeration(self):
-        return _ElementEnum(_LinkPortion(url) for url in self.urls)
+        return FakeUnoEnum(_LinkPortion(url) for url in self.urls)
 
 
 class _IndexText:
@@ -662,7 +646,7 @@ class _IndexText:
         self.rows = rows
 
     def createEnumeration(self):
-        return _ElementEnum(self.rows)
+        return FakeUnoEnum(self.rows)
 
     def compareRegionStarts(self, _outer_start, inner_start):
         return 0 if inner_start.para.inside else -1
@@ -677,7 +661,7 @@ def test_paragraph_element_enumerates_hit_not_text():
 
     inside_para = _IndexPara("Heading", "Contents 1", [], True)
     hit_inside = MagicMock()
-    hit_inside.createEnumeration.return_value = _ElementEnum([inside_para])
+    hit_inside.createEnumeration.return_value = FakeUnoEnum([inside_para])
     hit_inside.getText.return_value = text
     hit_inside.getStart.return_value = inside_para.getStart()
     hit_inside.getEnd.return_value = inside_para.getEnd()
@@ -685,7 +669,7 @@ def test_paragraph_element_enumerates_hit_not_text():
 
     outside_para = _IndexPara("Outside", "Contents 1", [], False)
     hit_outside = MagicMock()
-    hit_outside.createEnumeration.return_value = _ElementEnum([outside_para])
+    hit_outside.createEnumeration.return_value = FakeUnoEnum([outside_para])
     hit_outside.getText.return_value = text
     hit_outside.getStart.return_value = outside_para.getStart()
     hit_outside.getEnd.return_value = outside_para.getEnd()
@@ -952,9 +936,6 @@ def test_is_bibliography_text_field_does_not_swallow():
 def test_index_kind_from_uno_disposal_propagates_other_errors_fall_through():
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     idx = MagicMock()
     idx.getServiceName.side_effect = RuntimeError("no service")
     idx.getImplementationName.return_value = "SwXContentIndex"
@@ -991,9 +972,6 @@ def test_delete_toc_rollback_failure_keeps_the_cause():
 
 
 def test_delete_toc_disposal_is_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     tool = IndexesDeleteTocEntry()
     ctx, _doc, idx, mgr = _one_toc_context()
     para = _TocPara("Contents 1", "Alpha title\t1")
@@ -1010,9 +988,6 @@ def test_delete_toc_disposal_is_document_disposed():
 
 
 def test_list_toc_entries_enumeration_failure_is_not_empty():
-    class DisposedException(Exception):
-        pass
-
     tool = IndexesListTocEntries()
     ctx, _doc, idx, _mgr = _one_toc_context()
     anchor = MagicMock()
@@ -1024,9 +999,6 @@ def test_list_toc_entries_enumeration_failure_is_not_empty():
 
 
 def test_list_toc_entries_has_more_elements_disposal_is_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     tool = IndexesListTocEntries()
     ctx, _doc, idx, _mgr = _one_toc_context()
     anchor = MagicMock()
@@ -1040,15 +1012,12 @@ def test_list_toc_entries_has_more_elements_disposal_is_document_disposed():
 
 
 def test_list_toc_entries_containment_disposal_is_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     class _DisposedIndexText:
         def __init__(self, rows):
             self.rows = rows
 
         def createEnumeration(self):
-            return _ElementEnum(self.rows)
+            return FakeUnoEnum(self.rows)
 
         def compareRegionStarts(self, _outer_start, _inner_start):
             raise DisposedException("gone")
@@ -1122,7 +1091,7 @@ def test_paragraphs_in_anchor_stops_at_the_anchor_end():
             self.rows = rows
 
         def createEnumeration(self):
-            return _ElementEnum(self.rows)
+            return FakeUnoEnum(self.rows)
 
         def compareRegionStarts(self, start1, start2):
             # UNO: 1 when start1 is before start2, -1 when after.
@@ -1155,7 +1124,7 @@ class _OffsetText:
         self.rows = rows
 
     def createEnumeration(self):
-        return _ElementEnum(self.rows)
+        return FakeUnoEnum(self.rows)
 
     @staticmethod
     def _cmp(left, right):
@@ -1446,20 +1415,7 @@ def test_char_props_clones_direct_formatting_and_link_styles():
             self.portions = portions
 
         def createEnumeration(self):
-            class _E:
-                def __init__(self, items):
-                    self.items = list(items)
-                    self.idx = 0
-
-                def hasMoreElements(self):
-                    return self.idx < len(self.items)
-
-                def nextElement(self):
-                    val = self.items[self.idx]
-                    self.idx += 1
-                    return val
-
-            return _E(self.portions)
+            return FakeUnoEnum(self.portions)
 
     p_redline = _Portion("marker", portion_type="Redline")
     p_text = _Portion(
@@ -1558,6 +1514,3 @@ def test_toc_row_link_and_look_see_portions_inside_content_control():
 
     assert _paragraph_hyperlink(para) == "#1.Intro|outline"
     assert _char_props(para, with_link=True).get("CharWeight") == 150.0
-
-
-

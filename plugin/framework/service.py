@@ -149,4 +149,3 @@ class ServiceRegistry:
 
     def __contains__(self, name: str) -> bool:
         return name in self._services
-

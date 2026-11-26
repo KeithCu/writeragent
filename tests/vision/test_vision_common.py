@@ -197,4 +197,3 @@ def test_docling_too_old(version: str, expected: bool):
     from plugin.vision.vision_common import docling_too_old
 
     assert docling_too_old(version) is expected
-

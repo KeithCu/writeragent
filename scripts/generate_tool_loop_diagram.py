@@ -38,12 +38,12 @@ class ToolLoopTransition:
 
 class ToolLoopStateMachine:
     """Complete tool loop state machine"""
-    
+
     def __init__(self):
         self.states = self._define_states()
         self.transitions = self._define_transitions()
         self.state_map = {s.name: s for s in self.states}
-    
+
     def _define_states(self) -> List[ToolLoopState]:
         return [
             ToolLoopState(
@@ -95,10 +95,10 @@ class ToolLoopStateMachine:
                 is_error=True
             ),
         ]
-    
+
     def _define_transitions(self) -> List[ToolLoopTransition]:
         transitions = []
-        
+
         # Tool Loop Transitions
         transitions.extend([
             ToolLoopTransition(
@@ -180,17 +180,17 @@ class ToolLoopStateMachine:
                 component=Component.TOOL_LOOP
             ),
         ])
-        
+
         return transitions
-    
+
     def to_mermaid(self) -> str:
         """Convert state machine to Mermaid.js diagram"""
-        
+
         # Component colors
         component_colors = {
             Component.TOOL_LOOP: "#50c878"
         }
-        
+
         # Build Mermaid diagram (without triple backticks for mmdc)
         lines = []
         lines.append("stateDiagram-v2")
@@ -198,20 +198,20 @@ class ToolLoopStateMachine:
         lines.append("    %% Focused diagram showing only tool loop states and transitions")
         lines.append("    %% High resolution settings for crisp rendering")
         lines.append("    %%{init: {'theme': 'default', 'flowchart': {'curve': 'basis', 'padding': 50, 'rankSpacing': 100, 'nodeSpacing': 150}}}%%")
-        
+
         # Define state styles
         for component, color in component_colors.items():
             lines.append(f"    classDef {component.value} fill:{color},color:white,stroke:#333")
         lines.append("    classDef terminal fill:#7b68ee,color:white,stroke:#333")
         lines.append("    classDef error fill:#ff4444,color:white,stroke:#333")
-        
+
         # Add initial state
         lines.append("    [*] --> ToolLoop_Idle")
-        
+
         # Add states
         for state in self.states:
             state_name = state.name.replace(" ", "")
-            
+
             # Determine class based on component and type
             if state.is_error:
                 state_class = "error"
@@ -219,27 +219,27 @@ class ToolLoopStateMachine:
                 state_class = "terminal"
             else:
                 state_class = state.component.value
-            
+
             # Format state definition
             lines.append(f"    {state_name}")
             lines.append(f"    class {state_name} {state_class}")
-        
+
         # Add transitions
         for trans in self.transitions:
             from_name = trans.from_state.replace(" ", "")
             to_name = trans.to_state.replace(" ", "")
-            
+
             # Format transition label
             label = trans.trigger
             if trans.condition:
                 label += f"\n[{trans.condition}]"
-            
+
             lines.append(f"    {from_name} --> {to_name} : {label}")
-        
+
         # No legend needed for focused diagram
-        
+
         return "\n".join(lines)
-    
+
     def to_markdown(self) -> str:
         """Generate comprehensive markdown documentation"""
         lines = []
@@ -247,7 +247,7 @@ class ToolLoopStateMachine:
         lines.append("")
         lines.append("Focused diagram showing the tool loop component from WriterAgent.")
         lines.append("")
-        
+
         # Component legend
         lines.append("## Component Legend")
         lines.append("")
@@ -255,26 +255,26 @@ class ToolLoopStateMachine:
         lines.append("|-----------|-------|-------------|")
         lines.append("| Tool Loop | #50c878 | Tool calling workflow |")
         lines.append("")
-        
+
         # States by component
         lines.append("## States")
         lines.append("")
         lines.append("| State | Description | Terminal | Error |")
         lines.append("|-------|-------------|----------|-------|")
-        
+
         for state in self.states:
             terminal = "✓" if state.is_terminal else ""
             error = "✓" if state.is_error else ""
             lines.append(f"| `{state.name}` | {state.description} | {terminal} | {error} |")
         lines.append("")
-        
+
         # Transitions summary
         lines.append("## Transition Summary")
         lines.append("")
         lines.append(f"Total states: {len(self.states)}")
         lines.append(f"Total transitions: {len(self.transitions)}")
         lines.append("")
-        
+
         # Key interactions
         lines.append("## Key Interactions")
         lines.append("")
@@ -284,7 +284,7 @@ class ToolLoopStateMachine:
         lines.append("- **ToolLoop_HasMoreTools → ToolLoop_ToolResult**: Execute next tool")
         lines.append("- **ToolLoop_ToolResult → ToolLoop_Done**: All tools processed")
         lines.append("")
-        
+
         # Error handling
         lines.append("## Error Handling")
         lines.append("")
@@ -295,7 +295,7 @@ class ToolLoopStateMachine:
         lines.append("- **ToolLoop_HasMoreTools → ToolLoop_Error**: Execution failures during iteration")
         lines.append("- **ToolLoop_HasMoreTools → ToolLoop_Timeout**: Timeout during iteration")
         lines.append("")
-        
+
         # Architecture notes
         lines.append("## Architecture Notes")
         lines.append("")
@@ -304,22 +304,22 @@ class ToolLoopStateMachine:
         lines.append("- **Iterative Processing**: Handles multiple tool calls in sequence")
         lines.append("- **Clean Termination**: Clear completion state when all tools processed")
         lines.append("")
-        
+
         return "\n".join(lines)
 
 
 def main():
     """Generate tool loop diagram"""
     import sys
-    
+
     if len(sys.argv) < 2:
         print("Usage: python generate_tool_loop_diagram.py <format>")
         print("Formats: mermaid, markdown")
         sys.exit(1)
-    
+
     format_type = sys.argv[1].lower()
     machine = ToolLoopStateMachine()
-    
+
     if format_type == "mermaid":
         print(machine.to_mermaid())
     elif format_type == "markdown":

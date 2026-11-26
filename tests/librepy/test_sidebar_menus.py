@@ -361,4 +361,3 @@ def test_writeragent_chat_import_failure_falls_back_to_core_menu():
     ):
         show_python_sidebar_hamburger(ctx, frame, button)
     core_menu.assert_called_once_with(ctx, frame, button)
-

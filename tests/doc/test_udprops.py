@@ -212,4 +212,3 @@ def test_read_document_property_raises_on_uno_failure_and_returns_default_when_a
 
     with pytest.raises(UnoObjectError):
         read_document_property(_DocWithUserDefinedProperties(_FailingValue()), "Present")
-

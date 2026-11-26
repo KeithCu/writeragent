@@ -751,4 +751,3 @@ def summarize_results(results: Iterable[ExampleEval]) -> dict:
         "n_judged": len(judged),
         "n_error": sum(1 for r in results if r.error),
     }
-

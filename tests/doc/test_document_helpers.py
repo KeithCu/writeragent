@@ -12,7 +12,7 @@ from plugin.doc.document_helpers import (
     resolve_locator,
 )
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
-from plugin.tests.testing_utils import ElementStub, WriterDocStub
+from plugin.tests.testing_utils import ElementStub, FakeUnoEnum, WriterDocStub
 
 
 def _outline_doc():
@@ -248,7 +248,7 @@ class _PosText:
         self.paras = paras
 
     def createEnumeration(self):
-        return _Enum(self.paras)
+        return FakeUnoEnum(self.paras)
 
     def compareRegionStarts(self, left, right):
         if left < right:
@@ -256,20 +256,6 @@ class _PosText:
         if left > right:
             return -1
         return 0
-
-
-class _Enum:
-    def __init__(self, items):
-        self.items = list(items)
-        self.idx = 0
-
-    def hasMoreElements(self):
-        return self.idx < len(self.items)
-
-    def nextElement(self):
-        item = self.items[self.idx]
-        self.idx += 1
-        return item
 
 
 class _PosAnchor:
@@ -1106,17 +1092,7 @@ def test_open_documents_skips_registered_scratch_and_keeps_user_hidden(monkeypat
     desktop.loadComponentFromURL.return_value = scratch_doc
     scratch_writer.load_scratch_document(desktop, "private:factory/sdraw")
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
-    desktop.getComponents.return_value.createEnumeration.return_value = _Enum([user_hidden, scratch_doc])
+    desktop.getComponents.return_value.createEnumeration.return_value = FakeUnoEnum([user_hidden, scratch_doc])
     monkeypatch.setattr(document_helpers, "get_desktop", lambda: desktop)
 
     docs = document_helpers.DocumentService().open_documents()
@@ -1150,18 +1126,8 @@ def test_watch_open_doc_types_ignores_scratch_load_and_reports_user_load(monkeyp
     user_writer = _doc("3", "com.sun.star.text.TextDocument")
     desktop_docs = [calc_doc]
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     desktop = MagicMock()
-    desktop.getComponents.side_effect = lambda: SimpleNamespace(createEnumeration=lambda: _Enum(desktop_docs))
+    desktop.getComponents.side_effect = lambda: SimpleNamespace(createEnumeration=lambda: FakeUnoEnum(desktop_docs))
     monkeypatch.setattr(document_helpers, "get_desktop", lambda: desktop)
 
     seen: list[frozenset[str]] = []

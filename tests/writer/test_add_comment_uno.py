@@ -16,16 +16,7 @@ from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.writer.specialized.comments import AddComment, CommentList
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-
-def _set_body(doc, text_value):
-    text = doc.getText()
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    text.insertString(cur, text_value, False)
+from tests.writer.doc_builders import set_body_text
 
 
 def _annotation_contents(doc):
@@ -64,7 +55,7 @@ def _by_name(comments, name):
 @native_test
 @with_native_doc("writer")
 def test_add_comment_reports_anchor_found_uno(ctx, doc):
-    _set_body(doc, "Anchor here please")
+    set_body_text(doc, "Anchor here please")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = AddComment().execute(tool_ctx, content="a note", search="Anchor")
     assert res.get("status") == "ok", res
@@ -84,7 +75,7 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_add_comment_reports_anchor_not_found_uno(ctx, doc):
-    _set_body(doc, "nothing relevant here")
+    set_body_text(doc, "nothing relevant here")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = AddComment().execute(tool_ctx, content="a note", search="DOES_NOT_EXIST_XYZ")
     # An anchor miss is a failure (status="error"), not a silent "not_found" the MCP host /
@@ -98,7 +89,7 @@ def test_add_comment_reports_anchor_not_found_uno(ctx, doc):
 @with_native_doc("writer")
 def test_add_comment_reply_via_parent_name_uno(ctx, doc):
     """Reply with parent_name only (no search). Parent stays unresolved."""
-    _set_body(doc, "Passage under review")
+    set_body_text(doc, "Passage under review")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     root = AddComment().execute(tool_ctx, content="please revise", search="Passage")
     assert root.get("status") == "ok" and root.get("name"), root
@@ -126,7 +117,7 @@ def test_add_comment_reply_via_parent_name_uno(ctx, doc):
 @with_native_doc("writer")
 def test_add_comment_reply_to_reply_nests_uno(ctx, doc):
     """C parented to B, B parented to A — do not flatten to the thread root."""
-    _set_body(doc, "Title sentence")
+    set_body_text(doc, "Title sentence")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     a = AddComment().execute(tool_ctx, content="root A", search="Title")
     assert a.get("status") == "ok" and a.get("name"), a
@@ -148,7 +139,7 @@ def test_add_comment_reply_to_reply_nests_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_add_comment_reply_unknown_parent_uno(ctx, doc):
-    _set_body(doc, "Some body text")
+    set_body_text(doc, "Some body text")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = AddComment().execute(tool_ctx, content="orphan reply", parent_name="no-such-annotation")
     assert res.get("status") == "error", res

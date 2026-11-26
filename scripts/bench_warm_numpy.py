@@ -36,7 +36,7 @@ def find_config_path():
             Path("~/.config/libreoffice/24/user/config/writeragent.json").expanduser(),
             Path("~/.config/libreoffice/24/user/writeragent.json").expanduser(),
         ]
-    
+
     for p in paths:
         if p.exists():
             return p
@@ -47,7 +47,7 @@ def get_venv_path_from_config():
     config_path = find_config_path()
     if not config_path:
         return None
-    
+
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -78,7 +78,7 @@ def benchmark_in_process_prime(n, iterations=10):
         import sympy
         # Warmup
         sympy.prime(n)
-        
+
         times = []
         for _ in range(iterations):
             start = time.perf_counter()
@@ -97,7 +97,7 @@ def benchmark_in_process_matrix(size, iterations=10):
         a = np.random.rand(size, size)
         b = np.random.rand(size, size)
         np.dot(a, b)
-        
+
         times = []
         for _ in range(iterations):
             start = time.perf_counter()
@@ -117,14 +117,14 @@ def benchmark_worker(mgr, code, iterations=10):
     req = ExecRequest(code=code, timeout_sec=timeout_sec)
     # Warmup
     mgr.execute(req)
-    
+
     times = []
     for _ in range(iterations):
         start = time.perf_counter()
         resp = mgr.execute(req)
         end = time.perf_counter()
         times.append(end - start)
-    
+
     if resp["status"] == "ok":
         return resp["result"], sum(times) / len(times), min(times)
     return None, None, None
@@ -135,23 +135,23 @@ def run_benchmark_for_pickle(exe, code, iterations=10):
     mgr = PythonWorkerManager.get(exe, {})
     timeout_sec = python_exec_timeout()
     req = ExecRequest(code=code, timeout_sec=timeout_sec)
-    
+
     # 1. Cold start
     mgr._terminate_worker()
     start_cold = time.perf_counter()
     mgr.execute(req)
     end_cold = time.perf_counter()
     cold_sec = end_cold - start_cold
-    
+
     # 2. Warm start
     res, avg_sec, min_sec = benchmark_worker(mgr, code, iterations)
-    
+
     return cold_sec, avg_sec, min_sec
 
 
 def main():
     print("--- WriterAgent Warm Process Benchmark (with Warmup) ---")
-    
+
     venv_path = get_venv_path_from_config()
     if venv_path:
         print(f"Using configured venv: {venv_path}")
@@ -159,13 +159,13 @@ def main():
     else:
         print("No venv configured in writeragent.json, falling back to LO/System python.")
         exe = resolve_libreoffice_python()
-    
+
     if not exe:
         print("Error: Could not resolve Python executable.")
         sys.exit(1)
-    
+
     print(f"Python Executable: {exe}")
-    
+
     n_prime = 1000
     p_code = prime_code(n_prime)
     m_size = 1000
@@ -207,4 +207,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

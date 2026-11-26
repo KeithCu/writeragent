@@ -234,4 +234,3 @@ def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc
     formula = _first_math_formula(doc)
     assert "x" in formula and "y" in formula
     assert get_config("last_latex_display_block") is False
-

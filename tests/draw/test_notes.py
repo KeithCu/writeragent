@@ -10,10 +10,7 @@ import pytest
 from plugin.draw.notes import GetSpeakerNotes, SetSpeakerNotes
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.tool import prepare_tool_call
-
-
-class _DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException
 
 
 class _XText:
@@ -87,7 +84,7 @@ class _DisposedSlide(_Slide):
         super().__init__(None)
 
     def getNotesPage(self):
-        raise _DisposedException("notes page object disposed")
+        raise DisposedException("notes page object disposed")
 
 
 class _FakeContext:

@@ -26,10 +26,10 @@ class TestEnsureUtf8Stdio:
             buffer.truncate(0)
 
             uno_bootstrap.ensure_utf8_stdio()
-            assert (sys.stdout.encoding) == ("utf-8")
+            assert sys.stdout.encoding == "utf-8"
             print("hello \U0001f44b \u2014")
             sys.stdout.flush()
-            assert (b"hello") in (buffer.getvalue())
+            assert b"hello" in buffer.getvalue()
         finally:
             sys.stdout = old_stdout
 
@@ -44,7 +44,7 @@ class TestEnsureUtf8Stdio:
                 first_encoding = sys.stdout.encoding
                 uno_bootstrap.ensure_utf8_stdio()
             assert reconfigure_spy.call_count == 1
-            assert (sys.stdout.encoding) == (first_encoding)
+            assert sys.stdout.encoding == first_encoding
         finally:
             sys.stdout = old_stdout
 
@@ -154,6 +154,3 @@ def test_writeragent_root_spec_falls_back_to_namespace_loader(monkeypatch) -> No
     spec = importer.find_spec("writeragent")
     assert spec is not None
     assert isinstance(spec.loader, uno_bootstrap._WriteragentNamespaceLoader)
-
-
-

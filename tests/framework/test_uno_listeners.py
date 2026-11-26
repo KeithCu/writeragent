@@ -26,6 +26,7 @@ from plugin.framework.uno_listeners import (
     ListenerBoundary,
     install_view_doc_listener,
 )
+from plugin.tests.testing_utils import DisposedException
 
 def test_catch_and_log_decorator(caplog):
     """Verify that @_catch_and_log swallows and logs unhandled exceptions."""
@@ -35,11 +36,11 @@ def test_catch_and_log_decorator(caplog):
             raise RuntimeError("Test error inside listener")
 
     listener = DummyListener()
-    
+
     # Executing the decorated method should not raise an exception
     with caplog.at_level(logging.ERROR):
         listener.someMethod(MagicMock())
-        
+
     assert len(caplog.records) == 1
     assert caplog.records[0].exc_info is not None
 
@@ -130,9 +131,6 @@ def test_mouse_click_failure_returns_false():
 
 
 def test_disposed_exception_does_not_escape_listener():
-    class DisposedException(Exception):
-        pass
-
     class Gone(BaseListener):
         def on_disposing(self, source):
             raise DisposedException("gone")
@@ -243,9 +241,6 @@ def test_runtime_error_is_not_disposal():
 
 def test_disposed_desktop_is_not_an_empty_document():
     """A dead desktop must not come back as the 'nothing is open' None."""
-
-    class DisposedException(Exception):
-        pass
 
     class Read(BaseActionListener):
         def on_action_performed(self, ev):
@@ -586,7 +581,3 @@ def test_base_focus_listener_dispatches_events():
     listener.focusGained(ev)
     listener.focusLost(ev)
     assert seen == ["gained", "lost"]
-
-
-
-

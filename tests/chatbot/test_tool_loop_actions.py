@@ -22,6 +22,7 @@ from plugin.chatbot.tool_loop_state import (  # noqa: E402
 )
 from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
 from plugin.framework.send_cancellation import SendCancellation  # noqa: E402
+from plugin.tests.testing_utils import DisposedException
 
 
 class FakeSession:
@@ -250,9 +251,6 @@ def test_update_document_context_effect_reports_error_on_unexpected_refresh_fail
 
 
 def test_sync_tool_disposed_document_queues_error_not_tool_done():
-    class DisposedException(Exception):
-        pass
-
     host = FakeHost()
     host._active_execute_tool_fn.side_effect = DisposedException("document closed")
     interpreter = ToolLoopEffectInterpreter(host)
@@ -371,9 +369,6 @@ def test_other_delegations_do_not_taint_web_research():
 
 
 def test_execute_fn_reraises_disposed_document():
-    class DisposedException(Exception):
-        pass
-
     host = FakeHost()
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
@@ -2116,4 +2111,3 @@ def test_refresh_document_context_passes_none_without_pin():
 
     assert interpreter.execute(UpdateDocumentContextEffect()) is False
     assert host.session.refresh_calls[-1][2] is None
-

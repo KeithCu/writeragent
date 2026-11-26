@@ -13,13 +13,10 @@ from pathlib import Path
 import pytest
 
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
+from plugin.tests.testing_utils import DisposedException
 
 _NOTES = "com.sun.star.presentation.NotesShape"
 _FOOTER = "com.sun.star.presentation.FooterShape"
-
-
-class DisposedException(Exception):
-    pass
 
 
 class _Shape:

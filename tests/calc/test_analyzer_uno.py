@@ -31,4 +31,3 @@ def test_analyzer_get_sheet_summary(ctx, doc):
     assert "2024" in summary.get("headers", []), f"Header 2024 not found in: {summary}"
     assert summary.get("first_empty_col") == "C", summary
     assert summary.get("first_empty_row") == 7, summary
-

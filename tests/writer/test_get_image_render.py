@@ -18,13 +18,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-class _DisposedException(Exception):
-    pass
-
-
 from plugin.framework.tool import ToolContext, prepare_tool_call, to_openai_schema
 from plugin.framework.tool_schema import page_index_param
 from plugin.writer.get_image import GetImage, _is_draw_family, _render_page_png
+from plugin.tests.testing_utils import DisposedException
 
 
 class FakeViewCursor:
@@ -330,7 +327,7 @@ def test_writer_page_store_disposal_propagates():
     from plugin.framework.errors import DocumentDisposedError
 
     doc = FakeDoc()
-    doc.storeToURL = MagicMock(side_effect=_DisposedException("closed"))
+    doc.storeToURL = MagicMock(side_effect=DisposedException("closed"))
     with pytest.raises(DocumentDisposedError):
         _render_page_png(object(), doc, 0)
 
@@ -339,7 +336,7 @@ def test_draw_page_filter_disposal_propagates():
     from plugin.framework.errors import DocumentDisposedError
 
     filt = FakeGraphicExportFilter()
-    filt.filter = MagicMock(side_effect=_DisposedException("closed"))
+    filt.filter = MagicMock(side_effect=DisposedException("closed"))
     with pytest.raises(DocumentDisposedError):
         _render_page_png(FakeExportCtx(filt), FakeDrawDoc(page_count=2), 0)
 

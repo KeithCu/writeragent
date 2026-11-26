@@ -394,4 +394,3 @@ def test_footnotes_missing_note_raises():
     ctx = FakeCtx(MagicMock())
     with pytest.raises(KeyError):
         tool.execute(ctx)
-

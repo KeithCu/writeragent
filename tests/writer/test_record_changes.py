@@ -16,6 +16,7 @@ from plugin.writer.record_changes import (
     redline_kinds_covering,
     redline_spans,
 )
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 class _FakeDoc:
@@ -171,20 +172,6 @@ class _FakeRL:
         raise KeyError(name)
 
 
-class _FakeEnum:
-    def __init__(self, items):
-        self._items = list(items)
-        self._i = 0
-
-    def hasMoreElements(self):
-        return self._i < len(self._items)
-
-    def nextElement(self):
-        v = self._items[self._i]
-        self._i += 1
-        return v
-
-
 class _FakeRedlines:
     def __init__(self, items):
         self._items = items
@@ -193,7 +180,7 @@ class _FakeRedlines:
         return len(self._items)
 
     def createEnumeration(self):
-        return _FakeEnum(self._items)
+        return FakeUnoEnum(self._items)
 
 
 class _FakeRedlineDoc:

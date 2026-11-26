@@ -60,10 +60,10 @@ class TestMemory:
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
             result = tool.execute(tctx, key="user_name", content="Keith")
 
-        assert (result.get("status")) == ("ok")
+        assert result.get("status") == "ok"
         user_memory_path = os.path.join(self.tmp_dir, "memories", "USER.md")
         with open(user_memory_path, "r", encoding="utf-8") as f:
-            assert ('"user_name": "Keith"') in (f.read())
+            assert '"user_name": "Keith"' in f.read()
 
     def test_memory_tool_execute_skips_redundant_write(self):
         inner_ctx = object()
@@ -78,38 +78,38 @@ class TestMemory:
             with patch("plugin.chatbot.memory.MemoryStore.write") as mock_write:
                 result = tool.execute(tctx, key="color", content="blue")
 
-        assert (result.get("status")) == ("ok")
-        assert ("already up to date") in (result.get("message", ""))
+        assert result.get("status") == "ok"
+        assert "already up to date" in result.get("message", "")
         mock_write.assert_not_called()
 
     def test_format_upsert_memory_chat_line_shows_key_and_value(self):
         line = format_upsert_memory_chat_line({"key": "nickname", "content": "Bob"})
-        assert ("nickname") in (line)
-        assert ("Bob") in (line)
-        assert (line.startswith("[Memory update:"))
+        assert "nickname" in line
+        assert "Bob" in line
+        assert line.startswith("[Memory update:")
         assert line.endswith("\n")
 
     def test_format_upsert_memory_chat_line_truncates_long_value(self):
         long_val = "x" * (UPSERT_MEMORY_CHAT_VALUE_MAX + 50)
         line = format_upsert_memory_chat_line({"key": "k", "content": long_val})
-        assert ("...") in (line)
-        assert (len(line)) < (len(long_val) + 80)
+        assert "..." in line
+        assert len(line) < len(long_val) + 80
 
     def test_format_upsert_memory_chat_line_json_string(self):
         line = format_upsert_memory_chat_line(
             '{"key": "a", "content": "b"}'
         )
-        assert ("'a'") in (line)
-        assert ("'b'") in (line)
+        assert "'a'" in line
+        assert "'b'" in line
 
     def test_format_upsert_memory_chat_line_non_str_key_or_empty(self):
         assert format_upsert_memory_chat_line({}) == "[Running tool: memory_upsert...]\n"
         assert format_upsert_memory_chat_line({"key": 1}) == "[Running tool: memory_upsert...]\n"
 
     def test_upsert_memory_arguments_dict(self):
-        assert (upsert_memory_arguments_dict({"key": "x", "content": "y"})) == ({"key": "x", "content": "y"})
-        assert (upsert_memory_arguments_dict("not json")) is None
-        assert (upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}')) == ({"key": "from_json", "content": "v"})
+        assert upsert_memory_arguments_dict({"key": "x", "content": "y"}) == {"key": "x", "content": "y"}
+        assert upsert_memory_arguments_dict("not json") is None
+        assert upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}') == {"key": "from_json", "content": "v"}
 
     def test_upsert_memory_arguments_dict_non_dict_is_total(self):
         # The body returns None for a list; the pytest pre must stay total so a

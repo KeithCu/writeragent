@@ -256,5 +256,3 @@ def node_span(node: ast.AST, src: str, line_starts: list[int]) -> tuple[int, int
     start = ast_source_offset(src, lineno, col, line_starts=line_starts)
     end = ast_source_offset(src, end_lineno, end_col, line_starts=line_starts)
     return start, end
-
-

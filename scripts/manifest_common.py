@@ -98,7 +98,7 @@ def add_combobox(board, field_id, left, top, width, height, options, dropdown="t
         _dlg("linecount"): str(linecount),
     }
     combo_el = ET.SubElement(board, _dlg("combobox"), attrs)
-    
+
     # menupopup child is required for the dropdown to initialize
     menu_el = ET.SubElement(combo_el, _dlg("menupopup"))
     for opt in options:

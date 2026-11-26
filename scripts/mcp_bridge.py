@@ -27,7 +27,6 @@ import json
 import os
 import sys
 import threading
-import urllib.error
 import urllib.request
 
 MCP_URL = os.environ.get("WRITERAGENT_MCP_URL", "http://localhost:18765/mcp")

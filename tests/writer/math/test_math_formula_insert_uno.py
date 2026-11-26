@@ -876,4 +876,3 @@ def test_display_math_in_heading_stays_out_of_outline_uno(ctx: Any, doc: Any) ->
             _restore_and_check(rec, before_snap, before_adj)
         finally:
             doc.setPropertyValue("RecordChanges", False)
-

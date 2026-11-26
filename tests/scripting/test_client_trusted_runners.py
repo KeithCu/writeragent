@@ -219,6 +219,3 @@ def test_run_text_analytics_non_dict_spec(ctx):
         client.run_text_analytics(ctx, None, "hi")
     assert mock_run2.call_args.kwargs["helper"] == ""
     assert mock_run2.call_args.kwargs["params"]["model"] == "xlm-roberta"
-
-
-
