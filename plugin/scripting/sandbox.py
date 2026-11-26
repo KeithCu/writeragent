@@ -36,7 +36,9 @@ _DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
 # LibreHarper bundles this module for wrap_command_for_sandbox and does not
 # bundle smolagents. The fallback keeps `import plugin.scripting.sandbox` working.
-# tests/scripting/test_sandbox.py::test_dangerous_modules_fallback_matches_vendored loads this file without smolagents and checks the copy equals the vendored list, order included (the order is the prompt's order in import_policy).
+# tests/scripting/test_sandbox.py::test_dangerous_modules_fallback_matches_vendored loads this file
+# without smolagents and checks the copy equals the vendored list, order included (the order is the
+# prompt's order in import_policy).
 try:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
@@ -486,7 +488,8 @@ def wrap_command_for_sandbox(
 def path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off
-    # file: URLs are normalized case-insensitively with RFC 8089 localhost handling and correct UNC formatting so paths like FILE:///tmp/x and file://localhost/C:/x resolve safely.
+    # file: URLs are normalized case-insensitively with RFC 8089 localhost handling and correct UNC
+    # formatting so paths like FILE:///tmp/x and file://localhost/C:/x resolve safely.
     text = raw.strip()
     if len(text) < 5 or text[:5].lower() != "file:":
         return None

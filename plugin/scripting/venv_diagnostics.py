@@ -290,7 +290,8 @@ _VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
 def _parse_probe_stdout(stdout: str) -> dict[str, Any] | None:
     """Return the last ``WA_PROBE_JSON `` object on stdout, or None.
 
-    Scan stdout for the last ``WA_PROBE_JSON`` line (find, not startswith) so library banners on the same line or earlier lines do not hide the probe dict or break json.loads on the whole buffer.
+    Scan stdout for the last ``WA_PROBE_JSON`` line (find, not startswith) so library banners on the
+    same line or earlier lines do not hide the probe dict or break json.loads on the whole buffer.
     """
     found: dict[str, Any] | None = None
     prefix = _PROBE_JSON_PREFIX

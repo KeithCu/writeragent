@@ -25,7 +25,7 @@ import pytest
 
 import plugin.scripting.calc_functions as calc
 from plugin.scripting.calc_range import CalcRange
-from plugin.scripting.venv.calc_functions_util import NA_NAN, nan_error_code
+from plugin.scripting.venv.calc_functions_util import DIV0_NAN, NA_NAN, nan_error_code
 
 _INF = float("inf")
 
@@ -556,8 +556,6 @@ def test_text_unknown_format_is_nan():
 
 
 def test_textjoin_propagates_errors_and_flattens_ranges():
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN
-
     assert calc.textjoin(",", True, ["a", "#VALUE!", "b"]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "#VALUE!"]) == "#VALUE!"
     assert calc.textjoin(",", True, ["a", "#DIV/0!", "b"]) == "#DIV/0!"

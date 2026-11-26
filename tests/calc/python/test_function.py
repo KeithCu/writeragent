@@ -82,13 +82,8 @@ def _image_egress_env(monkeypatch: pytest.MonkeyPatch) -> None:
         def write(self, _data):
             return None
 
-    class _UnoModule:
-        @staticmethod
-        def systemPathToFileUrl(path: str) -> str:
-            return f"file://{path}"
-
     monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
-    monkeypatch.setitem(sys.modules, "uno", _UnoModule())
+    monkeypatch.setattr("uno.systemPathToFileUrl", lambda path: f"file://{path}")
     awt_mod = SimpleNamespace(
         Size=lambda w, h: SimpleNamespace(Width=w, Height=h),
         Point=lambda x, y: SimpleNamespace(X=x, Y=y),

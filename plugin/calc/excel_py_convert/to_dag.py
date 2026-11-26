@@ -133,7 +133,8 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
 
 def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
     """Extract HeaderMode from call keywords or return an error issue if invalid."""
-    # Only a constant headers=True/False is accepted. A non-constant headers (headers=flag, headers=1) or any other keyword is fatal: the rewrite would drop it from the call.
+    # Only a constant headers=True/False is accepted. A non-constant headers (headers=flag,
+    # headers=1) or any other keyword is fatal: the rewrite would drop it from the call.
     header_mode: HeaderMode = "omit"
     for kw in node.keywords:
         if kw.arg is None:

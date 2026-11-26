@@ -43,6 +43,11 @@ from plugin.scripting.venv.calc_functions_util import (
     round_half_up,
     serial_to_date,
     wildcard_fullmatch,
+    clean_paired_arrays,
+    coupon_schedule,
+    is_calc_error,
+    multi_criteria_mask,
+    number_text,
 )
 
 
@@ -311,8 +316,6 @@ def test_match_criteria_wildcards_and_case():
 
 
 def test_is_calc_error_helper():
-    from plugin.scripting.venv.calc_functions_util import is_calc_error
-
     assert is_calc_error(float("nan")) is True
     assert is_calc_error(np.nan) is True
     assert is_calc_error("#VALUE!") is True
@@ -345,8 +348,6 @@ def test_is_calc_error_helper():
     ],
 )
 def test_number_text_calc_general(val, expected):
-    from plugin.scripting.venv.calc_functions_util import number_text
-
     assert number_text(val) == expected
 
 
@@ -389,8 +390,6 @@ def test_calc_sort_key():
 
 
 def test_clean_paired_arrays():
-    from plugin.scripting.venv.calc_functions_util import clean_paired_arrays
-
     # Clean paired extraction
     res = clean_paired_arrays([1, 2, np.nan, 4], [10, 20, 30, 40])
     assert res is not None
@@ -455,8 +454,6 @@ def test_eval_d_criteria():
 
 
 def test_multi_criteria_mask():
-    from plugin.scripting.venv.calc_functions_util import multi_criteria_mask
-
     # Matching lengths
     pairs = [([1, 2, 3], ">1"), (["a", "b", "c"], "<>a")]
     mask = multi_criteria_mask(pairs)
@@ -478,8 +475,6 @@ def test_multi_criteria_mask():
 
 
 def test_coupon_schedule_calendar_stepping():
-    from plugin.scripting.venv.calc_functions_util import coupon_schedule
-
     # 2020-01-01 to 2020-06-01, freq=2, basis=0 (30/360)
     p_ser, c_ser, days_in_per, k, a_days, dsc_days = coupon_schedule(43831, 43983, 2, 0)
     assert p_ser == 43800.0  # 2019-12-01
@@ -762,4 +757,3 @@ def test_criterion_error_whole_number_and_py_str():
     assert py_str(None) == ""
     assert py_str(CalcRange([[None]])) == ""
     assert py_str(CalcRange([[7]])) == "7"
-

@@ -209,7 +209,8 @@ def extract_library_source(code: str) -> str:
     dropped: list[int] = []
     omitted: list[int] = []
 
-    # Filtering matches LocalPythonExecutor import-time rules: name-only unpacks, no decorators/async at module scope, and load-time calls flagged in defaults and annotations.
+    # Filtering matches LocalPythonExecutor import-time rules: name-only unpacks, no
+    # decorators/async at module scope, and load-time calls flagged in defaults and annotations.
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             call_lines = _class_import_time_call_lines(node)
