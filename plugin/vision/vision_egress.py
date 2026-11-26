@@ -15,7 +15,7 @@ from plugin.framework import doc_type
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import enum_has_more, execute_dispatch
-from plugin.writer import html_import
+import plugin.writer.html_import as html_import
 from plugin.vision.vision_common import HELPER_NAMES, resolve_delete_image_after_insert, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
