@@ -250,15 +250,31 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
 
 def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """One recorded edit survives save and reload; Reject All then gives what it gives without the edit."""
+    from collections import Counter
+
+    from plugin.writer import review_authors
+
+    def _redline_counts(doc: Any) -> Counter[tuple[str, str, str]]:
+        return Counter(
+            (r["type"], r["RedlineAuthor"], r["RedlineComment"])
+            for r in list_redlines(doc)
+        )
+
     with _opened(ctx, path) as doc:
         reject_all_changes(doc, ctx)
         rejected = _body_text(doc)
     saved = path.with_name("saved" + path.suffix)
     with _opened(ctx, path) as doc:
-        before = len(list_redlines(doc))
+        before = _redline_counts(doc)
         doc.setPropertyValue("RecordChanges", True)
-        _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.new)
-        assert len(list_redlines(doc)) > before
+        res = _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.new)
+        assert res.get("pending_review") is True, res
+        after = _redline_counts(doc)
+        assert not (before - after), f"pre-existing redlines lost: {before - after}"
+        added = after - before
+        assert added, "expected new redline(s)"
+        expected_author = review_authors.office_author(ctx)
+        assert all(author == expected_author for (_t, author, _c) in added), added
         edited = _counts(ctx, doc)
         doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
         reject_all_changes(doc, ctx)
@@ -306,6 +322,38 @@ def test_corpus_sections_uno(ctx):
 @native_test(timeout=180)
 def test_corpus_redlined_odf_uno(ctx):
     _check(ctx, REDLINED_ODF)
+
+
+@native_test(timeout=180)
+def test_corpus_contract_record_mode_authors_uno(ctx):
+    from collections import Counter
+
+    from plugin.framework.config import get_config, save
+    from plugin.writer import review_authors
+
+    def _type_author_counts(doc: Any) -> Counter[tuple[str, str]]:
+        return Counter((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc))
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "record"})
+    try:
+        with _corpus_file(CONTRACT) as path, _opened(ctx, path) as doc:
+            before = _type_author_counts(doc)
+            doc.setPropertyValue("RecordChanges", True)
+            res = _ok(ctx, doc, "apply_content", target="search", old_content=CONTRACT.old, content=CONTRACT.new)
+            assert res.get("review_mode") == "record", res
+            after = _type_author_counts(doc)
+            assert not (before - after), f"pre-existing redlines lost: {before - after}"
+            added = after - before
+            assert added, "expected new redline(s)"
+            for rtype, author in added:
+                if rtype == "Insert":
+                    assert author == review_authors.INSERT_AUTHOR, added
+                elif rtype == "Delete":
+                    assert author in {review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR}, added
+    finally:
+        save({flag: prev})
 
 
 @native_test(timeout=60)

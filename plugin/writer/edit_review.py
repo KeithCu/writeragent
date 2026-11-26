@@ -166,13 +166,22 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
 
 
 def flag_tracked(result: dict[str, Any]) -> None:
-    """Report that Writer recorded this mutation as a tracked change the user has not reviewed yet.
+    """Report, in place, that Writer recorded this successful mutation as a tracked change the user has not reviewed.
 
-    Callers decide from what was recorded (the insert primitive's return value, a verified
-    redline), never from the review mode, which can change between the edit and the result.
+    Callers decide from what was recorded (the insert primitive's return value, a verified redline,
+    or EditReviewSession.left_tracked_changes), never from the review mode. Call once per result.
+    In Record/Wait the result also carries review_mode and the do-not-resolve note; the mode is read
+    here on every result because the user can switch it mid-session, and in Off the note is left out.
     """
     result["tracked"] = True
     result["pending_review"] = True
+    mode = get_agent_edit_review_mode()
+    if mode != "off":
+        result["review_mode"] = mode
+        result["message"] = (result.get("message") or "") + (
+            " Applied as a tracked change pending the user's review — do not accept or reject it"
+            " yourself, and you will not be notified whether it is later accepted or rejected."
+        )
 
 
 def flag_untracked(result: dict[str, Any], doc: Any, message: str, *, replaced_pending: bool = False) -> None:
@@ -203,26 +212,6 @@ def flag_untracked_delete(result: dict[str, Any], doc: Any, what: str) -> None:
         )
         % what,
     )
-
-
-def annotate_review_status(result: dict[str, Any]) -> dict[str, Any]:
-    """*result* with ``pending_review`` and, in Record/Wait, the mode and the do-not-resolve note.
-
-    Call only for a successful edit that left a tracked change and did not block for review.
-    Repeated on every result because the prompt guidance is static while the user can switch modes
-    mid-session; ``pending_review`` is set before checking the mode because the mode may already be
-    off by the time the result is annotated.
-    """
-    result = dict(result)
-    result["pending_review"] = True
-    mode = get_agent_edit_review_mode()
-    if mode != "off":
-        result["review_mode"] = mode
-        result["message"] = (result.get("message") or "") + (
-            " Applied as a tracked change pending the user's review — do not accept or reject it"
-            " yourself, and you will not be notified whether it is later accepted or rejected."
-        )
-    return result
 
 
 def edit_review_wait_seconds() -> int:
@@ -526,6 +515,10 @@ class EditReviewSession:
         its own accept/reject outcome. Returns ``apply_fn``'s return value.
         """
         if not self._active:
+            # The user's own Track Changes recording still makes redlines; note them so
+            # left_tracked_changes can report the edit whatever the review mode.
+            if self._first_snapshot is None and is_recording_changes(self.doc):
+                self._first_snapshot = self._redline_idents()
             return apply_fn()
 
         group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
@@ -665,14 +658,12 @@ class EditReviewSession:
         return result
 
     def left_tracked_changes(self) -> bool:
-        """Return True when this session left a tracked change in the document.
+        """Return True when this session's edits left a new redline in any mode.
 
-        A registered change counts. So does an untagged redline the edits produced,
-        such as a Delete stacked on another author's pending insertion (which
-        ``new_redlines_since`` leaves untagged) or a change whose tagging failed.
-        An edit that changed nothing leaves no new redline key. Text that LibreOffice merges
-        into an earlier pending agent insertion also leaves no new key, and the call that
-        made that insertion already reported it. Main thread only.
+        Covers Record/Wait (registered changes, untagged stacked deletes, or tagging
+        failures) as well as Off when the user has Track Changes recording on. Returns
+        False when the document was not recording at the first mutation, when nothing
+        changed, or when text merged into an already-pending insertion. Main thread only.
         """
         if self.changes:
             return True

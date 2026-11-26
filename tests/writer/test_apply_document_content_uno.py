@@ -2419,3 +2419,58 @@ def test_full_document_protected_section_advice_works_uno(ctx):
         res_full = tool.execute(tctx, target="full_document", content="<p>Replaced</p>")
         assert res_full.get("status") == "ok", res_full
         assert _visible_paras(doc) == ["Replaced"], _visible_paras(doc)
+
+
+@native_test
+def test_user_recording_with_review_off_reports_tracked_uno(ctx):
+    from collections import Counter
+
+    from plugin.framework.config import get_config, save
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer import review_authors
+    from tests.writer.doc_builders import list_redlines, reject_all_changes
+
+    def _type_author_counts(doc):
+        return Counter((r["type"], r["RedlineAuthor"]) for r in list_redlines(doc))
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "off"})
+    try:
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+            _reset_three_paras(doc)
+            doc.setPropertyValue("RecordChanges", True)
+            try:
+                tctx = native_writer_tool_context(doc, ctx)
+                tool = ApplyDocumentContent()
+                expected_author = review_authors.office_author(ctx)
+
+                before = _type_author_counts(doc)
+                res = tool.execute(tctx, target="search", old_content="Alpha one.", content="Alpha updated.")
+                assert res.get("status") == "ok", res
+                assert res.get("tracked") is True, res
+                assert res.get("pending_review") is True, res
+                assert "review_mode" not in res, res
+
+                after = _type_author_counts(doc)
+                assert after - before == Counter({("Insert", expected_author): 1, ("Delete", expected_author): 1}), (
+                    after - before
+                )
+
+                # Writing back the same text leaves no new redline and no pending_review.
+                before_noop = after
+                res_noop = tool.execute(tctx, target="search", old_content="Outro paragraph.", content="Outro paragraph.")
+                assert res_noop.get("status") == "ok", res_noop
+                assert "pending_review" not in res_noop, res_noop
+                assert _type_author_counts(doc) == before_noop
+
+                reject_all_changes(doc, ctx)
+                assert _visible_paras(doc) == [
+                    "Intro paragraph here.",
+                    "Alpha one. Beta two.",
+                    "Outro paragraph.",
+                ], _visible_paras(doc)
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+    finally:
+        save({flag: prev})
