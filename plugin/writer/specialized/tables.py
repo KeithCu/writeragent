@@ -21,6 +21,7 @@ from plugin.doc.text_helpers import (
     TrackedDeletions,
     get_string_without_tracked_deletions,
     iter_elements,
+    normalize_linebreaks,
 )
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
@@ -1147,12 +1148,6 @@ class TableSetCell(ToolWriterTableBase):
                     _unknown_cell_message(cell_raw, name, names)
                 )
             cell = table.getCellByName(cell_name)
-            protected = _protected_with_hosts(ctx.doc, table, [cell_name], _nesting_for(ctx.doc, table, name))
-            if protected:
-                return self._tool_error(
-                    _protected_refusal("change", "cell %s of table '%s'" % (cell_name, name), protected),
-                    code="CELLS_PROTECTED",
-                )
             nested = cell_hosted_table_names(cell)
             deletions = TrackedDeletions(ctx.doc)
             new = str(text)
@@ -1165,9 +1160,19 @@ class TableSetCell(ToolWriterTableBase):
             }
             if nested:
                 result["nested_tables"] = nested
-            if result["old_text"] == new:
+            if result["old_text"] == normalize_linebreaks(new):
                 return result
+            protected = _protected_with_hosts(ctx.doc, table, [cell_name], _nesting_for(ctx.doc, table, name))
+            if protected:
+                return self._tool_error(
+                    _protected_refusal("change", "cell %s of table '%s'" % (cell_name, name), protected),
+                    code="CELLS_PROTECTED",
+                )
             uno_ctx = resolve_uno_context(ctx)
+            # Decide from Writer's recording state at write time, not from the review mode or
+            # left_tracked_changes() (False when the user records with review Off): the review
+            # session has already turned recording on in Record/Wait, and a user who records
+            # has it on already.
             recorded = False
 
             def _apply() -> None:
@@ -1175,8 +1180,6 @@ class TableSetCell(ToolWriterTableBase):
                 if nested:
                     # setString on a host cell wipes nested TextTables. Rewrite host paragraphs instead.
                     set_host_paragraphs(cell, new)
-                    # The review session has already turned recording on in Record/Wait, and a user
-                    # who records has it on already.
                     recorded = is_recording_changes(ctx.doc)
                     return
                 span = cell.createTextCursor()
@@ -1196,6 +1199,8 @@ class TableSetCell(ToolWriterTableBase):
                     cell.setString(new)
                     recorded = is_recording_changes(ctx.doc)
                 else:
+                    # One atomic op authored once, as index_refresh_toc_entry does: a cell replace
+                    # is a single small edit, and the atomic path cannot leave a half-applied delete.
                     wrote = replace_preserving_format(
                         ctx.doc, span, new, uno_ctx, in_undo_context=True, split_author=False
                     )

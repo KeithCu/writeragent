@@ -1582,7 +1582,9 @@ def test_table_set_cell_keeps_run_formatting_one_undo_step_uno(ctx, doc):
     assert "pending_review" not in res
 
     runs = _cell_portions(cell)
+    assert any(text == "Fee: " and weight == 100.0 for text, weight, _url in runs), runs
     assert any(text == "200" and weight == 150.0 for text, weight, _url in runs), runs
+    assert any(text == " see " and weight == 100.0 for text, weight, _url in runs), runs
     assert any(text == "terms" and url == "https://example.com" for text, _w, url in runs), runs
 
     titles_after = list(undo_mgr.getAllUndoActionTitles())
@@ -1684,6 +1686,10 @@ def test_table_set_cell_refuses_protected_cell_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res_a1 = TableSetCell().execute_safe(tool_ctx, name="ProtSetOuter", cell="A1", text="changed")
     assert res_a1["status"] == "error" and res_a1["code"] == "CELLS_PROTECTED", res_a1
+    assert outer.getCellByName("A1").getString() == "locked"
+
+    res_a1_noop = TableSetCell().execute_safe(tool_ctx, name="ProtSetOuter", cell="A1", text="locked")
+    assert res_a1_noop["status"] == "ok" and res_a1_noop["old_text"] == "locked", res_a1_noop
     assert outer.getCellByName("A1").getString() == "locked"
 
     res_in = TableSetCell().execute_safe(tool_ctx, name="ProtSetInner", cell="A1", text="changed")
