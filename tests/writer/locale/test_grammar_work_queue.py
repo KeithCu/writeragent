@@ -74,7 +74,6 @@ def test_grammar_inflight_key_incomplete_stable() -> None:
 
 def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
     """Drain loop collapses items with the same key to the highest enqueue_seq (seqs 1, 3, 2 -> 3)."""
-    import threading
 
     q = GrammarWorkQueue()
     key = "doc1|en-US|k1"
@@ -108,7 +107,6 @@ def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
 
 def test_drain_loop_distinct_keys_both_dispatch() -> None:
     """Distinct inflight keys both survive drain accumulation without cross-key prefix dropping."""
-    import threading
 
     q = GrammarWorkQueue()
     items = [
@@ -178,7 +176,6 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
     Completes coalesce for GRAMMAR_COMPLETE_COALESCE_S, while partials
     debounce for GRAMMAR_WORKER_PAUSE_TIMEOUT_S. Same-key collapse still holds.
     """
-    import threading
 
     q = GrammarWorkQueue()
     incomplete_key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
@@ -228,7 +225,6 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
 
 def test_drain_loop_complete_latency_under_one_second() -> None:
     """One complete item is handed to the batch runner well under a second (does not wait for 1.0s pause)."""
-    import threading
 
     q = GrammarWorkQueue()
     drained: list[list[GrammarWorkItem]] = []
@@ -253,7 +249,6 @@ def test_drain_loop_complete_latency_under_one_second() -> None:
 
 def test_drain_loop_partial_debounces_until_quiet_period() -> None:
     """Partial enqueues every 50ms for less than the pause produce no call; after quiet period, one call with newest seq."""
-    import threading
     import time
 
     q = GrammarWorkQueue()
@@ -283,7 +278,6 @@ def test_drain_loop_partial_debounces_until_quiet_period() -> None:
 
 def test_drain_loop_complete_dispatched_while_partial_pending() -> None:
     """A complete item is dispatched while partial enqueues are still resetting the partial deadline."""
-    import threading
     import time
 
     q = GrammarWorkQueue()
@@ -320,7 +314,6 @@ def test_drain_loop_complete_dispatched_while_partial_pending() -> None:
 
 def test_drain_loop_exception_resilience() -> None:
     """A raising batch runner does not prevent a later item on that same worker from running."""
-    import threading
 
     q = GrammarWorkQueue()
     calls: list[int] = []

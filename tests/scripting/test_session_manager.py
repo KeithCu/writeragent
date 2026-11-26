@@ -33,7 +33,6 @@ def test_session_manager_module_avoids_document_helpers_and_dialogs() -> None:
 
 def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
     """When getCurrentComponent() is None (e.g. headless), fallback to getComponents enumeration."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     mock_desktop = MagicMock()
@@ -60,7 +59,6 @@ def test_focused_calc_document_enumerates_when_nothing_focused() -> None:
 
 def test_workbook_session_id_with_explicit_doc() -> None:
     """Explicit doc argument avoids desktop lookups and works regardless of thread affinity."""
-    from unittest.mock import MagicMock, patch
 
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///custom_sheet.ods"
@@ -76,7 +74,6 @@ def test_workbook_session_id_with_explicit_doc() -> None:
 
 def test_workbook_session_id_without_doc_is_none() -> None:
     """No caller document means no shared session; the front window is not consulted."""
-    from unittest.mock import patch
 
     with (
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
@@ -88,7 +85,6 @@ def test_workbook_session_id_without_doc_is_none() -> None:
 
 def test_reset_workbook_python_session_prefers_calc() -> None:
     """With no focused window, reset still prefers an open Calc workbook."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     mock_calc = MagicMock()
@@ -160,7 +156,6 @@ def test_reset_headless_refuses_several_documents(
 
 def test_reset_workbook_python_session_uses_focused_writer() -> None:
     """Menubar reset follows the focused window instead of a background Calc workbook."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     writer = MagicMock()
@@ -182,8 +177,6 @@ def test_reset_workbook_python_session_uses_focused_writer() -> None:
 
 
 def test_document_for_script_session_matches_ppt_master_url() -> None:
-    from unittest.mock import MagicMock, patch
-
     focused = MagicMock()
     focused.getURL.return_value = "file:///focused.odp"
     deck = MagicMock()
@@ -211,8 +204,6 @@ def test_document_for_script_session_matches_ppt_master_url() -> None:
 
 
 def test_document_for_script_session_returns_pinned_doc_not_desktop() -> None:
-    from unittest.mock import MagicMock, patch
-
     deck = MagicMock(name="deck")
     token = session_manager.pin_script_document(deck)
     assert token is not None and token.startswith("doc:")
@@ -231,8 +222,6 @@ def test_document_for_script_session_returns_pinned_doc_not_desktop() -> None:
 
 
 def test_document_for_script_session_matches_url_not_focused() -> None:
-    from unittest.mock import MagicMock, patch
-
     focused = MagicMock()
     focused.getURL.return_value = "file:///focused.ods"
     other = MagicMock()
@@ -250,8 +239,6 @@ def test_document_for_script_session_matches_url_not_focused() -> None:
 
 
 def test_document_for_script_session_wraps_model() -> None:
-    from unittest.mock import MagicMock, patch
-
     deck = MagicMock()
     deck.getURL.return_value = "file:///deck.odp"
     enum = MagicMock()
@@ -343,8 +330,6 @@ def test_workbook_session_id_guarded_failure_does_not_retry() -> None:
 
 
 def test_workbook_session_id_non_calc_does_not_record() -> None:
-    from unittest.mock import MagicMock, patch
-
     writer = MagicMock()
     with (
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
@@ -358,7 +343,6 @@ def test_workbook_session_id_non_calc_does_not_record() -> None:
 @pytest.mark.parametrize("setter_mode", ["silent", "raises"])
 def test_workbook_session_key_unsaved_when_property_does_not_stick(setter_mode: str) -> None:
     """A no-op or raising property write must fall back to distinct unsaved UUID keys."""
-    from unittest.mock import MagicMock, patch
     import uuid as uuid_mod
 
     mock_doc = MagicMock()
@@ -391,7 +375,6 @@ def test_workbook_session_key_unsaved_when_property_does_not_stick(setter_mode: 
 
 
 def test_workbook_session_key_returns_id_when_property_sticks() -> None:
-    from unittest.mock import MagicMock, patch
     import uuid as uuid_mod
 
     mock_doc = MagicMock()
@@ -415,7 +398,6 @@ def test_workbook_session_key_returns_id_when_property_sticks() -> None:
 
 def test_find_document_headless_controller_none_still_matches() -> None:
     """Headless getCurrentController() is None; that must not hide the model."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -433,8 +415,6 @@ def test_find_document_headless_controller_none_still_matches() -> None:
 
 
 def test_find_document_skips_controller_without_frame() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     doc = MagicMock()
     ctrl = MagicMock()
@@ -451,8 +431,6 @@ def test_find_document_skips_controller_without_frame() -> None:
 
 
 def test_find_document_enumeration_accepts_headless_controller_none() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
@@ -474,8 +452,6 @@ def test_find_document_enumeration_accepts_headless_controller_none() -> None:
 
 
 def test_find_document_enumeration_returns_none_when_several_match() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     calc1 = MagicMock()
     calc2 = MagicMock()
@@ -496,7 +472,6 @@ def test_find_document_enumeration_returns_none_when_several_match() -> None:
 
 
 def test_find_document_current_component_wins_over_other_calcs() -> None:
-    from unittest.mock import MagicMock, patch
     from plugin.framework.thread_guard import unwrap_uno
 
     ctx = MagicMock()
@@ -523,8 +498,6 @@ def test_find_document_current_component_wins_over_other_calcs() -> None:
 
 
 def test_document_for_script_session_stops_on_magicmock_enum() -> None:
-    from unittest.mock import MagicMock, patch
-
     enum = MagicMock()
     comps = MagicMock()
     comps.createEnumeration.return_value = enum
@@ -537,8 +510,6 @@ def test_document_for_script_session_stops_on_magicmock_enum() -> None:
 
 
 def test_document_for_script_session_walks_bool_has_more() -> None:
-    from unittest.mock import MagicMock, patch
-
     first = MagicMock()
     first.getURL.return_value = "file:///first.ods"
     second = MagicMock()
@@ -559,7 +530,6 @@ def test_document_for_script_session_walks_bool_has_more() -> None:
 
 
 def test_document_for_script_session_finds_document_past_32() -> None:
-    from unittest.mock import MagicMock, patch
     from plugin.framework.thread_guard import unwrap_uno
 
     others = [MagicMock(name=f"other_{i}") for i in range(39)]
@@ -587,7 +557,6 @@ def test_document_for_script_session_finds_document_past_32() -> None:
 
 
 def test_ppt_master_unsaved_decks_unique_session_id() -> None:
-    from unittest.mock import MagicMock
     from plugin.scripting.session_manager import ppt_master_session_id
 
     deck1 = MagicMock()
@@ -613,7 +582,6 @@ def test_ppt_master_unsaved_decks_unique_session_id() -> None:
 
 def test_reset_workbook_python_session_returns_early_without_existing_key():
     """Bug 3: Reset on a doc that never ran Python returns early without dirtying/creating session key."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -640,7 +608,6 @@ def test_reset_workbook_python_session_returns_early_without_existing_key():
 
 def test_reset_workbook_python_session_rejects_non_writer_calc_draw():
     """Bug 3: If current component is not Writer/Draw/Calc, show message to user and return."""
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -692,8 +659,6 @@ def test_save_as_url_resets_orphaned_unsaved_session():
 
 
 def test_save_as_skips_orphan_reset_when_property_remains() -> None:
-    from unittest.mock import MagicMock, patch
-
     doc = MagicMock()
     doc.getURL.return_value = "file:///saved_doc.ods"
 
@@ -714,8 +679,6 @@ def test_save_as_skips_orphan_reset_when_property_remains() -> None:
 
 
 def test_reset_off_main_marshals_body_once() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False) as mock_main,
@@ -728,8 +691,6 @@ def test_reset_off_main_marshals_body_once() -> None:
 
 
 def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     non_target_doc = MagicMock()
     desktop = MagicMock()
@@ -751,8 +712,6 @@ def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
 
 
 def test_existing_workbook_session_key_does_not_retire_orphan() -> None:
-    from unittest.mock import MagicMock, patch
-
     doc = MagicMock()
     doc.getURL.return_value = "file:///saved.ods"
     with (
@@ -847,8 +806,6 @@ def test_reset_calc_unsaved_doc_does_not_quadruple_reset() -> None:
 
 
 def test_reset_calc_no_key_shows_dialog() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = ""
@@ -867,8 +824,6 @@ def test_reset_calc_no_key_shows_dialog() -> None:
 
 
 def test_reset_rps_no_key_shows_dialog_only_when_notify() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     doc = MagicMock()
     doc.getURL.return_value = ""
@@ -891,8 +846,6 @@ def test_reset_rps_no_key_shows_dialog_only_when_notify() -> None:
 
 
 def test_reset_headless_one_draw_resets_rps() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     draw_doc = MagicMock()
 
@@ -923,8 +876,6 @@ def test_reset_headless_one_draw_resets_rps() -> None:
 
 
 def test_reset_headless_no_document_is_generic() -> None:
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
@@ -942,8 +893,6 @@ def test_reset_headless_no_document_is_generic() -> None:
 
 
 def test_find_document_reraises_disposed_focused() -> None:
-    import pytest
-    from unittest.mock import MagicMock, patch
     from plugin.framework.errors import DocumentDisposedError
 
     ctx = MagicMock()
@@ -960,8 +909,6 @@ def test_find_document_reraises_disposed_focused() -> None:
 
 
 def test_rps_session_id_calc_uses_calc_namespace() -> None:
-    from unittest.mock import MagicMock, patch
-
     doc = MagicMock()
     doc.getURL.return_value = "file:///wb.ods"
     with (

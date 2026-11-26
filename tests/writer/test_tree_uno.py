@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -60,8 +61,6 @@ def _heading_texts(tree):
 
 
 def _tree_svc_on_bus():
-    from types import SimpleNamespace
-
     from plugin.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import get_event_bus
     from plugin.writer.specialized.bookmarks import BookmarkService
@@ -409,7 +408,6 @@ def test_chapter_number_cache_refreshes_on_numbering_toggle_uno(ctx, doc):
 def test_tree_hides_multi_para_deletion_in_headings_and_body_uno(ctx, doc):
     from plugin.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import EventBus
-    from plugin.framework.uno_context import enum_has_more
     from plugin.tests.testing_utils import strike_across_paragraphs
     from plugin.writer.specialized.bookmarks import BookmarkService
     from plugin.writer.tree import TreeService
@@ -473,7 +471,7 @@ def test_struck_heading_dropped_and_para_index_preserved_uno(ctx, doc):
 
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
     del_cur = text.createTextCursorByRange(paras[1].getStart())
     del_cur.gotoRange(paras[1].getEnd(), True)
@@ -507,7 +505,7 @@ def test_build_heading_tree_keeps_content_control_heading_and_drops_struck_uno(c
 
     enum = text.createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         paras.append(enum.nextElement())
 
     ctl_cur = text.createTextCursorByRange(paras[0].getStart())

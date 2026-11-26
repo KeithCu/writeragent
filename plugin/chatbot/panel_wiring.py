@@ -7,7 +7,13 @@ from typing import Any
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
-from plugin.framework.doc_type import is_calc
+from plugin.framework.doc_type import (
+    is_calc,
+    doc_type_label_for_enum,
+    doc_type_title_for_label,
+    get_document_type,
+    get_document_uno_services,
+)
 from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.event_bus import get_event_bus
@@ -237,20 +243,13 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
                 current = get_control_text(controls["response"]) or ""
                 set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
 
-    from plugin.chatbot.panel_factory import _initialize_extension_paths
+    from plugin.chatbot.panel_factory import initialize_extension_paths
 
-    _initialize_extension_paths(self.ctx)
+    initialize_extension_paths(self.ctx)
 
     extra_instructions = ""
     model = self._get_document_model()
     try:
-        from plugin.framework.doc_type import (
-            doc_type_label_for_enum,
-            doc_type_title_for_label,
-            get_document_type,
-            get_document_uno_services,
-        )
-
         doc_type = get_document_type(model)
         self._doc_type_label = doc_type_label_for_enum(doc_type)
         self._doc_type_title = doc_type_title_for_label(self._doc_type_label)

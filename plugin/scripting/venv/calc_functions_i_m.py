@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
-Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Spreadsheet import translates sheet functions to these helpers; where Calc and Excel differ they follow Calc (see calc_functions_util).
 """
 
 from __future__ import annotations
@@ -447,7 +447,8 @@ def irr(values: Any, guess: Any = 0.1) -> float:
 
 
 def isblank(val: Any) -> bool:
-    # ScIsEmpty (interpr1.cxx:2007) is true only for CELLTYPE_NONE, not =""; keep scalar "" for legacy callers.
+    # ScIsEmpty (interpr1.cxx) is true only for CELLTYPE_NONE, not ="", so a one-cell range holding ""
+    # is not blank. A bare scalar goes through is_blank_value, which also counts "" as blank.
     if isinstance(val, CalcRange):
         return val.shape == (1, 1) and val.values[0][0] is None
     return is_blank_value(val)

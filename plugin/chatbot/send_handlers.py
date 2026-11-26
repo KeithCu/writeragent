@@ -32,11 +32,11 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import is_cancelled
+from plugin.framework.send_cancellation import is_cancelled, wait_for_approval
 from plugin.chatbot.send_state import spawn_scope
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.tool_loop import _PanelDescriptor
+from plugin.chatbot.tool_loop import PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
     turn_session_or_stop,
@@ -46,6 +46,8 @@ from plugin.chatbot.tool_loop_actions import (
     assign_send_outcome,
     send_outcome_is_error,
     send_outcome_is_stopped,
+    begin_send_turn,
+    finalize_sidebar_assistant_response,
 )
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_WEB_RESEARCH,
@@ -65,8 +67,8 @@ def _direct_image_source_arg(model: Any) -> str | None:
 
     Sidebar Image mode calls ``image_generate`` with no LLM. The tool only
     runs img2img and replaces in place when ``source_image='selection'``.
-    The old worker always omitted that arg, so an edit prompt with a
-    selected image still text-to-image inserted a new graphic.
+    Without that arg, an edit prompt with a selected image would run
+    text-to-image and insert a new graphic.
     """
     return "selection" if selected_graphic_object(model) is not None else None
 
@@ -112,8 +114,6 @@ def dispatch_sidebar_send(
 
 
 def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
-
     # ``_do_send`` starts the turn. A direct handler call with no turn yet
     # starts one before the worker. An aborted turn is not replaced.
     if current_turn(host) is None:
@@ -143,7 +143,7 @@ def _fail_handler(panel: Any, handler_type: str, exc: Exception) -> str:
 
 
 class SendHandlersMixin:
-    _panel: Any = _PanelDescriptor()
+    _panel: Any = PanelDescriptor()
 
     def __init__(self, panel: Any = None) -> None:
         if panel is not None:
@@ -377,8 +377,6 @@ class SendHandlersMixin:
             # do the same or Image-mode Stop shows no '[Stopped by user]'
             # until a later repaint.
             if self._panel.stop_requested:
-                from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
-
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
             self._finalize_terminal_ready()
 
@@ -598,8 +596,6 @@ class SendHandlersMixin:
                     turn.put((StreamQueueKind.CHUNK, text))
 
                 def approval_cb(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                    from plugin.framework.send_cancellation import wait_for_approval
-
                     event = threading.Event()
                     # Use setattr/getattr to avoid static attribute errors on Event
                     setattr(event, "approved", False)
@@ -687,8 +683,6 @@ class SendHandlersMixin:
             log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         def _finalize_research() -> None:
-            from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
-
             finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 
         self._run_unified_worker_drain_loop(drain_q, run_search, "web", show_thinking=show_thinking, on_approval_callback=on_approval_required, on_finished=_finalize_research)

@@ -279,7 +279,9 @@ def load_cython_accelerator() -> None:
     if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_INACTIVE_REASON:
         return
 
-    # Lazy (host/bundle boundary): native_binaries is host-only and not in the compute bundle (scripts/build_compute_bundle.py), while the venv child and compute workers import this module.
+    # Lazy (host/bundle boundary): native_binaries is host-only and not in the compute bundle
+    # (scripts/build_compute_bundle.py), while the venv child and compute workers import this
+    # module.
     from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
     ensure_native_binaries_on_path()

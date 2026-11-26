@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
-Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
+Spreadsheet import translates sheet functions to these helpers; where Calc and Excel differ they follow Calc (see calc_functions_util).
 """
 
 from __future__ import annotations
@@ -179,8 +179,8 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
 def nominal(effect_rate: Any, npery: Any) -> float:
     er = float(effect_rate)
     # int(float(+inf)) and float() of an oversized period count raise
-    # OverflowError. The old except missed it, so NOMINAL crashed. Excel
-    # is #NUM!, returned here as NaN.
+    # OverflowError; without it in the except, NOMINAL would raise instead of
+    # returning #NUM! (NaN here), which is what Excel gives.
     np_y = int(float(npery))
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
@@ -296,7 +296,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
         if dec in grp:
             return float("nan")
         # Group marks are removed from the integer part only. Stripping
-        # them from the fraction turned "1.2,3" into 1.23.
+        # them from the fraction would turn "1.2,3" into 1.23.
         split_at = s.find(dec)
         head, tail = (s, "") if split_at < 0 else (s[:split_at], s[split_at:])
         for ch in grp:
@@ -437,9 +437,9 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
         return float("nan")
     s, m, b, extra = parsed[0], parsed[1], parsed[3], parsed[4]
     li, r, y, red = extra
-    # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
-    # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
-    # A negative base raised to that fraction was a Python complex.
+    # GetOddlprice (analysishelper.cxx). The power of (1 + y/f) uses the basis's
+    # own year length; 365.25 or 360 for every other basis would make basis 3
+    # Actual/360. A negative base raised to that fraction would be a Python complex.
     span_last_mat = yearfrac(li, m, b)
     span_set_mat = yearfrac(s, m, b)
     span_last_set = yearfrac(li, s, b)
@@ -964,8 +964,8 @@ def stdevpa(*args: Any) -> float:
 @propagate_errors
 def steyx(data_y: Any, data_x: Any) -> float:
     # ScSTEYX is CalculatePearsonCovar. sqrt((Syy - Sxy^2/Sxx) / (n-2))
-    # is that residual. The old path imported intercept, which imports slope
-    # from this module, and walked the pairs three times.
+    # is that residual. It is computed here directly: going through intercept
+    # would import slope from this module and walk the pairs three times.
     cleaned = clean_paired_arrays(data_y, data_x)
     if cleaned is None:
         return float("nan")
@@ -1125,5 +1125,3 @@ def sumsq(*args: Any) -> float | str:
             total += num * num
     # TreatDoubleError: overflow produces NaN.
     return finite_or_nan(float(total))
-
-

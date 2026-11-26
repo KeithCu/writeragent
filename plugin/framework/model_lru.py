@@ -19,7 +19,7 @@ _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
 )
 
 
-def _is_model_combobox_placeholder(val: str) -> bool:
+def is_model_combobox_placeholder(val: str) -> bool:
     text = str(val or "").strip()
     for msgid in _MODEL_COMBO_PLACEHOLDER_MSGIDS:
         if text == msgid or text == _(msgid):
@@ -30,7 +30,7 @@ def _is_model_combobox_placeholder(val: str) -> bool:
 def sanitize_model_combobox_value(val: str) -> str:
     """Drop Settings combobox placeholder strings; they are not real model ids."""
     cleaned = str(val or "").strip()
-    return "" if _is_model_combobox_placeholder(cleaned) else cleaned
+    return "" if is_model_combobox_placeholder(cleaned) else cleaned
 
 
 def lru_config_key(lru_key: str, endpoint: str) -> str:

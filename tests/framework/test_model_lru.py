@@ -4,7 +4,7 @@ import pytest
 
 from plugin.framework.config import LRU_MAX_ITEMS
 from plugin.framework.model_lru import (
-    _is_model_combobox_placeholder,
+    is_model_combobox_placeholder,
     drop_typed_partials,
     sanitize_model_combobox_value,
     lru_config_key,
@@ -17,12 +17,12 @@ from plugin.framework.model_lru import (
 class TestModelLru:
 
     def test_is_model_combobox_placeholder(self):
-        assert not _is_model_combobox_placeholder("")
-        assert not _is_model_combobox_placeholder(None)
-        assert not _is_model_combobox_placeholder("gpt-4o")
-        assert _is_model_combobox_placeholder("(Enter API Key to load models)")
-        assert _is_model_combobox_placeholder("(Connection failed)")
-        assert _is_model_combobox_placeholder("  (Default for current endpoint)  ")
+        assert not is_model_combobox_placeholder("")
+        assert not is_model_combobox_placeholder(None)
+        assert not is_model_combobox_placeholder("gpt-4o")
+        assert is_model_combobox_placeholder("(Enter API Key to load models)")
+        assert is_model_combobox_placeholder("(Connection failed)")
+        assert is_model_combobox_placeholder("  (Default for current endpoint)  ")
 
     def test_sanitize_model_combobox_value(self):
         assert sanitize_model_combobox_value("gpt-4o") == "gpt-4o"

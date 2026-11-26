@@ -318,7 +318,7 @@ def contains_html_tag(text: str) -> bool:
     return text_has_real_html_tag(text or "")
 
 
-def _role_prefix(role: str) -> str:
+def role_prefix(role: str) -> str:
     if role == "user":
         return "You: "
     return _("Assistant:") + " "
@@ -406,10 +406,10 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
             text_obj.insertString(cursor, "\n\n", False)
 
         # Bold colored role prefix.
-        # _role_prefix goes through _(). A bare "Assistant:" literal is
+        # role_prefix goes through _(). A bare "Assistant:" literal is
         # skipped by xgettext, so JA/ES catalogs cannot translate it.
         start_pos = cursor.getStart()
-        prefix = _role_prefix(role)
+        prefix = role_prefix(role)
         text_obj.insertString(cursor, prefix, False)
 
         prefix_range = text_obj.createTextCursorByRange(start_pos)

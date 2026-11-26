@@ -8,9 +8,9 @@ from __future__ import annotations
 import getpass
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, ToolExecutionError, format_error_payload
 from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
-from plugin.chatbot.memory import format_upsert_memory_chat_line
+from plugin.chatbot.memory import format_upsert_memory_chat_line, format_user_memory_prompt_block, MemoryTool
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -88,9 +88,7 @@ def _run_librarian_agent(
     """Run one turn of the Librarian onboarding smol sub-agent."""
     try:
         from plugin.chatbot.smol_agent import run_smol_side_turn
-        from plugin.chatbot.memory import MemoryTool
     except (ImportError, ValueError, TypeError) as e:
-        from plugin.framework.errors import ToolExecutionError, format_error_payload
         return format_error_payload(ToolExecutionError(f"Failed to load dependencies: {e}"))
 
     status_callback = ctx.status_callback
@@ -159,7 +157,6 @@ TOOLS FOR COMPLETION:
 
 """
 
-    from plugin.chatbot.memory import format_user_memory_prompt_block
     from plugin.framework.prompts import get_chat_response_format_instructions
 
     instructions += (

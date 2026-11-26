@@ -12,19 +12,27 @@ from plugin.chatbot.record_gesture import (
     exit_sticky,
     gesture_hold_elapsed,
     hands_free_silence_text,
+    hands_free_status_text,
 )
-from plugin.chatbot.send_state import SendEvent, SendEventKind
+from plugin.chatbot.send_state import SendEvent, SendEventKind, StartSendEffect
 from plugin.framework.blocking_wait import run_blocking_in_thread
-from plugin.framework.config import fill_api_key, get_api_config
+from plugin.framework.config import fill_api_key, get_api_config, get_current_endpoint, get_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import is_cancelled
 from plugin.chatbot.send_state import spawn_scope
-from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
+from plugin.chatbot.tool_loop_actions import (
+    assign_send_outcome,
+    send_outcome_is_stopped,
+    send_outcome_terminal_display,
+    session_for_turn,
+    current_turn,
+    STOP_LINE,
+)
 
 log = logging.getLogger(__name__)
 
 
-def _stop_tts() -> None:
+def stop_tts() -> None:
     """Stop active speech synthesis, logging errors at debug level."""
     try:
         from plugin.audio.tts_service import stop_speech
@@ -39,7 +47,7 @@ def stop_playback_if_speaking(host: Any) -> bool:
     from plugin.audio.tts_service import is_speaking
 
     if is_speaking():
-        _stop_tts()
+        stop_tts()
         if not getattr(host, "_send_busy", False):
             # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
             # hands-free, or the TTS poll would arm the mic again.
@@ -199,7 +207,7 @@ class PanelVoiceController:
                 "record-hold",
             )
         if step.dispatch_record:
-            _stop_tts()
+            stop_tts()
             self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
     def _panel_gone(self) -> bool:
@@ -312,8 +320,6 @@ class PanelVoiceController:
                 clear_pending_audio_wav(self._panel)
                 self._panel._close_turn_ui(speak=False)
             return
-
-        from plugin.chatbot.send_state import StartSendEffect
 
         self._panel._interpret_effect(StartSendEffect())
 
@@ -540,7 +546,6 @@ class PanelVoiceController:
 
         from plugin.audio.stt_service import uses_local_stt
         from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, has_native_audio
-        from plugin.framework.config import get_current_endpoint
 
         local_stt = uses_local_stt()
         if not (local_stt or has_native_audio(get_text_model(), get_current_endpoint()) is False):
@@ -580,7 +585,6 @@ class PanelVoiceController:
                 on_resolved(new_query)
             except BaseException as exc:
                 exit_err = exc
-                from plugin.chatbot.tool_loop_actions import current_turn
 
                 turn = current_turn(self._panel)
                 if turn is None or not turn.stored_user_row():
@@ -658,7 +662,6 @@ class PanelVoiceController:
             get_text_model,
             has_native_audio,
         )
-        from plugin.framework.config import get_current_endpoint
         from plugin.framework.i18n import _
 
         current_model = get_text_model()
@@ -714,9 +717,6 @@ class PanelVoiceController:
         if terminal:
             self._panel._set_status(_(terminal))
         try:
-            from plugin.framework.config import get_config
-            from plugin.chatbot.tool_loop_actions import current_turn, session_for_turn
-
             # Speak from session_for_turn(self) (valid until drop_turn) when TTS is enabled and
             # terminal status is not Stopped. An alive-turn check fails here: the tool-loop finally
             # already ran abort_turn(self).
@@ -740,11 +740,9 @@ class PanelVoiceController:
                         and len(spoken.messages) > start_count
                     )
                     if has_new_assistant_msg:
-                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
                         from plugin.chatbot.panel import _set_control_enabled
-                        from plugin.chatbot.record_gesture import hands_free_status_text
 
-                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
+                        content_to_speak = last_msg["content"].replace(STOP_LINE, "")
                         if content_to_speak.strip():
                             from plugin.audio.tts_service import speak_text_async, is_speaking
 
@@ -788,7 +786,6 @@ def strip_audio_from_last_user_message(host: Any, *, speak: bool) -> None:
     if not speak:
         return
     from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER
-    from plugin.chatbot.tool_loop_actions import session_for_turn
 
     sess = session_for_turn(host) or host.session
     if sess and getattr(sess, "messages", None):

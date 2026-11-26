@@ -1371,8 +1371,6 @@ def test_commit_toc_mutation_success():
 
 
 def test_single_toc_position_single_toc_returns_index():
-    from plugin.writer.specialized.indexes import IndexesListTocEntries
-
     tool = IndexesListTocEntries()
     ctx = MagicMock()
     doc = ctx.doc

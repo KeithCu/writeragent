@@ -107,7 +107,8 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
             # 101st PY cell: the returned list of 100 is incomplete.
             truncated = True
             break
-        # qualify_a1 quotes the sheet prefix when the name needs it (Data.2024, names with spaces) so downstream address parsing and navigation read the right sheet.
+        # qualify_a1 quotes the sheet prefix when the name needs it (Data.2024, names with spaces)
+        # so downstream address parsing and navigation read the right sheet.
         found.append(PythonCellInfo(sheet=name, row=row, column=col, address=qualify_a1(name, format_address(col, row)), code=parsed.code, formula=formula))
 
     found.sort(key=lambda c: (c.row, c.column))

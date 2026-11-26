@@ -972,7 +972,6 @@ def test_anchor_miss_different_text(monkeypatch):
 
 
 def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
-    from unittest.mock import MagicMock
     import plugin.writer.apply_document_content as apply_mod
 
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start", search_mod.MatchMode(True, False)))

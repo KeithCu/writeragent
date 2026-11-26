@@ -237,8 +237,6 @@ def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch, un
 
 
 def test_cell_snapshot_formula_text_and_error(uno_calc_stubs):
-    from plugin.calc.formula_dep_chain import _cell_snapshot
-
     class _FormulaCell:
         def __init__(self, val: float, text: str, err: int = 0) -> None:
             self._val = val

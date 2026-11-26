@@ -11,9 +11,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from plugin.framework.config import get_config
-from plugin.framework.client.model_fetcher import get_text_model
+from plugin.framework.client.model_fetcher import get_text_model, memo_text_models_or_fetch
 from plugin.framework.errors import best_effort, suppress_disposed
-from plugin.framework.uno_context import get_active_document
+from plugin.framework.uno_context import get_active_document, process_events_to_idle
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.dialogs import load_writeragent_dialog, set_control_text
@@ -81,8 +81,6 @@ class EvalDashboard:
         )
 
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
-        from plugin.framework.client.model_fetcher import memo_text_models_or_fetch
-
         cached = memo_text_models_or_fetch(
             endpoint,
             lambda ids: self._apply_model_list(endpoint, current_model, ids),
@@ -135,7 +133,6 @@ class EvalRunListener(BaseActionListener):
                 self.is_running = False
                 return
         from plugin.framework.queue_executor import main
-        from plugin.framework.uno_context import process_events_to_idle
         from plugin.framework.worker_pool import run_in_background
 
         try:
@@ -183,7 +180,6 @@ class EvalRunListener(BaseActionListener):
                 area = self.dialog.getControl("log_area")
                 current = area.getText() if hasattr(area, "getText") else ""
                 area.setText(current + f"[{result.get('status')}] {result.get('name')}\n")
-                from plugin.framework.uno_context import process_events_to_idle
 
                 process_events_to_idle(self.ctx)
 

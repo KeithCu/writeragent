@@ -38,7 +38,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.chatbot.web_research import _norm_research_query, _user_stopped_payload
+from plugin.chatbot.web_research import norm_research_query, _user_stopped_payload
 
 log = logging.getLogger(__name__)
 
@@ -681,7 +681,7 @@ def _run_adaptive_research_loop(
 
         serp_queries = []
         for sq in raw_queries:
-            q_norm = _norm_research_query(sq.get("query", ""))
+            q_norm = norm_research_query(sq.get("query", ""))
             if q_norm and q_norm not in seen:
                 seen.add(q_norm)
                 serp_queries.append(sq)

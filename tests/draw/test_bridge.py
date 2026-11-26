@@ -172,8 +172,6 @@ class _FakeDrawPages:
 
 
 def test_draw_bridge_uses_get_draw_pages_when_present():
-    from plugin.draw.bridge import DrawBridge
-
     page_coll = _FakeDrawPages(3)
 
     class Doc:
@@ -186,8 +184,6 @@ def test_draw_bridge_uses_get_draw_pages_when_present():
 
 
 def test_draw_bridge_writer_single_draw_page():
-    from plugin.draw.bridge import DrawBridge
-
     page = object()
 
     class WriterDoc:
@@ -201,8 +197,6 @@ def test_draw_bridge_writer_single_draw_page():
 
 
 def test_draw_bridge_rejects_document_without_draw_page():
-    from plugin.draw.bridge import DrawBridge
-
     class Empty:
         pass
 
@@ -211,8 +205,6 @@ def test_draw_bridge_rejects_document_without_draw_page():
 
 
 def test_resolve_page_explicit_zero_beats_active():
-    from plugin.draw.bridge import DrawBridge
-
     page0 = object()
     pages = MagicMock()
     pages.getCount.return_value = 3
@@ -230,8 +222,6 @@ def test_resolve_page_explicit_zero_beats_active():
 
 
 def test_resolve_page_omitted_uses_active_then_controller():
-    from plugin.draw.bridge import DrawBridge
-
     page1 = object()
     pages = MagicMock()
     pages.getCount.return_value = 3
@@ -256,7 +246,6 @@ def test_resolve_page_omitted_uses_active_then_controller():
 
 
 def test_resolve_page_out_of_range():
-    from plugin.draw.bridge import DrawBridge
     from plugin.framework.errors import ToolExecutionError
 
     pages = MagicMock()
@@ -281,7 +270,6 @@ def test_resolve_page_out_of_range():
 
 
 def test_resolve_page_bool_and_float_are_out_of_range():
-    from plugin.draw.bridge import DrawBridge
     from plugin.framework.errors import ToolExecutionError
 
     pages = MagicMock()
@@ -299,8 +287,6 @@ def test_resolve_page_bool_and_float_are_out_of_range():
 
 
 def test_resolve_page_disposed_getByIndex_propagates():
-    from plugin.draw.bridge import DrawBridge
-
     class DisposedException(Exception):
         pass
 
@@ -318,8 +304,6 @@ def test_resolve_page_disposed_getByIndex_propagates():
 
 
 def test_resolve_page_in_range_runtime_error_propagates():
-    from plugin.draw.bridge import DrawBridge
-
     pages = MagicMock()
     pages.getCount.return_value = 1
     pages.getByIndex.side_effect = RuntimeError("broken page")
@@ -334,7 +318,6 @@ def test_resolve_page_in_range_runtime_error_propagates():
 
 
 def test_resolve_page_none_page():
-    from plugin.draw.bridge import DrawBridge
     from plugin.framework.errors import ToolExecutionError
 
     pages = MagicMock()
@@ -369,8 +352,6 @@ def test_page_size():
 
 
 def test_get_active_page_index_matches_via_uno_same():
-    from plugin.draw.bridge import DrawBridge
-
     pages = MagicMock()
     pages.getCount.return_value = 2
     first, second = object(), object()
@@ -566,8 +547,6 @@ class _SdNamingPages(_MovePages):
 
 
 def test_move_slide_keeps_unnamed_slides_unnamed():
-    from plugin.draw.bridge import DrawBridge
-
     deck: list[_MovePage] = []
     for real_name in ("", "Named", "", ""):
         deck.append(_SdNamingPage(deck, real_name, [_MoveShape(real_name or "u")]))
@@ -581,8 +560,6 @@ def test_move_slide_keeps_unnamed_slides_unnamed():
 
 
 def test_create_slide_front_keeps_unnamed_slides_unnamed():
-    from plugin.draw.bridge import DrawBridge
-
     deck: list[_MovePage] = []
     for real_name in ("", "B"):
         deck.append(_SdNamingPage(deck, real_name, [_MoveShape(real_name or "u")]))
@@ -594,8 +571,6 @@ def test_create_slide_front_keeps_unnamed_slides_unnamed():
 
 
 def test_move_slide_copies_then_removes_source():
-    from plugin.draw.bridge import DrawBridge
-
     rich = _MoveShape("c")
     rich.payload = ("group", 2)
     pages = _MovePages(
@@ -623,8 +598,6 @@ def test_move_slide_copies_then_removes_source():
 
 
 def test_move_slide_keeps_source_when_copy_fails():
-    from plugin.draw.bridge import DrawBridge
-
     original = _MoveShape("a")
     pages = _MovePages(
         [
@@ -646,7 +619,6 @@ def test_move_slide_keeps_source_when_copy_fails():
 
 def test_move_slide_to_front_restores_order_when_reorder_fails():
     """A failed bubble must not leave the clone parked between other slides."""
-    from plugin.draw.bridge import DrawBridge
 
     rich = _MoveShape("c")
     rich.payload = ("group", 2)
@@ -713,8 +685,6 @@ def test_move_slide_raises_when_bubble_undo_fails():
 
 
 def test_move_slide_restores_shapes_when_exchange_fails_midway():
-    from plugin.draw.bridge import DrawBridge
-
     pages = _MovePages(
         [
             _MovePage("A", [_MoveShape("a")]),
@@ -765,7 +735,6 @@ def _named_deck(*names: str) -> _MovePages:
 
 def test_create_slide_places_requested_index_including_zero():
     """insertNewByIndex(n) lands at min(count-1, n)+1. create_slide must not."""
-    from plugin.draw.bridge import DrawBridge
 
     pages = _named_deck("A", "B")
     bridge = DrawBridge(_ViewDoc(pages, None))
@@ -804,8 +773,6 @@ def test_create_slide_places_requested_index_including_zero():
 
 
 def test_create_slide_front_insert_keeps_previous_view_when_not_activated():
-    from plugin.draw.bridge import DrawBridge
-
     pages = _named_deck("A", "B")
     controller = _ViewController(pages.pages[0])
     bridge = DrawBridge(_ViewDoc(pages, controller))
@@ -826,8 +793,6 @@ def test_create_slide_front_insert_keeps_previous_view_when_not_activated():
 
 
 def test_create_slide_removes_new_page_when_front_exchange_fails():
-    from plugin.draw.bridge import DrawBridge
-
     pages = _named_deck("A", "B")
     bridge = DrawBridge(_ViewDoc(pages, None))
 
@@ -859,8 +824,6 @@ def test_create_slide_keeps_pages_when_exchange_rollback_fails():
 
 
 def test_insert_slide_from_master_bad_after_index_raises():
-    from plugin.draw.bridge import DrawBridge
-
     pages = _named_deck("A", "B")
     bridge = DrawBridge(_ViewDoc(pages, None))
     with pytest.raises(ValueError):
@@ -869,8 +832,7 @@ def test_insert_slide_from_master_bad_after_index_raises():
 
 
 def test_insert_slide_from_master_lands_after_requested_slide():
-    """Middle inserts used to land one past the reported index."""
-    from plugin.draw.bridge import DrawBridge
+    """A middle insert lands at the reported index, not one past it."""
 
     pages = _named_deck("A", "B", "C")
     bridge = DrawBridge(_ViewDoc(pages, None))
@@ -973,8 +935,6 @@ def test_move_slide_reraises_dispose_when_rollback_raises():
 
 
 def test_move_slide_reraises_dispose_from_the_exchange_itself():
-    from plugin.draw.bridge import DrawBridge
-
     class DisposedException(Exception):
         pass
 
@@ -990,8 +950,6 @@ def test_move_slide_reraises_dispose_from_the_exchange_itself():
 
 
 def test_move_slide_rolls_back_when_neighbor_has_no_notes_shape():
-    from plugin.draw.bridge import DrawBridge
-
     page_a = _MovePage("A", [_MoveShape("a")], notes_text="hello")
     page_b = _MovePage("B", [_MoveShape("b")], notes_text=None)
     pages = _MovePages([page_a, page_b])
@@ -1005,8 +963,6 @@ def test_move_slide_rolls_back_when_neighbor_has_no_notes_shape():
 
 
 def test_move_slide_swaps_notes_when_both_pages_have_a_notes_shape():
-    from plugin.draw.bridge import DrawBridge
-
     page_a = _MovePage("A", [_MoveShape("a")], notes_text="hello")
     page_b = _MovePage("B", [_MoveShape("b")], notes_text="there")
     pages = _MovePages([page_a, page_b])
@@ -1019,8 +975,6 @@ def test_move_slide_swaps_notes_when_both_pages_have_a_notes_shape():
 
 
 def test_move_slide_allows_empty_notes_against_a_missing_notes_shape():
-    from plugin.draw.bridge import DrawBridge
-
     page_a = _MovePage("A", [_MoveShape("a")], notes_text="")
     page_b = _MovePage("B", [_MoveShape("b")], notes_text=None)
     pages = _MovePages([page_a, page_b])
@@ -1032,8 +986,6 @@ def test_move_slide_allows_empty_notes_against_a_missing_notes_shape():
 
 
 def test_set_current_page_index_reraises_dispose():
-    from plugin.draw.bridge import DrawBridge
-
     class DisposedException(Exception):
         pass
 
@@ -1074,8 +1026,6 @@ class _MasterList:
 
 
 def test_insert_slide_from_master_removes_page_when_master_assignment_fails():
-    from plugin.draw.bridge import DrawBridge
-
     pages = _named_deck("A", "B")
 
     def _insert_rejecting(index: int) -> _RejectMasterPage:
@@ -1096,8 +1046,6 @@ def test_insert_slide_from_master_removes_page_when_master_assignment_fails():
 
 
 def test_insert_slide_from_master_reraises_dispose_without_removing():
-    from plugin.draw.bridge import DrawBridge
-
     class DisposedException(Exception):
         pass
 
@@ -1136,8 +1084,6 @@ def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
     doc = MagicMock(spec=["getDrawPage"])
     doc.getDrawPage.side_effect = DisposedException("closed")
 
-    from plugin.draw.bridge import DrawBridge
-
     with pytest.raises(DocumentDisposedError) as info:
         DrawBridge(doc)
     assert isinstance(info.value.__cause__, DisposedException)
@@ -1150,8 +1096,6 @@ def test_draw_bridge_disposed_get_draw_pages_is_document_disposed():
     doc = MagicMock(spec=["getDrawPages"])
     doc.getDrawPages.side_effect = DisposedException("closed")
 
-    from plugin.draw.bridge import DrawBridge
-
     with pytest.raises(DocumentDisposedError) as info:
         DrawBridge(doc)
     assert isinstance(info.value.__cause__, DisposedException)
@@ -1163,8 +1107,6 @@ def test_draw_bridge_get_draw_page_runtime_exception_is_still_no_page():
 
     doc = MagicMock(spec=["getDrawPage"])
     doc.getDrawPage.side_effect = RuntimeException("uno")
-
-    from plugin.draw.bridge import DrawBridge
 
     with pytest.raises(RuntimeError, match="has no draw page"):
         DrawBridge(doc)
@@ -1184,8 +1126,6 @@ def test_get_active_page_calc_branch_reraises_disposed():
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
     doc.getCurrentController.side_effect = DisposedException("closed")
 
-    from plugin.draw.bridge import DrawBridge
-
     bridge = DrawBridge(doc)
     with pytest.raises(DisposedException):
         bridge.get_active_page()
@@ -1204,15 +1144,11 @@ def test_get_active_page_calc_branch_other_errors_still_fall_through():
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
     doc.getCurrentController.side_effect = [RuntimeError("no controller"), None]
 
-    from plugin.draw.bridge import DrawBridge
-
     bridge = DrawBridge(doc)
     assert bridge.get_active_page() is page
 
 
 def test_move_slide_swaps_master_when_getPropertyValue_rejects_it():
-    from plugin.draw.bridge import DrawBridge
-
     class _RejectingMasterPage(_MovePage):
         def __init__(
             self,

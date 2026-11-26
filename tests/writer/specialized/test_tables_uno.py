@@ -5,6 +5,7 @@
 """Native UNO coverage for nested Writer text-table relationships."""
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.tables import (
@@ -439,7 +440,7 @@ def test_manage_table_structure_delete_tracked_variants_uno(ctx, doc):
     a1_cell.insertString(a1_cur, "second para", False)
     para_count = 0
     para_enum = a1_cell.createEnumeration()
-    while para_enum.hasMoreElements():
+    while enum_has_more(para_enum):
         para_enum.nextElement()
         para_count += 1
     assert para_count == 2
@@ -727,7 +728,6 @@ def test_column_delete_refuses_wider_cell_and_split_recovers_uno(ctx, doc):
     # 3. Split A1:B1 -> 2 columns, then delete col 0 keeps b and c
     t3 = TableInsert().execute(tool_ctx, rows=2, columns=3, data=[["a", "b", "c"], ["a2", "b2", "c2"]])["table_name"]
     TableMergeCells().execute_safe(tool_ctx, name=t3, cell_range="A1:B1")
-    from plugin.writer.specialized.tables import TableSplitCell
     split_res = TableSplitCell().execute_safe(tool_ctx, name=t3, cell="A1", direction="columns", parts=2)
     assert split_res["status"] == "ok", split_res
     del_res = ManageTableStructure().execute_safe(tool_ctx, action="delete", axis="column", name=t3, index=0)
@@ -861,10 +861,10 @@ def test_table_cell_reads_hide_multi_para_tracked_deletion_uno(ctx, doc):
     assert doc.getRedlines().getCount() == 2  # 1 in A1 + 1 in B1
     b_enum = cell_b1.createEnumeration()
     b_paras = []
-    while b_enum.hasMoreElements():
+    while enum_has_more(b_enum):
         b_paras.append(b_enum.nextElement())
     mid_enum = b_paras[1].createEnumeration()
-    while mid_enum.hasMoreElements():
+    while enum_has_more(mid_enum):
         assert mid_enum.nextElement().getPropertyValue("TextPortionType") != "Redline"
     assert visible_range_text(doc, cell_b1).strip("\n") == ""
 
@@ -1068,7 +1068,6 @@ def test_empty_tall_cell_row_delete_tracked_inner_allowed_edge_refused_uno(ctx, 
 def test_table_insert_uses_pinned_caret_uno(ctx, doc):
     from plugin.doc.text_helpers import selection_cursor_snapshot
     from plugin.framework.tool import SelectionPin
-    from plugin.framework.uno_context import enum_has_more
     from plugin.tests.testing_utils import native_writer_tool_context
 
     text = doc.getText()

@@ -6,14 +6,11 @@
 
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from tests.writer.doc_builders import reject_all_changes
-
-
-def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(doc, ctx)
 
 
 @native_test
@@ -42,7 +39,7 @@ def test_apply_document_content_anchor_range_replace_uno(ctx, doc):
     text.insertString(cursor, "KEEP-AFTER", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Heading One",
         end_anchor="Heading Two",
         content=["<h2>New heading</h2>", "<p>New body</p>"],
@@ -82,7 +79,7 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
     text.insertString(cursor, "Keep text after", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Start Landmark",
         end_anchor="End Landmark",
         content="New paragraph one\n\nNew paragraph two",
@@ -103,7 +100,7 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
 
     enum = doc.getText().createEnumeration()
     paras_before_keeper = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         if not para.supportsService("com.sun.star.text.Paragraph"):
             continue
@@ -119,7 +116,7 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
     for p in non_empty_before_keeper:
         assert p.getPropertyValue("ParaStyleName") == "Text body"
         portion_enum = p.createEnumeration()
-        while portion_enum.hasMoreElements():
+        while enum_has_more(portion_enum):
             portion = portion_enum.nextElement()
             assert portion.getPropertyValue("CharWeight") < 150.0
 
@@ -136,7 +133,7 @@ def test_apply_document_content_anchor_range_mid_paragraph_plain_text_uno(ctx, d
     text.insertString(cursor, "The quick brown fox jumps over the lazy dog", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="quick",
         end_anchor="fox",
         content="slow cat",
@@ -149,7 +146,7 @@ def test_apply_document_content_anchor_range_mid_paragraph_plain_text_uno(ctx, d
 
     enum = doc.getText().createEnumeration()
     paras = []
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         if para.supportsService("com.sun.star.text.Paragraph") and para.getString().strip():
             paras.append(para)
@@ -174,7 +171,7 @@ def test_apply_document_content_anchor_range_identical_strings_uno(ctx, doc):
     text.insertString(cursor, "third occurrence: Note", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Note",
         end_anchor="Note",
         content=["<p>Single consolidated note</p>"],
@@ -211,7 +208,7 @@ def test_apply_document_content_anchor_range_contains_table_refused_uno(ctx, doc
     text.insertString(cursor, "Table Section End", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Table Section Start",
         end_anchor="Table Section End",
         content="New replacement text",
@@ -240,7 +237,7 @@ def test_apply_document_content_anchor_range_missing_end_uno(ctx, doc):
     text.insertString(cursor, "KEEP-AFTER", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Heading One",
         end_anchor="No Such Heading",
         content="GONE",
@@ -279,7 +276,7 @@ def test_apply_document_content_anchor_range_skips_frame_end_and_finds_body_end_
     text.insertString(cursor, "Keep Trailing Text", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Frame Section Start",
         end_anchor="Target End Landmark",
         content="Consolidated Section",
@@ -316,7 +313,7 @@ def test_apply_document_content_anchor_range_different_text_refused_uno(ctx, doc
     text.insertString(cursor, "Body Trailing Text", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Body Start Landmark",
         end_anchor="Only End Anchor In Cell",
         content="New Text",
@@ -350,7 +347,7 @@ def test_apply_document_content_anchor_range_occurrence_uno(ctx, doc):
     text.insertString(cursor, "Section End", False)
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="Section Start",
         end_anchor="Section End",
         occurrence=1,
@@ -380,7 +377,7 @@ def test_apply_document_content_anchor_range_case_sensitive_uno(ctx, doc):
     text.insertString(cursor, "lowercase landmark end", False)
 
     res_strict = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="LOWERCASE LANDMARK START",
         end_anchor="lowercase landmark end",
         case_sensitive=True,
@@ -390,7 +387,7 @@ def test_apply_document_content_anchor_range_case_sensitive_uno(ctx, doc):
     assert "start_anchor not found" in res_strict.get("message", "")
 
     res_loose = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        native_writer_tool_context(doc, ctx),
         start_anchor="LOWERCASE LANDMARK START",
         end_anchor="LOWERCASE LANDMARK END",
         case_sensitive=False,
@@ -424,7 +421,7 @@ def test_apply_document_content_anchor_range_review_record_uno(ctx, doc):
     save({flag: "record"})
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             start_anchor="Review Start Landmark",
             end_anchor="Review End Landmark",
             content="Replacement Under Review",

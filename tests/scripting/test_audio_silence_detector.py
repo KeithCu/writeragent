@@ -59,7 +59,7 @@ def test_pcm_energy_longer_than_argv_uses_every_sample():
 
 
 def test_pcm_energy_uses_full_pcm_not_truncated():
-    """A later loud sample must count; CrossHair used to slice to 8 bytes."""
+    """A later loud sample must count, so energy reads the whole buffer, not the first 8 bytes."""
     pcm = _pcm_silence(8) + _pcm_tone(1, amplitude=32000)
     rms, peak = pcm_energy_int16(pcm)
     assert peak > 0.9
@@ -194,8 +194,6 @@ def test_resolve_silence_stop_ms_default_when_unset():
 
 
 def test_audio_record_main_uses_silence_stop_ms_only(tmp_path):
-    from unittest.mock import patch
-
     from plugin.scripting.venv.audio_record_main import main
 
     def fake_record(_output, _stop_event, *, on_stream_started=None, silence_config=None, on_ipc_emit=None):
@@ -222,9 +220,6 @@ def test_audio_record_main_uses_silence_stop_ms_only(tmp_path):
 
 
 def test_audio_record_main_default_silence_matches_detector_default(tmp_path):
-    from unittest.mock import patch
-
-    from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS
     from plugin.scripting.venv.audio_record_main import main
 
     seen: dict = {}
@@ -253,7 +248,6 @@ def test_audio_record_main_default_silence_matches_detector_default(tmp_path):
 def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     import json
     from io import StringIO
-    from unittest.mock import MagicMock
 
     voice_file = str(tmp_path / "voice.wav")
     proc = MagicMock()

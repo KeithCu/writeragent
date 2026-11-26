@@ -24,6 +24,7 @@ suite deliberately keeps Chapter Numbering OFF (see
 from __future__ import annotations
 
 import uno
+from plugin.framework.uno_context import enum_has_more
 
 # com.sun.star.style.NumberingType
 NUMBERING_ARABIC = 4
@@ -124,7 +125,7 @@ def insert_chapter_heading_fixture(doc, rows=CHAPTER_HEADING_FIXTURE) -> None:
 def iter_heading_label_snaps(doc):
     """Yield dicts for non-empty paragraphs (text + outline/list label props)."""
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if not el.supportsService("com.sun.star.text.Paragraph"):

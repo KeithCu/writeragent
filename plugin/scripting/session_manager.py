@@ -86,7 +86,11 @@ def _doc_url(raw_doc: Any) -> str:
 
 
 def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "session_manager") -> list[Any]:
-    """Open models matching *predicate*. Registered scratch documents (hidden helpers and research copies) never match: the user did not open them, so they must not be reset or make the only open document ambiguous."""
+    """Open models matching *predicate*.
+
+    Registered scratch documents (hidden helpers and research copies) never match: the user did not
+    open them, so they must not be reset or make the only open document ambiguous.
+    """
     # get_desktop runs before iter_open_models' own guard; a desktop that is going
     # away (createInstanceWithContext raising) means no document matches.
     try:
@@ -111,7 +115,11 @@ def only_open_calc_document(ctx: Any) -> Any | None:
 
 
 def focused_calc_document(ctx: Any) -> Any | None:
-    """Focused Calc document, else the only open Calc document; None when none or several are open. The geometric-recalc Settings listener uses it to pick the workbook to reconcile when the flag turns on. =PY() never comes here: it gets its document from the add-in caller argument."""
+    """Focused Calc document, else the only open Calc document; None when none or several are open.
+
+    The geometric-recalc Settings listener uses it to pick the workbook to reconcile when the flag
+    turns on. =PY() never comes here: it gets its document from the add-in caller argument.
+    """
     # getCurrentComponent() is None headless or while focus is outside a document frame (e.g. the Settings dialog), so fall back to the only open Calc model.
     desktop = get_desktop(ctx)
     doc = desktop.getCurrentComponent() if desktop else None
@@ -169,7 +177,8 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
     try:
         # Remove the property so next Save As continues to follow URL
         remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        # If the session property is still present after a failed remove, skip worker reset until removal actually succeeds and avoid triple resets on every lookup.
+        # If the session property is still present after a failed remove, skip worker reset until
+        # removal actually succeeds and avoid triple resets on every lookup.
         still_present = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
     except Exception:
         log.debug("session_manager: removing session property failed", exc_info=True)

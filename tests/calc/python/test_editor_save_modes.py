@@ -702,7 +702,6 @@ def test_is_follow():
 def test_monaco_follow_on_save_updates_data_baseline():
     from unittest.mock import MagicMock, patch
     from plugin.calc.python.editor import _launch_editor_with_code
-    from plugin.calc.python.formula_edit import PyFormula
 
     doc = CalcDocStub()
     sheet = doc.getSheets().getByIndex(0)
@@ -741,7 +740,6 @@ def test_monaco_follow_on_save_updates_data_baseline():
 
 def test_parts_after_save_preserves_dollar_and_error_keeps_old():
     from plugin.calc.python.editor import parts_after_save
-    from plugin.calc.python.formula_edit import PyFormula
 
     parsed = PyFormula.parse("=PY($A$1; $C$1)")
     assert parsed is not None
@@ -756,7 +754,6 @@ def test_parts_after_save_preserves_dollar_and_error_keeps_old():
 def test_monaco_unchanged_dollar_data_does_not_rewrite_formula_and_error_keeps_baseline():
     from unittest.mock import MagicMock, patch
     from plugin.calc.python.editor import _launch_editor_with_code
-    from plugin.calc.python.formula_edit import PyFormula
 
     doc = CalcDocStub()
     sheet = doc.getSheets().getByIndex(0)

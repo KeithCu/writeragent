@@ -35,7 +35,7 @@ def _hit_snippet(text: str, *, max_chars: int = SNIPPET_MAX_CHARS) -> str:
     return cleaned[: max_chars - 1] + "…"
 
 
-def _public_hit_from_candidate(cand: dict[str, Any]) -> dict[str, Any]:
+def public_hit_from_candidate(cand: dict[str, Any]) -> dict[str, Any]:
     """Tool-facing hit: file router + snippet; no char offsets (ODF-local, not LO-native)."""
     snippet_raw = str(cand.get("snippet") or "")
     if cand.get("parent_expanded"):
@@ -180,12 +180,12 @@ def rerank(state: SearchState) -> dict[str, Any]:
 
     hits: list[dict[str, Any]] = []
     for cand in reranked[:k]:
-        hits.append(_public_hit_from_candidate(cand))
+        hits.append(public_hit_from_candidate(cand))
     if len(hits) < k and without:
         for cand in without:
             if len(hits) >= k:
                 break
-            hits.append(_public_hit_from_candidate(cand))
+            hits.append(public_hit_from_candidate(cand))
     return {"hits": hits}
 
 

@@ -9,8 +9,6 @@ import pytest
 
 
 def test_truncated_flag_on_get_document_content():
-    from unittest.mock import patch
-
     from plugin.writer import html_export
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -30,7 +28,6 @@ def test_truncated_flag_on_get_document_content():
 
 def test_get_document_content_surfaces_portion_walk_warning():
     """Range/selection paint that hits _COPY_PORTION_LIMIT must not look complete."""
-    from unittest.mock import patch
 
     from plugin.writer import html_export
     from plugin.writer.get_document_content import GetDocumentContent

@@ -818,7 +818,7 @@ Do not drop a shape proxy and immediately fetch the same shape again (for exampl
 
 ### Share Writer builders; prove a mock twin before deleting
 
-Writer UNO suites build bodies and tables and resolve redlines through `tests/writer/doc_builders.py`. Document lifecycle and tool contexts stay in `tests/testing_utils.py`.
+Writer UNO suites build bodies and tables, list paragraphs (`body_paragraphs`, `body_texts`, `body_shape`, which take any `XText`: body, header or cell) and resolve redlines (`accept_all_changes`, `reject_all_changes`, `list_redlines`) through `tests/writer/doc_builders.py`; do not add a local paragraph walker or `DispatchHelper` wrapper. Call `native_writer_tool_context` / `writer_services_tool_context` from `tests/testing_utils.py` directly for tool contexts. Document lifecycle stays in `tests/testing_utils.py`.
 A mock test may be deleted as a duplicate only when breaking the production line makes the UNO twin fail.
 
 ## Findings: Unspecified Application Error

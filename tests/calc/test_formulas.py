@@ -18,7 +18,7 @@ def _identity_formula_dialects(monkeypatch):
 
 
 def test_error_503_is_num_not_div_zero():
-    # 503 and 532 used to share a #DIV/0! string that always said code 532.
+    # 503 is #NUM!; it must not share 532's #DIV/0! message.
     message = formula_evaluation_error_message(503)
     assert message == "Formula evaluation error: #NUM! (Invalid numeric value, code 503)"
     assert "#DIV/0!" not in message
@@ -231,8 +231,8 @@ def test_evaluate_formula_defined_name_does_not_write_the_live_sheet():
 
 def test_evaluate_formula_nonzero_stays_a_float_when_result_kind_differs():
     # FormulaResult.VALUE is 0 on some LibreOffice builds and 1 on others.
-    # A hardcoded 1 used to send =2+3 through getString(), so the result was
-    # the text "5" and the UNO check against 5.0 failed.
+    # A hardcoded 1 would send =2+3 through getString(), so the result would be
+    # the text "5" and the UNO check against 5.0 would fail.
     doc = _EvalDoc()
     doc.temp_cell.kind = FORMULA
     doc.temp_cell.value = 5
@@ -342,8 +342,6 @@ def test_evaluate_formula_none_parameters():
 
 
 def test_evaluate_formula_set_formula_raising():
-    import pytest
-
     class DisposedException(Exception):
         pass
 
@@ -381,10 +379,8 @@ def test_evaluate_formula_flags_array_results():
 
 
 def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(monkeypatch):
-    # The old return inside finally turned a DisposedException from the
+    # A return inside finally would turn a DisposedException from the
     # evaluation into a "Failed to clean up" tool error.
-    import pytest
-
     DisposedException = type("DisposedException", (Exception,), {})
     doc = _EvalDoc(undo_possible=False, modified=False)
     doc.sheets.raise_on_remove = RuntimeError("Lock contention")
@@ -420,7 +416,6 @@ def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch)
 
 def test_evaluate_formula_empty_formula_and_calc_error_codes():
     from plugin.app import get_tools
-    from plugin.calc.formulas import formula_evaluation_error_message
 
     doc = _EvalDoc()
     tool = get_tools().get("evaluate_formula")

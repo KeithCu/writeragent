@@ -969,7 +969,7 @@ def test_change_bounds_fail_closed_on_unreadable_comment():
 
 def test_change_bounds_fail_closed_on_unreadable_target_bounds():
     # A TARGET mark whose Start can't be read -> we can't build the complete span -> fail closed
-    # (the old code skipped it and could return only the other half).
+    # rather than skip it and return only the other half.
     target = TOKEN_PREFIX + "s:1"
     model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
                                     FakeRedline(target, 15, 20, raise_on={"RedlineStart"})]))

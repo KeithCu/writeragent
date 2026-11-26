@@ -119,7 +119,6 @@ def test_comment_scan_tasks_with_prefixes():
 
 
 def test_add_comment_reply_requires_content():
-    import pytest
     from plugin.writer.specialized.comments import AddComment
 
     ctx = MagicMock()
@@ -679,8 +678,6 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
 
 
 def test_comment_list_isolates_bad_comment():
-    from plugin.writer.specialized.comments import CommentList
-
     field_good = MagicMock()
     field_good.supportsService.return_value = True
     field_good.getPropertyValue.side_effect = lambda p: {
@@ -714,8 +711,6 @@ def test_comment_list_isolates_bad_comment():
 
 
 def test_comment_list_propagates_real_disposal_from_item():
-    from plugin.writer.specialized.comments import CommentList
-
     field_bad = MagicMock()
     field_bad.supportsService.return_value = True
     field_bad.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
@@ -734,8 +729,6 @@ def test_comment_list_propagates_real_disposal_from_item():
 
 
 def test_comment_list_per_property_try_keeps_good_properties():
-    from plugin.writer.specialized.comments import CommentList
-
     field = MagicMock()
     field.supportsService.return_value = True
 
@@ -767,7 +760,6 @@ def test_comment_list_per_property_try_keeps_good_properties():
 
 def test_read_annotation_disposal_propagates():
     from plugin.writer.specialized.comments import _read_annotation
-    import pytest
 
     field = MagicMock()
     field.getPropertyValue.side_effect = DocumentDisposedError("doc closed")
@@ -905,8 +897,6 @@ def test_comment_resolve_locked_undo_manager():
 
 
 def test_comment_list_author_filter_skips_location_helper_on_mismatch():
-    from plugin.writer.specialized.comments import CommentList
-
     doc = MagicMock()
     field_match = MagicMock()
     field_match.supportsService.return_value = True
@@ -932,8 +922,6 @@ def test_comment_list_author_filter_skips_location_helper_on_mismatch():
 
 
 def test_comment_scan_tasks_reraises_disposal():
-    import pytest
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.specialized.comments import CommentScanTasks
 
     doc = MagicMock()
@@ -969,8 +957,6 @@ def test_comment_scan_tasks_reraises_disposal():
 
 
 def test_comment_list_without_annotations_skips_paragraph_scan():
-    from plugin.writer.specialized.comments import CommentList
-
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
@@ -1047,7 +1033,6 @@ def test_add_comment_reply_reads_assigned_name():
 
 def test_comment_list_paging_and_author_filter_order():
     from plugin.writer.specialized import comments as comments_mod
-    from plugin.writer.specialized.comments import CommentList
 
     fields = [
         _make_comment_field("n0", author="Bot"),
@@ -1133,7 +1118,6 @@ def test_comment_edit_locked_undo_manager():
 
 def test_comment_list_start_index_type_stops_at_validator():
     from plugin.framework.tool import prepare_tool_call
-    from plugin.writer.specialized.comments import CommentList
 
     ctx = MagicMock()
     ctx.doc_type = "writer"

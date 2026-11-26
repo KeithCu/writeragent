@@ -460,7 +460,6 @@ def test_run_inner_domain_tool_agent_finish_only_and_read_only_note(
     answer,
     expect_no_edit_note,
 ):
-    from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
 
     registry = ToolRegistry(services={})
     registry.register(tool_cls())

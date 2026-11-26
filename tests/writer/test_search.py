@@ -154,7 +154,6 @@ def test_find_all_ranges_caps_at_max_search_replacements():
 
 def test_not_found_hints_at_pending_tracked_deletions():
     """#43: visible text across a struck word is never found; say why instead of just 'shorter'."""
-    from plugin.writer.search import build_search_not_found_response
 
     doc = MagicMock()
     doc.getDrawPage.return_value = None
@@ -415,7 +414,6 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
 
 
 def test_find_text_ranges_filters_body_and_measures_via_visible_body():
-    from unittest.mock import patch
     from plugin.writer.search import find_text_ranges
 
     b_obj = MagicMock()
@@ -458,7 +456,6 @@ def test_find_text_ranges_filters_body_and_measures_via_visible_body():
 
 
 def test_find_text_ranges_none_offset_raises():
-    from unittest.mock import patch
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.search import find_text_ranges
 
@@ -610,8 +607,6 @@ def test_search_in_document_missing_pattern_returns_invalid_param():
 
 
 def test_build_search_not_found_response_codes():
-    from plugin.writer.search import build_search_not_found_response
-
     doc = MagicMock()
     doc.getDrawPage.return_value = None
 
@@ -655,7 +650,6 @@ def test_build_search_not_found_response_codes():
 
 
 def test_search_hit_cap_includes_shapes():
-    from unittest.mock import patch
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -693,7 +687,6 @@ def test_find_text_ranges_does_not_report_failure_as_no_hits():
 
 
 def test_return_offsets_does_not_report_failure_as_zero_hits():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -751,9 +744,9 @@ def test_find_first_range_chain_combine_failure_propagates():
         return cursor
 
     text.createTextCursorByRange.side_effect = _make
-    doc.findFirst.return_value = found
-    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
-         patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
+    # Only the chain's anchor search ("Hello") hits; the typed needle and its collapsed form do not.
+    doc.findFirst.side_effect = lambda sd: None if "World" in sd.SearchString else found
+    with patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         with pytest.raises(RuntimeError, match="combine failed"):
             find_first_range(doc, "Hello\nWorld")
 
@@ -767,7 +760,9 @@ def test_find_first_range_chain_cross_text_is_skipped():
     text = MagicMock()
     found.getText.return_value = text
     doc.findNext.return_value = None
-    doc.findFirst.side_effect = [found, None]
+    # The chain's anchor search ("Hello") hits once; the typed needle and its collapsed form never do.
+    anchor_hits = iter([found])
+    doc.findFirst.side_effect = lambda sd: None if "World" in sd.SearchString else next(anchor_hits, None)
     body = object()
     other = object()
     n = {"i": 0}
@@ -782,8 +777,7 @@ def test_find_first_range_chain_cross_text_is_skipped():
         return cursor
 
     text.createTextCursorByRange.side_effect = _make
-    with patch("plugin.writer.search._iter_lo_matches", return_value=iter(())), \
-         patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
+    with patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         assert find_first_range(doc, "Hello\nWorld") is None
     assert n["i"] == 4
 
@@ -835,7 +829,6 @@ def test_occurrence_range_or_error_payloads():
 
 
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import _prop, _safe_name, describe_match_location, enclosing_paragraph_text
 
     class DisposedException(Exception):
@@ -989,7 +982,6 @@ def test_parse_non_negative_int():
 
 
 def test_search_in_document_disposed_get_string_propagates():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import SearchInDocument
 
     doc = MagicMock()
@@ -1002,7 +994,6 @@ def test_search_in_document_disposed_get_string_propagates():
 
 
 def test_iter_floating_shape_texts_disposed_draw_page_propagates():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import iter_floating_shape_texts
 
     doc = MagicMock()
@@ -1012,7 +1003,6 @@ def test_iter_floating_shape_texts_disposed_draw_page_propagates():
 
 
 def test_comment_matches_disposed_enumeration_propagates():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import iter_comment_hits
 
     doc = MagicMock()
@@ -1022,7 +1012,6 @@ def test_comment_matches_disposed_enumeration_propagates():
 
 
 def test_header_footer_label_disposed_style_walk_propagates():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import _header_footer_label
 
     fake_text = MagicMock()
@@ -1107,7 +1096,6 @@ def test_search_in_document_counts_one_hit():
 
 
 def test_build_page_map_propagates_disposed_document():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.search import _build_page_map
 
     doc = MagicMock()
@@ -1219,7 +1207,6 @@ def test_pick_end_after_start_different_xtext_stops():
 
 
 def test_find_anchor_span_missing_start():
-    from unittest.mock import patch
     from plugin.writer.search import MatchMode, find_anchor_span
 
     doc = MagicMock()
@@ -1292,8 +1279,29 @@ def test_iter_literal_ranges_yields_candidate_matches():
     assert hits == [hit1]
 
 
+def _hit_for_search_string(search_string, typed, anchor, collapsed):
+    """Hit for one source of iter_literal_ranges on a ``Hello\\nWorld`` style needle.
+
+    The typed needle keeps its newline, the collapsed form turns spaces into a ``[...]+`` class,
+    and the chain searches its anchor paragraph alone.
+    """
+    if "\n" in search_string:
+        return typed
+    return collapsed if "]+" in search_string else anchor
+
+
+def _chain_anchor(result):
+    """Anchor hit whose text hands out *result* for every cursor, so the paragraph chain returns *result*.
+
+    Patch ``get_string_without_tracked_deletions`` with the paragraph texts the chain reads, and
+    ``uno_same``, because mock ranges are not UNO objects.
+    """
+    anchor = MagicMock()
+    anchor.getText.return_value.createTextCursorByRange.return_value = result
+    return anchor
+
+
 def test_iter_literal_ranges_all_candidates_yields_all():
-    from unittest.mock import patch
     from plugin.doc.text_helpers import TrackedDeletions
     from plugin.writer.search import MatchMode, iter_literal_ranges
 
@@ -1302,15 +1310,12 @@ def test_iter_literal_ranges_all_candidates_yields_all():
     frame_hit = MagicMock()
     body_hit = MagicMock()
     chain_hit = MagicMock()
+    anchor = _chain_anchor(chain_hit)
+    doc.findFirst.side_effect = lambda sd: _hit_for_search_string(sd.SearchString, frame_hit, anchor, body_hit)
+    doc.findNext.return_value = None
 
-    def fake_iter_lo(doc, candidate, mode, _deletions, after=None):
-        if "\n" in candidate:
-            yield frame_hit
-        else:
-            yield body_hit
-
-    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
-         patch("plugin.writer.search._iter_chain_matches", return_value=iter([chain_hit])):
+    with patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]), \
+         patch("plugin.writer.search.uno_same", return_value=True):
         mode = MatchMode(False, False)
         # 1. all_candidates=False: stops on the first source (yielding the frame hit)
         hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", mode, deletions, all_candidates=False))
@@ -1322,7 +1327,6 @@ def test_iter_literal_ranges_all_candidates_yields_all():
 
 
 def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
-    from unittest.mock import patch
     from plugin.writer.search import MatchMode, find_anchor_span
 
     doc = MagicMock()
@@ -1348,15 +1352,13 @@ def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
     created_cursor = MagicMock()
     body_text.createTextCursorByRange.return_value = created_cursor
 
-    def fake_iter_lo(doc, candidate, mode, _deletions, after=None):
-        if "\n" in candidate:
-            yield frame_hit
-        else:
-            yield body_hit
+    # End searches resume after the start match: the typed needle hits in a frame, the chain's
+    # anchor finds nothing, and the collapsed needle hits in the body.
+    doc.findNext.side_effect = lambda after, sd: (
+        _hit_for_search_string(sd.SearchString, frame_hit, None, body_hit) if after is start_boundary else None
+    )
 
-    with patch("plugin.writer.search.find_occurrence_range", return_value=(start_match, MatchMode(True, False))), \
-         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
-         patch("plugin.writer.search._iter_chain_matches", return_value=iter(())):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(start_match, MatchMode(True, False))):
         cursor, err, mode = find_anchor_span(doc, "start", "Hello\nWorld")
         assert err is None
         assert cursor is created_cursor
@@ -1831,8 +1833,6 @@ def test_closest_mismatch_lenient_quote_pair_returns_no_mismatch():
 
 
 def test_old_content_covers_most_proved_table():
-    from unittest.mock import patch
-
     doc = MagicMock()
     with patch("plugin.writer.search.get_document_length", return_value=200):
         assert old_content_covers_most(doc, 120) is True
@@ -1847,8 +1847,6 @@ def test_old_content_covers_most_proved_table():
 
 
 def test_old_content_covers_most_boundaries():
-    from unittest.mock import patch
-
     doc = MagicMock()
     with patch("plugin.writer.search.get_document_length", return_value=200):
         # Needle exactly half the body is not oversized
@@ -1862,8 +1860,6 @@ def test_old_content_covers_most_boundaries():
 
 
 def test_build_search_not_found_response_oversized_with_near_miss():
-    from unittest.mock import patch
-
     doc = MagicMock()
     doc.getDrawPage.return_value.getCount.return_value = 0
     doc.getRedlines.return_value.hasElements.return_value = False
@@ -2105,7 +2101,6 @@ def test_a_body_match_and_a_hostile_range_delete_nothing():
 
 def test_crlf_normalized_for_search_and_chain_matching():
     """Windows UNO getString() emits CRLF paragraph breaks; search and chaining must treat CRLF as LF."""
-    from unittest.mock import patch
     from plugin.doc.text_helpers import TrackedDeletions
     from plugin.writer.search import MatchMode, iter_literal_ranges
 
@@ -2113,29 +2108,26 @@ def test_crlf_normalized_for_search_and_chain_matching():
     assert prepare_old_content("Line1\r\nLine2") == "Line1\nLine2"
 
     doc = MagicMock()
-    seen_candidates: list[str] = []
-    chain_calls: list[tuple[list[str], int]] = []
+    searched: list[str] = []
     chain_hit = MagicMock()
+    anchor = _chain_anchor(chain_hit)
 
-    def fake_iter_lo(_doc, candidate, _mode, _deletions, after=None):
-        seen_candidates.append(candidate)
-        return iter(())
+    def _find_first(sd):
+        searched.append(sd.SearchString)
+        return _hit_for_search_string(sd.SearchString, None, anchor, None)
 
-    def fake_chain(_doc, parts, anchor_idx, _mode, _deletions, after=None):
-        chain_calls.append((parts, anchor_idx))
-        yield chain_hit
-
-    with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
-         patch("plugin.writer.search._iter_chain_matches", side_effect=fake_chain):
+    doc.findFirst.side_effect = _find_first
+    doc.findNext.return_value = None
+    # The chain matches only if neither part keeps a trailing "\r".
+    with patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Line1", "Line2"]), \
+         patch("plugin.writer.search.uno_same", return_value=True):
         hits = list(iter_literal_ranges(doc, "Line1\r\nLine2", MatchMode(False, False), TrackedDeletions(doc)))
 
     assert hits == [chain_hit]
-    assert seen_candidates == ["Line1\nLine2"]
-    assert chain_calls == [(["Line1", "Line2"], 0)]
+    assert searched == ["Line1\nLine2", "Line1"]
 
 
 def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
-    from unittest.mock import patch
     from plugin.writer.search import SearchInDocument, _iter_descriptor_hits, find_text_ranges
 
     covered_hit = MagicMock(getString=lambda: "gone")
@@ -2177,7 +2169,6 @@ def test_covered_deletion_hits_are_skipped_in_search_helpers_and_tool():
 
 
 def test_search_tool_builds_tracked_deletions_once():
-    from unittest.mock import patch
     from plugin.writer.search import SearchInDocument
 
     hit1 = MagicMock(getString=lambda: "hit1")
@@ -2200,7 +2191,6 @@ def test_search_tool_builds_tracked_deletions_once():
 
 
 def test_multiline_miss_builds_tracked_deletions_once():
-    from unittest.mock import patch
     from plugin.writer.search import find_literal_ranges
 
     doc = MagicMock()
@@ -2214,7 +2204,6 @@ def test_multiline_miss_builds_tracked_deletions_once():
 
 
 def test_find_text_ranges_skips_unmeasurable_hits_and_fills_limit():
-    from unittest.mock import patch
     from plugin.writer.search import find_text_ranges
 
     def _hit(label: str):

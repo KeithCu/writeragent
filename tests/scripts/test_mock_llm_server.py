@@ -1349,7 +1349,6 @@ def test_document_content_len_and_words_snapshot_header():
 
 
 def test_current_query_strips_folded_document_snapshot():
-    from scripts.mock_llm_server import current_query_text, summarize_chat_payload
     from plugin.framework.client.shim_helpers import snapshot_text
 
     snap = snapshot_text("Sidebar body text.")
@@ -1422,8 +1421,6 @@ def test_forced_scenario_overrides_phrase():
 
 
 def test_http_500_and_429(mock_http_fail):
-    from urllib.error import HTTPError
-    from urllib.request import Request, urlopen
     import json as json_mod
 
     def post(base: str):
@@ -1445,7 +1442,6 @@ def test_http_500_and_429(mock_http_fail):
 
 def test_http_hang_stream_incomplete(mock_http_hang):
     from urllib.error import URLError
-    from urllib.request import Request, urlopen
     import http.client
     import json as json_mod
     import socket as socket_mod
@@ -1480,7 +1476,6 @@ def test_http_hang_stream_incomplete(mock_http_hang):
 
 def test_http_hang_nonstream_drops(mock_http_hang):
     from urllib.error import URLError
-    from urllib.request import Request, urlopen
     import http.client
     import json as json_mod
 
