@@ -11,9 +11,9 @@ import pytest
 from plugin.writer.edit_review import (
     WriterStreamedRewriteSession,
     agent_format_author,
-    annotate_review_status,
     edit_review_wait_seconds,
     flag_style_unreviewed,
+    flag_tracked,
     flag_untracked_delete,
     get_agent_edit_review_mode,
     review_recording_enabled,
@@ -1141,28 +1141,34 @@ def test_replace_range_collapses_doubled_newlines_between_paragraphs():
 # R1 (robustness): a successful edit result must carry the CURRENT review status per-call,
 # so the model is correct even if the initialize manual is stale (manual is sent once at
 # connect; toggling the mode later doesn't update it).
-def _annotate_review_status_with_mode(mode, result):
+def _flag_tracked_with_mode(mode, result):
+    out = dict(result)
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
-        return annotate_review_status(result)
+        flag_tracked(out)
+    return out
 
 
 def test_off_mode_keeps_pending_without_note():
-    out = _annotate_review_status_with_mode("off", {"status": "ok", "message": "Replaced 1 occurrence."})
+    out = _flag_tracked_with_mode("off", {"status": "ok", "message": "Replaced 1 occurrence."})
+    assert out["tracked"] is True
     assert out["pending_review"] is True
     assert "review_mode" not in out
     assert out["message"] == "Replaced 1 occurrence."
 
 
 def test_record_mode_marks_pending():
-    out = _annotate_review_status_with_mode("record", {"status": "ok", "message": "Replaced 1 occurrence."})
+    out = _flag_tracked_with_mode("record", {"status": "ok", "message": "Replaced 1 occurrence."})
+    assert out["tracked"] is True
     assert out["pending_review"] is True
     assert out["review_mode"] == "record"
     assert out["message"] != "Replaced 1 occurrence."
 
 
 def test_wait_mode_also_annotated():
-    out = _annotate_review_status_with_mode("wait", {"status": "ok", "message": "x"})
+    out = _flag_tracked_with_mode("wait", {"status": "ok", "message": "x"})
+    assert out["tracked"] is True
     assert out["pending_review"] is True and out["review_mode"] == "wait"
+    assert out["message"] != "x"
 
 
 def test_flag_untracked_replaced_pending_survives_mode_off():
@@ -1463,12 +1469,29 @@ def test_left_tracked_changes_true_on_unreliable_scan():
         assert session.left_tracked_changes() is True
 
 
-def test_left_tracked_changes_false_without_record_mutation():
+def test_left_tracked_changes_false_when_inert_and_not_recording():
     from plugin.writer.edit_review import EditReviewSession
 
-    session = EditReviewSession(MagicMock(), MagicMock(), enabled=False)
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda n: False if n == "RecordChanges" else None
+    session = EditReviewSession(doc, MagicMock(), enabled=False)
     session.record_mutation(lambda: None)
     assert session.left_tracked_changes() is False
+
+
+def test_left_tracked_changes_true_for_inert_session_while_user_records():
+    from plugin.writer.edit_review import EditReviewSession
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = lambda n: True if n == "RecordChanges" else None
+    session = EditReviewSession(doc, MagicMock(), enabled=False)
+    before = {("a", "Insert", "Unknown Author", None, "")}
+    after = before | {("a", "Delete", "Unknown Author", None, "")}
+    with patch.object(session, "_redline_idents", side_effect=[(before, True), (after, True)]) as mock_scan:
+        session.record_mutation(lambda: None)
+        session.record_mutation(lambda: None)
+        assert session.left_tracked_changes() is True
+    assert mock_scan.call_count == 2
 
 
 def test_left_tracked_changes_keeps_first_snapshot_across_mutations():
