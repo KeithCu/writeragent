@@ -945,3 +945,30 @@ def test_search_hides_deletions_in_every_text_uno(ctx, doc):
     assert len(res["matches"]) == 5
     for match in res["matches"]:
         assert match["context"].count("gone") == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_text_of_reads_raw_unless_deletion_overlaps_uno(ctx, doc):
+    from plugin.doc.text_helpers import TrackedDeletions
+
+    text = doc.getText()
+    text.setString("Body velha nova text")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Body "), False)
+    cur.goRight(len("velha "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    deletions = TrackedDeletions(doc)
+    assert deletions.text_of(_first_paragraph(doc)) == "Body nova text"
+
+    sd = doc.createSearchDescriptor()
+    sd.setSearchString("Body")
+    hit = doc.findFirst(sd)
+    assert hit is not None
+    assert deletions.text_of(hit) == hit.getString()

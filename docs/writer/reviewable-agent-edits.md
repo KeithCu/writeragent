@@ -208,7 +208,8 @@ Each change entry also includes `final_text` (preview of the anchored region aft
 
 A tracked change disappears on **both** accept and reject, so the outcome is derived by comparing
 the anchored region against the pre-computed accept-form and reject-form, not by reading the
-redline afterward.
+redline afterward. Both forms drop a paragraph break inside a removed run (matching Writer's
+`DeleteAndJoin`), so a change across paragraphs compares against the joined paragraph Writer leaves.
 
 If a portion read fails while building that accept-form or reject-form, the accumulated skipped prefix is used (without falling back to the raw string which could glue deleted text).
 

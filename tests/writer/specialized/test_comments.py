@@ -23,6 +23,7 @@ class _FiniteEnum:
 
 
 def test_read_annotation_falls_back_to_paragraph_context():
+    from plugin.doc.text_helpers import TrackedDeletions
     from plugin.writer.specialized.comments import _read_annotation
 
     anchor = MagicMock()
@@ -37,7 +38,7 @@ def test_read_annotation_falls_back_to_paragraph_context():
     doc_svc = MagicMock()
     doc_svc.find_paragraph_for_range.return_value = 7
     with patch("plugin.writer.specialized.comments.enclosing_paragraph_text", return_value="  the clause the comment covers  "):
-        entry = _read_annotation(field, [], MagicMock(), doc_svc, MagicMock())
+        entry = _read_annotation(field, [], MagicMock(), doc_svc, TrackedDeletions(MagicMock()))
     assert entry["anchor_preview"] == "the clause the comment covers"
     assert entry["anchor_is_paragraph_context"] is True
 

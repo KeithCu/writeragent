@@ -31,10 +31,7 @@ log = logging.getLogger("writeragent.writer")
 def _read_selection_fields(doc: Any, target_range: Any) -> dict[str, Any]:
     """Read visible selected text and length, returning a warning on failure."""
     try:
-        deletions = TrackedDeletions(doc)
-        selected = normalize_linebreaks(
-            deletions.visible_text(target_range) if deletions.overlaps(target_range) else target_range.getString()
-        )
+        selected = normalize_linebreaks(TrackedDeletions(doc).text_of(target_range))
     except Exception as exc:
         reraise_if_disposed(exc)
         log.exception("set_selection: could not read selected text")

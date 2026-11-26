@@ -17,6 +17,7 @@
 
 from typing import Any
 
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.writer.specialized_base import (
     ToolWriterFootnoteBase,
     enum_param,
@@ -159,11 +160,12 @@ class FootnotesList(ToolWriterFootnoteBase):
         notes = _note_api(doc, note_type, "notes")
         count = notes.getCount()
 
+        deletions = TrackedDeletions(doc)
         results = []
         for i in range(count):
             note = notes.getByIndex(i)
             label = note.getLabel()
-            text = note.getString()
+            text = deletions.text_of(note)
             results.append({"index": i, "label": label, "text": text})
 
         return {"status": "ok", "count": count, "notes": results}

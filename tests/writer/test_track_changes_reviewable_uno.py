@@ -16,6 +16,7 @@
 import contextlib
 
 from plugin.doc.compound_undo import undo_titles
+from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
@@ -1088,8 +1089,9 @@ def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
 
         accepted = _string_skipping_redline(doc.getText(), "Delete")
         rejected = _string_skipping_redline(doc.getText(), "Insert")
-        assert accepted == "ALPHA INITIATIVE\nPROJECT BETA", "skip-Delete text must match new body: %r" % accepted
         assert rejected == "Alpha initiative\nproject Beta", "skip-Insert text must match old body: %r" % rejected
+        accept_all_changes(doc, ctx)
+        assert normalize_linebreaks(doc.getText().getString()) == accepted
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
@@ -1109,6 +1111,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
         tool = ApplyDocumentContent()
         res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
         assert res.get("status") == "ok", res
+        accepted_before = _string_skipping_redline(doc.getText(), "Delete")
 
         resolve_res = _resolve_all_agent_changes(doc, ctx, accept=False).resolved
         assert resolve_res >= 1, "at least one agent change resolved: %r" % resolve_res
@@ -1121,7 +1124,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
         rl_types = list_redline_types(doc)
         assert "Delete" in rl_types and "Insert" in rl_types, "redlines must be restored: %r" % rl_types
         assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
-        assert _string_skipping_redline(doc.getText(), "Delete") == "ALPHA INITIATIVE\nPROJECT BETA"
+        assert _string_skipping_redline(doc.getText(), "Delete") == accepted_before
 
         # A second undo removes that edit in one step
         assert um.isUndoPossible(), "second undo must be possible"

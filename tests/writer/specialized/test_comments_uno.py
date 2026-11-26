@@ -135,3 +135,28 @@ def test_comment_edit_preserves_metadata_uno(ctx, doc):
     assert updated.get("author") == author
     assert updated.get("resolved") is False
     assert updated.get("date") == date_before
+
+
+@native_test
+@with_native_doc("writer")
+def test_comment_reads_hide_tracked_deletion_uno(ctx, doc):
+    _set_body(doc, "Body velha nova text")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Body "), False)
+    cur.goRight(len("velha "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    added = AddComment().execute(tool_ctx, content="Note", search="Body nova")
+    assert added.get("status") == "ok", added
+    assert added.get("anchor_text") == "Body nova"
+
+    listed = CommentList().execute(tool_ctx, start_index=0, max_comments=10)
+    assert listed.get("status") == "ok", listed
+    assert listed["comments"][0]["anchor_preview"] == "Body nova"

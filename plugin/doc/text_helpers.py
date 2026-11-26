@@ -982,6 +982,12 @@ class TrackedDeletions:
             for text, start in self._first_ending_after(first)
         )
 
+    def text_of(self, text_range: Any) -> str:
+        """Text of *text_range*: raw ``getString()`` unless a pending deletion strikes part of it,
+        then ``visible_text``. Raw keeps exactly what Writer reports, with no portion walk, for the
+        common case where nothing in the range is struck."""
+        return self.visible_text(text_range) if self.overlaps(text_range) else text_range.getString()
+
     @functools.cached_property
     def _split_paragraphs(self) -> list[SplitParagraph]:
         """Each paragraph that holds a whole pending deletion, in redline order.

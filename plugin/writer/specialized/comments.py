@@ -230,7 +230,7 @@ class AddComment(ToolBase):
         # seems missing after insert is usually hidden by View > Comments
         # (ShowAnnotations off), not a failed insert; the field-count check
         # below confirms it.
-        anchor_text = found.getString()
+        anchor_text = TrackedDeletions(doc).text_of(found)
         names_before = _annotation_field_names(doc)
         match_text = found.getText()
         cursor = match_text.createTextCursorByRange(found.getStart())
@@ -763,7 +763,7 @@ def _read_annotation(
                     entry["paragraph_index"] = placed
 
             try:
-                preview = (anchor.getString() or "")[:80]
+                preview = (deletions.text_of(anchor) or "")[:80]
             except Exception:
                 preview = ""
             if not preview:
