@@ -30,11 +30,10 @@ import os
 import tempfile
 import time
 import typing
-from typing import Any, Callable
+from typing import Any
 import urllib.parse
 
 # Aliased: two methods below bind a local is_writer variable.
-from plugin.framework.doc_type import is_writer as is_writer_doc
 from plugin.framework.errors import (
     NetworkError,
     ToolExecutionError,
@@ -69,9 +68,7 @@ from plugin.doc.document_research import list_nearby_files
 from plugin.doc.paragraph_search import paragraph_entries
 from plugin.doc import visual_helpers
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.writer.edit_review import flag_style_unreviewed, flag_tracked, flag_untracked
-from plugin.writer.html_import import run_writer_mutation_with_optional_review
-from plugin.writer.record_changes import is_recording_changes
+from plugin.writer.edit_review import flag_style_unreviewed, flag_tracked, flag_untracked, record_write
 from plugin.writer.specialized.textframes import text_content_anchor
 from plugin.writer.target_resolver import request_selection_range
 from .image_tools import (
@@ -115,17 +112,6 @@ def _live_or_none_cursor(cursor: Any) -> Any:
     if cursor is None:
         return None
     return uno_read(lambda: cursor_for_writer_view(cursor)[1], None)
-
-
-def _record_for_review(uno_ctx: Any, doc: Any, apply: Callable[[], Any]) -> tuple[Any, bool]:
-    """Run *apply* (in a review session on Writer); its result, and whether Writer was recording it.
-
-    The recording state is read inside the session, which turns recording on in Record/Wait and
-    restores it on exit.
-    """
-    if not is_writer_doc(doc):
-        return apply(), False
-    return run_writer_mutation_with_optional_review(doc, uno_ctx, lambda: (apply(), is_recording_changes(doc)))
 
 
 def _orient_number(raw: Any) -> int | None:
@@ -462,9 +448,9 @@ class ImageGenerate(ToolWriterImageBase):
 
                 if not replaced:
                     size_units = (source.frame_w, source.frame_h)
-                    _res, recorded = _record_for_review(
-                        ctx.ctx,
+                    _res, recorded = record_write(
                         ctx.doc,
+                        ctx.ctx,
                         lambda: insert_image(
                             ctx.ctx,
                             ctx.doc,
@@ -486,9 +472,9 @@ class ImageGenerate(ToolWriterImageBase):
                 res = {"status": "ok", "message": "Image edited and inserted from endpoint."}
                 _flag_untracked_replace(res, ctx.doc)
                 return res
-            _res, recorded = _record_for_review(
-                ctx.ctx,
+            _res, recorded = record_write(
                 ctx.doc,
+                ctx.ctx,
                 lambda: insert_image(
                     ctx.ctx,
                     ctx.doc,
@@ -1426,9 +1412,9 @@ class ImageInsert(ToolWriterImageBase):
                     )
                 # Insert failures propagate. execute_safe reports them, including disposal.
                 # A None graphic is a failed insert that did not raise.
-                placed, recorded = _record_for_review(
-                    ctx.ctx,
+                placed, recorded = record_write(
                     doc,
+                    ctx.ctx,
                     lambda: insert_image_into_header_footer(
                         doc,
                         image_path,
@@ -1480,9 +1466,9 @@ class ImageInsert(ToolWriterImageBase):
                 text_cursor = _live_or_none_cursor(pinned_cursor) if pinned_cursor is not None else _pinned_writer_cursor(ctx)
 
             try:
-                graphic, recorded = _record_for_review(
-                    ctx.ctx,
+                graphic, recorded = record_write(
                     doc,
+                    ctx.ctx,
                     lambda: insert_image_at_locator(
                         ctx.ctx,
                         doc,
@@ -1543,9 +1529,9 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         try:
-            tracked, _recording = _record_for_review(
-                ctx.ctx,
+            tracked, _recording = record_write(
                 ctx.doc,
+                ctx.ctx,
                 lambda: visual_helpers.delete_graphic(ctx.ctx, ctx.doc, graphic),
             )
         except ToolExecutionError as exc:

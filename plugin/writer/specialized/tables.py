@@ -24,8 +24,8 @@ from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, uno_same
-from plugin.writer.edit_review import flag_tracked
-from plugin.writer.html_import import non_text_portion_type, run_writer_mutation_with_optional_review
+from plugin.writer.edit_review import flag_tracked, record_write
+from plugin.writer.html_import import non_text_portion_type
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.review_scan import scan_redlines
 
@@ -817,7 +817,7 @@ def _delete_or_rollback(doc: Any, uno_ctx: Any, title: str, apply: Callable[[], 
     # runs: XUndoManager.undo refuses inside an open context (impl_doUndoRedo in
     # framework/source/fwe/helper/undomanagerhelper.cxx).
     with UndoStepOrRollback(doc, title):
-        return run_writer_mutation_with_optional_review(doc, uno_ctx, apply)
+        return record_write(doc, uno_ctx, apply)[0]
 
 
 def _require_no_protected_cells(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
@@ -1313,7 +1313,7 @@ class TableMergeCells(ToolWriterTableBase):
         # (e.g. lower-case 'a1'), so both corners are resolved against getCellNames() first.
         cursor = table.createCursorByCellName(first)
         # SwDoc::MergeTable sets RedlineFlags::Ignore (sw/source/core/docnode/ndtbl.cxx), so merges
-        # are never recorded as tracked changes; this is not wrapped in run_writer_mutation_with_optional_review.
+        # are never recorded as tracked changes; this is not wrapped in record_write.
         # mergeRange returns False on a DDE table or an old-model table whose block LibreOffice rejects.
         if not (cursor.gotoCellByName(last, True) and cursor.mergeRange()):
             return self._tool_error(
@@ -1373,7 +1373,7 @@ class TableSplitCell(ToolWriterTableBase):
         cursor = table.createCursorByCellName(cell_name)
         # Count is the number of new cells, and Horizontal=True adds horizontal dividing lines
         # (more rows): SwXTextTableCursor::splitRange passes !Horizontal as bVert to SwDoc::SplitTable.
-        # SwDoc::SplitTable records no redline, so it is not wrapped in run_writer_mutation_with_optional_review.
+        # SwDoc::SplitTable records no redline, so it is not wrapped in record_write.
         if not cursor.splitRange(parts - 1, direction == "rows"):
             return self._tool_error(
                 "LibreOffice could not split cell %s in table '%s'. "
@@ -1501,9 +1501,9 @@ class TableInsert(ToolWriterTableBase):
                 created_name = uno_read(lambda: str(table.getName()), "")
 
             uno_ctx = resolve_uno_context(ctx)
-            run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
+            _unused, recording = record_write(doc, uno_ctx, _apply)
 
-            return {
+            res: dict[str, Any] = {
                 "status": "ok",
                 "message": "Table inserted",
                 "table_name": created_name,
@@ -1512,6 +1512,9 @@ class TableInsert(ToolWriterTableBase):
                 "cells_written": written_cells,
                 "nesting": {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name} if parent else _not_nested(),
             }
+            if recording:
+                flag_tracked(res)
+            return res
         except ValueError as ve:
             return self._tool_error(str(ve))
 

@@ -1529,3 +1529,29 @@ def test_table_delete_protected_cell_refused_uno(ctx, doc):
         assert res_outer["status"] == "ok" and res_outer["pending_review"] is True, res_outer
     finally:
         doc.setPropertyValue("RecordChanges", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_insert_reports_tracked_when_recorded_uno(ctx, doc):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    res_plain = TableInsert().execute(tool_ctx, rows=1, columns=1)
+    assert res_plain.get("status") == "ok", res_plain
+    assert "tracked" not in res_plain
+    assert doc.getTextTables().getCount() == 1
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res_rec = TableInsert().execute(tool_ctx, rows=1, columns=1)
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    assert res_rec.get("status") == "ok", res_rec
+    assert res_rec.get("tracked") is True
+    assert res_rec.get("pending_review") is True
+    assert "review_mode" not in res_rec
+    assert doc.getTextTables().getCount() == 2
+
+    reject_all_changes(doc, ctx)
+    assert doc.getTextTables().getCount() == 1

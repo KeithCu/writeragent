@@ -2287,15 +2287,15 @@ def replace_preserving_format(
 def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:
     """Run a Writer document mutation, optionally wrapped in EditReviewSession.
 
-    LibrePy omits ``plugin.writer.edit_review``; when that module is absent we apply
-    directly. Full WriterAgent (or co-install) imports it and honors review mode.
+    For modules LibrePy also ships (scripting, vision). LibrePy omits ``plugin.writer.edit_review``,
+    so there the mutation applies directly; WriterAgent-only modules call ``edit_review.record_write``.
     """
     try:
         # Lazy: LibrePy ships without plugin.writer.edit_review.
-        from plugin.writer.edit_review import run_in_review_session
+        from plugin.writer.edit_review import record_write
     except ImportError:
         return apply_fn()
-    return run_in_review_session(doc, ctx, lambda review: review.record_mutation(apply_fn))
+    return record_write(doc, ctx, apply_fn)[0]
 
 
 

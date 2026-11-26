@@ -73,6 +73,7 @@ if footnotes.getCount() > 0:
 ```
 
 ### 4. Deleting a Footnote/Endnote
+The `footnote_insert`, `footnote_edit`, and `footnote_delete` tools run through `record_write`, so in Record/Wait or when change tracking is on, clearing the anchor records a tracked deletion instead of removing the note immediately.
 ```python
 footnotes = doc.getFootnotes()
 if footnotes.getCount() > 0:

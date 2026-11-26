@@ -22,9 +22,9 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
-from plugin.writer.edit_review import flag_tracked
-from plugin.writer.record_changes import is_recording_changes
+from plugin.framework.errors import ToolExecutionError, make_tool_error
+from plugin.framework.i18n import _
+from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
 from plugin.writer.search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     explicit_case_sensitive,
@@ -128,15 +128,17 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         if label:
             note.setLabel(label)
 
-        # Insert into document
-        t_cursor.getText().insertTextContent(t_cursor, note, False)
+        def _attach() -> None:
+            t_cursor.getText().insertTextContent(t_cursor, note, False)
+            note.setString(text)
 
-        # Set text inside the note
-        note.setString(text)
+        _unused, recording = record_write(doc, ctx.ctx, _attach)
 
         res: dict[str, Any] = {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
         if mode is not None:
             res.update(mode.result_fields())
+        if recording:
+            flag_tracked(res)
         return res
 
 
@@ -191,13 +193,27 @@ class FootnotesEdit(ToolWriterFootnoteBase):
         if err is not None:
             return err
 
-        if "text" in kwargs:
-            note.setString(kwargs["text"])
+        def _edit() -> None:
+            if "text" in kwargs:
+                note.setString(kwargs["text"])
+            if "label" in kwargs:
+                note.setLabel(kwargs["label"])
 
+        _unused, recording = record_write(ctx.doc, ctx.ctx, _edit)
+
+        result: dict[str, Any] = {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
+        if recording and "text" in kwargs:
+            flag_tracked(result)
         if "label" in kwargs:
-            note.setLabel(kwargs["label"])
-
-        return {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
+            flag_untracked(
+                result,
+                ctx.doc,
+                _(
+                    "LibreOffice cannot record changing a note's custom mark as a tracked change, "
+                    "so the mark was changed directly and rejecting changes does not restore it (Ctrl+Z undoes it). Tell the user."
+                ),
+            )
+        return result
 
 
 class FootnotesDelete(ToolWriterFootnoteBase):
@@ -220,17 +236,17 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         if err is not None:
             return err
         before = notes.getCount()
-        note.getAnchor().setString("")
+        _unused, recording = record_write(ctx.doc, ctx.ctx, lambda: note.getAnchor().setString(""))
         after = notes.getCount()
+        # LibreOffice removes a note outright when it sits in the agent's own pending insertion, so check count first.
         if after < before:
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
-        # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
-        if uno_read(lambda: is_recording_changes(ctx.doc), False):
+        if recording:
             result: dict[str, Any] = {
                 "status": "ok",
                 "message": (
-                    f"{note_type} at index {index} is marked for deletion by tracked changes; "
-                    "accept or reject it in LibreOffice (Edit > Track Changes)."
+                    f"{note_type} at index {index} is marked for deletion as a tracked change; "
+                    "it stays in the document until the user accepts or rejects it."
                 ),
             }
             flag_tracked(result)
