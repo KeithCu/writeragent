@@ -315,10 +315,6 @@ def test_sqlite_skips_undecodable_row(tmp_path):
 
 
 def test_json_history_clear_replaces_messages(tmp_path, monkeypatch):
-    import os
-
-    from plugin.chatbot.history_db import JSONHistory
-
     db_path = str(tmp_path / "writeragent_history.db")
     jh = JSONHistory("test-session", db_path)
 

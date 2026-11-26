@@ -737,8 +737,6 @@ def test_resolve_exception_message_total():
 
 
 def test_make_tool_error_accepts_non_str_and_non_ascii_code():
-    from plugin.framework.errors import make_tool_error
-
     res = make_tool_error(ValueError("value issue"))
     assert res["status"] == "error"
     assert res["message"] == "value issue"
@@ -788,8 +786,6 @@ def test_is_document_disposed_handles_exploding_attributes():
 
 
 def test_writer_agent_exception_unified_message():
-    from plugin.framework.errors import ToolExecutionError, WriterAgentException
-
     class BlankWithUnoMessage(Exception):
         def __init__(self, msg: str):
             super().__init__("")
@@ -847,8 +843,6 @@ def test_reraise_if_disposed_preserves_instance():
 
 
 def test_format_error_for_display_connection_refused():
-    from plugin.framework.errors import format_error_for_display
-
     exc = ConnectionRefusedError(111, "Connection refused")
     display = format_error_for_display(exc)
     assert "Connection Refused" in display

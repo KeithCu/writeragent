@@ -80,90 +80,66 @@ class FakeHost:
 
     @property
     def _active_client(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_client if turn else None
 
     @_active_client.setter
     def _active_client(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_client = value
 
     @property
     def _active_max_tokens(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_max_tokens if turn else 0
 
     @_active_max_tokens.setter
     def _active_max_tokens(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_max_tokens = value
 
     @property
     def _active_tools(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_tools if turn else None
 
     @_active_tools.setter
     def _active_tools(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_tools = value
 
     @property
     def _active_execute_tool_fn(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_execute_tool_fn if turn else None
 
     @_active_execute_tool_fn.setter
     def _active_execute_tool_fn(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_execute_tool_fn = value
 
     @property
     def _active_query_text(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_query_text if turn else None
 
     @_active_query_text.setter
     def _active_query_text(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_query_text = value
 
     @property
     def _active_supports_status(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return turn.active_supports_status if turn else False
 
     @_active_supports_status.setter
     def _active_supports_status(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.active_supports_status = value
@@ -171,45 +147,33 @@ class FakeHost:
 
     @property
     def _active_q(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return None if turn is None else turn.queue
 
     @_active_q.setter
     def _active_q(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.queue = value
 
     @property
     def _active_model(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return None if turn is None else turn.model
 
     @_active_model.setter
     def _active_model(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.model = value
 
     @property
     def _active_batched_q(self):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         return None if turn is None else turn.batcher
 
     @_active_batched_q.setter
     def _active_batched_q(self, value):
-        from plugin.chatbot.tool_loop_actions import current_turn
-
         turn = current_turn(self)
         if turn is not None:
             turn.batcher = value
@@ -442,7 +406,6 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     assert kwargs["send_cancellation"].is_cancelled() is False
     assert "captured_q" not in kwargs
     assert "captured_call_id" not in kwargs
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     assert kwargs["captured_turn"] is current_turn(host)
     assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_content", '{"content": "hi"}', '{"status": "ok"}')
@@ -502,8 +465,6 @@ def test_sync_tool_returns_before_the_tool_finishes():
     ],
 )
 def test_sync_tool_stop_before_body_does_not_run_the_tool(is_async):
-    from plugin.framework.send_cancellation import SendCancellation
-
     host = FakeHost()
     cancelled = SendCancellation()
     cancelled.cancel()
@@ -697,7 +658,6 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
 
 def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     """A new send aborts the first turn. Late puts and a clear do not land on it."""
-    import queue
 
     from plugin.chatbot.rich_text_paste import fold_transcript_chunk
     from plugin.chatbot.tool_loop_actions import (
@@ -706,7 +666,6 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
         persist_assistant_on_turn,
         put_for_turn,
     )
-    from plugin.framework.stream_batch import StreamQueueKind
 
     class Session:
         def __init__(self) -> None:
@@ -783,10 +742,8 @@ def test_turn_take_open_text_folds_stripper_tail():
 
 def test_abort_discards_a_late_write():
     """After abort, enqueue is a no-op and a write against a replaced list does not land."""
-    import queue
 
     from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, persist_assistant_on_turn, put_for_turn
-    from plugin.framework.stream_batch import StreamQueueKind
 
     host = _TurnHost([{"role": "user", "content": "q"}])
     turn = begin_send_turn(host)
@@ -802,10 +759,8 @@ def test_abort_discards_a_late_write():
 
 def test_second_send_replaces_the_turn():
     """The previous turn cannot enqueue or append once a new send owns the host."""
-    import queue
 
     from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn, put_for_turn
-    from plugin.framework.stream_batch import StreamQueueKind
 
     host = _TurnHost([{"role": "user", "content": "q"}])
     first = begin_send_turn(host)
@@ -936,7 +891,6 @@ def test_new_send_drops_the_in_flight_tool_result():
 def test_async_tool_uses_fn_and_model_captured_at_spawn():
     """A later send must not retarget a tool that already started."""
     from plugin.chatbot.tool_loop_actions import begin_send_turn
-    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     turn = begin_send_turn(host)
@@ -980,7 +934,6 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
 
 def test_async_tool_aborted_before_run_drops_execution():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
-    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     turn = begin_send_turn(host)
@@ -1105,7 +1058,6 @@ def test_subagent_append_and_approval_use_the_captured_queue():
 
 def test_stop_banner_reaches_the_sidebar_after_abort():
     """panel._append_response keeps the stop line and drops a later chunk."""
-    import threading
 
     from plugin.chatbot.send_state import SendButtonState, SendMode
     from plugin.chatbot.sidebar_state import SidebarCompositeState
@@ -1149,7 +1101,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
 
 def test_tool_worker_keeps_spawn_scope_after_next_send():
     """execute_fn must use the scope captured at spawn, not the panel field."""
-    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     old = SendCancellation()
@@ -1440,7 +1391,6 @@ def test_cleanup_audio_handles_remove_failure(monkeypatch):
 def test_put_for_turn_signature_and_behavior():
     """put_for_turn takes (turn, item) and enqueues on alive turn or returns False when aborted."""
     from plugin.chatbot.tool_loop_actions import TurnController, put_for_turn
-    from plugin.framework.stream_batch import StreamQueueKind
 
     q = queue.Queue()
     turn = TurnController(None)
@@ -1709,8 +1659,6 @@ def test_turn_controller_can_write_guards():
 
 
 def test_interpreter_handles_tool_running_and_result_effects():
-    from plugin.chatbot.tool_loop_state import MessageRole, UIEffectKind
-
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)
 
@@ -2025,8 +1973,6 @@ class TestFinalizeSidebarAssistantResponse:
     @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
     @patch("plugin.chatbot.dialogs.set_control_text")
     def test_finalize_sidebar_assistant_response_flushes_stripper(self, mock_set_text, mock_get_text):
-        import threading
-
         from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
         send = _make_plain_send_listener()

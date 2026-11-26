@@ -593,8 +593,6 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
 
 
 def test_run_trusted_vision_calls_on_exported_with_sent_params():
-    from plugin.vision.vision_runner import run_trusted_vision
-
     ctx = MagicMock()
     doc = MagicMock()
     events = []
@@ -752,8 +750,6 @@ def test_run_and_insert_cancelled_after_delete_preserves_deleted_images(outcome,
 
 @pytest.mark.parametrize("fail_at", ["ocr", "insert"])
 def test_run_and_insert_tool_error_on_second_of_three_continues_and_returns_partial(fail_at):
-    from plugin.framework.errors import ToolExecutionError
-
     ctx = MagicMock()
     doc = MagicMock()
     names = ["Img1", "Img2", "Img3"]
@@ -787,8 +783,6 @@ def test_run_and_insert_tool_error_on_second_of_three_continues_and_returns_part
 
 
 def test_run_and_insert_first_deleted_then_second_insert_raises_preserves_deleted():
-    from plugin.framework.errors import ToolExecutionError
-
     ctx = MagicMock()
     doc = MagicMock()
     names = ["Img1", "Img2"]
@@ -848,8 +842,6 @@ def test_run_and_insert_unexpected_exception_stops_after_first_or_raises_when_em
 
 
 def test_run_and_insert_disposed_exception_raises_document_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-
     class DisposedException(Exception):
         pass
 
@@ -892,7 +884,6 @@ def test_run_and_insert_disposed_during_export_ends_the_run():
 
 
 def test_run_and_insert_cancelled_after_failure_lists_completed_image_names():
-    from plugin.framework.errors import ToolExecutionError
     from plugin.framework.send_cancellation import SendCancelled
 
     ctx = MagicMock()
@@ -920,8 +911,6 @@ def test_run_and_insert_cancelled_after_failure_lists_completed_image_names():
 
 
 def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
-    from plugin.framework.errors import ToolExecutionError
-
     ctx = MagicMock()
     doc = MagicMock()
     names = ["Img1", "Img2", "Img3"]

@@ -1622,8 +1622,6 @@ def test_execute_async_delegate_skips_uno_doc_probe(monkeypatch):
 
 
 def test_get_tools_off_main_thread_without_doc_probe():
-    from plugin.framework.tool import ToolBase
-
     doc = MagicMock()
     doc.supportsService.return_value = True
 

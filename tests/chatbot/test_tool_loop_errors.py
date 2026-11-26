@@ -98,8 +98,6 @@ def test_instance():
         mock_get_api_config.return_value = {"endpoint": "http://localhost:11434", "chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
 
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-
         turn = begin_send_turn(instance)
         turn.model = MagicMock()
         yield instance
@@ -186,8 +184,6 @@ def test_audio_handling_error(test_instance, mock_get_tools):
 
     with patch("plugin.chatbot.tool_loop.agent_log"):
 
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-
         begin_send_turn(test_instance)
         test_instance.audio_wav_path = "/fake/path/audio.wav"
 
@@ -214,8 +210,6 @@ def test_audio_handling_error(test_instance, mock_get_tools):
 
 def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     import dataclasses
-
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     test_instance.audio_wav_path = "/fake/path/audio.wav"
     live = current_turn(test_instance)
@@ -266,8 +260,6 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     True would keep the drain waiting for a worker that was never spawned.
     """
     import dataclasses
-
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     test_instance.audio_wav_path = "/fake/path/audio.wav"
     live = current_turn(test_instance)
@@ -415,8 +407,6 @@ def test_handle_stream_error_keeps_named_window_sentence(test_instance):
 def _prime_active_tool_loop(instance):
     import dataclasses
 
-    from plugin.chatbot.tool_loop_actions import current_turn
-
     live = current_turn(instance)
     live.queue = MagicMock()
     live.batcher = None
@@ -455,7 +445,6 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert recovered is StreamErrorOutcome.SPAWNED
     mock_bg.assert_called_once()
     mock_compact.assert_not_called()
-    from plugin.chatbot.tool_loop_actions import current_turn
     assert current_turn(test_instance)._overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
@@ -469,7 +458,6 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
 
 def test_overflow_attempt_3_falls_through(test_instance):
     _prime_active_tool_loop(test_instance)
-    from plugin.chatbot.tool_loop_actions import current_turn
     current_turn(test_instance)._overflow_compact_attempts = 3
     test_instance._spawn_llm_worker = MagicMock()
 
@@ -519,7 +507,6 @@ def test_overflow_does_not_retry_after_failed_or_tiny_shrink(
     test_instance, reason, tokens_before, tokens_after
 ):
     _prime_active_tool_loop(test_instance)
-    from plugin.chatbot.tool_loop_actions import current_turn
     current_turn(test_instance)._last_compact_reason = reason
     current_turn(test_instance)._last_compact_tokens_before = tokens_before
     current_turn(test_instance)._last_compact_tokens_after = tokens_after
@@ -623,8 +610,6 @@ def _worker_env(
 
 def test_llm_worker_run_compacts_inside_lane_and_sends_view(test_instance):
     from plugin.chatbot.compaction import CompactResult
-    from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.stream_batch import StreamQueueKind
 
     q = MagicMock()
     view = [{"role": "system", "content": "view"}]
@@ -680,8 +665,6 @@ def test_llm_worker_run_compacts_inside_lane_and_sends_view(test_instance):
     ],
 )
 def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_fn, get_stream_fn):
-    from plugin.chatbot.tool_loop_actions import current_turn
-
     view = [{"role": "system", "content": "view"}]
     turn = current_turn(test_instance)
     turn.queue = MagicMock()
@@ -699,8 +682,6 @@ def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_f
 
 def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
     from plugin.chatbot.compaction import CompactResult
-    from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.stream_batch import StreamQueueKind
 
     q = MagicMock()
     current_turn(test_instance).queue = q
@@ -718,8 +699,6 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
 
 
 def test_llm_worker_skips_compact_when_flag_false(test_instance):
-    from plugin.chatbot.tool_loop_actions import current_turn
-
     view = [{"role": "user", "content": "hi"}]
     current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with _worker_env(auto_compact=False) as (captured, client, mock_compact):
@@ -732,7 +711,6 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
 
 def test_final_stream_compacts_then_sends_view(test_instance):
     from plugin.chatbot.compaction import CompactResult
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     view = [{"role": "system", "content": "final-view"}]
     current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
@@ -842,8 +820,6 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
 
 
 def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
-    from plugin.chatbot.tool_loop_actions import current_turn
-
     wav = tmp_path / "rec.wav"
     wav.write_bytes(b"RIFF")
     test_instance.audio_wav_path = str(wav)
@@ -1292,7 +1268,6 @@ def test_do_send_skip_append_user_does_not_append_audio_row(test_instance, mock_
 def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools):
     mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_content"}}]
     captured: list[list] = []
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     turn = current_turn(test_instance)
     assert turn is not None
@@ -1310,7 +1285,6 @@ def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools)
 
 def test_slash_sidebar_only_refresh_keeps_empty_tools(test_instance, mock_get_tools):
     mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_content"}}]
-    from plugin.chatbot.tool_loop_actions import current_turn
 
     turn = current_turn(test_instance)
     assert turn is not None
@@ -1324,8 +1298,6 @@ def test_slash_sidebar_only_refresh_keeps_empty_tools(test_instance, mock_get_to
 
 
 def test_stream_error_keeps_drain_only_for_spawned():
-    from plugin.chatbot.tool_loop import StreamErrorOutcome
-
     assert stream_error_keeps_drain(StreamErrorOutcome.SPAWNED) is True
     assert stream_error_keeps_drain(StreamErrorOutcome.NOT_HANDLED) is False
     assert stream_error_keeps_drain(StreamErrorOutcome.END) is False
@@ -1411,7 +1383,6 @@ def test_production_loop_zero_tool_edit_reply_ends_turn(test_instance):
 
 
 def test_do_send_pins_writer_selection(test_instance, mock_get_tools):
-    from plugin.chatbot.tool_loop_actions import current_turn
     from plugin.framework.tool import SelectionPin
 
     mock_get_tools.get_schemas.return_value = []
@@ -1439,8 +1410,6 @@ def test_do_send_pins_writer_selection(test_instance, mock_get_tools):
 
 
 def test_do_send_calc_has_no_pin(test_instance, mock_get_tools):
-    from plugin.chatbot.tool_loop_actions import current_turn
-
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
     api_config = {
@@ -1464,7 +1433,6 @@ def test_do_send_calc_has_no_pin(test_instance, mock_get_tools):
 
 def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked: bool, on_get=None):
     import threading
-    from plugin.chatbot.tool_loop_actions import current_turn
     from plugin.framework import config as fw_config, keystore
     from plugin.framework.client import model_fetcher
     from plugin.framework.queue_executor import main
@@ -1552,7 +1520,6 @@ def test_send_reads_unlocked_keyring_once_off_main_thread(test_instance, mock_ge
 
 def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_tools, fake_keystore):
     import threading
-    from plugin.chatbot.tool_loop_actions import current_turn
     from plugin.framework import config as fw_config, keystore
 
     url = "https://openrouter.ai/api"

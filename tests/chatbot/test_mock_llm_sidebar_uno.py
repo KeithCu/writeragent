@@ -644,9 +644,7 @@ def test_f1_crash_the_stream_then_hello(ctx):
     _reset_mock_runtime()
     _send_and_wait("crash the stream", wait_for="API error")
     body = _transcript()
-    assert "[API error:" in body or "HTTP Error 500" in body or "500" in body, (
-        "F1 expected 500 in transcript, got %r" % body[-500:]
-    )
+    assert "[API error:" in body, "F1 expected the API error banner, got %r" % body[-500:]
     _hello_ok()
 
 
@@ -2978,7 +2976,7 @@ def test_o8_multi_image_selection_ocr(ctx):
     _hello_ok()
 
 
-# --- Packet M: event-driven stream drain (SolarMutex regression guards) ---
+# --- Packet M: event-driven stream drain (SolarMutex is released between slices) ---
 #
 # CI runs this module over URP: the test process is not soffice, and there is
 # no in-process SendButtonListener. M2, M4, M5 and M6 only use URP-visible
@@ -2990,7 +2988,7 @@ _M_RAMBLE = "keep talking"  # mock "ramble": 200 one-word chunks
 _M_FLOOD = "fill the sidebar"  # mock "flood": long HTML reply
 # Worst URP round trip to a sidebar control while the drain streams. Each
 # drain slice returns to the VCL loop, so a control read waits at most one
-# slice; the old blocking drain held SolarMutex across q.get(0.1) waits.
+# slice; a drain that blocked on q.get(0.1) would hold SolarMutex across the wait.
 _M_MAX_UI_LATENCY_SEC = 0.5
 
 
@@ -4270,7 +4268,8 @@ def test_s3_stt_404_no_resend(ctx):
         assert caps[-1].get("stt") is True
 
         after = _transcript()
-        assert "Mock STT Endpoint Failure" in after or "Error" in after or "failure" in after.lower()
+        assert "[Transcription error:" in after, after[-500:]
+        assert "Mock STT Endpoint Failure" in after, after[-500:]
         _hello_ok()
     finally:
         _s_clear()

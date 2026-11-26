@@ -149,6 +149,6 @@ def test_setup_sessions_does_not_duplicate_history_on_save_as():
     db3 = get_chat_history(sid3)
     msgs3 = db3.get_messages()
 
-    # If the bug is present, this would be 2 (duplicated history).
+    # Copying the history into the copy's session a second time would make this 2.
     assert len(msgs3) == 1
     assert msgs3[0]["content"] == "Hello from original"

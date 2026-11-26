@@ -102,7 +102,6 @@ class TestToolcallingPromptExamples:
         assert get_examples_block(key) == get_examples_block(expected_key)
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
-        from plugin.contrib.smolagents.agents import ToolCallingAgent
         from plugin.chatbot.smol_examples import DELEGATE_GENERIC_EXAMPLES_BLOCK, get_examples_block
 
         model = MagicMock()
@@ -892,7 +891,6 @@ class TestLibrarianSmol:
 class TestSmolMixedToolCalls:
     def test_mixing_regular_tool_and_final_answer_tool_succeeds(self):
         """Verify that we can now mix a regular tool call and a final answer tool call in one turn."""
-        from plugin.contrib.smolagents.memory import ActionStep
         from plugin.contrib.smolagents.models import (
             ChatMessage,
             ChatMessageToolCall,
@@ -1112,8 +1110,6 @@ class TestSmolToolMarshaling:
         import json
         import os
         import tempfile
-        from plugin.chatbot.memory import MemoryTool
-        from plugin.chatbot.smol_agent import SmolToolAdapter
 
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_user_config_dir.return_value = tmpdir
@@ -1140,9 +1136,6 @@ class TestSmolToolMarshaling:
     @patch("plugin.framework.queue_executor.main.call")
     def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_call):
         """Verify StickyReplyToUserTool is async and executes directly on worker without main-thread marshal."""
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
-        from plugin.chatbot.smol_agent import SmolToolAdapter
-        from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
         ctx = MagicMock()
         mode = require_sidebar_mode(CHAT_MODE_LIBRARIAN)
@@ -1676,7 +1669,6 @@ def test_partial_turn_unknown_tool_preserves_earlier_and_grades_skipped():
 
 
 def test_partial_turn_skipped_workflow_finished_not_recorded():
-    from plugin.contrib.smolagents.models import ChatMessage, MessageRole
     from plugin.doc.specialized_catalog import normalize_inner_result
 
     mock_model = MagicMock()

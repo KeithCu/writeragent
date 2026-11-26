@@ -440,8 +440,6 @@ class TestRunDeepResearch:
         assert extract_calls["n"] == 1
 
     def test_user_stopped_during_extraction_is_not_partial_success(self):
-        from plugin.framework.errors import ToolExecutionError
-
         extract_calls = {"n": 0}
         synth_calls = {"n": 0}
 
@@ -492,8 +490,6 @@ class TestRunDeepResearch:
         assert "partial report" not in str(result.get("message") or "")
 
     def test_user_stopped_during_synthesis_is_not_partial_report(self):
-        from plugin.framework.errors import ToolExecutionError
-
         def llm_router(messages):
             combined = "\n".join(m["content"] for m in messages)
             if "plain-text research report" in combined or "Collected evidence" in combined:
@@ -878,7 +874,6 @@ def test_generate_search_queries_includes_local_clock_stamp():
 
 def _deep_preview_params(approval_callback):
     from plugin.chatbot.web_research import WebAgentRunParams
-    from plugin.framework.send_cancellation import SendCancellation
 
     api = MagicMock()
     api.config = {}
@@ -993,15 +988,11 @@ class _RecordingClient:
         if "extract key learnings" in combined:
             self.kinds.append("extract")
             if _RecordingClient.extract_raises:
-                from plugin.framework.errors import ToolExecutionError
-
                 raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
             return '{"learnings": [{"insight": "Finding X", "sourceUrl": "https://a.test"}], "followUpQuestions": []}'
         if "plain-text research report" in combined or "Collected evidence" in combined:
             self.kinds.append("synth")
             if _RecordingClient.synth_raises:
-                from plugin.framework.errors import ToolExecutionError
-
                 raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
             return "Final synthesized report."
         if "search queries" in combined and "JSON array" in combined:
@@ -1032,7 +1023,6 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
     ctx.chat_append_callback = None
-    from plugin.framework.send_cancellation import SendCancellation
 
     scope = SendCancellation()
     ctx.send_cancellation = scope

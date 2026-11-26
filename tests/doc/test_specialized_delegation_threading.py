@@ -30,13 +30,6 @@ from plugin.writer.specialized_base import ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
-@pytest.fixture(autouse=True)
-def _register_prompt_hooks_for_delegation_threading_tests():
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-
-    register_writeragent_prompt_hooks()
-
-
 class _DummyAnalysisBase(ToolCalcSpecialBase):
     # Domain-less intermediate base: a direct ToolCalcSpecialBase subclass with a
     # domain would leak "analysis" into the discovery catalog for the whole test run.

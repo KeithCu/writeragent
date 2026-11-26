@@ -155,7 +155,6 @@ def test_source_label_replaces_ai_provider():
 
 
 def test_parse_provider_envelope_redacts_path_secret_and_query():
-    import pytest
     from plugin.framework.client.errors import parse_provider_envelope
     from plugin.framework.errors import NetworkError
 

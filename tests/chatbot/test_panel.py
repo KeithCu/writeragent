@@ -355,7 +355,6 @@ class TestSendDispose:
 
     def test_is_busy_sees_fsm_turn_and_scope(self) -> None:
         from dataclasses import replace
-        from plugin.chatbot.send_state import SendMode
         from plugin.chatbot.tool_loop_actions import TurnController
 
         listener = _make_send_listener()
@@ -1675,7 +1674,6 @@ class TestStopPreservesAudioWavPath:
     def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
         # We need the listener to execute StopSendEffect.
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
@@ -1836,8 +1834,6 @@ class TestStoppedTTS:
 
 class TestClearButtonAndPeerDrain:
     def test_clear_greeting_uses_document_model(self) -> None:
-        from plugin.chatbot.panel import ClearButtonListener
-
         session = MagicMock()
         send_listener = MagicMock()
         mock_doc = MagicMock()
@@ -1885,7 +1881,6 @@ class TestClearButtonAndPeerDrain:
     def test_clear_preserves_history_notice_in_painted_items(self) -> None:
         """Clear on a session with a history warning repaints the notice through paint_session."""
         from plugin.chatbot.chat_session import ChatSession
-        from plugin.chatbot.panel import ClearButtonListener
         from plugin.framework.errors import WriterAgentException
 
         with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
@@ -1908,7 +1903,6 @@ class TestClearButtonAndPeerDrain:
     def test_clear_with_plain_control_includes_history_notice(self) -> None:
         """Clear on a plain transcript control renders both the greeting and history notice."""
         from plugin.chatbot.chat_session import ChatSession
-        from plugin.chatbot.panel import ClearButtonListener
         from plugin.framework.errors import WriterAgentException
 
         with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
@@ -2858,11 +2852,7 @@ def _make_do_send_listener() -> SimpleNamespace:
     """Build a SimpleNamespace listener for _do_send routing tests only."""
     import types
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-    from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.panel_voice import PanelVoiceController
-    from plugin.chatbot.record_gesture import RecordGesture
-    from plugin.chatbot.send_state import SendButtonState, SendMode
-    from plugin.chatbot.sidebar_state import SidebarCompositeState
 
     query_control = MagicMock()
     query_control.getModel.return_value = True
@@ -2940,7 +2930,6 @@ def _patch_do_send(listener, *, sidebar_mode: str):
 
 def test_do_send_enters_librarian_when_selector_is_librarian():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_LIBRARIAN)
@@ -2954,7 +2943,6 @@ def test_do_send_enters_librarian_when_selector_is_librarian():
 
 def test_do_send_writer_writing_plan_uses_subagent():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_WRITING_PLAN)
@@ -2968,7 +2956,6 @@ def test_do_send_writer_writing_plan_uses_subagent():
 
 def test_do_send_calc_writing_plan_stays_on_chat_tools():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     listener.cached_doc_type = "calc"
@@ -2983,7 +2970,6 @@ def test_do_send_calc_writing_plan_stays_on_chat_tools():
 def test_do_send_chat_even_when_user_memory_missing():
     """Dropdown is the door: Chat + empty USER.md must not intercept (#346)."""
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
@@ -3000,7 +2986,6 @@ def test_do_send_chat_even_when_user_memory_missing():
 
 def test_do_send_uses_document_chat_when_selector_is_chat():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
@@ -3014,8 +2999,6 @@ def test_do_send_uses_document_chat_when_selector_is_chat():
 def test_do_send_agent_backend_exception_does_not_start_builtin():
     """A failed external agent must not continue into the builtin chat turn."""
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
-    from plugin.chatbot.panel import SendButtonListener
-    from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 
     listener = _make_do_send_listener()
     listener._send_handlers._do_send_via_agent_backend.side_effect = RuntimeError("acp down")
@@ -3037,8 +3020,6 @@ def test_do_send_agent_backend_exception_does_not_start_builtin():
 def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
     """An exception while reading the agent backend must not start builtin chat."""
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
-    from plugin.chatbot.panel import SendButtonListener
-    from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)
@@ -3057,7 +3038,6 @@ def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
 def test_do_send_agent_backend_success_skips_builtin():
     """A completed external-agent send stays on that path."""
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
-    from plugin.chatbot.panel import SendButtonListener
 
     listener = _make_do_send_listener()
     patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_CHAT)

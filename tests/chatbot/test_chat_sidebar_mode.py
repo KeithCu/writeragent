@@ -226,13 +226,6 @@ def test_greeting_for_chat_mode_falls_back_to_document_greeting():
 def test_librarian_mode_finished_applies_chat_mode():
     from types import SimpleNamespace
 
-    from plugin.chatbot.chat_sidebar_mode import (
-        CHAT_MODE_CHAT,
-        CHAT_MODE_LIBRARIAN,
-        SidebarModeController,
-        SidebarModeFlags,
-    )
-
     listener = SimpleNamespace(
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
         chat_mode_selector=MagicMock(),

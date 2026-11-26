@@ -122,8 +122,6 @@ def test_base_listener_unhandled_exceptions(base_cls, uno_method: str, hook_name
 
 
 def test_mouse_click_failure_returns_false():
-    from plugin.framework.uno_listeners import BaseMouseClickHandler
-
     class Boom(BaseMouseClickHandler):
         def on_mouse_pressed(self, e):
             raise RuntimeError("nope")
@@ -182,7 +180,6 @@ def test_subclass_disposing_override_is_wrapped():
 
 def test_subclass_item_state_changed_override_is_wrapped():
     """Settings/MCP listeners override itemStateChanged on the class dict."""
-    from plugin.framework.uno_listeners import BaseItemListener
 
     class Raw(BaseItemListener):
         def itemStateChanged(self, rEvent):
@@ -197,7 +194,6 @@ def _thread_violation() -> RuntimeError:
 
 def test_listener_boundary_is_not_an_exception():
     """A generic handler must not be able to name this type as Exception."""
-    from plugin.framework.uno_listeners import ListenerBoundary
 
     assert issubclass(ListenerBoundary, BaseException)
     assert not issubclass(ListenerBoundary, Exception)
@@ -247,7 +243,6 @@ def test_runtime_error_is_not_disposal():
 
 def test_disposed_desktop_is_not_an_empty_document():
     """A dead desktop must not come back as the 'nothing is open' None."""
-    from plugin.framework.uno_listeners import ListenerBoundary
 
     class DisposedException(Exception):
         pass
@@ -273,7 +268,6 @@ def test_disposed_desktop_is_not_an_empty_document():
 
 def test_empty_document_is_not_disposed():
     """No current component is None, not a disposed desktop."""
-    from plugin.framework.uno_listeners import ListenerBoundary
 
     class Read(BaseActionListener):
         def on_action_performed(self, ev):

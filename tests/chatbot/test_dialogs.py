@@ -479,7 +479,6 @@ def test_get_optional_reraises_disposed_and_returns_none_when_missing():
 
 def test_msgbox_with_report_long_message_does_not_raise():
     from plugin.chatbot.dialogs import msgbox_with_report
-    from unittest.mock import MagicMock, patch
     ctx = MagicMock()
     dlg = MagicMock()
     msg_ctrl = MagicMock()
@@ -497,7 +496,6 @@ def test_msgbox_with_report_long_message_does_not_raise():
 
 def test_msgbox_long_message_does_not_raise():
     from plugin.chatbot.dialogs import msgbox
-    from unittest.mock import MagicMock, patch
     ctx = MagicMock()
     toolkit = MagicMock()
     ctx.getServiceManager().createInstanceWithContext.return_value = toolkit
@@ -516,7 +514,6 @@ def test_msgbox_long_message_does_not_raise():
 
 def test_msgbox_parent_window_skips_frame_lookup():
     from plugin.chatbot.dialogs import msgbox
-    from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     toolkit = MagicMock()
@@ -534,9 +531,6 @@ def test_msgbox_parent_window_skips_frame_lookup():
 
 
 def test_show_text_input_dialog_disposes_when_prepare_raises():
-    from plugin.chatbot.dialogs import show_text_input_dialog
-    from unittest.mock import MagicMock, patch
-
     ctx = MagicMock()
     dlg = MagicMock()
     dlg.getModel.side_effect = RuntimeError("no model")
@@ -552,7 +546,6 @@ def test_copy_to_clipboard_log_does_not_include_payload(caplog, monkeypatch):
     import logging
     import sys
     from plugin.chatbot.dialogs import copy_to_clipboard
-    from unittest.mock import MagicMock
 
     monkeypatch.setattr(sys.modules["com.sun.star.datatransfer"], "DataFlavor", MagicMock, raising=False)
     with caplog.at_level(logging.INFO, logger="plugin.chatbot.dialogs"):

@@ -596,7 +596,6 @@ def test_read_secret_in_background_drops_when_closed(monkeypatch):
 
 def test_read_secret_in_background_calls_on_done_when_read_raises(monkeypatch):
     from unittest.mock import MagicMock
-    import pytest
     from plugin.chatbot import settings_fields
 
     monkeypatch.setattr(settings_fields, "run_in_background", lambda fn, *args, **_kw: fn(*args))

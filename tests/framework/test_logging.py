@@ -1806,9 +1806,6 @@ def test_debug_log_max_bytes_env(monkeypatch):
 
 
 def test_tool_call_argument_strings_are_redacted() -> None:
-    import json
-    from plugin.framework.logging import redact_sensitive_payload_for_log
-
     payload = {
         "messages": [
             {
