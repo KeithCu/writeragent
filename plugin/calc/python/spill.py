@@ -16,10 +16,12 @@ import datetime
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
+
+from com.sun.star.container import NoSuchElementException
 
 from plugin.calc.address_utils import format_address, format_range, qualify_a1
-from plugin.calc.calc_utils import EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
+from plugin.calc.calc_utils import CELL_CONTENT_FLAGS, EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     should_preserve_temporal_format,
@@ -41,19 +43,17 @@ from plugin.calc.python.formula_locator_cache import (
 )
 from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
 from plugin.calc.python.undo import undo_lock
-from plugin.calc.python.workbook_state import WorkbookState
+from plugin.calc.python.workbook_state import SETTLE_DELAY_SEC, WorkbookState
 from plugin.doc.udprops import read_document_property, set_document_property
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
 
-# CellFlags VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16): what counts as content when
-# checking that a spill target is free or was emptied.
-SPILL_CONTENT_FLAGS = 1 | 2 | 4 | 16
+SPILL_REGISTRY_PROP = "WriterAgentSpillRegistry"
 # Content plus HARDATTR (32): clearing also removes direct cell formatting and number formats.
 # Annotations, styles and draw objects stay.
-SPILL_CLEAR_FLAGS = SPILL_CONTENT_FLAGS | 32
+SPILL_CLEAR_FLAGS = CELL_CONTENT_FLAGS | 32
 
 # A spilled error cell reads back as =#ERR504!, =#NUM! and so on, a void cell as #N/A, and any error
 # as =NA() after .xls. Any bare error literal counts as ours: it holds no user data, and XLSX turns
@@ -122,7 +122,7 @@ def _user_formula_in_rect(sheet: Any, row: int, col: int, rows: int, cols: int) 
         # The record can name cells past the edge of a file saved with a smaller sheet.
         log.debug("_user_formula_in_rect: could not read the spilled range", exc_info=True)
         return None
-    for addr in rect.queryContentCells(CELL_FLAG_FORMULA).getRangeAddresses() or ():
+    for addr in rect.queryContentCells(CELL_FLAG_FORMULA).getRangeAddresses():
         sub_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
         for r, c, formula in iter_range_formula_texts(sheet, sub_range):
             if (r, c) == (row, col):
@@ -306,7 +306,7 @@ def _clear_rect(sheet: Any, row: int, col: int, rows: int, cols: int) -> bool:
         try:
             target = sheet.getCellRangeByPosition(c1, r1, c2, r2)
             target.clearContents(SPILL_CLEAR_FLAGS)
-            if target.queryContentCells(SPILL_CONTENT_FLAGS).getRangeAddresses():
+            if target.queryContentCells(CELL_CONTENT_FLAGS).getRangeAddresses():
                 cleared = False
         except Exception:
             # The record can name cells past the edge of a file saved with a smaller sheet.
@@ -410,8 +410,7 @@ def cleanup_orphans(
                         continue
 
                     cell = sheet.getCellByPosition(fcol, frow)
-                    formula = cell.getFormula()
-                    formula_str = str(formula) if formula else ""
+                    formula_str = cell.getFormula()
                     matches = collect_matching_formula_origins(sheet, record.code, doc=doc) if record.code else []
                     action, new_coords = _classify_orphan_record(
                         _rect_unchanged(sheet, frow, fcol, record),
@@ -438,18 +437,16 @@ def cleanup_orphans(
                             if owned_r * owned_c > 1:
                                 _clear_rect(sheet, key[1], key[2], owned_r, owned_c)
                     for shrink_key, (new_r, new_c) in to_shrink:
-                        shrink_rec = state.spills.get(shrink_key)
-                        if shrink_rec is not None:
-                            state.spills[shrink_key] = SpillRecord(
-                                code=shrink_rec.code,
-                                rows=new_r,
-                                cols=new_c,
-                                values=_rect_values(sheet, shrink_key[1], shrink_key[2], new_r, new_c),
-                            )
+                        shrink_rec = state.spills[shrink_key]
+                        state.spills[shrink_key] = SpillRecord(
+                            code=shrink_rec.code,
+                            rows=new_r,
+                            cols=new_c,
+                            values=_rect_values(sheet, shrink_key[1], shrink_key[2], new_r, new_c),
+                        )
                     moved = [
                         (new_k, state.spills.pop(old_k))
                         for old_k, new_k in to_remap
-                        if old_k in state.spills
                     ]
                     for new_k, rec in moved:
                         state.spills[new_k] = rec
@@ -465,7 +462,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     if state.loaded or not state.key:
         return
     try:
-        raw = read_document_property(doc, "WriterAgentSpillRegistry", None)
+        raw = read_document_property(doc, SPILL_REGISTRY_PROP, None)
     except Exception:
         log.exception("Failed to load spill registry from document property")
         return
@@ -509,7 +506,6 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                             )
         except Exception:
             log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
-            continue
     state.loaded = True
 
 
@@ -527,7 +523,7 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                 "cols": record.cols,
             }
         new_val = json.dumps(doc_spills)
-        set_document_property(doc, "WriterAgentSpillRegistry", new_val)
+        set_document_property(doc, SPILL_REGISTRY_PROP, new_val)
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
@@ -602,7 +598,7 @@ def _apply_spill_temporal_formats(
                         row_dec.append(("preserve", None))
                     else:
                         apply_k = standard_keys.get(v.temporal_category, standard_keys["date"])
-                        row_dec.append(("apply", int(apply_k)))
+                        row_dec.append(("apply", apply_k))
                 elif v.kind == "e":
                     row_dec.append("empty")
                 else:
@@ -632,11 +628,11 @@ def _live_origin_sheet(
     """Resolve the current sheet (following renames) and verify the origin still matches ``code``."""
     try:
         sheet = doc.getSheets().getByName(sheet_name)
-    except Exception:
+    except NoSuchElementException:
         # getByName raises NoSuchElementException after a rename; keep the sheet located earlier.
         log.debug("_live_origin_sheet: no sheet named %r; using the located sheet", sheet_name)
     try:
-        live_sheet_name = str(sheet.getName() or "")
+        live_sheet_name = sheet.getName()
     except Exception:
         return None
     if live_sheet_name and live_sheet_name != sheet_name:
@@ -857,7 +853,7 @@ def cell_is_matrix(sheet: Any, cell: Any) -> bool:
         addr = cursor.getRangeAddress()
         return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
 
-    return bool(uno_read(_probe, False))
+    return uno_read(_probe, False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -975,7 +971,7 @@ def _spill_is_blocked(
     if kept_rows < num_rows:
         strips.append((col, row + kept_rows, col + num_cols - 1, row + num_rows - 1))
     for strip in strips:
-        occupied = sheet.getCellRangeByPosition(*strip).queryContentCells(SPILL_CONTENT_FLAGS).getRangeAddresses()
+        occupied = sheet.getCellRangeByPosition(*strip).queryContentCells(CELL_CONTENT_FLAGS).getRangeAddresses()
         if occupied:
             blocker_row, blocker_col = min((int(a.StartRow), int(a.StartColumn)) for a in occupied)
             log.debug("Spill: collision at %r", (blocker_row, blocker_col))
@@ -985,7 +981,7 @@ def _spill_is_blocked(
 
 
 def _origin_matches_record(sheet: Any, frow: int, fcol: int, record: SpillRecord, *, doc: Any) -> bool:
-    formula = str(sheet.getCellByPosition(fcol, frow).getFormula() or "")
+    formula = sheet.getCellByPosition(fcol, frow).getFormula()
     return (
         is_matching_py_formula(formula, record.code, sheet=sheet, doc=doc)
         if record.code
@@ -1048,7 +1044,7 @@ def prepare_auto_spill(
     origin: FormulaOrigin,
     code: str,
     grid_to_spill: list[list[Any]],
-) -> PreparedSpill | str | None:
+) -> PreparedSpill | Literal["#SPILL!"] | None:
     """Check spill collisions for an already-located formula origin (UNO / UI thread).
 
     Called with the origin already located and known not to be an array block
@@ -1103,7 +1099,7 @@ def prepare_auto_spill(
         key = state.key
         state.debounce.schedule(
             _spill_token(sheet_name, formula_row, formula_col),
-            0.1,
+            SETTLE_DELAY_SEC,
             lambda: _release_blocked_spill(
                 sheet_name,
                 formula_row,
@@ -1125,7 +1121,7 @@ def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: Prepare
     token = _spill_token(*reg_key)
 
     def _write() -> None:
-        live_name = uno_read(lambda: str(prepared.sheet.getName() or ""), "") or prepared.sheet_name
+        live_name = uno_read(prepared.sheet.getName, "") or prepared.sheet_name
         if not state.finish_pending_spill((live_name, prepared.formula_row, prepared.formula_col), gen):
             return
         perform_deferred_spill(
@@ -1139,7 +1135,7 @@ def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: Prepare
             key=prepared.key,
         )
 
-    state.debounce.schedule(token, 0.1, _write)
+    state.debounce.schedule(token, SETTLE_DELAY_SEC, _write)
 
 
 def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
@@ -1196,6 +1192,6 @@ def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]
         if state is None or not state.key:
             log.debug("Spill: no workbook state on UI thread; skipping off-main auto-spill")
             return
-        state.debounce.schedule(f"code:{code}", 0.1, lambda: _on_main(state))
+        state.debounce.schedule(f"code:{code}", SETTLE_DELAY_SEC, lambda: _on_main(state))
 
     main.post(_arm_on_ui)

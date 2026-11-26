@@ -10,9 +10,9 @@ import logging
 import threading
 from typing import Any
 
-import uno
 import unohelper
 
+from plugin.calc.calc_utils import query_interface
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import is_scratch_document, run_after_scratch_loads
@@ -74,6 +74,7 @@ def _looks_like_cell_context_menu(container: Any) -> bool:
             except Exception:  # noqa: S112 - separator has no CommandURL; continue scan
                 continue
     except Exception:
+        log.debug("python_editor_context_menu: menu scan failed", exc_info=True)
         return False
     return False
 
@@ -95,7 +96,7 @@ def _get_interceptor() -> Any:
                 if not _looks_like_cell_context_menu(container):
                     return IGNORED
 
-                factory = container.queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
+                factory = query_interface(container, "com.sun.star.lang.XMultiServiceFactory")
                 if factory is None:
                     return IGNORED
                 separator = factory.createInstance("com.sun.star.ui.ActionTriggerSeparator")
@@ -122,7 +123,7 @@ def _register_controller(controller: Any) -> None:
     if not _is_calc_controller(controller):
         return
     try:
-        interception = controller.queryInterface(uno.getTypeByName("com.sun.star.ui.XContextMenuInterception"))
+        interception = query_interface(controller, "com.sun.star.ui.XContextMenuInterception")
         if interception is None:
             return
         with _lock:

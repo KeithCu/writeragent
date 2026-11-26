@@ -29,7 +29,7 @@ import logging
 from typing import Any, Generator
 
 from plugin.calc.python.cell_discovery import sheet_name_of
-from plugin.calc.python.workbook_state import WorkbookState
+from plugin.calc.python.workbook_state import SETTLE_DELAY_SEC, WorkbookState
 from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
@@ -40,7 +40,6 @@ log = logging.getLogger(__name__)
 
 # Modify dispatch depth: prevents re-entrant modified() dispatch during pass or spill writes.
 _DISPATCH_DEPTH = 0
-_MODIFY_DELAY_SEC = 0.1
 
 
 @contextmanager
@@ -82,7 +81,7 @@ def owning_calc_doc(sheet: Any) -> Any | None:
     return None
 
 
-def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
+def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, sheet_name: str = "", delay_sec: float = SETTLE_DELAY_SEC) -> None:
     """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
         return
@@ -140,8 +139,7 @@ def migrate_sheet_rename(
         # Lazy: spill imports this module at its top.
         from plugin.calc.python.spill import load_spill_registry_for_doc, persist_spill_registry
 
-        if doc is not None:
-            load_spill_registry_for_doc(doc, state)
+        load_spill_registry_for_doc(doc, state)
         for (sname, r, c) in list(state.spills):
             if sname == old_sheet_name:
                 rec = state.spills.pop((sname, r, c))
@@ -150,21 +148,17 @@ def migrate_sheet_rename(
             if sname == old_sheet_name:
                 gen = state.pending_spills.pop((sname, r, c))
                 state.pending_spills[(new_sheet_name, r, c)] = gen
-        if doc is not None:
-            persist_spill_registry(doc, state)
+        persist_spill_registry(doc, state)
         if old_sheet_name in state.used_ends:
             state.used_ends[new_sheet_name] = state.used_ends.pop(old_sheet_name)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate SPILL_REGISTRY")
 
     # Rekey state.listeners
-    try:
-        if old_sheet_name in state.listeners:
-            disp = state.listeners.pop(old_sheet_name)
-            disp.sheet_name = new_sheet_name
-            state.listeners[new_sheet_name] = disp
-    except Exception:
-        log.exception("migrate_sheet_rename: failed to migrate listeners")
+    if old_sheet_name in state.listeners:
+        disp = state.listeners.pop(old_sheet_name)
+        disp.sheet_name = new_sheet_name
+        state.listeners[new_sheet_name] = disp
 
     # Rekey debounce
     state.debounce.rekey(f"sheet:{old_sheet_name}", f"sheet:{new_sheet_name}")
@@ -179,15 +173,14 @@ def migrate_sheet_rename(
             save_geometric_registry_for_doc,
         )
 
-        if doc is not None:
-            # The save below writes every in-memory record, so load the stored ones first
-            # for a workbook whose open event did not load them.
-            load_geometric_registry_for_doc(doc, state.key)
-            old_records = records_for_sheet(state.key, old_sheet_name)
-            if old_records:
-                replace_records_for_sheet(state.key, new_sheet_name, old_records)
-                replace_records_for_sheet(state.key, old_sheet_name, {})
-            save_geometric_registry_for_doc(doc, state.key)
+        # The save below writes every in-memory record, so load the stored ones first
+        # for a workbook whose open event did not load them.
+        load_geometric_registry_for_doc(doc, state.key)
+        old_records = records_for_sheet(state.key, old_sheet_name)
+        if old_records:
+            replace_records_for_sheet(state.key, new_sheet_name, old_records)
+            replace_records_for_sheet(state.key, old_sheet_name, {})
+        save_geometric_registry_for_doc(doc, state.key)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate geometric records")
 

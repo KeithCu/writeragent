@@ -7,19 +7,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from plugin.calc.address_utils import parse_address, parse_range_string
 from plugin.calc.bridge import used_range_address
+from plugin.calc.calc_utils import CELL_CONTENT_FLAGS
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
 from plugin.calc.spreadsheet_import.models import TodoCell
 from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, enrich_number_formats
 from plugin.calc.spreadsheet_import.verify import verify_converted_cells
 from plugin.framework.errors import best_effort
-
-# com.sun.star.sheet.CellFlags: VALUE(1) | DATETIME(2) | STRING(4) | FORMULA(16).
-_CLEAR_CONTENTS_FLAGS = 1 | 2 | 4 | 16
 
 
 def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
@@ -62,18 +60,17 @@ def run_sheet_conversion(
     doc: Any,
     source_sheet: Any,
     *,
-    scope: str = "sheet",
-    output_mode: str = "new_sheet",
+    scope: Literal["sheet", "selection"] = "sheet",
+    output_mode: Literal["new_sheet", "in_place"] = "new_sheet",
     vectorize: bool = True,
     verify: bool = True,
     preserve_formats: bool = True,
 ) -> dict[str, Any]:
-    """Execute the Conversion Pipeline using ingest, emit, apply, and verify."""
+    """Convert *source_sheet* (or the selection) to =PY() formulas; return {"status", "report", "summary", "failed_verifications"}."""
     range_addr = None
     if scope == "selection":
         range_addr = selection_range_address(doc.getCurrentController().getSelection())
 
-    # Ingest Sheet
     model = ingest_sheet(source_sheet, range_addr=range_addr)
     if preserve_formats:
         enrich_number_formats(source_sheet, model)
@@ -89,10 +86,8 @@ def run_sheet_conversion(
 
     best_effort(_collect_bounds, "collect workbook sheet bounds")
 
-    # Translate and Build Converted Output Model
     output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds)
 
-    # Resolve Target Sheet
     if output_mode == "new_sheet":
         sheets = doc.getSheets()
         target_name = _unique_sheet_name(sheets, "PythonImport")
@@ -102,12 +97,10 @@ def run_sheet_conversion(
         target_sheet = source_sheet
         (sc, sr), (ec, er) = parse_range_string(output.used_range)
         cell_range = target_sheet.getCellRangeByPosition(sc, sr, ec, er)
-        cell_range.clearContents(_CLEAR_CONTENTS_FLAGS)
+        cell_range.clearContents(CELL_CONTENT_FLAGS)
 
-    # Apply Output
     apply_output_to_sheet(target_sheet, output)
 
-    # Verify Recalc
     failed_verifications = []
     if verify:
         # A conversion that does not reproduce the cell's value must not replace

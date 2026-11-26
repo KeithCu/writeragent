@@ -87,7 +87,7 @@ def same_cell_ref(left: str, right: str) -> bool:
 
 def arg_overlaps_box(arg: str, box: tuple[int, int, int, int], *, sheet_name: str | None = None) -> bool:
     """True when a data-arg token (cell or range) shares a cell with the inclusive (left, top, right, bottom) *box*."""
-    sheet, _rest = split_sheet_prefix(arg or "")
+    sheet, _rest = split_sheet_prefix(arg)
     if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
         return False
     local = local_a1(arg)
@@ -310,8 +310,7 @@ def _rehome_or_keep_record(
         if best is None or score < best:
             chosen, best = old, score
     if chosen is None:
-        incoming_here = incoming.get(key)
-        if incoming_here is not None and key not in consumed and key not in evicted:
+        if key in incoming and key not in consumed and key not in evicted:
             working[key] = GeometricRecord(predecessor=desired)
         else:
             log.debug("geometric_recalc: no homeless match for %s (desired %s); not recording", key, desired)
@@ -371,14 +370,14 @@ def compute_sheet_repair(
     adj: dict[str, set[str]] = {}
     desired_by_key: dict[str, str | None] = {}
     for i, (key, cell) in enumerate(zip(keys, cells)):
-        adj[key] = _adj_for(cell.formula, data_args_by_key.get(key), live_keys, sheet_name)
+        adj[key] = _adj_for(cell.formula, data_args_by_key[key], live_keys, sheet_name)
         desired_by_key[key] = keys[i - 1] if i > 0 else None
     consumed: set[str] = set()
     evicted: set[str] = set()
     rule2_claimed = _collect_rule2_claimed(keys, incoming, live_keys, desired_by_key, data_args_by_key)
 
     for key, cell in zip(keys, cells):
-        data_args = data_args_by_key.get(key)
+        data_args = data_args_by_key[key]
         if data_args is None:
             continue
         desired = desired_by_key[key]

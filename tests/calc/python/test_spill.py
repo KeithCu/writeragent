@@ -614,7 +614,9 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
     doc = CalcDocStub(url="file:///spill_rename.ods")
 
     def boom_get_by_name(name: str) -> None:
-        raise KeyError(f"Sheet {name} not found")
+        from com.sun.star.container import NoSuchElementException
+
+        raise NoSuchElementException(f"Sheet {name} not found", None)
 
     monkeypatch.setattr(doc.getSheets(), "getByName", boom_get_by_name)
 

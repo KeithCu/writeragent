@@ -174,9 +174,12 @@ def _patch_content_types(
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
+def _target_basename(rel: ET.Element) -> str:
+    return rel.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
+
+
 def _is_python_script_rel(rel: ET.Element) -> bool:
-    target = rel.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
-    return rel.attrib.get("Type") == PYTHON_SCRIPT_REL_TYPE or target == "pythonScripts.xml"
+    return rel.attrib.get("Type") == PYTHON_SCRIPT_REL_TYPE or _target_basename(rel) == "pythonScripts.xml"
 
 
 def _next_rid_num(rels_root: ET.Element) -> int:
@@ -200,12 +203,11 @@ def _strip_rels_python(data: bytes) -> bytes:
     changed = False
     for child in list(root):
         if local_name(child.tag) == "Relationship":
-            target = child.attrib.get("Target", "").replace("\\", "/").rstrip("/").split("/")[-1]
             rel_type = child.attrib.get("Type", "")
             if (
                 _is_python_script_rel(child)
                 or rel_type.endswith(CALC_CHAIN_REL_TYPE_SUFFIX)
-                or target == "calcChain.xml"
+                or _target_basename(child) == "calcChain.xml"
             ):
                 root.remove(child)
                 changed = True
@@ -322,8 +324,8 @@ class _WorksheetCellIndex:
 
         cell = ET.Element(_xml_tag(SSML_NS, "c"), attrib={"r": a1_canonical})
 
-        max_col = self.max_col_by_row.get(row_el, 0)
-        has_non_c = self.has_non_c_by_row.get(row_el, False)
+        max_col = self.max_col_by_row[row_el]
+        has_non_c = self.has_non_c_by_row[row_el]
 
         # Append when the new cell sorts after every existing cell and the parent
         # holds only cells (no extLst or other children); otherwise insert at the
@@ -399,7 +401,7 @@ def _clear_spill_xml(anchor: str, array_ref: str, index: _WorksheetCellIndex) ->
     for r, row_el in index.rows.items():
         if not (row1 <= r <= row2):
             continue
-        row_cells = index.cells_by_row.get(row_el)
+        row_cells = index.cells_by_row[row_el]
         if not row_cells:
             continue
         for col, c in row_cells.items():
@@ -513,8 +515,7 @@ def python_scripts_xml(scripts: Sequence[str]) -> bytes:
     # normalizes a raw \r to \n; &#13; keeps CRLF in the script
     # (test_python_scripts_xml_cr_roundtrip_and_invalid_xml_char).
     chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
-    for body in scripts:
-        raw = body or ""
+    for raw in scripts:
         if _INVALID_XML_CHARS_RE.search(raw):
             raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
         escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\r", "&#13;")
@@ -592,8 +593,8 @@ def _patch_cells(
         try:
             _unshare_groups_touching(root, sheet_title, sheet_write_set)
         except Exception as exc:
-            # Kept so the Excel writer's error message keeps its current unwrapped shape;
-            # collecting it like the DAG writer is a separate behaviour change (CSTRUCT-BUGS).
+            # The Excel writer raises here so its caller reports the bare ValueError text.
+            # The DAG writer collects the message with the sheet title instead.
             if unshare_raises:
                 raise
             errors.append(f"{sheet_title}: {exc}")
@@ -627,7 +628,7 @@ def _emit_bank_sheets(
     sheet_ids = [
         int(sh.attrib["sheetId"])
         for sh in (sheets_el if sheets_el is not None else [])
-        if str(sh.attrib.get("sheetId", "")).isdigit()
+        if sh.attrib.get("sheetId", "").isdigit()
     ]
     next_sheet_id = max(sheet_ids, default=0) + 1
 
@@ -654,8 +655,8 @@ def _emit_bank_sheets(
             part_name = f"xl/worksheets/sheet{next_sheet_num}.xml"
             next_sheet_num += 1
 
-            bank_ws_root = ET.Element(f"{{{SSML_NS}}}worksheet")
-            ET.SubElement(bank_ws_root, f"{{{SSML_NS}}}sheetData")
+            bank_ws_root = ET.Element(_xml_tag(SSML_NS, "worksheet"))
+            ET.SubElement(bank_ws_root, _xml_tag(SSML_NS, "sheetData"))
             bank_ws_ns = {"": SSML_NS, "r": OFFICE_DOC_REL_NS}
             bank_index = _WorksheetCellIndex(bank_ws_root)
 
@@ -666,7 +667,7 @@ def _emit_bank_sheets(
 
             if sheets_el is None:
                 sheets_el = ET.SubElement(wb_root, _xml_tag(SSML_NS, "sheets"))
-            r_id_attr = f"{{{OFFICE_DOC_REL_NS}}}id"
+            r_id_attr = _xml_tag(OFFICE_DOC_REL_NS, "id")
             sheets_el.append(ET.Element(_xml_tag(SSML_NS, "sheet"), attrib={"name": code_sheet, "sheetId": str(cur_sheet_id), r_id_attr: cur_rid}))
 
             rels_root.append(ET.Element(_xml_tag(PACKAGE_REL_NS, "Relationship"), attrib={
@@ -800,7 +801,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
 
         # 1. Scan worksheet formulas for _xlws.PY not in report's write set
         report_write_set: set[tuple[str, str]] = {
-            (c.sheet.lower(), c.cell.replace("$", "").upper())
+            (c.sheet.lower(), canonical(c.cell))
             for c in report.cells
             if c.converted and c.script_index >= 0
         }
@@ -812,7 +813,8 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             )
 
         # 2. Bank sheet discovery via defined names / ZZ1 note
-        wb_root = ET.fromstring(zin.read("xl/workbook.xml"))
+        wb_xml = zin.read("xl/workbook.xml")
+        wb_root = ET.fromstring(wb_xml)
         defined_names = _defined_name_pairs(wb_root)
         shared_strs = shared_strings(zin)
 
@@ -837,7 +839,6 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             raise ValueError("write_excel_python_xlsx failed:\n" + "\n".join(errors))
 
         scripts_bytes = python_scripts_xml(scripts)
-        wb_xml = zin.read("xl/workbook.xml")
         rels_xml = zin.read("xl/_rels/workbook.xml.rels")
         wb_xml, rels_xml = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, drop_rids, drop_titles=drop_titles)
 
@@ -922,7 +923,6 @@ def write_dag_formulas_xlsx(
         # Strip calcChain and pythonScripts relationships from workbook.xml.rels.
         rels_bytes = _strip_rels_python(rels_bytes)
 
-    drop_prefixes = ("xl/pythonScripts/",)
     drop_exact = {"xl/calcChain.xml", "xl/pythonScripts.xml"}
 
     _write_package(
@@ -934,7 +934,7 @@ def write_dag_formulas_xlsx(
             **new_sheet_parts,
         },
         patched=patched,
-        drop=lambda name: name in drop_exact or any(name.startswith(p) for p in drop_prefixes),
+        drop=lambda name: name in drop_exact or name.startswith("xl/pythonScripts/"),
         content_types=lambda data: _patch_content_types(
             data,
             strip_python=True,

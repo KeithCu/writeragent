@@ -379,10 +379,6 @@ def test_formula_origin_from_located():
     assert origin.row == 2
     assert origin.col == 3
 
-    bad_sheet = SimpleNamespace(getName=lambda: 123)
-    origin_non_str = FormulaOrigin.from_located((bad_sheet, cell, (0, 0)))
-    assert origin_non_str.sheet_name == ""
-
 
 def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:
     """locate_formula_cell_in_doc locates formula cell on non-active sheet."""

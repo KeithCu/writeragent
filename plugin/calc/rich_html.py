@@ -114,7 +114,7 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
     retain that owner after insertTransferable). Touch the clipboard only when
     it holds this object so a user copy is left alone.
     """
-    try:
+    def _release() -> None:
         # Do not import chatbot for the clipboard; LibrePy ships this module.
         smgr: Any = get_service_manager(uno_ctx)
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
@@ -123,8 +123,8 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
         if contents is not None and (contents is transferable or contents == transferable):
             # None, None drops the previous owner (lostOwnership) without a new OLE source.
             clip.setContents(None, None)
-    except Exception:
-        return
+
+    best_effort(_release, "release clipboard after rich HTML paste")
 
 
 def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> str:
@@ -145,7 +145,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
 
     # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
     cell = CalcBridge(doc).get_cell_by_address(cell_address.strip())
-    replaced = str(cell.getFormula()) if cell.getType() == FORMULA else str(cell.getString())
+    replaced = cell.getFormula() if cell.getType() == FORMULA else cell.getString()
 
     content = normalize_character_references(html)
     prepared = html_import.ensure_html_linebreaks(content)
@@ -193,8 +193,6 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
                 raise ToolExecutionError("Calc controller does not support insertTransferable.")
             ins(transferable)
         # The clipboard must not keep this Writer's SwTransferable as owner after the paste.
-        # Do not gc.collect() here: a forced collection after that release can abort
-        # LibreOffice in the SdrObject destructor.
         step = _step("release clipboard")
     except ToolExecutionError:
         raise

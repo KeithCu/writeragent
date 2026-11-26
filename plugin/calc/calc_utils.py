@@ -31,6 +31,10 @@ from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 
 log = logging.getLogger(__name__)
 
+CELL_FLAG_DATETIME = 2  # com.sun.star.sheet.CellFlags.DATETIME
+CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
+CELL_CONTENT_FLAGS = 23  # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16
+
 # Import CellContentType members from com.sun.star.table.CellContentType, not com.sun.star.table:
 # live PyUNO exposes enums as submodules; int fallbacks must still compare equal to uno.Enum from getType().
 try:

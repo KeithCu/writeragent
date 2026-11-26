@@ -165,7 +165,7 @@ def test_conditional_formatting_add_operator_path():
 
     with (
         patch("plugin.calc.conditional.CalcBridge", return_value=bridge),
-        patch.object(uno, "createUnoStruct", side_effect=lambda *a, **k: SimpleNamespace()),
+        patch.object(uno, "createUnoStruct", side_effect=lambda *a, **k: SimpleNamespace(**k)),
     ):
         # 1. Standard operator -> int code and SourcePosition top-left
         res_gt = tool.execute_safe(ctx, range=["C5:C9"], operator="GREATER", formula1="5", style="Result")

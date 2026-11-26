@@ -485,17 +485,14 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
 
 
 def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int, int]] | None:
-    if not code or doc is None:
+    if not code:
         return None
-    try:
-        return locate_formula_cell_in_doc(doc, code)
-    except Exception:
-        return None
+    return best_effort(lambda: locate_formula_cell_in_doc(doc, code), "locate formula cell", None)
 
 
 def _remove_image_note(doc: Any, sheet: Any, cell: Any) -> None:
     """Remove *cell*'s note if it is a ``WriterAgent image:`` note, without an undo entry."""
-    if not (cell.getAnnotation().getString() or "").startswith(_IMAGE_ANNOTATION_PREFIX):
+    if not cell.getAnnotation().getString().startswith(_IMAGE_ANNOTATION_PREFIX):
         return
     addr = cell.getCellAddress()
     annotations = sheet.getAnnotations()
@@ -517,7 +514,7 @@ def _set_image_cell_annotation(doc: Any, code: str | None, error_message: str) -
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
         ann = cell.getAnnotation()
         # ScCellObj::getAnnotation (cellsuno.cxx) always returns a ScAnnotationObj.
-        note = ann.getString() or ""
+        note = ann.getString()
         if note.startswith(_IMAGE_ANNOTATION_PREFIX):
             ann.setString(text)
             return
@@ -549,10 +546,7 @@ def _clear_image_cell_annotation(doc: Any, code: str | None) -> None:
 
 
 class ImageEgressError(Exception):
-    """Raised when a Calc plot was not placed on the sheet.
-
-    Raised when document, sheet, or draw page is missing so callers cannot report a successful insert.
-    """
+    """A Calc plot was not placed on the sheet (missing document, sheet or draw page, or a UNO failure), so callers cannot report a successful insert."""
 
 
 def _egress_fail(message: str) -> NoReturn:
@@ -594,7 +588,8 @@ def _unlink_temp_image(path: str) -> None:
     """Best-effort delete of the PNG/SVG written for GraphicURL.
 
     The GraphicURL setter reads the file before it returns and stores the
-    bitmap on the shape (desktop GraphicObjectShape embeds on set). The path
+    bitmap on the shape (``SvxGraphicObject::setPropertyValueImpl``,
+    ``OWN_ATTR_GRAPHIC_URL`` case, ``svx/source/unodraw/unoshap2.cxx``). The path
     is not a live link after that call, so unlink in ``finally`` — including
     when a later anchor step fails — instead of leaking a file per recalc.
     A build that kept only the URL would show a broken picture; that is not

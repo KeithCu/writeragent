@@ -38,6 +38,9 @@ def _doc_objects(doc: Any) -> list[Any]:
     return objects
 
 
+SETTLE_DELAY_SEC = 0.1
+
+
 class Debounce:
     """Per-workbook debounce: one DeadlineThread, many keyed callbacks."""
 
@@ -54,11 +57,7 @@ class Debounce:
         next_deadline = min(deadline for _unused, deadline in self._entries.values())
         delay = max(0.0, next_deadline - time.monotonic())
         if self._timer is None:
-
-            def _fire() -> None:
-                self._on_timer()
-
-            self._timer = DeadlineThread(_fire, name="calc-debounce")
+            self._timer = DeadlineThread(self._on_timer, name="calc-debounce")
         self._timer.arm(delay)
 
     def _on_timer(self) -> None:
@@ -104,7 +103,6 @@ class Debounce:
             ent = self._entries.pop(old_key, None)
             if ent is None:
                 return
-            self._entries.pop(new_key, None)
             self._entries[new_key] = ent
             self._arm_timer_locked()
 
@@ -136,7 +134,7 @@ class WorkbookState:
         if self._dirty_spill_doc is not None:
             return
         self._dirty_spill_doc = doc
-        self.debounce.schedule("spill-registry", 0.1, self.flush_spill_registry)
+        self.debounce.schedule("spill-registry", SETTLE_DELAY_SEC, self.flush_spill_registry)
 
     def flush_spill_registry(self) -> None:
         """Persist the spill registry once if dirty, cancelling any pending timer."""
@@ -189,11 +187,9 @@ class WorkbookState:
         """True when *scheduled* is this workbook's current or superseded lifecycle id."""
         if not scheduled:
             return False
-        sk = scheduled
-        k = self.key
-        if k == sk or k == f"calc:{sk}" or f"calc:{k}" == sk:
+        if self.key == scheduled or self.key == f"calc:{scheduled}" or f"calc:{self.key}" == scheduled:
             return True
-        return sk in self.prior_keys
+        return scheduled in self.prior_keys
 
     def clear(self) -> None:
         """Drop this workbook's spills, listeners, and debounce timers."""
@@ -209,8 +205,6 @@ class WorkbookState:
 
     @classmethod
     def _remember(cls, doc: Any, state: WorkbookState) -> None:
-        if doc is None:
-            return
         with _LOCK:
             for obj in _doc_objects(doc):
                 # Strong ref: PyUNO often rejects weakref, and id() can be reused.
@@ -228,11 +222,11 @@ class WorkbookState:
         with _LOCK:
             to_clear: list[WorkbookState] = []
             for obj, st in list(_STATES.items()):
-                if st.key == key or st.scheduled_key_matches(key):
+                if st.scheduled_key_matches(key):
                     _STATES.pop(obj, None)
                     to_clear.append(st)
             for doc_id, entry in list(_STATE_BY_DOC_ID.items()):
-                if entry[0].key == key or entry[0].scheduled_key_matches(key):
+                if entry[0].scheduled_key_matches(key):
                     _STATE_BY_DOC_ID.pop(doc_id, None)
                     to_clear.append(entry[0])
             for st in to_clear:
@@ -244,23 +238,7 @@ class WorkbookState:
         if not key:
             return None
         with _LOCK:
-            seen: set[int] = set()
-            for st in _STATES.values():
-                oid = id(st)
-                if oid in seen:
-                    continue
-                seen.add(oid)
-                if st.key == key or st.scheduled_key_matches(key):
-                    return st
-            for entry in _STATE_BY_DOC_ID.values():
-                st = entry[0]
-                oid = id(st)
-                if oid in seen:
-                    continue
-                seen.add(oid)
-                if st.key == key or st.scheduled_key_matches(key):
-                    return st
-        return None
+            return next((st for st in cls.all_states() if st.scheduled_key_matches(key)), None)
 
     @classmethod
     def all_states(cls) -> list[WorkbookState]:
@@ -327,9 +305,9 @@ class WorkbookState:
         if doc is None or not main.is_current():
             return None
 
+        uid = get_runtime_uid(doc)
         state = cls.known(doc)
         if state is not None:
-            uid = get_runtime_uid(doc)
             if uid and uid != state.key:
                 old_key = state.key
                 state.prior_keys.add(old_key)
@@ -341,13 +319,7 @@ class WorkbookState:
             cls._install_unload_listener(doc, state)
             return state
 
-        # get_runtime_uid tries method, attribute, then property and keeps only str or int.
-        uid = get_runtime_uid(doc)
-        if uid:
-            key = uid
-        else:
-            # Without RuntimeUID, mint the session id once per document object (not each call).
-            key = calc_workbook_base_session_id(doc)
+        key = uid or calc_workbook_base_session_id(doc)
 
         existing = cls.by_key(key)
         if existing is not None:

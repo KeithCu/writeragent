@@ -35,7 +35,7 @@ try:
         VAR,
         VARP,
     )
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     AVERAGE = "AVERAGE"  # type: ignore
     COUNT = "COUNT"  # type: ignore
     COUNTNUMS = "COUNTNUMS"  # type: ignore
@@ -50,7 +50,7 @@ except (ImportError, ModuleNotFoundError):
 
 try:
     from com.sun.star.sheet.DataPilotFieldOrientation import COLUMN, DATA, HIDDEN, PAGE, ROW
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     COLUMN = "COLUMN"  # type: ignore
     DATA = "DATA"  # type: ignore
     HIDDEN = "HIDDEN"  # type: ignore
@@ -59,14 +59,15 @@ except (ImportError, ModuleNotFoundError):
 
 try:
     from com.sun.star.sheet.FilterOperator import EQUAL
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     EQUAL = "EQUAL"  # type: ignore
 import uno
 
-from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
+from plugin.calc.address_utils import format_address, format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.calc.calc_utils import query_interface
+from plugin.calc.formula_dialect import make_cell_address
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, make_tool_ok, name_miss_details, reraise_if_disposed
 from plugin.framework.i18n import _
@@ -160,13 +161,15 @@ def _set_field_orientations(
             if pf_name not in page_fields:
                 raise ToolExecutionError(f"Field '{pf_name}' in page_filters must be in page_fields.", code="INVALID_PARAM")
             f_idx, _fld = by_name[pf_name]
-            tff = uno.createUnoStruct("com.sun.star.sheet.TableFilterField")
-            setattr(tff, "Field", f_idx)
-            setattr(tff, "Operator", EQUAL)
             is_num = isinstance(pf_val, (int, float)) and not isinstance(pf_val, bool)
-            setattr(tff, "IsNumeric", is_num)
-            setattr(tff, "NumericValue", float(pf_val) if is_num else 0.0)
-            setattr(tff, "StringValue", str(pf_val))
+            tff = uno.createUnoStruct(
+                "com.sun.star.sheet.TableFilterField",
+                Field=f_idx,
+                Operator=EQUAL,
+                IsNumeric=is_num,
+                NumericValue=float(pf_val) if is_num else 0.0,
+                StringValue=str(pf_val),
+            )
             filter_fields.append(tff)
 
         filter_desc = desc.getFilterDescriptor()
@@ -189,8 +192,8 @@ def _pivot_sheets(doc: Any, sheet_name: str | None = None) -> list[Any]:
     return [sheets.getByName(n) for n in filter_agent_sheet_names(sheets.getElementNames())]
 
 
-def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any, Any]:
-    """Return ``(table, sheet)`` for the pivot called *name*.
+def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any, Any, Any]:
+    """Return ``(table, sheet, dp_tables)`` for the pivot called *name*.
 
     Raises:
         ToolExecutionError: code PIVOT_TABLE_NOT_FOUND, with ``hint`` and ``similar``
@@ -200,7 +203,7 @@ def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any
     for sheet in _pivot_sheets(doc, sheet_name):
         dp_tables = _get_dp_tables(sheet)
         if dp_tables.hasByName(name):
-            return dp_tables.getByName(name), sheet
+            return dp_tables.getByName(name), sheet, dp_tables
     where = f" on sheet '{sheet_name}'" if sheet_name else ""
     known = [str(n) for visible in _pivot_sheets(doc) for n in _get_dp_tables(visible).getElementNames()]
     raise ToolExecutionError(
@@ -279,7 +282,6 @@ class CreatePivotTable(ToolCalcPivotBase):
         src_sheet_name = kwargs.get("source_sheet")
         dest_sheet_name = kwargs.get("destination_sheet")
 
-        # Resolve source range
         src_obj = _resolve_qualified_ref(bridge, range_str, src_sheet_name, "source_range", "source_sheet")
 
         src_addr = src_obj.getRangeAddress()
@@ -293,15 +295,13 @@ class CreatePivotTable(ToolCalcPivotBase):
             if not src_obj.getCellByPosition(c, 0).getString().strip():
                 return self._tool_error(f"Header cell in column {c + 1} of source range is empty.", code="INVALID_PARAM")
 
-        # Resolve destination cell
         dest_obj = _resolve_qualified_ref(bridge, dest_cell, dest_sheet_name, "destination_cell", "destination_sheet")
 
-        from com.sun.star.table import CellAddress
         # A cell and a range both expose getRangeAddress (ScCellObj derives from
         # ScCellRangeObj, sc/inc/cellsuno.hxx); a range destination anchors the pivot
         # at its top-left cell.
         ra = dest_obj.getRangeAddress()
-        dest_addr = CellAddress(Sheet=ra.Sheet, Column=ra.StartColumn, Row=ra.StartRow)
+        dest_addr = make_cell_address(ra.Sheet, ra.StartColumn, ra.StartRow)
 
         dest_sheet = doc.getSheets().getByIndex(dest_addr.Sheet)
 
@@ -351,11 +351,13 @@ class CreatePivotTable(ToolCalcPivotBase):
                     reraise_if_disposed(exc)
                     raise ToolExecutionError(f"Failed to refresh new pivot table '{pivot_name}': {exc}") from exc
 
+        dest_a1 = format_address(ra.StartColumn, ra.StartRow)
+        dest_sheet_actual = dest_sheet.getName()
         return make_tool_ok(
-            message=f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.",
+            message=f"Created pivot table '{pivot_name}' at {qualify_a1(dest_sheet_actual, dest_a1)}.",
             name=pivot_name,
-            destination_sheet=dest_sheet.getName(),
-            destination_cell=dest_cell,
+            destination_sheet=dest_sheet_actual,
+            destination_cell=dest_a1,
         )
 
 
@@ -373,7 +375,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
         if not name:
             return self._tool_error("name is required.", code="INVALID_PARAM")
 
-        tbl_any, _sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
+        tbl_any, _sheet, _dp = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
 
         dpt = query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
         if dpt is None:
@@ -404,8 +406,7 @@ class DeletePivotTable(ToolCalcPivotBase):
         if not name:
             return self._tool_error("name is required.", code="INVALID_PARAM")
 
-        _tbl, sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
-        dp_tables = _get_dp_tables(sheet)
+        _tbl, sheet, dp_tables = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
         dp_tables.removeByName(name)
         return make_tool_ok(message=f"Deleted pivot table '{name}' from sheet '{sheet.getName()}'.")
 

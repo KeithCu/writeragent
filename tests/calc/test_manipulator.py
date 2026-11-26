@@ -1621,11 +1621,11 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     }
 
 
-def test_commit_write_prepends_plan_notes() -> None:
-    manipulator = CellManipulator(MagicMock())
+def test_with_notes_prepends_plan_notes() -> None:
+    from plugin.calc.manipulator import _with_notes
+
     note = {"code": "REPEATED_FORMULA", "message": "repeated"}
-    with patch.object(manipulator, "_write_array_formula", return_value={"message": "m"}):
-        res = manipulator.commit_write(WritePlan("array", "A1", notes=(note,)))
+    res = _with_notes({"message": "m"}, (note,))
     assert res["warnings"] == [note]
 
 

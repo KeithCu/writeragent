@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared =PY() / =PYTHON() Calc add-in class (WriterAgent and LibrePy UNO entry files).
 
-UNO still loads ``addin.py`` or ``addin_librepy.py`` from each OXT manifest. Those
+UNO loads ``addin.py`` (WriterAgent) or ``addin_librepy.py`` (LibrePy) from the OXT manifest. Those
 files only bootstrap ``sys.path`` and register this class. Implementation name stays
 ``org.extension.writeragent.PythonFunction`` so saved formulas stay portable.
 """

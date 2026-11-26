@@ -120,7 +120,7 @@ def replace_records_for_sheet(workbook_key: str, sheet_name: str, records: Mappi
     with _RUNTIME.lock:
         stale = [key for key in _RUNTIME.records if key[0] == workbook_key and key[1] == sheet_name]
         for key in stale:
-            _RUNTIME.records.pop(key, None)
+            del _RUNTIME.records[key]
         for addr, rec in records.items():
             _RUNTIME.records[(workbook_key, sheet_name, local_a1(addr))] = rec
 
@@ -174,7 +174,7 @@ def clear_in_memory_geometric_state(*, workbook_key: str) -> None:
     """Drop instance-scoped geometric maps. UDProp is left for a later open."""
     with _RUNTIME.lock:
         for key in [k for k in _RUNTIME.records if k[0] == workbook_key]:
-            _RUNTIME.records.pop(key, None)
+            del _RUNTIME.records[key]
         _RUNTIME.strip_safe = frozenset(k for k in _RUNTIME.strip_safe if k.workbook_key != workbook_key)
 
 
@@ -246,7 +246,7 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
     if cell is None:
         return ""
     try:
-        return str(cell.getString() or "")
+        return cell.getString()
     except Exception as exc:
         if is_disposal(exc):
             raise
@@ -267,7 +267,7 @@ def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell],
     """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
     The third value is discovery's ``truncated`` flag; callers skip a capped
-    sheet on that flag (a completed scan of exactly 100 cells is not capped).
+    sheet on that flag (a completed scan of exactly ``MAX_PYTHON_CELLS_FOUND`` cells is not capped).
     """
     discovery = discover_python_cells_on_sheet(sheet)
     name = sheet_name_of(sheet)
@@ -286,7 +286,7 @@ def _iter_sheets(doc: Any) -> list[Any]:
     out: list[Any] = []
     try:
         sheets = doc.getSheets()
-        for i in range(int(sheets.getCount())):
+        for i in range(sheets.getCount()):
             out.append(sheets.getByIndex(i))
     except Exception as exc:
         if is_disposal(exc):
@@ -322,7 +322,7 @@ def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> 
         if cell is None:
             continue
         try:
-            current = str(cell.getFormula() or "")
+            current = cell.getFormula()
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -359,7 +359,7 @@ def _rebuild_strip_safe_from_doc(
         if sheet_name in known:
             cells = known[sheet_name]
         else:
-            cells, sheet_name, truncated = geometric_cells_on_sheet(doc, sheet)
+            cells, _unused_name, truncated = geometric_cells_on_sheet(doc, sheet)
             if truncated:
                 notify_geometric_cap_hit(ctx, sheet_name, session_id=calc_workbook_base_session_id(doc))
                 replace_geometric_strip_safe(workbook_key, frozenset())
@@ -377,7 +377,7 @@ def _repair_one_sheet(
     doc: Any,
     sheet: Any,
     workbook_key: str,
-) -> list[GeometricCell] | None:
+) -> tuple[str, list[GeometricCell]] | None:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
     if not name:
         # A closed document's sheets have no name and are skipped, not filed under an invented one.
@@ -418,7 +418,7 @@ def _repair_one_sheet(
         ]
 
     replace_records_for_sheet(workbook_key, name, final_records)
-    return actual_cells
+    return name, actual_cells
 
 
 def reconcile(
@@ -439,11 +439,11 @@ def reconcile(
     try:
         with undo_lock(doc):
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
-            for sheet in sheet_list:
-                ensure_sheet_modify_listener(ctx, doc, sheet)
-                live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
-                if live_cells is not None:
-                    repaired_sheets[sheet_name_of(sheet)] = live_cells
+            for one_sheet in sheet_list:
+                ensure_sheet_modify_listener(ctx, doc, one_sheet)
+                repaired = _repair_one_sheet(ctx, doc, one_sheet, workbook_key)
+                if repaired is not None:
+                    repaired_sheets[repaired[0]] = repaired[1]
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:

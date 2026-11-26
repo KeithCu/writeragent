@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 from plugin.calc.python.geometric_recalc import (
@@ -84,9 +84,9 @@ _UNLOAD_RESET_TIMEOUT_SEC: int = 3
 _SAVE_PREPARE_EVENTS = frozenset({"OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"})
 
 
-def _should_retry(res: Any) -> bool:
+def _should_retry(res: dict[str, Any] | None) -> bool:
     return (
-        isinstance(res, dict)
+        res is not None
         and res.get("status") == "error"
         and res.get("code") in ("WORKER_REENTRY", "VENV_TIMEOUT")
     )
@@ -163,7 +163,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # a lease timeout, refusal, or IPC timeout.
         # This loop sleeps up to 5 s (ten 0.5 s waits), so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
-        res: Any = None
+        res: dict[str, Any] | None = None
         for _attempt in range(10):
             time.sleep(0.5)
             # Check after the sleep: a reopen can register during it.
@@ -194,15 +194,14 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 name="reset_python_session_retry",
                 dedicated=True,
             )
-        elif isinstance(res, dict) and res.get("status") != "ok":
+        elif res.get("status") != "ok":
             log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
         # The UI waits at most 3 s; every reset after that goes through
         # _retry_reset, which drops the id when the workbook is reopened.
         for sid in session_ids:
-            if sid:
-                best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
+            best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
 
     def _release_calc_state(self, session_ids: tuple[str, ...]) -> None:
         """Drop this workbook's in-memory Calc state (Calc listeners only) and its worker kernels. Caller does not hold ``_LOCK``."""
@@ -227,7 +226,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 return
             self._teardown_done = True
             _LISTENERS.pop(self._key, None)
-            all_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
+            all_ids = (self._workbook_session_id, *self._extra_session_ids)
             if is_scratch:
                 # A hidden research copy must not reset a session still held by another
                 # open document (e.g. the user's window), whereas a user close or
@@ -243,7 +242,12 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         self._release_calc_state(session_ids)
 
 
-def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
+def _register(
+    doc: Any,
+    key: str,
+    factory: Callable[[], _CalcPythonUnloadListener],
+    on_existing: Callable[[_CalcPythonUnloadListener], None],
+) -> None:
     """Both ensure_* paths share this lock, rollback, and warning."""
     with _LOCK:
         existing = _LISTENERS.get(key)
@@ -301,7 +305,7 @@ _global_listener: Any = None
 _SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
 # Factory ``private:factory/scalc`` fires OnNew, not OnLoadFinished. Geometric
 # strip state and the unload listener are set up on these events too.
-_GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
+_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
 
 
 def is_calc_document(doc: Any) -> bool:
@@ -361,15 +365,14 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
         # The GlobalEventBroadcaster sends every open document's events here, including
         # frequent ones such as OnFocus and OnModifyChanged. Names that neither branch below
         # handles return before the ViewController / Source probes in ``_doc_from_event``.
-        if name not in _GEOMETRIC_OPEN_EVENTS and name not in _SAVE_DONE_EVENTS:
+        if name not in _OPEN_EVENTS and name not in _SAVE_DONE_EVENTS:
             return
         doc = _doc_from_event(Event)
-        # Hidden factory OnNew/OnCreate often has Source the Writer
-        # keeper (leftover scalc is not focused), so the geometric
-        # open hook still runs when ``doc is None``.
-        if name in _GEOMETRIC_OPEN_EVENTS:
+        if doc is None:
+            return
+        if name in _OPEN_EVENTS:
             try:
-                log.info("python_workbook_lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
+                log.info("python_workbook_lifecycle: open event=%s", name)
                 # VCL OnNew/OnCreate is often not Python's MainThread. main.run inlines when
                 # main.is_current() is true (including an untagged Dummy thread in dev
                 # builds), so a leftover shared =PY() sees the session id. Release bundles
@@ -378,8 +381,6 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
                 main.run(_geometric_open_job, self._ctx, doc)
             except Exception:
                 log.warning("geometric recalc on open failed", exc_info=True)
-        if doc is None:
-            return
         if name == "OnLoadFinished" or name in _SAVE_DONE_EVENTS:
             # Lazy: auto_open imports is_calc_document from this module, and Run Python Script
             # imports this module in Writer.
@@ -397,7 +398,6 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
                 maybe_convert_excel_py_document(doc)
                 try:
                     # URP OnLoadFinished can run on Dummy with SolarMutex held: main.run inlines when is_current().
-                    # Pass the callable first—do not pass ctx as the first positional (main treats it as fn).
                     main.run(maybe_rewrite_collabora_py_formulas, doc)
                 except Exception:
                     # FIXME: failures are logged and the open continues. This also hides a

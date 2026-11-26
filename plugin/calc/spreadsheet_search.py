@@ -37,8 +37,8 @@ def iter_target_sheets(doc: Any, *, all_sheets: bool, sheet_name: str | None = N
 def configure_search_descriptor(desc: Any, text: str, *, regex: bool = False, case_sensitive: bool = False) -> None:
     """Set standard search parameters on a UNO SearchDescriptor or ReplaceDescriptor."""
     desc.SearchString = text
-    desc.SearchRegularExpression = bool(regex)
-    desc.SearchCaseSensitive = bool(case_sensitive)
+    desc.SearchRegularExpression = regex
+    desc.SearchCaseSensitive = case_sensitive
 
 
 def search_spreadsheet_cells(

@@ -17,7 +17,7 @@ from plugin.calc.formula_dialect import (
     CONV_OOO,
     CONV_XL_A1,
     FormulaDialects,
-    GROUP_ALL,
+    GROUP_ALL_EXCEPT_SPECIAL,
     GROUP_ARRAY_SEPARATORS,
     GROUP_SPECIAL,
     SPECIAL_BAD,
@@ -75,9 +75,9 @@ class _FakeMapper:
                 SimpleNamespace(Name=";", Token=_tok(_ROW_SEP_OP)),
                 SimpleNamespace(Name=",", Token=_tok(_COL_SEP_OP)),
             ]
-        if lang == API_LANGUAGE and group == GROUP_ALL:
+        if lang == API_LANGUAGE and group == GROUP_ALL_EXCEPT_SPECIAL:
             return [SimpleNamespace(Name="API", Token=_tok(1))]
-        if lang == XL_ENGLISH and group == GROUP_ALL:
+        if lang == XL_ENGLISH and group == GROUP_ALL_EXCEPT_SPECIAL:
             return [SimpleNamespace(Name="XL", Token=_tok(2))]
         raise AssertionError(f"Unexpected mapping request: lang={lang}, group={group}")
 
@@ -233,7 +233,10 @@ def test_to_api_skips_create_instance_for_plain_formula() -> None:
 
 
 def test_make_cell_address_sets_fields() -> None:
-    addr = make_cell_address(2, 3, 4)
+    from unittest.mock import patch
+
+    with patch("plugin.calc.formula_dialect.uno.createUnoStruct", side_effect=lambda _n, **kw: SimpleNamespace(**kw)):
+        addr = make_cell_address(2, 3, 4)
     assert (addr.Sheet, addr.Column, addr.Row) == (2, 3, 4)
 
 

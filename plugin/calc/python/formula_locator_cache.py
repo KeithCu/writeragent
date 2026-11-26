@@ -15,11 +15,10 @@ import contextvars
 from dataclasses import dataclass
 from typing import Any, Generator, Iterator
 
-from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.errors import uno_read
-
-CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 
 _Location = tuple[Any, Any, tuple[int, int]]
 _LocateMemo = dict[tuple[int, str], _Location | None]
@@ -38,8 +37,7 @@ class FormulaOrigin:
     @classmethod
     def from_located(cls, located: _Location) -> FormulaOrigin:
         sheet, cell, (row, col) = located
-        name = uno_read(sheet.getName, "")
-        return cls(sheet, cell, name if isinstance(name, str) else "", row, col)
+        return cls(sheet, cell, uno_read(sheet.getName, ""), row, col)
 
 # One memo per add-in execution (bind_formula_locate_memo); a None value means no unique origin.
 _LOCATE_MEMO: contextvars.ContextVar[_LocateMemo | None] = contextvars.ContextVar("_LOCATE_MEMO", default=None)
@@ -95,7 +93,7 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
         if sheet is not None and parsed.code:
             ref_cell = _resolve_ref_cell(sheet, doc, parsed.code)
             if ref_cell is not None:
-                cell_text = uno_read(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
+                cell_text = uno_read(ref_cell.getString, "")
                 return _code_strings_match(cell_text, code_str)
         return False
     return _code_strings_match(parsed.code, code_str)
@@ -105,7 +103,7 @@ def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: b
     """Yield (row, col, formula_text). getFormulaArray() runs before the first yield.
     Fallback getFormula() errors propagate unless skip_cell_errors."""
     addr = cell_range.getRangeAddress()
-    formula_matrix = uno_read(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
+    formula_matrix = uno_read(cell_range.getFormulaArray, None)
     if isinstance(formula_matrix, (list, tuple)) and len(formula_matrix) > 0:
         for r_idx, row_formulas in enumerate(formula_matrix):
             row = addr.StartRow + r_idx
@@ -116,7 +114,7 @@ def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: b
             for col in range(addr.StartColumn, addr.EndColumn + 1):
                 try:
                     cell = sheet.getCellByPosition(col, row)
-                    formula = str(cell.getFormula() or "")
+                    formula = cell.getFormula()
                 except Exception:
                     if skip_cell_errors:
                         continue
@@ -155,8 +153,7 @@ def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None 
     """
     found: list[tuple[Any, int, int]] = []
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
-    count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
-    for i in range(count):
+    for i in range(formula_cells.getCount()):
         cell_range = formula_cells.getByIndex(i)
         hits: list[tuple[int, int]] = []
         for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
@@ -174,24 +171,19 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
     Returns None when zero or two+ origins match: XAddIn has no calling cell, so
     spilling from the first hit writes the wrong formula.
     """
-    if doc is None:
-        return None
-
     memo = _LOCATE_MEMO.get()
     key = (id(doc), code_str)
     if memo is not None and key in memo:
         return memo[key]
 
     collected: list[_Location] = []
-    sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
-    if sheets is not None:
-        count = sheets.getCount() if hasattr(sheets, "getCount") else 0
-        for i in range(count):
-            sheet = sheets.getByIndex(i)
-            for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
-                collected.append((sheet, cell, (r, c)))
-            if len(collected) > 1:
-                break
+    sheets = doc.getSheets()
+    for i in range(sheets.getCount()):
+        sheet = sheets.getByIndex(i)
+        for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
+            collected.append((sheet, cell, (r, c)))
+        if len(collected) > 1:
+            break
 
     res = collected[0] if len(collected) == 1 else None
     if memo is not None:

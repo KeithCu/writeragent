@@ -256,7 +256,7 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
         if s[j] == "$":
             j += 1
         start = j
-        while j < n and s[j] not in ".!'" and not s[j].isspace() and s[j] not in "(),;+-*/&=<>^%:":
+        while j < n and s[j] not in ".!'(),;+-*/&=<>^%:" and not s[j].isspace():
             j += 1
         if j == start:
             return None

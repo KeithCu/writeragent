@@ -190,9 +190,17 @@ def _emit_ifs(args: list[str]) -> str:
     return _fold_if(args, "calc.na()", lambda cond: cond)
 
 
+_ROW_COL_EMITTERS = {
+    "ROW": (_emit_row_col, 0),
+    "COLUMN": (_emit_row_col, 1),
+    "ROWS": (_emit_dim_count, 0),
+    "COLUMNS": (_emit_dim_count, 1),
+}
+
+
 def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
     name = str(node.tvalue).upper().replace("_XLFN.", "")
-    spec = {"ROW": (_emit_row_col, 0), "COLUMN": (_emit_row_col, 1), "ROWS": (_emit_dim_count, 0), "COLUMNS": (_emit_dim_count, 1)}.get(name)
+    spec = _ROW_COL_EMITTERS.get(name)
     if spec is not None:
         return spec[0](spec[1], node, state)
     args = [_emit_expr(arg, state) for arg in (node.args or [])]
@@ -205,8 +213,8 @@ def _emit_function(node: FunctionNode, state: _CodegenState) -> str:
 def _emit_aggregate(args: list[str]) -> str:
     try:
         fn = int(args[0])
-    except (ValueError, TypeError):
-        raise TranslationError("UNSUPPORTED_FUNCTION", "AGGREGATE requires a numeric literal in 1..13 as first argument")
+    except ValueError as exc:
+        raise TranslationError("UNSUPPORTED_FUNCTION", "AGGREGATE requires a numeric literal in 1..13 as first argument") from exc
     if not (1 <= fn <= 13):
         raise TranslationError("UNSUPPORTED_FUNCTION", f"AGGREGATE function_num {fn} not supported")
     return f"calc.aggregate({', '.join(args)})"
@@ -642,7 +650,7 @@ def translate_formula(formula: str, cell_addr: str, *, functions_only: bool = Fa
     as a failure. The pre-pass walk and the codegen recurse the AST; a
     ``RecursionError`` from a very deep formula escapes to the caller.
     """
-    if not formula or not str(formula).strip().startswith("="):
+    if not formula or not formula.strip().startswith("="):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
     normalized = normalize_lo_formula_for_parse(formula)

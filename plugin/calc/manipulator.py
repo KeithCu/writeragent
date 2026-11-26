@@ -29,14 +29,17 @@ from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple,
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
+    from com.sun.star.document import EmptyUndoStackException
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
     from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
-    from com.sun.star.util import MalformedNumberFormatException
+    from com.sun.star.util import MalformedNumberFormatException, NotNumericException
+    from plugin.calc.bridge import CalcBridge
     from plugin.calc.python.diagnostics import DiagnosticEntry
     from plugin.calc.python.formula_edit import PyFormula
 else:
     try:
-        from com.sun.star.util import MalformedNumberFormatException
+        from com.sun.star.document import EmptyUndoStackException
+        from com.sun.star.util import MalformedNumberFormatException, NotNumericException
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
@@ -59,7 +62,7 @@ from plugin.calc.address_utils import (
 )
 from plugin.calc.array_formula import CellRect, MAX_ARRAY_CELLS, nests_py_call, plan_target, returns_array
 from plugin.calc.bridge import is_agent_visible_sheet
-from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
+from plugin.calc.calc_utils import CELL_CONTENT_FLAGS, CELL_FLAG_FORMULA, NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
@@ -90,7 +93,6 @@ MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
 _MAX_REPORTED_CELLS = 10
-_CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 # Per-range write-report keys merged by multi-range callers.
 WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 _PY_PLACEMENT_SCAN_COLS = 26
@@ -142,7 +144,7 @@ def _ref_formula_cells(doc: Any) -> set[tuple[str, int, int]]:
         name = str(sheet.getName())
         if not is_agent_visible_sheet(name):
             continue
-        formula_ranges = sheet.queryContentCells(_CELL_FLAG_FORMULA)
+        formula_ranges = sheet.queryContentCells(CELL_FLAG_FORMULA)
         for ra in formula_ranges.getRangeAddresses():
             sc, sr, ec, er = int(ra.StartColumn), int(ra.StartRow), int(ra.EndColumn), int(ra.EndRow)
             formulas = sheet.getCellRangeByPosition(sc, sr, ec, er).getFormulaArray()
@@ -587,7 +589,6 @@ def _check_write_cap(n_cells: int) -> None:
         raise CalcError(f"The range has {n_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
 
 
-
 def _requests_array_formula(formula_or_values: Any, array: bool | None) -> TypeGuard[str]:
     if array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
         raise CalcError("array=true needs a formula starting with '='.")
@@ -618,7 +619,6 @@ def _uno_range_address(cell_or_range: Any) -> Any:
 
 def quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     """Best-effort probe teardown that still surfaces a disposed document."""
-    # Re-raise disposal during array-formula probe cleanup; suppress other probe teardown errors.
     try:
         action()
     except Exception as e:
@@ -629,7 +629,7 @@ def quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
 
 def _clear_array_range(rng: Any) -> None:
     rng.setArrayFormula("")
-    rng.clearContents(23)
+    rng.clearContents(CELL_CONTENT_FLAGS)
 
 
 def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, int]) -> bool:
@@ -706,7 +706,7 @@ def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: i
             code="SPILL_BLOCKED",
             details={
                 "needed_range": needed,
-                "blocking_cells": [format_address(c, r) for c, r in occupied[:10]],
+                "blocking_cells": [format_address(c, r) for c, r in occupied[:_MAX_REPORTED_CELLS]],
                 "blocking_count": len(occupied),
             },
         )
@@ -911,13 +911,9 @@ def _delimited_text_message(range_name: str, s: str, *, single_cell: bool) -> st
 class CellManipulator:
     """Manages data writing and style application to cells."""
 
-    bridge: Any
+    bridge: CalcBridge
 
-    def __init__(self, bridge: Any) -> None:
-        """
-        Args:
-            bridge: CalcBridge instance.
-        """
+    def __init__(self, bridge: CalcBridge) -> None:
         self.bridge = bridge
         self._dialects: FormulaDialects | None = None
 
@@ -950,7 +946,7 @@ class CellManipulator:
             return
 
         # Only formula cells can belong to an array, so probe just those instead of every cell: a big clear stays cheap.
-        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(_CELL_FLAG_FORMULA)
+        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(CELL_FLAG_FORMULA)
         contained: list[Any] = []
         for fa in formula_ranges.getRangeAddresses():
             for r in range(fa.StartRow, fa.EndRow + 1):
@@ -1112,8 +1108,7 @@ class CellManipulator:
         # clearContents on part of an array formula silently does nothing, so
         # refuse with a clear message unless the range covers the whole array.
         self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
-        # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
-        cell_range.clearContents(23)
+        cell_range.clearContents(CELL_CONTENT_FLAGS)
         log.info("Range %s cleared.", range_str.upper())
 
     def merge_cells(self, range_str: str, center: bool = True, *, unmerge: bool = False) -> MergeOutcome:
@@ -1246,7 +1241,7 @@ class CellManipulator:
         formatter: Any,
         std_key: Any,
         *,
-        elapsed_format_key: int | None = None,
+        elapsed_key: int | None = None,
         literal_text: bool = False,
         data_text: bool = False,
     ) -> _CellWrite:
@@ -1280,7 +1275,7 @@ class CellManipulator:
 
         stripped = value.strip()
         # Duration is WriterAgent arithmetic; Calc's formatter does not parse PT….
-        if match_iso_duration(stripped) and elapsed_format_key is not None:
+        if match_iso_duration(stripped) and elapsed_key is not None:
             try:
                 serial = duration_serial_from_iso(stripped)
             except Exception as e:
@@ -1288,7 +1283,7 @@ class CellManipulator:
                     raise
                 log.debug("Duration convert failed for %r: %s", stripped, e)
                 return _CellWrite(value, "", "text", None, None)
-            return _CellWrite(float(serial), "", "temporal", "duration", int(elapsed_format_key))
+            return _CellWrite(float(serial), "", "temporal", "duration", int(elapsed_key))
 
         input_category = match_iso_temporal(stripped)
         if input_category is not None and formatter is not None:
@@ -1296,12 +1291,12 @@ class CellManipulator:
                 detected_key = formatter.detectNumberFormat(std_key, stripped)
                 serial = formatter.convertStringToNumber(std_key, stripped)
                 return _CellWrite(float(serial), "", "temporal", input_category, int(detected_key))
+            except NotNumericException:
+                return _CellWrite(value, "", "text", None, None)
             except Exception as e:
                 if is_disposal(e):
                     raise
-                # NotNumericException and peers → ordinary text fallback (S4).
-                if "NotNumeric" not in type(e).__name__:
-                    log.debug("ISO convert failed for %r: %s", stripped, e)
+                log.debug("ISO convert failed for %r: %s", stripped, e)
                 return _CellWrite(value, "", "text", None, None)
 
         try:
@@ -1405,19 +1400,15 @@ class CellManipulator:
         doc = self.bridge.doc
 
         was_modified = doc.isModified()
-        undo_mgr = doc.getUndoManager() if hasattr(doc, "getUndoManager") else None
+        undo_mgr = doc.getUndoManager()
 
-        was_possible = False
+        was_possible = undo_mgr.isUndoPossible()
         hidden_context_entered = False
-
-        if undo_mgr:
-            was_possible = undo_mgr.isUndoPossible()
-            try:
-                undo_mgr.enterHiddenUndoContext()
-                hidden_context_entered = True
-            except Exception as e:
-                if "EmptyUndoStackException" not in type(e).__name__:
-                    raise
+        try:
+            undo_mgr.enterHiddenUndoContext()
+            hidden_context_entered = True
+        except EmptyUndoStackException:
+            pass
         try:
             if premeasured_array_size is not None:
                 rows, cols = premeasured_array_size
@@ -1426,9 +1417,9 @@ class CellManipulator:
             self._write_array_formula(sheet, formula, start, end, measure_only=True, premeasured_array_size=(rows, cols))
             return (rows, cols)
         finally:
-            if hidden_context_entered and undo_mgr:
+            if hidden_context_entered:
                 quiet_probe_cleanup(undo_mgr.leaveUndoContext, "leaveUndoContext")
-            elif undo_mgr and not was_possible:
+            elif not was_possible:
                 quiet_probe_cleanup(undo_mgr.clear, "clear")
 
             if not was_modified:
@@ -1439,7 +1430,7 @@ class CellManipulator:
         values: Sequence[Any],
         formatter: Any,
         std_key: Any,
-        elapsed_format_key: int | None = None,
+        elapsed_key: int | None = None,
         *,
         literal_text: bool = False,
         data_text: bool = False,
@@ -1450,7 +1441,7 @@ class CellManipulator:
                 v,
                 formatter,
                 std_key,
-                elapsed_format_key=elapsed_format_key,
+                elapsed_key=elapsed_key,
                 literal_text=literal_text,
                 data_text=data_text,
             )
@@ -1629,7 +1620,6 @@ class CellManipulator:
         except Exception as e:
             if is_disposal(e):
                 raise
-            # Check if this cell intersects an array formula
             try:
                 _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
                 self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
@@ -1722,7 +1712,6 @@ class CellManipulator:
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
             ref_pos = make_cell_address(addr.Sheet, addr.StartColumn, addr.StartRow)
-            notes: list[Diagnostic] = []
             formulas_on = not literal_text and not data_text
 
             if formulas_on and isinstance(values, str) and values.startswith("="):
@@ -1757,8 +1746,9 @@ class CellManipulator:
                     end,
                     values,
                     array_size=array_size,
-                    notes=tuple(notes),
                 )
+
+            notes: list[Diagnostic] = []
 
             num_rows = addr.EndRow - addr.StartRow + 1
             num_cols = addr.EndColumn - addr.StartColumn + 1
@@ -1777,7 +1767,7 @@ class CellManipulator:
                         raise CalcError(refusal, code="INVALID_PARAM")
             caller_list = isinstance(values, (list, tuple))
 
-            rows_2d = isinstance(values, (list, tuple)) and bool(values) and isinstance(values[0], (list, tuple))
+            rows_2d = caller_list and bool(values) and isinstance(values[0], (list, tuple))
             r_cnt = 0
             c_cnt = 0
             bad_row: int | None = None
@@ -1786,10 +1776,10 @@ class CellManipulator:
                 bad_row = _first_ragged_row(values)
                 if total > 1 and (bad_row is not None or (r_cnt, c_cnt) != (num_rows, num_cols)):
                     raise CalcError(_grid_mismatch_message(range_str, values, num_rows, num_cols, start, bad_row))
-            elif isinstance(values, (list, tuple)) and len(values) != total:
+            elif caller_list and len(values) != total:
                 raise CalcError(_values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
 
-            if check_cell_types and isinstance(values, (list, tuple)):
+            if check_cell_types and caller_list:
                 err = _write_values_grid_cell_error(list(values))
                 if err:
                     raise CalcError(err)
@@ -1804,7 +1794,7 @@ class CellManipulator:
                     range_str = format_range(start[0], start[1], end[0], end[1])
                     expanded = True
                 values = [v for row in values for v in row]
-            elif not isinstance(values, (list, tuple)):
+            elif not caller_list:
                 # One formula written to a multi-cell range is filled like Calc's
                 # fill-down: relative A1 refs shift per cell (expand_single_formula), and
                 # =PY formulas follow the direction-aware span policy in formula_fill.
@@ -1812,16 +1802,17 @@ class CellManipulator:
                     values = expand_single_formula(values, num_rows, num_cols)
                 else:
                     values = [values] * total
+            else:
+                values = list(values)
 
             if formulas_on and caller_list:
-                values = _calc_grammar_in_values(self.dialects, list(values), ref_pos)
+                values = _calc_grammar_in_values(self.dialects, values, ref_pos)
                 rows = end[1] - start[1] + 1
                 cols = end[0] - start[0] + 1
                 sheet_name = sheet.getName()
                 for col_offset, head in repeated_formula_columns(values, start[1], rows, cols):
-                    col_idx = start[0] + col_offset
-                    col_letter = index_to_column(col_idx)
-                    col_range = format_range(col_idx, start[1], col_idx, end[1])
+                    col_letter = index_to_column(start[0] + col_offset)
+                    col_range = format_range(start[0] + col_offset, start[1], start[0] + col_offset, end[1])
                     target_range = qualify_a1(sheet_name, col_range) if isinstance(sheet_name, str) and sheet_name else col_range
                     notes.append({
                         "code": "REPEATED_FORMULA",
@@ -1833,7 +1824,7 @@ class CellManipulator:
                     })
 
             if formulas_on:
-                self._refuse_py_inside_own_data(sheet, start, end, list(values))
+                self._refuse_py_inside_own_data(sheet, start, end, values)
 
             return WritePlan(
                 "cells",
@@ -1841,7 +1832,7 @@ class CellManipulator:
                 sheet,
                 start,
                 end,
-                list(values),
+                values,
                 expanded=expanded,
                 literal_text=literal_text,
                 data_text=data_text,
@@ -1855,15 +1846,12 @@ class CellManipulator:
                 self.clear_range(plan.range_str)
                 return {"message": f"Range {plan.range_str} cleared."}
             if plan.kind == "array":
-                return _with_notes(
-                    self._write_array_formula(
-                        plan.sheet,
-                        plan.values,
-                        plan.start,
-                        plan.end,
-                        premeasured_array_size=plan.array_size,
-                    ),
-                    plan.notes,
+                return self._write_array_formula(
+                    plan.sheet,
+                    plan.values,
+                    plan.start,
+                    plan.end,
+                    premeasured_array_size=plan.array_size,
                 )
 
             range_str = plan.range_str
@@ -1900,7 +1888,7 @@ class CellManipulator:
                 values,
                 formatter,
                 std_key,
-                elapsed_format_key=elapsed_key,
+                elapsed_key=elapsed_key,
                 literal_text=literal_text,
                 data_text=data_text,
             )
@@ -2188,32 +2176,29 @@ class CellManipulator:
         *,
         insert: bool,
         sheet: Any | None = None,
+        index: int | None = None,
     ) -> dict[str, Any]:
         # The tool schema and the tool's assert restrict structure_type to "rows" or "columns".
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
-        assert target is not None
         name = str(target.getName())
-        index = _structure_index(structure_type, start)
+        resolved_index = _structure_index(structure_type, start) if index is None else index
         if structure_type == "rows":
             rows = target.getRows()
             if insert:
-                rows.insertByIndex(index, count)
+                rows.insertByIndex(resolved_index, count)
             else:
-                rows.removeByIndex(index, count)
+                rows.removeByIndex(resolved_index, count)
             kind, where = "row", start
         else:
             where = str(start).upper()
             kind = "column"
             cols = target.getColumns()
             if insert:
-                cols.insertByIndex(index, count)
+                cols.insertByIndex(resolved_index, count)
             else:
-                cols.removeByIndex(index, count)
-        if insert:
-            msg = f"{count} {kind}(s) inserted starting at {kind} {where} on sheet {name}."
-            log.info("%s", msg)
-            return {"message": msg, "sheet": name}
-        msg = f"{count} {kind}(s) deleted starting from {kind} {where} on sheet {name}."
+                cols.removeByIndex(resolved_index, count)
+        verb = "inserted starting at" if insert else "deleted starting from"
+        msg = f"{count} {kind}(s) {verb} {kind} {where} on sheet {name}."
         log.info("%s", msg)
         return {"message": msg, "sheet": name}
 
@@ -2228,7 +2213,6 @@ class CellManipulator:
     ) -> dict[str, Any]:
         """Delete rows or columns, refusing when formulas or named ranges would turn into ``#REF!`` unless *confirm* is true."""
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
-        assert target is not None
         name = str(target.getName())
         index = _structure_index(structure_type, start)
         rows = structure_type == "rows"
@@ -2245,7 +2229,7 @@ class CellManipulator:
         broken_names: list[tuple[str, str]] = []
         try:
             with group:
-                result = self._structure_mutate(structure_type, start, count, insert=False, sheet=target)
+                result = self._structure_mutate(structure_type, start, count, insert=False, sheet=target, index=index)
                 after = _ref_formula_cells(doc)
                 # Subtract shifted pre-existing #REF! cells so they are not reported as newly broken.
                 broken = sorted(
@@ -2272,7 +2256,7 @@ class CellManipulator:
                     um = doc.getUndoManager()
                     # Without clearing this redo entry, Ctrl+Y would perform the deletion that
                     # was just refused.
-                    if um is not None and tuple(um.getAllRedoActionTitles() or ())[:1] == (title,):
+                    if um.getAllRedoActionTitles()[:1] == (title,):
                         best_effort(um.clearRedo, "clearRedo after held-back delete failed")
                     raise CalcError(
                         f"Deleting {count} {structure_type} on sheet {name} would turn {what} into #REF!. "

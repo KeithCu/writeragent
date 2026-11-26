@@ -15,7 +15,7 @@ import os
 import sys
 
 _this = os.path.abspath(__file__)
-for __ in range(4):
+for _idx in range(4):
     _this = os.path.dirname(_this)
 if _this not in sys.path:
     sys.path.insert(0, _this)

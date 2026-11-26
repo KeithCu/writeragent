@@ -158,7 +158,7 @@ _HELPER_ERROR_DICT_KEYS = frozenset({"status", "code", "message", "helper", "det
 
 
 def is_helper_error_dict(val: Any) -> bool:
-    """True only for the coerce.error_result dict (``plugin/scripting/venv/results.py`` ``error_result``).
+    """True only for the dict ``error_result`` builds (``plugin/scripting/venv/results.py``).
 
     status, code, and message are always set. helper and details are set only
     when those arguments are truthy. Success payloads and other error dicts
@@ -228,7 +228,7 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     to_calc_compatible itself remains a type coercion so quant/tabular egress
     keeps dicts and token strings as text.
     """
-    if isinstance(val, dict) and is_helper_error_dict(val):
+    if is_helper_error_dict(val):
         # Helper error dicts must become calc_formula_error_double, not cell text, so ISERROR sees a real formula error.
         log.error("=PY() worker failure: %s", helper_error_log_message(val))
         return calc_formula_error_double(_calc_code_for_helper_error(val["code"]))
@@ -341,11 +341,13 @@ def addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     return calc_formula_error_double(worker_exception_error_code(message))
 
 
+def _naive_datetime(dt: datetime.datetime) -> datetime.datetime:
+    return dt.replace(tzinfo=None)
+
+
 def _calc_iso_datetime(dt: datetime.datetime) -> str:
     """Naive ISO-8601. Calc does not parse offset-bearing stamps as dates."""
-    if dt.tzinfo is not None:
-        dt = dt.replace(tzinfo=None)
-    return dt.isoformat()
+    return _naive_datetime(dt).isoformat()
 
 
 def to_stdlib_temporal(val: Any) -> Any:
@@ -437,8 +439,7 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         return val.total_seconds() / 86400.0
     if hasattr(val, "__float__") and not isinstance(val, (bytes, list, tuple, dict, set)):
         try:
-            f = float(val)  # type: ignore[arg-type]
-            return f
+            return float(val)  # type: ignore[arg-type]
         except (ValueError, TypeError, OverflowError):
             pass
     if isinstance(val, (list, tuple)):
@@ -528,8 +529,7 @@ def coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 12
         return _spill_from_calc(to_calc_compatible(val))
 
     if isinstance(val, datetime.datetime):
-        dt = val.replace(tzinfo=None) if val.tzinfo is not None else val
-        return SpillValue(datetime_serial(dt, null_dt), "n", "datetime")
+        return SpillValue(datetime_serial(_naive_datetime(val), null_dt), "n", "datetime")
 
     if isinstance(val, datetime.date):
         return SpillValue(datetime_serial(val, null_dt), "n", "date")
@@ -579,7 +579,7 @@ def format_addin_error_for_display(exc: BaseException) -> str:
 
 def _error_cell_text(message: str) -> str:
     """Ensure an error cell message starts with ``Error:`` or ``#``."""
-    text = (message or "").strip() or _("Unknown error")
-    if text.startswith("Error:") or text.startswith("#"):
+    text = message.strip() or _("Unknown error")
+    if text.startswith(("Error:", "#")):
         return text
     return _error_text_template().format(text)

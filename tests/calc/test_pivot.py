@@ -16,6 +16,12 @@ from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
+@pytest.fixture(autouse=True)
+def _stub_create_uno_struct(monkeypatch):
+    import uno
+    monkeypatch.setattr(uno, "createUnoStruct", lambda _name, **kw: SimpleNamespace(**kw))
+
+
 def _run(doc, tool_name: str, **kw):
     registry = ToolRegistry(MagicMock())
     for cls in (CreatePivotTable, RefreshPivotTable, DeletePivotTable, ListPivotTables):
@@ -164,6 +170,9 @@ def test_pivot_table_create_function_mapping_and_page_filters():
         )
 
     assert res["status"] == "ok"
+    assert res["message"] == "Created pivot table 'MyPivot' at Sheet2.A1."
+    assert res["destination_sheet"] == "Sheet2"
+    assert res["destination_cell"] == "A1"
     f_sales.setPropertyValue.assert_any_call("Function", AVERAGE)
     assert filter_desc.setFilterFields.called
     fields_tuple = filter_desc.setFilterFields.call_args[0][0]

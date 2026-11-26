@@ -15,12 +15,12 @@ from plugin.calc.address_utils import index_to_column, qualify_a1, split_axis, s
 
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
     """Clip ``SHEET.F:F`` style refs to ``SHEET.F1:F{used_row}`` when bounds are known."""
-    bounds = {str(key).upper(): value for key, value in (sheet_bounds or {}).items()}
+    bounds = {key.upper(): value for key, value in (sheet_bounds or {}).items()}
     return [_clip_one_range(r, bounds, current_sheet=current_sheet) for r in ranges]
 
 
 def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *, current_sheet: str | None = None) -> str:
-    text = str(range_ref).strip()
+    text = range_ref.strip()
     sheet, address = split_sheet_prefix(text)
     axis_info = split_axis(address)
     if axis_info is None:

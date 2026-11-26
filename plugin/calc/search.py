@@ -67,7 +67,6 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             _validate_regex(ctx, pattern)
 
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
-        scope = ctx.send_cancellation
         matches = search_spreadsheet_cells(
             ctx.doc,
             pattern,
@@ -76,7 +75,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             max_results=max_results,
             all_sheets=kwargs["all_sheets"],
             sheet_name=kwargs.get("sheet"),
-            cancel=scope,
+            cancel=ctx.send_cancellation,
         )
 
         return make_tool_ok(matches=matches, count=len(matches), matched_case_sensitive=case_sensitive)

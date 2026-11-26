@@ -26,7 +26,13 @@ from plugin.calc.datetime_wire import (
     iso_duration_from_serial,
     is_elapsed_format_string,
 )
-from plugin.calc.calc_utils import FORMULA, NumberFormatCategories, classify_array_cell
+from plugin.calc.calc_utils import (
+    CELL_FLAG_DATETIME,
+    CELL_FLAG_FORMULA,
+    FORMULA,
+    NumberFormatCategories,
+    classify_array_cell,
+)
 from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
@@ -35,8 +41,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_CELL_FLAG_DATETIME = 2
-_CELL_FLAG_FORMULA = 16
 FormatSpan: TypeAlias = tuple[int, int, str, str | None]
 TemporalRows: TypeAlias = dict[int, list[FormatSpan]]
 
@@ -56,7 +60,7 @@ def _formula_cells(cell_range: Any, formula_array: Any) -> set[tuple[int, int]]:
     ):
         return set()
     coords: set[tuple[int, int]] = set()
-    for addr in cell_range.queryContentCells(_CELL_FLAG_FORMULA).getRangeAddresses() or ():
+    for addr in cell_range.queryContentCells(CELL_FLAG_FORMULA).getRangeAddresses():
         for r in range(addr.StartRow, addr.EndRow + 1):
             for c in range(addr.StartColumn, addr.EndColumn + 1):
                 coords.add((c, r))
@@ -69,10 +73,6 @@ class CellInspector:
     bridge: "CalcBridge"
 
     def __init__(self, bridge: "CalcBridge") -> None:
-        """
-        Args:
-            bridge: CalcBridge instance.
-        """
         self.bridge = bridge
 
     # ── Internal helpers ───────────────────────────────────────────────
@@ -146,9 +146,9 @@ class CellInspector:
         # UNO failure like "no date constants" and continue to the formula / format-group path.
         date_addresses: tuple[Any, ...] = ()
         try:
-            date_cells = cell_range.queryContentCells(_CELL_FLAG_DATETIME)
+            date_cells = cell_range.queryContentCells(CELL_FLAG_DATETIME)
             if date_cells is not None:
-                date_addresses = tuple(date_cells.getRangeAddresses() or ())
+                date_addresses = tuple(date_cells.getRangeAddresses())
         except Exception as e:
             if is_disposal(e):
                 raise
@@ -198,8 +198,6 @@ class CellInspector:
                 return category, format_code
         return None
 
-    # ── Public API ─────────────────────────────────────────────────────
-
     def _resolve_single_cell(self, address: str) -> tuple[Any, str]:
         _unused, bare_address = split_sheet_prefix(address)
         display_address = bare_address.upper()
@@ -214,18 +212,9 @@ class CellInspector:
 
         return cell, display_address
 
-    def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
-        """Read basic cell information.
+    # ── Public API ─────────────────────────────────────────────────────
 
-        An error formula reads as ``value: None``, ``type: "formula"``, and its formula text.
-
-        Args:
-            address: Cell address (e.g. "A1").
-
-        Returns:
-            dict with keys: address, value, formula, type.
-        """
-        cell, bare_address = self._resolve_single_cell(address)
+    def _read_resolved_cell(self, cell: Any, bare_address: str, address_label: str, *, include_format_info: bool) -> dict[str, Any]:
         value, type_name, formula = classify_array_cell(
             cell.getDataArray()[0][0], cell.getFormulaArray()[0][0], cell.getType() == FORMULA
         )
@@ -238,8 +227,22 @@ class CellInspector:
                 if is_disposal(e):
                     raise
                 # Format enrichment failure must not replace an otherwise valid cell payload with an error.
-                log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
+                log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address_label)
         return info
+
+    def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
+        """Read basic cell information.
+
+        An error formula reads as ``value: None``, ``type: "formula"``, and its formula text.
+
+        Args:
+            address: Cell address (e.g. "A1").
+
+        Returns:
+            dict with keys: address, value, formula, type.
+        """
+        cell, bare_address = self._resolve_single_cell(address)
+        return self._read_resolved_cell(cell, bare_address, address, include_format_info=include_format_info)
 
     def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
@@ -261,7 +264,14 @@ class CellInspector:
 
         addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
         if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
-            return [[self.read_cell(range_name, include_format_info=include_format_info)]]
+            if addr is not None:
+                if hasattr(cell_range, "getCellByPosition") and not hasattr(cell_range, "getType"):
+                    cell_range = cell_range.getCellByPosition(0, 0)
+                bare_address = format_address(addr.StartColumn, addr.StartRow)
+            else:
+                _unused, bare = split_sheet_prefix(range_name)
+                bare_address = bare.upper()
+            return [[self._read_resolved_cell(cell_range, bare_address, range_name, include_format_info=include_format_info)]]
         # Refuse an over-cap range before fetching data/formula arrays.
         n = (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
         limit = configured_python_max_data_cells()

@@ -59,14 +59,14 @@ def sheet_name_of(sheet: Any) -> str:
     """
     if sheet is None:
         return ""
-    return str(best_effort(lambda: sheet.getName(), "sheet name read failed", "") or "")
+    return best_effort(lambda: sheet.getName(), "sheet name read failed", "")
 
 
 def py_formula_or_none(formula: str) -> PyFormula | None:
     """Parse *formula* as ``=PY(...)`` or return None for non-PY formulas."""
     # Every alias in formula_edit's table contains "PY", so the substring test
     # skips the parser for the ordinary formulas a sheet is mostly made of.
-    if "PY" not in (formula or "").upper():
+    if "PY" not in formula.upper():
         return None
     return PyFormula.parse(formula)
 

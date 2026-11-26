@@ -81,7 +81,7 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     target = _COLLABORA_TARGETS.get(matched[1])
     if target is None:
         return formula
-    # matched[0] is the index just after "(", relative to alias_start; the gap before "(" is dropped as before.
+    # matched[0] is the index just after "(", relative to alias_start. Any whitespace between the name and "(" is dropped.
     return formula[:alias_start] + target + formula[alias_start + matched[0] - 1 :]
 
 
@@ -120,8 +120,8 @@ def _rewrite_sheet_formulas(sheet: Any) -> int:
 def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     """In-place prefix rewrite so Collabora-saved ``=PY()`` cells run under LibrePy.
 
-    Called from the existing Excel-PY ``OnLoadFinished`` listener (no extra
-    GlobalEventBroadcaster). Returns the number of cells rewritten.
+    Called from ``workbook_lifecycle``'s ``OnLoadFinished`` handler, the one
+    ``GlobalEventBroadcaster`` listener. Returns the number of cells rewritten.
 
     After ``setFormula``, Calc usually marks the document modified. Snapshot
     ``isModified`` before the rewrite and write that flag back: a clean file
@@ -145,7 +145,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
         reraise_if_disposed(exc)
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
-    # Scan failures propagate; auto_open already logs them.
+    # Scan failures propagate; the OnLoadFinished handler in workbook_lifecycle.py logs them.
     doc.lockControllers()
     try:
         # undo_lock hides the rewrite inside the existing undo action (or locks an empty stack), so opening the file adds no undo step.

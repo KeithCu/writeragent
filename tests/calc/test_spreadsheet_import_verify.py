@@ -59,14 +59,6 @@ def test_verify_converted_cells_wrong_actual_fails():
     assert result[0].address == bad_addr
 
 
-def test_verify_converted_cells_missing_actual_is_skipped():
-    model, output, report = _build_sample()
-    missing_addr = report.converted[0]
-    actual_values = {addr: model.cells[addr].value for addr in report.converted if addr != missing_addr}
-    result = verify_converted_cells(model, output, report, actual_values=actual_values)
-    assert missing_addr not in [m.address for m in result]
-
-
 def test_verify_rejects_non_py_formula():
     model, output, report = _build_sample()
     addr = report.converted[0]

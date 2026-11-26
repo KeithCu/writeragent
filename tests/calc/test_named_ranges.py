@@ -81,6 +81,8 @@ def test_named_range_unknown_sheet_prefix_errors(monkeypatch):
         table = MagicMock()
         monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
     monkeypatch.setattr(table, "CellAddress", _RecordingCellAddress, raising=False)
+    import uno
+    monkeypatch.setattr(uno, "createUnoStruct", lambda _name, **kw: SimpleNamespace(**kw))
 
     doc = _doc_with_sheet_names("Sheet1", "Data")
 
