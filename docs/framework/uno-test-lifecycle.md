@@ -18,6 +18,13 @@ Windows CI harness cleanup notes (if present under `docs/archive/`).
 | Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
 | Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
+The Writer wipe (`_reset_writer_doc` in `tests/testing_utils.py`) runs about once per Writer UNO test, and every UNO call in it is a round trip over the bridge, so it is kept short:
+
+- The whole wipe runs between `lockControllers()` and `unlockControllers()`, so Writer lays the document out once at the end. That cuts the layout document events (`OnLayoutFinished`, `OnPageCountChange`) from about twenty per wipe to two, and each event calls back into every registered plugin listener. Modify events are not reduced by the lock.
+- One `DispatchHelper` serves `.uno:AcceptAllTrackedChanges`, `.uno:SelectAll` and `.uno:ResetAttributes`. After the body text is deleted, the cursor resets only what `ResetAttributes` leaves alone: `ParaStyleName`, `NumberingRules` and `CharStyleName`.
+- `_reset_writer_page_regions` reads `HeaderIsOn` and `FooterIsOn` in one `getPropertyValues` call per page style and skips any style that has both off. On such a style, `FirstIsShared` reads as void and writes to it are ignored, and switching a header back on creates an empty, shared one (`sw/source/core/unocore/unostyle.cxx` `SwXPageStyle::GetPropertyValues_Impl` / `SetPropertyValues_Impl`).
+- `native_doc` still runs `_writer_pool_is_clean` each time it hands out the pooled Writer. If that check fails, the document is closed and a new one is opened. `tests/test_testing_utils_uno.py` dirties headers, styles, tables and tracked changes, then checks that the next pooled document is the same, clean object.
+
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
 `run_all_tests` so Windows bootstraps do not shut down when a suite closes

@@ -860,12 +860,13 @@ def _reset_writer_page_regions(doc) -> None:
                 style = styles.getByName(name)
             except Exception:
                 continue
-            # Fast-path: default page styles have FirstIsShared=True and no headers/footers enabled.
+            # A style with header and footer both off has nothing to clear: FirstIsShared reads
+            # void and ignores writes, and switching a header on later builds a fresh, empty,
+            # shared one (sw/source/core/unocore/unostyle.cxx SwXPageStyle::GetPropertyValues_Impl
+            # and SetPropertyValues_Impl, via lcl_GetHeaderFooterItem).
             try:
-                first_shared = style.getPropertyValue("FirstIsShared")
-                header_on = style.getPropertyValue("HeaderIsOn")
-                footer_on = style.getPropertyValue("FooterIsOn")
-                if first_shared is True and not header_on and not footer_on:
+                header_on, footer_on = style.getPropertyValues(("HeaderIsOn", "FooterIsOn"))
+                if not header_on and not footer_on:
                     continue
             except Exception:
                 pass
@@ -934,27 +935,38 @@ def _writer_pool_is_clean(doc) -> bool:
 
 
 def _reset_writer_doc(doc, ctx) -> None:
+    # With controllers locked, Writer lays the document out once at unlockControllers, so the
+    # wipe raises a couple of layout document events (OnLayoutFinished, OnPageCountChange)
+    # instead of one per step; each event calls back into every registered plugin listener.
+    doc.lockControllers()
+    try:
+        _wipe_writer_doc(doc, ctx)
+    finally:
+        doc.unlockControllers()
+
+
+def _wipe_writer_doc(doc, ctx) -> None:
     try:
         doc.setPropertyValue("RecordChanges", False)
     except Exception:
         pass
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = None
     try:
-        smgr = ctx.getServiceManager()
-        helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
         frame = doc.getCurrentController().getFrame()
         helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
     except Exception:
         pass
     try:
-        text = doc.getText()
-        cursor = text.createTextCursor()
+        cursor = doc.getText().createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
         cursor.setString("")
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
-        # Empty para keeps last run CharWeight/Heading; HTML insert at "end" with
-        # apply_styles=False then paints body text with leftover bold (150).
+        # The one paragraph left can keep a heading style, list, or character style; HTML
+        # inserted at "end" with apply_styles=False would then inherit them. ResetAttributes
+        # below clears direct formatting but not these.
         try:
             cursor.setPropertyValue("ParaStyleName", "Standard")
         except Exception:
@@ -964,55 +976,13 @@ def _reset_writer_doc(doc, ctx) -> None:
         except Exception:
             pass
         try:
-            cursor.setPropertyValue("CharWeight", 100.0)
-        except Exception:
-            pass
-        for prop in (
-            "CharStyleName",
-            "CharWeight",
-            "CharHeight",
-            "CharPosture",
-            "CharUnderline",
-            "CharColor",
-            "CharBackColor",
-            "CharEscapement",
-            "CharFontName",
-            "ParaAdjust",
-        ):
-            try:
-                cursor.setPropertyToDefault(prop)
-            except Exception:
-                pass
-        cursor.gotoStart(False)
-        try:
-            doc.getCurrentController().select(cursor)
+            cursor.setPropertyToDefault("CharStyleName")
         except Exception:
             pass
     except Exception:
         pass
     try:
-        enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
-            para = enum.nextElement()
-            try:
-                para.setPropertyValue("ParaStyleName", "Standard")
-            except Exception:
-                pass
-            try:
-                para.setPropertyValue("CharWeight", 100.0)
-            except Exception:
-                pass
-            for prop in ("CharStyleName", "CharWeight", "CharHeight", "CharPosture"):
-                try:
-                    para.setPropertyToDefault(prop)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    try:
-        smgr = ctx.getServiceManager()
-        helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        frame = doc.getCurrentController().getFrame()
+        # Clears direct character and paragraph formatting such as leftover bold (CharWeight 150).
         helper.executeDispatch(frame, ".uno:SelectAll", "", 0, ())
         helper.executeDispatch(frame, ".uno:ResetAttributes", "", 0, ())
         cursor = doc.getText().createTextCursor()
