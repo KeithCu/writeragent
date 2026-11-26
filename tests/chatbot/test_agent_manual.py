@@ -159,7 +159,6 @@ def test_sidebar_hybrid_prompt_composition():
     safety-critical review-modes piece exactly once; the reference pieces (search, navigation,
     images) stay OUT of the ambient text and are pulled on demand via manual_read, which must
     therefore be visible to the sidebar (tier core)."""
-    from plugin.doc.document_research_tools import GetGuidance
     from plugin.framework import prompts as c
 
     template = c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE

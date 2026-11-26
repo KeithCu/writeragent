@@ -24,6 +24,8 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from typing import Any
 
+import uno
+
 from plugin.writer.locale import grammar_settings
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
 from .grammar_ignore_rules import IgnoreSet, collect_ignored_reasons
@@ -263,7 +265,6 @@ def apply_language_change(
     paragraph_text: str = "",
 ) -> bool:
     """Update CharLocale on the sentence text span inside the document when language mismatch occurs."""
-    import uno
 
     def _do_update() -> bool:
         model = grammar_persistence.get_document_model_for_id(doc_id)

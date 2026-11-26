@@ -54,7 +54,7 @@ def test_writeragent_exception_is_tool_result_not_jsonrpc_internal():
     payload = json.loads(result["content"][0]["text"])
     assert payload["code"] == "TOOL_EXECUTION_ERROR"
     assert payload["message"] == "max index out of range in table cell"
-    assert "error" not in body or body.get("error") is None
+    assert "error" not in body
 
 
 def _tools_call(handler):

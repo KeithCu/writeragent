@@ -1785,15 +1785,16 @@ def test_dry_run_rejects_non_string_content_list_items() -> None:
     assert res["message"] == "content list items must be strings."
 
 
+@pytest.mark.parametrize("mode", ["off", "record"])
 @pytest.mark.parametrize("left", [True, False])
-def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> None:
+def test_record_mode_annotates_only_when_session_left_changes(mode: str, left: bool) -> None:
     ctx = _edit_ctx()
     session = MagicMock()
     session.left_tracked_changes.return_value = left
     with (
         patch("plugin.writer.apply_document_content.main.is_current", return_value=True),
-        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="record"),
-        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="record"),
+        patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value=mode),
+        patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode),
         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session),
         patch.object(
             ApplyDocumentContent,
@@ -1805,6 +1806,8 @@ def test_record_mode_annotates_only_when_session_left_changes(left: bool) -> Non
 
     assert res["status"] == "ok"
     assert ("pending_review" in res) is left
+    assert res.get("tracked") is (True if left else None)
+    assert ("review_mode" in res) is (left and mode == "record")
 
 
 def test_wait_mode_without_registered_change_reports_untagged_pending() -> None:

@@ -846,7 +846,6 @@ def test_bind_spawn_without_live_turn_has_no_session():
 def test_chunk_callbacks_post_resume_status_after_retry():
     import queue
     from plugin.chatbot.tool_loop import _chunk_callbacks
-    from plugin.framework.stream_batch import BatchingStreamQueue
 
     raw_q = queue.Queue()
     batched = BatchingStreamQueue(raw_q, batch_interval=10)

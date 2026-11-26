@@ -482,4 +482,3 @@ Proposed helpers (unchanged names; Sage adds backend):
 Sage-specific **extras** (optional later): factorization helpers, polynomial rings, group order — only if Phase 2 core is stable and users ask.
 
 ---
-

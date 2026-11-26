@@ -304,8 +304,7 @@ def _paragraph_portions(text: Any, anchor_pos: Any, *, include_redlines: bool = 
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
     for para in iter_elements(para_enum):
-        if hasattr(para, "supportsService") and not para.supportsService(
-                "com.sun.star.text.Paragraph"):
+        if not para.supportsService("com.sun.star.text.Paragraph"):
             continue
         portion_enum = para.createEnumeration()
         for portion, kind in iter_portions(portion_enum):

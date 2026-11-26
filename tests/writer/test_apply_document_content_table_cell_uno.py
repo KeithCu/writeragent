@@ -174,6 +174,37 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_emptied_table_user_recording_with_review_off_reports_tracked_uno(ctx, doc):
+    """In Off mode while the user records, emptying a table reports tracked/pending_review via the session delta."""
+    from plugin.framework.config import get_config, save
+
+    insert_named_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    before = doc.getRedlines().getCount()
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "off"})
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            tool_ctx, content=[""], old_content="ONLY_FEE", target="search"
+        )
+        assert res.get("status") == "ok", res
+        assert res.get("table_deleted") == "Fee", res
+        assert res.get("tracked") is True, res
+        assert res.get("pending_review") is True, res
+        assert "review_mode" not in res, res
+        assert doc.getTextTables().hasByName("Fee"), "the table stays until the user accepts"
+        assert doc.getRedlines().getCount() > before
+        accept_all_changes(doc, ctx)
+        assert doc.getTextTables().hasByName("Fee") is False
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+        save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer")
 def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
     """Rejecting the tracked delete puts the table and its text back."""
     from plugin.framework.config import get_config, save

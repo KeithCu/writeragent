@@ -90,8 +90,6 @@ def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path)
 
 
 def test_menu_icon_filename_caches_and_reset_clears(monkeypatch, tmp_path):
-    import os
-
     reset_menu_icon_dpi_cache()
     (tmp_path / "running_16.png").write_bytes(b"x")
     monkeypatch.setattr(
@@ -171,10 +169,6 @@ def test_probe_vcl_miss_walks_windows_once(monkeypatch):
 
 
 def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
-    import os
-
-    from plugin.framework.menu_icon_dpi import menu_icon_filesystem_paths
-
     paths1 = menu_icon_filesystem_paths("assets/icon.png")
     assert all(p.endswith(os.path.join("assets", "icon.png")) for p in paths1)
 

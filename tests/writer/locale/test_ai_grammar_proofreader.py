@@ -250,7 +250,6 @@ def mock_config_fixture():
         patch("plugin.framework.client.model_fetcher.get_text_model") as mock_get_model,
         patch("plugin.framework.config.get_api_config") as mock_get_api,
         patch("plugin.framework.logging.init_logging"),
-        patch.object(proofreader, "uno_mod", uno_mod),
     ):
         mock_get_config.side_effect = _proofreader_get_config_side_effect
         mock_get_model.return_value = "test-model"

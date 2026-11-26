@@ -454,7 +454,6 @@ def test_endpoint_http_error_is_reported_to_status():
 
 
 def test_speech_http_error_redacts_api_key(caplog):
-    import logging
     from plugin.framework.client.request_controls import reset_host_pacing_for_tests
 
     secret = "sk-speech-unique-secret"
@@ -720,7 +719,6 @@ def test_endpoint_empty_body_is_failure_not_a_file():
 
 
 def test_stopped_post_logs_debug_not_warning(caplog):
-    import logging
     from plugin.framework.errors import NetworkError
 
     caplog.set_level(logging.DEBUG)

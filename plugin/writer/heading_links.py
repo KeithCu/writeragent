@@ -48,7 +48,7 @@ def document_headings(doc: Any) -> list[tuple[int, str]]:
     for text_obj in texts:
         for para, state in iter_xtext_paragraphs(text_obj, deletions.state_at(text_obj)):
             level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
-            is_heading = isinstance(level, int) and level > 0
+            is_heading = level > 0
             if not is_heading and not deletions:
                 continue
             text = uno_read(
@@ -70,7 +70,7 @@ def _touches_heading(text_range: Any) -> bool:
         return False
     for para in iter_elements(enum):
         level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
-        if isinstance(level, int) and level > 0:
+        if level > 0:
             return True
     return False
 

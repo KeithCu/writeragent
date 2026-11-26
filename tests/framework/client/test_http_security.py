@@ -165,8 +165,6 @@ def test_public_target_redacts_path_secrets_and_keeps_model_names(raw, expected)
 
 
 def test_secrets_from_target_collects_path_secret_before_models():
-    from plugin.framework.client.http_security import secrets_from_target
-
     secrets = secrets_from_target("https://proxy.example/s/AbCdEfGhIjKlMnOpQr%3D%3D/v1/models/claude-sonnet-4-20250514")
     assert "AbCdEfGhIjKlMnOpQr%3D%3D" in secrets
     assert "AbCdEfGhIjKlMnOpQr==" in secrets
@@ -233,8 +231,8 @@ def test_invalid_url_traceback_hides_userinfo():
     from plugin.framework.client.http_security import origin_and_path
     from plugin.framework.errors import NetworkError
 
-    # Split so pytest's source-line traceback frame does not echo the secret.
-    bad_url = "https://user:hunter2" + "@ho\u2100st/x"
+    # Bound to a name so the traceback's source line for the call below does not hold the literal.
+    bad_url = "https://user:hunter2@ho\u2100st/x"
     with pytest.raises(NetworkError) as exc_info:
         origin_and_path(bad_url)
     tb = "".join(traceback.format_exception(exc_info.value))

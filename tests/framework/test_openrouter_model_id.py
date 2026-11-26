@@ -59,7 +59,6 @@ def test_equivalent_vendor_prefix_omitted() -> None:
 
 def test_catalog_larger_than_shape_dim_resolves() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
-    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 
     model = "vendor/" + ("m" * (DEAL_MAX_TOKEN + 1))
     catalog = {f"id-{i}" for i in range(DEAL_MAX_SHAPE_DIM + 1)}

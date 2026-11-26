@@ -54,9 +54,6 @@ def test_ingest_paragraphs_empty_rows_skip_graph_unless_filling_gaps(tmp_path):
     mock_graph.invoke.assert_called_once()
 
 def test_embed_and_upsert_batches_emits_heartbeats():
-    from plugin.embeddings.venv.embeddings_ingest_graph import embed_and_upsert_batches
-    import sqlite3
-
     mock_heartbeats = []
     def _hb(payload):
         mock_heartbeats.append(payload)
@@ -99,7 +96,6 @@ def test_embed_and_upsert_batches_emits_heartbeats():
 
 
 def test_write_meta_preserves_host_fields(tmp_path):
-    import json
     from plugin.embeddings.venv.embeddings_ingest_graph import _write_meta
 
     meta_path = tmp_path / "corpus_meta.json"

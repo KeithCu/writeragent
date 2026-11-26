@@ -12,7 +12,6 @@ see stdlib-only bootstrap above before ``plugin.*`` imports.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 import sys
@@ -33,8 +32,9 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
 ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
 
-from typing import Any, Iterable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Sequence, cast
 
+import uno
 import unohelper
 
 from com.sun.star.beans import XPropertySet
@@ -49,8 +49,6 @@ log = logging.getLogger("writeragent.grammar")
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
 SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 
-uno_mod: Any
-
 
 def _advance_past_leading_whitespace(text: str, index: int) -> int:
     """Advance ``index`` while ``text[index]`` is Unicode whitespace (not ASCII space only)."""
@@ -59,11 +57,6 @@ def _advance_past_leading_whitespace(text: str, index: int) -> int:
         n += 1
     return n
 
-
-try:
-    uno_mod = importlib.import_module("uno")
-except ImportError:
-    uno_mod = None
 
 # INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
 # Several Linguistic workers can enter doProofreading together. The lock makes that
@@ -85,7 +78,8 @@ from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     normalize_uno_locale_to_bcp47,
 )
-from plugin.writer.locale import grammar_proofread_locale
+from plugin.framework import uno_context
+from plugin.writer.locale import grammar_persistence, grammar_proofread_locale
 from plugin.writer.locale.grammar_proofread_locale import (
     filter_sentence_spans_for_thresholds,
     uno_locales_for_tags,
@@ -105,6 +99,9 @@ from plugin.writer.locale.grammar_work_queue import (
 )
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, guard_uno
+
+if TYPE_CHECKING:
+    import types
 
 BIND_RETRY_SEC: float = 1.5
 
@@ -127,6 +124,14 @@ def _clear_grammar_disabled_notice() -> None:
 
 
 _TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
+
+
+def _harper_module() -> types.ModuleType:
+    """Return ``plugin.writer.locale.harper``, importing it on first use."""
+    # Weight: harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
+    from plugin.writer.locale import harper
+
+    return harper
 
 
 def _is_text_document(model: Any) -> bool:
@@ -184,16 +189,14 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str, locale: Any) -> Any |
     """
     if not main.is_current():
         return None
-    from plugin.framework.uno_context import get_desktop, iter_open_models
-
-    desktop = get_desktop(ctx)
+    desktop = uno_context.get_desktop(ctx)
     if desktop is None:
         return None
     iterator = guard_uno(
         ctx.ServiceManager.createInstanceWithContext("com.sun.star.linguistic2.ProofreadingIterator", ctx)
     )
     probe = _DocIdProbeParagraph(locale)
-    for model in iter_open_models(desktop):
+    for model in uno_context.iter_open_models(desktop):
         if not _is_text_document(model):
             continue
         # -1 for nErrorPosInPara stops after the first sentence and returns our result.
@@ -213,16 +216,14 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str, locale: Any) -> Any | None:
     does not replace it or reload udprops over live edits. No model -> return
     None without raising. Returns the resolved model or None.
     """
-    from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
-
-    model = get_document_model_for_id(doc_id)
+    model = grammar_persistence.get_document_model_for_id(doc_id)
     if model is not None:
         return model
     try:
         model = _resolve_proofread_writer_model(ctx, doc_id, locale)
         if model is None:
             return None
-        get_persistence(doc_id, model=model)
+        grammar_persistence.get_persistence(doc_id, model=model)
         return model
     except Exception:
         log.exception("[grammar] persistence bind failed")
@@ -230,10 +231,8 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str, locale: Any) -> Any | None:
 
 
 def _ignore_rule_on_main(doc_id: str, rule_identifier: str) -> None:
-    from plugin.writer.locale.grammar_persistence import get_persistence
-
     ignore_rule_add(str(rule_identifier))
-    p = get_persistence(doc_id)
+    p = grammar_persistence.get_persistence(doc_id)
     if not p:
         return
 
@@ -246,10 +245,8 @@ def _ignore_rule_on_main(doc_id: str, rule_identifier: str) -> None:
 
 
 def _reset_ignore_rules_on_main(doc_id: str) -> None:
-    from plugin.writer.locale.grammar_persistence import get_persistence
-
     ignore_rules_clear()
-    p = get_persistence(doc_id)
+    p = grammar_persistence.get_persistence(doc_id)
     if not p:
         return
     p.clear_ignored_rules()
@@ -264,7 +261,7 @@ def _proofreading_markup_type() -> int:
     global _PROOFREADING_MARKUP_TYPE
     if _PROOFREADING_MARKUP_TYPE is not None:
         return _PROOFREADING_MARKUP_TYPE
-    v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
+    v: Any = uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
     _PROOFREADING_MARKUP_TYPE = int(cast("int | float | str", v))
     return _PROOFREADING_MARKUP_TYPE
 
@@ -284,7 +281,7 @@ def _cached_errors_to_uno_tuple(
             continue
 
         u16_start, u16_len = u16_map.utf16_span(int(d["n_error_start"]), int(d["n_error_length"]))
-        a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
+        a_err = cast("Any", uno.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
         a_err.nErrorStart = u16_start
         a_err.nErrorLength = u16_len
         a_err.nErrorType = markup_type
@@ -326,10 +323,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         log.debug("[grammar] skip harper warmup: user config dir not ready")
         return
     try:
-        # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-        from plugin.writer.locale.harper import maybe_start_harper_async
-
-        maybe_start_harper_async(ctx, user_config_dir=ucd)
+        _harper_module().maybe_start_harper_async(ctx, user_config_dir=ucd)
     except Exception as e:
         log.warning("[grammar] OnStartApp: could not warmup harper: %s", e)
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
@@ -351,7 +345,7 @@ def _create_empty_result(
     u16_map: Utf16OffsetMap,
 ) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
-    a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
+    a_res = cast("Any", uno.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
     a_res.aDocumentIdentifier = a_document_identifier
     a_res.aText = a_text
     a_res.aLocale = a_locale
@@ -501,10 +495,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self._first_listener_proofread_again_done = False
         self._last_split: tuple[tuple[str, str], list[tuple[int, int, str]]] | None = None
         from plugin.framework.logging import init_logging
-        from plugin.writer.locale.grammar_persistence import grammar_registry
 
         init_logging(ctx)
-        grammar_registry.register_live_proofreader(self)
+        grammar_persistence.grammar_registry.register_live_proofreader(self)
         # Locales returned by getLocales — must match LinguisticWriterAgentGrammar.xcu Locales.
         # The XCU uses hyphenated BCP47-like tags in one oor:string-list value; UNO uses
         # com.sun.star.lang.Locale in the same order as GRAMMAR_REGISTRY_LOCALE_TAGS.
@@ -529,9 +522,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             self._failed_bind_deadlines.pop(doc_id, None)
             self._bound_docs.add(doc_id)
             try:
-                from plugin.framework.uno_context import get_runtime_uid
-
-                uid = get_runtime_uid(model)
+                uid = uno_context.get_runtime_uid(model)
             except Exception:
                 log.debug("[grammar] persistence bind: get_runtime_uid failed", exc_info=True)
                 uid = None
@@ -577,10 +568,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if profile.provider == "harper":
             # Harper lints English only. hasLocale and doProofreading both read this rule,
             # and HarperProofreader inherits it through its fixed "harper" profile.
-            # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-            from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
-
-            return normalize_harper_locale_to_bcp47(a_locale)
+            return _harper_module().normalize_harper_locale_to_bcp47(a_locale)
         return normalize_uno_locale_to_bcp47(a_locale)
 
     def hasLocale(self, aLocale: Any) -> bool:
@@ -602,7 +590,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     ) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
         if profile.always_enabled:
-            loc_raw = getattr(a_locale, "Language", "") or ""
+            loc_raw = a_locale.Language
         else:
             loc_raw = f"{a_locale.Language}_{a_locale.Country}_{a_locale.Variant}"
 
@@ -660,9 +648,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             return
         from plugin.framework.config import user_config_dir
 
-        # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-        from plugin.writer.locale.harper import harper_try_lint
-
+        harper_try_lint = _harper_module().harper_try_lint
         cfg_dir = user_config_dir() or ""
         if uncached_spans[0][2]:
             get_grammar_status().start(uncached_spans[0][2], result="Harper", routine=True)
@@ -702,16 +688,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             # LibreOffice returns our result only when nBehindEndOfSentencePosition > 0.
             return _create_empty_result(self, aDocumentIdentifier, aText, aLocale, 0, len(aText), u16_map=Utf16OffsetMap(aText))
         with background_if_dummy_thread("proofreading"):
-            if uno_mod is None:
-                log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
-                raise RuntimeError("uno not available")
-
             u16_map = Utf16OffsetMap(aText)
             py_start = u16_map.utf16_to_py(nStartOfSentencePosition)
             py_suggested_end = u16_map.utf16_to_py(nSuggestedBehindEndOfSentencePosition)
 
-            # Build the empty result before the try. A failure here (missing ``uno``,
-            # ``createUnoStruct``) must propagate out of ``doProofreading``. The
+            # Build the empty result before the try. A ``createUnoStruct`` failure here
+            # must propagate out of ``doProofreading``. The
             # ``_create_empty_result`` is called once; a second attempt on failure would
             # leave the Linguistic worker with an unhandled exception.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, u16_map=u16_map)
@@ -843,18 +825,16 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return a_res
 
     def _resolve_doc_id_for_ignore(self) -> str | None:
-        from plugin.framework.uno_context import get_desktop, get_runtime_uid
-
         if not main.is_current():
             return None
 
         try:
-            desktop = get_desktop(self.ctx)
+            desktop = uno_context.get_desktop(self.ctx)
             if desktop is None:
                 return None
             current = _current_component(desktop)
             if current is not None:
-                uid = get_runtime_uid(current)
+                uid = uno_context.get_runtime_uid(current)
                 if uid and uid in self._doc_id_for_ignore:
                     return self._doc_id_for_ignore[uid]
         except Exception:
@@ -920,10 +900,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         ready = False
         if not pending:
             try:
-                # harper.py loads the harper-ls LSP client and binary downloader; import it only on the Harper path.
-                from plugin.writer.locale.harper import runtime
-
-                ready = self._resolved_profile().provider == "harper" and runtime.is_ready()
+                ready = self._resolved_profile().provider == "harper" and _harper_module().runtime.is_ready()
             except Exception:
                 ready = False
         if not pending and not ready:
@@ -944,7 +921,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             self._pending_proofread_again = True
             return
         self._pending_proofread_again = False
-        event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
+        event = uno.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
         setattr(event, "Source", self)
         setattr(event, "nEvent", 8)  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
         for listener in list(self._lingu_listeners):

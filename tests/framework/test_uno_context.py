@@ -24,10 +24,10 @@ def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
-    # B9 regression: patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
-    # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
-    # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
-    # (this is what broke tests/mcp_server/test_long_running_concurrency.py in combined runs).
+    # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
+    # tests/conftest.py). Popping 'uno' instead would leave the rest of the run without a 'uno'
+    # module, so any later test that imports uno lazily would hit the real uno.py and fail
+    # with "No module named 'pyuno'".
     #
     # bootstrap() pins whatever get_ctx() returned into _fallback_ctx. On an
     # xdist worker an earlier test has already done that, so get_ctx() returns
@@ -231,7 +231,6 @@ def test_get_active_document_skips_desktop_create_on_no_vcl():
 
 def test_get_active_document_reraises_disposed_desktop():
     """A disposed desktop is not "no document"."""
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.framework.uno_context import get_active_document
 
     class DisposedException(Exception):
@@ -246,7 +245,6 @@ def test_get_active_document_reraises_disposed_desktop():
 
 def test_get_active_document_reraises_disposed():
     """A document that dies mid-call must not look like nothing is open."""
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.framework.uno_context import get_active_document
 
     class DisposedException(Exception):
@@ -409,7 +407,6 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
 
 def test_uno_boundaries_import_guard_uno_at_the_return():
     """Patching thread_guard.guard_uno must see boundary returns (not import-time _wrap_uno)."""
-    from plugin.framework.doc_type import DocumentType
     from plugin.framework import uno_context as uc
 
     seen: list[object] = []
@@ -475,9 +472,7 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
 
 def test_resolve_document_by_url_reraises_disposed_on_nextelement():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.framework.uno_context import resolve_document_by_url, set_fallback_ctx, reset_desktop_create_is_unsafe_for_tests
-    from unittest.mock import MagicMock
 
     ctx = MagicMock()
     desktop = MagicMock()
@@ -702,7 +697,6 @@ def test_enum_has_more():
 
 def test_resolve_document_by_url_finds_document_past_32():
     from plugin.framework.thread_guard import unwrap_uno
-    from plugin.framework.uno_context import resolve_document_by_url
 
     others = [MagicMock(name=f"other_{i}") for i in range(39)]
     for i, m in enumerate(others):
@@ -800,7 +794,6 @@ def test_iter_open_models_skips_scratch_documents(monkeypatch):
 def test_resolve_document_by_url_skips_scratch_document(monkeypatch):
     import plugin.framework.scratch_writer as scratch_writer
     from plugin.framework.thread_guard import unwrap_uno
-    from plugin.framework.uno_context import resolve_document_by_url
 
     scratch_model = MagicMock()
     scratch_model.getURL.return_value = "file:///tmp/shared.odt"

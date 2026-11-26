@@ -23,10 +23,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PAGE, AT_PARAGRAPH
+
 from plugin.doc.text_helpers import (
     TrackedDeletions,
     clone_text_range,
     get_string_without_tracked_deletions,
+    is_text_table,
     iter_elements,
     jump_view_cursor_to_page,
     page_not_found_message,
@@ -57,8 +61,6 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
     getPage() only (no UNO page-of-range API).
     """
     try:
-        from com.sun.star.text.TextContentAnchorType import AT_PAGE
-
         if obj.getPropertyValue("AnchorType") != AT_PAGE:
             return None
         return obj.getPropertyValue("AnchorPageNo")
@@ -235,11 +237,10 @@ class GetPageObjects(ToolBase):
         # AT_PAGE shapes use AnchorPageNo — never _page_at_range (no view hop).
         shapes = []
         draw_page = doc.getDrawPage()
-        from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER
-
         for i in range(draw_page.getCount()):
             shape = draw_page.getByIndex(i)
-            shape_name = getattr(shape, "Name", "") or ("shape_%d" % i)
+            name = shape.Name
+            shape_name = name or ("shape_%d" % i)
             include_shape = False
             try:
                 page_no = _at_page_anchor_page(shape)
@@ -257,7 +258,7 @@ class GetPageObjects(ToolBase):
 
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
-                shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
+                shape_info = {"type": shape_type, "name": name, "text": get_string_without_tracked_deletions(shape).strip() if hasattr(shape, "getString") else ""}
                 preset = custom_shape_geometry(shape).get("Type")
                 if preset:
                     shape_info["custom_shape_type"] = preset
@@ -271,7 +272,7 @@ class GetPageObjects(ToolBase):
                         geometry.update({"x": hori, "y": vert, "position_relative_to": "anchor"})
                         anchor_kind = safe_get_property(shape, "AnchorType")
                         if anchor_kind is not None:
-                            geometry["anchor_type"] = getattr(anchor_kind, "value", str(anchor_kind))
+                            geometry["anchor_type"] = anchor_kind.value
                     else:
                         pos = shape.getPosition()
                         geometry.update({"x": pos.X, "y": pos.Y, "position_relative_to": "page"})
@@ -338,8 +339,6 @@ class CloneHeadingBlock(ToolBaseDummy):
         if tree_svc is None:
             return self._tool_error("Writer tree service unavailable.", code="SERVICE_UNAVAILABLE")
 
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc.find_heading_by_para_index(tree, para_index)
         if node is None:
@@ -363,9 +362,6 @@ class CloneHeadingBlock(ToolBaseDummy):
         if not elements:
             return self._tool_error("Could not collect heading block paragraphs.")
 
-        def _is_text_table(el: Any) -> bool:
-            return hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable") is True
-
         # Insert duplicates after the last element of the block.
         # Snapshot text and style first. The cursor is created from the last
         # block paragraph, and insertControlCharacter(PARAGRAPH_BREAK) at that
@@ -381,7 +377,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         for el in elements:
             # A table is in this enumeration and has no ParaStyleName
             # (same fact as html_export._copy_window_to_scratch); do not add a table copier.
-            if _is_text_table(el):
+            if is_text_table(el):
                 skipped_tables += 1
                 continue
             clones.append((
@@ -390,7 +386,7 @@ class CloneHeadingBlock(ToolBaseDummy):
             ))
 
         last = elements[-1]
-        if _is_text_table(last):
+        if is_text_table(last):
             cursor = doc_text.createTextCursorByRange(last.getAnchor())
             cursor.collapseToEnd()
         else:

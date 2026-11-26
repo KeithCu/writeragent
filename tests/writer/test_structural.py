@@ -1,6 +1,6 @@
 """clone_heading_block must not clone paragraph 0 when the locator misses."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -164,13 +164,7 @@ def test_clone_heading_block_with_table():
     services.writer_tree = tree_svc
     ctx.services = services
 
-    import sys
-    import types
-
-    cc_mod = types.ModuleType("com.sun.star.text.ControlCharacter")
-    cc_mod.PARAGRAPH_BREAK = 0  # type: ignore[attr-defined]
-    with patch.dict(sys.modules, {"com.sun.star.text.ControlCharacter": cc_mod}):
-        res = CloneHeadingBlock().execute(ctx, locator="heading_text:Heading A")
+    res = CloneHeadingBlock().execute(ctx, locator="heading_text:Heading A")
     assert res["status"] == "ok"
     assert not table.para_style_called
     assert inserted_strings == ["Heading A", "Body text"]

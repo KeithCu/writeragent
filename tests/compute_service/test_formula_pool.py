@@ -419,7 +419,6 @@ class TestFormulaPoolSupervisor:
 
     def test_formula_worker_import_skips_sandbox(self) -> None:
         import subprocess
-        import sys
 
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         code = "\n".join(["import sys", "import compute_service.formula_worker", "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules"])
@@ -963,8 +962,6 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_deadline_left_is_negative_when_spent(self) -> None:
-        from plugin.framework.child_runtime import Deadline
-
         future = Deadline.from_absolute(10.0, time.monotonic() + 10.0)
         assert future.left() > 0.0
         assert future.usable() is not None
@@ -1169,7 +1166,6 @@ class TestFormulaPoolSupervisor:
     @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
     def test_shared_session_loss_reports_session_reset(self) -> None:
         """After SIGKILL, next call on the same session_id lands on fresh kernel and returns session_reset: True."""
-        import json
         import signal
 
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
@@ -1598,7 +1594,6 @@ class TestFormulaPoolSupervisor:
 
     def test_post_lease_queue_timeout_drops_new_session(self) -> None:
         """When deadline expires right after leasing, new session reservation is dropped."""
-        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=0))
         try:
@@ -1625,7 +1620,6 @@ class TestFormulaPoolSupervisor:
 
     def test_post_lease_queue_timeout_keeps_existing_session(self) -> None:
         """When deadline expires right after leasing, an existing session is preserved."""
-        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=0))
         try:

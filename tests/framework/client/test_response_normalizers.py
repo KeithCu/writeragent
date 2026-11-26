@@ -280,7 +280,6 @@ def test_anthropic_thinking_delta_maps_onto_thinking():
 
 
 def test_openai_shim_parse_sync_response_raises_on_error():
-    import pytest
     from plugin.framework.errors import NetworkError
 
     shim = OpenAIShim(MagicMock())

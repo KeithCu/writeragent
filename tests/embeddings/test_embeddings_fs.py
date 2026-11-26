@@ -124,8 +124,6 @@ def test_paragraph_chunks_from_txt(tmp_path: Path):
 
 
 def test_extract_indexable_passage_runs_mixed_odt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    import zipfile
-
     content_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"

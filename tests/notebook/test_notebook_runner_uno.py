@@ -87,8 +87,6 @@ def _consecutive_code_cells_ipynb_path() -> Path:
 
 
 def _assert_controls_present(doc, cell) -> None:
-    from plugin.notebook.cell_registry import cell_id_to_hex
-
     names = _draw_control_names(doc)
     run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
     assert run_name in names, f"{run_name} missing from draw page: {names}"
@@ -187,10 +185,7 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
     """Import must attach one form-level listener, not N controller.getControl(model)."""
-    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import form_run_listeners
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     ipynb = _tiny_ipynb_path()
     try:
@@ -237,14 +232,11 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
 @native_test
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
-    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import (
         ensure_form_design_mode_off,
         wire_all_notebook_run_buttons,
     )
     from plugin.notebook.form_lookup import read_code_from_field
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     ipynb = _tiny_ipynb_path()
     try:
@@ -307,14 +299,11 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
     """Running cell N must not delete cell N+1's ▶, TextField, or source (medium In[2]/In[3])."""
-    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import (
         ensure_form_design_mode_off,
         wire_all_notebook_run_buttons,
     )
     from plugin.notebook.form_lookup import read_code_from_field
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     ipynb = _consecutive_code_cells_ipynb_path()
     try:
@@ -443,14 +432,11 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
     """Live ▶ on the small NumPy fixture: in-cell replace, tight Output, In [1] then [2]."""
     assert _SMALL_IPYNB.is_file(), f"missing fixture {_SMALL_IPYNB}"
 
-    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import (
         ensure_form_design_mode_off,
         form_run_listeners,
         wire_all_notebook_run_buttons,
     )
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     boxes: list = []
 
@@ -562,9 +548,6 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_cell_execution_error_no_msgbox(ctx, doc):
     """Failed ▶ writes traceback under the cell; no WriterAgent modal."""
-    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
     from plugin.notebook.notebook_runner import run_cell_for_doc_hex
 
     ipynb = _tiny_failing_ipynb_path()
@@ -668,10 +651,7 @@ def _three_cell_stop_ipynb_path() -> Path:
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_all_two_cells_share_kernel(ctx, doc):
     """Run All: cell 2 sees cell 1's binding on the shared notebook kernel."""
-    from plugin.notebook.cell_registry import load_registry
     from plugin.notebook.notebook_runner import run_all_for_doc
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     ipynb = _two_cell_kernel_ipynb_path()
     try:
@@ -701,10 +681,7 @@ def test_run_all_two_cells_share_kernel(ctx, doc):
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_all_stop_skips_remaining_cells(ctx, doc):
     """Stop after the first cell must not start the long / later cells."""
-    from plugin.notebook.cell_registry import load_registry
     from plugin.notebook.notebook_runner import run_all_for_doc
-    from plugin.notebook.writer_importer import import_ipynb_to_writer
-    from plugin.notebook.notebook_runner import flush_ui_idle
 
     ipynb = _three_cell_stop_ipynb_path()
     try:

@@ -131,8 +131,6 @@ def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any, supervisor:
 
 
 def test_handshake_timeout_returns_error(tmp_path: Any, supervisor: Supervisor, monkeypatch: Any) -> None:
-    import plugin.framework.warm_child as warm_child_mod
-
     monkeypatch.setattr(warm_child_mod, "SPAWN_READY_TIMEOUT_SEC", 0.4)
     script = tmp_path / "slow_ready.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")

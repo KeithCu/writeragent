@@ -147,8 +147,8 @@ class TestComputeChatPanelLayout:
 
 class TestPanelResizeListenerIntegration:
     def test_disposing_runs_callback_without_removing_listener(self):
-        # VCL disposing means the listener is already going away. Removing it
-        # from here used to be the only teardown, and it never cancelled the send.
+        # VCL disposing means the listener is already going away, so it is not
+        # removed here. The on_dispose callback runs the teardown that cancels the send.
         calls: list[str] = []
         listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
         root = MagicMock()
@@ -367,7 +367,6 @@ def test_image_mode_bottom_row_fits_at_1x():
     The row overlapped image_model_selector by 2 units in the XDL and sat 10px
     from the panel edge, which GTK's taller 1x combo boxes overran.
     """
-    from plugin.chatbot.panel_resize import compute_chat_panel_layout
 
     height = 500
     layouts = compute_chat_panel_layout(300, height, _xdl_snapshot())
@@ -407,7 +406,7 @@ class TestColumnFitsAtBothScales:
 
     def test_panel_request_fits_default_column(self):
         # The panel asks the deck for max_child_right + left inset (+1 at 2x).
-        # With a 4px right margin that was 262 > 259 (1x) and 305 > 296 (2x):
+        # A 4px right margin would give 262 > 259 (1x) and 305 > 296 (2x):
         # a horizontal scrollbar at the default width.
         for snapshot, width in ((_SNAPSHOT_1X, 259), (_SNAPSHOT_1X, 320), (_SNAPSHOT_2X, 235), (_SNAPSHOT_2X, 296)):
             layouts = compute_chat_panel_layout(width, 900, snapshot)

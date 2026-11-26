@@ -128,8 +128,6 @@ def test_apply_stays_open_when_save_fails():
 
 
 def test_open_loads_dialog_via_shared_loader():
-    import pytest
-
     ctx = MagicMock()
     with (
         patch(
@@ -147,7 +145,6 @@ def test_open_loads_dialog_via_shared_loader():
 
 
 def test_show_does_not_register_in_active_dialogs_when_open_raises():
-    import pytest
     from plugin.chatbot.module_config_dialog import _active_dialogs
 
     ctx = MagicMock()
@@ -304,8 +301,6 @@ def test_close_does_not_evict_different_registered_dialog():
 
 
 def _make_preview_dialog(specs=None, raw_result=None, job=None, run_job=None):
-    from plugin.chatbot.module_config_dialog import ModuleConfigDialog
-
     ctx = MagicMock()
     dialog = ModuleConfigDialog(ctx, "vision", preview_job=job, run_job=run_job)
     dialog._dlg = MagicMock()

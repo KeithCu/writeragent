@@ -112,8 +112,8 @@ class TestMemory:
         assert (upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}')) == ({"key": "from_json", "content": "v"})
 
     def test_upsert_memory_arguments_dict_non_dict_is_total(self):
-        # A list used to raise deal.PreContractError under pytest. The body
-        # returns None; the pytest pre must stay total.
+        # The body returns None for a list; the pytest pre must stay total so a
+        # list does not raise deal.PreContractError instead.
         assert upsert_memory_arguments_dict([]) is None
         assert upsert_memory_arguments_dict(None) is None
         assert upsert_memory_arguments_dict(1) is None
@@ -248,7 +248,6 @@ def test_upsert_empty_content_pops_key(tmp_path):
 
 
 def test_memory_arguments_longer_than_source_normalize():
-    from plugin.chatbot.memory import format_upsert_memory_chat_line, upsert_memory_arguments_dict
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 
     content = "m" * (DEAL_MAX_SOURCE + 1)
