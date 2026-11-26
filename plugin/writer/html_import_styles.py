@@ -81,7 +81,9 @@ def _parse_length_to_unit(val: str) -> int | None:
         return int(round(num * UNITS_PER_INCH / 72))
     if unit == "pc":
         return int(round(num * UNITS_PER_INCH / 6))
-    return int(round(num * UNITS_PER_INCH / 96))
+    if unit == "px":
+        return int(round(num * UNITS_PER_INCH / 96))
+    raise AssertionError(unit)
 
 
 _PERCENT_RE = re.compile(r"^(\d+(?:\.\d+)?)%$")

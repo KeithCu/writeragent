@@ -609,7 +609,15 @@ def _put_back_url(snapshot: OutlineSnapshot) -> str:
     return ""
 
 
-def _has_anchor_or_empty(anchor: Any, snapshot: OutlineSnapshot, override: str | None) -> bool:
+def _anchor_or_nothing_to_link(
+    anchor: Any, snapshot: OutlineSnapshot, override: str | None,
+) -> bool:
+    """Return True if *anchor* is present, False when there are no links or override to place.
+
+    Raises ``ToolExecutionError(code="HYPERLINK_UPDATE_FAILED")`` when *anchor* is None
+    but links or *override* need it, so both ``restore_links`` branches agree when
+    ``collapsed_anchor`` fails.
+    """
     if anchor is not None:
         return True
     if snapshot.links or override:
@@ -628,7 +636,7 @@ def restore_outline_hyperlinks(doc: Any, anchor: Any, snapshot: OutlineSnapshot,
     *fallback_plain* is the plain text the caller inserted, used when the paragraph
     can no longer be measured. Returns the public before/after reports.
     """
-    if not _has_anchor_or_empty(anchor, snapshot, override):
+    if not _anchor_or_nothing_to_link(anchor, snapshot, override):
         return []
 
     new_plain = measured_replacement(anchor, snapshot)
@@ -753,7 +761,7 @@ def _keep_links_while_recording(doc: Any, anchor: Any, snapshot: OutlineSnapshot
     link. The struck text keeps its link, so only the inserted runs are written, untracked: Accept
     keeps the link on the new text and Reject removes it with the insertion. No URL is renamed.
     """
-    if not _has_anchor_or_empty(anchor, snapshot, override):
+    if not _anchor_or_nothing_to_link(anchor, snapshot, override):
         return []
     url = _put_back_url(snapshot)
     raw = measured_replacement(anchor, snapshot)

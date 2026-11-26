@@ -110,7 +110,7 @@ def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
     ``html_import`` (strip ``<rt>``, then ``RubyText`` on the base run).
 
     A replacement stays inside one text node (or wraps the base node and
-    delete a following reading node), so ``<ruby>`` is never split across tags.
+    deletes a following reading node), so ``<ruby>`` is never split across tags.
     """
     if not html or not spans:
         return html

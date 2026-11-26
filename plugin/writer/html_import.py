@@ -1870,12 +1870,11 @@ def replace_xtext_with_html(
     failure rolls back to the previous state, preserving graphics and fields.
     """
     nonce = uuid.uuid4().hex[:8]
-    expanded = html
-    expanded, region_images = image_placeholders.capture_region_images(model, text_obj, expanded)
-    expanded = html_import_styles.normalize_character_references(expanded)
-    expanded = html_import_styles.expand_prose_escapes(expanded)
-    expanded, ruby_spans = html_ruby.ruby_placeholders(expanded, nonce)
-    rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
+    html, region_images = image_placeholders.capture_region_images(model, text_obj, html)
+    html = html_import_styles.normalize_character_references(html)
+    html = html_import_styles.expand_prose_escapes(html)
+    html, ruby_spans = html_ruby.ruby_placeholders(html, nonce)
+    rewritten = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
     clean, block_styles, block_paras, skipped_paras = html_import_styles.extract_block_lo_styles(rewritten)
     prepared = ensure_html_linebreaks(clean)
     # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.

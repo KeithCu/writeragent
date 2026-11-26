@@ -1571,7 +1571,7 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     assert report.style_skips == []
 
 
-def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
+def test_open_absorb_paragraph_at_end_inserts_break_when_end_para_has_text():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
@@ -1590,7 +1590,7 @@ def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
-def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
+def test_open_absorb_paragraph_at_end_inserts_break_for_image_only_paragraph():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
@@ -1615,7 +1615,7 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
 
 
-def test_ensure_empty_absorb_skips_break_when_end_para_empty():
+def test_open_absorb_paragraph_at_end_skips_break_when_end_para_empty():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
@@ -1634,7 +1634,7 @@ def test_ensure_empty_absorb_skips_break_when_end_para_empty():
     text.insertControlCharacter.assert_not_called()
 
 
-def test_ensure_empty_absorb_opens_break_for_spaces_or_recording():
+def test_open_absorb_paragraph_at_end_opens_break_for_spaces_or_recording():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
@@ -1719,7 +1719,7 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     body_cursor.gotoEnd.assert_not_called()
 
 
-def test_ensure_empty_absorb_raises_when_break_fails():
+def test_open_absorb_paragraph_at_end_raises_when_break_fails():
     from unittest.mock import MagicMock
 
     from plugin.writer import html_import as hi
