@@ -1885,8 +1885,8 @@ def test_dry_run_refuses_what_the_edit_refuses() -> None:
         "all_matches": True,
     }
     res = ApplyDocumentContent().execute(_edit_ctx(), dry_run=True, **kwargs)
-    expected = ApplyDocumentContent()._parse_edit_params(MagicMock(), kwargs)
-    assert isinstance(expected, dict)
+    expected = ApplyDocumentContent().execute(_edit_ctx(), **kwargs)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
+    assert res["code"] == expected["code"]
     assert res["message"] == expected["message"]

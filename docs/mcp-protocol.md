@@ -977,11 +977,15 @@ no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern
 
 `max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re`; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames); offsets are in the `document_length` space (tracked deletions hidden), and an empty `ranges` result carries `note` when tracked deletions are pending. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`. With `regex=false`, the floating-shape and comment sweep folds typographic quotes (`‘’‚‛` to `'`, `“”„‟` to `"`) and returns the original characters; dashes and spaces are not folded there, and `regex=true` does not rewrite the pattern.
 
-`apply_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
-previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
-`occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
-is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
-and `not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check. The preview validates parameters exactly as the edit does, so a call the edit would refuse (for example `position='before'` with `all_matches=true`) is refused by the preview with the same error. `hyperlink_url_after` is computed from the same normalized replacement the edit writes (complete entities decoded, the edge spaces dropped from `old_content` also dropped from `content`).
+`apply_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment previews in
+`not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include `occurrence`
+(0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count` is the
+edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable` and
+`not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
+The preview validates parameters exactly as the edit does, so a call the edit would refuse (for example
+`position='before'` with `all_matches=true`) is refused by the preview with the same error. `hyperlink_url_after`
+is computed from the same normalized replacement the edit writes (complete entities decoded, the edge spaces
+dropped from `old_content` also dropped from `content`).
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 

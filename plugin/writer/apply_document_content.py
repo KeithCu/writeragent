@@ -879,7 +879,8 @@ class ApplyDocumentContent(ToolBase):
         params = self._parse_edit_params(ctx, kwargs)
         if isinstance(params, dict):
             return params
-        # Empty replacements delete the match without painting a put-back URL.
+        # before/after insert beside the match and leave its outline URL alone;
+        # empty replacements delete the match without painting a put-back URL.
         rewrites_outline = params.position == "replace" and params.content.strip() != ""
         occurrence = params.occurrence
         edit_idx = 0 if occurrence is None else occurrence
