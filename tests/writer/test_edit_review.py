@@ -1560,3 +1560,19 @@ def test_string_skipping_redline_across_paragraphs():
     assert _string_skipping_redline(text_range, "Delete") == "Start \nEnd"
     assert _string_skipping_redline(text_range, "Insert") == "Start gone1\ngone2\ngone3 End"
 
+
+def test_record_write_non_writer_runs_apply_without_touching_record_changes():
+    from plugin.writer.edit_review import record_write
+
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    apply_fn = MagicMock(return_value="calc-result")
+
+    with patch("plugin.writer.edit_review.review_recording_enabled", return_value=True):
+        result, recording = record_write(doc, MagicMock(), apply_fn)
+
+    assert result == "calc-result"
+    assert recording is False
+    apply_fn.assert_called_once_with()
+    doc.setPropertyValue.assert_not_called()
+
