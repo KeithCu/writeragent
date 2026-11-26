@@ -25,10 +25,10 @@ from plugin.chatbot.selection import (
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import controller_selection
 from plugin.draw.draw_undo import register_draw_text_edit_undo
-from plugin.draw.tables import _is_table_shape
-from plugin.draw.tree import _iter_children, is_group
+from plugin.draw.tables import is_table_shape
+from plugin.draw.tree import is_group, iter_children
 from plugin.framework.config import get_config
-from plugin.framework.errors import format_error_message, is_disposal
+from plugin.framework.errors import format_error_message, is_disposal, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 
@@ -96,11 +96,11 @@ def _append_text_target(targets: list[Any], shape: Any) -> None:
 
 
 def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool]) -> None:
-    if _is_table_shape(shape):
+    if is_table_shape(shape):
         saw_table[0] = True
         return
     if is_group(shape):
-        for _child_idx, child in _iter_children(shape):
+        for _child_idx, child in iter_children(shape):
             _walk_shape_for_targets(child, targets, saw_table)
         return
     if _text_surfaces(shape):
@@ -286,8 +286,6 @@ def do_draw_extend_edit(
         # UNO types unavailable (some unit-test environments); compound undo still groups if LO adds actions.
         log.debug("UNO not available; skipping custom draw text undo registration")
     except Exception as exc:
-        from plugin.framework.errors import reraise_if_disposed
-
         reraise_if_disposed(exc)
         log.exception("Draw edit selection: custom undo registration failed")
         undo.close()

@@ -277,7 +277,7 @@ Reference PDF is LO’s render of the **PPTX slide**. Imported PDF is the same s
 | Route | Implementation | Notes |
 |-------|----------------|-------|
 | Main export | `export_presentation_project` → `uno_pptx_import` | PPTX → ODP via LO (default) |
-| template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental: creates slides and sets placeholder text via `setString` / `_find_placeholder` (export-after-SVG remains full fidelity) |
+| template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental: creates slides and sets placeholder text via `setString` / `find_placeholder` (export-after-SVG remains full fidelity) |
 | native-enhance | `apply_ppt_master_native_enhance` → `uno_enhance` | `enhancement_plan.json` |
 | beautify | venv `pptx_to_svg` + re-import | Not wired end-to-end yet |
 

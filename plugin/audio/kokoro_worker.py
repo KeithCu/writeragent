@@ -58,8 +58,6 @@ def _import_audio() -> tuple[Any, Any]:
 
         return Kokoro, sf
     except ImportError as exc:
-        from plugin.audio.kokoro_g2p import KOKORO_PIP_INSTALL
-
         raise ImportError(
             f"Kokoro dependency missing ({exc}). Install with: {KOKORO_PIP_INSTALL}"
         ) from exc

@@ -121,7 +121,7 @@ def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
 
 
 # First shipped tag per language wins. ``no`` is not a registry tag; Norwegian
-# Bokmål is the canonical fallback (same as the old default table).
+# Bokmål is the canonical fallback.
 _CANON_BY_LANG_NO_REGION: dict[str, str] = {
     tag.partition("-")[0]: tag for tag in reversed(GRAMMAR_REGISTRY_LOCALE_TAGS)
 }

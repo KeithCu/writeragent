@@ -45,6 +45,7 @@ import os
 import re
 import shutil
 import tempfile
+import zipfile
 from typing import Any, NamedTuple
 
 from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, is_impress
@@ -155,7 +156,7 @@ def _template_property_names(settings: Any) -> list[str]:
         info = settings.getPropertySetInfo()
         if info is not None:
             for prop in info.getProperties():
-                n = str(getattr(prop, "Name", "") or "")
+                n = prop.Name
                 if n and "emplate" in n and n not in names:
                     names.append(n)
     except Exception:
@@ -487,7 +488,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 raise
             continue
         try:
-            cand_name = str(getattr(cand, "Name", "") or "")
+            cand_name = cand.Name
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -522,7 +523,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     pool = matching_candidates if matching_candidates else all_candidates
     _best_idx, best_master, best_diff = min(pool, key=lambda x: (x[2], x[0]))
     src_master = best_master
-    source_master_name = str(getattr(src_master, "Name", "") or "")
+    source_master_name = src_master.Name
     aspect_mismatch = best_diff > 0.05
 
     if matching_candidates:
@@ -584,8 +585,6 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         otp_path = str(design.get("path") or "").strip() or None
         extracted_image_paths: list[str | None] = []
         if otp_path and os.path.isfile(otp_path):
-            import zipfile
-
             try:
                 with zipfile.ZipFile(otp_path, "r") as zf:
                     hrefs = _master_image_hrefs_from_zip(zf, str(src_master.Name or ""))

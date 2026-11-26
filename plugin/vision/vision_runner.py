@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc import visual_helpers
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.i18n import _
+from plugin.framework.i18n import _, get_lo_locale
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.scripting.client import run_vision
@@ -112,8 +112,6 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
         reraise_if_disposed(exc)
 
     # 2. LibreOffice UI locale
-    from plugin.framework.i18n import get_lo_locale
-
     lo_locale = get_lo_locale(ctx)
     if lo_locale:
         return lo_locale.replace("_", "-")

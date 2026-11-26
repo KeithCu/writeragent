@@ -217,7 +217,7 @@ def test_execute_code_passes_current_send_scope():
         patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=False),
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
         patch("plugin.notebook.notebook_runner.release_script_document"),
-        patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope),
+        patch("plugin.notebook.notebook_runner.get_current_send_cancellation", return_value=scope),
     ):
         execute_code(ctx, doc, "x = 1")
     assert run_venv.call_args.kwargs["cancel"] is scope
@@ -1109,7 +1109,7 @@ def _patch_run_cells(state, exec_side_effect, flush, pump):
                 state, read_code=_code_for_field, execute=exec_side_effect, flush=flush
             ),
             patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
-            patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
+            patch("plugin.notebook.notebook_runner.get_toolkit", return_value=object()),
         ):
             yield
 
@@ -1433,7 +1433,7 @@ def test_run_cells_between_cell_pump_under_drain_owner():
         patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
         patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
-        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+        patch("plugin.notebook.notebook_runner.get_toolkit", return_value=MagicMock()),
     ):
         _pump_between_notebook_cells(ctx)
     assert pumps == ["pump_main_thread_work_queue", "flush"]
@@ -1444,7 +1444,7 @@ def test_run_cells_between_cell_pump_under_drain_owner():
         patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
         patch("plugin.framework.queue_executor.pump_ui_idle", side_effect=_pump_idle),
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_pump_work),
-        patch("plugin.framework.uno_context.get_toolkit", return_value=MagicMock()),
+        patch("plugin.notebook.notebook_runner.get_toolkit", return_value=MagicMock()),
     ):
         _pump_between_notebook_cells(ctx)
     assert pumps == ["pump_main_thread_work_queue", "pump_ui_idle"]

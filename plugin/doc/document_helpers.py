@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import weakref
 from contextlib import contextmanager
+from itertools import islice
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -151,7 +152,6 @@ def _writer_anchor_note(shape: Any) -> str:
 def _writer_objects_section(model: Any) -> str:
     """List Writer draw-page objects (index, kind, name, anchor) for the chat snapshot."""
     def build() -> str:
-        from itertools import islice
         from plugin.draw.tree import iter_shape_addresses, shape_summary_line
 
         rows = list(islice(iter_shape_addresses(model.getDrawPage()), _WRITER_SNAPSHOT_MAX_OBJECTS + 1))
@@ -756,9 +756,10 @@ class DocumentService(ServiceBase):
 
             # Preview views (SwPagePreview, ViewId=7) have no getViewCursor (SfxBaseController).
             # Reading WordCount runs GetUpdatedDocStat (unotxdoc.cxx WID_DOC_WORD_COUNT), which
-            # recalculates DocumentStatistics.PageCount from the layout (DocumentStatisticsManager.cxx:145-160)
-            # only when modified or uninitialized (lines 70-77). ODF import initializes stats from
-            # meta.xml (xmlmeta.cxx:100-130), so mark modified briefly to force a layout count.
+            # recalculates DocumentStatistics.PageCount from the layout (DocumentStatisticsManager::IncrementalDocStatCalculate,
+            # DocumentStatisticsManager.cxx:145-160) only when modified or uninitialized (GetUpdatedDocStat, lines 70-77).
+            # ODF import initializes stats from meta.xml (SwXMLImport::SetStatistics, xmlmeta.cxx:100-130), so mark
+            # modified briefly to force a layout count.
             was_modified = uno_call(lambda: model.isModified(), "Check modified flag")
             try:
                 uno_call(lambda: model.setModified(True), "Mark modified for statistics")
@@ -768,7 +769,7 @@ class DocumentService(ServiceBase):
             doc_props = uno_call(lambda: model.getDocumentProperties(), "Get document properties")
             stats = uno_call(lambda: doc_props.DocumentStatistics, "Get document statistics")
             for prop in stats:
-                if getattr(prop, "Name", None) == "PageCount":
+                if prop.Name == "PageCount":
                     return int(prop.Value)
             return 0
         except (UnoObjectError, ToolExecutionError):

@@ -44,7 +44,7 @@ def iter_masters(doc: Any) -> list[tuple[int, Any, str]]:
     for i in range(count):
         try:
             m = masters.getByIndex(i)
-            name = str(getattr(m, "Name", "") or "")
+            name = m.Name
             result.append((i, m, name))
         except Exception as exc:
             if is_disposal(exc):

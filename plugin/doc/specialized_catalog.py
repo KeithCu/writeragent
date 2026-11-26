@@ -1,4 +1,4 @@
-# WriterAgent - moved from plugin.framework.prompts
+# WriterAgent - AI Writing Assistant for LibreOffice
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 

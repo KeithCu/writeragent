@@ -21,7 +21,8 @@ def test_slide_master_list():
     m0.Width = 21000
     m0.Height = 29700
 
-    m1 = MagicMock(spec=["Width", "Height"])
+    m1 = MagicMock(spec=["Name", "Width", "Height"])
+    m1.Name = ""
     m1.Width = 28000
     m1.Height = 21000
 

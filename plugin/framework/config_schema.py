@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import os
 import textwrap
 import typing
@@ -151,8 +152,6 @@ def _normalize_comma_number(s: str) -> str | None:
 def parse_int_robust(val: Any) -> int:
     """Robustly parse an integer value from a string, float, or other type,
     handling locale-specific decimal commas (like "8765,0" in German)."""
-    import math
-
     if isinstance(val, bool):
         # bool is a subclass of int; keep explicit for clarity under CrossHair.
         return int(val)

@@ -49,8 +49,8 @@ from plugin.framework.dev_build import is_dev_build
 from plugin.framework.send_cancellation import (
     SendCancelled,
     SendCancellation,
-    _SCOPE_UNSET,
-    _ScopeUnset,
+    SCOPE_UNSET,
+    ScopeUnset,
     get_current_send_cancellation,
     is_agent_active,
     is_cancelled,
@@ -94,7 +94,7 @@ def install_from_environ(
         MainThread.poke = poke
 
 
-def _marshal_thread_tag(executor: "MainThread | None" = None) -> str:
+def marshal_thread_tag(executor: "MainThread | None" = None) -> str:
     """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
     from plugin.framework.thread_guard import get_background_task_name
 
@@ -116,7 +116,7 @@ def _marshal_thread_tag(executor: "MainThread | None" = None) -> str:
 def _log_marshal(level: int, msg: str, *args: Any, executor: "MainThread | None" = None) -> None:
     """Log *msg* plus a marshal thread tag, only when *level* is enabled.
 
-    ``log.debug(..., _marshal_thread_tag())`` still builds the tag when debug
+    ``log.debug(..., marshal_thread_tag())`` still builds the tag when debug
     is off: the argument is evaluated before the logger checks the level.
     The tag takes ``is_agent_active``'s lock and reads queue depth, so the
     hot path (execute, post, process_queue) must not call it unless this
@@ -124,7 +124,7 @@ def _log_marshal(level: int, msg: str, *args: Any, executor: "MainThread | None"
     """
     if not log.isEnabledFor(level):
         return
-    tag = _marshal_thread_tag(executor)
+    tag = marshal_thread_tag(executor)
     log.log(level, msg, *args, tag)
 
 
@@ -212,7 +212,7 @@ class MainThread:
         fn: Any,
         *args: Any,
         timeout: float = 30.0,
-        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET,
         **kwargs: Any,
     ) -> Any:
         """Call fn now if is_current() (including untagged Dummy-N), else marshal via call().
@@ -227,7 +227,7 @@ class MainThread:
             return fn(*args, **kwargs)
         call_kwargs: dict[str, Any] = dict(kwargs)
         call_kwargs["timeout"] = timeout
-        if bound_scope is not _SCOPE_UNSET:
+        if bound_scope is not SCOPE_UNSET:
             call_kwargs["bound_scope"] = bound_scope
         return self.call(fn, *args, **call_kwargs)
 
@@ -235,7 +235,7 @@ class MainThread:
         self,
         fn: Any,
         *args: Any,
-        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET,
         **kwargs: Any,
     ) -> Any:
         """Run fn immediately if on main thread without a background task tag, else post.
@@ -579,10 +579,10 @@ class MainThread:
                 self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
             self._pending_lock.notify_all()
 
-    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, poke: bool = True) -> _WorkItem:
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        # ``is`` does not narrow _ScopeUnset. None is an explicit scope.
-        scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
+        # ``is`` does not narrow ScopeUnset. None is an explicit scope.
+        scope = get_current_send_cancellation() if bound_scope is SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
         if scope is not None:
             scope.bind_executor(self)
         item = _WorkItem(fn, args, kwargs, blocking, scope)
@@ -638,7 +638,7 @@ class MainThread:
                         log.warning(
                             "MainThread: waiting unbound for in-flight fn=%s %s (%.0fs)",
                             _fn_label(item.fn),
-                            _marshal_thread_tag(self),
+                            marshal_thread_tag(self),
                             waited,
                         )
             elif not finished:
@@ -655,7 +655,7 @@ class MainThread:
         /,
         *args: Any,
         timeout: float = 30.0,
-        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET,
         **kwargs: Any,
     ) -> Any:
         """Execute function on main thread (blocking).
@@ -697,7 +697,7 @@ class MainThread:
         fn: Callable[..., Any],
         /,
         *args: Any,
-        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET,
         force_queue: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -727,7 +727,7 @@ class MainThread:
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
+                scope = get_current_send_cancellation() if bound_scope is SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
                 self._pending_posts.append((fn, args, kwargs, scope))
                 return
 

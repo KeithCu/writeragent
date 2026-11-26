@@ -76,7 +76,8 @@ _MODEL_FETCH_TIMEOUT = 10
 # Settings and Test Connection fetch directly and always retry.
 CATALOG_RETRY_S = 30.0
 
-# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; get_api_version_suffix adds /v1, /api (OpenWebUI), or /api/paas/v4 (Z.ai).
+# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only;
+# get_api_version_suffix adds /v1, /api (OpenWebUI), or /api/paas/v4 (Z.ai).
 ENDPOINT_PRESETS = [
     ("Local (Ollama)", "http://localhost:11434"),
     ("Local (LM Studio)", "http://localhost:1234"),

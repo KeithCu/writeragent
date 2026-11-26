@@ -7,7 +7,7 @@ from unittest.mock import patch
 from plugin.draw.placeholders import (
     GetPlaceholderText,
     SetPlaceholderText,
-    _find_placeholder,
+    find_placeholder,
     _list_placeholders,
     _role_from_label,
     _role_miss_error_kwargs,
@@ -62,8 +62,8 @@ def test_body_does_not_match_title_text_shape(class_name, text, class_name_2, te
             _FakeShape(class_name=class_name_2, text=text_2),
         ]
     )
-    _unused_shape, title_idx = _find_placeholder(page, "title")
-    _unused_body, body_idx = _find_placeholder(page, "body")
+    _unused_shape, title_idx = find_placeholder(page, "title")
+    _unused_body, body_idx = find_placeholder(page, "body")
     assert title_idx == expected
     assert body_idx == expected_2
 
@@ -75,8 +75,8 @@ def test_subtitle_not_classified_as_title():
             _FakeShape(class_name="TitleTextShape", text="Title"),
         ]
     )
-    _unused_sub, sub_idx = _find_placeholder(page, "subtitle")
-    _unused_title, title_idx = _find_placeholder(page, "title")
+    _unused_sub, sub_idx = find_placeholder(page, "subtitle")
+    _unused_title, title_idx = find_placeholder(page, "title")
     assert sub_idx == 0
     assert title_idx == 1
     assert _list_placeholders(page)[0]["role"] == "subtitle"
@@ -84,7 +84,7 @@ def test_subtitle_not_classified_as_title():
 
 def test_body_on_title_only_slide_is_not_the_title():
     page = _FakePage([_FakeShape(class_name="TitleTextShape", text="Only title")])
-    assert _find_placeholder(page, "body") == (None, None)
+    assert find_placeholder(page, "body") == (None, None)
 
 
 def test_list_placeholders_roles_from_class_map():
@@ -118,8 +118,8 @@ def test_role_from_shape_type_when_class_name_is_missing():
             _Typed("com.sun.star.presentation.OutlinerShape", "B"),
         ]
     )
-    assert _find_placeholder(page, "title")[1] == 0
-    assert _find_placeholder(page, "body")[1] == 1
+    assert find_placeholder(page, "title")[1] == 0
+    assert find_placeholder(page, "body")[1] == 1
     listed = _list_placeholders(page)
     assert [entry.get("role") for entry in listed] == ["title", "body"]
     assert "TitleTextShape" in listed[0]["class"]
@@ -132,8 +132,8 @@ def test_untagged_text_shapes_are_not_positional_roles():
             _FakeShape(text="second"),
         ]
     )
-    assert _find_placeholder(page, "title") == (None, None)
-    assert _find_placeholder(page, "body") == (None, None)
+    assert find_placeholder(page, "title") == (None, None)
+    assert find_placeholder(page, "body") == (None, None)
     listed = _list_placeholders(page)
     assert "role" not in listed[0]
     assert "role" not in listed[1]
@@ -219,7 +219,7 @@ def test_set_placeholder_text_empty_role_miss_payload():
 
 def test_name_only_match():
     page = _FakePage([_FakeShape(name="MyTitle", text="T")])
-    shape, idx = _find_placeholder(page, "title")
+    shape, idx = find_placeholder(page, "title")
     assert idx == 0
     assert shape is not None
 
@@ -229,7 +229,7 @@ def test_class_on_later_shape_beats_name_on_earlier():
         _FakeShape(name="TitleBox", text="Named Title"),
         _FakeShape(class_name="TitleTextShape", text="Real Title"),
     ])
-    shape, idx = _find_placeholder(page, "title")
+    shape, idx = find_placeholder(page, "title")
     assert idx == 1
 
 
@@ -256,8 +256,8 @@ def test_shape_type_exact_map_title_not_body_and_plain_text_has_no_role():
         _Typed("com.sun.star.presentation.TitleTextShape", "T"),
         _Typed("com.sun.star.drawing.TextShape", "plain"),
     ])
-    assert _find_placeholder(page, "title")[1] == 0
-    assert _find_placeholder(page, "body") == (None, None)
+    assert find_placeholder(page, "title")[1] == 0
+    assert find_placeholder(page, "body") == (None, None)
     listed = _list_placeholders(page)
     assert listed[0]["class"] == "TitleTextShape"
     assert "role" not in listed[1]

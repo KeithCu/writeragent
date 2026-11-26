@@ -24,7 +24,7 @@ from plugin.calc.charts import (
     _axis_title_shape_string,
     _chart_document_from_host,
     _chart_summary,
-    _is_chart_clsid,
+    is_chart_clsid,
     _is_chart_host,
     _listed_chart_name,
     _normalize_clsid_value,
@@ -41,13 +41,13 @@ def test_normalize_clsid_value_bytes():
 
 def test_is_chart_clsid_braced_and_mixed_case():
     g = CHART_CLSID.upper()
-    assert _is_chart_clsid("{" + g + "}")
-    assert _is_chart_clsid(CHART_CLSID_DRAW_OLE)
+    assert is_chart_clsid("{" + g + "}")
+    assert is_chart_clsid(CHART_CLSID_DRAW_OLE)
 
 
 def test_is_chart_clsid_rejects_empty():
-    assert _is_chart_clsid("") is False
-    assert _is_chart_clsid(None) is False
+    assert is_chart_clsid("") is False
+    assert is_chart_clsid(None) is False
 
 
 def test_writer_embed_is_chart_by_clsid():
@@ -178,16 +178,16 @@ def _supports(kind: str):
 def test_normalize_clsid_value_byte_sequence_value_attr():
     raw = _ByteSequenceValue(CHART_CLSID.encode("ascii"))
     assert _normalize_clsid_value(raw) == CHART_CLSID
-    assert _is_chart_clsid(raw) is True
-    assert _is_chart_clsid(str(raw)) is False
+    assert is_chart_clsid(raw) is True
+    assert is_chart_clsid(str(raw)) is False
 
 
 def test_normalize_clsid_value_uno_byte_sequence():
     raw = _UnoByteSequence(CHART_CLSID_DRAW_OLE.encode("ascii"))
     assert not isinstance(raw, (bytes, bytearray))
     assert _normalize_clsid_value(raw) == CHART_CLSID_DRAW_OLE
-    assert _is_chart_clsid(raw) is True
-    assert _is_chart_clsid(str(raw)) is False
+    assert is_chart_clsid(raw) is True
+    assert is_chart_clsid(str(raw)) is False
     host = MagicMock()
     host.CLSID = raw
     assert _is_chart_host(host, is_embed=True) is True
@@ -719,7 +719,7 @@ def test_runtime_writer_shape_clsid_listed_and_deleted():
 
     # ByteSequence variant
     shape_bytes = _OleShape("Chart_WB", clsid=_UnoByteSequence(runtime_clsid.encode("ascii")))
-    assert _is_chart_clsid(shape_bytes.CLSID) is True
+    assert is_chart_clsid(shape_bytes.CLSID) is True
 
 
 def test_writer_duplicate_name_embed_and_draw_page_deduped():

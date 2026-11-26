@@ -471,7 +471,8 @@ class DelegateToSubagent(ToolBase):
             try:
                 from plugin.embeddings.embeddings_indexer import enqueue_folder_index
 
-                # Sub-agent runs on a worker thread; this main.call is the UNO listing inside enqueue_folder_index. Stale-schema deletion runs on the corpus-index-* thread, not inside the marshal.
+                # Sub-agent runs on a worker thread; this main.call is the UNO listing inside enqueue_folder_index.
+                # Stale-schema deletion runs on the corpus-index-* thread, not inside the marshal.
                 main.call(lambda: enqueue_folder_index(ctx.ctx, ctx.doc))
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)

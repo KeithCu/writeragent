@@ -395,8 +395,6 @@ def wait_host_gap(
             stored_gap = _host_gap_sec.get(host, 0.0)
         # Free-tier model pacing shows dedicated spacing message instead of retry status.
         if host.endswith(":free") and stored_gap <= OPENROUTER_FREE_MIN_GAP_SEC:
-            from plugin.framework.i18n import _
-
             status_callback(_("Spacing free-model requests, next send in {0}s…").format(_shown_seconds(remaining)))
         else:
             emit_retry_status(status_callback, remaining)
