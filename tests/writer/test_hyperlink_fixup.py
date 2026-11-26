@@ -854,3 +854,19 @@ def test_final_reports_seeds_deletion_state_from_earlier_paragraph(monkeypatch):
     doc_after = _Doc([_Slice("Old", ""), del_end, _Slice("New", url)])
     reports_after = hyperlink_fixup._final_reports(doc_after, doc_after, _match(doc_after, 0, 0), plans, set(), True)
     assert reports_after == [{"hyperlink_url": url, "hyperlink_url_after": url, "hyperlink_updated": False}]
+
+
+def test_restore_links_while_recording_without_anchor():
+    from plugin.writer.hyperlink_fixup import restore_links
+
+    doc = _Doc([])
+    doc._recording = True
+    doc.getPropertyValue = lambda k: True if k == "RecordChanges" else None
+
+    empty_snap = OutlineSnapshot([], "X", "", "plain", True)
+    assert restore_links(doc, None, empty_snap, "new", None) == []
+
+    linked_snap = OutlineSnapshot([OutlineLink(_OUTLINE, "", "")], "X", "", "Old title", True)
+    with pytest.raises(ToolExecutionError, match="Could not locate the replaced text") as exc_info:
+        restore_links(doc, None, linked_snap, "new", None)
+    assert exc_info.value.code == "HYPERLINK_UPDATE_FAILED"

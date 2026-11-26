@@ -18,7 +18,7 @@ import re
 from urllib.parse import unquote
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
-from plugin.doc.text_helpers import normalize_linebreaks, set_paragraph_background
+from plugin.doc.text_helpers import iter_elements, normalize_linebreaks, set_paragraph_background
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
 from plugin.framework.errors import (
     Diagnostic,
@@ -28,7 +28,6 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.html_stripper import escape_prose_angle_brackets
-from plugin.framework.uno_context import enum_has_more
 
 from . import html_export, html_ruby, xhtml_style_postprocess as xhtml_post
 from .hyperlink_fixup import StaleReason
@@ -69,11 +68,8 @@ def _parse_length_to_unit(val: str) -> int | None:
     m = _LENGTH_RE.match(val)
     if not m:
         return None
-    num_str, unit = m.group(1), m.group(2)
-    try:
-        num = float(num_str)
-    except ValueError:
-        return None
+    num = float(m.group(1))
+    unit = m.group(2)
 
     if unit == "cm":
         return mm_to_unit(num * 10)
@@ -82,12 +78,12 @@ def _parse_length_to_unit(val: str) -> int | None:
     if unit == "in":
         return int(round(num * UNITS_PER_INCH))
     if unit == "pt":
-        return int(round(num * 2540 / 72))
+        return int(round(num * UNITS_PER_INCH / 72))
     if unit == "pc":
-        return int(round(num * 2540 / 6))
+        return int(round(num * UNITS_PER_INCH / 6))
     if unit == "px":
-        return int(round(num * 2540 / 96))
-    return None
+        return int(round(num * UNITS_PER_INCH / 96))
+    raise AssertionError(unit)
 
 
 _PERCENT_RE = re.compile(r"^(\d+(?:\.\d+)?)%$")
@@ -595,7 +591,7 @@ def _prepare_import_html(content: str) -> str:
     expands escapes outside math, strips ruby, normalizes line breaks, escapes prose angle
     brackets, and strips boilerplate.
     """
-    if not isinstance(content, str) or not content:
+    if not content:
         return ""
 
     content = normalize_character_references(content)
@@ -609,8 +605,6 @@ def _prepare_import_html(content: str) -> str:
 
 def _summarize_blocks(content: str) -> _BlockSummarizer | None:
     """Parse prepared HTML with _BlockSummarizer if markup with linebreaks is present."""
-    if not isinstance(content, str) or not content:
-        return None
     prepared = _prepare_import_html(content)
     if not LINEBREAK_MARKUP_RE.search(prepared):
         return None
@@ -636,7 +630,7 @@ def summarize_written_blocks(
     Walks the blocks matching StarWriter paragraph slot allocation and extracts headings
     either from data-lo-style (levels 1-10) or h1-h6 tags without data-lo-style.
     """
-    if not isinstance(content, str) or not content:
+    if not content:
         return {"paragraph_count": 0, "headings": []}
 
     parser = _summarize_blocks(content)
@@ -837,31 +831,30 @@ def attach_write_report(
         subject = f"data-lo-style='{token}'" if token else "data-lo-style"
 
         partial_count = len(report.style_skips)
-        if partial_count > 0:
-            scope_clause = (
-                f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
-                if total_matches > 1
-                else " because the replaced range does not cover a whole paragraph"
-            )
-            msg = (
-                f"{subject} was not applied{scope_clause}; "
-                "applying it would restyle neighboring text in the host paragraph. "
-                "apply_style restyles the whole paragraph containing the match. "
-                "Restyle with apply_style(target='search', old_content=...)."
-            )
-            partial_diag: Diagnostic = {
-                "code": "STYLE_IGNORED_PARTIAL_MATCH",
-                "message": msg,
-                "matches_skipped": partial_count,
-                "matches_total": total_matches,
-            }
-            if token is not None and suggest_style_fix is not None:
-                suggested = suggest_style_fix(token, total_matches)
-                if suggested is not None:
-                    partial_diag["suggested_call"] = suggested
-            diags.append(partial_diag)
-            existing_message = result.get("message") or ""
-            result["message"] = f"{existing_message} {msg}" if existing_message else msg
+        scope_clause = (
+            f" to {partial_count} of {total_matches} matches because they do not cover whole paragraphs"
+            if total_matches > 1
+            else " because the replaced range does not cover a whole paragraph"
+        )
+        msg = (
+            f"{subject} was not applied{scope_clause}; "
+            "applying it would restyle neighboring text in the host paragraph. "
+            "apply_style restyles the whole paragraph containing the match. "
+            "Restyle with apply_style(target='search', old_content=...)."
+        )
+        partial_diag: Diagnostic = {
+            "code": "STYLE_IGNORED_PARTIAL_MATCH",
+            "message": msg,
+            "matches_skipped": partial_count,
+            "matches_total": total_matches,
+        }
+        if token is not None and suggest_style_fix is not None:
+            suggested = suggest_style_fix(token, total_matches)
+            if suggested is not None:
+                partial_diag["suggested_call"] = suggested
+        diags.append(partial_diag)
+        existing_message = result.get("message") or ""
+        result["message"] = f"{existing_message} {msg}" if existing_message else msg
 
     if report.unapplied_para:
         deduped = list(dict.fromkeys(report.unapplied_para))
@@ -924,6 +917,7 @@ def attach_write_report(
         })
 
     return append_warnings(result, diags)
+
 
 _HREF_FRAGMENT_RE = re.compile(r'(<a\b[^>]*?\bhref=)(["\'])#([^"\']*)\2', re.IGNORECASE)
 _ID_NAME_RE = re.compile(r'(?<![-\w])(?:id|name)=(["\'])(.*?)\1', re.IGNORECASE)
@@ -1176,7 +1170,7 @@ def apply_block_lo_styles(
     failed: list[str] = []
 
     try:
-        start_range = start.getStart() if hasattr(start, "getStart") else start
+        start_range = start.getStart()
         walk_cur = text_obj.createTextCursorByRange(start_range)
         walk_cur.gotoStartOfParagraph(False)
     except Exception as exc:
@@ -1225,7 +1219,7 @@ def apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     enum = para_cur.createEnumeration()
-                    para_obj = enum.nextElement() if enum_has_more(enum) else None
+                    para_obj = next(iter_elements(enum), None)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-para: could not resolve the paragraph", exc_info=True)

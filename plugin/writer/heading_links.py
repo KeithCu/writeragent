@@ -28,7 +28,7 @@ def document_headings(doc: Any) -> list[tuple[int, str]]:
     ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
     with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
     (sw/source/core/doc/docnum.cxx) searches that list. The body-only ``build_heading_tree``
-    misses headings inside tables and text frames. When *tracked* deletions exist, every
+    misses headings inside tables and text frames. When the document has tracked deletions, every
     paragraph is walked so a deletion's end marker in a non-heading paragraph updates state.
     """
     texts: list[Any] = []
