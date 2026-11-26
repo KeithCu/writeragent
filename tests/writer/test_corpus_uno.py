@@ -252,6 +252,7 @@ def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """One recorded edit survives save and reload; Reject All then gives what it gives without the edit."""
     from collections import Counter
 
+    from plugin.framework.config import get_config, save
     from plugin.writer import review_authors
 
     def _redline_counts(doc: Any) -> Counter[tuple[str, str, str]]:
@@ -260,29 +261,35 @@ def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
             for r in list_redlines(doc)
         )
 
-    with _opened(ctx, path) as doc:
-        reject_all_changes(doc, ctx)
-        rejected = _body_text(doc)
-    saved = path.with_name("saved" + path.suffix)
-    with _opened(ctx, path) as doc:
-        before = _redline_counts(doc)
-        doc.setPropertyValue("RecordChanges", True)
-        res = _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.new)
-        assert res.get("pending_review") is True, res
-        after = _redline_counts(doc)
-        assert not (before - after), f"pre-existing redlines lost: {before - after}"
-        added = after - before
-        assert added, "expected new redline(s)"
-        expected_author = review_authors.office_author(ctx)
-        assert all(author == expected_author for (_t, author, _c) in added), added
-        edited = _counts(ctx, doc)
-        doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
-        reject_all_changes(doc, ctx)
-        assert _body_text(doc) == rejected, "Reject All after the edit"
-    with _opened(ctx, saved) as doc:
-        _assert_same("save and reload", edited, _counts(ctx, doc))
-        reject_all_changes(doc, ctx)
-        assert _body_text(doc) == rejected, "Reject All after reload"
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "off"})
+    try:
+        with _opened(ctx, path) as doc:
+            reject_all_changes(doc, ctx)
+            rejected = _body_text(doc)
+        saved = path.with_name("saved" + path.suffix)
+        with _opened(ctx, path) as doc:
+            before = _redline_counts(doc)
+            doc.setPropertyValue("RecordChanges", True)
+            res = _ok(ctx, doc, "apply_content", target="search", old_content=case.old, content=case.new)
+            assert res.get("pending_review") is True, res
+            after = _redline_counts(doc)
+            assert not (before - after), f"pre-existing redlines lost: {before - after}"
+            added = after - before
+            assert added, "expected new redline(s)"
+            expected_author = review_authors.office_author(ctx)
+            assert all(author == expected_author for (_t, author, _c) in added), added
+            edited = _counts(ctx, doc)
+            doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
+            reject_all_changes(doc, ctx)
+            assert _body_text(doc) == rejected, "Reject All after the edit"
+        with _opened(ctx, saved) as doc:
+            _assert_same("save and reload", edited, _counts(ctx, doc))
+            reject_all_changes(doc, ctx)
+            assert _body_text(doc) == rejected, "Reject All after reload"
+    finally:
+        save({flag: prev})
 
 
 def _check(ctx: Any, case: CorpusDoc) -> None:
