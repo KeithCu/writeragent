@@ -32,8 +32,8 @@ import uno
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from ..edit_review import flag_tracked, flag_untracked_delete, run_in_review_session
-from ..html_import import insert_html_fragment_at_cursor, run_writer_mutation_with_optional_review
+from ..edit_review import flag_tracked, flag_untracked_delete, record_write, run_in_review_session
+from ..html_import import insert_html_fragment_at_cursor
 from ..record_changes import insert_recorded_content
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
 from ..target_resolver import require_selection_range
@@ -386,9 +386,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        if is_writer(ctx.doc):
-            return run_writer_mutation_with_optional_review(ctx.doc, ctx.ctx, lambda: _create_control(ctx, **kwargs))
-        return _create_control(ctx, **kwargs)
+        return record_write(ctx.doc, ctx.ctx, lambda: _create_control(ctx, **kwargs))[0]
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
