@@ -587,7 +587,7 @@ def test_writer_chart_insert_failure_reports_chart_create_error():
     """Every Writer insert fallback failing reaches the create arm (CHART_CREATE_ERROR)."""
     doc = MagicMock()
     doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
-    doc.getEmbeddedObjects.return_value = []
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
     text = doc.getText.return_value
     text.getString.return_value = "body"
     text.insertTextContent.side_effect = RuntimeError("insert rejected")
@@ -936,7 +936,7 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
         with pytest.raises(ToolExecutionError) as ei1:
             SheetCharts(ctx.doc).create(ctx, rect, "com.sun.star.chart.BarDiagram", data_range="A1:B2", position="OtherSheet.A1")
         assert ei1.value.code == "INVALID_PARAM"
-        assert "Position names sheet" in ei1.value.message
+        assert "Reference names sheet" in ei1.value.message
         charts.addNewByName.assert_not_called()
 
         # 2. Invalid position address (range or unparseable)
@@ -945,6 +945,30 @@ def test_calc_create_bad_position_does_not_call_add_new_by_name():
         assert ei2.value.code == "INVALID_PARAM"
         assert "Invalid position" in ei2.value.message
         charts.addNewByName.assert_not_called()
+
+
+def test_calc_create_position_sheet_check_is_case_insensitive():
+    _tool, ctx, charts, _chart_doc, bridge = _calc_chart_create_parts()
+    sheet = bridge.sheet_or_active()
+    sheet.getName.return_value = "Sheet1"
+    sheet.getCellRangeByName.return_value = SimpleNamespace(
+        Position=SimpleNamespace(X=2500, Y=3500),
+        Size=SimpleNamespace(Width=5000, Height=2000),
+    )
+    rect = MagicMock(Width=12000, Height=8000, X=1000, Y=1000)
+
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        res = SheetCharts(ctx.doc).create(
+            ctx,
+            rect,
+            "com.sun.star.chart.BarDiagram",
+            data_range="A1:B2",
+            sheet="Sheet1",
+            position="sheet1.D2",
+        )
+    assert res["status"] == "ok"
+    sheet.getCellRangeByName.assert_called_with("D2")
+    charts.addNewByName.assert_called_once()
 
 
 def test_calc_create_valid_position_sets_rect_and_creates():

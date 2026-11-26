@@ -138,6 +138,12 @@ class BindingInfo:
         )
 
 
+def _bindings_from(raw: Any) -> list[BindingInfo]:
+    if not isinstance(raw, list):
+        return []
+    return [BindingInfo.from_dict(b) for b in raw if isinstance(b, dict)]
+
+
 @dataclass
 class DagCellMeta:
     """Round-trip metadata stored per DAG ``=PY`` cell in ``ExcelPyDagMeta``."""
@@ -150,14 +156,12 @@ class DagCellMeta:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DagCellMeta:
-        raw_bindings = data.get("bindings")
-        bindings = [BindingInfo.from_dict(b) for b in raw_bindings if isinstance(b, dict)] if isinstance(raw_bindings, list) else []
         return cls(
             return_type=int(data.get("return_type") or 0),
             data_args=[str(a) for a in data.get("data_args") or []] if "data_args" in data else None,
             excel_deps=[str(a) for a in data.get("excel_deps") or [] if a],
             array_ref=str(data.get("array_ref") or ""),
-            bindings=bindings,
+            bindings=_bindings_from(data.get("bindings")),
         )
 
 
@@ -221,10 +225,6 @@ class ConvertedCell:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConvertedCell:
-        bindings: list[BindingInfo] = []
-        for b in data.get("bindings") or []:
-            if isinstance(b, dict):
-                bindings.append(BindingInfo.from_dict(b))
         return cls(
             sheet=str(data.get("sheet") or "Sheet1"),
             cell=str(data.get("cell") or "A1"),
@@ -233,7 +233,7 @@ class ConvertedCell:
             converted_code=str(data.get("converted_code") or ""),
             data_args=[str(a) for a in (data.get("data_args") or [])],
             excel_deps=[str(a) for a in (data.get("excel_deps") or [])],
-            bindings=bindings,
+            bindings=_bindings_from(data.get("bindings")),
             dag_formula=str(data.get("dag_formula") or ""),
             excel_formula=str(data.get("excel_formula") or ""),
             issues=[str(i) for i in (data.get("issues") or [])],

@@ -244,8 +244,6 @@ def merge_vertical_apply_rects(row_runs: list[list[ApplyRun]]) -> list[ApplyRect
     A pending span extends only while the next row has that exact span. Preserve
     gaps, span mismatches, and key changes close the pending rect (S8).
     """
-    if not row_runs:
-        return []
     # span (c0, c1, key) -> start_row
     pending: dict[ApplyRun, int] = {}
     rects: list[ApplyRect] = []

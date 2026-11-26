@@ -106,9 +106,9 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     so split_sheet_prefix reads it back (apostrophes doubled).
     """
     sheet = split_sheet_prefix(range_name)[0]
-    if not sheet and resolved is not None:
+    if not sheet:
         sheet = resolved.getSpreadsheet().getName()
-    return quote_sheet_name(sheet) + "." if isinstance(sheet, str) and sheet else ""
+    return quote_sheet_name(sheet) + "."
 
 
 def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
@@ -176,15 +176,13 @@ def _mutate_ranges(
         return tool._tool_error(msg)
 
 
-def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
+def _preview_if_large(bridge: CalcBridge, range_name: str) -> dict[str, Any] | None:
     """Return clip metadata when the range is too big for a full chat dump, else None."""
     try:
         cell_range = bridge.resolve_range_or_address(range_name)
-        if not hasattr(cell_range, "getRangeAddress"):
-            return None
         addr = cell_range.getRangeAddress()
-        sc, sr = int(addr.StartColumn), int(addr.StartRow)
-        ec, er = int(addr.EndColumn), int(addr.EndRow)
+        sc, sr = addr.StartColumn, addr.StartRow
+        ec, er = addr.EndColumn, addr.EndRow
         rows, cols = er - sr + 1, ec - sc + 1
         cells = rows * cols
         if cells <= _READ_CELL_RANGE_MAX_CELLS:
@@ -226,9 +224,6 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     Columns whose first cell is text treat that cell as a header label and scan
     subsequent rows; numeric or blank first cells are counted as data including row 0.
     """
-    # Per-column row 0 decides header vs data so numeric or empty headers do not hide distinct values.
-    if not data_array:
-        return []
     header_row = data_array[0]
     n_cols = min(len(header_row), _DISTINCT_PEEK_MAX_COLUMNS)
     out: list[dict[str, Any]] = []
@@ -243,8 +238,6 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
         # Track every distinct for the count; only the first LIST_CAP go in the payload.
         seen: dict[str, None] = {}
         for row in scan_rows:
-            if col_i >= len(row):
-                continue
             key = _distinct_display(row[col_i])
             if key is None or key in seen:
                 continue
@@ -264,7 +257,7 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     return out
 
 
-def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, Any]) -> list[dict[str, Any]] | None:
+def _try_column_distinct_peek(bridge: CalcBridge, range_name: str, preview: dict[str, Any]) -> list[dict[str, Any]] | None:
     """Scan a clipped window of the oversized range via getDataArray. Fail-soft."""
     try:
         start_col = preview["start_column"]
@@ -276,8 +269,6 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
         local = format_range(start_col, start_row, end_col, end_row)
         clipped = f"{preview['sheet_prefix']}{local}"
         cell_range = bridge.resolve_range_or_address(clipped)
-        if not hasattr(cell_range, "getDataArray"):
-            return None
         peek = _column_distinct_peek(cell_range.getDataArray(), start_column=start_col)
         if not peek:
             return None
@@ -365,7 +356,7 @@ class ReadCellRange(ToolBase):
             return [grid]
         return [grid_to_rows(grid, range_name=range_name)]
 
-    def _read_one(self, bridge: Any, inspector: Any, range_name: str, wire_format: str) -> dict[str, Any]:
+    def _read_one(self, bridge: CalcBridge, inspector: Any, range_name: str, wire_format: str) -> dict[str, Any]:
         """Read one range; preview-only when the full grid would swamp chat context."""
         try:
             preview = _preview_if_large(bridge, range_name)
@@ -479,9 +470,6 @@ class WriteCellRange(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
         source = (kwargs.get("source") or "").strip() or None
-
-        if len(rn) == 0:
-            return self._tool_error("range is required", code="INVALID_PARAM")
 
         # source XOR values: a paste-copy must not also write/clear a values payload.
         # Explicit values, including "", conflict; a missing key and None do not.
@@ -602,10 +590,9 @@ class InsertCellHtml(ToolBase):
 
         addr = kwargs["cell"].strip()
         html = kwargs["html"]
-        assert isinstance(html, str)
         if not addr:
             return self._tool_error("cell is required", code="INVALID_PARAM")
-        # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
+        # Check the address here so a bad one answers INVALID_PARAM; insert_cell_html_rich resolves it through the bridge.
         _prefix, local = split_sheet_prefix(addr)
         try:
             parse_address(local)
@@ -698,9 +685,6 @@ class SetCellStyle(ToolBase):
 
         font_size = kwargs.get("font_size")
         style_kwargs["font_size"] = None if font_size is None else float(font_size)
-
-        if len(rn) == 0:
-            return self._tool_error("range is required", code="INVALID_PARAM")
 
         raw_fmt = kwargs.get("number_format")
         style_kwargs["number_format_key"] = manipulator.number_format_key(raw_fmt) if raw_fmt and raw_fmt.strip() else None
@@ -863,7 +847,6 @@ class SortRange(ToolCalcRangeBase):
         keys: list[SortKey] = [(sort_column, ascending), *then_by]
 
         has_header: bool = kwargs["has_header"]
-        assert isinstance(has_header, bool)
 
         return _mutate_ranges(
             self,
@@ -892,7 +875,6 @@ class _StructureTool(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         structure_type: str = kwargs["structure_type"]
-        assert structure_type in ("rows", "columns")
         # The schema makes count an integer; it does not read a minimum, so 0 and negatives stop here.
         count: int = kwargs.get("count", _STRUCTURE_COUNT_DEFAULT)
         if count < 1:

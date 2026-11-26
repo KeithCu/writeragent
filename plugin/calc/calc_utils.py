@@ -68,7 +68,7 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     This is the "or None" variant of ``CalcBridge.resolve_cell`` for program-built
     A1 addresses (cell links, dependency chain) and does not take a named range.
     """
-    text = (address or "").strip()
+    text = address.strip()
     if not text or doc is None:
         return None
     sheet_name, cell_part = split_sheet_prefix(text)
@@ -283,7 +283,7 @@ class NumberFormatCategories:
         if key not in self._seen:
             props = self._formats.getByKey(key)
             code = props.getPropertyValue("FormatString")
-            self._seen[key] = (format_category_from_type(props.getPropertyValue("Type")), None if code is None else str(code))
+            self._seen[key] = (format_category_from_type(props.getPropertyValue("Type")), code)
         return self._seen[key]
 
     def category(self, key: int) -> str | None:

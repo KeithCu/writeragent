@@ -360,7 +360,7 @@ def test_await_writer_chart_stops_when_idle_never_arrives(monkeypatch):
         return False
 
     monkeypatch.setattr("plugin.calc.charts._process_events", _pump)
-    assert _await_writer_chart_document(object(), object(), timeout=5.0) is None
+    assert _await_writer_chart_document(object(), object()) is None
     assert len(pumps) == 1
     assert clock.sleeps == []
 
@@ -371,6 +371,7 @@ def test_await_writer_chart_respects_total_timeout(monkeypatch):
     monkeypatch.setattr("time.monotonic", clock.monotonic)
     monkeypatch.setattr("time.sleep", clock.sleep)
     monkeypatch.setattr("plugin.calc.charts._chart_document_from_host", lambda host: None)
+    monkeypatch.setattr("plugin.calc.charts._WRITER_CHART_MODEL_WAIT_SEC", 0.2)
 
     def _pump(ctx: object, deadline: float | None = None) -> bool:
         pumps["n"] += 1
@@ -379,7 +380,7 @@ def test_await_writer_chart_respects_total_timeout(monkeypatch):
         return True
 
     monkeypatch.setattr("plugin.calc.charts._process_events", _pump)
-    assert _await_writer_chart_document(object(), object(), timeout=0.2) is None
+    assert _await_writer_chart_document(object(), object()) is None
     # 0.05 is not exact in binary, so the last pump can land just under the deadline.
     assert 100.2 <= clock.now < 100.25
     assert 4 <= pumps["n"] <= 5

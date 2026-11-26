@@ -115,6 +115,34 @@ def test_explain_error_precedent_probe_fallback():
     assert precs["B1"]["value"] == "UNREADABLE"
 
 
+def test_explain_error_precedents_preserve_formula_order():
+    bridge = MagicMock()
+    inspector = MagicMock()
+    cell = MagicMock()
+    cell.getError.return_value = 532
+    cell.getFormula.return_value = "=Z9+A1+M5+A1"
+    sheet = MagicMock()
+    sheet.getCellByPosition.return_value = cell
+    sheet.getName.return_value = "Sheet1"
+    bridge.resolve.return_value = (sheet, "C1")
+
+    seen: list[str] = []
+
+    def fake_read_cell(addr: str) -> dict[str, str]:
+        local = addr.rsplit(".", 1)[-1]
+        seen.append(local)
+        return {"address": local, "value": "1", "type": "number"}
+
+    inspector.read_cell.side_effect = fake_read_cell
+
+    detector = ErrorDetector(bridge, inspector)
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", return_value=None):
+        res = detector.explain_error("C1")
+
+    assert [p["address"] for p in res["precedents"]] == ["Z9", "A1", "M5"]
+    assert seen == ["Z9", "A1", "M5"]
+
+
 def test_explain_error_dep_chain_failure_is_swallowed():
     bridge = MagicMock()
     inspector = MagicMock()

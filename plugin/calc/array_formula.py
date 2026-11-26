@@ -147,8 +147,8 @@ def returns_array(formula: str, forced: bool | None = None) -> bool:
     contains an array function call at any depth.
     """
     if forced is not None:
-        return bool(forced)
-    if not isinstance(formula, str) or not formula.startswith("=") or len(formula) <= 1:
+        return forced
+    if not formula.startswith("=") or len(formula) <= 1:
         return False
     calls = list(_scan_calls(formula))
     top = {name for name, depth in calls if depth == 0}

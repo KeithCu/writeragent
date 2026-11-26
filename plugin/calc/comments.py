@@ -77,8 +77,7 @@ class ListCellComments(ToolCalcCommentBase):
         for pos, ann in positioned:
             # Read text/date through the cell's own CellAnnotation (as the
             # write path does), not the XSheetAnnotations collection item,
-            # whose getString()/getDate() come back empty in current LO.
-            # Fall back to getAnnotationShape() for lazy .xlsx captions.
+            # whose getString()/getDate() come back empty (see _annotation_text).
             cell_ann, text = _annotation_text(sheet, pos.Column, pos.Row)
             date_str = _annotation_date(cell_ann.getDate())
             comments.append(
@@ -150,7 +149,6 @@ class DeleteCellComment(ToolCalcCommentBase):
             return self._tool_error(str(e), code="INVALID_PARAM")
 
         annotations = sheet.getAnnotations()
-        # Find and remove the annotation at this position
         for i in range(annotations.getCount()):
             ann = annotations.getByIndex(i)
             pos = ann.getPosition()

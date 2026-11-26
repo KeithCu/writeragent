@@ -20,7 +20,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.inspector import CellInspector
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
@@ -135,7 +139,7 @@ def formula_error_cells(sheet: Any, cell_range: Any, limit: int | None = None) -
     # Summing getRangeAddresses() keeps a capped scan cheap on large ranges.
     found = cell_range.queryFormulaCells(RESULT_ERROR)
     total = sum((a.EndColumn - a.StartColumn + 1) * (a.EndRow - a.StartRow + 1) for a in found.getRangeAddresses())
-    sheet_name = str(sheet.getName())
+    sheet_name = sheet.getName()
     errors: list[dict[str, Any]] = []
     enum = found.getCells().createEnumeration()
     while enum_has_more(enum) and (limit is None or len(errors) < limit):
@@ -151,17 +155,11 @@ def formula_error_cells(sheet: Any, cell_range: Any, limit: int | None = None) -
 class ErrorDetector:
     """Detects and explains formula errors in the worksheet."""
 
-    bridge: Any
-    inspector: Any
+    bridge: CalcBridge
+    inspector: CellInspector
     ctx: Any
 
-    def __init__(self, bridge: Any, inspector: Any, ctx: Any = None) -> None:
-        """
-        Args:
-            bridge: CalcBridge instance.
-            inspector: CellInspector instance.
-            ctx: Optional UNO component context (for ``FormulaDepChain`` dispatch).
-        """
+    def __init__(self, bridge: CalcBridge, inspector: CellInspector, ctx: Any = None) -> None:
         self.bridge = bridge
         self.inspector = inspector
         self.ctx = ctx
@@ -229,17 +227,16 @@ class ErrorDetector:
         col, row = parse_address(bare)
         cell = sheet.getCellByPosition(col, row)
         formula = cell.getFormula() or ""
-        sheet_name = str(sheet.getName())
+        sheet_name = sheet.getName()
         display_address = qualify_a1(sheet_name, format_address(col, row))
-
-        # Get precedent cells via formula parsing
-        refs = A1_CELL_RE.findall(formula.upper())
-        precedent_addrs = list({f"{c}{r}" for c, r in refs})
 
         error_info = self.get_error_type(cell)
 
         if not error_info:
             return {"address": display_address, "formula": formula, "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
+
+        refs = A1_CELL_RE.findall(formula.upper())
+        precedent_addrs = list(dict.fromkeys(f"{c}{r}" for c, r in refs))
 
         # Bare refs live on the error cell's sheet, not the active one.
         precedent_details = [
@@ -277,14 +274,13 @@ class ErrorDetector:
         truncated = len(errors) > _MAX_EXPLAINED_ERRORS
 
         for item in errors[:_MAX_EXPLAINED_ERRORS]:
-            address = item.get("address")
-            assert isinstance(address, str)
+            address = item["address"]
             try:
                 detailed.append(self.explain_error(address))
             except Exception as e:
                 reraise_if_disposed(e)
                 log.warning("Explain errors failed for %s: %s", address, e)
-                detailed.append({"address": address, "formula": item.get("formula", ""), "error": item.get("error"), "precedents": [], "suggestion": "Could not explain error; basic info shown."})
+                detailed.append({"address": address, "formula": item["formula"], "error": item["error"], "precedents": [], "suggestion": "Could not explain error; basic info shown."})
 
         return {
             "range": range_str or "used_area",
@@ -298,8 +294,8 @@ class ErrorDetector:
     @staticmethod
     def _generate_suggestion(error_info: dict[str, Any], precedents: list[dict[str, Any]]) -> str:
         """Generate a fix suggestion based on error type and precedent cells."""
-        error_code = error_info.get("error_code")
-        static = ERROR_TYPES.get(error_code, {}).get("suggestion") if isinstance(error_code, int) else None
+        error_code = error_info["error_code"]
+        static = ERROR_TYPES.get(error_code, {}).get("suggestion")
         if static is not None:
             return static
 
@@ -317,4 +313,4 @@ class ErrorDetector:
                 return f"Value type error. The following cells contain text instead of numbers: {', '.join(text_cells)}. You can use the VALUE() function for text-to-number conversion."
             return "Value type error. A value of an unexpected type was used in the formula. Check the types of cell values."
 
-        return error_info.get("description", "Unknown error. Check the formula.")
+        return error_info["description"]

@@ -70,7 +70,7 @@ def has_excel_python_xlsx(path: str | Path) -> bool:
                 data = zf.read(name)
                 if b"_xlws.PY" in data or b"_xlws.py" in data:
                     return True
-    except Exception:
+    except (OSError, zipfile.BadZipFile):
         return False
     return False
 

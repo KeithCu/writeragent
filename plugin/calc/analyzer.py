@@ -101,10 +101,6 @@ class SheetAnalyzer:
     bridge: CalcBridge
 
     def __init__(self, bridge: CalcBridge) -> None:
-        """
-        Args:
-            bridge: CalcBridge instance.
-        """
         self.bridge = bridge
 
     def get_sheet_summary(self, sheet_name: str | None = None, include_extras: bool = True) -> dict[str, Any]:
@@ -131,7 +127,7 @@ class SheetAnalyzer:
         row_count = end_row - start_row + 1
         col_count = end_col - start_col + 1
 
-        used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
+        used_range = format_range(start_col, start_row, end_col, end_row)
 
         header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
         header_data = header_range.getDataArray()
@@ -164,7 +160,7 @@ class SheetAnalyzer:
             charts = uno_read(sheet.getCharts, None)
             result["chart_count"] = 0 if charts is None else uno_read(charts.getCount, 0)
             names = () if charts is None else uno_read(charts.getElementNames, ())
-            result["charts"] = list(names or [])
+            result["charts"] = list(names)
             result["annotation_count"] = uno_read(lambda: sheet.getAnnotations().getCount(), 0)
             result["has_merges"] = uno_read(lambda: sheet.getPropertyValue("HasMergedCells"), None)
             result["shape_count"] = uno_read(lambda: sheet.DrawPage.getCount(), 0)
@@ -211,7 +207,6 @@ def get_calc_context_for_chat(
         ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
         ctx_str += f"Columns: {_format_columns(summary['headers'])}\n"
 
-        # Add selection context if available
         if vs.active_is_visible:
             try:
                 controller = model.getCurrentController()

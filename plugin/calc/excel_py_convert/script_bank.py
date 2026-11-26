@@ -4,7 +4,7 @@
 Microsoft keeps Python in ``xl/pythonScripts.xml`` and cells only hold a short
 ``_xlws.PY(…)`` formula. Calc formula string symbols are capped near
 ``MAXSTRLEN`` (1024), so **rewritten =PY("…") formula longer than**
-``INLINE_CODE_MAX_CHARS`` (1000) is parked on a visible sheet **per source
+``INLINE_CODE_MAX_CHARS`` is parked on a visible sheet **per source
 worksheet** at the **same A1** as the caller (``Pivots!H4`` →
 ``py_code_Pivots!H4``) and the formula becomes ``=PY(py_code_Pivots.H4; …)``.
 
@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from plugin.calc.address_utils import canonical, is_cell_token
-from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
+from plugin.calc.excel_py_convert.ooxml_util import cell_string_value, find_all
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.xl_static_rewrite import P_TOKEN_RE
 
@@ -94,14 +94,14 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
 
 
 def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
-    """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget 1000)."""
-    return len(PyFormula.compose(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
+    """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget ``INLINE_CODE_MAX_CHARS``)."""
+    return len(PyFormula.compose(code, list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
 def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> str:
     """Build ``=PY`` for a converted cell.
 
-    Inline when the escaped formula is <= 1000 chars; otherwise reference
+    Inline when the escaped formula is <= ``INLINE_CODE_MAX_CHARS`` chars; otherwise reference
     ``py_code_<Sheet>.A1`` (same address as the caller).
     """
     args = list(cell.data_args)
@@ -122,7 +122,7 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> 
 
 
 def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, str]], list[str]]:
-    """Map ``code_sheet_name → {A1 → code}`` for cells whose escaped =PY formula needs banking (>1000 chars)."""
+    """Map ``code_sheet_name → {A1 → code}`` for cells whose escaped =PY formula exceeds ``INLINE_CODE_MAX_CHARS``."""
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
@@ -168,10 +168,9 @@ def collect_safety_warnings(code: str) -> list[str]:
     Warn only on A1 / dynamic / non-string forms that are not DAG-safe.
     """
     warnings: list[str] = []
-    src = code or ""
 
     try:
-        tree = ast.parse(src)
+        tree = ast.parse(code)
     except SyntaxError as exc:
         warnings.append(f"syntax error: {exc.msg}")
         return warnings
@@ -257,39 +256,19 @@ def is_py_code_bank_sheet(
     try:
         ws_bytes = zin.read(sh_part_name)
         ws_root = ET.fromstring(ws_bytes)
-    except Exception:
+    except (KeyError, ET.ParseError):
         return False
     for c in find_all(ws_root, "c"):
         if (c.attrib.get("r") or "").replace("$", "").upper() == CODE_SHEET_NOTE_CELL:
-            is_el = find_child(c, "is")
-            if is_el is not None:
-                txt = "".join(is_el.itertext()).strip()
-                if txt == CODE_SHEET_NOTE:
-                    return True
-            t = (c.attrib.get("t") or "").lower()
-            v = find_child(c, "v")
-            if v is not None and v.text:
-                if t == "s":
-                    try:
-                        idx = int(v.text)
-                        if idx < len(shared_strings) and shared_strings[idx] == CODE_SHEET_NOTE:
-                            return True
-                    except (ValueError, IndexError):
-                        pass
-                elif v.text.strip() == CODE_SHEET_NOTE:
-                    return True
+            if cell_string_value(c, shared_strings) == CODE_SHEET_NOTE:
+                return True
     return False
 
 
 def uno_sheet_is_bank(doc: Any, code_sheet: str, sheet: Any) -> bool:
     expected_def = bank_defined_name_for(code_sheet)
-    named_ranges = getattr(doc, "NamedRanges", None)
-    if named_ranges is not None:
-        try:
-            if hasattr(named_ranges, "hasByName") and named_ranges.hasByName(expected_def):
-                return True
-        except Exception:
-            log.debug("script bank named-range probe failed for %s", expected_def, exc_info=True)
+    if doc.NamedRanges.hasByName(expected_def):
+        return True
     try:
         val = sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).getString()
         if val == CODE_SHEET_NOTE:

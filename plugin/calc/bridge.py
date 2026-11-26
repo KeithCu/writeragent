@@ -42,7 +42,7 @@ def is_agent_visible_sheet(name: str) -> bool:
     tab) and similar internals. The sheets stay in the document; agent-facing
     lists omit them. Delete-at-trial-open is parked (see ``docs/eval/eval-2/first-principles-analysis-v4.md`` §2.7).
     """
-    return bool(name) and not str(name).startswith("_")
+    return bool(name) and not name.startswith("_")
 
 
 def filter_agent_sheet_names(names: Any) -> list[str]:
@@ -288,7 +288,7 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         addr = selection.getRangeAddress()
         bridge = CalcBridge(doc)
         sheet = bridge.get_active_sheet()
-        sheet_name = str(sheet.getName())
+        sheet_name = sheet.getName()
         cell_part = format_range_address(addr, collapse_single=True)
         return qualify_a1(sheet_name, cell_part)
 

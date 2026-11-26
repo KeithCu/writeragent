@@ -113,7 +113,7 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     """Map one PY trailing arg to an A1 address for DAG ``data`` args."""
     # Table/ANCHORARRAY/A1 regex hang under deep check (same class as parse_address).
     # crosshair: off
-    raw = (dep or "").strip()
+    raw = dep.strip()
     if not raw:
         return _unresolved(raw, note="empty dep")
 

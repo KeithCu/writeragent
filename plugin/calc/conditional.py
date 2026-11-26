@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import make_tool_ok, name_miss_details
 from plugin.framework.uno_context import create_property_value
-from plugin.calc.address_utils import format_range
+from plugin.calc.address_utils import format_range_address
 from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
@@ -118,7 +118,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
             cursor.gotoEndOfUsedArea(True)
             cell_range = cursor
             addr = cell_range.getRangeAddress()
-            resolved_range_name = format_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+            resolved_range_name = format_range_address(addr)
 
         formats = cell_range.getPropertyValue("ConditionalFormat")
         rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []

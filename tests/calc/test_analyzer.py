@@ -78,8 +78,10 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     controller = MagicMock()
     controller.getSelection.return_value = None
     model.getCurrentController.return_value = controller
+    bridge = MagicMock()
+    bridge.get_active_sheet.return_value.getName.return_value = "Sheet1"
     with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
+        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
@@ -93,6 +95,7 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
 def test_get_calc_context_for_chat_disposed(raw_disposed):
     exc = DisposedException("stale") if raw_disposed else DocumentDisposedError("stale")
     model = MagicMock()
+    model.getCurrentController.return_value.getActiveSheet.return_value.getName.return_value = "Sheet1"
     with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=exc):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, 1000, ctx=MagicMock())

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc.duckdb")
+log = logging.getLogger(__name__)
 
 class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
@@ -110,9 +110,9 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
             if spec is None:
                 continue
             if not isinstance(spec, str):
-                return self._tool_error(f"files[{str(name)!r}] must be a file name such as 'budget.xlsx#Sales'; got {type(spec).__name__}", code="INVALID_PARAM")
+                return self._tool_error(f"files[{name!r}] must be a file name such as 'budget.xlsx#Sales'; got {type(spec).__name__}", code="INVALID_PARAM")
             if spec.strip():
-                file_pairs.append((str(name), spec))
+                file_pairs.append((name, spec))
         data_range = str(kwargs.get("data_range") or "").strip() or None
         headers: bool = kwargs["headers"]
         tables = dict(kwargs.get("tables") or {})
@@ -155,15 +155,13 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
     preloaded: dict[str, Any] = {}
     flat_files: dict[str, str] = {}
 
-    # Catalog stores identity (sheet / named_range / frozen A1), not
-    # expanded used-range. Bounds are resolved at read time below.
     for tbl_name, spec in tables.items():
         if not tbl_name:
             continue
         try:
             parsed = parse_table_source_spec(spec, default_headers=headers)
             grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
-            preloaded[str(tbl_name)] = {"grid": grid, "headers": parsed["headers"]}
+            preloaded[tbl_name] = {"grid": grid, "headers": parsed["headers"]}
         except CalcError as exc:
             raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
         except ToolExecutionError as exc:
@@ -177,7 +175,7 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
     for name_hint, fspec in file_pairs:
         spec = fspec.strip()
         file_spec = parse_table_source_spec({"file": spec}, default_headers=headers)
-        bn = str(file_spec.get("file") or "")
+        bn = str(file_spec["file"] or "")
 
         ext = os.path.splitext(bn)[1].lower()
         if not scoped:
@@ -217,9 +215,9 @@ def _load_sql_inputs(ctx: ToolContext, tables: dict[str, Any], file_pairs: list[
     return _SqlInputs(scoped, preloaded or None, flat_files or None)
 
 
-def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:
+def _grid_has_usable_values(grid: list[list[Any]]) -> bool:
     """True when *grid* has at least one non-empty cell (0 / False count as data)."""
-    return any(cell is not None and cell != "" for row in grid or () for cell in row or ())
+    return any(cell is not None and cell != "" for row in grid for cell in row)
 
 
 def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[str, Any]:
@@ -271,14 +269,12 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
 
 
 def _container_element_names(container: Any) -> list[str]:
-    if container is None or not hasattr(container, "getElementNames"):
-        return []
     return uno_read(lambda: [str(n) for n in container.getElementNames()], [])
 
 
 def _available_named_sources(doc: Any) -> str:
-    named = _container_element_names(getattr(doc, "NamedRanges", None))
-    db_ranges = _container_element_names(getattr(doc, "DatabaseRanges", None))
+    named = _container_element_names(doc.NamedRanges)
+    db_ranges = _container_element_names(doc.DatabaseRanges)
     parts: list[str] = []
     if named:
         parts.append(", ".join(named))
@@ -288,9 +284,7 @@ def _available_named_sources(doc: Any) -> str:
 
 
 def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
-    dbrs = getattr(doc, "DatabaseRanges", None)
-    if dbrs is None or not hasattr(dbrs, "hasByName"):
-        return None
+    dbrs = doc.DatabaseRanges
     bare = split_sheet_prefix(name)[1]
     for candidate in (name, bare):
         if candidate and dbrs.hasByName(candidate):
@@ -299,8 +293,7 @@ def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
 
 
 def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
-    sheet_idx = int(addr.Sheet)
-    sheet_name = str(doc.getSheets().getByIndex(sheet_idx).getName())
+    sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
     return qualify_a1(sheet_name, format_range_address(addr, collapse_single=True))
 
 
@@ -320,22 +313,19 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
     Sheet → current used range. named_range → current NamedRanges /
     DatabaseRanges bounds. range → the frozen A1 the caller stored.
     """
-    kind = parsed.get("kind")
+    kind = parsed["kind"]
     if kind == "sheet":
         bridge = CalcBridge(model)
-        sheet_name = parsed.get("sheet")
+        sheet_name = parsed["sheet"]
         if sheet_name:
             target = bridge.get_sheet(str(sheet_name))
         else:
-            sheets = model.getSheets()
-            if sheets.getCount() < 1:
-                raise ToolExecutionError("workbook has no sheets", code="DUCKDB_SQL_ERROR")
-            target = sheets.getByIndex(0)
+            target = model.getSheets().getByIndex(0)
         addr = used_range_address(target)
-        return qualify_a1(str(target.getName()), format_range_address(addr, collapse_single=True))
+        return qualify_a1(target.getName(), format_range_address(addr, collapse_single=True))
 
     if kind == "named_range":
-        name = str(parsed.get("named_range") or "")
+        name = str(parsed["named_range"] or "")
         hit = CalcBridge(model).find_named_range(name)
         if hit is not None:
             return _named_object_to_qualified_a1(model, hit.named_range, label=f"Named range {name!r}")
@@ -346,7 +336,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
         extra = f" Available: {available}" if available else ""
         raise ToolExecutionError(f"No named range or database range named {name!r}.{extra}", code="DUCKDB_SQL_ERROR")
 
-    return str(parsed.get("range") or "")
+    return str(parsed["range"] or "")
 
 
 def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]:
@@ -359,11 +349,11 @@ def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]
 
 def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, parsed: dict[str, Any]) -> list[list[Any]]:
     """Read a catalog entry: active doc, or sibling ``file`` opened hidden."""
-    file_bn = parsed.get("file")
+    file_bn = parsed["file"]
     if not file_bn:
         grid = read_model_table_grid(active_doc, parsed)
-        if parsed.get("kind") in ("sheet", "named_range") and not _grid_has_usable_values(grid):
-            raise ToolExecutionError(f"Table identity {parsed.get('kind')} resolved to an empty range; nothing to register for SQL", code="DUCKDB_SQL_ERROR")
+        if parsed["kind"] in ("sheet", "named_range") and not _grid_has_usable_values(grid):
+            raise ToolExecutionError(f"Table identity {parsed['kind']} resolved to an empty range; nothing to register for SQL", code="DUCKDB_SQL_ERROR")
         return grid
 
     if not scoped_dir:
@@ -456,7 +446,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
     ``createCursor`` + ``gotoStart/EndOfUsedArea`` path as ``SheetAnalyzer``).
     ``parsed`` is a ``parse_table_source_spec`` dict. Returns ``grid``.
     Raises ``ToolExecutionError`` on open, missing sheet/name, or
-    empty/unusable used-range — never ``(None, None)``.
+    empty/unusable used-range.
 
     Sibling ``.xlsx``/``.xls`` reuse ``writeragent_ods_cache/`` when the
     source mtime/size still match. Native ``.ods`` and the live workbook
@@ -489,11 +479,11 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
                 details=exc.details,
             ) from exc
         except ToolExecutionError as exc:
-            identity = parsed.get("sheet") or parsed.get("named_range")
-            raise _sibling_office_error(full_path, str(exc), sheet=str(identity) if identity else None) from exc
+            identity = parsed["sheet"] or parsed["named_range"]
+            raise _sibling_office_error(full_path, str(exc), sheet=identity) from exc
         if parsed["kind"] in ("sheet", "named_range") and not _grid_has_usable_values(grid):
-            identity = parsed.get("named_range") or parsed.get("sheet") or os.path.basename(full_path)
-            raise _sibling_office_error(full_path, "used range is empty; nothing to register for SQL", sheet=str(identity) if identity else None)
+            identity = parsed["named_range"] or parsed["sheet"] or os.path.basename(full_path)
+            raise _sibling_office_error(full_path, "used range is empty; nothing to register for SQL", sheet=identity)
 
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, entry=entry)
 
@@ -505,5 +495,5 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
             raise
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:
-        if model is not None and opened_flag:
+        if model is not None:
             close_document_research_document(model, opened_for_document_research=opened_flag)
