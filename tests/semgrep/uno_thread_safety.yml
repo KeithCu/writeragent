@@ -356,3 +356,17 @@ rules:
         - "**/tests/calc/**"
         - "**/tests/doc/**"
         - "**/tests/framework/**"
+
+  - id: uno-any-cast-outside-owner
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Call uno_any(type_name, value) from plugin.framework.uno_context for a
+      typed uno.Any, and plain uno.invoke(...) for invoke; only uno_context.py
+      casts the uno module.
+    pattern: cast("Any", uno)
+    paths:
+      exclude:
+        - "**/plugin/framework/uno_context.py"
+        - "**/plugin/contrib/**"
+        - "**/plugin/lib/**"

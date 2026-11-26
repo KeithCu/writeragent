@@ -899,7 +899,7 @@ _ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tup
 
 
 def _preformat_exc_text(exc_info: _ExcInfo) -> str:
-    _, exc, tb = exc_info
+    _unused, exc, tb = exc_info
     if exc is None:
         return logging.Formatter().formatException(exc_info)
 

@@ -58,7 +58,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
-from plugin.framework.uno_context import create_property_value, get_toolkit
+from plugin.framework.uno_context import create_property_value, get_toolkit, uno_any
 from plugin.writer.edit_review import (
     agent_format_author,
     edit_is_recorded,
@@ -163,7 +163,7 @@ def set_cursor_properties(cursor: Any, updates: dict[str, Any]) -> None:
     use_invoke = any(typed is not raw for typed, raw in zip(typed_values, raw_values))
     try:
         if use_invoke:
-            cast("Any", uno).invoke(cursor, "setPropertyValues", (names, typed_values))
+            uno.invoke(cursor, "setPropertyValues", cast("Any", (names, typed_values)))
         else:
             cursor.setPropertyValues(names, raw_values)
     except Exception as exc:
@@ -508,7 +508,7 @@ def _paragraph_property_names(para: Any) -> tuple[str, ...]:
 def _revert_value(name: str, value: Any) -> Any:
     if name in _MARGIN_UNIT_PROPERTIES:
         # SvxTextLeftMarginItem::PutValue (frmitems.cxx) accepts only the exact Pair type.
-        return cast("Any", uno).Any("com.sun.star.beans.Pair<double,short>", value)
+        return uno_any("com.sun.star.beans.Pair<double,short>", value)
     return _typed_property_value(name, value)
 
 
@@ -588,7 +588,7 @@ def _record_paragraph_formats(states: list[_ParagraphRevert], author: str) -> tu
                     create_property_value(
                         "RedlineRevertProperties",
                         # Inner sequence must be typed as []PropertyValue.
-                        cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", state.properties),
+                        uno_any("[]com.sun.star.beans.PropertyValue", state.properties),
                     ),
                 ),
             )
@@ -1197,7 +1197,7 @@ def _typed_property_value(prop_name: str, value: Any) -> Any:
     """Wrap sequence-of-struct values in uno.Any so PyUNO passes a typed sequence."""
     if prop_name == "ParaTabStops" and isinstance(value, tuple):
         # cast: the type stubs do not declare uno.Any or uno.invoke as callable this way (same for the other casts of uno here).
-        return cast("Any", uno).Any("[]com.sun.star.style.TabStop", value)
+        return uno_any("[]com.sun.star.style.TabStop", value)
     return value
 
 
@@ -1211,7 +1211,7 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """
     typed = _typed_property_value(prop_name, value)
     if typed is not value:
-        cast("Any", uno).invoke(style, "setPropertyValue", (prop_name, typed))
+        uno.invoke(style, "setPropertyValue", cast("Any", (prop_name, typed)))
         return
     style.setPropertyValue(prop_name, value)
 

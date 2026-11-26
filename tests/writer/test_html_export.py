@@ -646,21 +646,12 @@ def test_page_field_converters():
     assert _numbering_type_to_name(99) == "ARABIC"
 
 
-def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+def test_uno_read_probes_default_on_ordinary_errors():
     from plugin.writer.html_export import _raise_if_empty_export
-    from plugin.writer.range_copy import supports_service, _writer_table_copy_layout
+    from plugin.writer.range_copy import _writer_table_copy_layout
 
     class RuntimeException(Exception):
         pass
-
-    closed = MagicMock()
-    closed.supportsService.side_effect = DisposedException("closed")
-    with pytest.raises(DocumentDisposedError):
-        supports_service(closed, "com.sun.star.text.TextTable")
-
-    odd = MagicMock()
-    odd.supportsService.side_effect = RuntimeException("uno")
-    assert supports_service(odd, "com.sun.star.text.TextTable") is False
 
     # A failed text read still counts as "has text" and the export error is raised.
     model = MagicMock()

@@ -39,7 +39,7 @@ from plugin.doc.visual_helpers import (
 from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, available_miss_details, is_disposal, uno_read, uno_write
 from plugin.framework.i18n import N_, _
-from plugin.framework.uno_context import get_service_manager, uno_same
+from plugin.framework.uno_context import get_service_manager, uno_any, uno_same
 from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
 from plugin.writer.search import shape_is_as_character, shape_text_boxes
 from plugin.writer.specialized_base import ToolWriterShapeBase, grouped_text_box_error
@@ -242,12 +242,12 @@ def _apply_enhanced_custom_shape_type(
         props.append(
             PropertyValue(
                 Name="AdjustmentValues",
-                Value=cast("Any", uno).Any("[]com.sun.star.drawing.EnhancedCustomShapeAdjustmentValue", (adj,)),
+                Value=uno_any("[]com.sun.star.drawing.EnhancedCustomShapeAdjustmentValue", (adj,)),
             )
         )
     try:
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
-        prop_seq = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", tuple(props))
+        prop_seq = uno_any("[]com.sun.star.beans.PropertyValue", tuple(props))
         uno.invoke(shape, "setPropertyValue", cast("Any", ("CustomShapeGeometry", prop_seq)))
         log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
@@ -325,7 +325,7 @@ def _set_line_endpoints(shape: Any, x: int, y: int, width: int, height: int) -> 
     uno.invoke(
         shape,
         "setPropertyValue",
-        cast("Any", ("PolyPolygon", cast("Any", uno).Any("[][]com.sun.star.awt.Point", pts))),
+        cast("Any", ("PolyPolygon", uno_any("[][]com.sun.star.awt.Point", pts))),
     )
 
 

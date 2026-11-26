@@ -17,6 +17,7 @@ from plugin.framework.uno_context import (
     normalize_doc_url,
     resolve_document_by_url,
     set_fallback_ctx,
+    supports_service,
 )
 from plugin.tests.testing_utils import DisposedException
 
@@ -1138,3 +1139,32 @@ def test_same_file_needs_file_identity(tmp_path):
     zero_stat = os.stat_result((0o100644, 0, 0, 1, 0, 0, 3, 0, 0, 0))
     with patch("plugin.framework.uno_context.os.stat", return_value=zero_stat):
         assert _resolve_by_url([open_doc], second.as_uri()) == (None, None)
+
+
+class _ServiceObject:
+    def __init__(self, answer=None, error=None):
+        self._answer = answer
+        self._error = error
+
+    def supportsService(self, name):
+        if self._error is not None:
+            raise self._error
+        return self._answer
+
+
+def test_supports_service_true_only_for_a_real_bool():
+    assert supports_service(_ServiceObject(True), "com.sun.star.text.TextDocument") is True
+    assert supports_service(_ServiceObject(False), "com.sun.star.text.TextDocument") is False
+    # An unconfigured MagicMock answers with another truthy MagicMock.
+    assert supports_service(MagicMock(), "com.sun.star.text.TextDocument") is False
+
+
+def test_supports_service_false_without_the_method_or_on_error():
+    assert supports_service(None, "com.sun.star.text.TextDocument") is False
+    assert supports_service(object(), "com.sun.star.text.TextDocument") is False
+    assert supports_service(_ServiceObject(error=RuntimeError("no")), "com.sun.star.text.TextDocument") is False
+
+
+def test_supports_service_disposal_raises():
+    with pytest.raises(DocumentDisposedError):
+        supports_service(_ServiceObject(error=DisposedException("gone")), "com.sun.star.text.TextDocument")

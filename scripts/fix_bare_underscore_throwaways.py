@@ -10,6 +10,7 @@ Examples::
 
   python scripts/fix_bare_underscore_throwaways.py --dry-run
   python scripts/fix_bare_underscore_throwaways.py
+  python scripts/fix_bare_underscore_throwaways.py --check   # make typecheck; exit 1 on any hit
 """
 
 from __future__ import annotations
@@ -205,6 +206,7 @@ def rewrite_source(source: str) -> tuple[str | None, list[tuple[int, str, str]]]
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="Print changes without writing")
+    ap.add_argument("--check", action="store_true", help="Print changes without writing; exit 1 if any file needs one")
     ap.add_argument(
         "--root",
         type=Path,
@@ -213,7 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
     root = args.root.resolve()
-    dry_run: bool = args.dry_run
+    check: bool = args.check
+    dry_run: bool = args.dry_run or check
 
     updated = 0
     for path in iter_targets(root):
@@ -232,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
             path.write_text(rewritten, encoding="utf-8")
         updated += 1
     print(f"{'Would update' if dry_run else 'Updated'} {updated} file(s)")
+    if check and updated:
+        print("Bare `_` is gettext; run scripts/fix_bare_underscore_throwaways.py to rename these.", file=sys.stderr)
+        return 1
     return 0
 
 

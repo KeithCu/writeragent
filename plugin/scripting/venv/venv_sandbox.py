@@ -844,7 +844,7 @@ def _ensure_init_executed(
     if SESSIONS.init_is_current(init_session_id, script_digest, policy):
         return None
 
-    init_executor, _ = SESSIONS.get_or_create(init_session_id, policy=policy)
+    init_executor, _unused = SESSIONS.get_or_create(init_session_id, policy=policy)
     # Init shares the request deadline with the cell. A full budget for each
     # could outlast the host's single read, and the host would then kill this
     # worker and every other workbook's session on it.
@@ -1377,7 +1377,7 @@ def run_sandboxed_code(
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
-    _, file_os_ids = get_file_os_proxy(files=policy.files)
+    _unused, file_os_ids = get_file_os_proxy(files=policy.files)
     policy_token = SANDBOX_POLICY_CONTEXT.set((relaxed_roots, file_os_ids))
     blocked_token = SANDBOX_BLOCKED_MODULES.set(frozenset(policy_blocked_imports(policy)))
     extra_token = SANDBOX_EXTRA_MODULES.set(frozenset(policy_allowlist(policy)))

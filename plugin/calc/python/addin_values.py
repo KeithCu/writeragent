@@ -52,7 +52,6 @@ import re
 import struct
 from typing import Any, cast
 
-import uno
 from com.sun.star.uno import RuntimeException
 
 from plugin.calc.datetime_wire import (
@@ -64,6 +63,7 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import uno_any
 
 log = logging.getLogger(__name__)
 
@@ -254,7 +254,7 @@ def accepts_returned_any(ctx: Any) -> bool:
     than the version number because Collabora Office 26.04 has the change too.
     """
     try:
-        ctx.getValueByName(cast("Any", uno).Any("string", ""))
+        ctx.getValueByName(uno_any("string", ""))
     except RuntimeException:
         return False
     return True
@@ -288,7 +288,7 @@ def matrix_result(ctx: Any, result: list[Any] | tuple[Any, ...]) -> Any:
     all_str = all(isinstance(cell, str) for row in rows for cell in row)
     uno_type = "[][]string" if all_str else "[][]any"
     log.debug("PYTHON matrix_result: type=%s rows=%d", uno_type, len(rows))
-    return cast("Any", uno).Any(uno_type, rows)
+    return uno_any(uno_type, rows)
 
 
 def _venv_not_found_text() -> str:

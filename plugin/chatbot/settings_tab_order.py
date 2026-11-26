@@ -90,7 +90,7 @@ def iter_settings_tab_modules(modules: list[dict[str, Any]]) -> Iterator[dict[st
 
 def iter_settings_field_modules(modules: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
     """Yield modules providing Settings fields (tab modules and their inline children)."""
-    _, inline_map = _build_inline_maps(modules)
+    _unused, inline_map = _build_inline_maps(modules)
     for m in iter_settings_tab_modules(modules):
         yield m
         for child_m in inline_map.get(m["name"], []):

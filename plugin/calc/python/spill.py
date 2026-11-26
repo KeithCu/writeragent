@@ -174,7 +174,7 @@ def _rect_unchanged(sheet: Any, row: int, col: int, record: SpillRecord) -> bool
 
 def _snapshot_grid(values: tuple[Any, ...], rows: int, cols: int) -> list[list[Any]]:
     """Expand a ``_rect_values`` tuple into a ``rows x cols`` grid (origin ``[0][0]`` unused)."""
-    grid: list[list[Any]] = [[None] * cols for _ in range(rows)]
+    grid: list[list[Any]] = [[None] * cols for _unused in range(rows)]
     idx = 0
     if cols > 1:
         grid[0][1:] = list(values[idx][0])
@@ -255,13 +255,13 @@ def _surviving_shape(
     del_rows = max(0, -delta[0])
     del_cols = max(0, -delta[1])
     if del_rows > 0 and del_cols == 0:
-        sr, _ = _surviving_axis(old_grid, cur_grid, del_rows, cols)
+        sr, _unused = _surviving_axis(old_grid, cur_grid, del_rows, cols)
         return (1, 1) if sr == 0 else (sr, cols)
 
     old_t = [list(r) for r in zip(*old_grid, strict=True)]
     cur_t = [list(r) for r in zip(*cur_grid, strict=True)]
     if del_cols > 0 and del_rows == 0:
-        sc, _ = _surviving_axis(old_t, cur_t, del_cols, rows)
+        sc, _unused = _surviving_axis(old_t, cur_t, del_cols, rows)
         return (1, 1) if sc == 0 else (rows, sc)
 
     # Both axes shrank (for example deleting a row that also held the rightmost cell):
@@ -274,7 +274,7 @@ def _surviving_shape(
         return (rows, sc)
     if sr == 0:
         sr = 1
-    sc_both, _ = _surviving_axis(old_t, cur_t, del_cols, sr)
+    sc_both, _unused = _surviving_axis(old_t, cur_t, del_cols, sr)
     return (sr, max(1, sc_both))
 
 

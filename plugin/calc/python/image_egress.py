@@ -25,7 +25,7 @@ from plugin.calc.python.undo import add_undo_action, attach_to_newest_undo, undo
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import supports_service, uno_same
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
 log = logging.getLogger(__name__)
@@ -423,7 +423,7 @@ def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
         slots: list[tuple[Any, int]] = []
         for index in range(draw_page.getCount()):
             shape = draw_page.getByIndex(index)
-            if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
+            if not supports_service(shape, _DRAW_GRAPHIC_SERVICE):
                 continue
             name = shape.getPropertyValue("Name")
             slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
@@ -572,19 +572,10 @@ def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
     return None
 
 
-def _supports_service(obj: Any, name: str) -> bool:
-    """True only when obj.supportsService(name) returns True or 1."""
-    supports = getattr(obj, "supportsService", None)
-    if not callable(supports):
-        return False
-    hit = supports(name)
-    return hit is True or (type(hit) is int and hit == 1)
-
-
 def _anchor_cell(shape: Any) -> tuple[int, int] | None:
     """Return (col, row) of *shape*'s anchor cell, or None when page-anchored or unreadable."""
     anchor = uno_read(lambda: shape.getPropertyValue("Anchor"), None)
-    if anchor is None or _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
+    if anchor is None or supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
         return None
     key = _cell_address_key(anchor)
     return (key[1], key[2]) if key is not None else None

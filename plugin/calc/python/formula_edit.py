@@ -91,7 +91,7 @@ _PY_CALLS: tuple[tuple[str, str], ...] = (
     ("PYTHON", "python"),
     ("PY", "py"),
 )
-_MAX_PY_ALIAS_LEN = max(len(alias) for alias, _ in _PY_CALLS)
+_MAX_PY_ALIAS_LEN = max(len(alias) for alias, _unused in _PY_CALLS)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
 

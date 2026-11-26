@@ -132,9 +132,8 @@ def test_copy_page_style_with_struck_tables_uno(ctx: Any, doc: Any) -> None:
     import os
     import tempfile
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
-    from plugin.framework.uno_context import execute_dispatch
+    from plugin.framework.uno_context import execute_dispatch, supports_service
     from plugin.writer.page import _scan_region_content
-    from plugin.writer.range_copy import supports_service
 
     def _has_table(text_obj: Any) -> bool:
         enum = text_obj.createEnumeration()

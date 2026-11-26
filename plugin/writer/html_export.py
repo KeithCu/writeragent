@@ -44,7 +44,7 @@ from plugin.framework.scratch_writer import (
     load_scratch_document,
     new_blank_writer,
 )
-from plugin.framework.uno_context import create_property_value, get_desktop
+from plugin.framework.uno_context import create_property_value, get_desktop, supports_service
 from plugin.writer.math.math_mml_export import (
     OBJECT_REPLACEMENT,
     inject_exported_math_tex,
@@ -422,7 +422,7 @@ def _table_start_range(body: Any, start: Any, end: Any) -> _TableStartRange | No
     body.createTextCursorByRange(end)
     last_anchor: Any = None
     for el in iter_elements(body.createEnumeration()):
-        if not range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+        if not supports_service(el, "com.sun.star.text.TextTable"):
             continue
         anchor = el.getAnchor()
         if not starts_at_or_after(body, start, anchor):
@@ -611,7 +611,7 @@ def _copy_window_to_scratch(
     tables: list[Any] = []
     need_break = False
     for el in iter_elements(enum):
-        if range_copy.supports_service(el, "com.sun.star.text.TextTable"):
+        if supports_service(el, "com.sun.star.text.TextTable"):
             tables.append(el)
             continue
         done = past_end(el)

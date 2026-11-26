@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterator
 
 from plugin.framework.errors import DocumentDisposedError, best_effort, reraise_if_disposed, uno_read
+from plugin.framework.uno_context import supports_service
 from plugin.doc.text_helpers import (
     FAILED,
     DeletionState,
@@ -411,10 +412,6 @@ def paint_direct_formatting(
             log.debug("paint_direct_formatting: portion skipped", exc_info=True)
             continue
 
-
-
-def supports_service(obj: Any, name: str) -> bool:
-    return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:

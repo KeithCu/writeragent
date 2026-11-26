@@ -499,7 +499,7 @@ def find_text_ranges(
             break
         taken += len(batch)
         positions = [p for h in batch for p in (h.getStart(), h.getEnd())]
-        text, offsets, _ = read_visible_body(model, positions)
+        text, offsets, _unused = read_visible_body(model, positions)
         for start, end in zip(offsets[::2], offsets[1::2], strict=True):
             if start is None or end is None:
                 raise ToolExecutionError("Could not measure the offsets of a match.")

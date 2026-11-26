@@ -10,6 +10,7 @@ import datetime
 import logging
 import math
 import struct
+import sys
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -724,7 +725,7 @@ def test_matrix_result_top_left_error_keeps_its_calc_code(monkeypatch: pytest.Mo
 def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(addin_values.uno, "Any", lambda t, v: (t, v), raising=False)
+    monkeypatch.setattr(sys.modules["uno"], "Any", lambda t, v: (t, v), raising=False)
 
     class _RejectingCtx:
         def getValueByName(self, _name: Any) -> Any:
@@ -735,7 +736,7 @@ def test_accepts_returned_any_is_false_when_pyuno_rejects_an_any_argument(
 
 
 def test_accepts_returned_any_propagates_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(addin_values.uno, "Any", lambda t, v: (t, v), raising=False)
+    monkeypatch.setattr(sys.modules["uno"], "Any", lambda t, v: (t, v), raising=False)
 
     class _BrokenCtx:
         def getValueByName(self, _name: Any) -> Any:

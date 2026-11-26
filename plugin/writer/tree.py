@@ -350,7 +350,7 @@ class TreeService(ServiceBase):
             raise not_placed_err from exc
         if anchor is None:
             raise not_placed_err
-        placed, para_ranges, _ = self._paragraph_at_anchor(doc, anchor)
+        placed, para_ranges, _unused = self._paragraph_at_anchor(doc, anchor)
         if placed is None:
             if accept_name is not None:
                 # If unplaced in paragraphs, check if it maps to the accepted table

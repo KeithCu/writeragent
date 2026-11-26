@@ -451,7 +451,7 @@ class VisitWebpageBrowserTool(Tool):
             tab = self.driver.open_tab()
             self.driver.navigate(tab, url)
 
-            for _ in range(12):
+            for _unused in range(12):
                 if self.stop_checker and self.stop_checker():
                     return "Error visiting webpage via browser: stopped by user."
                 time.sleep(0.25)

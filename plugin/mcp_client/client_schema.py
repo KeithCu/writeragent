@@ -337,7 +337,7 @@ def strip_schema_annotations(
                 strip_schema_annotations(name, tool_name, True)
         schema = not (_names or _data or _contract)
         items = [(k, _strip_schema_child(k, v, tool_name, _contract, _data, schema)) for k, v in node.items()]
-        return node if all(nv is v for (_, nv), v in zip(items, node.values())) else dict(items)
+        return node if all(nv is v for (_unused, nv), v in zip(items, node.values())) else dict(items)
     if isinstance(node, list):
         items = [strip_schema_annotations(v, tool_name, _contract, False, _data) for v in node]
         return node if all(n is v for n, v in zip(items, node)) else items

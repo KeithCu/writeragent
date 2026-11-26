@@ -68,3 +68,11 @@ def bare_except_swallows(doc):
         doc.getText()
     except:  # noqa: E722
         pass
+
+
+def _bad_uno_any_cast(value):
+    import uno
+    from typing import Any, cast
+
+    # ruleid: uno-any-cast-outside-owner
+    return cast("Any", uno).Any("[]string", value)

@@ -71,8 +71,8 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
     first_i, first = indexed[0]
     last_i, last = indexed[-1]
     span_start = first[start_idx]
-    span_end = max(b[start_idx] + b[extent_idx] for _, b in indexed)
-    gap = (span_end - span_start - sum(b[extent_idx] for _, b in indexed)) / (len(indexed) - 1)
+    span_end = max(b[start_idx] + b[extent_idx] for _unused, b in indexed)
+    gap = (span_end - span_start - sum(b[extent_idx] for _unused, b in indexed)) / (len(indexed) - 1)
     placed: dict[int, Box] = {
         first_i: _with_start(first, start_idx, int(span_start)),
         last_i: _with_start(last, start_idx, last[start_idx]),
@@ -112,8 +112,8 @@ def diagram_node_boxes(
 
     if layout == "grid":
         cols = max(1, int(ceil(n**0.5)))
-        cell_w = max(w for w, _ in sizes)
-        cell_h = max(h for _, h in sizes)
+        cell_w = max(w for w, _unused in sizes)
+        cell_h = max(h for _unused, h in sizes)
         return [
             (margin + (i % cols) * (cell_w + gap), margin + (i // cols) * (cell_h + gap), w, h)
             for i, (w, h) in enumerate(sizes)
@@ -122,12 +122,12 @@ def diagram_node_boxes(
     pos = margin
     boxes: list[Box] = []
     if layout == "vertical_flow":
-        cross0 = max(margin, (page_width - max(w for w, _ in sizes)) // 2)
+        cross0 = max(margin, (page_width - max(w for w, _unused in sizes)) // 2)
         for w, h in sizes:
             boxes.append((cross0, pos, w, h))
             pos += h + gap
     else:
-        cross0 = max(margin, (page_height - max(h for _, h in sizes)) // 2)
+        cross0 = max(margin, (page_height - max(h for _unused, h in sizes)) // 2)
         for w, h in sizes:
             boxes.append((pos, cross0, w, h))
             pos += w + gap

@@ -34,6 +34,7 @@ import uno
 
 from plugin.doc import visual_helpers
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
+from plugin.framework.uno_context import uno_any
 
 log = logging.getLogger(__name__)
 
@@ -217,10 +218,7 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         # FilterData must travel as a typed Any through uno.invoke; a plain tuple of
         # PropertyValue is dropped and the page comes out at 96 DPI instead of rw x rh px.
         # (The BMP export ignores PixelWidth even then, so the page always goes out as PNG.)
-        filter_data = cast("Any", uno).Any(
-            "[]com.sun.star.beans.PropertyValue",
-            cast("Any", (_pv("PixelWidth", rw), _pv("PixelHeight", rh))),
-        )
+        filter_data = uno_any("[]com.sun.star.beans.PropertyValue", (_pv("PixelWidth", rw), _pv("PixelHeight", rh)))
         args = (
             _pv("URL", uno.systemPathToFileUrl(tmp_path)),
             _pv("MediaType", "image/png"),

@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     stop_event = threading.Event()
     if os.name != "nt":
         import signal
-        signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
+        signal.signal(signal.SIGTERM, lambda *_unused: stop_event.set())
     reader = threading.Thread(target=_stdin_stop_reader, args=(stop_event,), daemon=True)
     reader.start()
 

@@ -35,7 +35,7 @@ from plugin.doc.text_helpers import TrackedDeletions, iter_elements, iter_portio
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import create_property_value
+from plugin.framework.uno_context import create_property_value, uno_any
 
 from plugin.writer.edit_review import (
     collapsed_anchor,
@@ -279,7 +279,7 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     Set this on the descriptor *before* insert so attach() applies aPropSeq.
     """
     seq = tuple(create_property_value(name, value) for name, value in pairs.items())
-    typed = cast("Any", uno).Any("[]com.sun.star.beans.PropertyValue", cast("Any", seq))
+    typed = uno_any("[]com.sun.star.beans.PropertyValue", seq)
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 
 
@@ -731,12 +731,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
 
 
 def _apply_tab_stops(cursor: Any, stops: tuple[Any, ...]) -> None:
-    uno_rt = cast("Any", uno)
-    uno_rt.invoke(
-        cursor,
-        "setPropertyValue",
-        ("ParaTabStops", uno_rt.Any("[]com.sun.star.style.TabStop", stops)),
-    )
+    uno.invoke(cursor, "setPropertyValue", cast("Any", ("ParaTabStops", uno_any("[]com.sun.star.style.TabStop", stops))))
 
 
 def _select_paragraph(cursor: Any) -> Any:

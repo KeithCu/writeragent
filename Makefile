@@ -163,7 +163,7 @@ endif
         lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit bandit-incr pyspector pyspector-incr pyspector-report ty-run mypy-run mypy-incr-run pyright-run basedpyright basedpyright-run basedpyright-incr-run basedpyright-full-run pyrefly-run \
-        ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar vulture \
+        ruff ruff-fix ruff-for-build bare-underscore-check ruff-format-check ruff-format-grammar vulture \
         eval-deps eval-ab run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ help:
 	@echo "  make opengrep-rules-audit   Live registry sweep (p/python; manual triage only)"
 	@echo "  make uno-thread-lint        Alias for make opengrep-lint"
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
-	@echo "  make typecheck              ruff-for-build, then incremental basedpyright/bandit/opengrep/pyspector/mypy (staged/unstaged/untracked; run before each commit) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
+	@echo "  make typecheck              ruff-for-build and bare-underscore-check, then incremental basedpyright/bandit/opengrep/pyspector/mypy (staged/unstaged/untracked; run before each commit) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
 	@echo "  make typecheck-full         full-repo checkers including basedpyright library source and thread-safety-lint; used by CI and make release"
 	@echo "  make thread-safety-lint     Standalone UNO thread-safety + deadlock AST check (included in typecheck-full, not default typecheck)"
 	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"
@@ -649,7 +649,7 @@ _USE_FULL_TYPECHECK := 1
 endif
 
 # -j6 leaves a core free. Do not pass basedpyright --threads: it nests workers on this pool.
-typecheck: manifest ruff-for-build
+typecheck: manifest ruff-for-build bare-underscore-check
 ifeq ($(_USE_FULL_TYPECHECK),1)
 	@$(MAKE) _typecheck-full-run
 else
@@ -658,7 +658,7 @@ else
 endif
 
 # Full-repo checkers including thread-safety-lint and basedpyright library-source walk.
-typecheck-full: manifest ruff-for-build
+typecheck-full: manifest ruff-for-build bare-underscore-check
 	@$(MAKE) _typecheck-full-run
 
 _typecheck-full-run:
@@ -1125,6 +1125,10 @@ ruff:
 
 ruff-fix:
 	"$(PYTHON)" -m ruff check $(RUFF_PATHS) --fix
+
+# Bare `_` is gettext's name; throwaway bindings must use `_unused` (AGENTS.md, Translations).
+bare-underscore-check:
+	"$(PYTHON)" $(SCRIPTS)/fix_bare_underscore_throwaways.py --check
 
 # Build gate: auto-fix then verify (standalone `make ruff` remains check-only).
 ruff-for-build: ruff-fix ruff
