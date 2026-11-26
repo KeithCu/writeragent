@@ -690,6 +690,34 @@ def test_onnew_records_geometric_session_via_call():
         assert marshal.call_args_list[0][0][1:] == (ctx, doc)
 
 
+class _ProbeRecordingEvent:
+    """DocumentEvent whose ViewController / Source reads are recorded (``_doc_from_event`` swallows raises)."""
+
+    def __init__(self, name: str) -> None:
+        self.EventName = name
+        self.reads: list[str] = []
+
+    @property
+    def ViewController(self) -> Any:  # noqa: N802 -- UNO struct field
+        self.reads.append("ViewController")
+        raise RuntimeError("ViewController must not be read")
+
+    @property
+    def Source(self) -> Any:  # noqa: N802 -- UNO struct field
+        self.reads.append("Source")
+        raise RuntimeError("Source must not be read")
+
+
+@pytest.mark.parametrize("event_name", ["OnFocus", "OnModifyChanged", "OnTitleChanged", "OnUnload"])
+def test_global_listener_ignores_unhandled_events_without_probing_the_event(event_name: str):
+    listener = _installed(MagicMock())
+    event = _ProbeRecordingEvent(event_name)
+    with patch("plugin.framework.queue_executor.main.run") as run:
+        listener.on_document_event(event)
+    assert event.reads == []
+    run.assert_not_called()
+
+
 def test_global_listener_disposed_view_controller_does_not_warn():
     """Listener must not hit the outer warning path when ViewController is disposed."""
     ctx = MagicMock()

@@ -90,20 +90,19 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
 
     def on_document_event(self, Event: Any) -> None:
         name = Event.EventName
-        source = Event.Source
         # storeToURL ("Save a Copy") is OnCopyTo / OnCopyToDone, not OnSaveTo.
         # UI Save a Copy may still emit OnSaveTo; handle both.
         if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"):
             with _in_save_hook(self._doc_key):
-                self._svc.strip_for_save(source)
+                self._svc.strip_for_save(Event.Source)
         elif name in ("OnSaveDone", "OnSaveAsDone"):
             with _in_save_hook(self._doc_key):
-                self._svc.restore_after_save(source, saved=True)
+                self._svc.restore_after_save(Event.Source, saved=True)
         elif name in ("OnSaveToDone", "OnCopyToDone"):
             with _in_save_hook(self._doc_key):
-                self._svc.restore_after_save(source, saved=False)
+                self._svc.restore_after_save(Event.Source, saved=False)
         elif name == "OnUnload":
-            self._svc._teardown_save_listener(self._doc_key, source)
+            self._svc._teardown_save_listener(self._doc_key, Event.Source)
 
     def on_disposing(self, Source: Any) -> None:
         self._svc._teardown_save_listener(self._doc_key, Source)

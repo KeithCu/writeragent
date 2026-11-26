@@ -358,6 +358,11 @@ class _GlobalDocumentEventListener(BaseDocumentEventListener):
 
     def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
         name = Event.EventName
+        # The GlobalEventBroadcaster sends every open document's events here, including
+        # frequent ones such as OnFocus and OnModifyChanged. Names that neither branch below
+        # handles return before the ViewController / Source probes in ``_doc_from_event``.
+        if name not in _GEOMETRIC_OPEN_EVENTS and name not in _SAVE_DONE_EVENTS:
+            return
         doc = _doc_from_event(Event)
         # Hidden factory OnNew/OnCreate often has Source the Writer
         # keeper (leftover scalc is not focused), so the geometric
