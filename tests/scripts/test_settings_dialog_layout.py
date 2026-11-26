@@ -629,6 +629,3 @@ def test_standalone_preview_adds_height_and_page0_controls() -> None:
     plain_ids = {ctrl_id for el in ET.fromstring(generate_standalone_config_dialog(no_preview)).iter() if (ctrl_id := el.get(f"{{{_DLG_NS}}}id"))}
     for cid in ("btn_run", "btn_preview", "sb_preview", "preview_area", "lbl_preview_status"):
         assert cid not in plain_ids
-
-
-

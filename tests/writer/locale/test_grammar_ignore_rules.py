@@ -36,21 +36,21 @@ _STABLE_PREFIX_CASES = (
 class TestGrammarIgnoreRules:
     def test_is_rule_ignored_wa_g_rule_doc_match(self) -> None:
         rule = f"{WA_G_RULE_PREFIX}Avoid passive voice."
-        assert (is_rule_ignored(rule, {"avoid passive voice"}, set()))
+        assert is_rule_ignored(rule, {"avoid passive voice"}, set())
 
     def test_is_rule_ignored_wa_g_rule_global_match(self) -> None:
         rule = f"{WA_G_RULE_PREFIX}Avoid passive voice."
-        assert (is_rule_ignored(rule, set(), {rule}))
+        assert is_rule_ignored(rule, set(), {rule})
 
     def test_is_rule_ignored_legacy_doc_match(self) -> None:
-        assert (is_rule_ignored("legacy-rule-id", {"legacy-rule-id"}, set()))
+        assert is_rule_ignored("legacy-rule-id", {"legacy-rule-id"}, set())
 
     def test_is_rule_ignored_bare_id_matches_normalized_doc_key(self) -> None:
         """Ignore stores normalize_reason(bare); membership must use the same key."""
         raw = "Legacy Bare Rule!"
         stored = canonical_rule_key(raw)
-        assert (stored) == (normalize_reason(raw))
-        assert (is_rule_ignored(raw, {stored}, set()))
+        assert stored == normalize_reason(raw)
+        assert is_rule_ignored(raw, {stored}, set())
         assert not (is_rule_ignored(raw, {"unrelated"}, set()))
 
     def test_canonical_rule_key_returns_plain_string(self) -> None:
@@ -71,9 +71,9 @@ class TestGrammarIgnoreRules:
     def test_parse_prefixed_rule_identifier(self) -> None:
         for prefix in STABLE_RULE_PREFIXES:
             sample = "SpellCheck" if prefix == HARPER_RULE_PREFIX else "ENGLISH_WORD_REPEAT_RULE"
-            assert (parse_prefixed_rule_identifier(make_rule_identifier(prefix, sample), prefix)) == (sample)
-        assert (parse_prefixed_rule_identifier("wa_g_rule||reason", HARPER_RULE_PREFIX)) is None
-        assert (parse_prefixed_rule_identifier(f"{HARPER_RULE_PREFIX}", HARPER_RULE_PREFIX)) is None
+            assert parse_prefixed_rule_identifier(make_rule_identifier(prefix, sample), prefix) == sample
+        assert parse_prefixed_rule_identifier("wa_g_rule||reason", HARPER_RULE_PREFIX) is None
+        assert parse_prefixed_rule_identifier(f"{HARPER_RULE_PREFIX}", HARPER_RULE_PREFIX) is None
 
     def test_collect_ignored_reasons_merges_doc_and_global(self) -> None:
         dp = MagicMock()
@@ -84,8 +84,8 @@ class TestGrammarIgnoreRules:
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
             reasons = collect_ignored_reasons("doc-x")
-        assert ("avoid passive voice") in (reasons)
-        assert (normalize_reason(global_rule[len(WA_G_RULE_PREFIX) :])) in (reasons)
+        assert "avoid passive voice" in reasons
+        assert normalize_reason(global_rule[len(WA_G_RULE_PREFIX) :]) in reasons
 
     def test_collect_ignored_reasons_stable_global_uses_bare_code(self) -> None:
         dp = MagicMock()
@@ -96,8 +96,8 @@ class TestGrammarIgnoreRules:
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={global_rule}),
         ):
             reasons = collect_ignored_reasons("doc-x")
-        assert ("SpellCheck") in (reasons)
-        assert ("harper spellcheck") not in (reasons)
+        assert "SpellCheck" in reasons
+        assert "harper spellcheck" not in reasons
 
     def test_collect_ignored_reasons_bare_global_uses_normalized_key(self) -> None:
         dp = MagicMock()
@@ -108,7 +108,7 @@ class TestGrammarIgnoreRules:
             patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={raw}),
         ):
             reasons = collect_ignored_reasons("doc-x")
-        assert (normalize_reason(raw)) in (reasons)
+        assert normalize_reason(raw) in reasons
 
     def test_collect_ignored_reasons_drops_empty_keys(self) -> None:
         dp = MagicMock()
@@ -123,16 +123,16 @@ class TestGrammarIgnoreRules:
 
     def test_doc_ignored_rules_empty_when_no_persistence(self) -> None:
         with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=None):
-            assert (doc_ignored_rules("missing")) == (set())
+            assert doc_ignored_rules("missing") == set()
 
     def test_normalize_reason(self) -> None:
-        assert (normalize_reason("Avoid passive voice.")) == ("avoid passive voice")
-        assert (normalize_reason("  Avoid    passive   voice. ")) == ("avoid passive voice")
-        assert (normalize_reason("Use 'an' instead of 'a' before vowel sounds.")) == ("use an instead of a before vowel sounds")
-        assert (normalize_reason("Is this a question? Yes!")) == ("is this a question yes")
-        assert (normalize_reason("Vérifiez l'accord en genre et en nombre.")) == ("vérifiez laccord en genre et en nombre")
-        assert (normalize_reason("Mögliche falsche Großschreibung: Straße.")) == ("mögliche falsche großschreibung straße")
-        assert (normalize_reason("")) == ("")
+        assert normalize_reason("Avoid passive voice.") == "avoid passive voice"
+        assert normalize_reason("  Avoid    passive   voice. ") == "avoid passive voice"
+        assert normalize_reason("Use 'an' instead of 'a' before vowel sounds.") == "use an instead of a before vowel sounds"
+        assert normalize_reason("Is this a question? Yes!") == "is this a question yes"
+        assert normalize_reason("Vérifiez l'accord en genre et en nombre.") == "vérifiez laccord en genre et en nombre"
+        assert normalize_reason("Mögliche falsche Großschreibung: Straße.") == "mögliche falsche großschreibung straße"
+        assert normalize_reason("") == ""
 
     def test_document_persistence_stores_and_saves_ignored_rules(self) -> None:
         model = MagicMock()
@@ -144,9 +144,9 @@ class TestGrammarIgnoreRules:
         with patch("plugin.doc.udprops.set_document_property") as mock_set:
             dp._persist_to_udprops()
 
-        assert (mock_set.called)
+        assert mock_set.called
         written = json.loads(str(mock_set.call_args[0][2]))
-        assert ("avoid passive voice") in (written["ignored_rules"])
+        assert "avoid passive voice" in written["ignored_rules"]
 
     def test_cached_errors_to_uno_tuple_filters_ignored_rules(self) -> None:
         doc_id = "doc-x"
@@ -176,8 +176,8 @@ class TestGrammarIgnoreRules:
         with patch("plugin.writer.locale.grammar_ignore_rules.get_persistence", return_value=dp):
             res = _cached_errors_to_uno_tuple(cached, doc_id, u16_map)
 
-        assert (len(res)) == (1)
-        assert (res[0].aRuleIdentifier) == ("wa_g_rule||Use 'an' instead of 'a'.")
+        assert len(res) == 1
+        assert res[0].aRuleIdentifier == "wa_g_rule||Use 'an' instead of 'a'."
 
     def test_normalize_errors_derives_rule_identifier_from_reason(self) -> None:
         from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
@@ -355,6 +355,3 @@ def test_ignore_set_for_document_and_allows() -> None:
         assert not iset.allows(f"{WA_G_RULE_PREFIX}Avoid passive voice.")
         assert not iset.allows("global-rule")
         assert iset.allows("unrelated-rule")
-
-
-

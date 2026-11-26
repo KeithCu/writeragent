@@ -7,7 +7,7 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from tests.writer.doc_builders import body_paragraphs, body_texts, reject_all_changes
 
@@ -155,15 +155,12 @@ def test_insert_after_caret_still_moves_caret_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
     from plugin.writer.get_document_content import GetDocumentContent
 
     # Pinned context: caret moves to document start, get_content and edit still see Beta two.
     _reset_three_paras(doc)
     controller = _select_match(doc, "Beta two.")
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     vc = controller.getViewCursor()
     vc.gotoStart(False)
 

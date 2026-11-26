@@ -222,13 +222,13 @@ def run_bench(
 ) -> float:
     for _ in range(warmup):
         fn(envelope)
-    
+
     times = []
     for _ in range(iters):
         t0 = time.perf_counter()
         fn(envelope)
         times.append((time.perf_counter() - t0) * 1000)
-    
+
     # Return median time in milliseconds
     return sorted(times)[len(times) // 2]
 
@@ -272,10 +272,10 @@ def main() -> None:
             t_vector = run_bench("Vector", unpack_numpy_opt, envelope, warmup=args.warmup, iters=args.iters)
 
             speedup = t_current / t_vector if t_vector > 0 else 0.0
-            
+
             scen_name = scen["name"]
             shape_label = f"{nrows}x{ncols} ({shape_desc})"
-            
+
             print(f"{shape_label:<35} | {scen_name:<30} | {t_current:>12.3f} | {t_cycle:>10.3f} | {t_vector:>11.3f} | {speedup:>8.2f}x")
         print("-" * 110)
 

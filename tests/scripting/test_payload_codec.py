@@ -350,7 +350,7 @@ def test_round_trip_split_grid():
     ]
     wire = host_pack_data(grid, force="always")
     reconstructed = child_unpack_split_grid(wire)
-    
+
     assert isinstance(reconstructed, list)
     assert len(reconstructed) == 4
     assert reconstructed[0] == [1.5, "apple", 10.1]
@@ -367,7 +367,7 @@ def test_split_grid_non_2d_fallback():
     wire_1d = host_pack_data(grid_1d, force="never")
     assert isinstance(wire_1d, list)
     assert wire_1d == [1.0, "apple", 3.0]
-    
+
     # 2D mixed grid but with force="never"
     grid_2d = [
         [1.0, "apple"],
@@ -381,30 +381,30 @@ def test_split_grid_non_2d_fallback():
 def test_round_trip_split_grid_1d():
     """Verify that both numeric and mixed 1D flat lists round-trip flawlessly under split_grid."""
     np = pytest.importorskip("numpy")
-    
+
     # Numeric 1D flat list
     grid_num_1d = [1.5, 2.5, 3.5, 4.5]
     wire_num = host_pack_data(grid_num_1d, force="always")
     assert isinstance(wire_num, dict)
     assert wire_num["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_num["shape"] == [4]
-    
+
     # Unpack in child -> should be purely numeric ndarray
     child_unpacked_num = child_unpack_split_grid(wire_num)
     assert isinstance(child_unpacked_num, np.ndarray)
     assert child_unpacked_num.shape == (4,)
     assert list(child_unpacked_num) == pytest.approx(grid_num_1d)
-    
+
     # Pack result in child -> should pack 1D array as split_grid
     wire_child_num = child_pack_result(child_unpacked_num, force="always")
     assert wire_child_num["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_child_num["shape"] == [4]
-    
+
     # Unpack on host -> should return a flat list
     host_unpacked_num = host_unpack_data(wire_child_num)
     assert isinstance(host_unpacked_num, list)
     assert host_unpacked_num == pytest.approx(grid_num_1d)
-    
+
     # Mixed 1D flat list
     grid_mixed_1d = [1.5, "banana", None, 4.5]
     wire_mixed = host_pack_data(grid_mixed_1d, force="always")
@@ -412,18 +412,18 @@ def test_round_trip_split_grid_1d():
     assert wire_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_mixed["shape"] == [4]
     assert wire_mixed["strings"] == {1: "banana"}
-    
+
     # Unpack in child -> reconstructed mixed list
     child_unpacked_mixed = child_unpack_split_grid(wire_mixed)
     assert isinstance(child_unpacked_mixed, list)
     assert child_unpacked_mixed == [1.5, "banana", None, 4.5]
-    
+
     # Pack result in child -> pack 1D mixed list
     wire_child_mixed = child_pack_result(child_unpacked_mixed, force="always")
     assert wire_child_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_child_mixed["shape"] == [4]
     assert wire_child_mixed["strings"] == {1: "banana"}
-    
+
     # Unpack on host -> flat list.
     # A Python None in the list (hole) was packed via split_grid (nan in buffer, no strings entry).
     # With the egress policy, host unpack now preserves it as nan (Calc will show error for that slot).
@@ -1288,14 +1288,14 @@ def test_split_grid_numpy_scalars_in_lists():
     """Verify that lists containing NumPy scalar types are serialized numerically instead of stringified."""
     np = pytest.importorskip("numpy")
     grid = [[np.float64(1.5), np.int64(7)], [np.float64(2.5), np.int64(8)]]
-    
+
     # Pack on host/child using split_grid
     wire = host_pack_data(grid, force="always")
     assert isinstance(wire, dict)
     assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire["column_kinds"] == ["float", "int"]
     assert wire["strings"] == {}  # NumPy scalars should NOT be treated as strings!
-    
+
     # Round-trip check
     unpacked = child_unpack_split_grid(wire)
     assert isinstance(unpacked, np.ndarray)
@@ -1306,7 +1306,7 @@ def test_split_grid_numpy_scalars_in_lists():
 def test_split_grid_boolean_roundtrip_fidelity():
     """Verify that boolean columns roundtrip perfectly to True/False in mixed grids under the 'bool' column kind."""
     pytest.importorskip("numpy")
-    
+
     # 2D mixed grid containing booleans, strings, and None
     grid = [
         [True, "apple", 10],
@@ -1314,13 +1314,13 @@ def test_split_grid_boolean_roundtrip_fidelity():
         [True, "cherry", None],
         [None, "date", 40]
     ]
-    
+
     # 1. Test column kinds computed correctly
     kinds = payload_codec._flatten_grid_to_components(grid)[2]
     # Text-only column is float, not int. The int column keeps int even with a None
     # because the grid has strings, so the pure-numeric None promotion does not fire.
     assert kinds == ["bool", "float", "int"]
-    
+
     # 2. Test round-trip unpacking in child
     wire = host_pack_data(grid, force="always")
     assert wire["column_kinds"] == ["bool", "float", "int"]
@@ -1330,7 +1330,7 @@ def test_split_grid_boolean_roundtrip_fidelity():
     assert child_unpacked[1] == [False, "banana", 20]
     assert child_unpacked[2] == [True, "cherry", None]
     assert child_unpacked[3] == [None, "date", 40]
-    
+
     # 3. Test round-trip unpacking on host.
     # Holes (None) become bare NaN slots (no strings entry). Host unpack preserves nan (Calc error policy).
     host_unpacked = host_unpack_data(wire)
@@ -1366,11 +1366,11 @@ def test_split_grid_pure_numeric_fast_path():
     """Verify the purely numeric fast path where strings dictionary is empty."""
     np = pytest.importorskip("numpy")
     grid = [[10.5, 20.5], [30.5, 40.5]]
-    
+
     wire = host_pack_data(grid, force="always")
     assert wire["strings"] == {}
     assert wire["column_kinds"] == ["float", "float"]
-    
+
     unpacked = child_unpack_split_grid(wire)
     assert isinstance(unpacked, np.ndarray)
     assert unpacked.shape == (2, 2)
@@ -1382,15 +1382,15 @@ def test_split_grid_lattice_promotion_comprehensive():
     # 1. Boolean-only column keeps bool kind in mixed grid
     grid1 = [[True, "apple"], [False, "banana"], [None, "cherry"]]
     assert payload_codec._flatten_grid_to_components(grid1)[2] == ["bool", "float"]
-    
+
     # 2. Boolean mixed with integers becomes int
     grid2 = [[True], [10], [False]]
     assert payload_codec._flatten_grid_to_components(grid2)[2] == ["int"]
-    
+
     # 3. Integer mixed with float becomes float
     grid3 = [[10], [1.5], [20]]
     assert payload_codec._flatten_grid_to_components(grid3)[2] == ["float"]
-    
+
     # 4. Purely numeric grid (no strings) with None forces float
     grid4 = [[10], [None], [20]]
     wire = host_pack_data(grid4, force="always")
@@ -1467,10 +1467,10 @@ def test_child_pack_grid_regression() -> None:
 def test_child_pack_non_contiguous_slices():
     """Verify that non-contiguous numpy slices pack successfully without zero-copy buffer issues."""
     np = pytest.importorskip("numpy")
-    
+
     arr = np.arange(100, dtype=np.float64).reshape(10, 10)
     non_contiguous = arr[::2, ::2]  # Step slice creates non-contiguous array
-    
+
     wire = child_pack_result(non_contiguous, force="always")
     assert wire["__wa_payload__"] == "split_grid"
     assert wire["shape"] == [5, 5]
@@ -1565,7 +1565,7 @@ def test_dataframe_host_unpack_preserves_split_grid_for_numeric():
 
 def test_date_and_datetime_serialization_handling():
     """Verify how dates and datetimes are handled when passing through the host/child bridge.
-    
+
     This verifies that:
     1. Python datetime/date objects below threshold (pickle list path) preserve their types.
     2. Python datetime/date objects above threshold (split_grid) are coerced to strings on the wire.
@@ -1579,7 +1579,7 @@ def test_date_and_datetime_serialization_handling():
     # 1. Below threshold (plain list path / pickle)
     d = datetime.date(2026, 6, 25)
     dt = datetime.datetime(2026, 6, 25, 14, 30, 0)
-    
+
     wire_list = host_pack_data([[d, dt]], force="never")
     (rng,) = materialize_inputs(wire_list)
     assert rng.values == [[d, dt]]
@@ -1588,7 +1588,7 @@ def test_date_and_datetime_serialization_handling():
     grid = [[d, dt] * 50]  # 100 cells
     wire_sg = host_pack_data(grid, force="always")
     assert wire_sg["__wa_payload__"] == PAYLOAD_SPLIT_GRID
-    
+
     # Verify they were treated as strings in the strings dict
     assert 0 in wire_sg["strings"]
     assert wire_sg["strings"][0] == "2026-06-25"
@@ -1616,7 +1616,7 @@ def test_date_and_datetime_serialization_handling():
     wire_ts = host_pack_data(grid_ts, force="always")
     assert wire_ts["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_ts["strings"][0] == "2026-06-25 14:30:00"
-    
+
     child_unpacked_ts = child_unpack_split_grid(wire_ts)
     assert child_unpacked_ts[0][0] == "2026-06-25 14:30:00"
 

@@ -71,4 +71,3 @@ def test_run_periodic_embeddings_indexer_marshals_uno_on_tick():
 
     assert doc_calls_during_marshal, "get_active_document should run during periodic tick"
     assert all(doc_calls_during_marshal), "get_active_document must be marshaled to main thread"
-

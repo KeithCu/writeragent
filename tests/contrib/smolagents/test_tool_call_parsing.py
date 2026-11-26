@@ -111,4 +111,3 @@ def test_action_step_to_messages_uses_action_json_not_calling_tools_repr():
     assert "Calling tools:" not in text
     assert '"name": "web_search"' in text
     assert "Population Shanghai" in text
-

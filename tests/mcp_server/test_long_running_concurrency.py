@@ -470,4 +470,3 @@ def test_gate_wait_does_not_hold_global_semaphore():
 
     assert not errors, "errors occurred: %s" % errors
     assert a_entered.is_set(), "fast_a never finished after release"
-

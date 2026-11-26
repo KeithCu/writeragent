@@ -155,4 +155,3 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
             if error is not None:
                 raise error
             return value
-

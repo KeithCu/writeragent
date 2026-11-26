@@ -12,7 +12,7 @@ def test_tree_service_basic(ctx, doc):
     from plugin.writer.specialized.bookmarks import BookmarkService
     from plugin.framework.event_bus import EventBus
     from plugin.doc.document_helpers import DocumentService
-    
+
     # Setup doc content with headings
     text = doc.getText()
     cursor = text.createTextCursor()

@@ -94,4 +94,3 @@ def test_get_image_calc_drops_page_param(ctx, doc):
     assert page_res.get("status") == "error"
     assert "page" in (page_res.get("ignored_parameters") or [])
     assert "No image selected" in page_res.get("message", "")
-

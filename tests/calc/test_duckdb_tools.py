@@ -26,6 +26,7 @@ from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_
 from plugin.framework.errors import CalcError, DocumentDisposedError, ToolExecutionError, UnoObjectError
 from plugin.framework.tool import prepare_tool_call
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 def _tool():
@@ -1054,10 +1055,6 @@ def test_sql_path_uses_cache_on_second_query(
     assert any(str(v).endswith("sales.csv") for v in flat.values())
 
 
-class _DisposedException(Exception):
-    """Name must contain DisposedException so is_disposal matches."""
-
-
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid", return_value=[["h"], [1]])
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
@@ -1099,7 +1096,7 @@ def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, moc
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
 def test_grid_read_disposal_reports_document_disposed(mock_resolve, mock_read, mock_run):
     del mock_resolve
-    mock_read.side_effect = _DisposedException("document gone")
+    mock_read.side_effect = DisposedException("document gone")
     res = _run(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert res["code"] == "DOCUMENT_DISPOSED"
@@ -1125,7 +1122,7 @@ def test_grid_read_other_errors_stay_generic(mock_resolve, mock_read, mock_run):
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
 def test_sibling_grid_disposal_reports_document_disposed(mock_resolve, mock_run, mock_read_office, _mock_isfile):
     del mock_resolve
-    mock_read_office.side_effect = _DisposedException("sibling gone")
+    mock_read_office.side_effect = DisposedException("sibling gone")
     res = _run(_mk_ctx(), sql="SELECT 1", files={"budget": "budget.xlsx"})
     assert res["code"] == "DOCUMENT_DISPOSED"
     mock_run.assert_not_called()
@@ -1137,10 +1134,10 @@ def test_sibling_grid_disposal_reports_document_disposed(mock_resolve, mock_run,
 def test_sibling_reader_reraises_disposed(mock_open, mock_read, _mock_close, tmp_path):
     xlsx, _ods = _write_office_fixtures(tmp_path)
     mock_open.return_value = (_fake_model(), "calc", None, True)
-    mock_read.side_effect = _DisposedException("gone")
+    mock_read.side_effect = DisposedException("gone")
     try:
         _read_sibling_office_file_as_grid(object(), str(xlsx), parse_table_source_spec({"file": f"{xlsx.name}#Actuals"}))
-    except _DisposedException:
+    except DisposedException:
         return
     except ToolExecutionError as exc:
         raise AssertionError(f"disposal rewritten as tool error: {exc}") from exc
@@ -1149,7 +1146,7 @@ def test_sibling_reader_reraises_disposed(mock_open, mock_read, _mock_close, tmp
 
 def test_named_range_disposal_is_not_a_missing_range():
     def _boom():
-        raise _DisposedException("gone")
+        raise DisposedException("gone")
 
     bad = SimpleNamespace(getReferredCells=_boom, getDataArea=_boom)
     ctx = _mk_ctx()
@@ -1165,7 +1162,7 @@ def test_controller_disposal_is_not_a_missing_name():
     model = _fake_model()
 
     def _controller():
-        raise _DisposedException("gone")
+        raise DisposedException("gone")
 
     model.getCurrentController = _controller
     ctx.doc = model
@@ -1178,10 +1175,10 @@ def test_controller_disposal_is_not_a_missing_name():
 
 @patch("plugin.calc.duckdb_tools.resolve_document_by_url")
 def test_open_workbook_probe_reraises_disposal(mock_resolve):
-    mock_resolve.side_effect = _DisposedException("gone")
+    mock_resolve.side_effect = DisposedException("gone")
     try:
         _source_is_open_workbook(object(), "/tmp/budget.xlsx")
-    except (DocumentDisposedError, _DisposedException):
+    except (DocumentDisposedError, DisposedException):
         return
     raise AssertionError("open-workbook probe swallowed disposal")
 

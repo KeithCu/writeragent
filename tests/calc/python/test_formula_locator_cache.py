@@ -401,4 +401,3 @@ def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:
     assert found_sheet.getName() == "Viz_Gallery"
     assert found_cell == formula_cell
     assert coords == (6, 3)
-

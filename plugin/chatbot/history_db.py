@@ -369,4 +369,3 @@ def fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
 
     messages = get_chat_history(old_session_id).get_messages()
     dest_history.replace_messages(messages)
-

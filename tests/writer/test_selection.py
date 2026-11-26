@@ -12,6 +12,7 @@ import pytest
 
 from plugin.writer.selection import SetSelection
 from plugin.writer.target_resolver import resolve_target_cursor
+from plugin.tests.testing_utils import DisposedException
 
 
 # ---- C1: target='selection' raises instead of silently going to end ----------
@@ -105,9 +106,6 @@ def test_selection_skips_empty_ranges_on_multiple_selection():
 
 def test_selection_target_disposed_raises_document_disposed():
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     controller = MagicMock()
     controller.getSelection.side_effect = DisposedException("closed")
@@ -514,8 +512,3 @@ def test_set_selection_oor_reports_winning_mode():
     assert "found 1 match(es)" in res["message"]
     assert res["matched_case_sensitive"] is True
     assert res["matched_folded"] is False
-
-
-
-
-

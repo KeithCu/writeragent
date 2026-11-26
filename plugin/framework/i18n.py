@@ -197,4 +197,3 @@ def _(message: str) -> str:
 def N_(message: str) -> str:
     """No-op gettext marker for extractable strings translated dynamically at runtime."""
     return message
-

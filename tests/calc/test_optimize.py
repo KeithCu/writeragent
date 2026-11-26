@@ -121,4 +121,3 @@ def test_optimize_sheet_write_failure_keeps_the_result(
     assert result["status"] == "ok"
     assert result["sheet_write_error"] == "disk full"
     assert result["metrics"] == {"objective_value": 42.0}
-

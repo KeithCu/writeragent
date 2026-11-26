@@ -654,5 +654,3 @@ def test_dispatch_body_read_reset_does_not_write_a_500():
     assert handler.wfile.getvalue() == b""
     mock_log.exception.assert_not_called()
     mock_log.info.assert_called_once()
-
-

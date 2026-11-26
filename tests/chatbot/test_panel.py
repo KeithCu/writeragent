@@ -36,11 +36,12 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.bootstrap import BootstrapState
+from plugin.tests.testing_utils import DisposedException
 
 
 class TestQueryEnterSend:
     def test_enter_without_shift_triggers(self):
-        assert (query_enter_triggers_primary_send(1280, 0))
+        assert query_enter_triggers_primary_send(1280, 0)
 
     @pytest.mark.parametrize(
         "value, value_2",
@@ -276,18 +277,18 @@ class TestSendDispose:
         listener._send_cancellation = scope
         assert not (scope.is_cancelled())
         listener.disposing(None)
-        assert (scope.is_cancelled())
-        assert (listener._stop_requested_fallback)
-        assert (listener.ctx) is None
-        assert (listener.panel) is None
+        assert scope.is_cancelled()
+        assert listener._stop_requested_fallback
+        assert listener.ctx is None
+        assert listener.panel is None
 
     def test_disposing_without_active_send_still_latches_stop(self) -> None:
         listener = _make_send_listener()
         listener._send_cancellation = None
         listener.disposing(None)
-        assert (listener._stop_requested_fallback)
-        assert (listener.ctx) is None
-        assert (listener.panel) is None
+        assert listener._stop_requested_fallback
+        assert listener.ctx is None
+        assert listener.panel is None
 
     def test_disposing_stops_speech(self) -> None:
         listener = _make_send_listener()
@@ -791,10 +792,10 @@ class TestSendDispose:
         listener._do_send = MagicMock()
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        assert (len(posted)) == (1)
+        assert len(posted) == 1
         listener._do_send.assert_not_called()
-        assert (listener.sidebar_state.send.is_busy)
-        assert (listener._send_cancellation) is not None
+        assert listener.sidebar_state.send.is_busy
+        assert listener._send_cancellation is not None
         posted[0]()
         listener._do_send.assert_called_once()
 
@@ -806,8 +807,8 @@ class TestSendDispose:
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        assert (listener._stop_requested_fallback)
-        assert (listener._send_cancellation.is_cancelled())
+        assert listener._stop_requested_fallback
+        assert listener._send_cancellation.is_cancelled()
         posted[0]()
         listener._do_send.assert_not_called()
         assert not (listener.sidebar_state.send.is_busy)
@@ -823,7 +824,7 @@ class TestSendDispose:
             with patch.object(listener.queue_executor, "_poke_main_thread", lambda: None):
                 listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
                 listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-                assert (listener.sidebar_state.send.is_busy)
+                assert listener.sidebar_state.send.is_busy
                 assert not (listener.queue_executor._work_queue.empty())
                 listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
                 assert not (listener.queue_executor._work_queue.empty()), "cancel_pending_work dropped _run_send_drain"
@@ -960,7 +961,7 @@ class TestSendDispose:
         listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
         assert not (listener.sidebar_state.send.is_recording)
         assert not (listener.sidebar_state.send.is_busy)
-        assert (send_model.Label) != ("Stop Rec")
+        assert send_model.Label != "Stop Rec"
         listener.audio_recorder.cleanup.assert_called_once()
         assert listener.sidebar_state.send.has_audio is False
 
@@ -969,11 +970,11 @@ class TestSendDispose:
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
         listener.queue_executor.post = lambda fn, *a, **k: None
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        assert (listener.sidebar_state.send.is_busy)
+        assert listener.sidebar_state.send.is_busy
         assert not (listener._stop_requested_fallback)
         notify_stop_mouse_pressed(listener)
-        assert (listener._stop_requested_fallback)
-        assert (listener._send_cancellation.is_cancelled())
+        assert listener._stop_requested_fallback
+        assert listener._send_cancellation.is_cancelled()
 
     def test_stop_mouse_pressed_idle_is_noop(self) -> None:
         listener = _make_send_listener()
@@ -1013,10 +1014,6 @@ class TestSendDispose:
         other_query.setFocus.assert_called_once()
 
 
-class _MockDisposedException(Exception):
-    """Name must include DisposedException so is_disposal matches."""
-
-
 class _ConsumeEvent:
     def __init__(self) -> None:
         object.__setattr__(self, "KeyCode", 1280)
@@ -1025,7 +1022,7 @@ class _ConsumeEvent:
 
     def __setattr__(self, name, value):
         if name == "Consume":
-            raise _MockDisposedException("event disposed")
+            raise DisposedException("event disposed")
         object.__setattr__(self, name, value)
 
 
@@ -1118,7 +1115,7 @@ class TestQueryKeyListenerDispose:
         listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_not_called()
-        assert (event.Consume)
+        assert event.Consume
 
 
 class TestTtsStopInteraction:
@@ -3063,4 +3060,3 @@ def test_do_send_agent_backend_success_skips_builtin():
     listener._send_handlers._do_send_via_agent_backend.assert_called_once()
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
     listener._append_response.assert_not_called()
-

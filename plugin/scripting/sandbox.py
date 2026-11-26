@@ -731,4 +731,3 @@ def resolve_venv_python(venv_dir: str) -> str | None:
 def install_alias_authorizer() -> None:
     """Register sandbox import checks for ``writeragent`` AliasImporter (explicit entry points only)."""
     set_alias_authorizer(import_authorized, alias_has_authorized_child)
-

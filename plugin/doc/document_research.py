@@ -747,4 +747,3 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         entry["is_active"] = _is_same_document(model, active_model)
         docs.append(entry)
     return docs
-

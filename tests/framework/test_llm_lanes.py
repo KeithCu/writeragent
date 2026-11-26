@@ -37,7 +37,7 @@ def test_llm_request_lane_serializes_callers() -> None:
     t2.start()
     t1.join()
     t2.join()
-    assert (order == ['first-enter', 'first-exit', 'second-enter'])
+    assert order == ['first-enter', 'first-exit', 'second-enter']
 
 
 @pytest.fixture(autouse=True)

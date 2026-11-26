@@ -45,11 +45,11 @@ class TestInsertImageIntoHeaderFooter:
 
         style.setPropertyValue.assert_any_call("HeaderIsOn", True)
         set_auto.assert_called_once_with(style, "header", True)
-        assert (insert.call_args.kwargs.get("text_container")) == (region_text)
-        assert (result["style_name"]) == ("Standard")
-        assert (result["region"]) == ("header")
-        assert (result["auto_height"])
-        assert (result["graphic"]) is (graphic)
+        assert insert.call_args.kwargs.get("text_container") == region_text
+        assert result["style_name"] == "Standard"
+        assert result["region"] == "header"
+        assert result["auto_height"]
+        assert result["graphic"] is graphic
 
     def test_first_page_header_uses_header_text_first(self):
         # Shared HeaderText never reaches a different-first-page letterhead;
@@ -83,9 +83,9 @@ class TestInsertImageIntoHeaderFooter:
             )
 
         set_auto.assert_called_once_with(style, "header_first", True)
-        assert (insert.call_args.kwargs.get("text_container")) == (first_text)
-        assert (insert.call_args.kwargs.get("text_container")) is not (shared_text)
-        assert (result["region"]) == ("header_first")
+        assert insert.call_args.kwargs.get("text_container") == first_text
+        assert insert.call_args.kwargs.get("text_container") is not shared_text
+        assert result["region"] == "header_first"
 
     def test_first_page_footer_uses_footer_text_first(self):
         model = MagicMock()
@@ -110,16 +110,16 @@ class TestInsertImageIntoHeaderFooter:
                 model, "/tmp/logo.png", "footer_first",
             )
 
-        assert (insert.call_args.kwargs.get("text_container")) == (first_text)
-        assert (result["region"]) == ("footer_first")
+        assert insert.call_args.kwargs.get("text_container") == first_text
+        assert result["region"] == "footer_first"
 
     def test_unknown_region_lists_page_keys(self):
         with pytest.raises(ValueError) as raised:
             image_tools.insert_image_into_header_footer(
                 MagicMock(), "/tmp/logo.png", "not_a_region",
             )
-        assert ("header_first") in (str(raised.value))
-        assert ("footer_first") in (str(raised.value))
+        assert "header_first" in str(raised.value)
+        assert "footer_first" in str(raised.value)
 
 
 class TestShouldLinkImagePath:
@@ -132,7 +132,7 @@ class TestShouldLinkImagePath:
             path = f.name
         try:
             with patch("tempfile.gettempdir", return_value="/nonexistent/custom_temp_dir"):
-                assert (image_tools._should_link_image_path(path))
+                assert image_tools._should_link_image_path(path)
         finally:
             os.unlink(path)
 
@@ -341,12 +341,12 @@ class TestWriterImageCursorConversion:
 
         dispatcher.executeDispatch.assert_called_once()
         args = dispatcher.executeDispatch.call_args[0]
-        assert (args[1]) == (".uno:InsertGraphic")
+        assert args[1] == ".uno:InsertGraphic"
         props = args[4]
         prop_map = {p.Name: p.Value for p in props}
-        assert (prop_map["FileName"]) == ("file:///home/user/photo.png")
-        assert (prop_map["AsLink"])
-        assert (result) is (inserted)
+        assert prop_map["FileName"] == "file:///home/user/photo.png"
+        assert prop_map["AsLink"]
+        assert result is inserted
 
     def test_dispatch_insert_linked_graphic_rejects_unchanged_selection(self):
         from plugin.doc import visual_helpers
@@ -678,7 +678,7 @@ class TestReplaceGraphicSource:
             with patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"):
                 ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
-        assert (ok)
+        assert ok
         graphic.setPropertyValue.assert_any_call("GraphicURL", "file:////tmp/new.png")
 
     def test_user_path_updates_graphic_url_in_place(self):
@@ -847,7 +847,7 @@ class TestImageCompoundUndo:
                 ctx, model, "/tmp/x.png", 64, 64, add_to_gallery=True, add_frame=False,
             )
 
-        assert (events) == ([
+        assert events == ([
                 ("enter", "WriterAgent: Insert image"),
                 "insert",
                 ("close", "WriterAgent: Insert image"),
@@ -884,8 +884,8 @@ class TestImageCompoundUndo:
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/cache/x.png")
 
-        assert (ok)
-        assert (events) == ([
+        assert ok
+        assert events == ([
                 ("enter", "WriterAgent: Replace image"),
                 ("close", "WriterAgent: Replace image"),
             ])
@@ -913,10 +913,10 @@ class TestDisplaySizeCap:
             )
 
         expected = visual_helpers.px_to_display_units(1024, 1024)
-        assert ((captured["width"], captured["height"])) == (expected)
-        assert (max(captured["width"], captured["height"])) <= (13500)
+        assert (captured["width"], captured["height"]) == expected
+        assert max(captured["width"], captured["height"]) <= 13500
         raw_w, raw_h = visual_helpers.px_to_units(1024, 1024)
-        assert (max(raw_w, raw_h)) > (13500)
+        assert max(raw_w, raw_h) > 13500
 
 
 class TestDrawPageInsertPosition:
@@ -925,16 +925,16 @@ class TestDrawPageInsertPosition:
         page.Width = 28000
         page.Height = 15750
         pos = visual_helpers.position_on_draw_page(page, 8000, 4000, None, None)
-        assert (pos.X) == ((28000 - 8000) // 2)
-        assert (pos.Y) == ((15750 - 4000) // 2)
+        assert pos.X == (28000 - 8000) // 2
+        assert pos.Y == (15750 - 4000) // 2
 
     def test_explicit_mm(self):
         page = MagicMock()
         page.Width = 28000
         page.Height = 15750
         pos = visual_helpers.position_on_draw_page(page, 8000, 4000, 30, 40)
-        assert (pos.X) == (3000)
-        assert (pos.Y) == (4000)
+        assert pos.X == 3000
+        assert pos.Y == 4000
 
 
 class TestAddImageToGallery:

@@ -197,5 +197,3 @@ def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
         return PEER_INNER_CHOICE_RULES + "\n" + peer_message.format_peer_catalog(peers)
 
     return _peer_block_on_main_thread(_build, "peer inner choice prompt block failed")
-
-

@@ -116,5 +116,3 @@ def test_extra_modules_override_every_blocked_entry() -> None:
         assert import_authorized(e, ()) is False
         assert import_authorized(e, (e,)) is True
         assert import_authorized(e + ".child", (e,)) is True
-
-

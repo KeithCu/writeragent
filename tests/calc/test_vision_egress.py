@@ -17,7 +17,7 @@ from plugin.calc.vision_egress import (
     insert_vision_structure_into_calc,
 )
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
-from plugin.tests.testing_utils import FakeUndoManager
+from plugin.tests.testing_utils import DisposedException, FakeUndoManager
 
 
 def test_calc_output_anchor_from_graphic_no_selection():
@@ -82,9 +82,6 @@ def test_calc_output_anchor_missing_name_raises_image_not_found():
 
 
 def test_calc_anchor_disposed_property_raises_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     shape = MagicMock()
     shape.getPropertyValue.side_effect = DisposedException("gone")
     with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape):
@@ -93,9 +90,6 @@ def test_calc_anchor_disposed_property_raises_document_disposed():
 
 
 def test_calc_anchor_disposed_cell_address_is_not_no_output_anchor():
-    class DisposedException(Exception):
-        pass
-
     shape = MagicMock()
     anchor = MagicMock()
     anchor.getCellAddress.side_effect = DisposedException("gone")

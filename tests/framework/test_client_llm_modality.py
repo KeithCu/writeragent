@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch, MagicMock, mock_open
 import ssl
 import pytest
-from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.errors import (
@@ -10,12 +9,7 @@ from plugin.framework.client.errors import (
     is_image_unsupported_error,
     format_http_error_response,
 )
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
+from plugin.tests.testing_utils import cancelled_scope
 
 
 def test_is_audio_unsupported_error():
@@ -118,7 +112,7 @@ def test_transcribe_audio_user_stop_does_not_hit_stt_endpoint(mock_sync_chat, mo
         m = mock_open(read_data=b"dummy audio data")
         with patch("builtins.open", m):
             with pytest.raises(ToolExecutionError) as raised:
-                client.transcribe_audio("dummy.wav", cancel=_cancelled_scope())
+                client.transcribe_audio("dummy.wav", cancel=cancelled_scope())
 
     assert raised.value.code == "USER_STOPPED"
     assert mock_sync_chat.called

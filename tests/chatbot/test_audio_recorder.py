@@ -1654,5 +1654,3 @@ def test_stale_start_host_stream_preserves_next_take_wav(tmp_path):
             if job1 is not None:
                 job1.join(timeout=5.0)
             _settle(recorder)
-
-

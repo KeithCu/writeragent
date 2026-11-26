@@ -478,4 +478,3 @@ def test_relative_age_expiry_cleanup(tmp_path):
         assert "stale-other-model" not in meta_after
     finally:
         conn.close()
-

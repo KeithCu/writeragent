@@ -127,11 +127,3 @@ def test_py_data_arg_dag_chain_uno(ctx, doc):
     assert sheet.getCellByPosition(2, 0).getValue() == 20.0
     assert sheet.getCellByPosition(4, 0).getValue() == 10.0
     assert sheet.getCellByPosition(5, 0).getValue() == 10.0
-
-
-
-
-
-
-
-

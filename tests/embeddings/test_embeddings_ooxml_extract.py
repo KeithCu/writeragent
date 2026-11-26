@@ -134,4 +134,3 @@ def test_extract_spreadsheet_rows_xlsx(tmp_path: Path):
     wb.save(path)
     rows = ooxml.extract_spreadsheet_rows(str(path))
     assert rows == ["[Sheet: Budget]\tRevenue\t100"]
-

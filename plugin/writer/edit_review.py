@@ -1689,4 +1689,3 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
         warning = self.finish()
         if warning:
             log.warning("streamed append abort_and_restore: %s", warning)
-

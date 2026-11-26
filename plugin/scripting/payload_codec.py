@@ -2085,6 +2085,3 @@ def child_pack_result(
             describe_wire_value(result),
         )
         raise
-
-
-

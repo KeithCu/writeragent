@@ -10,33 +10,17 @@ import os
 
 from plugin.doc.text_helpers import clone_text_range
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import logo_32_path, pinned_writer_tool_context, TestingFactory, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
 from plugin.writer.images.images import ImageDelete, ImageGetInfo, ImageInsert, ImageList
 from plugin.draw.shapes import DeleteShape
 from tests.writer.docx_objects_fixture import build_docx_objects_doc
 
 
-def _logo_path() -> str:
-    here = os.path.abspath(__file__)
-    directory = os.path.dirname(here)
-    for _unused in range(6):
-        for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
-            path = os.path.join(directory, *rel.split("/"))
-            if os.path.isfile(path):
-                return path
-        parent = os.path.dirname(directory)
-        if parent == directory:
-            break
-        directory = parent
-    return os.path.join(directory, "extension", "assets", "logo_32.png")
-
-
 @native_test
 @with_native_doc("writer")
 def test_image_list_preserves_view_cursor(ctx, doc):
-    logo = _logo_path()
-    assert os.path.isfile(logo), f"fixture image missing: {logo}"
+    logo = logo_32_path()
 
     text = doc.getText()
     text.setString("")
@@ -185,7 +169,7 @@ def test_image_insert_and_delete_tracked_uno(ctx, doc):
     from plugin.framework.config import get_config, save
     from plugin.framework.uno_context import execute_dispatch
 
-    logo = _logo_path()
+    logo = logo_32_path()
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_logo = os.path.join(tmpdir, "logo.png")
         shutil.copyfile(logo, tmp_logo)
@@ -291,7 +275,7 @@ def test_insert_frame_while_recording_accept_and_reject_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
     from plugin.writer.images.image_tools import insert_image
 
-    logo = _logo_path()
+    logo = logo_32_path()
     doc.setPropertyValue("RecordChanges", True)
     try:
         insert_image(ctx, doc, logo, width_px=64, height_px=64, title="Cap", description="", add_frame=True)
@@ -334,7 +318,7 @@ def test_image_insert_uses_pinned_selection_uno(ctx, doc):
 
         with patch("plugin.writer.images.image_tools._should_link_image_path", return_value=linked):
             res = ImageInsert().execute(
-                tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+                tctx, path=logo_32_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
             )
         assert res["status"] == "ok", res
         graphic = doc.getGraphicObjects().getByName(res["image_name"])
@@ -362,7 +346,7 @@ def test_image_generate_uses_pinned_selection_after_slow_generate_uno(ctx, doc):
     def _slow_generate(*args, **kwargs):
         # Simulate user moving the caret while image generation is in flight.
         controller.getViewCursor().gotoEnd(False)
-        return ([_logo_path()], None)
+        return ([logo_32_path()], None)
 
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     with (
@@ -390,7 +374,7 @@ def test_image_generate_edits_selected_graphic_uno(ctx, doc):
     from unittest.mock import patch
     from plugin.writer.images.images import ImageGenerate
 
-    insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
+    insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     assert doc.getGraphicObjects().getCount() == 1
     graphic = doc.getGraphicObjects().getByIndex(0)
     doc.getCurrentController().select(graphic)
@@ -400,7 +384,7 @@ def test_image_generate_edits_selected_graphic_uno(ctx, doc):
         patch("plugin.writer.images.images.ImageService") as svc_cls,
         patch("plugin.writer.images.images.unlink_temp_paths"),
     ):
-        svc_cls.return_value.generate_image.return_value = ([_logo_path()], None)
+        svc_cls.return_value.generate_image.return_value = ([logo_32_path()], None)
         res = ImageGenerate().execute(tctx, prompt="make it blue")
 
     assert res["status"] == "ok", res
@@ -412,14 +396,14 @@ def test_image_generate_edits_selected_graphic_uno(ctx, doc):
 def test_image_insert_with_graphic_selected_uno(ctx, doc):
     from unittest.mock import patch
 
-    insert_image_at_locator(ctx, doc, _logo_path(), width_mm=15, height_mm=15)
+    insert_image_at_locator(ctx, doc, logo_32_path(), width_mm=15, height_mm=15)
     graphic = doc.getGraphicObjects().getByIndex(0)
     doc.getCurrentController().select(graphic)
 
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     with patch("plugin.writer.images.image_tools._should_link_image_path", return_value=False):
         res = ImageInsert().execute(
-            tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            tctx, path=logo_32_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
         )
     assert res["status"] == "ok", res
     assert doc.getGraphicObjects().getCount() == 2
@@ -440,7 +424,7 @@ def test_image_insert_linked_with_text_selected_preserves_text_uno(ctx, doc):
     tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     with patch("plugin.writer.images.image_tools._should_link_image_path", return_value=True):
         res = ImageInsert().execute(
-            tctx, path=_logo_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
+            tctx, path=logo_32_path(), target="body", style="Standard", auto_height=True, width_mm=10, height_mm=10
         )
     assert res["status"] == "ok", res
     assert doc.getGraphicObjects().getCount() == 1
@@ -451,8 +435,6 @@ def test_image_insert_linked_with_text_selected_preserves_text_uno(ctx, doc):
 @with_native_doc("writer")
 def test_image_generate_frame_uses_pinned_selection_uno(ctx, doc):
     from unittest.mock import patch
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
     from plugin.writer.images.images import ImageGenerate
 
     text = doc.getText()
@@ -463,12 +445,11 @@ def test_image_generate_frame_uses_pinned_selection_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(first_end)
 
-    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc=doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
 
     def _slow_generate(*args, **kwargs):
         controller.getViewCursor().gotoEnd(False)
-        return ([_logo_path()], None)
+        return ([logo_32_path()], None)
 
     def _cfg(key):
         if key == "request_timeout":

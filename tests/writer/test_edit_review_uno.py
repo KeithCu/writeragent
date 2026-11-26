@@ -16,19 +16,13 @@ from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.edit_review import EditReviewSession, _BOOKMARK_PREFIX
-from tests.writer.doc_builders import accept_all_changes, list_redlines, reject_all_changes, reset_body
-
-
-def _find(doc, needle):
-    sd = doc.createSearchDescriptor()
-    sd.setSearchString(needle)
-    return doc.findFirst(sd)
+from tests.writer.doc_builders import accept_all_changes, find_first, list_redlines, reject_all_changes, reset_body
 
 
 def _replace_fn(doc, old, new):
     """A mutation callable: replace first occurrence of *old* with *new* (clean delete+insert)."""
     def fn():
-        found = _find(doc, old)
+        found = find_first(doc, old)
         assert found is not None, "mutation target %r not found" % old
         text = found.getText()
         c = text.createTextCursorByRange(found)
@@ -40,7 +34,7 @@ def _replace_fn(doc, old, new):
 def _resolve_at(doc, ctx, needle, accept):
     """Resolve the tracked change in *needle*'s paragraph, as a user would (select + native
     accept/reject dispatch). Local on purpose: this suite must not depend on the UI helpers."""
-    f = _find(doc, needle)
+    f = find_first(doc, needle)
     assert f is not None, "resolve target %r not found" % needle
     text = f.getText()
     para = text.createTextCursorByRange(f.getStart())
@@ -64,7 +58,7 @@ def test_disabled_session_is_inert_uno(ctx, doc):
     with EditReviewSession(doc, ctx, enabled=False) as session:
         session.record_mutation(_replace_fn(doc, "Alpha paragraph.", "Alpha edited."))
     assert list_redlines(doc) == [], "disabled session must not record redlines"
-    assert _find(doc, "Alpha edited.") is not None, "edit applied directly"
+    assert find_first(doc, "Alpha edited.") is not None, "edit applied directly"
     result = session.wait_for_review(timeout=0.1)
     assert result == {"complete": True, "timed_out": False, "changes": []}, result
 
@@ -158,7 +152,7 @@ def test_outcome_modified_when_user_edits_during_review_uno(ctx, doc):
         session.record_mutation(_replace_fn(doc, "Stable clause here.", "Stable clause EDITED."))
     _resolve_at(doc, ctx, "Stable clause EDITED", True)
     # the user reworks the paragraph after resolving (tracking off = silent manual edit)
-    f = _find(doc, "Stable clause EDITED.")
+    f = find_first(doc, "Stable clause EDITED.")
     c = f.getText().createTextCursorByRange(f)
     c.setString("Something else entirely.")
     result = session.wait_for_review(timeout=2, poll=0.05)
@@ -302,8 +296,8 @@ def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
         reset_body(doc, ctx, "Intro", "Para one", "Para two", "Outro")
         session = EditReviewSession(doc, ctx, enabled=True)
         with session:
-            r1 = _find(doc, "Para one")
-            r2 = _find(doc, "Para two")
+            r1 = find_first(doc, "Para one")
+            r2 = find_first(doc, "Para two")
             assert r1 is not None and r2 is not None
             record_html_atomically(
                 session,
@@ -407,8 +401,8 @@ def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
                 cur = text.createTextCursor()
                 cur.gotoStart(False)
                 text.insertString(cur, "NEW ", False)
-                start_hit = _find(doc, "gone1")
-                end_hit = _find(doc, "gone3 ")
+                start_hit = find_first(doc, "gone1")
+                end_hit = find_first(doc, "gone3 ")
                 assert start_hit is not None and end_hit is not None
                 del_cur = text.createTextCursorByRange(start_hit.getStart())
                 del_cur.gotoRange(end_hit.getEnd(), True)

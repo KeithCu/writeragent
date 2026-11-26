@@ -729,5 +729,3 @@ def test_folder_cache_lock_held_during_clear_and_upgrade(tmp_path):
         embeddings_cache.maybe_upgrade_legacy_index(listing)
 
     assert locked_during_upgrade is True
-
-

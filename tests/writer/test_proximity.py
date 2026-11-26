@@ -7,7 +7,7 @@ import pytest
 from plugin.doc.document_helpers import DocumentService
 from plugin.doc.paragraph_search import get_paragraph_ranges
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
-from plugin.tests.testing_utils import ElementStub, WriterDocStub
+from plugin.tests.testing_utils import ElementStub, FakeUnoEnum, WriterDocStub
 from plugin.writer.navigation import NavHeading
 from plugin.writer.proximity import ProximityService, _collect_anchored, _flatten_tree
 from plugin.writer.tree import TreeService
@@ -335,18 +335,8 @@ def test_surroundings_keeps_comments_after_one_unreadable_annotation():
 
     good_field.getPropertyValue.side_effect = good_get_prop
 
-    class FieldEnum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self) -> bool:
-            return len(self._items) > 0
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     fields_obj = MagicMock()
-    fields_obj.createEnumeration.return_value = FieldEnum([bad_field, good_field])
+    fields_obj.createEnumeration.return_value = FakeUnoEnum([bad_field, good_field])
     doc.getTextFields = lambda: fields_obj
 
     services = MagicMock()
@@ -378,18 +368,8 @@ def test_surroundings_reraises_disposed_annotation():
     disposed_field.getAnchor.return_value = anchor
     disposed_field.getPropertyValue.side_effect = DocumentDisposedError("disposed field")
 
-    class FieldEnum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self) -> bool:
-            return len(self._items) > 0
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     fields_obj = MagicMock()
-    fields_obj.createEnumeration.return_value = FieldEnum([disposed_field])
+    fields_obj.createEnumeration.return_value = FakeUnoEnum([disposed_field])
     doc.getTextFields = lambda: fields_obj
 
     services = MagicMock()
@@ -405,7 +385,7 @@ def test_surroundings_reraises_disposed_annotation():
 
 
 def test_surroundings_hides_struck_text_and_zeroes_struck_heading_level():
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     p0 = FakeUnoPara([
         FakeUnoPortion("Text", "Start "),

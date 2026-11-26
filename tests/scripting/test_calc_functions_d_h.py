@@ -483,7 +483,7 @@ def test_filter_vector_includes():
     import struct
     no_match = calc.filter([1, 2], [0, 0])
     assert isinstance(no_match, float) and math.isnan(no_match)
-    assert (struct.unpack("Q", struct.pack("d", no_match))[0] & 0xFFFFFFFF) == 533
+    assert struct.unpack("Q", struct.pack("d", no_match))[0] & 0xFFFFFFFF == 533
     assert calc.filter([1, 2], [0, 0], None) is None
     assert calc.filter([1, 2], [0, 0], "") == ""
 
@@ -622,7 +622,7 @@ def test_filter_criteria_truthiness():
 
     na_res = calc.filter([1, 2], [NA_NAN, 1])
     assert isinstance(na_res, float) and math.isnan(na_res)
-    assert (struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFFFFFF) == 0x7FFF
+    assert struct.unpack("Q", struct.pack("d", na_res))[0] & 0xFFFFFFFF == 0x7FFF
 
     cr_include = CalcRange([[None], [1.0]])
     assert calc.filter([[10], [20]], cr_include) == [[20]]
@@ -634,7 +634,7 @@ def test_gammadist_zero_density():
 
     res = calc.gammadist(0, 0.5, 1, 0)
     assert isinstance(res, float) and math.isnan(res)
-    assert (struct.unpack("Q", struct.pack("d", res))[0] & 0xFFFF) == 532
+    assert struct.unpack("Q", struct.pack("d", res))[0] & 0xFFFF == 532
     assert math.isclose(calc.gammadist(0, 1, 2, 0), 0.5)
     assert calc.gammadist(0, 2, 1, 0) == 0.0
     assert calc.gammadist(0, 0.5, 1, 1) == 0.0

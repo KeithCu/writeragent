@@ -15,7 +15,7 @@ def bench():
     nrows = 20000
     ncols = 5
     grid = [[float(i + j) for j in range(ncols)] for i in range(nrows)]
-    
+
     print("Benchmarking 100k cells...")
     t0 = time.perf_counter()
     for _ in range(10):
@@ -28,11 +28,11 @@ if __name__ == "__main__":
     nrows = 1000
     grid = [[float(i + j) for j in range(5)] for i in range(nrows)]
     host_pack_data(grid, force="always")
-    
+
     profiler = cProfile.Profile()
     profiler.enable()
     bench()
     profiler.disable()
-    
+
     stats = pstats.Stats(profiler).sort_stats('tottime')
     stats.print_stats(20)

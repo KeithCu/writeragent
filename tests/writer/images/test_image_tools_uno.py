@@ -14,7 +14,7 @@ import unittest
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import logo_32_path, TestingFactory, with_native_doc
 from plugin.doc.visual_helpers import GENERATED_IMAGE_MAX_DISPLAY_MM, px_to_units
 from plugin.writer.images.image_tools import (
     _should_link_image_path,
@@ -23,23 +23,6 @@ from plugin.writer.images.image_tools import (
     insert_image_into_header_footer,
 )
 from plugin.writer.page import _scan_region_content
-
-
-def _logo_path() -> str:
-    # Walk up from tests/writer/images/ so this works in the checkout
-    # (extension/assets) and in a remapped release tree (assets/).
-    here = os.path.abspath(__file__)
-    directory = os.path.dirname(here)
-    for _unused in range(6):
-        for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
-            path = os.path.join(directory, *rel.split("/"))
-            if os.path.isfile(path):
-                return path
-        parent = os.path.dirname(directory)
-        if parent == directory:
-            break
-        directory = parent
-    return os.path.join(directory, "extension", "assets", "logo_32.png")
 
 
 def _standard_style(doc):
@@ -70,8 +53,7 @@ def test_insert_image_header_first_not_shared_header(ctx, doc):
     Shared HeaderText never reaches a different-first-page letterhead, so a
     logo inserted with target=header would repeat on every page and miss page 1.
     """
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     style = _standard_style(doc)
     style.setPropertyValue("HeaderIsOn", True)
     style.setPropertyValue("FirstIsShared", False)
@@ -90,8 +72,7 @@ def test_insert_image_header_first_not_shared_header(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_insert_image_footer_first_not_shared_footer(ctx, doc):
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     style = _standard_style(doc)
     style.setPropertyValue("FooterIsOn", True)
     style.setPropertyValue("FirstIsShared", False)
@@ -116,8 +97,7 @@ def test_insert_image_plain_writer_body(ctx, doc):
     execute_safe used to map to DOCUMENT_DISPOSED. Body insert must use
     getStart() and land a graphic on a still-live document.
     """
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     before = _graphic_count(doc)
     vc = doc.getCurrentController().getViewCursor()
     vc.gotoStart(False)
@@ -131,8 +111,7 @@ def test_insert_image_plain_writer_body(ctx, doc):
 @with_native_doc("writer")
 def test_insert_image_in_table_cell(ctx, doc):
     """Nested XText: insert at a cell view cursor must still land a graphic."""
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(2, 2)
@@ -152,8 +131,7 @@ def test_insert_image_in_table_cell(ctx, doc):
 @with_native_doc("writer")
 def test_insert_image_compound_undo(ctx, doc):
     """Frame insert is multi-step UNO; one undo must remove the whole insert."""
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     before = _graphic_count(doc)
     insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=True)
     assert _graphic_count(doc) == before + 1
@@ -168,8 +146,7 @@ def test_insert_image_compound_undo(ctx, doc):
 @with_native_doc("writer")
 def test_insert_image_caps_1024_display_size(ctx, doc):
     """1024px at 96 DPI is ~10.7\"; insert must stay at the 135mm longer-edge cap."""
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     raw_w, raw_h = px_to_units(1024, 1024)
     assert max(raw_w, raw_h) > GENERATED_IMAGE_MAX_DISPLAY_MM * 100
     before = set(doc.getGraphicObjects().getElementNames())
@@ -189,8 +166,7 @@ def test_insert_image_caps_1024_display_size(ctx, doc):
 @with_native_doc("writer")
 def test_image_get_info_reads_hyperlink_url(ctx, doc):
     """draw:a around a graphic is HyperLinkURL. image_get_info must return it."""
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     before = set(doc.getGraphicObjects().getElementNames())
     insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
     names = [n for n in doc.getGraphicObjects().getElementNames() if n not in before]
@@ -209,8 +185,7 @@ def test_image_get_info_reads_hyperlink_url(ctx, doc):
 @with_native_doc("writer")
 def test_writer_graphic_object_get_size_uno(ctx, doc):
     """XShape.getSize() on a Writer GraphicObjectShape returns its Size (REPORT37 I2)."""
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     before = set(doc.getGraphicObjects().getElementNames())
     insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
     names = [n for n in doc.getGraphicObjects().getElementNames() if n not in before]
@@ -237,7 +212,7 @@ def test_calc_insert_image_anchors_to_selection_top_left_uno(ctx, doc):
 
     tmp_dir = tempfile.mkdtemp(prefix="wa_calc_img_")
     tmp_png = os.path.join(tmp_dir, "logo.png")
-    shutil.copyfile(_logo_path(), tmp_png)
+    shutil.copyfile(logo_32_path(), tmp_png)
     inserted_row = False
     added_sheet = False
     try:
@@ -326,8 +301,7 @@ def test_calc_insert_linked_image_is_one_anchored_picture_uno(ctx, doc):
     """Linked Calc insert creates one linked shape at requested size, anchored to the selected cell."""
     import uno
 
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     linked_logo, cleanup_dir = _linked_logo_for_test(logo)
     sheet = doc.getSheets().getByIndex(0)
     draw_page = sheet.getDrawPage()
@@ -366,7 +340,7 @@ def test_calc_insert_image_rtl_right_edge_on_cell_uno(ctx, doc):
 
     tmp_dir = tempfile.mkdtemp(prefix="wa_calc_rtl_")
     tmp_png = os.path.join(tmp_dir, "logo.png")
-    shutil.copyfile(_logo_path(), tmp_png)
+    shutil.copyfile(logo_32_path(), tmp_png)
     before = draw_page.getCount()
     try:
         sheet.TableLayout = 1
@@ -383,4 +357,3 @@ def test_calc_insert_image_rtl_right_edge_on_cell_uno(ctx, doc):
         while draw_page.getCount() > before:
             draw_page.remove(draw_page.getByIndex(draw_page.getCount() - 1))
         shutil.rmtree(tmp_dir, ignore_errors=True)
-

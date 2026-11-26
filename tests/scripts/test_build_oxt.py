@@ -389,4 +389,3 @@ def test_writeragent_main_module_level_imports_in_oxt_bundle():
                 if rel.startswith("plugin/") and rel not in shipped:
                     missing.append(rel)
     assert missing == [], f"main.py imports not covered by get_always_include_plugin: {missing}"
-

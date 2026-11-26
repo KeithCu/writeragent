@@ -14,9 +14,9 @@ from plugin.writer.tracking import (
 
 def _create_mock_ctx():
     ctx = MagicMock()
-    
+
     doc = MagicMock()
-    
+
     # Mock property value getter/setter
     props = {"RecordChanges": False}
     def _set_prop(name, val):
@@ -31,30 +31,30 @@ def _create_mock_ctx():
     doc.getRedlines.return_value.getCount.return_value = 0
 
     ctx.doc = doc
-    
+
     # Mock dispatcher and frame for accept/reject tests
     dispatcher = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = dispatcher
     ctx.ctx.ServiceManager = smgr
     ctx.ctx.getServiceManager.return_value = smgr
-    
+
     frame = MagicMock()
     controller = MagicMock()
     controller.getFrame.return_value = frame
-    
+
     view_settings = MagicMock()
     controller.getViewSettings.return_value = view_settings
-    
+
     doc.getCurrentController.return_value = controller
-    
+
     return ctx, dispatcher, frame, view_settings
 
 
 def test_track_changes_start():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesStart()
-    
+
     res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert "Started" in res["message"]
@@ -63,7 +63,7 @@ def test_track_changes_start():
 def test_track_changes_stop():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesStop()
-    
+
     res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert "Stopped" in res["message"]
@@ -72,7 +72,7 @@ def test_track_changes_stop():
 def test_track_changes_list():
     ctx, _, _, _ = _create_mock_ctx()
     tool = TrackChangesList()
-    
+
     start = MagicMock()
     span = MagicMock()
     span.getString.return_value = "inserted clause"
@@ -100,11 +100,11 @@ def test_track_changes_list():
             "RedlineIdentifier": "id_1"
         }.get(prop)
     redline_mock.getPropertyValue.side_effect = _get_redline_prop
-    
+
     enum_mock = MagicMock()
     enum_mock.hasMoreElements.side_effect = [True, False]
     enum_mock.nextElement.return_value = redline_mock
-    
+
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
     ctx.doc.getRedlines.return_value.getCount.return_value = 1
 
@@ -113,7 +113,7 @@ def test_track_changes_list():
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert len(res["changes"]) == 1
-    
+
     change = res["changes"][0]
     assert change["index"] == 0
     assert change["text"] == "inserted clause"
@@ -219,7 +219,7 @@ def test_track_changes_show_ignores_view_settings_without_redlines():
 def test_manage_tracked_changes_accept_all(action, value):
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
-    
+
     res = tool.execute(ctx, action=action)
     assert res["status"] == "ok"
     dispatcher.executeDispatch.assert_called_with(frame, value, "", 0, ())
@@ -888,5 +888,3 @@ def test_single_accept_reread_failure_undoes_and_reports():
     assert res["status"] == "error"
     assert "re-read" in res["message"]
     ctx.doc.getUndoManager().undo.assert_called_once()
-
-

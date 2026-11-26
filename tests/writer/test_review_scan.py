@@ -20,6 +20,7 @@ from plugin.writer.review_scan import (
     session_token_prefix,
     snapshot_redline_ids,
 )
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 def test_make_agent_token_and_prefix():
@@ -68,22 +69,12 @@ def test_redline_is_agent_change_unreadable():
 
 
 def test_scan_redlines_unreliable_when_count_exceeds_enum():
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Reds:
         def getCount(self):
             return 2
 
         def createEnumeration(self):
-            return _Enum(["only-one"])
+            return FakeUnoEnum(["only-one"])
 
     class _Doc:
         def getRedlines(self):
@@ -103,16 +94,6 @@ def test_snapshot_redline_ids_complete():
         def getPropertyValue(self, name):
             return self._ident
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Reds:
         def __init__(self, items):
             self._items = items
@@ -121,7 +102,7 @@ def test_snapshot_redline_ids_complete():
             return len(self._items)
 
         def createEnumeration(self):
-            return _Enum(self._items)
+            return FakeUnoEnum(self._items)
 
     class _Doc:
         def getRedlines(self):
@@ -414,4 +395,3 @@ def test_redline_identity_key_uses_given_comment():
     key_default = redline_identity_key(rl)
     assert key_default[4] == "from_prop"
     assert rl.reads["RedlineComment"] == 1
-

@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from plugin.scripting.viz import run_viz
+from plugin.tests.testing_utils import DisposedException
 
 
 def _mock_figure_payload():
@@ -783,9 +784,6 @@ def test_correlation_heatmap_seaborn_failure_uses_imshow(mock_plt, _mock_payload
 def test_run_trusted_viz_sheet_disposal_propagates():
     from plugin.scripting.helper_domain import run_domain
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     client_mock = MagicMock()
     with (

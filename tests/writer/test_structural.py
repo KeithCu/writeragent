@@ -6,7 +6,7 @@ import pytest
 
 from plugin.doc.document_helpers import DocumentService
 from plugin.framework.errors import ToolExecutionError
-from plugin.tests.testing_utils import ElementStub, WriterDocStub
+from plugin.tests.testing_utils import DisposedException, ElementStub, WriterDocStub
 from plugin.writer.structural import CloneHeadingBlock, NavGotoPage, _resolve_para_index
 
 
@@ -176,9 +176,6 @@ def test_get_page_objects_disposal_and_error_handling():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.structural import GetPageObjects
 
-    class DisposedException(Exception):
-        pass
-
     from com.sun.star.text.TextContentAnchorType import AT_PAGE
 
     class GraphicStub:
@@ -320,4 +317,3 @@ def test_nav_goto_page_updates_selection_pin():
     assert res["status"] == "ok"
     assert res["page"] == 4
     assert ctx.selection_pin.range is cloned
-

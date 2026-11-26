@@ -14,13 +14,11 @@ Excluded from default ``make test`` (CrossHair can take minutes). Run: ``make sl
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import deal
 import pytest
+
+from tests.harness.crosshair import assert_crosshair_clean
 
 pytestmark = pytest.mark.slow
 
@@ -39,16 +37,6 @@ from plugin.scripting.payload_codec import (
 from tests.scripting.serialization_ab_support import flatten_semantic_cells
 
 CROSSHAIR_MODULE = "plugin/scripting/payload_codec.py"
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 @given(
@@ -133,8 +121,6 @@ def test_host_unpack_data_plain_dict_recurses() -> None:
     assert host_unpack_data(nested) is nested
 
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
-
 _CROSSHAIR_FQN_TARGETS = (
     "plugin.scripting.payload_codec.is_split_grid",
     "plugin.scripting.payload_codec.is_multi_data",
@@ -144,47 +130,9 @@ _CROSSHAIR_FQN_TARGETS = (
 @pytest.mark.slow
 @pytest.mark.parametrize("target", _CROSSHAIR_FQN_TARGETS)
 def test_crosshair_envelope_fqn_if_available(target: str) -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", target],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output ({target}):\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(target)
 
 
 def test_crosshair_verification_if_available() -> None:
     """Run CrossHair concolic verification if the tool is installed in the environment."""
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-
-    result = subprocess.run(
-        [
-            crosshair_path,
-            "check",
-            "-v",
-            "--report_all",
-            CROSSHAIR_MODULE,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
-
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(CROSSHAIR_MODULE, timeout=3600)

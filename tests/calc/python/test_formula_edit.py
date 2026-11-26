@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import ast
 import io
-import re
-import shutil
-from pathlib import Path
 
 import deal
 import pytest
@@ -35,6 +32,7 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE
+from tests.harness.crosshair import CROSSHAIR_ERROR_RE, find_crosshair
 from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -566,7 +564,6 @@ def test_open_end_and_parse_pins():
     assert PyFormula.parse('=PY("x"; A1)') is not None
 
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
 # drops those FQNs. Data-binding display/parse are also off.
 # Keep parse/normalize: nested ensures are inverse_ensure-skipped. Range
@@ -588,16 +585,6 @@ _ASCII_BINDING = st.text(
     alphabet=st.characters(min_codepoint=0, max_codepoint=127),
     max_size=30,
 )
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 @pytest.mark.verification
@@ -743,7 +730,7 @@ def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
 def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:
-    crosshair_path = _find_crosshair()
+    crosshair_path = find_crosshair()
     if not crosshair_path:
         pytest.skip("CrossHair concolic execution engine is not installed.")
     from scripts.crosshair_stream import run_crosshair
@@ -760,7 +747,7 @@ def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:
     )
     combined = buf.getvalue().strip()
     print(f"CrossHair output ({target}):\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
+    errors = [line for line in combined.splitlines() if CROSSHAIR_ERROR_RE.search(line)]
     assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
     if exit_code == 2:
         pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")

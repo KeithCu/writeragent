@@ -231,4 +231,3 @@ config:
     options:
       - {value: accurate, label: Accurate (default)}
       - {value: fast, label: Fast}
-

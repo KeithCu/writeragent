@@ -13,6 +13,7 @@ import pytest
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool import ToolBase
 from plugin.writer.target_resolver import insert_at_target, require_selection_range, resolve_target_cursor
+from plugin.tests.testing_utils import DisposedException
 
 
 def _ctx():
@@ -144,9 +145,6 @@ def test_search_span_failure_becomes_value_error(monkeypatch):
 
 def test_search_span_disposed_raises_document_disposed(monkeypatch):
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     ctx, _ = _ctx()
     found = MagicMock()
@@ -417,4 +415,3 @@ def test_request_insert_range_uses_pinned_range_without_reading_controller():
 
     assert request_insert_range(ctx) == (pinned_rng, False)
     ctx.doc.getCurrentController.assert_not_called()
-

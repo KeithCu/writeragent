@@ -28,6 +28,7 @@ from tests.chatbot.mock_llm_harness import (
     stop_mock_sidebar_session,
 )
 from tests.harness.uno_profile_config import settle_soffice_config
+from plugin.tests.testing_utils import unique_png_bytes
 
 _session = None
 WELCOME_BODY = "Welcome to WriterAgent."
@@ -395,7 +396,7 @@ def _hello_ok() -> None:
     # Rotating HTML templates paste as plain text (lists/tables), not raw tags.
     assert "assistant:" in low and (
         "hello" in low or "mock" in low or "streamed as plain" in low or "table" in low or "numbered steps" in low
-    ), ("hello reply missing: %r" % body[-400:])
+    ), "hello reply missing: %r" % body[-400:]
 
 
 def _suffix(before: str) -> str:
@@ -471,7 +472,7 @@ def _assert_assistant_html(before: str) -> None:
     low = suffix.lower()
     assert "assistant:" in low and (
         "mock" in low or "streamed as plain" in low or "table" in low or "numbered steps" in low or "mock notes" in low
-    ), ("expected mock HTML body after thinking, got %r" % suffix[-400:])
+    ), "expected mock HTML body after thinking, got %r" % suffix[-400:]
 
 
 def _set_writer_body(ctx, text: str) -> None:
@@ -1557,26 +1558,11 @@ def _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener
         _session.listener = saved_listener
 
 
-def _make_unique_png_bytes(r: int, g: int, b: int) -> bytes:
-    """Minimal 1x1 RGB PNG so each embedded graphic exports distinct bytes."""
-    import struct
-    import zlib
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
-
-    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    idat = zlib.compress(bytes([0, r, g, b]))
-    iend = b""
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", iend)
-
-
 def _write_test_png(r: int, g: int, b: int) -> str:
     import tempfile
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp.write(_make_unique_png_bytes(r, g, b))
+        tmp.write(unique_png_bytes(r, g, b))
         return tmp.name
 
 

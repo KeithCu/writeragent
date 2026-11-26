@@ -561,7 +561,7 @@ def test_proxy_bool():
     # Target that does not define len or bool (defaults to truthy)
     class DummyTarget:
         pass
-    
+
     dummy = DummyTarget()
     prox = tg._UnoThreadGuardProxy(dummy)
     with patch.object(tg, "assert_main_thread") as am:

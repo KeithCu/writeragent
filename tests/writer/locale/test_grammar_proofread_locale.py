@@ -210,7 +210,3 @@ def test_uno_locales_for_tags() -> None:
 
     with patch.dict("sys.modules", {"uno": None}):
         assert gl.uno_locales_for_tags(["en-US"]) == ()
-
-
-
-

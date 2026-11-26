@@ -108,5 +108,3 @@ def test_config_keeps_user_edited_universal_sample():
     custom = 'print("my own script")\nwa.shape.upsert(action="create")'
     config = validate({"saved_python_scripts": {"Universal Sample": custom}})
     assert config["saved_python_scripts"]["Universal Sample"] == custom
-
-

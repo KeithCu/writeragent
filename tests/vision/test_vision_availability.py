@@ -134,4 +134,3 @@ def test_filter_unavailable_delegate_domains_skips_odd_entries_and_does_not_muta
     assert schema["function"]["parameters"]["properties"]["domain"]["enum"] == ["writing", "vision"]
     assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
     assert filtered[1:] == ["junk", junk, {"type": "function"}]
-

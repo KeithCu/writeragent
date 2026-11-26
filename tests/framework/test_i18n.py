@@ -22,14 +22,14 @@ class TestI18n:
     def test_i18n_fallback(self):
         """With NullTranslations, msgid passes through unchanged."""
         i18n_module._translation = NullTranslations()
-        assert (_("ThisIsAnUntranslatedString999")) == ("ThisIsAnUntranslatedString999")
+        assert _("ThisIsAnUntranslatedString999") == "ThisIsAnUntranslatedString999"
 
     def test_i18n_msgid_allows_unicode_and_empty(self):
         """gettext msgids are not an ASCII-only domain (deal.pre must not use isascii)."""
         i18n_module._translation = NullTranslations()
-        assert (_("✓ Copied!")) == ("✓ Copied!")
-        assert (_("Testing…")) == ("Testing…")
-        assert (_("")) == ("")
+        assert _("✓ Copied!") == "✓ Copied!"
+        assert _("Testing…") == "Testing…"
+        assert _("") == ""
 
     def test_i18n_msgid_rejects_over_deal_max_msgid(self):
         from tests.harness.strip_bundle import deal_pre_present
@@ -58,7 +58,7 @@ class TestI18n:
 
         with patch.dict(sys.modules, {'uno': mock_uno}):
             locale = get_lo_locale(mock_ctx)
-            assert (locale) == ("fr_FR")
+            assert locale == "fr_FR"
 
     def test_background_gettext_does_not_stick_english_catalog(self):
         """A worker _() before init_i18n(ctx) must not freeze the English catalog."""
@@ -95,7 +95,7 @@ class TestI18n:
         mock_ctx.getServiceManager.side_effect = Exception("No UNO")
 
         locale = get_lo_locale(mock_ctx)
-        assert (locale) == ("en_US")
+        assert locale == "en_US"
 
     def test_get_lo_locale_none_ctx_uses_get_ctx_on_main(self):
         from plugin.framework.queue_executor import main
@@ -163,14 +163,14 @@ class TestI18n:
         """gettext can load writeragent.mo and translate 'Built-in' using the fixture catalog."""
         localedir = self._ensure_mo("de", {"Built-in": "Integriert"})
         translation = i18n_module.load_translation(["de"], localedir, fallback=False)
-        assert (translation.gettext("Built-in")) == ("Integriert")
-        assert (translation.gettext("Backend")) == ("Backend")
+        assert translation.gettext("Built-in") == "Integriert"
+        assert translation.gettext("Backend") == "Backend"
 
     def test_i18n_translation_loading_korean(self):
         """gettext can load writeragent.mo and round-trip non-Latin fixture text."""
         localedir = self._ensure_mo("ko", {"Built-in": "내장"})
         translation = i18n_module.load_translation(["ko"], localedir, fallback=False)
-        assert (translation.gettext("Built-in")) == ("내장")
+        assert translation.gettext("Built-in") == "내장"
 
     def test_load_translation_opens_explicit_mo_when_find_misses(self):
         """Windows gettext.find can miss locales/<lang>/… even when the .mo exists."""
@@ -178,8 +178,8 @@ class TestI18n:
         dummy = NullTranslations()
         with patch("plugin.framework.i18n.gettext.translation", return_value=dummy):
             translation = i18n_module.load_translation(["de"], localedir, fallback=False)
-        assert (translation.gettext("Built-in")) == ("Integriert")
-        assert (type(translation)) is not (NullTranslations)
+        assert translation.gettext("Built-in") == "Integriert"
+        assert type(translation) is not NullTranslations
 
     def test_mo_candidate_order_exact_stem_prefix(self):
         """Office de-DE looks up de_DE then de (locales/ has de/, not de_DE/)."""
@@ -190,6 +190,6 @@ class TestI18n:
         def mo(tag: str) -> str:
             return os.path.join("/loc", tag, "LC_MESSAGES", "writeragent.mo")
 
-        assert (cand("/loc", "de_DE.UTF-8")) == ([mo("de_DE.UTF-8"), mo("de_DE"), mo("de")])
-        assert (cand("/loc", "zh_TW")) == ([mo("zh_TW"), mo("zh")])
-        assert (cand("/loc", "ja")) == ([mo("ja")])
+        assert cand("/loc", "de_DE.UTF-8") == [mo("de_DE.UTF-8"), mo("de_DE"), mo("de")]
+        assert cand("/loc", "zh_TW") == [mo("zh_TW"), mo("zh")]
+        assert cand("/loc", "ja") == [mo("ja")]

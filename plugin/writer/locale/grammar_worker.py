@@ -924,5 +924,3 @@ def run_llm_and_cache_batch(
     finally:
         if status_cycle_started:
             get_grammar_status().end_status_cycle()
-
-

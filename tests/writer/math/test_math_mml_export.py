@@ -14,6 +14,7 @@ from plugin.writer.math.math_mml_export import (
     inject_math_tex_into_html,
     wrap_latex_delimiters,
 )
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 class _Hit:
     def __init__(
@@ -279,23 +280,13 @@ def test_portion_math_embed_and_read_starmath() -> None:
     from plugin.writer.math.math_mml_convert import MATH_CLSID
     from plugin.writer.math.math_mml_export import portion_math_embed, read_starmath
 
-    class _Enum:
-        def __init__(self, items: list[object]) -> None:
-            self._items = list(items)
-
-        def hasMoreElements(self) -> bool:
-            return bool(self._items)
-
-        def nextElement(self) -> object:
-            return self._items.pop(0)
-
     embed = MagicMock()
     embed.CLSID = MATH_CLSID
     embed.getEmbeddedObject.return_value.Formula = "x + 1"
 
     frame_portion = MagicMock()
     frame_portion.getPropertyValue.return_value = "Frame"
-    frame_portion.createContentEnumeration.return_value = _Enum([embed])
+    frame_portion.createContentEnumeration.return_value = FakeUnoEnum([embed])
 
     assert portion_math_embed(frame_portion) is embed
     assert read_starmath(embed) == "x + 1"
@@ -310,9 +301,6 @@ def test_inject_exported_math_tex_raises_on_disposed_document() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.math.math_mml_export import inject_exported_math_tex
 
-    class DisposedException(Exception):
-        pass
-
     model = MagicMock()
     model.getText.return_value.createEnumeration.side_effect = DisposedException("disposed")
     html = "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math></p>"
@@ -325,9 +313,6 @@ def test_read_starmath_raises_on_disposed_embed() -> None:
     from unittest.mock import MagicMock
     from plugin.writer.math.math_mml_export import read_starmath
 
-    class DisposedException(Exception):
-        pass
-
     embed = MagicMock()
     embed.getEmbeddedObject.side_effect = DisposedException("gone")
 
@@ -339,7 +324,7 @@ def test_iter_writer_math_objects_skips_formula_between_delete_markers() -> None
     from unittest.mock import MagicMock
     from plugin.writer.math.math_mml_convert import MATH_CLSID
     from plugin.writer.math.math_mml_export import iter_writer_math_objects
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     struck_embed = MagicMock()
     struck_embed.CLSID = MATH_CLSID
@@ -377,7 +362,7 @@ def test_iter_writer_math_objects_skips_math_in_multi_paragraph_deletion() -> No
 
     from plugin.writer.math.math_mml_convert import MATH_CLSID
     from plugin.writer.math.math_mml_export import iter_writer_math_objects
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     struck_embed = MagicMock()
     struck_embed.CLSID = MATH_CLSID

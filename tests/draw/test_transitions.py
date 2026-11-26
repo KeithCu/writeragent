@@ -13,6 +13,7 @@ from plugin.draw.transitions import (
     SetSlideTransition,
     apply_slide_layout,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_layout_table_friendly_names_unique():
@@ -273,9 +274,6 @@ def test_set_slide_transition_write_failure_is_a_tool_error():
 
 
 def test_set_slide_transition_disposal_still_raises():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     page = MagicMock()
     page.setPropertyValue.side_effect = DisposedException("disposed")
@@ -283,4 +281,3 @@ def test_set_slide_transition_disposal_still_raises():
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
-

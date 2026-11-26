@@ -30,6 +30,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.word_diff_split import split_change
+from plugin.tests.testing_utils import DisposedException
 
 _THRESHOLD = 0.6
 
@@ -667,7 +668,7 @@ def test_html_atomic_refuses_when_undo_manager_locked():
 def test_html_atomic_closed_document_is_not_a_missing_undo_context():
     class ClosedDoc:
         def getUndoManager(self):
-            raise type("DisposedException", (Exception,), {})("disposed")
+            raise DisposedException("disposed")
 
     session = FakeSession()
     calls = {"n": 0}

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import prepare_tool_call
-from plugin.tests.testing_utils import TestingFactory
+from plugin.tests.testing_utils import DisposedException, TestingFactory
 from plugin.writer.specialized.fields import (
     DocumentPropertiesGet,
     DocumentPropertiesSet,
@@ -176,9 +176,6 @@ def test_fields_insert_reports_the_failing_property(mock_ctx):
 
 
 def test_fields_insert_property_disposal_propagates(mock_ctx):
-    class DisposedException(Exception):
-        pass
-
     mock_field = MagicMock()
     mock_field.setPropertyValue.side_effect = DisposedException("closed")
     mock_ctx.doc.createInstance.return_value = mock_field

@@ -1399,4 +1399,3 @@ def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monke
     )
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
-

@@ -1402,4 +1402,3 @@ def test_compact_writer_html_logical_rewriting_counts_single_rendering() -> None
     )
     fails = check_oracle("logical_rewriting", long_doc)
     assert any("exceeds 70 words" in f for f in fails), fails
-

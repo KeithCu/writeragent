@@ -110,4 +110,3 @@ for mod in (latex2mathml, mathml_to_latex, isodate, json_repair):
         check=False,
     )
     assert proc.returncode == 0, proc.stdout + "\n" + proc.stderr
-

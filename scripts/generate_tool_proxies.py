@@ -1096,7 +1096,9 @@ def generate_module(tools: list["ToolBase"]) -> str:
         lines.append("")
         lines.append("")
 
-    return "\n".join(lines) + "\n"
+    # One final newline only: ruff W391 (make typecheck) would strip extra blank lines from
+    # the checked-in module, and then generate_tool_proxies --check would fail.
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 def _config_in_scratch_dir(tmp_dir: str) -> None:

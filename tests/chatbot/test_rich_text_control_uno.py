@@ -180,5 +180,3 @@ def test_rich_text_control_cell_link_emoji_offset(ctx):
             dlg.dispose()
         except Exception:
             pass
-
-

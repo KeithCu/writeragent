@@ -15,7 +15,9 @@
 
 import contextlib
 import os
+import struct
 import sys
+import zlib
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -35,6 +37,7 @@ def _register_testing_utils_aliases() -> None:
 _register_testing_utils_aliases()
 
 from . import doc_stubs as _doc_stubs  # noqa: E402
+from plugin.framework.send_cancellation import SendCancellation  # noqa: E402
 
 # Explicit re-exports: ruff F401 drops unused "from .doc_stubs import X".
 ElementStub = _doc_stubs.ElementStub
@@ -1111,7 +1114,7 @@ class TestingFactory:
         props = []
         if hidden:
             props.append(uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True))
-        
+
         if doc_type.startswith("private:") or doc_type.startswith("file://"):
             factory_url = doc_type
         else:
@@ -1495,6 +1498,21 @@ def native_writer_tool_context(doc, ctx):
     ``doc_type`` stays the create_context default (``writer``).
     """
     return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+
+def pinned_writer_tool_context(doc, ctx):
+    """``native_writer_tool_context`` with ``selection_pin`` set from the current view selection.
+
+    Tools then act on that selection even after the test moves the live caret.
+    """
+    # Call-time imports, like the other plugin imports in this module, keep the
+    # native runner's import of testing_utils free of tool-registry modules.
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    return tctx
 
 
 def writer_services_tool_context(doc, ctx):
@@ -1887,6 +1905,62 @@ def strike_all_after_leading_table(doc: Any, ctx: Any) -> Any:
     finally:
         doc.setPropertyValue("RecordChanges", was_recording)
     return tbl
+
+
+def cancelled_scope() -> SendCancellation:
+    """Return a ``SendCancellation`` that is already cancelled."""
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
+
+
+def unique_png_bytes(r: int, g: int, b: int) -> bytes:
+    """Minimal 1x1 RGB PNG of one colour, so each embedded graphic exports distinct bytes."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+    idat = chunk(b"IDAT", zlib.compress(bytes([0, r, g, b])))
+    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + chunk(b"IEND", b"")
+
+
+def pid_is_alive(pid: int | None) -> bool:
+    """True if *pid* still names a live process.
+
+    ``os.kill(pid, 0)`` is POSIX only; on Windows signal 0 fails with WinError 87, so
+    the Windows branch opens the process and checks for ``STILL_ACTIVE``.
+    """
+    if pid is None or pid <= 0:
+        return False
+    if sys.platform == "win32":
+        # ctypes.WinDLL exists only on Windows.
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+        handle = kernel32.OpenProcess(access, False, int(pid))
+        if not handle:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: exists but not ours
+        exit_code = ctypes.c_ulong()
+        still_active = 259
+        alive = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == still_active
+        kernel32.CloseHandle(handle)
+        return alive
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+class DisposedException(Exception):
+    """Unit-test stand-in for ``com.sun.star.lang.DisposedException``.
+
+    ``is_disposal`` in ``plugin/framework/errors.py`` matches on the type name, so code
+    under test treats this as a UNO disposal without a live bridge.
+    """
 
 
 class FakeUnoEnum:

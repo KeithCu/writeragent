@@ -41,7 +41,7 @@ try:
     # Add project root to path if running directly
     import sys
     sys.path.append(str(Path(__file__).resolve().parent.parent))
-    
+
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
     from plugin.framework.json_utils import safe_json_loads
 except ImportError:
@@ -167,16 +167,16 @@ def get_stats(path: str) -> Optional[Tuple[int, int, int, int]]:
     try:
         result = subprocess.run(['msgfmt', '--statistics', path], stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         output = result.stderr.strip()
-        
+
         translated = fuzzy = untranslated = 0
         match_t = re.search(r'(\d+)\s+translated', output)
         match_f = re.search(r'(\d+)\s+fuzzy', output)
         match_u = re.search(r'(\d+)\s+untranslated', output)
-        
+
         if match_t: translated = int(match_t.group(1))
         if match_f: fuzzy = int(match_f.group(1))
         if match_u: untranslated = int(match_u.group(1))
-            
+
         total = translated + fuzzy + untranslated
         return translated, fuzzy, untranslated, total
     except Exception:
@@ -271,7 +271,7 @@ def _build_translate_batch_prompt(texts: List[str], target_lang: str) -> str:
     )
 
 
-def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAULT_TRANSLATE_MODEL, 
+def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAULT_TRANSLATE_MODEL,
                          endpoint: str = "https://openrouter.ai/api/v1", api_key: Optional[str] = None) -> List[Optional[str]]:
     """Call AI with a list of strings and get corresponding translations back."""
     import urllib.request
@@ -291,20 +291,20 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAUL
         "X-Title": APP_TITLE,
         "User-Agent": USER_AGENT
     }
-    
+
     data = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,  # Low temperature for reliability
     }
-    
+
     try:
         req = urllib.request.Request(url=url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=45) as response:
             if response.status != 200:
                 log.error(f"API Error {response.status}")
                 return [None] * len(texts)
-                
+
             response_data = json.loads(response.read().decode("utf-8"))
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 content = response_data["choices"][0]["message"]["content"].strip()
@@ -316,7 +316,7 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = DEFAUL
                 log.error("Unexpected response")
     except Exception as e:
         log.error(f"Translate batch error: {e}")
-        
+
     return [None] * len(texts)
 
 
@@ -758,7 +758,7 @@ def apply_review_rows_to_po(
 def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
     po = polib.pofile(po_file)
     updated = False
-    
+
     # Track which msgids were updated
     for entry in po:
         is_fuzzy = 'fuzzy' in entry.flags
@@ -770,14 +770,14 @@ def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
             if entry.msgid.endswith("\n") and not new_val.endswith("\n"):
                 new_val = new_val + "\n"
             entry.msgstr = new_val
-            
+
             # Remove fuzzy flag if it exists since we supply a real translation
             if is_fuzzy:
                 entry.flags.remove('fuzzy')
             updated = True
 
 
-            
+
     # Add completely new entries from the template if not present in .po
     po_msgids = {entry.msgid for entry in po}
     for msgid, msgstr in translations_dict.items():

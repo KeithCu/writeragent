@@ -5,7 +5,7 @@ import zipfile
 import uno
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import pinned_writer_tool_context, with_native_doc
 from types import SimpleNamespace
 
 from plugin.writer.specialized.bookmarks import BookmarkDelete, BookmarkService
@@ -279,9 +279,6 @@ def test_bookmark_delete_header_table_and_collapsed(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_bookmark_create_spans_pinned_selection_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.specialized.bookmarks import BookmarkCreate
 
     text = doc.getText()
@@ -296,8 +293,7 @@ def test_bookmark_create_spans_pinned_selection_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(found)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = BookmarkCreate().execute(tctx, name="PinnedBM")

@@ -6,17 +6,8 @@
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from tests.writer.doc_builders import set_body_text
 from plugin.writer.specialized.comments import AddComment, CommentEdit, CommentList, CommentResolve
-
-
-def _set_body(doc, text_value: str) -> None:
-    text = doc.getText()
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    text.insertString(cur, text_value, False)
 
 
 @native_test
@@ -73,7 +64,7 @@ def test_comment_location_and_paragraph_index_uno(ctx, doc):
 @with_native_doc("writer")
 def test_comment_resolve_reply_appears_with_name_uno(ctx, doc):
     """CommentResolve reply appears in comment_list with a non-empty name."""
-    _set_body(doc, "Some reviewable sentence here.")
+    set_body_text(doc, "Some reviewable sentence here.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     add_res = AddComment().execute(tool_ctx, content="Needs fix", search="reviewable")
@@ -100,7 +91,7 @@ def test_comment_resolve_reply_appears_with_name_uno(ctx, doc):
 @with_native_doc("writer")
 def test_add_comment_search_hits_nbsp_uno(ctx, doc):
     """comment_add search with normal space matches document text with NBSP."""
-    _set_body(doc, "Prefix text\u00a0with\u00a0nbsp and suffix.")
+    set_body_text(doc, "Prefix text\u00a0with\u00a0nbsp and suffix.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
     res = AddComment().execute(tool_ctx, content="Note on nbsp phrase", search="text with nbsp")
@@ -113,7 +104,7 @@ def test_add_comment_search_hits_nbsp_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_comment_edit_preserves_metadata_uno(ctx, doc):
-    _set_body(doc, "Sentence for comment edit probe.")
+    set_body_text(doc, "Sentence for comment edit probe.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     add_res = AddComment().execute(tool_ctx, content="Original note", search="Sentence")
     assert add_res.get("status") == "ok", add_res
@@ -140,7 +131,7 @@ def test_comment_edit_preserves_metadata_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_comment_reads_hide_tracked_deletion_uno(ctx, doc):
-    _set_body(doc, "Body velha nova text")
+    set_body_text(doc, "Body velha nova text")
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoStart(False)

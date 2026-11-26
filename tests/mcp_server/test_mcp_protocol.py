@@ -18,6 +18,7 @@ import plugin.mcp_server.mcp_session as mcp_session
 from plugin.mcp_server.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.mcp_server.wire_types import INVALID_REQUEST
 from tests.mcp_server.conftest import MockHandler
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_precomputed_echo_shape_and_absence():
@@ -134,7 +135,7 @@ class _DisposedDoc:
         return "file:///gone.odt"
 
     def getImplementationName(self):
-        raise type("DisposedException", (Exception,), {})("disposed")
+        raise DisposedException("disposed")
 
     def supportsService(self, service_name):
         return True
@@ -1294,4 +1295,3 @@ def test_get_mcp_stream_announces_new_document_type():
         srv.stop()
         assert _wait_alive(srv._server, False), "SSE keepalive thread still alive after HttpServer.stop"
         mcp_session.reset_tool_catalog_for_tests()
-

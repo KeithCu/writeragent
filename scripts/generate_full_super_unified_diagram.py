@@ -42,12 +42,12 @@ class UnifiedTransition:
 
 class FullSuperUnifiedStateMachine:
     """Complete super-unified state machine with all components"""
-    
+
     def __init__(self):
         self.states = self._define_states()
         self.transitions = self._define_transitions()
         self.state_map = {s.name: s for s in self.states}
-    
+
     def _define_states(self) -> List[UnifiedState]:
         return [
             # Send Button Component
@@ -72,7 +72,7 @@ class FullSuperUnifiedStateMachine:
                 description="Stop recording state",
                 component=Component.SEND_BUTTON
             ),
-            
+
             # Send Handler Component
             UnifiedState(
                 name="SendHandler_Ready",
@@ -108,7 +108,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.SEND_HANDLER,
                 is_terminal=True
             ),
-            
+
             # Tool Loop Component
             UnifiedState(
                 name="ToolLoop_Idle",
@@ -136,7 +136,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.TOOL_LOOP,
                 is_terminal=True
             ),
-            
+
             # Web Search Component
             UnifiedState(
                 name="WebSearch_ApprovalRequired",
@@ -165,7 +165,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.WEB_SEARCH,
                 is_terminal=True
             ),
-            
+
             # Streaming Deltas Component - FULL SET
             UnifiedState(
                 name="Streaming_Idle",
@@ -228,10 +228,10 @@ class FullSuperUnifiedStateMachine:
                 is_error=True
             ),
         ]
-    
+
     def _define_transitions(self) -> List[UnifiedTransition]:
         transitions = []
-        
+
         # Send Button Transitions
         transitions.extend([
             UnifiedTransition(
@@ -263,7 +263,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.SEND_BUTTON
             ),
         ])
-        
+
         # Send Handler Transitions
         transitions.extend([
             UnifiedTransition(
@@ -302,7 +302,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.SEND_HANDLER
             ),
         ])
-        
+
         # Tool Loop Transitions
         transitions.extend([
             UnifiedTransition(
@@ -341,7 +341,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.TOOL_LOOP
             ),
         ])
-        
+
         # Web Search Transitions
         transitions.extend([
             UnifiedTransition(
@@ -373,7 +373,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.WEB_SEARCH
             ),
         ])
-        
+
         # Streaming Deltas Transitions - COMPLETE SET
         transitions.extend([
             # Initial transitions
@@ -398,7 +398,7 @@ class FullSuperUnifiedStateMachine:
                 description="Agent backend tool call",
                 component=Component.STREAMING
             ),
-            
+
             # Content streaming transitions
             UnifiedTransition(
                 from_state="Streaming_Content",
@@ -428,7 +428,7 @@ class FullSuperUnifiedStateMachine:
                 description="Content stream completed",
                 component=Component.STREAMING
             ),
-            
+
             # Thinking transitions
             UnifiedTransition(
                 from_state="Streaming_Thinking",
@@ -451,7 +451,7 @@ class FullSuperUnifiedStateMachine:
                 description="Thinking stream completed",
                 component=Component.STREAMING
             ),
-            
+
             # Tool-related transitions
             UnifiedTransition(
                 from_state="Streaming_ToolCalling",
@@ -481,7 +481,7 @@ class FullSuperUnifiedStateMachine:
                 description="Tool execution completed",
                 component=Component.STREAMING
             ),
-            
+
             # Approval flow
             UnifiedTransition(
                 from_state="Streaming_ApprovalRequired",
@@ -497,7 +497,7 @@ class FullSuperUnifiedStateMachine:
                 description="User rejected, stop streaming",
                 component=Component.STREAMING
             ),
-            
+
             # Terminal transitions
             UnifiedTransition(
                 from_state="Streaming_Content",
@@ -527,7 +527,7 @@ class FullSuperUnifiedStateMachine:
                 description="User stopped after tool result",
                 component=Component.STREAMING
             ),
-            
+
             # Error transitions (can happen from any state)
             UnifiedTransition(
                 from_state="Streaming_Content",
@@ -565,7 +565,7 @@ class FullSuperUnifiedStateMachine:
                 component=Component.STREAMING
             ),
         ])
-        
+
         # Cross-component transitions
         transitions.extend([
             UnifiedTransition(
@@ -621,12 +621,12 @@ class FullSuperUnifiedStateMachine:
                 component=Component.TOOL_LOOP
             ),
         ])
-        
+
         return transitions
-    
+
     def to_mermaid(self) -> str:
         """Convert state machine to Mermaid.js diagram"""
-        
+
         # Component colors
         component_colors = {
             Component.SEND_BUTTON: "#ff6b6b",
@@ -635,26 +635,26 @@ class FullSuperUnifiedStateMachine:
             Component.WEB_SEARCH: "#f06292",
             Component.STREAMING: "#9575cd"
         }
-        
+
         # Build Mermaid diagram (without triple backticks for mmdc)
         lines = []
         lines.append("stateDiagram-v2")
         lines.append("    %% Full Super-Unified State Machine")
         lines.append("    %% All 5 components with complete streaming deltas")
-        
+
         # Define state styles
         for component, color in component_colors.items():
             lines.append(f"    classDef {component.value} fill:{color},color:white,stroke:#333")
         lines.append("    classDef terminal fill:#7b68ee,color:white,stroke:#333")
         lines.append("    classDef error fill:#ff4444,color:white,stroke:#333")
-        
+
         # Add initial state
         lines.append("    [*] --> SendButton_Ready")
-        
+
         # Add states
         for state in self.states:
             state_name = state.name.replace(" ", "")
-            
+
             # Determine class based on component and type
             if state.is_error:
                 state_class = "error"
@@ -662,23 +662,23 @@ class FullSuperUnifiedStateMachine:
                 state_class = "terminal"
             else:
                 state_class = state.component.value
-            
+
             # Format state definition
             lines.append(f"    {state_name}")
             lines.append(f"    class {state_name} {state_class}")
-        
+
         # Add transitions
         for trans in self.transitions:
             from_name = trans.from_state.replace(" ", "")
             to_name = trans.to_state.replace(" ", "")
-            
+
             # Format transition label
             label = trans.trigger
             if trans.condition:
                 label += f"\n[{trans.condition}]"
-            
+
             lines.append(f"    {from_name} --> {to_name} : {label}")
-        
+
         # Add legend
         lines.append("    %% Legend")
         lines.append("    note right of SendButton_Ready")
@@ -686,9 +686,9 @@ class FullSuperUnifiedStateMachine:
         for component, color in component_colors.items():
             lines.append(f"        {component.value.replace('_', ' ').title()}: {color}")
         lines.append("    end note")
-        
+
         return "\n".join(lines)
-    
+
     def to_markdown(self) -> str:
         """Generate comprehensive markdown documentation"""
         lines = []
@@ -701,7 +701,7 @@ class FullSuperUnifiedStateMachine:
         lines.append("- Web Search Approval Flow")
         lines.append("- Streaming Deltas State Machine (COMPLETE)")
         lines.append("")
-        
+
         # Component legend
         lines.append("## Component Legend")
         lines.append("")
@@ -713,24 +713,24 @@ class FullSuperUnifiedStateMachine:
         lines.append("| Web Search | #f06292 | Web search approval |")
         lines.append("| Streaming | #9575cd | Queue-based streaming |")
         lines.append("")
-        
+
         # States by component
         lines.append("## States by Component")
         lines.append("")
-        
+
         for component in Component:
             lines.append(f"### {component.value.replace('_', ' ').title()}")
             lines.append("")
             lines.append("| State | Description | Terminal | Error |")
             lines.append("|-------|-------------|----------|-------|")
-            
+
             component_states = [s for s in self.states if s.component == component]
             for state in component_states:
                 terminal = "✓" if state.is_terminal else ""
                 error = "✓" if state.is_error else ""
                 lines.append(f"| `{state.name}` | {state.description} | {terminal} | {error} |")
             lines.append("")
-        
+
         # Transitions summary
         lines.append("## Transition Summary")
         lines.append("")
@@ -738,7 +738,7 @@ class FullSuperUnifiedStateMachine:
         lines.append(f"Total transitions: {len(self.transitions)}")
         lines.append(f"Components: {len(Component)}")
         lines.append("")
-        
+
         # Key interactions
         lines.append("## Key Cross-Component Interactions")
         lines.append("")
@@ -750,7 +750,7 @@ class FullSuperUnifiedStateMachine:
         lines.append("- **Tool Loop → Streaming**: Tool results return to streaming context")
         lines.append("- **Web Search → Streaming**: Web search completion returns to streaming")
         lines.append("")
-        
+
         # Streaming deltas specifics
         lines.append("## Streaming Deltas Component Details")
         lines.append("")
@@ -771,7 +771,7 @@ class FullSuperUnifiedStateMachine:
         lines.append("ERROR          = 'error'          # Errors")
         lines.append("```")
         lines.append("")
-        
+
         # Architecture notes
         lines.append("## Architecture Notes")
         lines.append("")
@@ -782,22 +782,22 @@ class FullSuperUnifiedStateMachine:
         lines.append("- **Queue-Based**: Streaming component uses queue architecture for responsiveness")
         lines.append("- **HITL Integration**: Human-in-the-loop approval points in streaming workflow")
         lines.append("")
-        
+
         return "\n".join(lines)
 
 
 def main():
     """Generate full super-unified diagram"""
     import sys
-    
+
     if len(sys.argv) < 2:
         print("Usage: python generate_full_super_unified_diagram.py <format>")
         print("Formats: mermaid, markdown")
         sys.exit(1)
-    
+
     format_type = sys.argv[1].lower()
     machine = FullSuperUnifiedStateMachine()
-    
+
     if format_type == "mermaid":
         print(machine.to_mermaid())
     elif format_type == "markdown":

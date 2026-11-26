@@ -604,5 +604,3 @@ def test_unreadable_script_map_does_not_name_init_session(raw_payload: str) -> N
     set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, raw_payload)
     with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
         assert build_python_eval_init_kwargs(doc, shared_session=True) == {}
-
-

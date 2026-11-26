@@ -1982,4 +1982,3 @@ def test_ensure_body_ready_ends_status_bar_indicator() -> None:
         assert not sink.is_active()
     finally:
         grammar_obs.set_grammar_status(None)
-

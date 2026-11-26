@@ -103,9 +103,9 @@ class TestInitLogging:
             patch("sys.stderr", new_callable=io.StringIO) as err,
         ):
             init_logging(mock_ctx)
-        assert (get_debug_log_path()) is None
-        assert ("file handler failed") not in (err.getvalue())
-        assert ("MagicMock") not in (err.getvalue())
+        assert get_debug_log_path() is None
+        assert "file handler failed" not in err.getvalue()
+        assert "MagicMock" not in err.getvalue()
 
     def test_init_logging_uses_ctx_config_dir(self):
         # Windows can keep the FileHandler lock briefly after close(); ignore cleanup then.
@@ -122,13 +122,13 @@ class TestInitLogging:
                 init_logging(mock_ctx)
 
             expected_log = os.path.join(tmp, "writeragent_debug.log")
-            assert (get_debug_log_path()) == (expected_log)
-            assert (os.path.isfile(expected_log))
+            assert get_debug_log_path() == expected_log
+            assert os.path.isfile(expected_log)
             with open(expected_log, encoding="utf-8") as fh:
                 contents = fh.read()
-            assert ("Debug log active") in (contents)
-            assert (expected_log) in (contents)
-            assert ("DIAG |") not in (contents)
+            assert "Debug log active" in contents
+            assert expected_log in contents
+            assert "DIAG |" not in contents
             self._release_debug_handlers()
 
     def test_init_logging_strips_stray_console_handlers(self):
@@ -163,14 +163,14 @@ class TestInitLogging:
                 expected_log = os.path.join(tmp, "writeragent_debug.log")
                 with open(expected_log, encoding="utf-8") as fh:
                     contents = fh.read()
-                assert ("writeragent-console-probe") in (contents)
-                assert ("module-console-probe") in (contents)
-                assert (wa_buf.getvalue()) == ("")
+                assert "writeragent-console-probe" in contents
+                assert "module-console-probe" in contents
+                assert wa_buf.getvalue() == ""
                 # writeragent does not propagate. plugin.* still does, so a root
                 # handler sees module logs and not the writeragent logger.
-                assert ("writeragent-console-probe") not in (root_buf.getvalue())
-                assert ("module-console-probe") in (root_buf.getvalue())
-                assert ("module-console-probe") in (module_stderr_buf.getvalue())
+                assert "writeragent-console-probe" not in root_buf.getvalue()
+                assert "module-console-probe" in root_buf.getvalue()
+                assert "module-console-probe" in module_stderr_buf.getvalue()
             finally:
                 self._release_debug_handlers()
                 module_logger.removeHandler(module_handler)
@@ -395,26 +395,26 @@ class TestLogRedaction:
     def test_redact_chat_multimodal(self) -> None:
         messages = [{'role': 'user', 'content': [{'type': 'text', 'text': 'hi'}, {'type': 'input_audio', 'input_audio': {'data': 'AAAABBBB', 'format': 'wav'}}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,ZZZZ'}}]}]
         out = redact_sensitive_payload_for_log(messages)
-        assert (out) is not (messages)
+        assert out is not messages
         parts = out[0]['content']
-        assert (parts[0]) == ({'type': 'text', 'text': 'hi'})
-        assert (parts[1]['input_audio']['data']) == (LOG_REDACT_AUDIO_PLACEHOLDER % 8)
-        assert (parts[2]['image_url']['url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/jpeg;base64,ZZZZ'))
-        assert (messages[0]['content'][1]['input_audio']['data']) == ('AAAABBBB')
+        assert parts[0] == {'type': 'text', 'text': 'hi'}
+        assert parts[1]['input_audio']['data'] == LOG_REDACT_AUDIO_PLACEHOLDER % 8
+        assert parts[2]['image_url']['url'] == LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/jpeg;base64,ZZZZ')
+        assert messages[0]['content'][1]['input_audio']['data'] == 'AAAABBBB'
 
     def test_redact_image_generations_request_body(self) -> None:
         u = ('data:image/png;base64,' + ('x' * 100))
         data = {'prompt': 'p', 'image_url': u}
         r = redact_sensitive_payload_for_log(data)
-        assert (r['prompt']) == ('p')
-        assert (r['image_url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len(u))
+        assert r['prompt'] == 'p'
+        assert r['image_url'] == LOG_REDACT_IMAGE_PLACEHOLDER % len(u)
 
     def test_redact_image_api_response_nested(self) -> None:
         raw = {'data': [{'b64_json': 'Ym9n', 'url': 'http://ok'}, {'url': 'data:image/png;base64,QQ=='}]}
         r = redact_sensitive_payload_for_log(raw)
-        assert (r['data'][0]['b64_json']) == (LOG_REDACT_IMAGE_PLACEHOLDER % 4)
-        assert (r['data'][0]['url']) == ('http://ok')
-        assert (r['data'][1]['url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/png;base64,QQ=='))
+        assert r['data'][0]['b64_json'] == LOG_REDACT_IMAGE_PLACEHOLDER % 4
+        assert r['data'][0]['url'] == 'http://ok'
+        assert r['data'][1]['url'] == LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/png;base64,QQ==')
 
     def test_redact_long_reasoning_details_signature(self) -> None:
         long_sig = "S" * (LOG_REDACT_SIGNATURE_MIN_LEN + 100)
@@ -437,24 +437,24 @@ class TestLogRedaction:
             ],
         }
         out = redact_sensitive_payload_for_log(raw)
-        assert (out) is not (raw)
+        assert out is not raw
         details = out["choices"][0]["message"]["reasoning_details"]
-        assert (details[0]["signature"]) == (LOG_REDACT_SIGNATURE_PLACEHOLDER % len(long_sig))
-        assert (details[1]["signature"]) == (short_sig)
-        assert (raw["choices"][0]["message"]["reasoning_details"][0]["signature"]) == (long_sig)
-        assert (out["id"]) == ("gen-1")
-        assert (out["model"]) == ("google/gemini-2.5-flash-image")
-        assert (out["choices"][0]["finish_reason"]) == ("stop")
-        assert (out["choices"][0]["message"]["content"]) == ("hello")
+        assert details[0]["signature"] == LOG_REDACT_SIGNATURE_PLACEHOLDER % len(long_sig)
+        assert details[1]["signature"] == short_sig
+        assert raw["choices"][0]["message"]["reasoning_details"][0]["signature"] == long_sig
+        assert out["id"] == "gen-1"
+        assert out["model"] == "google/gemini-2.5-flash-image"
+        assert out["choices"][0]["finish_reason"] == "stop"
+        assert out["choices"][0]["message"]["content"] == "hello"
 
     def test_redact_signature_threshold_boundary(self) -> None:
         just_under = "a" * (LOG_REDACT_SIGNATURE_MIN_LEN - 1)
         at_min = "b" * LOG_REDACT_SIGNATURE_MIN_LEN
         raw = {"signature": just_under, "nested": {"signature": at_min}}
         out = redact_sensitive_payload_for_log(raw)
-        assert (out["signature"]) == (just_under)
-        assert (out["nested"]["signature"]) == (LOG_REDACT_SIGNATURE_PLACEHOLDER % LOG_REDACT_SIGNATURE_MIN_LEN)
-        assert (raw["nested"]["signature"]) == (at_min)
+        assert out["signature"] == just_under
+        assert out["nested"]["signature"] == LOG_REDACT_SIGNATURE_PLACEHOLDER % LOG_REDACT_SIGNATURE_MIN_LEN
+        assert raw["nested"]["signature"] == at_min
 
 def test_resolve_log_level_allowlist():
     assert resolve_log_level("DEBUG") == logging.DEBUG
@@ -465,17 +465,17 @@ def test_resolve_log_level_allowlist():
 
 
 def test_format_tool_call_for_display():
-    assert (format_tool_call_for_display('my_tool', {'arg': 'val'}) == "my_tool(arg='val')")
-    assert ('...' in format_tool_call_for_display('my_tool', {'arg': ('a' * 200)}))
-    assert (format_tool_call_for_display(None, None, method='GET') == 'GET')
+    assert format_tool_call_for_display('my_tool', {'arg': 'val'}) == "my_tool(arg='val')"
+    assert '...' in format_tool_call_for_display('my_tool', {'arg': ('a' * 200)})
+    assert format_tool_call_for_display(None, None, method='GET') == 'GET'
 
 def test_format_tool_result_for_display():
     res = format_tool_result_for_display('my_tool', 'plain text')
-    assert (res == "my_tool() -> 'plain text'")
+    assert res == "my_tool() -> 'plain text'"
     res = format_tool_result_for_display('my_tool', json.dumps({'content': [{'type': 'text', 'text': 'inner text'}]}))
-    assert ('inner text' in res)
+    assert 'inner text' in res
     res = format_tool_result_for_display('my_tool', 'res', args={'k': 'v'})
-    assert (res == "my_tool(k='v') -> 'res'")
+    assert res == "my_tool(k='v') -> 'res'"
 
 @pytest.fixture(autouse=True)
 def _no_stale_watchdog_status_control():
@@ -494,10 +494,10 @@ def test_update_activity_state():
 
     update_activity_state('phase1', round_num=1, tool_name='tool1')
     act = logging_mod._shared()['activity']
-    assert (act['phase'] == 'phase1')
-    assert (act['round_num'] == 1)
-    assert (act['tool_name'] == 'tool1')
-    assert (act['last_activity'] > 0)
+    assert act['phase'] == 'phase1'
+    assert act['round_num'] == 1
+    assert act['tool_name'] == 'tool1'
+    assert act['last_activity'] > 0
 
 
 def test_watchdog_clears_hung_status_when_activity_resumes():

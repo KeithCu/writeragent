@@ -268,4 +268,3 @@ def test_get_completions_abandons_a_stuck_worker(monkeypatch):
     finally:
         release_ev.set()
         t1.join(timeout=2.0)
-

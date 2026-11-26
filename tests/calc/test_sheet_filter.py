@@ -22,10 +22,7 @@ from plugin.calc.sheet_filter import (
     _build_filter_fields2,
     _field_to_dict,
 )
-
-
-class DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException
 
 
 class RuntimeException(Exception):

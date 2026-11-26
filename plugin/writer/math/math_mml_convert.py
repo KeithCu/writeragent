@@ -222,4 +222,3 @@ def replace_writer_math_formula(embed: Any, starmath: str) -> None:
     if inner is None or not hasattr(inner, "Formula"):
         raise ValueError("not_a_formula_object")
     inner.Formula = clean
-

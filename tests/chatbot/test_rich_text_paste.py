@@ -1579,4 +1579,3 @@ def test_portion_looks_like_cell_link():
     assert portion_looks_like_cell_link(p, "not_cell") is False
     p_no_ul = SimpleNamespace(CharUnderline=0)
     assert portion_looks_like_cell_link(p_no_ul, "A1") is False
-

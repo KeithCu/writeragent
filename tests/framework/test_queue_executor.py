@@ -16,13 +16,13 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.queue_executor import _WorkItem, main
 
 def test_agent_session_marks_active_with_nesting() -> None:
-    assert (sc.is_agent_active() is False)
+    assert sc.is_agent_active() is False
     with sc.agent_session():
-        assert (sc.is_agent_active() is True)
+        assert sc.is_agent_active() is True
         with sc.agent_session():
-            assert (sc.is_agent_active() is True)
-        assert (sc.is_agent_active() is True)
-    assert (sc.is_agent_active() is False)
+            assert sc.is_agent_active() is True
+        assert sc.is_agent_active() is True
+    assert sc.is_agent_active() is False
 
 
 def test_work_item():
@@ -30,17 +30,17 @@ def test_work_item():
     def func(x):
         return (x * 2)
     item = _WorkItem(func, (5,), {})
-    assert (item.fn is func)
-    assert (item.args == (5,))
-    assert (not item.event.is_set())
+    assert item.fn is func
+    assert item.args == (5,)
+    assert not item.event.is_set()
 
 def test_call_direct():
 
     def func():
         return 42
-    assert (threading.current_thread() is threading.main_thread())
+    assert threading.current_thread() is threading.main_thread()
     res = main.call(func)
-    assert (res == 42)
+    assert res == 42
 
 @patch.object(mt.MainThread, '_get_async_callback')
 @patch.object(mt.MainThread, '_poke_main_thread')
@@ -72,9 +72,9 @@ def test_call_background(mock_poke, mock_get_async):
     t2 = run_in_background(bg_thread, 0, daemon=False)
     t1.join(timeout=2.0)
     t2.join(timeout=2.0)
-    assert (results.get(5) == 50)
+    assert results.get(5) == 50
     assert isinstance(exceptions.get(0), ValueError)
-    assert (str(exceptions[0]) == 'Zero not allowed')
+    assert str(exceptions[0]) == 'Zero not allowed'
 
 @patch.object(mt.MainThread, '_get_async_callback')
 @patch.object(mt.MainThread, '_poke_main_thread')
@@ -98,8 +98,8 @@ def test_call_timeout(mock_poke, mock_get_async):
     t = run_in_background(bg_thread, daemon=False)
     t.join(timeout=1.0)
     assert isinstance(exc_caught, TimeoutError)
-    assert ('slow_func' in str(exc_caught))
-    assert ('timed out after 0.1s' in str(exc_caught))
+    assert 'slow_func' in str(exc_caught)
+    assert 'timed out after 0.1s' in str(exc_caught)
 
 @patch.object(mt.MainThread, '_get_async_callback')
 @patch.object(mt.MainThread, '_poke_main_thread')
@@ -114,7 +114,7 @@ def test_post_fire_and_forget(mock_poke, mock_get_async):
         pass
     main.post(my_func)
     item = main._work_queue.get_nowait()
-    assert (item.fn is my_func)
+    assert item.fn is my_func
     mock_poke.assert_called_once()
 
 
@@ -148,10 +148,10 @@ def test_get_async_callback_success(monkeypatch):
         mock_instance = MagicMock()
         mock_make.return_value = mock_instance
         res = main._get_async_callback()
-    assert (res == mock_service)
-    assert (main._initialized)
-    assert (main._async_callback_service == mock_service)
-    assert (main._callback_instance == mock_instance)
+    assert res == mock_service
+    assert main._initialized
+    assert main._async_callback_service == mock_service
+    assert main._callback_instance == mock_instance
 
 def test_get_async_callback_with_explicit_ctx():
     mock_ctx = MagicMock()
@@ -259,7 +259,7 @@ def test_get_async_callback_already_init():
     main._initialized = True
     mock_svc = MagicMock()
     main._async_callback_service = mock_svc
-    assert (main._get_async_callback() == mock_svc)
+    assert main._get_async_callback() == mock_svc
 
 @pytest.mark.parametrize("mode", ["ctx_raises", "service_none"])
 def test_get_async_callback_unavailable(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
@@ -299,7 +299,7 @@ def test_make_callback_instance():
             pass
         sys.modules['com.sun.star.awt'].XCallback = MockXCallback
         instance = main._make_callback_instance()
-        assert (instance is not None)
+        assert instance is not None
         assert hasattr(instance, 'notify')
 
 def test_make_callback_instance_notify(monkeypatch):
@@ -324,8 +324,8 @@ def test_make_callback_instance_notify(monkeypatch):
         main._work_queue.put(item)
         with patch.object(main, '_poke_main_thread') as mock_poke:
             instance.notify(None)
-            assert (item.result == 20)
-            assert (item.exception is None)
+            assert item.result == 20
+            assert item.exception is None
             assert item.event.is_set()
             mock_poke.assert_not_called()
 
@@ -337,7 +337,7 @@ def test_make_callback_instance_notify(monkeypatch):
         main._work_queue.put(item3)
         with patch.object(main, '_poke_main_thread') as mock_poke:
             instance.notify(None)
-            assert (item2.result is None)
+            assert item2.result is None
             assert isinstance(item2.exception, ValueError)
             assert item2.event.is_set()
             mock_poke.assert_called_once()
@@ -578,7 +578,7 @@ def test_call_success():
             main.process_queue()
         mock_poke.side_effect = mock_vcl
         res = mt.main.call((lambda x: (x * 2)), 5)
-        assert (res == 10)
+        assert res == 10
 
 def test_execute_background_task_on_logical_main_enqueues():
     """worker_pool tags bg threads; inline marshal on logical main must not run UNO there."""
@@ -696,7 +696,7 @@ def test_get_async_callback_already_init_with_lock():
             pass
     main._init_lock = FakeLock()
     try:
-        assert (main._get_async_callback() == mock_svc)
+        assert main._get_async_callback() == mock_svc
     finally:
         main._init_lock = real_lock
 

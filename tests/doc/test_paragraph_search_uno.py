@@ -142,4 +142,3 @@ def test_find_para_large_document(ctx, doc):
         cursor = text.createTextCursorByRange(p.getStart())
         idx = find_paragraph_for_range(cursor, para_ranges, text)
         assert idx == i, f"Large doc: expected index {i}, got {idx}"
-

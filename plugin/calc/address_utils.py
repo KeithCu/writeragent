@@ -436,5 +436,3 @@ def axis_range_bounds(address: str) -> tuple[tuple[int, int], tuple[int, int]] |
     if 0 <= r0 <= MAX_ROW and 0 <= r1 <= MAX_ROW:
         return (0, r0), (MAX_COL, r1)
     return None
-
-
