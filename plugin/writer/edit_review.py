@@ -50,7 +50,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, ClassVar, Generator
+from typing import Any, Callable, ClassVar, Generator, TypeVar
 
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
@@ -177,11 +177,12 @@ def flag_style_unreviewed(result: dict[str, Any], doc: Any | None = None) -> Non
 def flag_tracked(result: dict[str, Any]) -> None:
     """Report, in place, that Writer recorded this successful mutation as a tracked change the user has not reviewed.
 
-    Callers decide from what was recorded (the insert primitive's return value, a verified redline,
-    or EditReviewSession.left_tracked_changes), never from the review mode, which can change between
-    the edit and the result. Call once per result after the message is final (the note is appended).
-    In Record/Wait the result also carries review_mode and the do-not-resolve note; the mode is read
-    here on every result because the user can switch it mid-session, and in Off the note is left out.
+    Callers decide from what was recorded (``record_write``'s recording state for inserts, a verified
+    redline or primitive result, or ``EditReviewSession.left_tracked_changes``), never from the review
+    mode, which can change between the edit and the result. Call once per result after the message is
+    final (the note is appended). In Record/Wait the result also carries review_mode and the
+    do-not-resolve note; the mode is read here on every result because the user can switch it
+    mid-session, and in Off the note is left out.
     """
     result["tracked"] = True
     result["pending_review"] = True
@@ -456,6 +457,28 @@ def run_in_review_session(doc: Any, ctx: Any, run: Callable[[EditReviewSession],
             return run(review)
     finally:
         review.cleanup()
+
+
+_T = TypeVar("_T")
+
+
+def record_write(doc: Any, ctx: Any, apply_fn: Callable[[], _T]) -> tuple[_T, bool]:
+    """Run one logical Writer edit as one reviewable change; return (apply_fn's value, recording).
+
+    In Record/Wait the review session turns Track Changes on under WriterAgent's author and tags
+    what LibreOffice records as one change; in Off the edit applies as is, so the user's own
+    recording still records it. *recording* is is_recording_changes(doc) read inside the session
+    after the edit, so it is True exactly when LibreOffice recorded what the edit inserted; callers
+    pass it to flag_tracked for inserts, while deletes that LibreOffice may perform outright decide
+    from their own primitive. On a non-Writer document apply_fn runs directly and *recording* is
+    False: Calc's RecordChanges (ScModelObj::setPropertyValue, sc/source/ui/unoobj/docuno.cxx)
+    is a different feature the session must not switch on.
+    """
+    if not is_writer(doc):
+        return apply_fn(), False
+    return run_in_review_session(
+        doc, ctx, lambda review: (review.record_mutation(apply_fn), is_recording_changes(doc))
+    )
 
 
 class EditReviewSession:

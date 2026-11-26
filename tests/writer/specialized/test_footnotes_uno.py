@@ -5,11 +5,10 @@ supplier and the visible body text. One test pins the underlying anchor-clear
 mechanism under change recording.
 """
 
-from types import SimpleNamespace
-
+from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.specialized.footnotes import FootnotesDelete
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
+from plugin.writer.specialized.footnotes import FootnotesDelete, FootnotesEdit, FootnotesInsert
 from tests.writer.doc_builders import list_redline_types, reject_all_changes
 
 
@@ -40,8 +39,8 @@ def _assert_single_note_deleted(doc, note_type):
     assert _body_text(doc) == "probe text ", f"reference mark must vanish from body, got {_body_text(doc)!r}"
 
 
-def _delete_first_note(doc, note_type):
-    res = FootnotesDelete().execute(SimpleNamespace(doc=doc), note=note_type, index=0)
+def _delete_first_note(doc, ctx, note_type):
+    res = FootnotesDelete().execute(native_writer_tool_context(doc, ctx), note=note_type, index=0)
     assert res["status"] == "ok", res
     assert "tracked" not in res, res
 
@@ -55,7 +54,7 @@ def test_footnote_delete_clears_supplier(ctx, doc):
     assert _supplier(doc, "footnote").getCount() == 1
     assert _body_text(doc) == "probe text 1"
 
-    _delete_first_note(doc, "footnote")
+    _delete_first_note(doc, ctx, "footnote")
 
     _assert_single_note_deleted(doc, "footnote")
 
@@ -69,7 +68,7 @@ def test_endnote_delete_clears_supplier(ctx, doc):
     assert _supplier(doc, "endnote").getCount() == 1
     assert _body_text(doc) == "probe text i"
 
-    _delete_first_note(doc, "endnote")
+    _delete_first_note(doc, ctx, "endnote")
 
     _assert_single_note_deleted(doc, "endnote")
 
@@ -83,7 +82,7 @@ def test_delete_one_of_two_keeps_the_other(ctx, doc):
     _insert_note(doc, "footnote", "second")
     assert _body_text(doc) == "probe text 12"
 
-    _delete_first_note(doc, "footnote")
+    _delete_first_note(doc, ctx, "footnote")
 
     assert _supplier(doc, "footnote").getCount() == 1, "the other note must survive"
     survivor = _supplier(doc, "footnote").getByIndex(0)
@@ -125,13 +124,14 @@ def test_delete_tool_reports_a_tracked_deletion(ctx, doc):
     _insert_note(doc, "footnote", "note body")
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = FootnotesDelete().execute(SimpleNamespace(doc=doc), note="footnote", index=0)
+        res = FootnotesDelete().execute(native_writer_tool_context(doc, ctx), note="footnote", index=0)
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
     assert res["status"] == "ok"
     assert res.get("tracked") is True
     assert res.get("pending_review") is True
+    assert "review_mode" not in res
     assert "marked for deletion" in res["message"]
     assert list_redline_types(doc) == ["Delete"]
     assert _supplier(doc, "footnote").getCount() == 1
@@ -170,3 +170,136 @@ def test_footnote_insert_uses_pinned_selection_uno(ctx, doc):
     before.gotoStart(True)
     assert before.getString() == "Alpha beta"
     assert "Second para" in text.getString()
+
+
+def _redlines_info(doc):
+    rls = doc.getRedlines()
+    return [
+        (
+            rls.getByIndex(i).getPropertyValue("RedlineType"),
+            rls.getByIndex(i).getPropertyValue("RedlineAuthor"),
+            rls.getByIndex(i).getPropertyValue("RedlineComment"),
+        )
+        for i in range(rls.getCount())
+    ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_delete_in_record_mode_is_a_tagged_agent_change_uno(ctx, doc):
+    doc.getText().setString("probe text ")
+    _insert_note(doc, "footnote", "note body")
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = FootnotesDelete().execute(native_writer_tool_context(doc, ctx), note="footnote", index=0)
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    assert res["status"] == "ok", res
+    assert res.get("tracked") is True
+    assert res.get("pending_review") is True
+    assert res.get("review_mode") == "record"
+    assert _supplier(doc, "footnote").getCount() == 1
+    rls = _redlines_info(doc)
+    assert len(rls) == 1
+    assert rls[0][0] == "Delete"
+    assert rls[0][1] == "WriterAgent"
+    assert rls[0][2].startswith("wa-review:")
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    reject_all_changes(doc, ctx)
+    assert _body_text(doc) == "probe text 1"
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_insert_in_record_mode_rejects_to_no_note_uno(ctx, doc):
+    doc.getText().setString("probe text ")
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = FootnotesInsert().execute(
+            native_writer_tool_context(doc, ctx),
+            note="footnote",
+            text="inserted note",
+            occurrence=0,
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    assert res["status"] == "ok", res
+    assert res.get("tracked") is True
+    rls = _redlines_info(doc)
+    assert rls and all(author == "WriterAgent" for _t, author, _c in rls), rls
+
+    reject_all_changes(doc, ctx)
+    assert _supplier(doc, "footnote").getCount() == 0
+    assert _body_text(doc) == "probe text "
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_edit_text_and_label_in_record_mode_uno(ctx, doc):
+    doc.getText().setString("probe text ")
+    note = _insert_note(doc, "footnote", "old body")
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "record"})
+    try:
+        res = FootnotesEdit().execute(
+            native_writer_tool_context(doc, ctx),
+            note="footnote",
+            index=0,
+            text="new body",
+            label="*",
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    assert res["status"] == "ok", res
+    assert res.get("tracked") is False
+    assert res.get("pending_review") is True
+    assert "warning" in res
+
+    reject_all_changes(doc, ctx)
+    assert note.getString() == "old body"
+    assert note.getLabel() == "*"
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_insert_and_edit_off_mode_no_tracked_or_warning_uno(ctx, doc):
+    doc.getText().setString("probe text ")
+    doc.getCurrentController().getViewCursor().gotoEnd(False)
+    assert doc.getPropertyValue("RecordChanges") is False
+
+    prev = get_config("doc.agent_edit_review_mode")
+    save({"doc.agent_edit_review_mode": "off"})
+    try:
+        tctx = native_writer_tool_context(doc, ctx)
+        ins_res = FootnotesInsert().execute(
+            tctx,
+            note="footnote",
+            text="plain note",
+            occurrence=0,
+        )
+        edit_res = FootnotesEdit().execute(
+            tctx,
+            note="footnote",
+            index=0,
+            text="updated note",
+            label="*",
+        )
+    finally:
+        save({"doc.agent_edit_review_mode": prev})
+
+    for res in (ins_res, edit_res):
+        assert res["status"] == "ok", res
+        assert "tracked" not in res, res
+        assert "pending_review" not in res, res
+        assert "warning" not in res, res
