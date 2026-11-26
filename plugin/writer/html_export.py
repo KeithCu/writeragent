@@ -89,12 +89,13 @@ PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
 
 def strip_html_boilerplate(html_string: str) -> str:
     """Extract content between ``<body>`` tags if present."""
-    if not html_string or not isinstance(html_string, str):
+    if not html_string:
         return html_string
     match = re.search(r"<body[^>]*>(.*?)</body>", html_string, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return html_string
+
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -119,11 +120,10 @@ def strip_embedded_image_data(html: str) -> str:
     return _DATA_URI_IMAGE_RE.sub("", html)
 
 
-
 # LibreOffice's XHTML export gives every heading an empty outline anchor, ``<a id="a__…">``,
 # named after the heading's text. A picture anchored inside the heading puts its whole base64
-# data into that name, so a heading holding one embedded screenshot came back with a
-# 40-65 KB id (twice the picture itself, once in the id and once in src), even with
+# data into that name, so a heading holding one embedded screenshot gets a
+# 40-65 KB id (the picture twice: once in the id and once in src), even with
 # include_images=false. Nothing in WriterAgent, nor the agent, uses these ids.
 # shorten_outline_anchor_ids gives a long id a short, stable name, in the id and in any
 # ``href="#…"`` that points to it.
@@ -178,7 +178,6 @@ def _export_xhtml(doc: Any) -> str:
     return _read_filter_text(doc, XHTML_FILTER, ext=XHTML_EXTENSION)
 
 
-
 def _autostyle_maps(doc: Any, fodt: str | None = None) -> tuple[dict[str, str], dict[str, str], bool | None]:
     """Return ``(parents, overrides, has_ruby)`` from *doc*'s flat-ODF sidecar.
 
@@ -202,7 +201,6 @@ def _autostyle_maps(doc: Any, fodt: str | None = None) -> tuple[dict[str, str], 
 
     failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
     return best_effort(read_maps, "_autostyle_maps: flat-ODF export failed", failed)
-
 
 
 _COPY_PORTION_LIMIT = 50000
@@ -253,12 +251,12 @@ def _hyperlink_urls(portions: list[tuple[Any, str]]) -> list[str]:
     previous = None
     for portion, chunk in portions:
         if not chunk:
-            if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Frame":
-                url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
+            if uno_read(lambda: portion.getPropertyValue("TextPortionType"), "") == "Frame":
+                url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL"), "")
                 if url != previous:
                     previous = None
             continue
-        url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
+        url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL"), "")
         if not url:
             previous = None
             continue
@@ -278,7 +276,7 @@ def _picture_urls(doc: Any) -> dict[str, str]:
     graphics = doc.getGraphicObjects()
     urls: dict[str, str] = {}
     for name in graphics.getElementNames():
-        url = str(graphics.getByName(name).getPropertyValue("HyperLinkURL") or "")
+        url = graphics.getByName(name).getPropertyValue("HyperLinkURL")
         if url:
             urls[name] = url
     return urls
@@ -378,12 +376,12 @@ def _restore_outline_hrefs(model: Any, content: str) -> str:
 
 def _starts_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* is strictly before *right* (``compareRegionStarts`` == 1)."""
-    return int(text.compareRegionStarts(left, right)) == 1
+    return text.compareRegionStarts(left, right) == 1
 
 
 def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
-    return int(text.compareRegionEnds(left, right)) == -1
+    return text.compareRegionEnds(left, right) == -1
 
 
 def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
@@ -770,7 +768,6 @@ def _range_to_content_via_temp_doc(
             range_copy.release_scratch_style_holds(temp_doc)
 
 
-
 def _export_full(model: Any, ctx: Any) -> tuple[str, bool | None]:
     """Export the full document via XHTML, simplifying drawings and expanding deletions/hidden sections first.
 
@@ -852,11 +849,13 @@ def document_to_content(
     Args:
         model: UNO document model.
         ctx: UNO component context.
-        max_chars: Truncate result to this length.
+        max_chars: Approximate HTML character limit.
         scope: ``'full'``, ``'selection'``, or ``'range'``.
         range_start: Character offset start (for scope ``'range'``).
         range_end: Character offset end (for scope ``'range'``).
         include_images: When False (default), strip ``data:image`` base64 from export; external img URLs kept.
+        walk_warnings: List that receives agent-facing notes about capped walks and the StarWriter fallback.
+        selection: Explicit text range for scope ``'selection'``; None reads the live view.
 
     Returns:
         Content string.
@@ -897,8 +896,9 @@ def document_to_content(
             start = max(0, int(range_start) if range_start is not None else 0)
             end = int(range_end) if range_end is not None else 0
             # No clamp to the document length: the walk below skips paragraphs past the end on its
-            # own. Clamping to CharacterCount cut a read at the end short ("o dan"), and measuring
-            # the real length here would walk the whole body a second time per range read.
+            # own. CharacterCount is not the document_length space, so clamping to it would cut a
+            # read at the end short, and measuring the real length here would walk the whole body
+            # a second time per range read.
         return _done(
             _range_to_content_via_temp_doc(
                 model, ctx, start, end, max_chars,
@@ -1093,9 +1093,6 @@ def xtext_to_content(
     copied into a hidden Writer body's text and run through the same
     XHTML + postprocess stack as ``get_content``.
     """
-    if text_obj is None:
-        return ""
-
     extracted_fields = extract_page_fields(model, text_obj)
 
     temp_doc = new_blank_writer(ctx)

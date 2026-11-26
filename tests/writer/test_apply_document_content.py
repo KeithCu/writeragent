@@ -23,6 +23,7 @@ def _edit_ctx():
     # (UNO True only), not this stub.
     ctx.doc.getDrawPage.return_value = []
     ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    ctx.doc.getRedlines.return_value.getCount.return_value = 0
     return ctx
 
 
@@ -132,8 +133,8 @@ def test_position_param_validation():
     tool = ApplyDocumentContent()
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
-    res = tool.execute(ctx, content=["<p>x</p>"], target="search", old_content="y", position="sideways")
-    assert res["status"] == "error" and "position" in res["message"]
+    ok, err = tool.validate(content=["<p>x</p>"], target="search", old_content="y", position="sideways")
+    assert not ok and err is not None and "position" in err
     res = tool.execute(ctx, content=["<p>x</p>"], target="search", old_content="y",
                        position="after", all_matches=True)
     assert res["status"] == "error" and "all_matches" in res["message"]

@@ -60,8 +60,7 @@ from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portio
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
 from plugin.framework.doc_type import is_writer
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.errors import document_is_disposed
+from plugin.framework.errors import ToolExecutionError, document_is_disposed, reraise_if_disposed, uno_read
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.framework.uno_context import get_ctx
@@ -69,6 +68,7 @@ from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
+from plugin.writer.range_copy import PARAGRAPH_BREAK
 from plugin.writer.record_changes import (
     is_recording_changes,
     overlaps_foreign_insertion,
@@ -90,7 +90,7 @@ _OBJECT_MARK = "\ufffc"
 
 def _preview(text: str) -> str:
     """Bound a preview string (a full-document replace would otherwise ship megabytes)."""
-    text = (text or "").replace(_OBJECT_MARK, "")
+    text = text.replace(_OBJECT_MARK, "")
     if len(text) <= _PREVIEW_MAX_CHARS:
         return text
     return text[: _PREVIEW_MAX_CHARS - 1] + "…"
@@ -237,7 +237,7 @@ def edit_review_wait_seconds() -> int:
 def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
     """Stamp *token* (RedlineComment) on every redline -- ALL-OR-NOTHING. Returns
     ``(success, orphans_remaining)`` as TWO separate values so success can never be confused with a
-    count (a single int made "n tagged ok" and "n orphans after a failure" collide
+    count (with a single int, "n tagged ok" and "n orphans after a failure" are the same value
     when n == len):
 
       * ``(True, 0)``  -> every redline tagged (success);
@@ -333,7 +333,7 @@ def _tag_new_change(
     return token, new_redlines
 
 
-def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
+def tag_agent_redlines(doc: Any, before_ids: set[Any],
                        before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
     *before_ids*, marking them as ONE agent change so the inline review UI recognizes them.
@@ -353,7 +353,7 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
         doc,
         before_ids,
         before_reliable,
-        lambda: _review_scan.make_agent_token(uuid.uuid4().hex[:8], change_index),
+        lambda: _review_scan.make_agent_token(uuid.uuid4().hex[:8], 0),
         "tag_agent_redlines",
     )
     if tagged is None:
@@ -490,7 +490,7 @@ class EditReviewSession:
     def __init__(self, doc: Any, ctx: Any, enabled: bool) -> None:
         self.doc = doc
         self.ctx = ctx
-        self.enabled = bool(enabled)
+        self.enabled = enabled
         self.session_id = uuid.uuid4().hex[:8]
         self.changes: list[ChangeRecord] = []
         self._next_change: int = 0
@@ -1070,7 +1070,7 @@ def _raise_batch_failure(outcome: UndoOutcome, mutate_errors: list[Exception]) -
 
 
 def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, new_text: str,
-                            uno_ctx: Any, split: bool) -> None:
+                            split: bool) -> None:
     """Record a format-preserving replace as ONE reviewable change, or -- when *split* (review
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
@@ -1086,7 +1086,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 try:
                     session.record_mutation(
                         lambda: replace_preserving_format(
-                            doc, found, new_text, uno_ctx,
+                            doc, found, new_text,
                             in_undo_context=True, split_author=split_author),
                         original_preview=_preview(original), proposed_preview=_preview(new_text))
                 except Exception as exc:
@@ -1105,7 +1105,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                           "to the single atomic op (one color)")
                 session.record_mutation(
                     lambda: replace_preserving_format(
-                        doc, found, new_text, uno_ctx,
+                        doc, found, new_text,
                         in_undo_context=False, split_author=split_author),
                     original_preview=_preview(original), proposed_preview=_preview(new_text))
                 return
@@ -1114,7 +1114,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         else:
             session.record_mutation(
                 lambda: replace_preserving_format(
-                    doc, found, new_text, uno_ctx,
+                    doc, found, new_text,
                     in_undo_context=False, split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
 
@@ -1164,7 +1164,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 if sub is None:
                     raise RuntimeError(
                         "surgical sub-edit offset drifted at apply time; aborting to avoid corruption")
-                replace_preserving_format(doc, sub, se.new_text, uno_ctx,
+                replace_preserving_format(doc, sub, se.new_text,
                                           in_undo_context=True,
                                           split_author=split_author)
 
@@ -1197,9 +1197,6 @@ def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
     """Return a direct rewrite prompt for Writer selection edits."""
     return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"
 
-
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
 
 _SCAFFOLD_LINE_PREFIXES = (
     "ORIGINAL VERSION:",
@@ -1251,7 +1248,7 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str, *, collapse_b
     cursor.setString(parts[0])
     for part in parts[1:]:
         cursor.gotoEnd(False)
-        text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text_obj.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         cursor.setString(part)
 
 
@@ -1504,25 +1501,21 @@ class _WriterStreamedSessionBase:
                         tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
                     except Exception:
                         log.debug("%s: redline tagging failed", label, exc_info=True)
-                # restore prior recording so the user's later typing isn't tracked
                 return self._retarget_links()
             except Exception as exc:
                 # A closed document is not "the text was kept".
                 reraise_if_disposed(exc)
                 log.exception("Failed to collapse %s into one tracked change", label)
 
-                fallback_errors: list[str] = []
                 try:
                     self.text_range.setString(fallback_text)
                 except Exception as e:
                     reraise_if_disposed(e)
                     log.warning("%s: fallback setString failed", label, exc_info=True)
-                    fallback_errors.append(f"{fallback_desc}: {e}")
-
-                if fallback_errors:
-                    return fallback_err_msg.format("; ".join(fallback_errors))
+                    return fallback_err_msg.format(f"{fallback_desc}: {e}")
                 return success_msg
         finally:
+            # Restore the prior recording state so the user's later typing is not tracked.
             self._exit_stream_recording()
             self._compound_undo.close()
 
@@ -1556,7 +1549,6 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
         self.generated_text = ""
         self.preserve_paragraph_breaks: bool = preserve_paragraph_breaks
 
-        log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
             self.text_range.setString("")
         except Exception:

@@ -68,18 +68,20 @@ _IMAGE_PLACEHOLDER_RE = _frame_image_re(r'<img\b[^>]*\bsrc=""[^>]*>')
 _FRAME_IMAGE_RE = _frame_image_re(r"(?P<img><img\b[^>]*>)")
 _EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc\s*=\s*(["\'])\s*\1', re.IGNORECASE)
 _LINK_PROPS = ("HyperLinkURL", "HyperLinkName", "HyperLinkTarget")
+_MARKER_PAT = r"wa[0-9a-f]{8}img\d+"
+_MARKER_RE = re.compile(_MARKER_PAT)
 # An <a href> holding only picture markers is the pictures' own link; one that also holds text is a
 # text link the pictures sit in. The frame comment before <a> and the clear:both <div> after </a>
 # stay outside when only the wrapper is linked, and are dropped with it.
 _LINKED_MARKERS_RE = re.compile(
     FRAME_HEAD
-    + r"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*wa[0-9a-f]{8}img\d+)+)(\s*)</a>"
+    + rf"(<a\b(?=[^>]*\shref\s*=)[^>]*>)((?:\s*{_MARKER_PAT})+)(\s*)</a>"
     + _FRAME_TAIL,
     re.IGNORECASE,
 )
 # Same rule for region images after frame wrappers are unwrapped: an <a> holding only images is the pictures' own link.
 _LINKED_REGION_IMGS_RE = re.compile(
-    r'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="wa[0-9a-f]{8}img\d+"[^>]*>)+\s*</a>',
+    rf'<a\b(?=[^>]*\shref\s*=)[^>]*>(?:\s*<img\b[^>]*\bname="{_MARKER_PAT}"[^>]*>)+\s*</a>',
     re.IGNORECASE,
 )
 _1PX_PNG_DATA_URI = (
@@ -209,6 +211,13 @@ def _insert_copy(
     return picture
 
 
+def _graphic_named(graphics: Any, name: str) -> Any:
+    return uno_read(
+        lambda: graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None,
+        None,
+    )
+
+
 def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
     """Swap each data-less image wrapper that names a picture of *model* for a text marker.
 
@@ -225,7 +234,7 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
 
     def _swap(match: re.Match[str]) -> str:
         name = html_mod.unescape(match.group(2))
-        obj = uno_read(lambda: graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None, None)
+        obj = _graphic_named(graphics, name)
         if obj is None:
             missing.append(name)
             return match.group(0)
@@ -239,7 +248,7 @@ def capture_placeholder_images(model: Any, content: str) -> tuple[str, list[_Kep
     linked: set[str] = set()
 
     def _note_link(match: re.Match[str]) -> str:
-        linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", match.group(2)))
+        linked.update(_MARKER_RE.findall(match.group(2)))
         trail = match.group(3)
         return match.group(1) + match.group(2) + "</a>" + ("" if "\n" in trail or "\r" in trail else trail)
 
@@ -265,10 +274,7 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
         name = html_mod.unescape(match.group(2))
         img = match.group("img")
         no_data = bool(_EMPTY_IMG_RE.search(img))
-        obj = uno_read(
-            lambda: graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None,
-            None,
-        )
+        obj = _graphic_named(graphics, name)
         if no_data and obj is None:
             missing.append(name)
             return match.group(0)
@@ -304,7 +310,7 @@ def capture_region_images(model: Any, text_obj: Any, html: str) -> tuple[str, li
         _refuse_lost_images(model, missing)
     linked: set[str] = set()
     for m in _LINKED_REGION_IMGS_RE.finditer(swapped):
-        linked.update(re.findall(r"wa[0-9a-f]{8}img\d+", m.group(0)))
+        linked.update(_MARKER_RE.findall(m.group(0)))
     return swapped, [img._replace(linked=img.marker in linked) for img in images]
 
 
@@ -386,7 +392,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         return False
     if TrackedDeletions(model).removes_anchored(original):
         return True
-    if getattr(original.getPropertyValue("AnchorType"), "value", "") != "AT_PARAGRAPH":
+    if original.getPropertyValue("AnchorType").value != "AT_PARAGRAPH":
         return False
     # A table the edit deletes whole takes its cells' pictures; no deletion covers the cell text.
     table = uno_read(
@@ -394,26 +400,6 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         None,
     )
     return table is not None and table_is_all_deleted(model, table)
-
-
-def _find_marker(model: Any, search: Any) -> Any:
-    found = model.findFirst(search)
-    if found is not None:
-        return found
-    try:
-        tables = model.getTextTables()
-        for tbl_name in tables.getElementNames():
-            tbl = tables.getByName(tbl_name)
-            for cell_name in tbl.getCellNames():
-                cell = tbl.getCellByName(cell_name)
-                if hasattr(cell, "createSearchDescriptor"):
-                    cell_found = cell.findFirst(search)
-                    if cell_found is not None:
-                        return cell_found
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return None
-    return None
 
 
 def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
@@ -427,7 +413,7 @@ def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
     plans: list[tuple[_KeptImage, Any, bool]] = []
     for image in kept:
         search.SearchString = image.marker
-        found = _find_marker(model, search)
+        found = model.findFirst(search)
         insert = (
             image.anchor.value != "AT_PAGE"
             and _deleted_by_the_edit(model, image.original, image.name)

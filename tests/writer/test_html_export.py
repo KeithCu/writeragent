@@ -10,7 +10,6 @@ from plugin.writer.html_export import (
     _inject_page_field_attributes,
     _range_to_content_via_temp_doc,
     strip_embedded_image_data,
-    xtext_to_content,
 )
 from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
@@ -152,10 +151,6 @@ def test_range_export_keeps_text_when_setting_paragraph_style_raises():
     assert "Hello" in html
     assert html != ""
     assert cursor.setString.call_count == 2
-
-
-def test_xtext_to_content_none_is_empty():
-    assert xtext_to_content(None, object(), object()) == ""
 
 
 def _content_doc(text="Texto do documento"):

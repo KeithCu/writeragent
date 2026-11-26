@@ -6,8 +6,8 @@
 
 Why this exists: a lawyer pastes a cropped excerpt of a document (a screenshot, a page of a
 contract) into a brief and marks the passage that matters. With only ``crop_*_mm`` and loose
-drawing shapes, the agent had to turn the pixels it saw into millimetres of the page and guess
-where the frame sat, so crops missed and marks drifted off the text. Here every box is in the
+drawing shapes, the agent has to turn the pixels it sees into millimetres of the page and guess
+where the frame sits, so crops miss and marks drift off the text. Here every box is in the
 picture's own pixels (or percent of it), and the result is baked into one picture: the marks
 cannot drift, and the cut-away part is no longer stored in the file (a crop of a client
 document does not carry the hidden rest along).
@@ -17,7 +17,7 @@ whole picture shifted so the region lies on the page, and a rectangle per box or
 ``GraphicExportFilter`` renders that page to a PNG at exactly the region's pixel size, clipping
 whatever sticks out of the page. Highlights are painted afterwards on the pixels themselves, as
 a highlighter does: paper turns yellow and ink stays black (Draw has no multiply blend, and a
-translucent yellow over the text turned the letters olive). This handles every format
+translucent yellow over the text turns the letters olive). This handles every format
 LibreOffice reads (1-bit scans, JPEG, palette PNG, SVG) with no imaging library in the
 extension's Python.
 """
@@ -34,7 +34,7 @@ import uno
 
 from plugin.doc import visual_helpers
 from plugin.framework.scratch_writer import close_scratch_document, load_scratch_document
-from plugin.framework.uno_context import uno_any
+from plugin.framework.uno_context import create_property_value, uno_any
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def visible_region(crop: Any, actual_size: Any, graphic: Any) -> Box:
     stays cropped the same way when only marks are added. The crop is in 1/100 mm of the frame's
     ``ActualSize`` (Writer's own measure of the picture). The graphic's ``Size100thMM`` is not a
     substitute: it is 0 for a JPEG without a physical size, and Writer then measures the picture
-    at the screen's DPI (about 92 on the Mac this was checked on), so assuming 96 DPI put the crop
+    at the screen's DPI (about 92 on the Mac this was checked on), so assuming 96 DPI puts the crop
     in the wrong place."""
     width_px, height_px = visual_helpers.pixel_size(graphic)
     if crop is None or not (crop.Left > 0 or crop.Top > 0 or crop.Right > 0 or crop.Bottom > 0):
@@ -149,12 +149,6 @@ def mark_rectangles(marks: list[tuple[Box, str, int]], region: Box, stroke: int)
     return out
 
 
-def _pv(name: str, value: Any) -> Any:
-    from com.sun.star.beans import PropertyValue
-
-    return PropertyValue(Name=name, Value=value)
-
-
 def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]], stroke: int) -> Any:
     """Return a new XGraphic: *graphic* cut to *region* (pixels) with *marks* drawn on it."""
     from com.sun.star.awt import Point, Size
@@ -191,7 +185,7 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         picture.setPropertyValue("Graphic", graphic)
         # The whole picture, scaled to 1 px = u, shifted so the region sits on the page; the
         # export clips the rest. No GraphicCrop: it is measured in 1/100 mm of a size LibreOffice
-        # derives from the screen DPI when the file has none (JPEG), so it cut the wrong rows.
+        # derives from the screen DPI when the file has none (JPEG), so it cuts the wrong rows.
         picture.setPosition(Point(-rx * u, -ry * u))
         picture.setSize(Size(width_px * u, height_px * u))
 
@@ -218,11 +212,14 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
         # FilterData must travel as a typed Any through uno.invoke; a plain tuple of
         # PropertyValue is dropped and the page comes out at 96 DPI instead of rw x rh px.
         # (The BMP export ignores PixelWidth even then, so the page always goes out as PNG.)
-        filter_data = uno_any("[]com.sun.star.beans.PropertyValue", (_pv("PixelWidth", rw), _pv("PixelHeight", rh)))
+        filter_data = uno_any(
+            "[]com.sun.star.beans.PropertyValue",
+            (create_property_value("PixelWidth", rw), create_property_value("PixelHeight", rh)),
+        )
         args = (
-            _pv("URL", uno.systemPathToFileUrl(tmp_path)),
-            _pv("MediaType", "image/png"),
-            _pv("FilterData", filter_data),
+            create_property_value("URL", uno.systemPathToFileUrl(tmp_path)),
+            create_property_value("MediaType", "image/png"),
+            create_property_value("FilterData", filter_data),
         )
         if not uno.invoke(export, "filter", cast("Any", (args,))):
             raise RuntimeError("LibreOffice could not render the marked picture (GraphicExportFilter returned false).")
@@ -246,14 +243,17 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
 
 
 def _load(provider: Any, path: str) -> Any:
-    graphic = provider.queryGraphic((_pv("URL", uno.systemPathToFileUrl(path)),))
+    graphic = provider.queryGraphic((create_property_value("URL", uno.systemPathToFileUrl(path)),))
     if graphic is None:
         raise RuntimeError("LibreOffice could not read back the marked picture.")
     return graphic
 
 
 def _store(provider: Any, graphic: Any, path: str, mime: str) -> None:
-    provider.storeGraphic(graphic, (_pv("URL", uno.systemPathToFileUrl(path)), _pv("MimeType", mime)))
+    provider.storeGraphic(
+        graphic,
+        (create_property_value("URL", uno.systemPathToFileUrl(path)), create_property_value("MimeType", mime)),
+    )
 
 
 def _paint_highlights(provider: Any, graphic: Any, highlights: list[tuple[Box, str, int]], png_path: str) -> Any:

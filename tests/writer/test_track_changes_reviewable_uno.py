@@ -100,7 +100,7 @@ def test_search_replace_plain_text_clean_redline_uno(ctx, doc):
     single clean Delete+Insert, so reject restores the original exactly."""
     _reset(doc, ctx, "This clause is important.")
     with _recording(doc):
-        fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.", ctx)
+        fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.")
     rl = list_redline_types(doc)
     assert "Insert" in rl and "Delete" in rl, "plain replace under recording must yield Insert+Delete, got %r" % rl
     reject_all_changes(doc, ctx)
@@ -113,7 +113,7 @@ def test_search_replace_plain_text_accept_keeps_only_new_uno(ctx, doc):
     """Accept must leave ONLY the new text -- the old must be a real tracked deletion that gets removed."""
     _reset(doc, ctx, "This clause is important.")
     with _recording(doc):
-        fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.", ctx)
+        fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.")
     accept_all_changes(doc, ctx)
     assert _para_text(doc) == "This clause is critically important.", "accept must keep only the new text, got %r" % _para_text(doc)
 
@@ -1554,7 +1554,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng = doc.getText().createTextCursor()
         rng.gotoStart(False)
         rng.gotoEnd(True)
-        fmt.replace_preserving_format(doc, rng, "Swap", ctx)
+        fmt.replace_preserving_format(doc, rng, "Swap")
     assert [r["type"] for r in list_redlines(doc)] == ["Delete", "Insert", "Delete"]
     accept_all_changes(doc, ctx)
     assert _runs() == [("Swap", float(BOLD))]
@@ -1571,7 +1571,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng = doc.getText().createTextCursor()
         rng.gotoStart(False)
         rng.gotoEnd(True)
-        fmt.replace_preserving_format(doc, rng, "Swap", ctx)
+        fmt.replace_preserving_format(doc, rng, "Swap")
     reject_all_changes(doc, ctx)
     assert _runs() == [("Alpha ", float(BOLD)), ("b", float(NORMAL))], _runs()
 
@@ -1588,7 +1588,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng = doc.getText().createTextCursor()
         rng.gotoStart(False)
         rng.gotoEnd(True)
-        fmt.replace_preserving_format(doc, rng, "Updated", ctx)
+        fmt.replace_preserving_format(doc, rng, "Updated")
     accept_all_changes(doc, ctx)
     assert _runs() == [("Updated", float(NORMAL))], _runs()
 
@@ -1605,7 +1605,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng = doc.getText().createTextCursor()
         rng.gotoStart(False)
         rng.gotoEnd(True)
-        fmt.replace_preserving_format(doc, rng, "New", ctx)
+        fmt.replace_preserving_format(doc, rng, "New")
     accept_all_changes(doc, ctx)
     assert _runs() == [("New", float(NORMAL))], _runs()
 
@@ -1621,7 +1621,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng = doc.getText().createTextCursor()
         rng.gotoStart(False)
         rng.gotoEnd(True)
-        fmt.replace_preserving_format(doc, rng, "New", ctx)
+        fmt.replace_preserving_format(doc, rng, "New")
     reject_all_changes(doc, ctx)
     assert _runs() == [("😀 ", float(BOLD)), ("plain", float(NORMAL))], _runs()
 

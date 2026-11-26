@@ -1151,7 +1151,7 @@ class TableSetCell(ToolWriterTableBase):
                     # One atomic op authored once, as index_refresh_toc_entry does: a cell replace
                     # is a single small edit, and the atomic path cannot leave a half-applied delete.
                     wrote = replace_preserving_format(
-                        ctx.doc, span, new, uno_ctx, in_undo_context=True, split_author=False
+                        ctx.doc, span, new, in_undo_context=True, split_author=False
                     )
                     recorded = wrote and is_recording_changes(ctx.doc)
 

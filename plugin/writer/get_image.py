@@ -20,12 +20,12 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import uno
-from com.sun.star.beans import PropertyValue
 from plugin.doc import visual_helpers
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.framework.tool_schema import page_index_param
+from plugin.framework.uno_context import create_property_value
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 from plugin.writer.page_png import render_writer_page_png, write_page_png
 
@@ -60,7 +60,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     """
     try:
         pages = doc.getDrawPages()
-        total = int(pages.getCount())
+        total = pages.getCount()
     except Exception as e:
         reraise_if_disposed(e)
         return None, "could not render page %d: no draw pages available (%s)" % (page, e)
@@ -84,8 +84,8 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
 
     def export(tmp_path: str) -> None:
         ok = filt.filter((
-            PropertyValue(Name="URL", Value=uno.systemPathToFileUrl(tmp_path)),
-            PropertyValue(Name="MediaType", Value="image/png"),
+            create_property_value("URL", uno.systemPathToFileUrl(tmp_path)),
+            create_property_value("MediaType", "image/png"),
         ))
         if not ok:
             raise RuntimeError("GraphicExportFilter returned false.")
@@ -237,7 +237,7 @@ class GetImage(ToolBase):
             no_image = f"No image selected. Select an image in the document, or pass image=<name> (read names with {names_from})."
             obj = visual_helpers.selected_graphic_object(doc)
             if obj is None:
-                log.debug("get_selected_image_base64: no graphic in selection")
+                log.debug("image_get: no graphic in selection")
                 return self._tool_error(no_image)
             raw = export_graphic_object_to_bytes(ctx.ctx, obj)
             if not raw:

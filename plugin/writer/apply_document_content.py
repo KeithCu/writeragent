@@ -27,10 +27,6 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase
-
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
-
 from plugin.writer.edit_review import (
     EditReviewSession,
     edit_is_recorded,
@@ -64,7 +60,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.doc.text_helpers import KeepViewSelection, TrackedDeletions
-from plugin.framework.uno_context import enum_has_more, uno_same
+from plugin.framework.uno_context import enum_has_more, supports_service, uno_same
 from plugin.framework.json_utils import parse_html_fragment_list
 from plugin.writer import (
     html_import,
@@ -85,6 +81,9 @@ from plugin.writer.hyperlink_fixup import (
     public_hyperlink_reports,
     restore_links,
 )
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 log = logging.getLogger("writeragent.writer")
@@ -111,6 +110,7 @@ def _paragraph_boundary_cursor(text_obj: Any, found: Any, position: str) -> tupl
     moved = not cursor.isEndOfParagraph()
     cursor.gotoEndOfParagraph(False)
     return cursor, moved
+
 
 _EDGE_SPACE = " \t\u00a0"
 
@@ -169,12 +169,11 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
         message = "Table %s deleted." % label
     else:
         message = "Tables deleted: %s." % label
-    result: dict[str, Any] = {
+    return {
         "status": "ok",
         "message": message,
         "table_deleted": names[0] if len(names) == 1 else names,
     }
-    return result
 
 
 def _table_and_name(found: Any) -> tuple[Any, str | None]:
@@ -182,7 +181,7 @@ def _table_and_name(found: Any) -> tuple[Any, str | None]:
     table = uno_read(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
     if table is None:
         return None, None
-    return table, uno_read(lambda: str(table.getName() or ""), "") or None
+    return table, uno_read(lambda: table.getName(), "") or None
 
 
 def _range_in_cell(found: Any, cell: Any) -> bool:
@@ -206,7 +205,7 @@ def _range_in_cell(found: Any, cell: Any) -> bool:
 def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
     if not _range_in_cell(found, cell):
         return False
-    return uno_read(lambda: str(found.getString() or "").strip() == cell_text, False)
+    return uno_read(lambda: found.getString().strip() == cell_text, False)
 
 
 def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
@@ -269,7 +268,7 @@ def _range_contains_table(text_range: Any) -> bool:
         return False
     while uno_read(lambda: enum_has_more(enum), False):
         elem = uno_read(lambda: enum.nextElement(), None)
-        if elem is not None and uno_read(lambda: elem.supportsService("com.sun.star.text.TextTable"), False):
+        if elem is not None and supports_service(elem, "com.sun.star.text.TextTable"):
             return True
     return False
 
@@ -354,7 +353,7 @@ def _partial_match_style_suggestion(
 
     try:
         matches = search_mod.find_all_ranges(doc, plain, case_sensitive=True)
-        actual_count = len(matches) if matches else 0
+        actual_count = len(matches)
     except Exception as exc:
         reraise_if_disposed(exc)
         return None
@@ -409,7 +408,7 @@ class EditParams:
     target: str
     position: str
     occurrence: int | None
-    all_matches: Any
+    all_matches: bool
     track_reviewable: bool
     search_string: str = ""
     pattern: str = ""
@@ -482,37 +481,28 @@ class ApplyDocumentContent(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("HTML or plain-text fragments: prefer a list with one block per item; one string is also accepted and is read the same way (a list is joined with newlines). Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty search replacement deletes the match.")},
+            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": "HTML or plain-text fragments: prefer a list with one block per item; one string is also accepted and is read the same way (a list is joined with newlines). Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty search replacement deletes the match."},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
-            "old_content": {"type": "string", "description": ("Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead.")},
+            "old_content": {"type": "string", "description": "Substring to find when target='search'; may span paragraphs (newlines). Not for whole-document replace — use target='full_document' instead."},
             "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace (target='search'); requires end_anchor. The replaced range includes both anchors and the text between them, so the middle is not copied into the call; it ends at the first end_anchor match that begins at or after the start match in the same text. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; a renamed heading's links follow it."},
             "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
             "all_matches": {"type": "boolean", "default": False, "description": "Replace all occurrences (true) or first only. Only for target='search' with position='replace' and old_content."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior.")},
+            "occurrence": {"type": "integer", "minimum": 0, "description": "For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior."},
             "position": enum_param(
                 ["replace", "before", "after"],
-                (
-                    "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
-                ),
+                "For target='search': 'replace' replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched, so content must not repeat the matched text (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, math, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it).",
                 default="replace",
             ),
             "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
             "regex": {"type": "boolean", "default": False, "description": "For target='search': treat old_content as a regular expression (false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes."},
             "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.LADDER_CASE_SENSITIVE_DESCRIPTION}"},
-            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace' when the match overlaps one heading link (an outline hyperlink, #Heading|outline): the exact URL to set on that link. Omitted, the link's URL follows the new text when the matched text appears once in it. content may equal old_content when only the URL is stale.")},
+            "hyperlink_url": {"type": "string", "description": "For target='search' with position='replace' when the match overlaps one heading link (an outline hyperlink, #Heading|outline): the exact URL to set on that link. Omitted, the link's URL follows the new text when the matched text appears once in it. content may equal old_content when only the URL is stale."},
         },
         "required": ["content"],
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     tier: str = "core"
     is_mutation: bool | None = True
-
-    @staticmethod
-    def _position_choice(kwargs: Any) -> tuple[str, str | None]:
-        position = str(kwargs.get("position") or "replace").strip().lower()
-        if position not in ("replace", "before", "after"):
-            return position, "position must be 'replace', 'before' or 'after'."
-        return position, None
 
     @staticmethod
     def _override_not_replace(override: Any, position: str) -> str | None:
@@ -639,7 +629,7 @@ class ApplyDocumentContent(ToolBase):
             reraise_if_disposed(mutate_err)
             if isinstance(mutate_err, ToolExecutionError) and mutate_err.code == "TABLE_INSERT_FAILED":
                 raise mutate_err
-            log.exception("apply_content: outline hyperlink update failed")
+            log.error("apply_content: outline hyperlink update failed", exc_info=mutate_err)
             if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
             else:
@@ -688,17 +678,16 @@ class ApplyDocumentContent(ToolBase):
                     )
                 if (failed := outcome.rollback_failure) is not None:
                     return failed
-                if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
-                    pass  # Failed shape replacement rolled back; fall through to delegation response below
-                else:
-                    result = attach_edited_context(
-                        {"status": "ok",
-                          "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
-                                      "shape's own text directly — NOT a tracked change; surrounding "
-                                      "formatting preserved)." % shape_name),
-                          "replaced_count": 1, "review_bypassed": True},
-                        None)
-                    return result
+                if err is None or err.get("code") != "SHAPE_REPLACE_FAILED":
+                    return {
+                        "status": "ok",
+                        "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
+                                    "shape's own text directly — NOT a tracked change; surrounding "
+                                    "formatting preserved)." % shape_name),
+                        "replaced_count": 1,
+                        "review_bypassed": True,
+                    }
+                # Failed shape replacement rolled back; fall through to delegation response below
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -712,7 +701,7 @@ class ApplyDocumentContent(ToolBase):
             params.pattern,
             case_sensitive=shape_cs,
             use_regex=params.regex,
-            all_matches=bool(params.all_matches),
+            all_matches=params.all_matches,
             lenient=not params.regex and params.case_sensitive is None,
             refuse_oversized=True,
             review=params.track_reviewable,
@@ -766,7 +755,7 @@ class ApplyDocumentContent(ToolBase):
                 report.extend(rep)
 
             if use_preserve:
-                record_preserve_replace(session, doc, found, content, ctx.ctx, track_reviewable)
+                record_preserve_replace(session, doc, found, content, track_reviewable)
             elif batch:
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
@@ -1061,7 +1050,7 @@ class ApplyDocumentContent(ToolBase):
                     flag_tracked(result)
                 return result
             except ToolExecutionError as e:
-                return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
+                return self._tool_error(str(e), code=e.code)
             finally:
                 if session_box:
                     self._release_review_session(session_box[0])
@@ -1077,7 +1066,7 @@ class ApplyDocumentContent(ToolBase):
             if session_box:
                 self._release_review_session(session_box[0])
             if isinstance(e, ToolExecutionError):
-                return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
+                return self._tool_error(str(e), code=e.code)
             raise
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
@@ -1138,8 +1127,6 @@ class ApplyDocumentContent(ToolBase):
 
         if start_anchor is None or end_anchor is None:
             return self._tool_error("start_anchor and end_anchor are both required.", code="INVALID_PARAM")
-        if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
-            return self._tool_error("start_anchor and end_anchor must both be strings.", code="INVALID_PARAM")
         norm_start = search_mod.normalize_search_string_for_find(html_import.plain_text_if_markup(start_anchor))
         if not norm_start:
             return self._tool_error("start_anchor is empty after normalization.", code="INVALID_PARAM")
@@ -1185,9 +1172,7 @@ class ApplyDocumentContent(ToolBase):
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
-        position, pos_err = self._position_choice(kwargs)
-        if pos_err:
-            return self._tool_error(pos_err, code="INVALID_PARAM")
+        position = kwargs.get("position") or "replace"
         if position != "replace" and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' "
@@ -1210,10 +1195,11 @@ class ApplyDocumentContent(ToolBase):
         # styles and headings across the span do not bleed into the new text. Single-line plain
         # anchor text remains unwrapped so mid-paragraph edits stay on the inline path without splitting
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
-        use_preserve = (not html_import.content_needs_html_import(content)) and anchor is None
+        needs_import = html_import.content_needs_html_import(content)
+        use_preserve = (not needs_import) and anchor is None
         decoded = ""
 
-        if not html_import.content_needs_html_import(content):
+        if not needs_import:
             content = html_import_styles.expand_escapes(content)
             if anchor is not None and not html_import.html_fragment_contains_mixed_math(content):
                 if "\n" in content:
@@ -1245,15 +1231,16 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search" and not has_anchors:
-            old_stripped = str(old_content).strip() if old_content is not None else ""
+            assert old_content is not None
+            old_stripped = old_content.strip()
             search_string = search_mod.prepare_old_content(old_content)
             if not search_string:
-                # Parameter error (like old_content=None), not a search no-op: the search never ran,
-                # so there's no replaced_count to report — use the standard tool error shape.
+                # old_content was only whitespace or markup: a parameter error, not a search no-op,
+                # so there is no replaced_count to report.
                 return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
 
         plain = decoded if use_preserve else self._replacement_plain(content)
-        has_table = not use_preserve and bool(re.search(r"<table\b", str(content), re.IGNORECASE))
+        has_table = not use_preserve and bool(re.search(r"<table\b", content, re.IGNORECASE))
         all_matches = bool(kwargs.get("all_matches", False))
 
         if target == "search" and not has_anchors:
@@ -1429,7 +1416,6 @@ class ApplyDocumentContent(ToolBase):
             res, report,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, ctx.doc, params))
 
-
     def _edit_replace_all(
         self,
         ctx: ToolContext,
@@ -1456,11 +1442,11 @@ class ApplyDocumentContent(ToolBase):
         count = 0
         report = html_import_styles.WriteReport()
         link_reports: list[dict[str, Any]] = []
-        tracked_delete_box = [False]
+        tracked_delete = False
         headings = headings_if_touched(doc, ranges)
 
         def mutate() -> None:
-            nonlocal count
+            nonlocal count, tracked_delete
             with session:
                 for found in reversed(ranges):
                     if doomed_names and _table_and_name(found)[1] in doomed_names:
@@ -1473,11 +1459,10 @@ class ApplyDocumentContent(ToolBase):
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
                         plain=params.plain, report=report, has_table=params.has_table)
-                    if reports:
-                        link_reports.extend(reports)
+                    link_reports.extend(reports)
                     count += 1
                 if doomed:
-                    tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
+                    tracked_delete = record_table_deletions(session, doc, ctx, doomed)
                 # The same content goes into every match, so a match cannot reorder headings without repeating their titles.
                 report.links_retargeted, report.stale_links = retarget_renamed_links(
                     session, doc, headings, edits=len(ranges),
@@ -1497,7 +1482,7 @@ class ApplyDocumentContent(ToolBase):
                 code="UNDO_UNAVAILABLE")
         if outcome.mutate_error is not None:
             e = outcome.mutate_error
-            log.exception("apply_content all_matches failed mid-batch")
+            log.error("apply_content all_matches failed mid-batch", exc_info=e)
             payload: dict[str, Any]
             if isinstance(e, ToolExecutionError):
                 payload = format_error_payload(e)
@@ -1530,7 +1515,6 @@ class ApplyDocumentContent(ToolBase):
             }
             return payload
 
-        tracked_delete = tracked_delete_box[0]
         if doomed and count == 0:
             resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
         else:
@@ -1542,7 +1526,7 @@ class ApplyDocumentContent(ToolBase):
             if doomed:
                 deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
                 resp["table_deleted"] = deletion["table_deleted"]
-                resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
+                resp["message"] = resp["message"].rstrip() + " " + deletion["message"]
         html_import_styles.attach_write_report(
             resp, report, total_matches=count,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
@@ -1607,7 +1591,7 @@ class ApplyDocumentContent(ToolBase):
             res.update(mode.result_fields())
             return res
 
-        many = bool(params.all_matches) or params.occurrence is not None
+        many = params.all_matches or params.occurrence is not None
         ranges, mode = _find_ranges(
             doc,
             params.pattern,
@@ -1641,13 +1625,13 @@ class ApplyDocumentContent(ToolBase):
             if res.get("status") == "ok" and len(editable) < len(picked):
                 skipped = len(picked) - len(editable)
                 res["message"] = (
-                    (res.get("message") or "").rstrip()
+                    res["message"].rstrip()
                     + f" {skipped} more match(es) run across a pending tracked deletion and were not changed."
                 )
         elif params.occurrence is not None and params.occurrence >= len(ranges):
             res = self._occurrence_oor(params.occurrence, len(ranges))
         else:
-            found = ranges[params.occurrence or 0]
+            found = ranges[first]
             if params.position in ("before", "after"):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:
@@ -1702,7 +1686,7 @@ class ApplyDocumentContent(ToolBase):
         if use_preserve:
             is_block = "\n" in content
         else:
-            is_block = html_import.content_is_block(str(content))
+            is_block = html_import.content_is_block(content)
         text_obj = found.getText()
         if is_block:
             insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
@@ -1714,8 +1698,8 @@ class ApplyDocumentContent(ToolBase):
 
         def _insert_next_to_match() -> None:
             if not is_block:
-                report.math.extend(html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content)))
-                report.unapplied_para.extend(html_import_styles.unapplied_para_names_for_content(str(content)))
+                report.math.extend(html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, content))
+                report.unapplied_para.extend(html_import_styles.unapplied_para_names_for_content(content))
             elif position != "after":
                 # A block import at the start of the match's paragraph adds paragraphs before it
                 # without merging, the same as target='beginning'.
@@ -1754,7 +1738,6 @@ class ApplyDocumentContent(ToolBase):
             insert_resp["occurrence"] = occurrence
         html_import_styles.attach_write_report(insert_resp, report)
         return attach_edited_context(insert_resp, anchor)
-
 
     def _edit_replace_one(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,

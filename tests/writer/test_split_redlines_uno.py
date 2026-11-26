@@ -39,7 +39,7 @@ def test_split_small_change_makes_tight_surgical_changes_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 2, "a 2-word tweak must split into 2 surgical changes: %r" % changes
@@ -55,7 +55,7 @@ def test_split_adjacent_words_agglutinate_into_one_change_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick brown", "slow grey")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "adjacent changed words must agglutinate into 1 change: %r" % changes
@@ -70,7 +70,7 @@ def test_split_changes_resolve_individually_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 2, changes
@@ -87,7 +87,7 @@ def test_split_large_change_stays_single_block_uno(ctx, doc):
     reset_body(doc, ctx, "alpha beta gamma")
     found = find_first(doc, "alpha beta gamma")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, "totally different replacement words", ctx, True)
+        record_preserve_replace(session, doc, found, "totally different replacement words", True)
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "a >threshold change must stay a single block change: %r" % changes
@@ -102,7 +102,7 @@ def test_split_accept_all_reconstructs_new_text_uno(ctx, doc):
     reset_body(doc, ctx, para)
     found = find_first(doc, para)
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
     session.cleanup()
     assert len(agent_changes(doc)) == 2, agent_changes(doc)
     accept_all_changes(doc, ctx)
@@ -117,7 +117,7 @@ def test_split_off_when_not_recording_single_change_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, False)  # split=False
+        record_preserve_replace(session, doc, found, new, False)  # split=False
     session.cleanup()
     changes = agent_changes(doc)
     assert len(changes) == 1, "split=False must keep the old single-change behaviour: %r" % changes
@@ -133,7 +133,7 @@ def test_review_payload_includes_final_text_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
         payload = session._review_payload(complete=False, timed_out=False)
     session.cleanup()
     changes = payload["changes"]
@@ -164,7 +164,7 @@ def test_e2e_split_navigate_resolve_report_uno(ctx, doc):
     found = find_first(doc, _LONG)
     new = _LONG.replace("quick", "fast").replace("lazy", "sleepy")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
         assert agent_change_presence(doc)[0] == 2, "split into 2 surgical changes"
         doc.getCurrentController().getViewCursor().gotoRange(doc.getText().getStart(), False)
         first = goto_adjacent_agent_change(doc, True)
@@ -193,7 +193,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
     # Pure insertion, accepted -> "accepted", inserted word present in final_text.
     reset_body(doc, ctx, "The lazy dog.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, find_first(doc, "dog"), "dog runs", ctx, True)
+        record_preserve_replace(session, doc, find_first(doc, "dog"), "dog runs", True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "runs" in chs[0]["new"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], True)[0].status == ResolveStatus.RESOLVED
@@ -204,7 +204,7 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
     # Pure deletion, rejected -> "rejected", restored word present in final_text.
     reset_body(doc, ctx, "The lazy dog.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, find_first(doc, "lazy "), "", ctx, True)
+        record_preserve_replace(session, doc, find_first(doc, "lazy "), "", True)
         chs = agent_changes(doc)
         assert len(chs) == 1 and "lazy" in chs[0]["old"], chs
         assert resolve_agent_change(doc, ctx, chs[0]["token"], False)[0].status == ResolveStatus.RESOLVED
@@ -224,7 +224,7 @@ def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
     found = find_first(doc, base)
     new = base.replace("beta", "BETA").replace("delta", "DELTA").replace("zeta", "ZETA")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
         chs = agent_changes(doc)
         assert len(chs) == 3, chs   # three independent surgical runs
         mid = [c for c in chs if "DELTA" in c["new"]][0]
@@ -245,7 +245,7 @@ def test_final_text_not_truncated_for_deep_change_uno(ctx, doc):
     found = find_first(doc, long_para)
     new = long_para.replace("TARGETWORD", "REPLACEMENT")
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, found, new, ctx, True)
+        record_preserve_replace(session, doc, found, new, True)
         payload = session._review_payload(complete=False, timed_out=False)
     session.cleanup()
     chs = payload["changes"]
@@ -332,7 +332,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
     edit_review.replace_preserving_format = flaky
     try:
         with EditReviewSession(doc, ctx, enabled=True) as session:
-            record_preserve_replace(session, doc, found, new, ctx, True)
+            record_preserve_replace(session, doc, found, new, True)
     except RuntimeError as e:
         raised = True
         assert "mid-apply failure" in str(e), e
@@ -384,7 +384,7 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     edit_review.replace_preserving_format = always_fail
     try:
         with EditReviewSession(doc, ctx, enabled=True) as session:
-            record_preserve_replace(session, doc, found, new, ctx, True)
+            record_preserve_replace(session, doc, found, new, True)
     except RuntimeError:
         raised = True
     finally:
@@ -417,7 +417,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     real = edit_review.replace_preserving_format
     raised = False
     with EditReviewSession(doc, ctx, enabled=True) as session:
-        record_preserve_replace(session, doc, find_first(doc, b1), new1, ctx, True)  # batch 1 succeeds
+        record_preserve_replace(session, doc, find_first(doc, b1), new1, True)  # batch 1 succeeds
         changes_after_b1 = len(session.changes)
         assert changes_after_b1 >= 1, "batch 1 must record at least one change"
 
@@ -427,7 +427,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
         fmt.replace_preserving_format = always_fail
         edit_review.replace_preserving_format = always_fail
         try:
-            record_preserve_replace(session, doc, find_first(doc, b2), new2, ctx, True)
+            record_preserve_replace(session, doc, find_first(doc, b2), new2, True)
         except RuntimeError:
             raised = True
         finally:

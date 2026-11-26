@@ -1,7 +1,8 @@
-"""CJK ruby (furigana) helpers for HTML export and import.
-
-Extracted from plugin.writer.html_export and plugin.writer.html_import.
-"""
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""CJK ruby (furigana) helpers for HTML export and import."""
 
 from __future__ import annotations
 
@@ -54,11 +55,9 @@ class RubySpan(NamedTuple):
     is_above: bool = True
 
 
-
 def _inside(html: str, index: int, open_tok: str, close_tok: str) -> bool:
     """True when *index* sits inside an unclosed pair of tokens."""
     return html.rfind(open_tok, 0, index) > html.rfind(close_tok, 0, index)
-
 
 
 def _find_contiguous(html: str, needle: str, start: int = 0) -> tuple[int, int] | None:
@@ -73,7 +72,6 @@ def _find_contiguous(html: str, needle: str, start: int = 0) -> tuple[int, int] 
         if not _inside(html, found, "<", ">"):
             return found, found + len(needle)
         idx = found + 1
-
 
 
 def _reading_after(html: str, end: int, reading: str) -> int | None:
@@ -96,12 +94,10 @@ def _reading_after(html: str, end: int, reading: str) -> int | None:
     return None
 
 
-
 def _ruby_markup(base: str, reading: str, is_above: bool = True) -> str:
     # Under-ruby would come back as over without the CSS position.
     style = "" if is_above else ' style="ruby-position: under"'
     return "<ruby%s>%s<rt>%s</rt></ruby>" % (style, escape(base), escape(reading))
-
 
 
 def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
@@ -113,9 +109,8 @@ def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
     ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply recreates portions in
     ``html_import`` (strip ``<rt>``, then ``RubyText`` on the base run).
 
-    Replacements stay inside a single text node (or wrap the base node and
-    delete a following reading node). Replacements stay within one text node so
-    wrappers do not split ``<ruby>`` across tags.
+    A replacement stays inside one text node (or wraps the base node and
+    deletes a following reading node), so ``<ruby>`` is never split across tags.
     """
     if not html or not spans:
         return html
@@ -150,7 +145,6 @@ def inject_ruby_into_html(html: str, spans: Sequence[RubySpan]) -> str:
     return "".join(parts)
 
 
-
 def _iter_ruby_spans_in_paragraph(
     para: Any, state: DeletionState | None = None
 ) -> Iterator[RubySpan]:
@@ -183,7 +177,7 @@ def _iter_ruby_spans_in_paragraph(
             continue
         if kind == "Ruby":
             if not in_ruby:
-                reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
+                reading = uno_read(lambda: portion.getPropertyValue("RubyText"), "")
                 is_above = uno_read(lambda: bool(portion.getPropertyValue("RubyIsAbove")), True)
                 in_ruby = True
                 base_parts = []
@@ -194,13 +188,12 @@ def _iter_ruby_spans_in_paragraph(
                     yield RubySpan(base, reading, base_start, base_start + len(base), is_above)
                 in_ruby = False
             continue
-        chunk = uno_read(lambda: portion.getString() or "", "")
+        chunk = uno_read(lambda: portion.getString(), "")
         if not chunk:
             continue
         if in_ruby:
             base_parts.append(chunk)
         offset += len(chunk)
-
 
 
 def ruby_spans_in_window(
@@ -214,16 +207,13 @@ def ruby_spans_in_window(
     ]
 
 
-
 def inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None = None) -> str:
     """Walk the live model and rewrite *content* when ruby is (or may be) present.
 
     *fodt_has_ruby* is True/False from the paired FODT sidecar, or None when
     that export failed. False skips the portion walk on the common no-ruby path.
     """
-    if not content:
-        return content
-    if fodt_has_ruby is False:
+    if not content or fodt_has_ruby is False:
         return content
 
     def _collect() -> list[RubySpan]:
@@ -240,12 +230,10 @@ def inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None 
     return inject_ruby_into_html(content, spans)
 
 
-
 class ImportRubySpan(NamedTuple):
     base: str
     reading: str
     is_above: bool
-
 
 
 def _visible_html_text(fragment: str) -> str:
@@ -253,10 +241,8 @@ def _visible_html_text(fragment: str) -> str:
     return unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-
 def _ruby_base_html(inner: str) -> str:
     return _RT_RE.sub("", _RP_RE.sub("", inner))
-
 
 
 def strip_ruby(html: str) -> str:
@@ -269,8 +255,7 @@ def strip_ruby(html: str) -> str:
     # Unclosed <ruby> makes the DOTALL regex scan to end from every open tag.
     if lower.count("<ruby") != lower.count("</ruby>"):
         return _ruby_base_html(html)
-    return _RUBY_BLOCK_RE.sub(lambda m: _ruby_base_html(m.group(2) or ""), html)
-
+    return _RUBY_BLOCK_RE.sub(lambda m: _ruby_base_html(m.group(2)), html)
 
 
 def ruby_placeholders(html: str, nonce: str) -> tuple[str, list[ImportRubySpan]]:
@@ -289,8 +274,8 @@ def ruby_placeholders(html: str, nonce: str) -> tuple[str, list[ImportRubySpan]]
     spans: list[ImportRubySpan] = []
 
     def _replace(match: re.Match[str]) -> str:
-        attrs = match.group(1) or ""
-        inner = match.group(2) or ""
+        attrs = match.group(1)
+        inner = match.group(2)
         rt_m = _RT_RE.search(inner)
         reading = _visible_html_text(rt_m.group(1) if rt_m else "").strip()
         base_html = _ruby_base_html(inner)
@@ -305,7 +290,8 @@ def ruby_placeholders(html: str, nonce: str) -> tuple[str, list[ImportRubySpan]]
         # Place the token after leading whitespace and opening tags so it sits right
         # before the first visible character (and leading whitespace still collapses).
         lead = _LEADING_WS_OR_TAGS_RE.match(base_html)
-        ws_len = lead.end() if lead else 0
+        assert lead is not None
+        ws_len = lead.end()
         return base_html[:ws_len] + token + base_html[ws_len:]
 
     return _RUBY_BLOCK_RE.sub(_replace, html), spans

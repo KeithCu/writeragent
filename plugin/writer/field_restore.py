@@ -23,7 +23,7 @@ import uno
 
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import supports_service, uno_same
 from .html_export import (
     PAGE_FIELD_SERVICES,
     PAGE_NUMBER_NUMBERING_TYPE_NAMES,
@@ -230,7 +230,7 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
     try:
         text = text_range.getText()
         cursor = text.createTextCursorByRange(text_range)
-        placeholder = cursor.getString() or ""
+        placeholder = cursor.getString()
         cursor.setString("")
         try:
             text.insertTextContent(cursor, field, False)
@@ -273,7 +273,7 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
         if el is None:
             break
         # Table cells have their own XText
-        is_table = uno_read(lambda: el.supportsService("com.sun.star.text.TextTable"), False) is True
+        is_table = supports_service(el, "com.sun.star.text.TextTable")
         if is_table:
             names: tuple[str, ...] | list[str] = uno_read(lambda: el.getCellNames(), ()) or ()
             for name in names:
@@ -284,8 +284,8 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
 
         # TextFrame and TextSection expose inner text via getText()
         is_frame_or_section = (
-            uno_read(lambda: el.supportsService("com.sun.star.text.TextFrame"), False) is True
-            or uno_read(lambda: el.supportsService("com.sun.star.text.TextSection"), False) is True
+            supports_service(el, "com.sun.star.text.TextFrame")
+            or supports_service(el, "com.sun.star.text.TextSection")
         )
         if is_frame_or_section:
             inner_text = uno_read(lambda: el.getText(), None)
@@ -296,11 +296,9 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
 def _first_remaining_field_token(text_obj: Any, nonce: str) -> Any:
     """Return the first remaining token as str, None if none, or FAILED if read failed."""
     for xtext in _iter_field_texts(text_obj):
-        plain = uno_read(lambda: xtext.getString() or "", FAILED)
+        plain = uno_read(lambda: xtext.getString(), FAILED)
         if plain is FAILED:
             return FAILED
-        if not isinstance(plain, str):
-            plain = str(plain)
         for m in _FIELD_TOKEN_RE.finditer(plain):
             if m.group(1) == nonce:
                 return m.group(0)
@@ -313,7 +311,7 @@ def find_tokens(
     """Find ``token_re`` placeholder cursors inside *text_obj*, descending into tables and frames."""
     hits: list[tuple[Any, re.Match[str]]] = []
     for xtext in _iter_field_texts(text_obj):
-        plain = uno_read(lambda: xtext.getString() or "", "")
+        plain = uno_read(lambda: xtext.getString(), "")
         if prefix not in plain:
             continue
 
@@ -324,7 +322,7 @@ def find_tokens(
         try:
             for para in iter_elements(enum):
                 para_text = uno_read(lambda: para.getString(), None)
-                if isinstance(para_text, str) and prefix not in para_text:
+                if para_text is not None and prefix not in para_text:
                     continue
                 portions = uno_read(lambda: para.createEnumeration(), None)
                 chunks: list[str] = []
@@ -337,8 +335,7 @@ def find_tokens(
                     if kind == "TextField":
                         chunk = "\x00"
                     else:
-                        raw_chunk = uno_read(lambda: portion.getString() or "", "")
-                        chunk = raw_chunk if isinstance(raw_chunk, str) else str(raw_chunk)
+                        chunk = uno_read(lambda: portion.getString(), "")
                     if chunk:
                         chunks.append(chunk)
                         offsets.append(pos)
@@ -390,10 +387,9 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
 def restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
-    When *text_obj* is set, walk that XText first. ``findFirst`` misses a
-    header/footer on a page style no page is using (a cloned page style).
-    The document search remains the path for body text, and the fallback
-    when the cursor walk cannot see the token.
+    Walks *text_obj* first: ``findFirst`` misses a header/footer on a page style
+    no page is using (a cloned page style). The document search is the fallback
+    when the cursor walk leaves a token.
     """
     walked = _restore_fields_by_cursor(model, text_obj, nonce=nonce)
     remaining = _first_remaining_field_token(text_obj, nonce)
@@ -402,38 +398,35 @@ def restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
 
     restored = walked
 
-    if model is not None and hasattr(model, "createSearchDescriptor"):
-        sd = model.createSearchDescriptor()
-        sd.SearchRegularExpression = True
+    sd = model.createSearchDescriptor()
+    sd.SearchRegularExpression = True
 
-        nonce_pat = re.escape(nonce)
-        titles_pat = "|".join(_FIELD_TITLE_TO_SERVICE)
-        sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:(?:" + titles_pat + r"))(?:\|[^\]]+)?\]\]"
-        found = model.findFirst(sd)
+    nonce_pat = re.escape(nonce)
+    titles_pat = "|".join(_FIELD_TITLE_TO_SERVICE)
+    sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:" + titles_pat + r")(?:\|[^\]]+)?\]\]"
+    found = model.findFirst(sd)
+    is_body = uno_same(text_obj, model.getText())
 
-        while found is not None:
-            in_region = True
-            if not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
-                in_region = uno_same(found.getText(), text_obj)
+    while found is not None:
+        in_region = is_body or uno_same(found.getText(), text_obj)
 
-            props: dict[str, str] = {}
-            field_title = ""
-            token = found.getString()
-            if isinstance(token, str):
-                match = _FIELD_TOKEN_RE.match(token)
-                if match and match.group(1) == nonce:
-                    field_title = match.group(2).lower()
-                    props = _parse_field_token_props(match.group(3))
+        props: dict[str, str] = {}
+        field_title = ""
+        token = found.getString()
+        match = _FIELD_TOKEN_RE.match(token)
+        if match and match.group(1) == nonce:
+            field_title = match.group(2).lower()
+            props = _parse_field_token_props(match.group(3))
 
-            nxt = model.findNext(found.getEnd(), sd)
+        nxt = model.findNext(found.getEnd(), sd)
 
-            if in_region and field_title:
-                _insert_restored_field(model, found, field_title, props)
-                restored += 1
+        if in_region and field_title:
+            _insert_restored_field(model, found, field_title, props)
+            restored += 1
 
-            found = nxt
+        found = nxt
 
-        remaining = _first_remaining_field_token(text_obj, nonce)
+    remaining = _first_remaining_field_token(text_obj, nonce)
 
     if isinstance(remaining, str):
         raise ToolExecutionError(

@@ -119,7 +119,7 @@ def _stream_into_session(
                 preset_instruction is not None
                 and sidebar_notify is not None
                 and completion_meta.get("finish_reason") == "length"
-                and not (session.generated_text or "").strip()
+                and not session.generated_text.strip()
             ):
                 sidebar_notify(
                     _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
