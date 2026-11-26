@@ -59,6 +59,7 @@ from plugin.notebook.writer_importer import (
 
 from plugin.notebook.cell_registry import NotebookDocState
 from plugin.notebook.layout import _MAX_IMPORT_TEXT_CHARS, _TRUNCATION_SUFFIX
+from plugin.tests.testing_utils import DisposedException
 
 # Tests still refer to legacy private names for layout helpers re-exported publicly.
 _coerce_notebook_text = coerce_notebook_text
@@ -1915,7 +1916,7 @@ def test_import_cells_closed_document_aborts(monkeypatch):
         cells = [_Cell(), _Cell()]
 
     def fail_append(*_args, **_kwargs):
-        raise type("DisposedException", (Exception,), {})("closed")
+        raise DisposedException("closed")
 
     monkeypatch.setattr(
         "plugin.notebook.writer_importer._append_body_paragraph", fail_append)
@@ -1930,9 +1931,6 @@ def test_import_cells_closed_document_aborts(monkeypatch):
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.notebook.writer_importer import _cursor_para_is_empty, _doc_body_nonempty
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass
@@ -1983,7 +1981,7 @@ def test_insert_image_in_flow_propagates_disposed_document(monkeypatch: pytest.M
     from plugin.notebook import writer_importer
 
     def _disposed(*_args: Any, **_kwargs: Any) -> Any:
-        raise type("DisposedException", (Exception,), {})("gone")
+        raise DisposedException("gone")
 
     monkeypatch.setattr(writer_importer, "insert_image_at_locator", _disposed)
     monkeypatch.setattr(writer_importer, "_display_size_units", lambda *_a, **_k: (1000, 1000))

@@ -869,4 +869,3 @@ def test_write_range_allows_null_cell() -> None:
     ok = json.loads(dispatch_string_tool(c, "write_range", json.dumps({"range": ["A1:B1"], "values": [["a", None]]})))
     assert ok["status"] == "ok"
     assert c._grid[0] == ["a", None]
-

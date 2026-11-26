@@ -1866,4 +1866,3 @@ def test_arg_overlaps_box():
     assert arg_overlaps_box("Other.G2:G9", box, sheet_name="Sheet1") is False
     assert arg_overlaps_box("'My Sheet'.G2:G9", box, sheet_name="My Sheet") is True
     assert arg_overlaps_box("'Other Sheet'.G2:G9", box, sheet_name="My Sheet") is False
-

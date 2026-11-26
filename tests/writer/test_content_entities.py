@@ -44,10 +44,10 @@ class TestOnlyCompleteReferencesAreDecoded:
             ("R&#36;10,00 &para cada parcela", "R$10,00 &para cada parcela"),
             ("R&#36;1.000,00 &not incluidos", "R$1.000,00 &not incluidos"),
         ):
-            assert (self._decode(text)) == (want)
+            assert self._decode(text) == want
 
     def test_complete_references_still_decode(self):
-        assert (self._decode("A &amp; B &#x24;5 &sect;2")) == ("A & B $5 §2")
+        assert self._decode("A &amp; B &#x24;5 &sect;2") == "A & B $5 §2"
 
 
 def test_plain_path_params_decode_entities_and_expand_escapes():

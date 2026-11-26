@@ -10,10 +10,10 @@ def test_topo_sort():
     modules = [{'name': 'a', 'requires': ['b', 'c']}, {'name': 'b', 'requires': ['c']}, {'name': 'c', 'requires': []}, {'name': 'core', 'requires': []}]
     order = topo_sort(modules)
     names = [m['name'] for m in order]
-    assert (names[0] == 'core')
-    assert (names.index('c') < names.index('b'))
-    assert (names.index('b') < names.index('a'))
-    assert (names.index('c') < names.index('a'))
+    assert names[0] == 'core'
+    assert names.index('c') < names.index('b')
+    assert names.index('b') < names.index('a')
+    assert names.index('c') < names.index('a')
 
 
 def test_topo_sort_cycle_raises_config_error():
@@ -34,7 +34,7 @@ def test_topo_sort_with_provides_services():
     modules = [{'name': 'consumer', 'requires': ['service_a']}, {'name': 'provider', 'provides_services': ['service_a']}]
     order = topo_sort(modules)
     names = [m['name'] for m in order]
-    assert (names.index('provider') < names.index('consumer'))
+    assert names.index('provider') < names.index('consumer')
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
 def test_load_modules(mock_load_manifest, caplog):
@@ -67,8 +67,8 @@ def test_load_modules(mock_load_manifest, caplog):
         with patch.object(inspect, 'isclass', side_effect=fake_isclass):
             with caplog.at_level(logging.WARNING, logger='writeragent.module_base'):
                 modules = ModuleLoader.load_modules({})
-        assert (len(modules) == 1)
-        assert (modules[0].name == 'test_module')
+        assert len(modules) == 1
+        assert modules[0].name == 'test_module'
         assert not any(('ModuleBase subclasses' in record.message) for record in caplog.records)
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
@@ -96,8 +96,8 @@ def test_load_modules_warns_when_two_subclasses(mock_load_manifest, caplog):
     with patch('importlib.import_module', return_value=mock_module), patch.object(os.path, 'isdir', return_value=True):
         with caplog.at_level(logging.WARNING, logger='writeragent.module_base'):
             modules = ModuleLoader.load_modules({})
-    assert (len(modules) == 1)
-    assert (type(modules[0]).__name__ == 'AlphaModule')
+    assert len(modules) == 1
+    assert type(modules[0]).__name__ == 'AlphaModule'
     assert any(('exposes 2 ModuleBase subclasses' in record.message) for record in caplog.records)
     assert any(('AlphaModule' in record.message and 'ZetaModule' in record.message) for record in caplog.records)
 
@@ -215,8 +215,8 @@ class MyModule(ModuleBase):
 
 def test_get_menu_methods():
     mod = MyModule()
-    assert (mod.get_menu_text('some_action') is None)
-    assert (mod.get_menu_icon('some_action') is None)
+    assert mod.get_menu_text('some_action') is None
+    assert mod.get_menu_icon('some_action') is None
 
 
 def test_manifest_packages_exist_with_module_yaml():

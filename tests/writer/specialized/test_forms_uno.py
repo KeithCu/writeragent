@@ -19,7 +19,7 @@ import uno  # noqa: F401
 
 from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import pinned_writer_tool_context, with_native_doc
 
 
 def _clear_doc(doc):
@@ -47,13 +47,13 @@ def test_create_form_control_checkbox(ctx, doc):
     registry = get_tools()
     tool = registry.get("form_create_control")
     assert tool is not None, "create_form_control tool not found"
-    
+
     mock_ctx = MockCtx(doc)
-    
+
     # Test creating a checkbox
     res = tool.execute(mock_ctx, control="checkbox", name="test_check", label="Test Label")
     assert res["status"] == "ok", f"Tool execution failed: {res}"
-    
+
     # Verify shape exists on draw page
     dp = doc.getDrawPage()
     found = False
@@ -74,18 +74,18 @@ def test_create_form_fat_api(ctx, doc):
     registry = get_tools()
     tool = registry.get("form_create")
     assert tool is not None, "create_form tool not found"
-    
+
     mock_ctx = MockCtx(doc)
-    
+
     fields = [
         {"control": "text", "name": "f1", "label": "Field 1", "placeholder": "Hint"},
         {"control": "combobox", "name": "f2", "items": ["Option A", "Option B"]}
     ]
-    
+
     res = tool.execute(mock_ctx, fields=fields)
     assert res["status"] == "ok", f"Fat API failed: {res}"
     assert len(res["results"]) == 2
-    
+
     # Verify both exist
     dp = doc.getDrawPage()
     names = []
@@ -93,7 +93,7 @@ def test_create_form_fat_api(ctx, doc):
         shape = dp.getByIndex(i)
         if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
             names.append(shape.Control.Name)
-    
+
     assert "f1" in names
     assert "f2" in names
 
@@ -104,19 +104,19 @@ def test_generate_form_processing_logic(ctx, doc):
     # We test the parser and processor directly to avoid flaky LLM calls in CI
     from plugin.writer.specialized.forms import FormGenerate
     tool = FormGenerate()
-    
+
     mock_ctx = MockCtx(doc)
-    
+
     # Test markdown snippet with multiple field types
     content = (
         "# Title\n"
         "Name: {FIELD:control='text',name='nm',placeholder='Name'}\n"
         "Agree: {FIELD:control='checkbox',name='cb',label='Yes'}"
     )
-    
+
     res = tool._process_form_content(mock_ctx, content)
     assert res["status"] == "ok"
-    
+
     # Verify form control names are on the draw page; bind every shape proxy once
     # before inspecting it so a late release of a dropped proxy cannot detach a refetched one (docs/framework/uno-test-lifecycle.md).
     dp = doc.getDrawPage()
@@ -132,11 +132,11 @@ def test_insert_text_with_view_cursor(ctx, doc):
     """Verify that _insert_text correctly handles the ViewCursor by converting it."""
     from plugin.writer.specialized.forms import FormGenerate
     tool = FormGenerate()
-    
+
     mock_ctx = MockCtx(doc)
-    
+
     tool._insert_text(mock_ctx, "<b>Bold Text</b>")
-    
+
     # Verify insertion
     text = doc.getText().getString()
     assert "Bold Text" in text
@@ -148,24 +148,24 @@ def test_list_form_controls(ctx, doc):
     _clear_doc(doc)
     from plugin.app import get_tools
     registry = get_tools()
-    
+
     # 1. Create a few controls
     create_tool = registry.get("form_create_control")
     mock_ctx = MockCtx(doc)
     create_tool.execute(mock_ctx, control="text", name="txt1", label="Label 1")
     create_tool.execute(mock_ctx, control="checkbox", name="chk1", label="Label 2")
-    
+
     # 2. List them
     list_tool = registry.get("form_list_controls")
     res = list_tool.execute(mock_ctx)
-    
+
     assert res["status"] == "ok"
     assert res["count"] == 2
-    
+
     names = [c["name"] for c in res["controls"]]
     assert "txt1" in names
     assert "chk1" in names
-    
+
     types = [c["type"] for c in res["controls"]]
     assert "text" in types
     assert "checkbox" in types
@@ -178,22 +178,22 @@ def test_edit_form_control(ctx, doc):
     from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
-    
+
     # 1. Create a control (use checkbox which has Label)
     create_tool = registry.get("form_create_control")
     create_tool.execute(mock_ctx, control="checkbox", name="original_name", label="Original Label")
-    
+
     # 2. Get its index
     list_tool = registry.get("form_list_controls")
     list_res = list_tool.execute(mock_ctx)
     idx = list_res["controls"][0]["index"]
-    
+
     # 3. Edit it
     edit_tool = registry.get("form_edit_control")
     edit_res = edit_tool.execute(mock_ctx, index=idx, name="new_name", label="New Label")
-    
+
     assert edit_res["status"] == "ok"
-    
+
     # 4. Verify changes
     list_res2 = list_tool.execute(mock_ctx)
     ctrl = list_res2["controls"][0]
@@ -206,7 +206,7 @@ def test_edit_form_control(ctx, doc):
     create_tool.execute(mock_ctx, control="text", name="txt_orig", default_value="Original Text")
     list_res3 = list_tool.execute(mock_ctx)
     idx2 = list_res3["controls"][0]["index"]
-    
+
     edit_tool.execute(mock_ctx, index=idx2, text="New Text")
     list_res4 = list_tool.execute(mock_ctx)
     ctrl2 = list_res4["controls"][0]
@@ -221,22 +221,22 @@ def test_delete_form_control(ctx, doc):
     from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
-    
+
     # 1. Create a control
     create_tool = registry.get("form_create_control")
     create_tool.execute(mock_ctx, control="checkbox", name="to_delete")
-    
+
     # 2. Get index
     list_tool = registry.get("form_list_controls")
     list_res = list_tool.execute(mock_ctx)
     idx = list_res["controls"][0]["index"]
-    
+
     # 3. Delete it
     delete_tool = registry.get("form_delete_control")
     del_res = delete_tool.execute(mock_ctx, index=idx)
-    
+
     assert del_res["status"] == "ok"
-    
+
     # 4. Verify it is gone
     list_res2 = list_tool.execute(mock_ctx)
     assert list_res2["count"] == 0
@@ -424,9 +424,6 @@ def test_form_create_recorded_accept_reject_and_record_mode_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_form_create_uses_pinned_caret_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.specialized.forms import FormCreate
 
     _clear_doc(doc)
@@ -440,8 +437,7 @@ def test_form_create_uses_pinned_caret_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(cur)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     res = FormCreate().execute(
@@ -471,9 +467,6 @@ def test_form_create_uses_pinned_caret_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_form_generate_uses_pinned_caret_uno(ctx, doc):
-    from plugin.doc.text_helpers import selection_cursor_snapshot
-    from plugin.framework.tool import SelectionPin
-    from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.specialized.forms import FormGenerate
 
     _clear_doc(doc)
@@ -487,8 +480,7 @@ def test_form_generate_uses_pinned_caret_uno(ctx, doc):
     controller = doc.getCurrentController()
     controller.select(cur)
 
-    tctx = native_writer_tool_context(doc, ctx)
-    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc), doc)
+    tctx = pinned_writer_tool_context(doc, ctx)
     controller.getViewCursor().gotoEnd(False)
 
     content = "<p>Title</p>Name: {FIELD:control='text',name='g1'} Agree {FIELD:control='checkbox',name='g2'}<p>tail</p>"
@@ -574,7 +566,3 @@ def test_form_generate_recorded_over_selection_keeps_text_uno(ctx, doc):
         assert any(dp.getByIndex(i).Name == "g1" for i in range(dp.getCount()))
     finally:
         doc.setPropertyValue("RecordChanges", False)
-
-
-
-

@@ -423,5 +423,3 @@ def test_fork_doc_chat_history_ignores_system_only_destination(tmp_path, monkeyp
 
     msgs = get_chat_history("test-new").get_messages()
     assert [m["content"] for m in msgs] == ["this should copy"]
-
-

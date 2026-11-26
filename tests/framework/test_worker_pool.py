@@ -595,7 +595,7 @@ class TestWorkerPoolErrorHandling():
             return (x + y)
         thread = run_in_background(mock_task, 2, 3)
         thread.join()
-        assert (not thread.is_alive())
+        assert not thread.is_alive()
 
     def test_run_in_background_failure(self):
         error_cb = MagicMock()
@@ -604,12 +604,12 @@ class TestWorkerPoolErrorHandling():
             raise ValueError('Test error')
         thread = run_in_background(mock_task, error_callback=error_cb)
         thread.join()
-        assert (error_cb.call_count == 1)
+        assert error_cb.call_count == 1
         wrapped_error = error_cb.call_args[0][0]
         assert isinstance(wrapped_error, WorkerPoolError)
-        assert ("Task 'mock_task' failed" in wrapped_error.message)
-        assert (wrapped_error.code == 'WORKER_TASK_FAILED')
-        assert (wrapped_error.details['error_type'] == 'ValueError')
+        assert "Task 'mock_task' failed" in wrapped_error.message
+        assert wrapped_error.code == 'WORKER_TASK_FAILED'
+        assert wrapped_error.details['error_type'] == 'ValueError'
 
 
 class TestReadStreamStripsNewlines:

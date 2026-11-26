@@ -8,11 +8,12 @@ import pytest
 
 from plugin.framework.tool import ToolContext
 from plugin.tests.testing_utils import (
+    _exception_leaving_native_doc,
     CalcDocStub,
+    FakeUnoEnum,
     MockContext,
     TestingFactory,
     WriterDocStub,
-    _exception_leaving_native_doc,
 )
 
 
@@ -189,17 +190,6 @@ def test_reraise_native_open_failure_passthrough_non_urp():
             _reraise_native_open_failure(exc, "private:factory/sdraw")
 
 
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 @pytest.mark.parametrize(
     ("has_leftover", "use_other_import", "expected_count"),
     [
@@ -230,7 +220,7 @@ def test_prepare_windows_writer_factory_reactivates_keeper(
         docs.append(leftover)
 
     desktop = MagicMock()
-    desktop.getComponents.return_value.createEnumeration.return_value = _Enum(docs)
+    desktop.getComponents.return_value.createEnumeration.return_value = FakeUnoEnum(docs)
     monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
     setter_mod = tests_tu if use_other_import else plugin_tu
     setter_mod.set_harness_keeper_uid("1", keeper)
@@ -1324,4 +1314,3 @@ def test_native_doc_yields_doc_when_body_succeeds(monkeypatch):
         assert doc is sentinel
 
     mock_close.assert_called_once_with(sentinel)
-

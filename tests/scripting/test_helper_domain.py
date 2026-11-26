@@ -18,6 +18,7 @@ from plugin.scripting.helper_domain import (
     supports_calc_or_writer_manual,
 )
 import pytest
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_build_run_import_template_has_header_and_import():
@@ -276,9 +277,6 @@ def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
     from plugin.scripting.helper_domain import run_trusted_calc_data_helper
     from plugin.framework.errors import DocumentDisposedError
 
-    class DisposedException(Exception):
-        pass
-
     row = get_domain_wiring("forecast")
     client_mock = MagicMock()
     with (
@@ -488,6 +486,3 @@ def test_run_domain_symbolic_resolves_doc_type_from_model(service: str, should_s
             with pytest.raises(ToolExecutionError, match="Writer or Calc"):
                 run_domain("math", MagicMock(), doc, helper="symbolic_simplify", params={"expression": "x + x"})
             mock_run_symbolic.assert_not_called()
-
-
-

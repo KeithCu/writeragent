@@ -206,5 +206,3 @@ def test_indexable_chunks_from_path_skips_corrupt_odt(tmp_path: Path):
     count, chunks = embeddings_fs.indexable_chunks_from_path(str(corrupt))
     assert count == 0
     assert chunks is None
-
-

@@ -656,4 +656,3 @@ def install_view_doc_listener(
     except Exception:
         log.warning("%s: doc-event listener install failed", log_label, exc_info=True)
         return None
-

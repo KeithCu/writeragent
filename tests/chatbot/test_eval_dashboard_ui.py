@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.eval_dashboard_ui import EvalDashboard, EvalRunListener
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_show_loads_eval_dialog_with_ctx() -> None:
@@ -291,9 +292,6 @@ def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.M
 
 def test_disposed_dialog_summary_and_failure_clear_running() -> None:
     """A disposed window raises instead of painting. is_running still clears."""
-
-    class DisposedException(Exception):
-        pass
 
     dialog = MagicMock()
     dialog.getControl.side_effect = DisposedException("disposed")

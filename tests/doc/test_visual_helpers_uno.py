@@ -324,4 +324,3 @@ def test_delete_graphic_page_anchored_uno(ctx: Any, doc: Any) -> None:
     assert delete_graphic(ctx, doc, shape) is False
     assert page.getCount() == count_before
     assert text.getString() == expected_body
-

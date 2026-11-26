@@ -497,7 +497,7 @@ class TestStdinWriteCapturesProc:
         proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"result": {"protocolVersion": 1}, "error": None})
         conn._proc = proc
         conn._running = True
-        assert (conn.send_request("initialize", {}, timeout=2)) == ({"protocolVersion": 1})
+        assert conn.send_request("initialize", {}, timeout=2) == {"protocolVersion": 1}
 
     @pytest.mark.parametrize(
         ("method", "error_obj", "match", "expected_rpc_code"),
@@ -639,8 +639,8 @@ class TestStdinWriteCapturesProc:
         conn.send_response(4, result=result)
         assert _wait_until(lambda: bool(stdin.written))
         payload = json.loads(stdin.written[0].decode("utf-8"))
-        assert (payload["result"]) == (expected)
-        assert (payload["id"]) == (4)
+        assert payload["result"] == expected
+        assert payload["id"] == 4
 
 
 def test_is_alive_does_not_reread_proc():
@@ -1246,4 +1246,3 @@ def test_is_healthy_and_reader_exit_kills_tree(monkeypatch):
     assert conn.is_alive is True
     assert conn.is_healthy is False
     assert killed == [proc]
-

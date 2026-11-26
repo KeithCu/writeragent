@@ -15,22 +15,7 @@ from plugin.writer.table_nesting import (
     raise_if_range_hosts_nested_table,
     set_host_paragraphs,
 )
-
-
-class _Enum:
-    def __init__(self, items: list[Any]):
-        self._items = list(items)
-        self._index = 0
-
-    def hasMoreElements(self) -> bool:
-        return self._index < len(self._items)
-
-    def nextElement(self) -> Any:
-        if self._index >= len(self._items):
-            raise IndexError("enumeration exhausted")
-        item = self._items[self._index]
-        self._index += 1
-        return item
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 class _Portion:
@@ -61,12 +46,12 @@ class _Paragraph:
         self._text = text
         self._portions = None
 
-    def createEnumeration(self) -> _Enum:
+    def createEnumeration(self) -> FakeUnoEnum:
         if self._portions is not None:
-            return _Enum(self._portions)
+            return FakeUnoEnum(self._portions)
         if self._text:
-            return _Enum([_Portion(TextPortionType="Text", Text=self._text)])
-        return _Enum([])
+            return FakeUnoEnum([_Portion(TextPortionType="Text", Text=self._text)])
+        return FakeUnoEnum([])
 
 
 class _Table:
@@ -88,15 +73,15 @@ class _Frame:
         return name == "com.sun.star.text.TextFrame"
 
     def getText(self) -> Any:
-        return SimpleNamespace(createEnumeration=lambda: _Enum(self._elements))
+        return SimpleNamespace(createEnumeration=lambda: FakeUnoEnum(self._elements))
 
 
 class _Cell:
     def __init__(self, elements: list[Any] | None = None):
         self._elements = list(elements or [])
 
-    def createEnumeration(self) -> _Enum:
-        return _Enum(self._elements)
+    def createEnumeration(self) -> FakeUnoEnum:
+        return FakeUnoEnum(self._elements)
 
     def getStart(self) -> Any:
         return object()
@@ -200,16 +185,14 @@ def test_guard_message_does_not_name_a_tool_that_may_not_call_it() -> None:
 
 
 def test_cell_walk_disposal_mid_enumeration_propagates() -> None:
-    disposed_exc_type = type("DisposedException", (Exception,), {})
-
-    class _MidWalkDisposedEnum(_Enum):
+    class _MidWalkDisposedEnum(FakeUnoEnum):
         def nextElement(self) -> Any:
-            if self._index == 1:
-                raise disposed_exc_type("gone")
+            if self._idx == 1:
+                raise DisposedException("gone")
             return super().nextElement()
 
     class _DisposingCell(_Cell):
-        def createEnumeration(self) -> _Enum:
+        def createEnumeration(self) -> FakeUnoEnum:
             return _MidWalkDisposedEnum(self._elements)
 
     cell = _DisposingCell([_Paragraph("a"), _Table("T")])

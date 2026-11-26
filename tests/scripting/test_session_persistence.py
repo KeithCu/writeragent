@@ -216,4 +216,3 @@ def test_shared_session_multiple_explicit_result_assignments():
     assert r2["result"] == 99
     r3 = sandbox_run("z = 123", None, session_id=sid)
     assert r3["result"] == 123
-

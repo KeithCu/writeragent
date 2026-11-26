@@ -30,6 +30,7 @@ from plugin.calc.charts import (
     _writer_body_has_no_text,
 )
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.tests.testing_utils import DisposedException
 
 
 def _tool(name: str):
@@ -484,10 +485,6 @@ def test_find_calc_chart_honors_sheet_name():
 
     chart_obj, sheet = _find_calc_chart_and_sheet(doc, "Chart_0", "Data")
     assert sheet is sheet_data
-
-
-class DisposedException(Exception):
-    pass
 
 
 class RuntimeException(Exception):
@@ -1344,6 +1341,3 @@ def test_apply_chart_styling_bg_color_zero_black():
     warnings = _apply_chart_styling(chart_doc, bg_color=0)
     assert warnings == []
     bg.setPropertyValue.assert_any_call("FillColor", 0)
-
-
-

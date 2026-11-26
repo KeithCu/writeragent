@@ -127,5 +127,3 @@ def test_embed_texts_unsupported_provider(ctx):
     with patch("plugin.embeddings.embedding_client.get_config", side_effect=lambda k: "openrouter" if k == "embedding_provider" else ""):
         with pytest.raises(ConfigError, match="not implemented"):
             embed_texts(ctx, ["hello"])
-
-

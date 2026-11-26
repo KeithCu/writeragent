@@ -285,4 +285,3 @@ def test_notify_thread_violation_never_blocks(monkeypatch):
     tg._notify_thread_violation("test violation from background worker")
     assert execute_called is False
     assert post_called is True
-

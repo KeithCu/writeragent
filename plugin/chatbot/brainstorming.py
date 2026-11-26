@@ -111,4 +111,3 @@ class BrainstormingSessionTool(SubAgentSessionToolBase):
     parameters: dict[str, Any] | None = session_tool_parameters(
         "Original brainstorming topic from delegate task."
     )
-

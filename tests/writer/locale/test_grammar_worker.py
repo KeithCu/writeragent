@@ -398,7 +398,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
 
         # 3 items -> 3 LLM calls
         assert mock_client.chat_completion_sync.call_count == 3
-        
+
         # Verify first call used the single sentence prompt (not batch prompt)
         args, _ = mock_client.chat_completion_sync.call_args_list[0]
         # args[0] is messages
@@ -426,7 +426,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
             '{"detected_language_bcp47": "ja-JP"}', # Detection
             '{"errors": [{"wrong": "\u65e5\u672c\u8a9e", "correct": "\u306b\u307b\u3093\u3054", "type": "grammar", "reason": "test"}]}' # Grammar
         ]
-    
+
         # Track execution order
         call_order = []
         mock_cache_put.side_effect = lambda *args, **kwargs: call_order.append(("cache_put", args[0]))
@@ -441,26 +441,26 @@ def test_locale_mismatch_proceeds_and_double_caches(
             inflight_key="key123",
             enqueue_seq=1,
         )
-    
+
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
-    
+
         # 1. Verify document update was triggered with paragraph_text
         mock_apply.assert_called_once_with("doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
-    
+
         # 2. Verify grammar check was done with ja-JP
         args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]
         messages = args[0]
         sys_prompt = messages[0]["content"]
         assert "ja-JP" in sys_prompt
         assert "Japanese" in sys_prompt
-    
+
         # 3. Verify double caching
         assert mock_cache_put.call_count == 2
-        
+
         # Check ja-JP cache put
         args_ja, _ = mock_cache_put.call_args_list[0]
         assert args_ja[0] == "ja-JP"
-        
+
         # Check zh-CN cache put (the loop breaker)
         args_zh, _ = mock_cache_put.call_args_list[1]
         assert args_zh[0] == "zh-CN"
@@ -1240,4 +1240,3 @@ def test_worker_batch_skips_harper_provider() -> None:
     with patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run:
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
     mock_run.assert_not_called()
-

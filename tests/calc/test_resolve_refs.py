@@ -110,4 +110,3 @@ def test_resolve_dep_junk_no_pattern_error(dep: str) -> None:
     model = DummyModel()  # type: ignore[assignment]
     resolved = resolve_dep(dep, model)
     assert resolved.kind == "unresolved"
-

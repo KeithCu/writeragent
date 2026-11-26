@@ -56,5 +56,3 @@ class TestGuardUnoBoundaries:
 
         out = _office_model_from_desktop_element(elem)
         assert out is None
-
-

@@ -32,6 +32,7 @@ from plugin.calc.charts import (
     _supports_service,
     chart_host,
 )
+from plugin.tests.testing_utils import DisposedException
 from tests.calc.tool_lookup import calc_tool
 
 
@@ -64,13 +65,6 @@ def test_writer_embed_is_chart_by_diagram():
     chart_doc.getDiagram.return_value = diagram
     o.getEmbeddedObject.return_value = chart_doc
     assert _is_chart_host(o, is_embed=True) is True
-
-
-class _DisposedException(Exception):
-    """Name matches the dispose heuristic without importing UNO exceptions."""
-
-
-DisposedException = _DisposedException
 
 
 class RuntimeException(Exception):
@@ -229,10 +223,10 @@ def _writer_doc(page):
 @pytest.mark.parametrize(
     ("host_kind", "doc_builder", "shape_error", "extra_shapes"),
     [
-        pytest.param("draw", _draw_doc, _DisposedException("gone"), [_OleShape("ignored", name_error=_DisposedException("name gone"))], id="draw-disposed"),
+        pytest.param("draw", _draw_doc, DisposedException("gone"), [_OleShape("ignored", name_error=DisposedException("name gone"))], id="draw-disposed"),
         pytest.param("draw", _draw_doc, ValueError("bad shape"), [], id="draw-bad-shape-type"),
         pytest.param("writer", _writer_doc, ValueError("bad shape"), [], id="writer-bad-shape-type"),
-        pytest.param("writer", _writer_doc, _DisposedException("gone"), [], id="writer-disposed"),
+        pytest.param("writer", _writer_doc, DisposedException("gone"), [], id="writer-disposed"),
     ],
 )
 def test_resolve_chart_skips_broken_shapes(host_kind, doc_builder, shape_error, extra_shapes):
@@ -248,7 +242,7 @@ def test_resolve_chart_skips_broken_shapes(host_kind, doc_builder, shape_error, 
 
 def test_list_charts_skips_disposed_shape():
     dead = MagicMock()
-    dead.getShapeType.side_effect = _DisposedException("gone")
+    dead.getShapeType.side_effect = DisposedException("gone")
     live = _OleShape("Chart_2")
     page = _page(dead, live)
     doc = MagicMock()
@@ -283,7 +277,7 @@ def test_list_charts_sees_byte_sequence_clsid():
 def test_series_color_skips_disposed_series():
     class _DisposedSeries:
         def getPropertySetInfo(self) -> object:
-            raise _DisposedException("series gone")
+            raise DisposedException("series gone")
 
     live = MagicMock()
     live.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
@@ -420,8 +414,8 @@ def test_process_events_past_deadline_does_not_pump(monkeypatch):
 
 def test_list_charts_closed_document_is_disposal():
     doc = MagicMock()
-    doc.getImplementationName.side_effect = _DisposedException("doc disposed")
-    doc.supportsService.side_effect = _DisposedException("doc disposed")
+    doc.getImplementationName.side_effect = DisposedException("doc disposed")
+    doc.supportsService.side_effect = DisposedException("doc disposed")
     ctx = MagicMock()
     ctx.doc = doc
     res = calc_tool("chart_list").execute_safe(ctx)
@@ -471,7 +465,7 @@ def test_list_charts_calc_per_sheet_error_is_explicit():
 def test_list_charts_calc_get_sheets_disposed_propagates_when_impl_name_succeeds():
     doc = MagicMock()
     doc.getImplementationName.return_value = "ScModelObj"
-    doc.getSheets.side_effect = _DisposedException("getSheets disposed")
+    doc.getSheets.side_effect = DisposedException("getSheets disposed")
     ctx = MagicMock()
     ctx.doc = doc
 
@@ -535,14 +529,14 @@ def test_list_charts_draw_closed_mid_scan_raises():
     def get_page(idx: int):
         nonlocal disposed
         disposed = True
-        raise _DisposedException("page disposed mid-scan")
+        raise DisposedException("page disposed mid-scan")
 
     pages.getByIndex.side_effect = get_page
     doc.getDrawPages.return_value = pages
 
     def get_impl():
         if disposed:
-            raise _DisposedException("doc disposed mid-scan")
+            raise DisposedException("doc disposed mid-scan")
         return "DrawingDocument"
 
     doc.getImplementationName.side_effect = get_impl
@@ -886,7 +880,7 @@ def test_resolve_chart_finds_chart_nested_in_groups():
 
 def test_resolve_chart_skips_disposed_child_in_live_group():
     dead = MagicMock()
-    dead.getShapeType.side_effect = _DisposedException("child gone")
+    dead.getShapeType.side_effect = DisposedException("child gone")
     live = _OleShape("Chart_AfterDead")
     group = _GroupShape(dead, live, name="Group")
     page = _page(group)
@@ -1108,13 +1102,13 @@ def test_axis_title_setter_warning_and_no_rollback():
 
         @HasXAxisTitle.setter
         def HasXAxisTitle(self, val: bool) -> None:
-            raise _DisposedException("axis disposed")
+            raise DisposedException("axis disposed")
 
     class _ChartDocDisposed:
         def getDiagram(self) -> Any:
             return _DiagramDisposed()
 
-    with pytest.raises(_DisposedException):
+    with pytest.raises(DisposedException):
         _apply_chart_styling(_ChartDocDisposed(), x_axis_title="X Title")
 
     # On edit: status ok, warning names X axis, and no rollback
@@ -1158,7 +1152,7 @@ def test_edit_missing_diagram_applies_data_and_warns():
     ):
         res = calc_tool("chart_upsert").execute_safe(
             ctx,
-            
+
             name="Chart_0",
             headers=["Cat", "Val"],
             rows=[["A", 10.0]],
@@ -1350,6 +1344,3 @@ def test_draw_create_omitted_page_uses_controller_current_page():
         assert res["page"] == 1
         page1.add.assert_called_once_with(new_shape)
         page0.add.assert_not_called()
-
-
-

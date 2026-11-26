@@ -50,19 +50,17 @@ class TestSendButtonListenerDocumentModel:
         writer = _writer_model()
         self.listener.cached_doc_type = "writer"
         self.frame.getController.return_value.getModel.return_value = writer
-        assert (self.listener._get_document_model()) is (writer)
+        assert self.listener._get_document_model() is writer
 
     def test_returns_none_when_frame_missing(self) -> None:
         self.listener.frame = None
-        assert (self.listener._get_document_model()) is None
+        assert self.listener._get_document_model() is None
 
     def test_returns_none_when_frame_get_model_raises(self) -> None:
         self.frame.getController.return_value.getModel.side_effect = ValueError("simulated frame failure")
-        assert (self.listener._get_document_model()) is None
+        assert self.listener._get_document_model() is None
 
     def test_returns_none_when_no_compatible_document(self) -> None:
         bad = _non_document_component()
         self.frame.getController.return_value.getModel.return_value = bad
-        assert (self.listener._get_document_model()) is None
-
-
+        assert self.listener._get_document_model() is None

@@ -8,28 +8,17 @@ Does not exercise the images specialist / #757 prompt-steer path.
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.send_handlers import SendHandlersMixin, _direct_image_source_arg
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import logo_32_path, with_native_doc
 from plugin.writer.images.image_tools import insert_image_at_locator
 
 
-def _logo_path() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
-        path = os.path.join(root, *rel.split("/"))
-        if os.path.isfile(path):
-            return path
-    return os.path.join(root, "extension", "assets", "logo_32.png")
-
-
 def _insert_and_select_graphic(ctx, doc):
-    logo = _logo_path()
-    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    logo = logo_32_path()
     graphic = insert_image_at_locator(ctx, doc, logo, width_mm=20, height_mm=20)
     assert graphic is not None, "failed to insert fixture image"
     doc.getCurrentController().select(graphic)

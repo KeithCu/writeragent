@@ -892,4 +892,3 @@ def test_format_script_api_catalog_app_domains_use_app_namespaces():
     assert "wa.writer.apply_content(" in catalog
     assert "wa.calc.read_range(" in catalog
     assert "wa.draw.get_deck_info(" in catalog
-

@@ -87,4 +87,3 @@ def editor_error_markers(message: str, traceback_text: str = "", code: str = "")
     first_line = next((raw.strip() for raw in target_text.splitlines() if raw.strip()), "")
     first_line = re.sub(r"\s*\(took\s+[^)]*\)$", "", first_line).strip()
     return [{"line": line, "message": first_line, "severity": "error"}]
-

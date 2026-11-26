@@ -32,7 +32,7 @@ class FakeBI:
             res.startPos = pos
             res.endPos = len(text)
         return res
-        
+
     def endOfSentence(self, text, pos, locale):
         import re
         m = re.search(r'[.!?]', text[pos:])
@@ -911,7 +911,3 @@ def test_normalize_null_type_and_reason_do_not_leak_none() -> None:
     assert norms[0].short_comment == "grammar"
     assert "None" not in norms[0].short_comment
     assert norms[0].rule_identifier == "wa_g_rule||"
-
-
-
-

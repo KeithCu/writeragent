@@ -114,12 +114,12 @@ def convert_spreadsheet(ctx, file_path: Path) -> bool:
                 )
                 report = res.get("report", {})
                 failed = res.get("failed_verifications", [])
-                
+
                 converted_count = len(report.get("converted", []))
                 skipped_count = len(report.get("skipped", []))
                 print(f"    - Converted: {converted_count} cells")
                 print(f"    - Skipped: {skipped_count} cells")
-                
+
                 if failed:
                     print(f"    - WARNING: {len(failed)} verification mismatches:")
                     for fail in failed:

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge, get_draw_context_for_chat
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+from plugin.tests.testing_utils import DisposedException
 
 
 def _text_shape(text="Hello", x=10, y=20, w=100, h=50, shape_type="com.sun.star.drawing.TextShape"):
@@ -287,9 +288,6 @@ def test_resolve_page_bool_and_float_are_out_of_range():
 
 
 def test_resolve_page_disposed_getByIndex_propagates():
-    class DisposedException(Exception):
-        pass
-
     pages = MagicMock()
     pages.getCount.return_value = 1
     pages.getByIndex.side_effect = DisposedException("gone")
@@ -919,9 +917,6 @@ def test_move_slide_raises_when_exchange_rollback_fails():
 def test_move_slide_reraises_dispose_when_rollback_raises():
     from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
 
-    class DisposedException(Exception):
-        pass
-
     pages = _named_deck("A", "B")
     bridge = DrawBridge(_MoveDoc(pages))
     with (
@@ -935,9 +930,6 @@ def test_move_slide_reraises_dispose_when_rollback_raises():
 
 
 def test_move_slide_reraises_dispose_from_the_exchange_itself():
-    class DisposedException(Exception):
-        pass
-
     pages = _named_deck("A", "B")
     bridge = DrawBridge(_MoveDoc(pages))
     with (
@@ -986,9 +978,6 @@ def test_move_slide_allows_empty_notes_against_a_missing_notes_shape():
 
 
 def test_set_current_page_index_reraises_dispose():
-    class DisposedException(Exception):
-        pass
-
     pages = _named_deck("A")
     ctrl_disposed = MagicMock()
     ctrl_disposed.setCurrentPage.side_effect = DisposedException("controller disposed")
@@ -1046,9 +1035,6 @@ def test_insert_slide_from_master_removes_page_when_master_assignment_fails():
 
 
 def test_insert_slide_from_master_reraises_dispose_without_removing():
-    class DisposedException(Exception):
-        pass
-
     class _DisposeMasterPage(_MovePage):
         @property
         def MasterPage(self) -> object:
@@ -1078,9 +1064,6 @@ def test_insert_slide_from_master_reraises_dispose_without_removing():
 
 
 def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock(spec=["getDrawPage"])
     doc.getDrawPage.side_effect = DisposedException("closed")
 
@@ -1090,9 +1073,6 @@ def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
 
 
 def test_draw_bridge_disposed_get_draw_pages_is_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock(spec=["getDrawPages"])
     doc.getDrawPages.side_effect = DisposedException("closed")
 
@@ -1113,9 +1093,6 @@ def test_draw_bridge_get_draw_page_runtime_exception_is_still_no_page():
 
 
 def test_get_active_page_calc_branch_reraises_disposed():
-    class DisposedException(Exception):
-        pass
-
     page = MagicMock()
     pages = MagicMock()
     pages.getCount.return_value = 1

@@ -9,10 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.python.init_script_editor import open_init_script_editor
-
-
-class _DisposedException(Exception):
-    pass
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_open_init_script_editor_no_calc_doc():
@@ -155,7 +152,7 @@ def test_open_init_script_editor_disposed_save_returns_error_frame():
         patch("plugin.calc.python.init_script_editor.get_calc_init_script", return_value="# init script"),
         patch("plugin.calc.python.init_script_editor.document_scripts_identity", return_value="doc_1"),
         patch("plugin.calc.python.init_script_editor.launch_monaco_editor", side_effect=capture_launch),
-        patch("plugin.calc.python.init_script_editor.set_calc_init_script", side_effect=_DisposedException("gone")),
+        patch("plugin.calc.python.init_script_editor.set_calc_init_script", side_effect=DisposedException("gone")),
     ):
         open_init_script_editor(ctx)
         assert saved_cb is not None
@@ -172,7 +169,7 @@ def test_open_init_script_editor_disposed_at_open_shows_message():
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
-        patch("plugin.calc.python.init_script_editor.get_calc_init_script", side_effect=_DisposedException("gone")),
+        patch("plugin.calc.python.init_script_editor.get_calc_init_script", side_effect=DisposedException("gone")),
         patch("plugin.calc.python.init_script_editor.msgbox") as mock_box,
         patch("plugin.calc.python.init_script_editor.launch_monaco_editor") as mock_launch,
     ):

@@ -1872,7 +1872,3 @@ class HamburgerButtonListener(BaseActionListener):
 
         button_ctrl = rEvent.Source
         show_hamburger_menu(self.ctx, self._frame, button_ctrl)
-
-
-
-

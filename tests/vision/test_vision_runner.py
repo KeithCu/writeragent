@@ -20,6 +20,7 @@ from plugin.vision.vision_runner import (
     run_and_insert_vision_for_selection,
     run_trusted_vision,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def test_resolve_vision_image_selection_returns_raw_bytes():
@@ -65,10 +66,6 @@ def test_resolve_vision_image_selection_raises_when_export_returns_none():
         with pytest.raises(ToolExecutionError) as exc:
             resolve_vision_image(ctx, doc, "")
     assert exc.value.code == "NO_IMAGE_SELECTED"
-
-
-class DisposedException(Exception):
-    pass
 
 
 @pytest.mark.parametrize("image_name", ["", "Img1"])
@@ -372,9 +369,6 @@ def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
 
 
 def test_resolve_locale_reraises_disposed_graphic():
-    class DisposedException(Exception):
-        pass
-
     graphic = MagicMock()
     graphic.getPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
@@ -842,9 +836,6 @@ def test_run_and_insert_unexpected_exception_stops_after_first_or_raises_when_em
 
 
 def test_run_and_insert_disposed_exception_raises_document_disposed():
-    class DisposedException(Exception):
-        pass
-
     ctx = MagicMock()
     doc = MagicMock()
     with (
@@ -1178,5 +1169,3 @@ def test_run_trusted_vision_kept_shape_closed_doc_raises_disposed(img_name):
             run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": img_name}, graphic=kept_shape)
 
     mock_run_vision.assert_not_called()
-
-

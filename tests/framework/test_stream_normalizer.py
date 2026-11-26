@@ -501,6 +501,3 @@ def test_strip_think_tags_literal_close_after_real_block():
     assert thinking == "hidden"
     assert "Explain the </think> tag after" in clean
     assert "done" in clean
-
-
-

@@ -13,16 +13,10 @@ from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
-from plugin.tests.testing_utils import MockContext, create_mock_http_response
+from plugin.tests.testing_utils import cancelled_scope, create_mock_http_response, MockContext
 
 # Structural check: pins the injected ISO date, not its surrounding wording.
 _DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-
-
-def _cancelled_scope() -> SendCancellation:
-    scope = SendCancellation()
-    scope.cancel()
-    return scope
 
 
 def _https_steps(mock_https, *steps):
@@ -828,12 +822,12 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _, _, json_data1, _ = client.make_chat_request(messages, max_tokens=50)
         _, _, json_data2, _ = client.make_chat_request(messages, max_tokens=50)
-    
+
     data = json.loads(json_data1)
     sys_content = data["messages"][0]["content"]
     marker = "[WriterAgent development build]"
     assert sys_content.count(marker) == 1
-    
+
     # Original messages array must NOT be mutated
     assert messages[0]["content"] == "Core instructions."
 
@@ -932,7 +926,7 @@ def test_stream_request_with_tools_stop_checker_suppresses_connection_retry(clie
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
 
     assert result["finish_reason"] == "stop"
@@ -947,7 +941,7 @@ def test_stop_before_connect_does_not_send(client):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            cancel=_cancelled_scope(),
+            cancel=cancelled_scope(),
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 0
@@ -982,14 +976,14 @@ def test_make_chat_request_coalesces_system_messages(client):
         {"role": "system", "content": "Document context."},
         {"role": "user", "content": "Hello."}
     ]
-    
+
     # Run the request builder for Anthropic to see how the system message is serialized
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
-        
+
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         request_body = json.loads(json_data)
-        
+
         # The system string should be a combination of the two
         # Plus the injected date prepended
         system_content = request_body.get("system")
@@ -997,14 +991,14 @@ def test_make_chat_request_coalesces_system_messages(client):
         assert "Base instructions." in system_text
         assert "Document context." in system_text
         assert _DATE_RE.search(system_text)
-            
+
     # And check Google as well
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "google"}
-        
+
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         request_body = json.loads(json_data)
-        
+
         api_messages = request_body.get("messages", [])
         assert api_messages[0]["role"] == "system"
         combined_text = api_messages[0]["content"]
@@ -1015,10 +1009,10 @@ def test_make_chat_request_coalesces_system_messages(client):
     # And check OpenAI-compatible path
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
-        
+
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         request_body = json.loads(json_data)
-        
+
         api_messages = request_body.get("messages", [])
         assert api_messages[0]["role"] == "system"
         combined_text = api_messages[0]["content"]
@@ -1221,7 +1215,7 @@ def test_openrouter_shim_image(client):
 
         # Test image request for OpenRouter
         client.image_completion("Draw a galaxy", model="bytedance-seed/seedream-4.5", width=1024, height=1024)
-        
+
         path, body = _posted_json(mock_sync)
         assert str(path).endswith("/images")
         assert body["prompt"] == "Draw a galaxy"
@@ -1858,12 +1852,12 @@ def test_make_chat_request_flattens_system_message(client):
         {"role": "system", "content": [{"type": "text", "text": "Part 1"}, {"type": "text", "text": "Part 2"}]},
         {"role": "user", "content": "Hi"}
     ]
-    
+
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, json_data, _ = client.make_chat_request(messages, stream=False)
         data = json.loads(json_data)
-        
+
         sys_msg = data["messages"][0]
         assert sys_msg["role"] == "system"
         assert isinstance(sys_msg["content"], str)
@@ -3633,4 +3627,3 @@ def test_stream_chat_response_redacts_request_path_in_debug_log(caplog, endpoint
     assert chunks == ["Hi"]
     assert secret_uuid not in caplog.text
     assert "Request Path:" in caplog.text
-

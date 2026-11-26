@@ -186,4 +186,3 @@ def test_discovery_of_nameless_sheet_finds_nothing() -> None:
     discovery = cd.discover_python_cells_on_sheet(sheet)
     assert discovery.cells == []
     assert discovery.truncated is False
-

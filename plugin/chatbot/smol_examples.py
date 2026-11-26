@@ -463,4 +463,3 @@ def get_examples_block(key: str) -> str:
     if ":" not in key:
         log.warning("Unknown smol examples key %r; falling back to generic delegate demo", key)
     return DELEGATE_GENERIC_EXAMPLES_BLOCK
-

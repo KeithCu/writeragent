@@ -193,4 +193,3 @@ def test_iter_masters_and_find_master():
 
     assert iter_masters(None) == []
     assert iter_masters(object()) == []
-

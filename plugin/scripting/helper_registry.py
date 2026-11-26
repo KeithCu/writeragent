@@ -516,4 +516,3 @@ def is_text_diagnostics(helper: object) -> bool:
     than a TypeError from hashing it.
     """
     return isinstance(helper, str) and helper in _TEXT_DIAGNOSTICS_NAMES
-

@@ -84,4 +84,3 @@ def test_workflow_finished_object_answer_finishes_inner_run() -> None:
     assert payload["status"] == "ok"
     assert json.loads(payload["answer"]) == {"rows": 3}
     assert get_tool_json_schema(recorder)["function"]["parameters"]["properties"]["answer"]["type"] == "string"
-

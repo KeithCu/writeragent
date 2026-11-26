@@ -12,17 +12,7 @@ from plugin.writer.html_export import (
     strip_embedded_image_data,
     xtext_to_content,
 )
-
-
-class _Enum:
-    def __init__(self, items: list) -> None:
-        self._items = list(items)
-
-    def hasMoreElements(self) -> bool:
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 class _Portion:
@@ -79,7 +69,7 @@ def _run_range_export(
 
     elems = list(elements) if elements is not None else [_para("Standard"), _para("Standard")]
     text = MagicMock()
-    text.createEnumeration.side_effect = lambda: _Enum(elems)
+    text.createEnumeration.side_effect = lambda: FakeUnoEnum(elems)
     source = MagicMock()
     source.getText.return_value = text
 
@@ -309,16 +299,12 @@ def test_range_export_raises_when_scratch_missing():
         _range_to_content_via_temp_doc(MagicMock(), MagicMock(), 0, 5, None)
 
 
-class _DisposedException(Exception):
-    pass
-
-
 def test_full_export_disposal_does_not_fall_back():
     from plugin.writer import html_export
 
     model = _content_doc()
     with (
-        patch.object(html_export, "_read_filter_text", side_effect=_DisposedException("disposed")),
+        patch.object(html_export, "_read_filter_text", side_effect=DisposedException("disposed")),
         patch.object(html_export, "_export_starwriter_html") as starwriter,
         pytest.raises(DocumentDisposedError),
     ):
@@ -330,7 +316,7 @@ def test_starwriter_disposal_is_not_wrapped():
     from plugin.writer import html_export
 
     model = _content_doc()
-    model.storeToURL.side_effect = _DisposedException("disposed")
+    model.storeToURL.side_effect = DisposedException("disposed")
     with (
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
         pytest.raises(DocumentDisposedError),
@@ -344,7 +330,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         _run_range_export(
             [_para("Standard")],
             temp_doc=temp_doc,
-            export_side_effect=_DisposedException("disposed"),
+            export_side_effect=DisposedException("disposed"),
             passthrough_semantic=False,
         )
     temp_doc.storeToURL.assert_not_called()
@@ -421,7 +407,7 @@ def test_offset_window_empty_and_struck_tables():
     "exc, expected, match",
     [
         (RuntimeError("IllegalArgumentException"), ToolExecutionError, "Could not read that part"),
-        (_DisposedException("disposed"), DocumentDisposedError, None),
+        (DisposedException("disposed"), DocumentDisposedError, None),
     ],
 )
 def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
@@ -430,7 +416,7 @@ def test_selection_compare_failure_is_not_a_silent_skip(exc, expected, match):
     temp_doc.getText.return_value = temp_text
     temp_text.createTextCursor.return_value = MagicMock()
     text = MagicMock()
-    text.createEnumeration.return_value = _Enum([_para("Standard")])
+    text.createEnumeration.return_value = FakeUnoEnum([_para("Standard")])
     text.compareRegionStarts.side_effect = exc
     source = MagicMock()
     source.getText.return_value = text
@@ -457,8 +443,8 @@ def test_trim_to_source_does_not_swallow_get_start():
     from plugin.writer.html_export import _trim_to_source
 
     element = MagicMock()
-    element.getStart.side_effect = _DisposedException("disposed")
-    with pytest.raises(_DisposedException):
+    element.getStart.side_effect = DisposedException("disposed")
+    with pytest.raises(DisposedException):
         _trim_to_source(MagicMock(), element, "Hello", MagicMock(), False)
 
 
@@ -522,9 +508,9 @@ def test_extract_page_fields_reads_properties():
     portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = FakeUnoEnum([portion])
     text = MagicMock()
-    text.createEnumeration.return_value = _Enum([para])
+    text.createEnumeration.return_value = FakeUnoEnum([para])
     assert extract_page_fields(MagicMock(), text) == [
         {"title": "page-number", "SubType": 2, "Offset": 1, "NumberingType": 3}
     ]
@@ -540,10 +526,10 @@ def test_extract_page_fields_reads_a_table_cell():
     portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = FakeUnoEnum([portion])
 
     cell = MagicMock()
-    cell.createEnumeration.return_value = _Enum([para])
+    cell.createEnumeration.return_value = FakeUnoEnum([para])
 
     table = MagicMock()
     table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
@@ -551,7 +537,7 @@ def test_extract_page_fields_reads_a_table_cell():
     table.getCellByName.return_value = cell
 
     text = MagicMock()
-    text.createEnumeration.return_value = _Enum([table])
+    text.createEnumeration.return_value = FakeUnoEnum([table])
 
     assert extract_page_fields(MagicMock(), text) == [
         {"title": "page-number", "SubType": 1, "Offset": 2, "NumberingType": 4}
@@ -565,9 +551,9 @@ def test_extract_page_fields_no_field_returns_empty():
     portion.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else None
     para = MagicMock()
     para.supportsService.return_value = False
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = FakeUnoEnum([portion])
     text = MagicMock()
-    text.createEnumeration.return_value = _Enum([para])
+    text.createEnumeration.return_value = FakeUnoEnum([para])
 
     assert extract_page_fields(MagicMock(), text) == []
 
@@ -663,9 +649,6 @@ def test_page_field_converters():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.writer.html_export import _raise_if_empty_export
     from plugin.writer.range_copy import supports_service, _writer_table_copy_layout
-
-    class DisposedException(Exception):
-        pass
 
     class RuntimeException(Exception):
         pass

@@ -3124,5 +3124,3 @@ class _WriterProxy:
         return _result(call_host_tool("set_selection", search_text=search_text, occurrence=occurrence, case_sensitive=case_sensitive, char_start=char_start, char_end=char_end))
 
 writer = _WriterProxy()
-
-

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.harness.strip_bundle import requires_asserts
-from tests.testing_utils import FakeUndoManager
+from tests.testing_utils import DisposedException, FakeUndoManager, FakeUnoEnum
 
 
 from plugin.framework.errors import ToolExecutionError
@@ -152,20 +152,6 @@ class FakeTable:
         return self.getCellByName(_cell_name(col, row))
 
 
-class FakeEnumeration:
-    def __init__(self, elements):
-        self._elements = list(elements)
-        self._index = 0
-
-    def hasMoreElements(self):
-        return self._index < len(self._elements)
-
-    def nextElement(self):
-        element = self._elements[self._index]
-        self._index += 1
-        return element
-
-
 class FakeTextTableElement:
     def __init__(self, name):
         self._name = name
@@ -201,13 +187,13 @@ class FakeParagraph:
 
     def createEnumeration(self):
         if self._portions:
-            return FakeEnumeration(list(self._portions))
+            return FakeUnoEnum(list(self._portions))
         if self._text:
-            return FakeEnumeration([FakePortion(TextPortionType="Text", Text=self._text)])
-        return FakeEnumeration([])
+            return FakeUnoEnum([FakePortion(TextPortionType="Text", Text=self._text)])
+        return FakeUnoEnum([])
 
     def createContentEnumeration(self, service):
-        return FakeEnumeration(list(self._anchored))
+        return FakeUnoEnum(list(self._anchored))
 
 
 class FakePortion:
@@ -234,7 +220,7 @@ class FakeTextFrame:
         return ("com.sun.star.text.TextFrame",)
 
     def getText(self):
-        return SimpleNamespace(createEnumeration=lambda: FakeEnumeration(list(self._elements)))
+        return SimpleNamespace(createEnumeration=lambda: FakeUnoEnum(list(self._elements)))
 
 
 class FakeParentTable(FakeTable):
@@ -247,7 +233,7 @@ class FakeParentTable(FakeTable):
     def getCellByName(self, name):
         cell = super().getCellByName(name)
         elements = self._nested_by_cell.get(name, [])
-        cell.createEnumeration = lambda: FakeEnumeration(list(elements))
+        cell.createEnumeration = lambda: FakeUnoEnum(list(elements))
         cell.getEnd = lambda: "CELL_END"
         cell.getStart = lambda: "CELL_START"
 
@@ -921,7 +907,7 @@ def test_raise_if_range_hosts_nested_table_cell_vs_body():
 
     body = SimpleNamespace(
         createTextCursorByRange=lambda start: SimpleNamespace(getPropertyValue=lambda key: None),
-        createEnumeration=lambda: FakeEnumeration([FakeTextTableElement("Top")]),
+        createEnumeration=lambda: FakeUnoEnum([FakeTextTableElement("Top")]),
     )
     raise_if_range_hosts_nested_table(SimpleNamespace(getText=lambda: body, getStart=lambda: "S"))
 
@@ -1169,8 +1155,8 @@ class _TrackingCell:
     def createEnumeration(self):
         text = self.getString()
         if not text:
-            return FakeEnumeration([])
-        return FakeEnumeration([FakeParagraph(text)])
+            return FakeUnoEnum([])
+        return FakeUnoEnum([FakeParagraph(text)])
 
     def createTextCursor(self):
         cells, name = self._cells, self._name
@@ -1209,7 +1195,7 @@ class _TrackingDoc(FakeWriterDoc):
         items = [SimpleNamespace(getPropertyValue=lambda k: "Delete") for _ in range(self.redlines)]
         return SimpleNamespace(
             getCount=lambda: self.redlines,
-            createEnumeration=lambda: FakeEnumeration(items),
+            createEnumeration=lambda: FakeUnoEnum(items),
         )
 
     def _select(self, target):
@@ -1469,10 +1455,6 @@ def test_table_insert_draw_non_numeric_rows_columns():
     assert res_exec["status"] == "error"
     assert "at least 1" in res_exec["message"]
     assert res_exec["code"] == "TOOL_EXECUTION_ERROR"
-
-
-class DisposedException(Exception):
-    pass
 
 
 def test_table_get_cells_cell_read_error_skipped_and_disposal_reraised():
@@ -1936,6 +1918,3 @@ def test_record_table_deletions_refuses_protected_cell():
         record_table_deletions(session, doc, None, [(table, "Fee")])
     assert exc_info.value.code == "CELLS_PROTECTED"
     assert body.removed == []
-
-
-

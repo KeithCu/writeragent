@@ -425,4 +425,3 @@ def test_apply_style_over_emphasis_char_style_no_capture_incomplete_uno(ctx, doc
     chk.gotoEnd(False)
     chk.goLeft(len("emphasized"), True)
     assert chk.getPropertyValue("CharStyleName") == "Emphasis"
-

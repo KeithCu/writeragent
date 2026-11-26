@@ -13,6 +13,7 @@ from plugin.framework.tool import ToolBase
 from unittest.mock import MagicMock
 from plugin.framework.errors import safe_python_literal_eval
 import inspect
+from plugin.tests.testing_utils import DisposedException
 
 
 def _suppress_disposed_debug_logs_present() -> bool:
@@ -36,26 +37,26 @@ class TestErrorHandling:
     def test_format_error_payload_writer_agent_exception(self):
         exc = WriterAgentException('Test message', code='TEST_CODE', details={'key': 'value'})
         payload = format_error_payload(exc)
-        assert (payload['status']) == ('error')
-        assert (payload['code']) == ('TEST_CODE')
-        assert (payload['message']) == ('Test message')
-        assert (payload['details']) == ({'key': 'value'})
+        assert payload['status'] == 'error'
+        assert payload['code'] == 'TEST_CODE'
+        assert payload['message'] == 'Test message'
+        assert payload['details'] == {'key': 'value'}
 
     def test_format_error_payload_generic_exception(self):
         exc = ValueError('Test message')
         payload = format_error_payload(exc)
-        assert (payload['status']) == ('error')
-        assert (payload['code']) == ('INTERNAL_ERROR')
-        assert (payload['message']) == ('Test message')
-        assert (payload['details']) == ({'type': 'ValueError'})
+        assert payload['status'] == 'error'
+        assert payload['code'] == 'INTERNAL_ERROR'
+        assert payload['message'] == 'Test message'
+        assert payload['details'] == {'type': 'ValueError'}
 
     def test_tool_base_error_formatting(self):
         tool = DummyTool()
         result = tool._tool_error('Tool failed', code='CUSTOM_CODE', key='val')
-        assert (result['status']) == ('error')
-        assert (result['code']) == ('CUSTOM_CODE')
-        assert (result['message']) == ('Tool failed')
-        assert (result['details']) == ({'key': 'val'})
+        assert result['status'] == 'error'
+        assert result['code'] == 'CUSTOM_CODE'
+        assert result['message'] == 'Tool failed'
+        assert result['details'] == {'key': 'val'}
 
     def test_make_tool_error_top_level_fields(self):
         res = make_tool_error("m", code="C", top_level={"a": 1}, b=2)
@@ -77,28 +78,28 @@ class TestErrorHandling:
     def test_format_error_for_display(self):
         exc = WriterAgentException('User error', code='ERR')
         display_str = format_error_for_display(exc)
-        assert (display_str) == ('Error: User error')
+        assert display_str == 'Error: User error'
         exc_generic = ValueError('System error')
         display_str_generic = format_error_for_display(exc_generic)
-        assert (display_str_generic) == ('Error: System error')
+        assert display_str_generic == 'Error: System error'
 
     def test_format_error_for_display_payload_dict(self):
         display_str = format_error_for_display(
             {"status": "error", "code": "HTTP_ERROR", "message": "HTTP Error 500 from AI Provider"}
         )
-        assert (display_str) == ("Error: HTTP Error 500 from AI Provider")
+        assert display_str == "Error: HTTP Error 500 from AI Provider"
 
     def test_format_error_for_display_payload_dict_missing_message(self):
         display_str = format_error_for_display({"status": "error", "code": "HTTP_ERROR"})
-        assert (display_str) == ("Error: HTTP_ERROR")
+        assert display_str == "Error: HTTP_ERROR"
         display_empty = format_error_for_display({})
-        assert (display_empty) == ("Error: {}")
+        assert display_empty == "Error: {}"
 
     def test_librepy_format_error_message_advice(self):
         from plugin.framework.errors import format_error_message
 
         msg_generic_venv = format_error_message(RuntimeError("venv not found at /tmp/x"))
-        assert ("Python venv not found") in (msg_generic_venv)
+        assert "Python venv not found" in msg_generic_venv
 
         msg_spill = format_error_message(RuntimeError("#SPILL!"))
         assert "Formula spill collision" in msg_spill
@@ -248,25 +249,25 @@ class TestErrorHandling:
         ]
 
         for exc, expected_code in subclasses:
-            assert (exc.code) == (expected_code)
-            assert (exc.details) == ({})
+            assert exc.code == expected_code
+            assert exc.details == {}
             payload = format_error_payload(exc)
-            assert (payload["code"]) == (expected_code)
-            assert ("details") not in (payload)
+            assert payload["code"] == expected_code
+            assert "details" not in payload
 
         # Test overriding code and passing details
         custom_exc = ConfigError("bad config", code="CUSTOM_CFG", details={"key": "api_key"})
-        assert (custom_exc.code) == ("CUSTOM_CFG")
-        assert (custom_exc.details) == ({"key": "api_key"})
+        assert custom_exc.code == "CUSTOM_CFG"
+        assert custom_exc.details == {"key": "api_key"}
         payload = format_error_payload(custom_exc)
-        assert (payload["code"]) == ("CUSTOM_CFG")
-        assert (payload["details"]) == ({"key": "api_key"})
+        assert payload["code"] == "CUSTOM_CFG"
+        assert payload["details"] == {"key": "api_key"}
 
         # Test DocumentDisposedError with custom field object_type
         disp_exc = DocumentDisposedError("Object disposed", object_type="TextRange", details={"line": 42})
-        assert (disp_exc.code) == ("DOCUMENT_DISPOSED")
-        assert (disp_exc.object_type) == ("TextRange")
-        assert (disp_exc.details) == ({"line": 42})
+        assert disp_exc.code == "DOCUMENT_DISPOSED"
+        assert disp_exc.object_type == "TextRange"
+        assert disp_exc.details == {"line": 42}
 
 
     def test_long_runtime_message_does_not_raise_precontract(self):
@@ -293,9 +294,6 @@ def test_best_effort_logs_and_swallows_everything(caplog):
 
     from plugin.framework.errors import DocumentDisposedError, best_effort
 
-    class DisposedException(Exception):
-        pass
-
     assert best_effort(lambda: 7, "never logged") == 7
     with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
         for exc in (DisposedException("closed"), DocumentDisposedError("closed"), ValueError("bad")):
@@ -314,7 +312,7 @@ class TestSecurityFix:
         nested_list_str = (('[' * depth) + (']' * depth))
         try:
             result = safe_python_literal_eval(nested_list_str, default='fallback')
-            assert (isinstance(result, list) or (result == 'fallback'))
+            assert isinstance(result, list) or (result == 'fallback')
         except Exception as e:
             pytest.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
@@ -322,37 +320,37 @@ class TestSecurityFix:
         large_input = (('[' + ('1,' * 1000000)) + '1]')
         try:
             result = safe_python_literal_eval(large_input, default='fallback')
-            assert (isinstance(result, list) or (result == 'fallback'))
+            assert isinstance(result, list) or (result == 'fallback')
         except Exception as e:
             pytest.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
     def test_common_literals(self):
-        assert (safe_python_literal_eval('True')) is True
-        assert (safe_python_literal_eval('true')) is True
-        assert (safe_python_literal_eval('False')) is False
-        assert (safe_python_literal_eval('false')) is False
-        assert (safe_python_literal_eval('None')) is None
-        assert (safe_python_literal_eval('none')) is None
-        assert (safe_python_literal_eval('null')) is None
-        assert (safe_python_literal_eval('NULL')) is None
-        assert (safe_python_literal_eval('123')) == (123)
-        assert (safe_python_literal_eval('"hello"')) == ('hello')
-        assert (safe_python_literal_eval("'hello'")) == ('hello')
+        assert safe_python_literal_eval('True') is True
+        assert safe_python_literal_eval('true') is True
+        assert safe_python_literal_eval('False') is False
+        assert safe_python_literal_eval('false') is False
+        assert safe_python_literal_eval('None') is None
+        assert safe_python_literal_eval('none') is None
+        assert safe_python_literal_eval('null') is None
+        assert safe_python_literal_eval('NULL') is None
+        assert safe_python_literal_eval('123') == 123
+        assert safe_python_literal_eval('"hello"') == 'hello'
+        assert safe_python_literal_eval("'hello'") == 'hello'
 
     def test_json_structures(self):
-        assert (safe_python_literal_eval('[1, 2, 3]')) == ([1, 2, 3])
-        assert (safe_python_literal_eval('{"a": 1}')) == ({'a': 1})
+        assert safe_python_literal_eval('[1, 2, 3]') == [1, 2, 3]
+        assert safe_python_literal_eval('{"a": 1}') == {'a': 1}
 
     def test_single_quoted_strings_restricted(self):
-        assert (safe_python_literal_eval("'safe'")) == ('safe')
-        assert (safe_python_literal_eval("'it\\'s unsafe'", default='fallback')) == ('fallback')
+        assert safe_python_literal_eval("'safe'") == 'safe'
+        assert safe_python_literal_eval("'it\\'s unsafe'", default='fallback') == 'fallback'
 
     def test_non_json_python_literals_fallback(self):
-        assert (safe_python_literal_eval('(1, 2)', default='(1, 2)')) == ('(1, 2)')
-        assert (safe_python_literal_eval("{'a': 1}", default='fallback')) == ('fallback')
+        assert safe_python_literal_eval('(1, 2)', default='(1, 2)') == '(1, 2)'
+        assert safe_python_literal_eval("{'a': 1}", default='fallback') == 'fallback'
 
     def test_smolagents_deserializer(self):
-        assert (safe_python_literal_eval('{"type": "string"}')) == ({'type': 'string'})
+        assert safe_python_literal_eval('{"type": "string"}') == {'type': 'string'}
 
 
 class TestSuppressDisposed:
@@ -441,10 +439,10 @@ class TestSuppressDisposed:
             executed = True
             raise DocumentDisposedError("Model was disposed")
 
-        assert (executed)
+        assert executed
         if _suppress_disposed_debug_logs_present():
             mock_logger.debug.assert_called_once()
-            assert (mock_logger.debug.call_args[0][1]) == ("test_disposed_action")
+            assert mock_logger.debug.call_args[0][1] == "test_disposed_action"
         else:
             mock_logger.debug.assert_not_called()
         mock_logger.exception.assert_not_called()
@@ -458,9 +456,9 @@ class TestSuppressDisposed:
             executed = True
             raise ValueError("Something unexpected")
 
-        assert (executed)
+        assert executed
         mock_logger.exception.assert_called_once()
-        assert (mock_logger.exception.call_args[0][1]) == ("test_unexpected_action")
+        assert mock_logger.exception.call_args[0][1] == "test_unexpected_action"
         mock_logger.debug.assert_not_called()
 
     def test_suppress_disposed_unexpected_error_raised(self):
@@ -472,7 +470,7 @@ class TestSuppressDisposed:
                 raise ValueError("Must be raised")
 
         mock_logger.exception.assert_called_once()
-        assert (mock_logger.exception.call_args[0][1]) == ("test_raise_action")
+        assert mock_logger.exception.call_args[0][1] == "test_raise_action"
 
     def test_suppress_disposed_as_decorator(self):
         from plugin.framework.errors import (
@@ -487,7 +485,7 @@ class TestSuppressDisposed:
             raise DocumentDisposedError("Peer disposed")
 
         result = faulty_fn()
-        assert (result) is None
+        assert result is None
         if _suppress_disposed_debug_logs_present():
             mock_logger.debug.assert_called_once()
         else:
@@ -563,9 +561,6 @@ def test_uno_call_reraises_writer_agent_exception():
 def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
     from plugin.framework.errors import DocumentDisposedError, uno_read
 
-    class DisposedException(Exception):
-        pass
-
     class RuntimeException(Exception):
         pass
 
@@ -600,9 +595,6 @@ def test_uno_write_false_on_runtime_and_reraises_original_disposal(caplog):
     import logging
 
     from plugin.framework.errors import DocumentDisposedError, uno_write
-
-    class DisposedException(Exception):
-        pass
 
     assert uno_write(lambda: None) is True
     with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
@@ -1006,13 +998,7 @@ def test_is_document_disposed():
 
     assert document_is_disposed(None) is True
 
-    class DisposedExceptionMock(Exception):
-        pass
-
-    # Ensure the type name is EXACTLY 'DisposedException' for the check
-    DisposedExceptionMock.__name__ = "DisposedException"
-
-    disposed_exc = DisposedExceptionMock("Document disposed")
+    disposed_exc = DisposedException("Document disposed")
 
     class MockDisposedDoc:
         def getImplementationName(self):

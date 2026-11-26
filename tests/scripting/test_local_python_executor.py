@@ -3290,4 +3290,3 @@ def test_with_inner_exit_error_reaches_outer_manager() -> None:
         executor(code.replace("Outer(suppress=True)", "Outer(suppress=False)"))
     assert exc_info.value.user_traceback.splitlines()[-1] == "ValueError: boom"
     assert executor.state["seen"] == [ValueError]
-

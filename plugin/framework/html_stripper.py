@@ -459,5 +459,3 @@ def html_to_search_text(text: str) -> str:
 
     flush_block()
     return _unescape_entities("\n".join(lines))
-
-

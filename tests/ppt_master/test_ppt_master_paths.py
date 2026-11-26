@@ -119,4 +119,3 @@ def test_apply_data_root_env_leaves_env_unset_for_placeholder(tmp_path: Path, mo
     root = apply_data_root_env()
     assert root == missing
     assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
-

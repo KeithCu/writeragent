@@ -33,6 +33,7 @@ from plugin.framework import thread_guard as tg
 from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.framework.url_utils import path_to_file_url
 from tests.harness.strip_bundle import skip_if_release_build
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 def test_guess_doc_type_from_path():
@@ -289,18 +290,8 @@ def test_collect_open_file_urls_skips_broken_desktop_component():
         good.getController.return_value = None
         good.getURL.return_value = budget_url
 
-        class _Enum:
-            def __init__(self, items):
-                self._items = list(items)
-
-            def hasMoreElements(self):
-                return bool(self._items)
-
-            def nextElement(self):
-                return self._items.pop(0)
-
         desktop = MagicMock()
-        desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        desktop.getComponents.return_value.createEnumeration.return_value = FakeUnoEnum(
             [broken, good]
         )
         with (
@@ -336,18 +327,8 @@ def test_collect_open_file_urls_skips_geturl_failure():
         good.getController.return_value = None
         good.getURL.return_value = budget_url
 
-        class _Enum:
-            def __init__(self, items):
-                self._items = list(items)
-
-            def hasMoreElements(self):
-                return bool(self._items)
-
-            def nextElement(self):
-                return self._items.pop(0)
-
         desktop = MagicMock()
-        desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        desktop.getComponents.return_value.createEnumeration.return_value = FakeUnoEnum(
             [broken, good]
         )
         with (
@@ -625,15 +606,11 @@ def test_is_same_document_uses_uid_not_identity():
     assert _is_same_document(Doc(None, ""), Doc(None, "")) is False
 
 
-class _DisposedException(Exception):
-    pass
-
-
 def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
     """A dead desktop enumeration must not look like no documents are open."""
     desktop = MagicMock()
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = _DisposedException("enum dead")
+    enum.hasMoreElements.side_effect = DisposedException("enum dead")
     desktop.getComponents.return_value.createEnumeration.return_value = enum
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         with pytest.raises(ListenerBoundary) as exc_info:
@@ -643,7 +620,7 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
 
 def test_get_open_documents_disposed_component_access_is_not_empty():
     desktop = MagicMock()
-    desktop.getComponents.side_effect = _DisposedException("desktop gone")
+    desktop.getComponents.side_effect = DisposedException("desktop gone")
     with patch("plugin.doc.document_research.get_desktop", return_value=desktop):
         with pytest.raises(ListenerBoundary) as exc_info:
             get_open_documents(MagicMock())

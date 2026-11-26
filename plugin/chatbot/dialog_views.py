@@ -322,7 +322,7 @@ class SettingsDialog:
         assert self._dlg is not None
         self._dlg.getControl("btn_tab_chat").addActionListener(TabListener(self._dlg, 1))
         self._dlg.getControl("btn_tab_image").addActionListener(TabListener(self._dlg, 2))
-        
+
         edit_config_btn = get_optional(self._dlg, "btn_edit_config_json")
         if edit_config_btn:
             edit_config_btn.addActionListener(EditConfigListener(self._ctx))
@@ -1436,10 +1436,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if idx < 0: return
         item = self._ctrl.getItem(idx)
         if not item: return
-        
+
         url = endpoint_from_selector_text(item)
         if url: self._ctrl.setText(url)
-        
+
         gen = self._cancel_pending()
         # Capture debounce gen and endpoint on the UI thread before the worker starts.
         resolved = endpoint_from_selector_text(self._ctrl.getText())
@@ -1547,6 +1547,3 @@ __all__ = [
     "sync_stt_ui",
     "sync_tts_ui",
 ]
-
-
-

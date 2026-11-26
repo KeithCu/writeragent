@@ -99,4 +99,3 @@ def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], 
 
         return insert_tabular_result_into_calc(doc, format_symbolic_for_calc(result))
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")
-

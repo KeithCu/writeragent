@@ -21,7 +21,7 @@ from tests.harness.strip_bundle import requires_asserts
 
 from plugin.framework.errors import CalcError
 from plugin.framework.tool import prepare_tool_call
-from plugin.tests.testing_utils import FakeUndoManager, TestingFactory
+from plugin.tests.testing_utils import DisposedException, FakeUndoManager, TestingFactory
 from tests.calc.tool_lookup import calc_tool
 
 
@@ -1643,9 +1643,6 @@ def test_set_cell_style_multi_range_rolls_back_on_error(
 
 def test_set_cell_style_disposal_propagates():
 
-    class DisposedException(Exception):
-        pass
-
     fake_undo = FakeUndoManager()
     doc = MagicMock()
     doc.getUndoManager.return_value = fake_undo
@@ -1666,9 +1663,6 @@ def test_set_cell_style_disposal_propagates():
 
 
 def test_write_formula_range_disposal_propagates():
-
-    class DisposedException(Exception):
-        pass
 
     fake_undo = FakeUndoManager()
     doc = MagicMock()
@@ -1814,9 +1808,6 @@ def test_delete_structure_schema_start_accepts_integer_or_string():
 
 
 def test_delete_structure_disposal_propagates():
-
-    class DisposedException(Exception):
-        pass
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:

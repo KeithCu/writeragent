@@ -23,9 +23,9 @@ from tests.harness.crosshair import assert_crosshair_clean
 class TestNormalizeEndpointUrl():
 
     def test_strips_trailing_v1(self):
-        assert (normalize_endpoint_url('https://api.example.com/v1') == 'https://api.example.com')
-        assert (normalize_endpoint_url('https://api.example.com/v1/') == 'https://api.example.com')
-        assert (normalize_endpoint_url('https://openrouter.ai/api/v1') == 'https://openrouter.ai/api')
+        assert normalize_endpoint_url('https://api.example.com/v1') == 'https://api.example.com'
+        assert normalize_endpoint_url('https://api.example.com/v1/') == 'https://api.example.com'
+        assert normalize_endpoint_url('https://openrouter.ai/api/v1') == 'https://openrouter.ai/api'
 
     def test_google_normalization(self):
         assert normalize_endpoint_url("https://generativelanguage.googleapis.com/v1beta/openai") == "https://generativelanguage.googleapis.com"
@@ -40,8 +40,8 @@ class TestNormalizeEndpointUrl():
         assert stored + suffix + "/models" == "https://generativelanguage.googleapis.com/v1beta/openai/models"
 
     def test_empty_and_whitespace(self):
-        assert (normalize_endpoint_url('') == '')
-        assert (normalize_endpoint_url('  ') == '')
+        assert normalize_endpoint_url('') == ''
+        assert normalize_endpoint_url('  ') == ''
 
     def test_zai_normalization(self):
         # Legacy bare-host /v4 strips to host-only storage
@@ -368,5 +368,3 @@ def test_hypothesis_api_suffix_shape(url: str) -> None:
 @pytest.mark.slow
 def test_crosshair_url_utils_if_available() -> None:
     assert_crosshair_clean(CROSSHAIR_MODULE, timeout=600)
-
-

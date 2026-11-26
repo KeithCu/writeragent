@@ -108,5 +108,3 @@ def test_domain_python_fails() -> None:
     ]
     fails = check_process("py_refuse_overlap", trace)
     assert any("domain=python" in f for f in fails)
-
-

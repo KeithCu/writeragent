@@ -1123,5 +1123,3 @@ def xtext_to_content(
     finally:
         best_effort(lambda: close_scratch_document(temp_doc), "xtext_to_content: close temp doc failed")
         range_copy.release_scratch_style_holds(temp_doc)
-
-

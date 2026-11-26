@@ -198,4 +198,3 @@ def get_hot_entry(
         if len(_cache) > _DEFAULT_MAX_ENTRIES:
             _cache.popitem(last=False)
     return entry
-

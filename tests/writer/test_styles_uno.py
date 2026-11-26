@@ -30,17 +30,17 @@ from tests.writer.doc_builders import accept_all_changes, body_paragraphs, rejec
 @with_native_doc("writer")
 def test_create_paragraph_style_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    
+
     style_name = "AgentCustomPara"
     tool = StyleCreate()
     res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", parent_style="Standard", property_updates={"CharWeight": 150.0, "CharColor": "#FF0000"})
-    
+
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
-    
+
     # Verify via UNO
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     assert para_styles.hasByName(style_name)
-    
+
     style = para_styles.getByName(style_name)
     assert style.getParentStyle() == "Standard"
     assert style.getPropertyValue("CharWeight") == 150.0
@@ -51,12 +51,12 @@ def test_create_paragraph_style_uno(ctx, doc):
 @with_native_doc("writer")
 def test_create_conditional_style_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    
+
     style_name = "AgentCondPara"
     rules = [{"context": "Table", "target_style": "Heading 1"}]
     tool = StyleCreate()
     res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", conditional_rules=rules)
-    
+
     # In PyUNO, ParaStyleConditions is a read-only property (attribute = 1)
     # and cannot be modified programmatically in a real Writer instance.
     # Therefore, the execution should fail with an error because we explicitly
@@ -69,16 +69,16 @@ def test_create_conditional_style_uno(ctx, doc):
 @with_native_doc("writer")
 def test_update_style_parent_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    
+
     # Create a style first
     style_name = "UpdateParentTest"
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     created = doc.createInstance("com.sun.star.style.ParagraphStyle")
     para_styles.insertByName(style_name, created)
-    
+
     tool = StyleUpdate()
     res = tool.execute(tool_ctx, style=style_name, family="ParagraphStyles", parent_style="Heading 1")
-    
+
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
     style = doc.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name)
     assert style.getParentStyle() == "Heading 1"
@@ -110,13 +110,13 @@ def test_update_style_para_adjust_and_missing_font_uno(ctx, doc):
 @with_native_doc("writer")
 def test_list_styles_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    
+
     tool = StyleList()
     res = tool.execute(tool_ctx, family="ParagraphStyles")
-    
+
     assert res["status"] == "ok", f"Tool failed: {res.get('message') or res}"
     assert len(res["styles"]) > 0
-    
+
     # Should contain core styles
     names = [s["name"] for s in res["styles"]]
     assert "Heading 1" in names
@@ -1000,9 +1000,9 @@ def test_style_import_loads_template_styles_uno(ctx, doc):
             src.close(True)
     finally:
         os.remove(path)
-        
+
 @native_test
-@with_native_doc("writer", reuse=False)        
+@with_native_doc("writer", reuse=False)
 def test_style_format_text_para_back_color_reaches_tables_persists_and_resets_uno(ctx, doc):
     from plugin.doc.text_helpers import iter_elements
 
@@ -1564,4 +1564,3 @@ def test_style_format_text_full_document_table_in_leading_section_uno(ctx, doc):
     assert {s for s, _ in portions} >= {"SecLead", "AfterSec"}
     for s, props in portions:
         assert props["CharFontName"] == "Arial", (s, props)
-

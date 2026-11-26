@@ -419,6 +419,3 @@ def test_hypothesis_map_over_range_shapes(a, b):
             [_cell_at(a, r, c) + _cell_at(b, r, c) for c in range(ncols)]
             for r in range(nrows)
         ]
-
-
-

@@ -17,4 +17,3 @@ ANALYSIS_MAX_TABLE_ROWS = 50
 # result sends back to the sheet or the chat.
 ANALYSIS_DATA_TABLE_ROWS = 200
 ANALYSIS_MAX_COLS = 40
-

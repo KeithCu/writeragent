@@ -80,12 +80,12 @@ def canonical_aspect_label(displayed: str) -> str:
 def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
     current_endpoint = get_current_endpoint()
-    
+
     field_specs = []
     field_specs.extend(_get_core_field_specs(current_endpoint))
     field_specs.extend(_get_image_field_specs())
     field_specs.extend(_get_module_field_specs(ctx))
-    
+
     return field_specs
 
 
@@ -384,5 +384,3 @@ def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> N
     updated = next_lru_list(current, val)
     if updated is not None:
         dest[scoped] = updated
-
-

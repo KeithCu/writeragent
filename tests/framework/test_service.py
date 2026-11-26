@@ -16,7 +16,7 @@ class TestRegister():
         reg = ServiceRegistry()
         svc = DummyService()
         reg.register('dummy', svc)
-        assert (reg.get('dummy') is svc)
+        assert reg.get('dummy') is svc
 
     def test_register_duplicate_raises(self):
         reg = ServiceRegistry()
@@ -30,7 +30,7 @@ class TestAccess():
         reg = ServiceRegistry()
         svc = DummyService()
         reg.register('dummy', svc)
-        assert (reg.dummy is svc)
+        assert reg.dummy is svc
 
     def test_getattr_missing_raises(self):
         reg = ServiceRegistry()
@@ -40,16 +40,15 @@ class TestAccess():
     def test_contains(self):
         reg = ServiceRegistry()
         reg.register('dummy', DummyService())
-        assert ('dummy' in reg)
-        assert ('missing' not in reg)
+        assert 'dummy' in reg
+        assert 'missing' not in reg
 
     def test_get_returns_none_for_missing(self):
         reg = ServiceRegistry()
-        assert (reg.get('nope') is None)
+        assert reg.get('nope') is None
 
     def test_service_names(self):
         reg = ServiceRegistry()
         reg.register('dummy', DummyService())
         reg.register('another', AnotherService())
         assert reg.names() == ["dummy", "another"]
-

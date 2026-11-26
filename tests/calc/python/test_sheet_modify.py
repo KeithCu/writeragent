@@ -433,6 +433,3 @@ def test_rename_keeps_geometric_registry_when_memory_is_empty(monkeypatch: pytes
     migrate_sheet_rename(doc, "Sheet1", "New")
 
     assert json.loads(stored["value"])["sheets"] == {"New": {"A2": "A1"}}
-
-
-

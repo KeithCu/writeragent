@@ -655,5 +655,3 @@ def uno_call(fn: Callable[[], _T], what: str) -> _T:
             _raise_disposed_during(what, e)
         text = resolve_exception_message(e)
         raise UnoObjectError(f"{what} failed: {text}", details={"operation": what, "type": type(e).__name__}) from e
-
-

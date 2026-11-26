@@ -142,4 +142,3 @@ def try_insert_plot_result(ctx: Any, doc: Any, result_data: Any) -> bool:
     for img in images:
         insert_image_payload_for_doc(ctx, doc, img, title=title)
     return True
-

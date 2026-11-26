@@ -356,5 +356,3 @@ def test_get_guidance_description_lists_only_the_document_types_topics():
 @pytest.mark.parametrize("doc_type", ["writer", "calc", "draw", "generic"])
 def test_full_manual_excludes_web_research(doc_type: str) -> None:
     assert "web_research" not in full_manual(doc_type)
-
-

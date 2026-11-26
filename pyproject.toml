@@ -145,7 +145,10 @@ extend-exclude = [
 skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "S110", "S112", "TC"]
+# W391 is a preview rule in ruff 0.17; explicit-preview-rules enables only the preview rules named here.
+preview = true
+explicit-preview-rules = true
+select = ["E4", "E7", "E9", "F", "S110", "S112", "TC", "B017", "W291", "W292", "W293", "W391"]
 # UNO/bootstrap often uses imports after path setup; one-line if/for with colon is legacy style.
 extend-ignore = ["E402", "E701"]
 

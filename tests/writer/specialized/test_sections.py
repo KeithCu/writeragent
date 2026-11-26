@@ -26,6 +26,7 @@ from plugin.writer.specialized.sections import (
 )
 from plugin.writer.specialized_base import SpecializedWorkflowFinished
 from plugin.writer.structural import NavGotoPage
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 def _mock_ctx(doc: MagicMock | None = None, doc_svc: MagicMock | None = None) -> MagicMock:
@@ -251,20 +252,6 @@ def test_section_rename_rejects_empty_and_taken_names() -> None:
     section.setName.assert_not_called()
 
 
-class _Enum:
-    def __init__(self, items: list[object]) -> None:
-        self.items = items
-        self.i = 0
-
-    def hasMoreElements(self) -> bool:
-        return self.i < len(self.items)
-
-    def nextElement(self) -> object:
-        item = self.items[self.i]
-        self.i += 1
-        return item
-
-
 class _Para:
     def __init__(self, text: str) -> None:
         self.text = text
@@ -298,7 +285,7 @@ class _Section:
 
     def getAnchor(self) -> MagicMock:
         anchor = MagicMock()
-        anchor.createEnumeration.return_value = _Enum(self.enum_items)
+        anchor.createEnumeration.return_value = FakeUnoEnum(self.enum_items)
         return anchor
 
 

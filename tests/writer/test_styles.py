@@ -27,7 +27,7 @@ from plugin.writer.styles import (
     _close_style_names, _STYLE_KEEPALIVE,
 )
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.tests.testing_utils import TestingFactory, WriterDocStub
+from plugin.tests.testing_utils import DisposedException, TestingFactory, WriterDocStub
 
 
 def create_mock_style(name, display_name=None, is_in_use=False, is_user_defined=False, is_physical=True, is_hidden=False, category=None):
@@ -1227,9 +1227,8 @@ def test_apply_style_character_ignores_schema_default_clear_direct():
 def test_apply_style_existence_check_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
-    DisposedEx = type("DisposedException", (Exception,), {})
     ctx = MagicMock()
-    ctx.doc.getStyleFamilies.side_effect = DisposedEx("gone")
+    ctx.doc.getStyleFamilies.side_effect = DisposedException("gone")
 
     with pytest.raises(DocumentDisposedError):
         ApplyStyle().execute(ctx, style="Standard", family="ParagraphStyles")
@@ -1355,9 +1354,8 @@ def test_apply_style_occurrence_string_is_validation_error():
 def test_apply_style_single_target_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
-    DisposedEx = type("DisposedException", (Exception,), {})
     cursor = MagicMock()
-    cursor.setPropertyValue.side_effect = DisposedEx("gone")
+    cursor.setPropertyValue.side_effect = DisposedException("gone")
     ctx = _style_ctx()
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
         with pytest.raises(DocumentDisposedError):
@@ -1398,7 +1396,7 @@ def test_apply_style_all_matches_leave_disposed_reraises():
     doc.getPropertyValue.return_value = False
     mgr = MagicMock()
     mgr.isLocked.return_value = False
-    mgr.leaveUndoContext.side_effect = type("DisposedException", (Exception,), {})("gone")
+    mgr.leaveUndoContext.side_effect = DisposedException("gone")
     doc.getUndoManager.return_value = mgr
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool._apply_one = MagicMock(return_value=None)
@@ -1426,7 +1424,7 @@ def test_style_get_info_unreadable_property_is_none_and_dispose_raises():
     assert res["status"] == "ok"
     assert "CharHidden" in res and res["CharHidden"] is None
 
-    style.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
+    style.getPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         StyleGetInfo().execute(ctx, style="MyStyle", family="ParagraphStyles")
 
@@ -1478,17 +1476,16 @@ def test_copy_direct_style_properties_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import copy_direct_style_properties
 
-    DisposedEx = type("DisposedException", (Exception,), {})
     props = [SimpleNamespace(Name="CharWeight", Attributes=0)]
 
     source = MagicMock()
-    source.getPropertySetInfo.side_effect = DisposedEx("gone")
+    source.getPropertySetInfo.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         copy_direct_style_properties(source, MagicMock())
 
     source = MagicMock()
     source.getPropertySetInfo.return_value.getProperties.return_value = props
-    source.getPropertyState.side_effect = DisposedEx("gone")
+    source.getPropertyState.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         copy_direct_style_properties(source, MagicMock())
 
@@ -1497,7 +1494,7 @@ def test_copy_direct_style_properties_reraises_disposed():
     source.getPropertyState.return_value = SimpleNamespace(value="DIRECT_VALUE")
     source.getPropertyValue.return_value = 150
     dest = MagicMock()
-    dest.setPropertyValue.side_effect = DisposedEx("gone")
+    dest.setPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         copy_direct_style_properties(source, dest)
 
@@ -1513,9 +1510,8 @@ def test_clone_text_style_parent_read_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import _clone_text_style
 
-    DisposedEx = type("DisposedException", (Exception,), {})
     source = MagicMock()
-    source.getParentStyle.side_effect = DisposedEx("gone")
+    source.getParentStyle.side_effect = DisposedException("gone")
     doc = MagicMock()
     doc.createInstance.return_value = MagicMock()
     with pytest.raises(DocumentDisposedError):
@@ -1525,17 +1521,15 @@ def test_clone_text_style_parent_read_reraises_disposed():
 def test_style_update_snapshot_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError
 
-    DisposedEx = type("DisposedException", (Exception,), {})
-
     style = MagicMock()
-    style.getParentStyle.side_effect = DisposedEx("gone")
+    style.getParentStyle.side_effect = DisposedException("gone")
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
     with pytest.raises(DocumentDisposedError):
         StyleUpdate().execute(ctx, style="MyStyle", family="ParagraphStyles", parent_style="Standard", property_updates={})
 
     style = MagicMock()
-    style.getParentStyle.side_effect = ["Standard", DisposedEx("gone")]
+    style.getParentStyle.side_effect = ["Standard", DisposedException("gone")]
     fam = _style_family({"MyStyle": style, "Standard": MagicMock()})
     ctx = _ctx_with_families(ParagraphStyles=fam)
     with pytest.raises(DocumentDisposedError):
@@ -1545,11 +1539,9 @@ def test_style_update_snapshot_reraises_disposed():
 def test_style_list_reraises_disposed_on_category_and_parent():
     from plugin.framework.errors import DocumentDisposedError
 
-    DisposedEx = type("DisposedException", (Exception,), {})
-
     def get_prop(name):
         if name == "Category":
-            raise DisposedEx("gone")
+            raise DisposedException("gone")
         return {"IsPhysical": True, "Hidden": False}.get(name)
 
     style = MagicMock()
@@ -1561,7 +1553,7 @@ def test_style_list_reraises_disposed_on_category_and_parent():
         StyleList().execute(ctx, family="ParagraphStyles")
 
     style = create_mock_style("StyleB", is_in_use=True)
-    style.getParentStyle.side_effect = DisposedEx("gone")
+    style.getParentStyle.side_effect = DisposedException("gone")
     ctx = _ctx_with_families(CharacterStyles=_style_family({"StyleB": style}))
     with pytest.raises(DocumentDisposedError):
         StyleList().execute(ctx, family="CharacterStyles")
@@ -1572,10 +1564,8 @@ def test_read_helpers_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import _get_style_prop, _missing_style_error, _struct_to_json
 
-    DisposedEx = type("DisposedException", (Exception,), {})
-
     obj = MagicMock()
-    obj.getPropertyValue.side_effect = DisposedEx("gone")
+    obj.getPropertyValue.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         _get_style_prop(obj, "Hidden")
 
@@ -1583,14 +1573,14 @@ def test_read_helpers_reraise_disposed():
     assert _get_style_prop(obj, "Hidden", True) is True
 
     fam = MagicMock()
-    fam.getElementNames.side_effect = DisposedEx("gone")
+    fam.getElementNames.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         _missing_style_error(StyleUpdate(), "X", "ParagraphStyles", fam)
 
     class _BoomStruct:
         @property
         def Color(self):
-            raise DisposedEx("gone")
+            raise DisposedException("gone")
 
     with pytest.raises(DocumentDisposedError):
         _struct_to_json("com.sun.star.table.BorderLine2", _BoomStruct())
@@ -1949,9 +1939,8 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
 
     # Disposal exception propagates as DocumentDisposedError
-    DisposedExc = type("DisposedException", (Exception,), {})
     portion_disp = MagicMock()
-    portion_disp.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (_ for _ in ()).throw(DisposedExc("object disposed"))
+    portion_disp.getPropertyValue.side_effect = lambda name: "Text" if name == "TextPortionType" else (_ for _ in ()).throw(DisposedException("object disposed"))
     portion_disp.getPropertySetInfo.return_value = info
 
     with pytest.raises(DocumentDisposedError):
@@ -2668,8 +2657,7 @@ def test_record_paragraph_formats_failure_and_disposal():
     assert res["style_unreviewed"] is True
     assert "without a tracked change" in res["warning"]
 
-    DisposedExc = type("DisposedException", (Exception,), {})
-    ctx_disp, cursor_disp, redline_disp = _make_ctx_and_para(DisposedExc("disposed"))
+    ctx_disp, cursor_disp, redline_disp = _make_ctx_and_para(DisposedException("disposed"))
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor_disp), \
          patch("plugin.writer.styles.paragraph_redline_author", return_value="Alice Smith"), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=redline_disp):

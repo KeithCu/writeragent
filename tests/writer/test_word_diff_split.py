@@ -597,5 +597,3 @@ def test_verification_hypothesis_split_change_fraction_bounds(old: str, new: str
 
     for sub in res.sub_edits:
         assert 0 <= sub.old_start <= sub.old_end <= len(old)
-
-

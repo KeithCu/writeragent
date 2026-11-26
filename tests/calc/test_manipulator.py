@@ -21,6 +21,7 @@ from plugin.calc.manipulator import (
     looks_numeric_text,
     parse_then_by,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def _used(end_row: int, end_col: int, sheet: int = 0) -> SimpleNamespace:
@@ -718,8 +719,6 @@ def test_range_sort_tie_reorder_is_not_no_rows_moved():
 
 def test_quiet_probe_cleanup():
     from plugin.calc.manipulator import quiet_probe_cleanup
-
-    DisposedException = type("DisposedException", (Exception,), {})
 
     def raise_disposed():
         raise DisposedException("disposed")

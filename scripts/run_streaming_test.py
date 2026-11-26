@@ -103,7 +103,7 @@ def run_streaming_with_tools(prompt: str):
         "request_timeout": 120
     }
     client = LlmClient(config, None) # None for ctx as it's not needed for basic logging
-    
+
     message_snapshot = {}
 
     print("Streaming from endpoint using LlmClient...\n")
@@ -188,5 +188,5 @@ if __name__ == "__main__":
             "to read the document, then briefly summarize what you would do with it. "
             "If you cannot call tools, just say 'No tools available'."
         )
-    
+
     run_streaming_with_tools(prompt)

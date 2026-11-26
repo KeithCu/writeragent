@@ -28,6 +28,7 @@ from plugin.writer.specialized.forms import (
     _create_control,
     _resolve_form_page,
 )
+from plugin.tests.testing_utils import DisposedException
 
 
 def _cell(kind, displayed=""):
@@ -245,9 +246,6 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
 
 
 def test_resolve_form_page_reraises_disposed(monkeypatch):
-    class DisposedException(Exception):
-        pass
-
     doc = MagicMock()
     monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
 
@@ -1011,8 +1009,3 @@ def test_form_create_control_items_comma_and_json_array():
         items, err = _items_or_error(prep.kwargs)
         assert err is None
         assert items == ["a", "b"]
-
-
-
-
-

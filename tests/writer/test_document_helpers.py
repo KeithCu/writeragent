@@ -11,6 +11,7 @@ from plugin.writer.edit_review import (
     WriterStreamedRewriteSession,
     build_writer_rewrite_prompt,
 )
+from plugin.tests.testing_utils import FakeUnoEnum
 
 
 class _MutableTextRange:
@@ -648,23 +649,12 @@ class _Portion:
         return self._text
 
 
-class _PortionEnum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class _Paragraph:
     def __init__(self, portions):
         self._portions = list(portions)
 
     def createEnumeration(self):
-        return _PortionEnum(self._portions)
+        return FakeUnoEnum(self._portions)
 
     def getString(self):
         return "".join(portion.getString() for portion in self._portions)
@@ -686,7 +676,7 @@ class _RedlineCursor(_MutableTextRange):
         super().setString(value)
 
     def createEnumeration(self):
-        return _PortionEnum(self._paragraphs)
+        return FakeUnoEnum(self._paragraphs)
 
 
 class _PortionCursor(_MutableTextRange):
@@ -702,7 +692,7 @@ class _PortionCursor(_MutableTextRange):
         super().setString(value)
 
     def createEnumeration(self):
-        return _PortionEnum(self._portions)
+        return FakeUnoEnum(self._portions)
 
 
 class _BoomEnum:
@@ -1102,4 +1092,3 @@ def test_append_finish_fallback_names_a_failed_setstring(monkeypatch):
     assert warning is not None
     assert "setString failed" in warning
     assert "text was kept" not in warning
-

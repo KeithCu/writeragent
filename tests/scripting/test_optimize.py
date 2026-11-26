@@ -747,8 +747,3 @@ def test_optimize_helper_errors_keep_code_message_helper(
         "message": expected_message,
         "helper": expected_helper,
     }
-
-
-
-
-

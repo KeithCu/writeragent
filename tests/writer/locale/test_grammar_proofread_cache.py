@@ -241,17 +241,17 @@ def test_whitespace_normalization_cache_key() -> None:
 def test_cache_persistence_fallback() -> None:
     """Test that cache_get_sentence falls back to persistence and populates memory cache."""
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
-    
+
     mock_p = MagicMock(spec=DocumentPersistence)
     errors = [{"wrong": "test", "correct": "TEST", "n_error_start": 0, "n_error_length": 4}]
     mock_p.get.return_value = errors
-    
+
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=mock_p):
         # 1. Get from persistence (memory miss)
         got = gc.cache_get_sentence("en-US", "Persistence test.", doc_id="doc1")
         assert got == errors
         mock_p.get.assert_called_once()
-        
+
         # 2. Subsequent call should hit memory (mock_p.get NOT called again)
         got2 = gc.cache_get_sentence("en-US", "Persistence test.", doc_id="doc1")
         assert got2 == errors
@@ -429,6 +429,3 @@ def test_store_sentence_result_normalizes_caches_and_filters() -> None:
     cached = gc.cache_get_sentence("en-US", "they is here.", doc_id="d1", checker_identity="harper")
     assert cached is not None
     assert len(cached) == 2
-
-
-

@@ -466,4 +466,3 @@ def test_launch_exit_warns_when_debug_log_missing(
     assert "Warning:" in captured.err
     assert "Restored previous" in captured.out
     assert MAX_TOOL_ROUNDS_KEY not in json.loads(config.read_text(encoding="utf-8"))
-

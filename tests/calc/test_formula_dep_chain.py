@@ -335,4 +335,3 @@ def test_fetch_formula_dep_chain_ignores_non_json_command_values():
     assert chain is not None
     assert chain["source"] == "formula_query"
     mock_fallback.assert_called_once()
-

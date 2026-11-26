@@ -14,6 +14,7 @@ from plugin.doc.text_helpers import (
     normalize_linebreaks,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 
 class _LabelPara:
@@ -137,20 +138,6 @@ def test_get_document_path_repairs_legacy_file_url_and_rejects_non_file():
         assert get_document_path(model) is None
 
 
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-        self._idx = 0
-
-    def hasMoreElements(self):
-        return self._idx < len(self._items)
-
-    def nextElement(self):
-        item = self._items[self._idx]
-        self._idx += 1
-        return item
-
-
 class _Portion:
     def __init__(self, text="", portion_type="Text", redline_type=None, is_start=True):
         self._text = text
@@ -178,12 +165,12 @@ class _Paragraph:
         self._contents = contents
 
     def createEnumeration(self):
-        return _Enum(self._portions)
+        return FakeUnoEnum(self._portions)
 
     def createContentEnumeration(self, _service):
         if callable(self._contents):
             return self._contents()
-        return _Enum(self._contents)
+        return FakeUnoEnum(self._contents)
 
     def getString(self):
         return self._fallback_text
@@ -195,7 +182,7 @@ class _TextRange:
         self._fallback_text = fallback_text
 
     def createEnumeration(self):
-        return _Enum(self._paragraphs)
+        return FakeUnoEnum(self._paragraphs)
 
     def getString(self):
         return self._fallback_text
@@ -481,9 +468,6 @@ def test_get_document_length_propagates_disposal():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.doc import text_helpers
 
-    class DisposedException(Exception):
-        pass
-
     model = MagicMock()
     model.getText.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
@@ -597,9 +581,6 @@ def test_selected_text_range_shape_service_returns_none():
 
 def test_selected_text_range_disposed_raises():
     from plugin.doc.text_helpers import selected_text_range
-
-    class DisposedException(Exception):
-        pass
 
     ctrl = MagicMock()
     ctrl.getSelection.side_effect = DisposedException("closed")
@@ -1118,9 +1099,6 @@ def test_keep_view_selection_restores_single_range_not_container():
 def test_keep_view_selection_restore_errors():
     from plugin.doc.text_helpers import KeepViewSelection
 
-    class DisposedException(Exception):
-        pass
-
     class _Controller:
         def __init__(self, select_exc: Exception) -> None:
             self._select_exc = select_exc
@@ -1157,9 +1135,6 @@ def test_live_selection_range_and_snapshot():
         selection_cursor_snapshot,
     )
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     # Selection range wins over view cursor.
     sel_rng = MagicMock()
@@ -1207,9 +1182,6 @@ def test_live_selection_range_and_snapshot():
 def test_live_insert_range_fallback_and_disposal():
     from plugin.doc.text_helpers import live_insert_range
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     sel_rng = MagicMock()
     controller = MagicMock()
@@ -1292,8 +1264,6 @@ class _DeletionFakeRange:
         return False
 
     def createEnumeration(self):
-        from tests.testing_utils import FakeUnoEnum
-
         return FakeUnoEnum(self._elements)
 
 
@@ -1379,7 +1349,6 @@ def test_paragraph_deletion_flags_no_redlines_and_with_redlines():
 
 def test_tracked_deletions_state_at_and_overlaps():
     from plugin.doc.text_helpers import TrackedDeletions
-    from tests.testing_utils import FakeUnoEnum
 
     class _Pos:
         def __init__(self, idx):
@@ -1513,8 +1482,6 @@ class _FakePos:
         return self.text
 
     def createEnumeration(self):
-        from tests.testing_utils import FakeUnoEnum
-
         return FakeUnoEnum([])
 
 
@@ -1534,8 +1501,6 @@ class _FakeSpan:
         return self.end
 
     def createEnumeration(self):
-        from tests.testing_utils import FakeUnoEnum
-
         return FakeUnoEnum([])
 
 
@@ -1555,7 +1520,6 @@ class _FakeDeleteRedline:
 
 def _build_tracked_deletions(deletions):
     from plugin.doc.text_helpers import TrackedDeletions
-    from tests.testing_utils import FakeUnoEnum
 
     rl_doc = MagicMock()
     rl_doc.getRedlines.return_value.hasElements.return_value = True
@@ -1605,9 +1569,6 @@ def test_tracked_deletions_overlaps_does_not_scan_every_deletion():
 def test_bounds_cover():
     from plugin.doc.text_helpers import bounds_cover
     from plugin.framework.errors import DocumentDisposedError
-
-    class DisposedException(Exception):
-        pass
 
     class _Text:
         def compareRegionStarts(self, a, b):
@@ -1664,7 +1625,7 @@ def test_iter_xtext_paragraphs_cell_states_and_struck_table():
 
 def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
     from plugin.doc.text_helpers import build_heading_tree
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     h1 = FakeUnoPara([FakeUnoPortion("Text", "Live 1")], OutlineLevel=1)
     h_struck = FakeUnoPara([
@@ -1690,7 +1651,7 @@ def test_build_heading_tree_drops_struck_heading_and_keeps_empty_live_heading():
 
 def test_build_heading_tree_drops_heading_inside_multi_paragraph_deletion():
     from plugin.doc.text_helpers import build_heading_tree
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     h_live = FakeUnoPara([FakeUnoPortion("Text", "Live 1")], OutlineLevel=1)
     p_start = FakeUnoPara([
@@ -1735,7 +1696,7 @@ def test_fake_uno_portion_redline_property_gates():
 
 def test_build_heading_tree_keeps_unseen_live_headings():
     from plugin.doc.text_helpers import build_heading_tree
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     class _RawTextPara(FakeUnoPara):
         def __init__(self, portions, raw_text: str, **props):
@@ -1841,7 +1802,7 @@ def test_visible_portions_abort_on_unreadable_inner_portion():
 
 def test_visible_portions_unreadable_container_enum_respects_abort():
     from plugin.doc.text_helpers import DeletionState, iter_portions, visible_portions
-    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+    from tests.testing_utils import FakeUnoPara, FakeUnoPortion
 
     class _BadContainerPortion(FakeUnoPortion):
         def getPropertyValue(self, name: str):
@@ -2100,7 +2061,6 @@ def test_reset_properties_to_default_takes_the_caller_s_names():
 @pytest.mark.parametrize(("state_value", "expected_calls"), [("DIRECT_VALUE", 1), ("DEFAULT_VALUE", 0)])
 def test_clear_direct_numbering_clears_direct_only(state_value, expected_calls):
     from plugin.doc.text_helpers import clear_direct_numbering
-    from tests.testing_utils import FakeUnoEnum
 
     para = MagicMock()
     para.getPropertyState.return_value = MagicMock(value=state_value)

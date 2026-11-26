@@ -17,26 +17,14 @@ from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.testing_runner import native_test
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.math.math_mml_convert import MATH_CLSID
-from plugin.tests.testing_utils import (
-    TestingFactory,
-    with_native_doc,
-)
-
-
-def _set_body(doc, text_value):
-    text = doc.getText()
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.gotoEnd(True)
-    cur.setString("")
-    cur.gotoStart(False)
-    text.insertString(cur, text_value, False)
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from tests.writer.doc_builders import set_body_text
 
 
 @native_test
 @with_native_doc("writer")
 def test_single_match_reports_replaced_count_uno(ctx, doc):
-    _set_body(doc, "alpha foo beta")
+    set_body_text(doc, "alpha foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="foo", content="BAR")
     assert res.get("status") == "ok", res
@@ -47,7 +35,7 @@ def test_single_match_reports_replaced_count_uno(ctx, doc):
 @with_native_doc("writer")
 def test_no_match_reports_zero_and_errors_uno(ctx, doc):
     """The anti silent-failure case: a search that matches nothing must report status=error."""
-    _set_body(doc, "nothing relevant here")
+    set_body_text(doc, "nothing relevant here")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="zzz-not-present", content="BAR")
     assert res.get("status") == "error", res
@@ -57,7 +45,7 @@ def test_no_match_reports_zero_and_errors_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_all_matches_reports_total_count_uno(ctx, doc):
-    _set_body(doc, "x foo y foo z foo w")
+    set_body_text(doc, "x foo y foo z foo w")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="foo", content="BAR", all_matches=True)
     assert res.get("status") == "ok", res
@@ -67,7 +55,7 @@ def test_all_matches_reports_total_count_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_all_matches_no_match_errors_uno(ctx, doc):
-    _set_body(doc, "nothing here")
+    set_body_text(doc, "nothing here")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="zzz", content="BAR", all_matches=True)
     assert res.get("status") == "error", res
@@ -79,7 +67,7 @@ def test_all_matches_no_match_errors_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_insert_branch_succeeds_uno(ctx, doc):
-    _set_body(doc, "seed")
+    set_body_text(doc, "seed")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content="more")
     assert res.get("status") == "ok", res
@@ -91,7 +79,7 @@ def test_insert_branch_succeeds_uno(ctx, doc):
 def test_empty_old_content_is_a_parameter_error_uno(ctx, doc):
     """old_content that normalizes to empty is a parameter error (like old_content=None), not a
     search no-op: status="error" and the search never ran (no replaced_count)."""
-    _set_body(doc, "some content here")
+    set_body_text(doc, "some content here")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="   ", content="BAR")
     assert res.get("status") == "error", res
@@ -106,7 +94,7 @@ def test_search_occurrence_selects_exact_match_uno(ctx, doc):
     """occurrence is 0-based and replaces only the requested Writer text match."""
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    _set_body(doc, "foo | foo")
+    set_body_text(doc, "foo | foo")
     res = ApplyDocumentContent().execute(
         tool_ctx,
         target="search",
@@ -118,7 +106,7 @@ def test_search_occurrence_selects_exact_match_uno(ctx, doc):
     assert res.get("occurrence") == 0, res
     assert doc.getText().getString() == "BAR | foo"
 
-    _set_body(doc, "foo | foo")
+    set_body_text(doc, "foo | foo")
     res = ApplyDocumentContent().execute(
         tool_ctx,
         target="search",
@@ -135,7 +123,7 @@ def test_search_occurrence_selects_exact_match_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_occurrence_dry_run_does_not_edit_uno(ctx, doc):
     """dry_run resolves the requested occurrence without mutating the document."""
-    _set_body(doc, "foo | foo")
+    set_body_text(doc, "foo | foo")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     before = doc.getText().getString()
 
@@ -161,7 +149,7 @@ def test_search_occurrence_dry_run_does_not_edit_uno(ctx, doc):
 @with_native_doc("writer")
 def test_search_occurrence_out_of_range_uno(ctx, doc):
     """OOR names the valid 0-based range and does not edit."""
-    _set_body(doc, "foo | foo")
+    set_body_text(doc, "foo | foo")
     before = doc.getText().getString()
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
@@ -188,7 +176,7 @@ def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
     test_cap = 10
     with patch("plugin.writer.search.MAX_SEARCH_REPLACEMENTS", test_cap):
         text_value = "foo bar baz " * (test_cap + 5)
-        _set_body(doc, text_value)
+        set_body_text(doc, text_value)
 
         tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
         res = ApplyDocumentContent().execute(
@@ -203,7 +191,7 @@ def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_search_replace_icu_only_regex_edits_body_uno(ctx, doc):
-    _set_body(doc, "alpha Foo beta")
+    set_body_text(doc, "alpha Foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
         tool_ctx,
@@ -221,7 +209,7 @@ def test_search_replace_icu_only_regex_edits_body_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_search_replace_python_only_regex_is_invalid_regex_uno(ctx, doc):
-    _set_body(doc, "alpha Foo beta")
+    set_body_text(doc, "alpha Foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
         tool_ctx, target="search", old_content=r"(?P<w>Foo)", content="BAR", regex=True
@@ -234,7 +222,7 @@ def test_search_replace_python_only_regex_is_invalid_regex_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
-    _set_body(doc, "alpha Foo beta")
+    set_body_text(doc, "alpha Foo beta")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
         tool_ctx,
@@ -251,7 +239,7 @@ def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_end_display_tex_creates_math_object_uno(ctx, doc):
-    _set_body(doc, "Intro.")
+    set_body_text(doc, "Intro.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     content = r"<p>Q:</p>$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$"
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
@@ -277,7 +265,7 @@ def test_end_display_tex_creates_math_object_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
-    _set_body(doc, "Intro.")
+    set_body_text(doc, "Intro.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     content = r"<p>Bad:</p>$$\sqrt{$$"
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content=content)
@@ -333,4 +321,3 @@ def test_selection_caret_block_snaps_after_paragraph_uno(ctx, doc):
         if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
             paras.append(el.getString())
     assert paras == ["Alpha beta gamma.", "Current population is 5.", "Second para."]
-

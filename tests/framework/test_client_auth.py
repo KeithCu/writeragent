@@ -227,4 +227,3 @@ def test_missing_key_error_hides_endpoint_secrets():
     msg = str(exc_info.value)
     assert "Hunter2pw" not in msg
     assert "api.openai.com" in msg
-

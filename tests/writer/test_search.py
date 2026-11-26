@@ -20,6 +20,7 @@ from plugin.writer.search import (
     prepare_old_content,
     SINGLE_QUOTE_CLASS,
 )
+from plugin.tests.testing_utils import DisposedException, FakeUnoEnum
 
 # ---- D6: regex / case in the edit path --------------------------------------
 
@@ -831,9 +832,6 @@ def test_occurrence_range_or_error_payloads():
 def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     from plugin.writer.search import _prop, _safe_name, describe_match_location, enclosing_paragraph_text
 
-    class DisposedException(Exception):
-        pass
-
     class RuntimeException(Exception):
         pass
 
@@ -1102,7 +1100,7 @@ def test_build_page_map_propagates_disposed_document():
     enum = doc.getText.return_value.createEnumeration.return_value
     enum.hasMoreElements.side_effect = [True, False]
     vc = doc.getCurrentController.return_value.getViewCursor.return_value
-    vc.getPage.side_effect = type("DisposedException", (Exception,), {})("gone")
+    vc.getPage.side_effect = DisposedException("gone")
     with pytest.raises(DocumentDisposedError):
         _build_page_map(doc)
 
@@ -1641,10 +1639,6 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.search import replace_text_in_shape
 
 
-class DisposedException(Exception):
-    pass
-
-
 def test_replace_text_in_shape_reraises_disposal():
     shape = MagicMock()
     shape.getText.side_effect = DisposedException("closed")
@@ -2031,22 +2025,11 @@ class _Nested:
         return name == "com.sun.star.text.TextTable"
 
 
-class _Enum:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def hasMoreElements(self):
-        return bool(self._items)
-
-    def nextElement(self):
-        return self._items.pop(0)
-
-
 class _HostCell(_Cell):
     """A cell whose enumeration contains a nested table."""
 
     def createEnumeration(self):
-        return _Enum([_Nested(), _Cell(self.text)])
+        return FakeUnoEnum([_Nested(), _Cell(self.text)])
 
 
 def _names(ranges, content):
@@ -2266,4 +2249,3 @@ def test_find_text_ranges_skips_unmeasurable_hits_and_fills_limit():
         rows_many = find_text_ranges(doc, "yy", limit=1)
     assert rows_many == [{"start": 5, "end": 7, "text": "yy"}]
     assert rvb.call_count <= 4
-

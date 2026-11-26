@@ -91,26 +91,26 @@ def run_command(cmd, cwd=None):
 
 def strip_binary(filepath):
     """Strip debug symbols from a binary file to reduce size.
-    
+
     Uses platform-appropriate strip tool:
     - llvm-strip: Cross-platform, handles any architecture (preferred)
     - strip: Native platform strip tool
     - Windows: llvm-strip or strip (MSYS2/MinGW)
     """
     filepath = Path(filepath)
-    
+
     if not filepath.exists():
         return
-    
+
     # Skip if file is too small to be a meaningful binary
     if filepath.stat().st_size < 1024:
         return
-    
+
     system = platform.system().lower()
-    
+
     # Try llvm-strip first - it's cross-platform and can handle any architecture
     strippers = ["llvm-strip"]
-    
+
     if system == "windows":
         # On Windows, also try strip from MSYS2/MinGW
         strippers.append("strip")
@@ -121,7 +121,7 @@ def strip_binary(filepath):
         strippers.append("strip")
     # On macOS, only try llvm-strip (native strip may not work well with
     # cross-compiled binaries)
-    
+
     for stripper in strippers:
         try:
             result = subprocess.run(
@@ -135,7 +135,7 @@ def strip_binary(filepath):
                 return
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             continue
-    
+
     # If we get here, stripping failed - not a fatal error
     print(f"  Warning: Could not strip {filepath.name} (no strip tool available)")
 
@@ -194,7 +194,7 @@ def main():
 
         # 4. Extract wheels and update files
         print("Extracting wheels and updating files...")
-        
+
         pure_python_updated = {
             "sounddevice": False,
             "cffi": False,
@@ -208,7 +208,7 @@ def main():
                 zip_ref.extractall(wheel_extract_dir)
 
             wheel_name = wheel.name.lower()
-            
+
             if "sounddevice" in wheel_name:
                 binaries_src = wheel_extract_dir / "_sounddevice_data" / "portaudio-binaries"
                 if binaries_src.exists():
@@ -221,7 +221,7 @@ def main():
                         if f.suffix == ".dylib":
                             ensure_macos_arm64_only(dest)
                             print(f"  Verified arm64: {dest.name}")
-                
+
                 if not pure_python_updated["sounddevice"]:
                     for f in ["sounddevice.py", "_sounddevice.py"]:
                         if (wheel_extract_dir / f).exists():
@@ -238,7 +238,7 @@ def main():
                         print(f"  Verified arm64: {dest.name}")
                     # Strip debug symbols to reduce file size
                     strip_binary(dest)
-                
+
                 if not pure_python_updated["cffi"]:
                     cffi_src = wheel_extract_dir / "cffi"
                     if cffi_src.exists():

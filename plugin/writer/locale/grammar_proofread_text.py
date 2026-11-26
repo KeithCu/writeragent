@@ -562,4 +562,3 @@ def reconcile_active_and_paragraph_spans(
         for start, end, text in active_spans
         if start in uncached_starts
     ]
-

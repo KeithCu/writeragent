@@ -224,4 +224,3 @@ def test_hybrid_search_explicit_cancel_overrides_ctx(ctx, tmp_path):
                     cancel=explicit,
                 )
     assert mock_run.call_args.kwargs["cancel"] is explicit
-

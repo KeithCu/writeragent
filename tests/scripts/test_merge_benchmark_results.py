@@ -201,4 +201,3 @@ def test_update_doc_tables(tmp_path: Path) -> None:
     assert "new/model" in bench_file.read_text(encoding="utf-8")
     assert "new/model" in po_readme.read_text(encoding="utf-8")
     assert "new/model" in root_readme.read_text(encoding="utf-8")
-

@@ -15,7 +15,7 @@ def bench_with_nones():
     nrows = 20000
     ncols = 5
     grid = [[float(i + j) if (i+j) % 10 != 0 else None for j in range(ncols)] for i in range(nrows)]
-    
+
     print("Benchmarking 100k cells with Nones...")
     t0 = time.perf_counter()
     for _ in range(10):
@@ -25,11 +25,11 @@ def bench_with_nones():
 
 if __name__ == "__main__":
     bench_with_nones()
-    
+
     profiler = cProfile.Profile()
     profiler.enable()
     bench_with_nones()
     profiler.disable()
-    
+
     stats = pstats.Stats(profiler).sort_stats('tottime')
     stats.print_stats(20)

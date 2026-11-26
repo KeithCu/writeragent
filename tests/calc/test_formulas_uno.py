@@ -314,4 +314,3 @@ def test_evaluate_formula(ctx, doc):
     assert titles_after == titles_before, f"Undo actions changed: {titles_after} vs {titles_before}"
     if hasattr(doc, "isModified"):
         assert doc.isModified() == was_modified, f"isModified changed from {was_modified} to {doc.isModified()}"
-

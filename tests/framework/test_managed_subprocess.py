@@ -23,6 +23,7 @@ from plugin.framework.managed_subprocess import (
     optimize_popen_pipes,
     shutdown_all,
 )
+from plugin.tests.testing_utils import pid_is_alive
 
 
 @pytest.fixture(autouse=True)
@@ -34,32 +35,6 @@ def _fake_fcntl_on_non_posix(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setitem(sys.modules, "fcntl", fake_fcntl)
     elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
         monkeypatch.setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031, raising=False)
-
-
-def pid_is_alive(pid: int) -> bool:
-    """True if *pid* still names a live process."""
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        return _pid_is_alive_win32(int(pid))
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _pid_is_alive_win32(pid: int) -> bool:
-    if sys.platform != "win32":
-        return False
-    import ctypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    handle = kernel32.OpenProcess(0x1000, False, pid)
-    if handle:
-        kernel32.CloseHandle(handle)
-        return True
-    return ctypes.get_last_error() == 5
 
 
 def _reap_for_test(managed: ManagedSubprocess) -> None:
@@ -1732,4 +1707,3 @@ def test_managed_subprocess_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> 
     proc_win = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
     proc_win.start()
     assert "preexec_fn" not in recorded_kwargs
-

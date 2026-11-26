@@ -96,4 +96,3 @@ def test_run_vision_timeout_budget_for_document_timeout(ctx, params, worker_time
     ):
         run_vision(ctx, {"helper": "extract_structure", "params": params}, b"png")
     assert mock_run.call_args.kwargs["timeout_sec"] == expected
-

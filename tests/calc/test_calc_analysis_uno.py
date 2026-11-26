@@ -38,7 +38,7 @@ def _execute_calc_tool(doc, ctx, name, args):
 @with_native_doc("calc")
 def test_goal_seek(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
-    
+
     # Problem: Find x such that x^2 = 100
     # A1: Variable (x)
     # B1: Formula (=A1*A1)
@@ -54,12 +54,12 @@ def test_goal_seek(ctx, doc):
         "target_value": 100.0,
         "apply_result": True
     })
-    
+
     assert res.get("status") == "ok", f"Goal Seek failed: {res}"
     result_val = res.get("result", {}).get("value")
     # Result should be 10.0 (or -10.0)
     assert abs(abs(result_val) - 10.0) < 0.0001, f"Expected 10.0, got {result_val}"
-    
+
     # Verify applied
     assert abs(abs(active_sheet.getCellByPosition(0, 0).getValue()) - 10.0) < 0.0001
 
@@ -79,7 +79,7 @@ def test_solver(ctx, doc):
 
     # Define Constraint: x + y <= 10 in D3
     active_sheet.getCellByPosition(3, 2).setFormula("=A3+B3")
-    
+
     # Linear program: use built-in linear solver (avoids Java NLPSolver / DEPS on hidden docs).
     res = _execute_calc_tool(doc, ctx, "calc_solver", {
         "objective_cell": f"{sheet_name}.C3",
@@ -109,11 +109,11 @@ def test_solver(ctx, doc):
 
     assert res.get("status") == "ok", f"Solver failed: {res}"
     assert res.get("result", {}).get("success"), "Solver did not succeed"
-    
+
     # Result should be 50.0 (x=0, y=10)
     result_val = res.get("result", {}).get("result_value")
     assert abs(result_val - 50.0) < 0.0001, f"Expected 50.0, got {result_val}"
-    
+
     # Verify solution values in returned result or sheet cells
     sol = res.get("result", {}).get("solution")
     if sol and len(sol) >= 2:
