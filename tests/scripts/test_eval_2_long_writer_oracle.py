@@ -7,8 +7,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from docx import Document
-from odf.opendocument import OpenDocumentText
-from odf.text import P
+from tests.scripts.script_test_support import write_odt
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -72,15 +71,6 @@ def _write_docx(path: Path, text: str, *, headings: bool = False) -> Path:
     return path
 
 
-def _write_odt_plain(path: Path, text: str) -> Path:
-    doc = OpenDocumentText()
-    for line in text.strip().splitlines():
-        doc.text.addElement(P(text=line))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(path))
-    return path
-
-
 def _inject_odt_structure(
     path: Path,
     *,
@@ -138,7 +128,7 @@ def _inject_odt_structure(
 
 
 def _write_passing_odt(path: Path) -> Path:
-    _write_odt_plain(path, _padded())
+    write_odt(path, _padded())
     return _inject_odt_structure(
         path,
         toc=True,
@@ -187,14 +177,14 @@ def test_passing_odt_and_docx(tmp_path: Path) -> None:
 
 
 def test_empty_pack_fails(tmp_path: Path) -> None:
-    path = _write_odt_plain(tmp_path / "empty.odt", "")
+    path = write_odt(tmp_path / "empty.odt", "")
     result = score_pack(path)
     assert not result.passed
     assert any("empty" in item or "word_count" in item for item in result.failures)
 
 
 def test_headings_without_toc_fail(tmp_path: Path) -> None:
-    path = _write_odt_plain(tmp_path / "no-toc.odt", _padded())
+    path = write_odt(tmp_path / "no-toc.odt", _padded())
     _inject_odt_structure(
         path,
         toc=False,
@@ -209,7 +199,7 @@ def test_headings_without_toc_fail(tmp_path: Path) -> None:
 
 
 def test_toc_without_heading_styles_fails(tmp_path: Path) -> None:
-    path = _write_odt_plain(tmp_path / "unstyled.odt", _padded())
+    path = write_odt(tmp_path / "unstyled.odt", _padded())
     _inject_odt_structure(
         path,
         toc=True,
@@ -222,7 +212,7 @@ def test_toc_without_heading_styles_fails(tmp_path: Path) -> None:
 
 
 def test_missing_comment_fails(tmp_path: Path) -> None:
-    path = _write_odt_plain(tmp_path / "no-comment.odt", _padded())
+    path = write_odt(tmp_path / "no-comment.odt", _padded())
     _inject_odt_structure(path, toc=True, headings=True, comment=None)
     result = score_pack(path)
     assert not result.passed
@@ -231,7 +221,7 @@ def test_missing_comment_fails(tmp_path: Path) -> None:
 
 
 def test_husk_comment_does_not_count(tmp_path: Path) -> None:
-    path = _write_odt_plain(tmp_path / "husk-comment.odt", _padded())
+    path = write_odt(tmp_path / "husk-comment.odt", _padded())
     _inject_odt_structure(path, toc=True, headings=True, comment="Error: tool failed")
     result = score_pack(path)
     assert not result.passed
@@ -272,7 +262,7 @@ def test_contents_index_equivalent_passes(tmp_path: Path) -> None:
         "Public-Access Impacts\n"
         + _padded()
     )
-    path = _write_odt_plain(tmp_path / "contents.odt", text)
+    path = write_odt(tmp_path / "contents.odt", text)
     _inject_odt_structure(
         path,
         toc=False,
@@ -287,7 +277,7 @@ def test_contents_index_equivalent_passes(tmp_path: Path) -> None:
 def test_headed_score_routes_to_long_writer_oracle(tmp_path: Path) -> None:
     pack = _write_passing_odt(tmp_path / "final_pack.odt")
     assert headed_main(["--task", "long-writer-pack", "--score", str(pack)]) == 0
-    empty = _write_odt_plain(tmp_path / "empty.odt", "")
+    empty = write_odt(tmp_path / "empty.odt", "")
     assert headed_main(["--task", "long-writer-pack", "--score", str(empty)]) == 1
 
 

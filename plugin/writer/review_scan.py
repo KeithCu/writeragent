@@ -224,7 +224,7 @@ def _stacked_on_someone_else(rl: Any) -> bool:
         return True
     if not isinstance(below, (tuple, list)) or not below:
         return False
-    comment = next((p.Value for p in below if getattr(p, "Name", "") == "RedlineComment"), "")
+    comment = next((p.Value for p in below if p.Name == "RedlineComment"), "")
     return not is_agent_token(comment)
 
 

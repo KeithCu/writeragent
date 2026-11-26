@@ -319,8 +319,6 @@ class TestExecuteLocal:
 
     @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_isolated(self) -> None:
-        from unittest.mock import patch
-
         from plugin.scripting.venv import venv_sandbox as vs
 
         init = "ONCE_ISO = 7"
@@ -334,8 +332,6 @@ class TestExecuteLocal:
 
     @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_shared(self) -> None:
-        from unittest.mock import patch
-
         from plugin.scripting.venv import venv_sandbox as vs
 
         sid = "shared-init-once"
@@ -936,8 +932,6 @@ class TestComputeSettings:
         assert s.max_timeout_sec == 30
 
     def test_workers_invalid(self) -> None:
-        from compute_service.config import ConfigError
-
         with pytest.raises(ConfigError):
             load_settings({"workers": 0}, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
@@ -949,8 +943,6 @@ class TestComputeSettings:
         ],
     )
     def test_negative_idle_worker_ttl_rejected(self, tmp_path, value, value_2, value_3, match) -> None:
-        from compute_service.config import ConfigError
-
         cfg = tmp_path / value
         cfg.write_text(json.dumps({"limits": {value_2: -value_3}}), encoding="utf-8")
         with pytest.raises(ConfigError, match=match):
@@ -1055,7 +1047,6 @@ class TestComputeSettings:
         those details. Root ignores mode bits, so this only runs unprivileged.
         Mode 000 is restored so the tmp directory can be deleted.
         """
-        import os
 
         if not hasattr(os, "geteuid") or os.geteuid() == 0:
             pytest.skip("mode 000 is still readable as root")
@@ -1575,7 +1566,6 @@ class TestSessionResetHttp:
         self, meta_bytes: bytes, expected_error: str, expected_code: str | None
     ) -> None:
         """Non-finite numbers or non-scalar ids in multipart meta return JSON 400."""
-        from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         try:
@@ -1819,10 +1809,6 @@ print("ok")
         ],
     )
     def test_config_auth_startup_avoids_writeragent_config(self, value) -> None:
-        import subprocess
-        import sys
-        from pathlib import Path
-
         repo = Path(__file__).resolve().parents[2]
         code = value
         proc = subprocess.run([sys.executable, "-c", code], cwd=str(repo), capture_output=True, text=True, check=False)
@@ -1846,10 +1832,6 @@ print("ok")
 
 
 def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
-    import subprocess
-    import sys
-    from pathlib import Path
-
     bindir = tmp_path / "bin"
     bindir.mkdir()
     marker = tmp_path / "ran"
@@ -2220,9 +2202,6 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
 
 def _run_start_docker(tmp_path, env_extra: dict[str, str], cwd=None):
     """Run start-docker.sh against a docker that records argv and exits 0."""
-    import os
-    import subprocess
-    from pathlib import Path
 
     # A fresh dir per call. The fake docker appends, and one test invokes
     # the script twice from the same tmp_path.
@@ -2272,7 +2251,6 @@ def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
     in the path must stay one docker argument. realpath is the mount source,
     so a symlinked tmp dir still matches one line.
     """
-    import os
 
     key_file = tmp_path / "sec ret *" / "api key"
     key_file.parent.mkdir()
@@ -2289,7 +2267,6 @@ def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
     """load_settings prefers the env key. The script must mount only that."""
-    import os
 
     key = "sec ret *"
     key_file = tmp_path / "host-key"
@@ -2310,7 +2287,6 @@ def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
     Otherwise a bare basename is treated as a docker named volume, and
     resolution after cd fails to find the caller's file.
     """
-    import os
 
     caller = tmp_path / "elsewhere"
     nested = caller / "nested"
@@ -2382,9 +2358,6 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
 
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     """The compute bundle must import the server without the rest of plugin/."""
-    import subprocess
-    import sys
-    from pathlib import Path
     from scripts.build_compute_bundle import assemble_compute_bundle
 
     repo = Path(__file__).resolve().parents[2]
@@ -2452,7 +2425,6 @@ def test_source_text_from_part_unicode_chars() -> None:
 def test_log_level_cli_arg() -> None:
     """--log-level CLI argument must be parsed and set in ComputeSettings."""
     from compute_service.server import _build_arg_parser, main
-    from unittest.mock import patch
 
     parser = _build_arg_parser()
     args = parser.parse_args(["--log-level", "DEBUG"])
@@ -2540,7 +2512,6 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
 def test_run_with_logging_deadline_errors_before_headers() -> None:
     """A raise before headers sends one JSON 500 and releases the permit."""
     from compute_service.server import _Admission, _Route, _gated
-    from plugin.framework.child_runtime import Deadline
 
     calls: list[str] = []
 
@@ -3253,7 +3224,6 @@ def test_wsgi_chunked_401_closes_connection() -> None:
 
 def test_reset_queue_timeout_closes_connection() -> None:
     from compute_service.server import _Admission, _Route, _gated
-    from plugin.framework.child_runtime import Deadline
 
     # Gated route timing out before execution.
     stream = io.BytesIO(b"smuggled GET /health")
@@ -3412,7 +3382,6 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_execute_receives_the_admission_deadline() -> None:
     """The handler builds one Deadline at admission and the pool receives that object, not a timeout to restart."""
-    from plugin.framework.child_runtime import Deadline
 
     seen: dict[str, Any] = {}
 

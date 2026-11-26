@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+import uno
 import unohelper
 from com.sun.star.frame import XStatusListener
 
@@ -86,8 +87,6 @@ def read_watermark(uno_ctx: Any, doc: Any) -> dict[str, Any] | None:
     frame = controller.getFrame()
     if frame is None:
         return None
-
-    import uno
 
     url = cast("Any", uno.createUnoStruct("com.sun.star.util.URL"))
     url.Complete = WATERMARK_COMMAND

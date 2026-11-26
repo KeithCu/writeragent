@@ -14,6 +14,7 @@ import pytest
 
 from scripts import test_incremental as tst
 from scripts.typecheck_incremental import EXIT_FALLBACK_FULL
+from tests.scripts.script_test_support import git
 
 
 def _touch(root: Path, rel: str) -> None:
@@ -22,24 +23,14 @@ def _touch(root: Path, rel: str) -> None:
     path.write_text("x = 1\n", encoding="utf-8")
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def _init_repo(root: Path) -> None:
     _touch(root, "plugin/base.py")
     _touch(root, "tests/test_base.py")
-    _git(root, "init", "-b", "master")
-    _git(root, "config", "user.name", "Test")
-    _git(root, "config", "user.email", "test@example.com")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "base")
+    git(root, "init", "-b", "master")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "add", ".")
+    git(root, "commit", "-m", "base")
 
 
 @pytest.mark.parametrize(
@@ -191,8 +182,8 @@ def test_main_runs_pytest_command_on_selected_files_only(
     _touch(tmp_path, "tests/test_alpha.py")
     _touch(tmp_path, "tests/test_alpha_extra.py")
     _touch(tmp_path, "tests/test_alpha_uno.py")
-    _git(tmp_path, "add", "plugin/alpha.py", "tests/test_alpha.py", "tests/test_alpha_extra.py", "tests/test_alpha_uno.py")
-    _git(tmp_path, "commit", "-m", "committed alpha")
+    git(tmp_path, "add", "plugin/alpha.py", "tests/test_alpha.py", "tests/test_alpha_extra.py", "tests/test_alpha_uno.py")
+    git(tmp_path, "commit", "-m", "committed alpha")
 
     # Dirty change to plugin/alpha.py (unstaged) and tests/test_beta.py (untracked)
     (tmp_path / "plugin/alpha.py").write_text("x = 2\n", encoding="utf-8")
@@ -286,8 +277,8 @@ def test_main_uno_runs_command_on_selected_files_only(
     _touch(tmp_path, "tests/test_alpha.py")
     _touch(tmp_path, "tests/test_alpha_uno.py")
     _touch(tmp_path, "tests/test_alpha_extra_uno.py")
-    _git(tmp_path, "add", "plugin/alpha.py", "tests/test_alpha.py", "tests/test_alpha_uno.py", "tests/test_alpha_extra_uno.py")
-    _git(tmp_path, "commit", "-m", "committed alpha")
+    git(tmp_path, "add", "plugin/alpha.py", "tests/test_alpha.py", "tests/test_alpha_uno.py", "tests/test_alpha_extra_uno.py")
+    git(tmp_path, "commit", "-m", "committed alpha")
 
     (tmp_path / "plugin/alpha.py").write_text("x = 2\n", encoding="utf-8")
     _touch(tmp_path, "tests/test_beta_uno.py")
@@ -404,11 +395,11 @@ def test_main_includes_committed_branch_changes_vs_master_and_origin_master(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init_repo(tmp_path)
-    _git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "checkout", "-b", "feature")
     _write(tmp_path, "plugin/branch_mod.py", "x = 1\n")
     _write(tmp_path, "tests/test_branch_mod.py", "x = 1\n")
-    _git(tmp_path, "add", "plugin/branch_mod.py", "tests/test_branch_mod.py")
-    _git(tmp_path, "commit", "-m", "committed feature work")
+    git(tmp_path, "add", "plugin/branch_mod.py", "tests/test_branch_mod.py")
+    git(tmp_path, "commit", "-m", "committed feature work")
 
     rc = tst.main(["--print-filter"], repo_root=tmp_path)
     assert rc == 0
@@ -424,7 +415,7 @@ def test_main_includes_committed_branch_changes_vs_master_and_origin_master(
         stdout=subprocess.PIPE,
         text=True,
     ).stdout.strip()
-    _git(tmp_path, "update-ref", "refs/remotes/origin/master", head_sha)
+    git(tmp_path, "update-ref", "refs/remotes/origin/master", head_sha)
     rc2 = tst.main(["--print-filter"], repo_root=tmp_path)
     assert rc2 == 0
     assert capsys.readouterr().out == ""
@@ -434,10 +425,10 @@ def test_main_fallback_is_not_sticky_after_conftest_commit_and_handles_no_base_r
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init_repo(tmp_path)
-    _git(tmp_path, "checkout", "-b", "feature")
+    git(tmp_path, "checkout", "-b", "feature")
     _write(tmp_path, "tests/conftest.py", "x = 1\n")
-    _git(tmp_path, "add", "tests/conftest.py")
-    _git(tmp_path, "commit", "-m", "commit conftest")
+    git(tmp_path, "add", "tests/conftest.py")
+    git(tmp_path, "commit", "-m", "commit conftest")
 
     _write(tmp_path, "plugin/alpha.py", "x = 1\n")
     _write(tmp_path, "tests/test_alpha.py", "x = 1\n")
@@ -446,5 +437,5 @@ def test_main_fallback_is_not_sticky_after_conftest_commit_and_handles_no_base_r
     assert capsys.readouterr().out.strip() == "tests/test_alpha.py"
 
     # When neither origin/master nor master exists, falls back to uncommitted changes.
-    _git(tmp_path, "branch", "-D", "master")
+    git(tmp_path, "branch", "-D", "master")
     assert tst.get_branch_changed_files(tmp_path) == ["plugin/alpha.py", "tests/test_alpha.py"]

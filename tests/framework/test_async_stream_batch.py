@@ -239,7 +239,6 @@ def test_async_worker_flushes_batching_stream_queue():
     missed flush leaves the drain empty.
     """
     from plugin.framework.async_stream import run_async_worker_with_drain
-    from plugin.framework.stream_batch import BatchingStreamQueue
 
     ctx = MagicMock()
     toolkit = DummyToolkit()

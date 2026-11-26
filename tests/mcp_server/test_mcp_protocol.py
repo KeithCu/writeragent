@@ -15,7 +15,7 @@ import pytest
 from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.framework.send_cancellation import SendCancellation
 import plugin.mcp_server.mcp_session as mcp_session
-from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
+from plugin.mcp_server.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.mcp_server.wire_types import INVALID_REQUEST
 from tests.mcp_server.conftest import MockHandler
 
@@ -74,9 +74,6 @@ def test_document_echo_payload_logs_and_returns_none(caplog):
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
     """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path attaches
     the precomputed echo and does not read the document again after the tool body runs."""
-    from unittest.mock import patch
-
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
 
     class _Registry:
         def get(self, name):
@@ -302,8 +299,9 @@ def test_tools_call_rejects_unadvertised_tiers():
     handler_flat.event_bus = MagicMock()
 
     res3 = handler_flat._mcp_tools_call({"name": "secret_tool", "arguments": {}}, cancel=SendCancellation())
-    # Call is accepted and starts processing (it returns None, but event bus gets called)
-    assert not isinstance(res3, dict) or res3.get("isError") is not True
+    # The specialized tool is accepted in direct_flat mode and its result comes back as a non-error MCP result.
+    assert "isError" not in res3
+    assert _payload(res3) == "done"
 
     res4 = handler_flat._mcp_tools_call({"name": "chat_tool", "arguments": {}}, cancel=SendCancellation())
     assert res4.get("isError") is True
@@ -420,7 +418,6 @@ class _NoHeaders:
 
 def test_notification_batch_includes_session_id(monkeypatch):
     """HTTP 202 for a notifications-only batch must refresh Mcp-Session-Id."""
-    import plugin.mcp_server.mcp_session as mcp_session
 
     monkeypatch.setattr(mcp_session, "current_session_id", lambda: "sess-batch")
     handler = MagicMock()
@@ -437,8 +434,6 @@ def test_notification_batch_includes_session_id(monkeypatch):
 
 
 def test_stale_batch_containing_initialize_is_404(monkeypatch):
-    import plugin.mcp_server.mcp_session as mcp_session
-
     monkeypatch.setattr(mcp_session, "current_session_id", lambda: "live-session")
 
     class _DeadHeaders:
@@ -462,9 +457,6 @@ def test_stale_batch_containing_initialize_is_404(monkeypatch):
 
 
 def test_debug_endpoint_auth_matrix(monkeypatch):
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-    from tests.mcp_server.conftest import MockHandler
-
     def _get_headers(req: MockHandler) -> dict[str, Any]:
         headers = dict(req.headers)
         headers["_client_address"] = req.client_address
@@ -530,8 +522,6 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
 
 @pytest.mark.parametrize("payload", [[1, 2], 1, "x", True])
 def test_handle_debug_post_rejects_non_object_json(payload):
-    from tests.mcp_server.conftest import MockHandler
-
     services = MagicMock()
     handler = MCPProtocolHandler(services, debug_token="test-token")
 
@@ -806,10 +796,6 @@ def test_mcp_tools_call_pops_undeclared_document_url_over_header():
 
 
 def test_timeout_zero_rejects_async_tool():
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-    from unittest.mock import MagicMock
-
     class MockAsyncZeroTimeoutTool(ToolBase):
         name = "async_zero_timeout"
         timeout = 0
@@ -831,10 +817,6 @@ def test_timeout_zero_rejects_async_tool():
 
 
 def test_async_tool_without_timeout_runs():
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-    from unittest.mock import MagicMock
-
     class MockAsyncNoTimeoutTool(ToolBase):
         name = "async_no_timeout"
 
@@ -849,7 +831,8 @@ def test_async_tool_without_timeout_runs():
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     result = handler._prepare_mcp_execution("async_no_timeout", {}, None, cancel=SendCancellation())
-    assert not isinstance(result, dict) or result.get("status") != "error"
+    assert isinstance(result, _PreparedMcpCall)
+    assert result.is_async is True
 
 
 def test_is_async_uses_long_running_path():
@@ -883,7 +866,6 @@ def test_is_async_uses_long_running_path():
 def test_initialize_with_supported_older_version_passes(mcp_server, monkeypatch):
     """Test 1: initialize with 2025-06-18 then a POST with that MCP-Protocol-Version header passes."""
     import urllib.request
-    import json
 
     # Init
     init_payload = {
@@ -914,7 +896,6 @@ def test_initialize_with_supported_older_version_passes(mcp_server, monkeypatch)
 def test_initialize_with_unsupported_version_returns_server_version(mcp_server, monkeypatch):
     """Test 2: initialize with foo returns the server version."""
     import urllib.request
-    import json
     from plugin.mcp_server.wire_types import MCP_PROTOCOL_VERSION
 
     init_payload = {
@@ -934,7 +915,6 @@ def test_initialize_with_unsupported_version_returns_server_version(mcp_server, 
 def test_post_does_not_register_sse_keepalive(mcp_server, monkeypatch):
     """POST /sse and /mcp must NOT register in SseRegistry (only SSE stream threads are joined in stop)."""
     import urllib.request
-    import json
     from plugin.mcp_server.server import SseRegistry
 
     events = []
@@ -962,8 +942,6 @@ def test_post_does_not_register_sse_keepalive(mcp_server, monkeypatch):
 
 def test_initialize_non_string_protocol_version_returns_invalid_params():
     """Non-string protocolVersion (e.g. list, dict, int) must return JSON-RPC INVALID_PARAMS (-32602), not HTTP 500."""
-    from unittest.mock import MagicMock
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
     from plugin.mcp_server.wire_types import INVALID_PARAMS
 
     services = MagicMock()
@@ -1004,9 +982,6 @@ def test_process_jsonrpc_echoes_detectable_id(message, expected):
 
 
 def test_tool_exposure_mode_config_error_propagates():
-    from unittest.mock import MagicMock, patch
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-
     services = MagicMock()
     handler = MCPProtocolHandler(services)
     with patch("plugin.framework.config.get_config", side_effect=RuntimeError("config")):
@@ -1015,7 +990,6 @@ def test_tool_exposure_mode_config_error_propagates():
 
 
 def test_real_active_document_does_not_swallow_supports_service():
-    from unittest.mock import MagicMock
     from plugin.mcp_server.mcp_protocol import _real_active_document
 
     doc = MagicMock()
@@ -1031,9 +1005,7 @@ def test_real_active_document_does_not_swallow_supports_service():
 
 
 def test_resolve_exception_is_not_document_not_found():
-    from unittest.mock import MagicMock
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
 
     services = MagicMock()
     tool = MagicMock()
@@ -1046,9 +1018,6 @@ def test_resolve_exception_is_not_document_not_found():
 
 
 def test_unresolved_document_url_is_still_document_not_found():
-    from unittest.mock import MagicMock
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-
     services = MagicMock()
     tool = MagicMock()
     tool.requires_document = True
@@ -1061,9 +1030,6 @@ def test_unresolved_document_url_is_still_document_not_found():
 
 
 def test_open_documents_failure_is_not_no_document_open():
-    from unittest.mock import MagicMock
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-
     services = MagicMock()
     tool = MagicMock()
     tool.requires_document = True
@@ -1076,9 +1042,6 @@ def test_open_documents_failure_is_not_no_document_open():
 
 
 def test_draw_page_index_failure_propagates():
-    from unittest.mock import MagicMock, patch
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-
     services = MagicMock()
     tool = MagicMock()
     tool.requires_document = True
@@ -1092,9 +1055,6 @@ def test_draw_page_index_failure_propagates():
 
 def test_sse_keepalive_unexpected_error_is_logged(caplog):
     import logging
-    import threading
-    from unittest.mock import MagicMock
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
 
     protocol = MCPProtocolHandler(MagicMock())
     http = MagicMock()
@@ -1111,9 +1071,7 @@ def test_sse_keepalive_unexpected_error_is_logged(caplog):
 
 
 def test_process_jsonrpc_writeragent_exception_keeps_message():
-    from unittest.mock import MagicMock, patch
     from plugin.framework.errors import WriterAgentException
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
 
     protocol = MCPProtocolHandler(MagicMock())
     with patch.object(protocol, "_mcp_ping", side_effect=WriterAgentException("bad thing", code="CONFIG_ERROR")):
@@ -1124,9 +1082,6 @@ def test_process_jsonrpc_writeragent_exception_keeps_message():
 
 
 def test_open_sse_stream_releases_reservation_on_unexpected_header_error():
-    from unittest.mock import MagicMock
-    from plugin.mcp_server.mcp_protocol import MCPProtocolHandler
-
     protocol = MCPProtocolHandler(MagicMock())
     handler = MagicMock()
     handler.headers = {}
@@ -1153,8 +1108,6 @@ def test_open_sse_stream_releases_reservation_on_unexpected_header_error():
 @pytest.mark.parametrize("lock", [True, False])
 def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
     """needs_gate comes from requires_document_lock(arguments) with the call's own arguments."""
-    from plugin.mcp_server.mcp_protocol import _PreparedMcpCall
-
     seen: list[Any] = []
 
     class _LockProbeTool(ToolBase):
@@ -1230,7 +1183,6 @@ def test_batch_initialize_rejected():
 def test_tools_list_leaves_out_the_mcp_domain():
     from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
-    from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
 
     register_writeragent_prompt_hooks()
@@ -1256,8 +1208,6 @@ def test_tools_list_leaves_out_the_mcp_domain():
 
 
 def test_sse_stream_writes_tools_list_changed_when_catalog_advances():
-    import threading
-    import plugin.mcp_server.mcp_session as mcp_session
     from plugin.mcp_server.mcp_protocol import _TOOLS_LIST_CHANGED_EVENT
 
     mcp_session.reset_tool_catalog_for_tests()
@@ -1295,7 +1245,6 @@ def test_sse_stream_writes_tools_list_changed_when_catalog_advances():
 
 def test_get_mcp_stream_announces_new_document_type():
     import socket
-    import plugin.mcp_server.mcp_session as mcp_session
     from plugin.mcp_server.routes import HttpRouteRegistry
     from plugin.mcp_server.server import HttpServer
 

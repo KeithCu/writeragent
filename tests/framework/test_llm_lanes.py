@@ -123,7 +123,6 @@ def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
 
 def test_llm_request_lane_restores_status_after_waiting():
     from plugin.framework.llm_lanes import llm_request_lane, _LLM_REQUEST_LOCK
-    import threading
 
     # Block the lane
     _LLM_REQUEST_LOCK.acquire()
@@ -178,7 +177,6 @@ def test_llm_request_lane_stop_while_waiting():
         class FakeCancellation:
             def is_cancelled(self):
                 return True
-        from unittest.mock import patch
         with patch('plugin.framework.llm_lanes.get_current_send_cancellation', return_value=FakeCancellation()):
             try:
                 with llm_request_lane(timeout=1.0):
@@ -252,7 +250,6 @@ def test_llm_request_lane_resume_callback_raise_releases_lock() -> None:
 
 def test_grammar_llm_request_gate_timeout_when_full() -> None:
     from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_CV
-    import plugin.framework.llm_lanes as lc
 
     with _GRAMMAR_INFLIGHT_CV:
         assert lc._GRAMMAR_INFLIGHT_COUNT == 0
@@ -272,9 +269,7 @@ def test_grammar_llm_request_gate_timeout_when_full() -> None:
 
 
 def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
-    import threading
     from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_CV
-    import plugin.framework.llm_lanes as lc
 
     with _GRAMMAR_INFLIGHT_CV:
         assert lc._GRAMMAR_INFLIGHT_COUNT == 0

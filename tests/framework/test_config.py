@@ -276,8 +276,6 @@ class TestConfigSyncFileIO:
         assert not data.get("reasoning_effort")
 
     def test_non_dict_reasoning_effort_resets(self):
-        from plugin.framework.config import get_config
-
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"reasoning_effort": "high"}, f)
         reset_config_for_tests()
@@ -604,7 +602,6 @@ class TestConfigSyncFileIO:
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
         from plugin.framework.config_schema import CONFIG_DEFAULTS, WriterAgentConfig
-        from plugin.framework.errors import ConfigError
 
         assert get_config('endpoint') == WriterAgentConfig().endpoint
         assert get_config('model_lru@http://localhost:11434') == []
@@ -1156,7 +1153,6 @@ class TestConfigValidateTypeCasting:
 
     def test_config_validation_constraints(self):
         from plugin.framework.config_schema import validate
-        from plugin.framework.errors import ConfigValidationError
 
         # temperature > 1.0
         with pytest.raises(ConfigValidationError) as ctx:
@@ -1178,8 +1174,6 @@ class TestConfigValidateTypeCasting:
         assert (validated["endpoint"]) == ("https://openrouter.ai/api")
 
     def test_validate_api_config_without_model_lru(self):
-        from plugin.framework.config import validate_api_config
-
         with patch.dict(sys.modules, {"plugin.framework.model_lru": None}):
             ok, err = validate_api_config({
                 "endpoint": "https://example.invalid",
@@ -1374,9 +1368,6 @@ def _config_json(path):
 
 def test_save_one_write_one_emit_and_validation_writes_nothing(tmp_path):
     """Batch save: one write, one event. A bad value leaves the file untouched."""
-    from plugin.framework.config import get_config, reset_config_for_tests, save
-    from plugin.framework.errors import ConfigValidationError
-    from plugin.framework.event_bus import get_event_bus
 
     path = tmp_path / "writeragent.json"
     path.write_text(json.dumps({"text_model": "keep", "python_venv_path": "/old"}), encoding="utf-8")
@@ -1631,8 +1622,6 @@ def test_has_api_key_does_not_read_keystore(fake_keystore):
 
 
 def test_panel_model_combo_does_not_read_locked_keystore(fake_keystore):
-    from unittest.mock import MagicMock
-
     from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
     from plugin.framework import keystore
 
@@ -1749,11 +1738,8 @@ def test_field_text_shows_ref_only_when_unreadable(fake_keystore):
 
 
 def test_migrate_keeps_orphan_when_config_write_fails(fake_keystore):
-    from unittest.mock import patch
-
     from plugin.framework import keystore
     from plugin.framework.config import migrate_secrets_to_keystore
-    from plugin.framework.errors import ConfigError
 
     legacy_url = "https://openrouter.ai/api/v1"
     legacy_name = f"api_key:{legacy_url}"
@@ -1877,7 +1863,6 @@ def test_fill_api_key_reads_only_a_missing_key(fake_keystore):
 def test_locked_keystore_reported_for_openwebui_flagged_endpoint(fake_keystore):
     from plugin.framework import keystore
     from plugin.framework.client.auth import AuthError, resolve_auth_for_config
-    from plugin.framework.config import get_api_key_for_endpoint, save
 
     save({"api_keys_by_endpoint": {"https://openrouter.ai/api": "sk-1"}})
     keystore.reset_for_tests(fake_keystore)
@@ -1941,7 +1926,6 @@ def test_migrate_legacy_slot_under_store_latch_keeps_slot_and_orphan(fake_keysto
 
 def test_cold_main_thread_get_api_key_for_endpoint_still_reads_os(fake_keystore):
     from plugin.framework import keystore
-    from plugin.framework.config import get_api_key_for_endpoint, save
 
     endpoint = "https://openrouter.ai/api"
     save({"api_keys_by_endpoint": {endpoint: "sk-real"}})

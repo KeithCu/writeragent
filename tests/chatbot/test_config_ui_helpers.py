@@ -741,8 +741,6 @@ def test_sync_sidebar_reasoning_effort():
 
 
 def test_populate_hides_typed_partials_from_model_lru():
-    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
-
     ctrl = MagicMock()
     ctrl.getItemCount.return_value = 0
     endpoint = "http://localhost:11434"

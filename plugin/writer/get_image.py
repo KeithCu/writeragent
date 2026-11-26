@@ -69,9 +69,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, 
     try:
         if ctx is None:
             return None, "could not render page %d: no component context for GraphicExportFilter." % page
-        smgr = getattr(ctx, "ServiceManager", None)
-        if smgr is None:
-            smgr = ctx.getServiceManager()
+        smgr = ctx.ServiceManager
         filt = smgr.createInstanceWithContext("com.sun.star.drawing.GraphicExportFilter", ctx)
         if filt is None:
             return None, "could not render page %d: GraphicExportFilter is unavailable." % page

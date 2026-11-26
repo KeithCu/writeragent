@@ -80,7 +80,7 @@ def _normalized_stop_words(snowball_lang: str) -> frozenset[str]:
 
 def _locale_language(loc: Any) -> str | None:
     """ISO language of a UNO Locale, lowercased; 'zxx' (no linguistic content) is ignored."""
-    raw = str(getattr(loc, "Language", "") or "").strip().lower()
+    raw = loc.Language.strip().lower()
     iso = raw.replace("-", "_").split("_")[0]
     if len(iso) not in (2, 3) or iso == "zxx":
         return None

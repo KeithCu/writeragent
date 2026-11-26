@@ -276,7 +276,6 @@ def test_to_stdlib_temporal_and_both_ladders() -> None:
 
 def test_to_calc_compatible_none_becomes_empty_nan_becomes_error() -> None:
     """None (from text/mixed or explicit) becomes empty cell; NaN is returned raw (Calc shows cascading error)."""
-    import math
     assert addin_values.to_calc_compatible(None) == ""
     assert math.isnan(addin_values.to_calc_compatible(float("nan")))
 
@@ -298,7 +297,6 @@ def test_to_calc_compatible_bool_coercion() -> None:
 
 def test_to_calc_compatible_nan_in_nested_matrix() -> None:
     """NaN slots in a matrix result stay as NaN (Calc error cells); only None becomes empty."""
-    import math
     matrix = ((1.0, float("nan")), (3.0, 4.0))
     out = addin_values.to_calc_compatible(matrix)
     assert out[0][0] == 1.0
@@ -308,7 +306,6 @@ def test_to_calc_compatible_nan_in_nested_matrix() -> None:
 
 def test_to_calc_compatible_datetime_types() -> None:
     """Datetime, date, time, and timedelta are converted to ISO strings or fractional day floats."""
-    import datetime
 
     dt = datetime.datetime(2026, 8, 13, 14, 30, 0)
     d = datetime.date(2026, 8, 13)
@@ -332,7 +329,6 @@ def test_to_calc_compatible_inf_and_decimal() -> None:
 
 def test_to_calc_compatible_tz_aware_datetime_strips_offset() -> None:
     """Calc cannot parse +HH:MM / Z; wall time is emitted as naive ISO."""
-    import datetime
 
     dt = datetime.datetime(2026, 8, 13, 14, 30, 0, tzinfo=datetime.timezone.utc)
     assert addin_values.to_calc_compatible(dt) == "2026-08-13T14:30:00"

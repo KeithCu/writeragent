@@ -77,7 +77,7 @@ Recognition must be usable **without the chat sidebar** — offline, predictable
 | UI | Role for vision |
 |----|-----------------|
 | **WriterAgent → Settings → Python** | Venv path, exec timeout (user scripts only), **Test** button — reports scientific + **Vision Libraries** (OCR ready via Docling or Paddle; `paddleocr`/`paddle`/`ultralytics`/`skimage` optional) and a bottom **uv** then **pip** install footer for all Missing packages across groups |
-| **WriterAgent → Run Python Script…** | Monaco editor ([`editor_host.py`](../../plugin/scripting/editor_host.py)) or legacy XDL dialog; **Analysis Helpers** (**Calc only**); **Vision Helpers** (**Writer + Calc**) — `[Vision] extract_text`, `[Vision] extract_structure` via [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`supports_vision_manual`](plugin/vision/vision_runner.py), and [`document_scripts.py`](../../plugin/scripting/document_scripts.py) `_vision_script_section` |
+| **WriterAgent → Run Python Script…** | Monaco editor ([`editor_host.py`](../../plugin/scripting/editor_host.py)) or legacy XDL dialog; **Analysis Helpers** (**Calc only**); **Vision Helpers** (**Writer + Calc**) — `[Vision] extract_text`, `[Vision] extract_structure` via [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`supports_vision_manual`](../../plugin/vision/vision_runner.py), and [`document_scripts.py`](../../plugin/scripting/document_scripts.py) `_vision_script_section` |
 | **Chat sidebar** | Text chat + remote **image generation** — **not** in-document OCR/recognition |
 | **Settings → Image** tab | Image **generation** providers — unrelated to local OCR |
 
@@ -94,7 +94,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 | **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) calling `run_vision(...)`; kwargs include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
 | **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → [`run_vision`](../../plugin/scripting/client.py) |
-| **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
+| **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](../../plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
 
 **Monaco toolbar:** Phase 3 uses **`image_name` in template params** (empty = selection). A dedicated **Image:** toolbar field remains optional follow-on.
 
@@ -1105,7 +1105,7 @@ Only if inline HTML + tables still collapse in Writer:
 |--------|------|------|
 | **`data-lo-style` + post-apply** ([`html_import_styles.py`](../../plugin/writer/html_import_styles.py) `apply_block_lo_styles`) | Native Heading 1/2 styles | Today `insert_content_at_position` uses `apply_styles=False` beside selection to avoid corrupting neighbor paragraphs — needs **vision-only** insert helper |
 | **XHTML import path** | Preserves class/style model on read path | Write path untested for vision; spike 0b |
-| **Writer text frames** ([`plugin/writer/shapes.py`](../../plugin/writer/shapes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
+| **Writer text frames** ([`plugin/writer/specialized/textframes.py`](../../plugin/writer/specialized/textframes.py) patterns) | True positioned columns | Heavy UNO; Calc egress differs; Draw/Impress separate |
 | **Insert as ODT fragment** | Full layout control | Largest scope; new filter/temp-doc dance |
 
 **Recommendation:** Try **inline table-grid + colors** first; only add host complexity if UNO tests fail.

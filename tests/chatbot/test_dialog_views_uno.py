@@ -82,7 +82,7 @@ def test_stt_enable_does_not_paint_audio_model_on_general(ctx):
 
     dlg, model = _build(ctx)
     try:
-        # Dialog is already showing step 1, which is when the bug paints.
+        # Dialog is already showing step 1, which is when a stray Audio Model would paint.
         _apply_stt_model_visibility(dlg, "LLM Endpoint")
         audio = dlg.getControl("audio__stt_model")
         audio_label = dlg.getControl("label_audio__stt_model")
@@ -132,7 +132,7 @@ def test_image_then_general_hides_audio_model_leaked_by_setvisible(ctx):
         assert int(model.Step) == 1
         assert audio.isVisible() is False
 
-        # What the old STT listener did on the first show of General.
+        # A setVisible(True) on the STT control while General is showing.
         audio.setVisible(True)
         assert audio.isVisible() is True
         assert int(audio.getModel().Step) == 3

@@ -8,10 +8,27 @@
 
 """Unit tests for plugin.chatbot.rich_text (_append_rich_text_with_span, theme colors, HTML detection)."""
 
+import sys
 from unittest.mock import MagicMock, patch
+
 import pytest
 
-import plugin.chatbot.rich_text  # noqa: F401
+from plugin.chatbot.rich_text import (
+    CHAT_FONT_NAME,
+    ChatTheme,
+    _append_rich_text_with_span,
+    _drop_list_sentinel,
+    _tighten_list_indent,
+    apply_chat_char_props,
+    apply_rich_control_para_margins,
+    contains_html_tag,
+    get_theme_colors,
+    link_plain_cell_refs,
+    normalize_portion_font,
+    render_calc_cell_refs,
+    span_matches_message,
+    strip_legacy_ai_label,
+)
 
 
 class MockTextCursor:
@@ -103,8 +120,6 @@ class TestAppendRichText:
     """Tests for _append_rich_text_with_span formatting logic."""
 
     def _call(self, text, role="assistant"):
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
-
         doc = MockDoc()
         _append_rich_text_with_span(doc, text, role=role)
         return doc
@@ -145,7 +160,6 @@ class TestAppendRichText:
 
     def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
         """The body range starts one past the prefix's last character, not at a document-start count."""
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
 
         doc = MockDoc()
         _append_rich_text_with_span(doc, "done", role="assistant")
@@ -175,7 +189,6 @@ class TestAppendRichText:
     )
     def test_get_theme_colors_from_doc(self, field_color, dialog_color, expected):
         """get_theme_colors resolves light and dark palettes from the document window."""
-        from plugin.chatbot.rich_text import get_theme_colors
 
         doc = MockDoc()
         style_settings = MagicMock(FieldColor=field_color)
@@ -186,20 +199,17 @@ class TestAppendRichText:
 
     def test_get_theme_colors_from_style_window(self):
         """get_theme_colors can read StyleSettings directly from the sidebar window."""
-        from plugin.chatbot.rich_text import get_theme_colors
 
         style_window = MagicMock(StyleSettings=MagicMock(FieldColor=0x1E1E1E))
         assert get_theme_colors(style_window=style_window) == (0x1E1E1E, 0x60A5FA, 0xE2E8F0)
 
     def test_get_theme_colors_graceful_fallback(self):
         """get_theme_colors returns standard light palette when StyleSettings are missing."""
-        from plugin.chatbot.rich_text import get_theme_colors
 
         assert get_theme_colors(MockDoc()) == (0xE0E1E2, 0x2A6099, 0x1E293B)
 
     def test_append_rich_text_uses_dynamic_dark_colors(self):
         """_append_rich_text_with_span formats role prefix using dynamic dark mode colors."""
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
         doc = MockDoc()
         style_settings = MagicMock()
         style_settings.FieldColor = 0x1E1E1E  # Dark mode
@@ -218,7 +228,6 @@ class TestAppendRichText:
 
     def test_html_body_preserves_span_colors(self):
         """Successful HTML import must not blanket-overwrite body CharColor."""
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
 
         doc = MockDoc()
         body_cursors = []
@@ -239,7 +248,6 @@ class TestAppendRichText:
 
     def test_plain_body_gets_role_color(self):
         """Non-HTML body still receives the role tint."""
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
 
         doc = MockDoc()
         body_cursors = []
@@ -273,7 +281,6 @@ class TestAppendRichText:
 
     def test_full_document_imports_body_only(self):
         """A full HTML document is reduced to its body before the filter."""
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
 
         doc = MockDoc()
         seen: list[str] = []
@@ -352,8 +359,6 @@ class TestLeadingListImport:
     """
 
     def _imported(self, html):
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
-
         seen: list[str] = []
 
         def _capture(_cursor, fragment, **kwargs):
@@ -393,8 +398,6 @@ class TestLeadingListImport:
 
 
     def test_sentinel_is_deleted_after_import(self):
-        from plugin.chatbot.rich_text import _drop_list_sentinel
-
         class Probe:
             def __init__(self, char):
                 self.char = char
@@ -418,7 +421,6 @@ class TestLeadingListImport:
 
     def test_compact_list_matches_its_message(self):
         """A full repaint checked the span against "abc" and wrote plain "abc"."""
-        from plugin.chatbot.rich_text import span_matches_message
 
         html = "<ol><li>alpha</li><li>beta</li><li>gamma</li></ol>"
         assert span_matches_message("Assistant: \nalpha\nbeta\ngamma\n", "assistant", html)
@@ -460,7 +462,6 @@ class TestTightenListIndent:
 
     @pytest.fixture(autouse=True)
     def _mock_uno_helpers(self, monkeypatch):
-        import sys
         mock_uno = sys.modules["uno"]
         monkeypatch.setattr(mock_uno, "Any", MagicMock(side_effect=lambda type_str, val: val))
         monkeypatch.setattr(mock_uno, "invoke", MagicMock(side_effect=lambda obj, method, args: None))
@@ -505,8 +506,6 @@ class TestTightenListIndent:
         return body_range
 
     def test_tightens_list_paragraph(self, _mock_uno_helpers):
-        from plugin.chatbot.rich_text import _tighten_list_indent
-
         para, rules = self._make_list_para(level=0)
         body_range = self._make_body_range([para])
 
@@ -515,8 +514,6 @@ class TestTightenListIndent:
         _mock_uno_helpers.invoke.assert_called_once()
 
     def test_skips_non_list_paragraph(self, _mock_uno_helpers):
-        from plugin.chatbot.rich_text import _tighten_list_indent
-
         para, _ = self._make_list_para(is_number=False)
         body_range = self._make_body_range([para])
 
@@ -525,8 +522,6 @@ class TestTightenListIndent:
         _mock_uno_helpers.invoke.assert_not_called()
 
     def test_deduplicates_by_list_id_and_level(self, _mock_uno_helpers):
-        from plugin.chatbot.rich_text import _tighten_list_indent
-
         para1, _ = self._make_list_para(text="item 1", level=0, list_id="same")
         para2, _ = self._make_list_para(text="item 2", level=0, list_id="same")
         body_range = self._make_body_range([para1, para2])
@@ -536,8 +531,6 @@ class TestTightenListIndent:
         assert (_mock_uno_helpers.invoke.call_count) == (1)
 
     def test_processes_different_levels(self, _mock_uno_helpers):
-        from plugin.chatbot.rich_text import _tighten_list_indent
-
         para1, _ = self._make_list_para(level=0, list_id="L1")
         para2, _ = self._make_list_para(level=1, list_id="L1")
         body_range = self._make_body_range([para1, para2])
@@ -551,8 +544,6 @@ class TestContainsHtmlTag:
     """Real tags, not every ``<Letter…>`` token."""
 
     def test_generic_url_and_email_are_not_tags(self):
-        from plugin.chatbot.rich_text import contains_html_tag
-
         assert contains_html_tag("Use List<String> here") is False
         assert contains_html_tag("Write <user@example.com> today") is False
         assert contains_html_tag("See <https://example.com/a>") is False
@@ -560,8 +551,6 @@ class TestContainsHtmlTag:
         assert contains_html_tag("<prevent>") is False
 
     def test_formatting_script_and_declarations_are_tags(self):
-        from plugin.chatbot.rich_text import contains_html_tag
-
         assert contains_html_tag("<b>bold</b>") is True
         assert contains_html_tag("<i>italic</i>") is True
         assert contains_html_tag("<script>alert(1)</script>") is True
@@ -573,7 +562,6 @@ class TestContainsHtmlTag:
 
 class TestGenericTokensStayInTheTranscript:
     def test_append_and_render_keep_tokens_and_still_import_formatting(self):
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
         from plugin.chatbot.rich_text_paste import render_messages_to_hidden_doc
 
         text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
@@ -606,13 +594,6 @@ class TestChatTypography:
     """Tests for shared sidebar chat typography helpers."""
 
     def test_typography_helpers_write_expected_properties(self):
-        from plugin.chatbot.rich_text import (
-            CHAT_FONT_NAME,
-            apply_chat_char_props,
-            apply_rich_control_para_margins,
-            normalize_portion_font,
-        )
-
         target = MagicMock()
         apply_chat_char_props(target, bg_color=0xABCDEF)
         assert target.CharFontName == CHAT_FONT_NAME
@@ -638,7 +619,6 @@ class TestChatTypography:
         assert cursor.ParaFirstLineIndent == 0
 
     def test_configure_hidden_writer_for_chat(self):
-        from plugin.chatbot.rich_text import CHAT_FONT_NAME
         from plugin.chatbot.rich_text_paste import configure_hidden_writer_for_chat
 
         std_para = MagicMock()
@@ -664,8 +644,6 @@ class TestChatThemeAndImporter:
     """Test suite for ChatTheme and HiddenDocHTMLImporter classes."""
 
     def test_chat_theme_resolution(self):
-        from plugin.chatbot.rich_text import ChatTheme
-
         style_window = MagicMock()
         style_settings = MagicMock()
         style_settings.FieldColor = 0x1E1E1E
@@ -679,7 +657,6 @@ class TestChatThemeAndImporter:
 
 def test_render_calc_cell_refs_html():
     from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX
-    from plugin.chatbot.rich_text import render_calc_cell_refs
 
     text = (
         '<p>See <a href="cell://B2">B2</a> and <a href=\'cell://Sheet1.C3\'>C3</a> '
@@ -695,7 +672,6 @@ def test_render_calc_cell_refs_html():
 
 def test_render_calc_cell_refs_quoted_sheet():
     from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX
-    from plugin.chatbot.rich_text import render_calc_cell_refs
 
     out = render_calc_cell_refs('<p><a href="cell://\'Q1-2026\'.B2">x</a></p>')
     assert f'href="{WRITERAGENT_CELL_URL_PREFIX}Q1-2026.B2"' in out
@@ -708,8 +684,6 @@ def test_render_calc_cell_refs_quoted_sheet():
 
 
 def test_render_calc_cell_refs_passthrough():
-    from plugin.chatbot.rich_text import render_calc_cell_refs
-
     assert render_calc_cell_refs("no links here") == "no links here"
     assert render_calc_cell_refs("") == ""
 
@@ -731,8 +705,6 @@ def test_render_calc_cell_refs_passthrough():
     ],
 )
 def test_link_plain_cell_refs_links_qualified_absolute_and_ranges(html, expected):
-    from plugin.chatbot.rich_text import link_plain_cell_refs
-
     sheets = ("Sheet1", "My Sheet", "Orders", "Données")
     assert link_plain_cell_refs(html, sheets) == expected
 
@@ -757,14 +729,11 @@ def test_link_plain_cell_refs_links_qualified_absolute_and_ranges(html, expected
     ],
 )
 def test_link_plain_cell_refs_leaves_prose_alone(html):
-    from plugin.chatbot.rich_text import link_plain_cell_refs
-
     sheets = ("Sheet1", "My Sheet", "Orders", "Données", "O'Brien")
     assert link_plain_cell_refs(html, sheets) == html
 
 
 def test_link_plain_cell_refs_feeds_existing_link_pipeline():
-    from plugin.chatbot.rich_text import link_plain_cell_refs, render_calc_cell_refs
     from plugin.chatbot.rich_text_paste import extract_cell_links_from_html
 
     linked = link_plain_cell_refs("<p>See 'My Sheet'.C3 and A1:B5</p>", ["My Sheet"])
@@ -774,12 +743,8 @@ def test_link_plain_cell_refs_feeds_existing_link_pipeline():
 
 class TestStripLegacyAiLabel:
     def test_strips_ai_prefix(self):
-        from plugin.chatbot.rich_text import strip_legacy_ai_label
-
         assert strip_legacy_ai_label("AI: Hello") == "Hello"
         assert strip_legacy_ai_label("  ai:  Hello") == "Hello"
 
     def test_leaves_user_text(self):
-        from plugin.chatbot.rich_text import strip_legacy_ai_label
-
         assert strip_legacy_ai_label("You: hi") == "You: hi"

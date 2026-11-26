@@ -38,7 +38,5 @@ def test_readme_status_table_matches_error_codes() -> None:
     expected: dict[str, set[str]] = {}
     for code, status in error_codes.HTTP_STATUS.items():
         expected.setdefault(status.split()[0], set()).add(code)
-    for status, codes in expected.items():
-        assert rows.get(status, set()) == codes, status
-    for status, codes in rows.items():
-        assert not codes or status in expected, (status, codes)
+    # Rows without codes (such as 200) carry no error code and are left out.
+    assert {status: codes for status, codes in rows.items() if codes} == expected

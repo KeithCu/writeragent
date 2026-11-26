@@ -240,7 +240,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 
 ### 3.2 Gateway: delegate to sub-agent
 
-**File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
+**File:** [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py)
 
 - Tool name: `delegate_to_subagent`.
 - Parameters: `domain` (sorted enum read from `get_specialized_domain_catalog` on each call), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
@@ -360,7 +360,7 @@ removes a table by name (nested or top-level); hosted children go with it, and i
 
 - **Tier filtering:** `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas` hides specialized tools from default chat/MCP lists.
 - **Domain grouping:** `ToolWriter*Base.specialized_domain` + `tier = "specialized"`.
-- **Gateway:** `delegate_to_subagent` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
+- **Gateway:** `delegate_to_subagent` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized_base.py`.
 - **Prompt:** `SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py` points to `delegate_to_subagent`; the per-document domain catalog lives in `DelegateToSubagent.description_for_services`.
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
 - **Lookups:** Single-object lookup helpers return either the found object or an error dict tested via `isinstance` (e.g. `ToolBase.get_item`, `_bookmark_target`, `_annotation_or_error`); multi-value helpers return a tuple whose last item is the error dict or `None`. Neither kind returns an error string, returns `None` leaving the caller to build the error, or raises (raising would log an ERROR traceback in `execute_safe` and become `TOOL_REGISTRY_ERROR` in the eval harness). The exceptions are tables raising `ValueError` inside mutation callbacks, `toc_match` returning `(hit, err_str)` as a search primitive, and `_resolve_form_page` raising `ToolExecutionError` that callers propagate.

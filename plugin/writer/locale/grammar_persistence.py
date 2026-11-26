@@ -85,6 +85,7 @@ _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
 )
 
 
+from plugin.framework.uno_context import get_runtime_uid, uno_same
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 
 
@@ -223,7 +224,7 @@ class _GrammarDocumentEventListener(BaseDocumentEventListener):
         self._outer = outer
 
     def on_document_event(self, Event: Any) -> None:
-        name = getattr(Event, "EventName", "") or ""
+        name = Event.EventName
         # storeToURL ("Save a Copy") fires OnCopyTo, not OnSaveTo, so the copy
         # would otherwise be written without the grammar cache.
         if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo", "OnCopyTo"):
@@ -708,8 +709,6 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
     """Return the persistence bound to *model* (RuntimeUID, then identity)."""
     if model is None:
         return None
-    from plugin.framework.uno_context import get_runtime_uid
-
     uid = get_runtime_uid(model)
     with grammar_registry.lock:
         instances = list(grammar_registry.doc_persistence_instances.values())
@@ -721,7 +720,7 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
             other_uid = get_runtime_uid(other)
             if other_uid and other_uid == uid:
                 return p
-        if other is model:
+        if uno_same(other, model):
             return p
     return None
 

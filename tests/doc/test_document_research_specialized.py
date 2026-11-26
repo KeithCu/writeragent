@@ -26,13 +26,6 @@ from plugin.doc.document_research_grep_tool import GrepNearbyFiles
 from plugin.doc.document_research_tools import ListNearbyFiles
 
 
-@pytest.fixture(autouse=True)
-def _register_prompt_hooks_for_document_research_tests():
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-
-    register_writeragent_prompt_hooks()
-
-
 class _MutatingTool(ToolBase):
     name = "apply_fake"
     description = "test mutator"

@@ -256,7 +256,6 @@ def test_write_formula_range_rejects_wide_array():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    from unittest.mock import patch
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
         with pytest.raises(CalcError) as exc_info:
             manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
@@ -278,7 +277,6 @@ def test_write_formula_range_ragged_grid_names_row():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    from unittest.mock import patch
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
         with pytest.raises(CalcError) as exc_info:
             manipulator.write_formula_range("A1:B2", [[1, 2], [3]])
@@ -298,7 +296,6 @@ def test_write_formula_range_ragged_grid_single_cell_names_row():
     rng.getRangeAddress.return_value = addr
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
-    from unittest.mock import patch
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
         with pytest.raises(CalcError) as exc_info:
             manipulator.write_formula_range("A1", [[1, 2], [3]])
@@ -826,8 +823,6 @@ def test_commit_write_always_returns_a_message_record():
 
 
 def test_plan_write_shape_comes_from_the_resolved_named_box():
-    from plugin.framework.errors import CalcError
-
     bridge = MagicMock()
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=2, Sheet=0)

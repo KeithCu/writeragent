@@ -214,7 +214,6 @@ def test_to_wire_nat_becomes_none():
 def test_default_range_index_frame_has_no_header():
     pd = pytest.importorskip("pandas")
     from plugin.scripting.payload_codec import is_dataframe_payload
-    from plugin.scripting.venv.to_wire import to_wire
 
     df_default = pd.DataFrame([["h1", "h2"], [1, 2]])
     wire_default = to_wire(df_default)
@@ -262,9 +261,6 @@ def test_dense_plot_svg_falls_back_to_png():
 
 
 def test_large_object_array_converts_like_small():
-    import datetime
-    import math
-
     np = pytest.importorskip("numpy")
     pd = pytest.importorskip("pandas")
     from plugin.scripting.payload_codec import host_unpack_data, is_split_grid

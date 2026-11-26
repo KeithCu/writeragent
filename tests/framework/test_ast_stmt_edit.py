@@ -54,8 +54,8 @@ def test_one_line_suite_splices_pass_after_colon() -> None:
         pytest.param("print(1); keep()\n", 1, id="test_same_line_sibling_is_kept"),
         # Two cuts share a line. Offsets must be taken from the original line.
         #
-        #     Rewriting the first ``print`` in place used to shift columns so the second
-        #     cut deleted ``keep()`` and left ``print(2)``.
+        #     Rewriting the first ``print`` in place would shift columns so the second
+        #     cut deletes ``keep()`` and leaves ``print(2)``.
         pytest.param("print(1); print(2); keep()\n", 2, id="test_same_line_two_removed_calls_keep_sibling"),
     ],
 )
@@ -113,7 +113,6 @@ def test_is_name_call_expr_expr_without_value() -> None:
 
 def test_is_name_call_expr_overflow_pre_fails_closed() -> None:
     import deal
-    import pytest
 
     from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN
     from tests.harness.strip_bundle import deal_pre_present

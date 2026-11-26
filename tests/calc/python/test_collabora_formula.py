@@ -71,8 +71,6 @@ def test_canonicalize_and_parse_collabora_getpy():
 
 
 def test_maybe_rewrite_skips_non_calc():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
     class _Writer:
         def supportsService(self, name: str) -> bool:
             return name != "com.sun.star.sheet.SpreadsheetDocument"
@@ -81,8 +79,6 @@ def test_maybe_rewrite_skips_non_calc():
 
 
 def test_maybe_rewrite_none_doc():
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
     assert maybe_rewrite_collabora_py_formulas(None) == 0
 
 
@@ -242,8 +238,6 @@ def test_maybe_rewrite_unlock_disposal_raises():
 
 
 def test_rewrite_edge_spellings_unchanged():
-    from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
-
     g = "ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY"
     assert rewrite_collabora_addin_prefix("= " + g + '  ("x")') == '= PY("x")'
     assert rewrite_collabora_addin_prefix("=" + g + "X(1)") == "=" + g + "X(1)"

@@ -23,13 +23,6 @@ from plugin.framework.prompts import (
 # sidebar embeds them, manual_read serves them per topic, full_manual() feeds the agent backend).
 
 
-@pytest.fixture(autouse=True)
-def _register_prompt_hooks_for_tests():
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-
-    register_writeragent_prompt_hooks()
-
-
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False

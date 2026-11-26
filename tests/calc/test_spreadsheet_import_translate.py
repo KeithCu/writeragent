@@ -104,10 +104,6 @@ def test_translate_cross_sheet_case_insensitive_dedupe(formula, expected_ranges,
 
 
 def test_translate_and_exec_new_functions():
-    import math
-
-    import numpy as np
-
     base_locs = {"np": np, "calc": calc, "math": math, "dt": dt}
 
     # 1. SUMIF
@@ -289,8 +285,8 @@ def test_translate_tier_abc_functions():
     assert res.ok
     assert "calc.fmt" in res.code
     assert "calc.text(" not in res.code
-    # 46181 is 2026-06-08. Executing the translated formula used to raise
-    # AttributeError because calc.fmt was never exported.
+    # 46181 is 2026-06-08. Executing the translated formula raises
+    # AttributeError unless calc.fmt is exported.
     assert exec_result(res, 46181) == "June"
 
     res = translate_formula("=ROUNDUP(7692.30769230769; 0)", "A1")
@@ -312,10 +308,6 @@ def test_translate_tier_abc_functions():
 
 
 def exec_result(res, data):
-    import math
-
-    import numpy as np
-
     locs = {"data": data, "np": np, "calc": calc, "math": math, "dt": dt}
     code = f"result = {res.code}"
     exec(code, locs)

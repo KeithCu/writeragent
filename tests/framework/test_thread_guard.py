@@ -435,8 +435,6 @@ def test_bypass_thread_guard_still_works_via_registry(monkeypatch):
 
 
 def test_notify_skipped_under_test_inline():
-    from plugin.framework.queue_executor import Policy, main
-
     main.install(Policy.test_inline)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
@@ -456,7 +454,6 @@ def test_notify_skipped_under_test_inline():
 
 def test_notify_skips_when_async_callback_not_ready(monkeypatch):
     """Do not marshal a violation dialog during MainThread lazy-init (startup deadlock)."""
-    from plugin.framework.queue_executor import main
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
@@ -479,8 +476,6 @@ def test_notify_skips_when_async_callback_not_ready(monkeypatch):
 
 
 def test_notify_dedupes_per_thread(monkeypatch):
-    from plugin.framework.queue_executor import main
-
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
@@ -500,8 +495,6 @@ def test_notify_dedupes_per_thread(monkeypatch):
 
 
 def test_notify_one_dialog_across_threads(monkeypatch):
-    from plugin.framework.queue_executor import main
-
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
@@ -533,8 +526,6 @@ def test_notify_one_dialog_across_threads(monkeypatch):
 
 
 def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
-    from plugin.framework.queue_executor import main
-
     fake_bg = MagicMock()
     fake_bg.name = "worker-notify"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
@@ -659,7 +650,6 @@ def test_proxy_dir_raises_off_thread(monkeypatch):
 
 
 def test_violation_popup_is_unscoped(monkeypatch):
-    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -688,7 +678,6 @@ def test_violation_popup_is_unscoped(monkeypatch):
 
 
 def test_stop_does_not_drop_violation_popup(monkeypatch):
-    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)

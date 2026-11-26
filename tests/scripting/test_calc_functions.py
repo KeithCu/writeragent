@@ -312,21 +312,18 @@ def test_financial_group_a():
 
 def test_pearson():
     from plugin.scripting.calc_functions import pearson
-    import math
     res = pearson([1, 2, 3], [1, 2, 3])
     assert math.isclose(res, 1.0, abs_tol=1e-5)
     assert math.isnan(pearson([1], [1]))
 
 def test_percentrank():
     from plugin.scripting.calc_functions import percentrank
-    import math
     res = percentrank([1, 2, 3, 4], 3)
     assert math.isclose(res, 0.666, abs_tol=1e-2)
     assert math.isnan(percentrank([1, 2, 3, 4], 5))
 
 def test_permut():
     from plugin.scripting.calc_functions import permut
-    import math
     res = permut(5, 2)
     assert res == 20.0
     assert math.isnan(permut(2, 5))
@@ -341,7 +338,6 @@ def test_permut():
 
 def test_poisson():
     from plugin.scripting.calc_functions import poisson
-    import math
     res_pmf = poisson(2, 2, False)
     assert math.isclose(res_pmf, 0.27067, abs_tol=1e-4)
     res_cdf = poisson(2, 2, True)
@@ -349,7 +345,6 @@ def test_poisson():
 
 def test_prob():
     from plugin.scripting.calc_functions import prob
-    import math
     res = prob([1, 2, 3], [0.2, 0.3, 0.5], 2)
     assert math.isclose(res, 0.3, abs_tol=1e-5)
     res2 = prob([1, 2, 3], [0.2, 0.3, 0.5], 1, 2)
@@ -357,37 +352,31 @@ def test_prob():
 
 def test_standardize():
     from plugin.scripting.calc_functions import standardize
-    import math
     res = standardize(42, 40, 1.5)
     assert math.isclose(res, 1.33333, abs_tol=1e-4)
 
 def test_tdist():
     from plugin.scripting.calc_functions import tdist
-    import math
     res = tdist(1.96, 60, 2)
     assert math.isclose(res, 0.0546, abs_tol=1e-4)
 
 def test_tinv():
     from plugin.scripting.calc_functions import tinv
-    import math
     res = tinv(0.0546, 60)
     assert math.isclose(res, 1.96, abs_tol=1e-2)
 
 def test_ttest():
     from plugin.scripting.calc_functions import ttest
-    import math
     res = ttest([1, 2, 3], [1.1, 2.1, 3.1], 2, 1)
     assert not math.isnan(res)
 
 def test_weibull():
     from plugin.scripting.calc_functions import weibull
-    import math
     res = weibull(105, 20, 100, True)
     assert math.isclose(res, 0.9295, abs_tol=1e-4)
 
 def test_ztest():
     from plugin.scripting.calc_functions import ztest
-    import math
     res = ztest([3, 6, 7, 8, 6, 5, 4, 2, 1, 9], 4)
     assert math.isclose(res, 0.0905, abs_tol=1e-4)
 
@@ -551,8 +540,6 @@ def test_isblank_isna_ifna_are_not_the_same_check():
 
 
 def test_yearfrac_basis_matches_days360_and_swaps_dates():
-    import datetime as dt
-
     start, end = 44927, 45292
     assert calc.yearfrac(start, end, 0) == calc.days360(start, end, False) / 360.0
     assert calc.yearfrac(start, end, 4) == calc.days360(start, end, True) / 360.0
@@ -740,8 +727,6 @@ def test_base_returns_num_error_token():
 
 
 def _excel_serial(year: int, month: int, day: int) -> float:
-    import datetime as dt
-
     return float(dt.date(year, month, day).toordinal() - 693594)
 
 
@@ -935,8 +920,6 @@ def test_imlog2_zero_is_value_error():
 
 
 def _calc_serial(year: int, month: int, day: int) -> int:
-    import datetime as dt
-
     return dt.date(year, month, day).toordinal() - 693594
 
 
@@ -1615,8 +1598,6 @@ def test_devsq_geomean_harmean():
 
 @pytest.mark.parametrize("err_kind", ["nan", "token"])
 def test_input_error_code_is_kept(err_kind: str):
-    from plugin.scripting.venv.calc_functions_util import DIV0_NAN, nan_error_code
-
     err: float | str = DIV0_NAN if err_kind == "nan" else "#DIV/0!"
 
     def _check(res: object) -> None:

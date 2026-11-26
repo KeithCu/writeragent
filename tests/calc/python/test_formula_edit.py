@@ -94,7 +94,7 @@ def test_replace_escapes_quotes():
     parts = PyFormula.parse(old)
     assert parts is not None
     new = parts.render('x = "a"')
-    assert '""a""' in new or '""' in new
+    assert '""a""' in new
     parsed_new = PyFormula.parse(new)
     assert parsed_new is not None
     assert parsed_new.code == 'x = "a"'
@@ -681,7 +681,7 @@ def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
     out = normalize_lo_formula_for_parse(raw)
     assert '"a;b"' in out
     assert out.count(";") == 1  # only the one inside quotes
-    assert ", C1)" in out or ",C1)" in out.replace(" ", "")
+    assert ",C1)" in out.replace(" ", "")
 
 
 @pytest.mark.verification
@@ -690,7 +690,7 @@ def test_normalize_lo_curly_and_semicolon() -> None:
     out = normalize_lo_formula_for_parse(formula)
     assert "\u201c" not in out and "\u201d" not in out
     assert "; A1)" not in out
-    assert ", A1)" in out or ",A1)" in out.replace(" ", "")
+    assert ",A1)" in out.replace(" ", "")
 
 
 @pytest.mark.verification

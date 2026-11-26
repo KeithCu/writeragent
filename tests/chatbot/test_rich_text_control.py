@@ -32,8 +32,6 @@ class TestRichControlHelpers:
         assert not _is_automatic_char_color(0x2A6099)
 
     def test_content_bounds_inset(self):
-        from types import SimpleNamespace
-
         from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
 
         ps = MagicMock()
@@ -297,8 +295,6 @@ class TestAppendTextChunk:
         assert len(rtc._IN_SCROLL_TO_TAIL) == 0
 
     def test_sync_bounds_scrolls_tail_after_resize_when_transcript_nonempty(self):
-        from types import SimpleNamespace
-
         import plugin.chatbot.rich_text_control as rtc
         from plugin.chatbot.rich_text_control import sync_rich_control_bounds
 
@@ -320,8 +316,6 @@ class TestAppendTextChunk:
         # reveal_caret is the flash path; resize uses Hidden SelectAll like stream.
 
     def test_sync_bounds_skips_scroll_when_empty(self):
-        from types import SimpleNamespace
-
         from plugin.chatbot.rich_text_control import sync_rich_control_bounds
 
         rich = MagicMock()
@@ -340,7 +334,6 @@ class TestAppendTextChunk:
         assert res is rich
 
     def test_sync_bounds_returns_true_when_already_matching(self):
-        from types import SimpleNamespace
         from plugin.chatbot.rich_text_control import sync_rich_control_bounds
 
         rich = MagicMock()
@@ -1110,7 +1103,6 @@ class TestCollapseStaleSelection:
 
 def test_insert_after_tagged_cell_link_clears_the_tag():
     """EditEngine stretches the link tag over text inserted right after it; the insert clears it."""
-    from unittest.mock import MagicMock, patch
 
     from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
     from plugin.chatbot.rich_text_control import _follows_cell_link, _insert_string_at_rich_cursor

@@ -813,7 +813,6 @@ class TestWorkItemClaimLockTimeoutRace:
 
     def test_process_queue_logs_nonblocking_exception(self):
         from plugin.framework.queue_executor import MainThread, _WorkItem
-        from unittest.mock import patch
 
         def fn():
             raise RuntimeError("ui failed")
@@ -1354,8 +1353,6 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
 def test_flush_pending_posts_order_concurrent_enqueue():
     """A direct enqueue overlapping with flush must not jump ahead of pending posts."""
     from plugin.framework.queue_executor import MainThread
-    import threading
-    import time
 
     qe = MainThread()
     qe._initialized = True
@@ -1405,7 +1402,6 @@ def test_set_context_resets_diagnostic_log_flags():
 def test_set_context_wakes_pending_posts():
     """set_context must create AsyncCallback if there are pending posts."""
     from plugin.framework.queue_executor import MainThread
-    from unittest.mock import patch, MagicMock
     from plugin.framework.thread_guard import unwrap_uno
 
     qe = MainThread()
@@ -1436,7 +1432,6 @@ def test_set_context_wakes_pending_posts():
 def test_process_queue_claim_gap_raises():
     """An exception between claim and fn() must not leave the waiter blocked forever."""
     from plugin.framework.queue_executor import MainThread, _WorkItem
-    from unittest.mock import patch
     qe = MainThread()
     def my_fn(): pass
 
@@ -1453,7 +1448,6 @@ def test_process_queue_claim_gap_raises():
 def test_wait_for_result_shutting_down_raises():
     """_wait_for_result must raise RuntimeError if sys.is_finalizing() is true while waiting."""
     from plugin.framework.queue_executor import MainThread, _WorkItem
-    from unittest.mock import patch
 
     qe = MainThread()
     item = _WorkItem(lambda: None, (), {}, blocking=True)
@@ -1473,7 +1467,6 @@ def test_wait_for_result_shutting_down_raises():
 def test_wait_for_result_claimed_item_keeps_waiting_past_slices():
     """A claimed item is waited out across slices; the result is returned, not a timeout."""
     from plugin.framework.queue_executor import MainThread, _WorkItem
-    from unittest.mock import patch
 
     qe = MainThread()
     item = _WorkItem(lambda: None, (), {}, blocking=True)
@@ -1598,8 +1591,6 @@ def test_pump_main_thread_work_queue_runs_in_sync_host_on_main() -> None:
 
 
 def test_main_run_inlines_when_current() -> None:
-    from plugin.framework.queue_executor import main
-
     with patch.object(main, "is_current", return_value=True), \
          patch.object(main, "call") as mock_call:
         result = main.run(lambda x: x * 2, 21)
@@ -1613,8 +1604,6 @@ def test_main_run_inlines_when_current() -> None:
     ids=["default_timeout", "explicit_timeout"],
 )
 def test_main_run_marshals_when_off_main(timeout_kw: dict[str, float], expected_timeout: float) -> None:
-    from plugin.framework.queue_executor import main
-
     def fn() -> str:
         return "marshaled"
 
@@ -1626,8 +1615,6 @@ def test_main_run_marshals_when_off_main(timeout_kw: dict[str, float], expected_
 
 
 def test_main_post_or_run_inlines_on_main() -> None:
-    from plugin.framework.queue_executor import main
-
     with patch.object(main, "is_current", return_value=True), \
          patch("plugin.framework.thread_guard.get_background_task_name", return_value=None), \
          patch.object(main, "post") as mock_post:
@@ -1660,8 +1647,6 @@ def test_main_post_or_run_posts(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> None:
-    from plugin.framework.queue_executor import main
-
     def fn(*_args: Any, **_kwargs: Any) -> None:
         pass
 
@@ -1678,8 +1663,6 @@ def test_main_post_or_run_posts(
 
 @requires_asserts
 def test_main_post_or_run_asserts_callable() -> None:
-    from plugin.framework.queue_executor import main
-
     with pytest.raises(AssertionError):
         main.post_or_run("not_callable")
 

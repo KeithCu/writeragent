@@ -68,8 +68,8 @@ def test_clean_text_for_speech_math_preserved():
     assert "</p>" not in cleaned
     assert "a < 10 and b > 20" in cleaned
 
-    # The old any-letter tag pattern treated "a<b and c>d" as a <b> tag, and
-    # the old star pattern treated "2 * 3 * 4" as italic.
+    # A tag needs a known name and name=value attributes, so "a<b and c>d" stays.
+    # Stars must hug the word, so "2 * 3 * 4" is multiplication, not italic.
     assert clean_text_for_speech("a<b and c>d") == "a<b and c>d"
     assert clean_text_for_speech("2 * 3 * 4") == "2 * 3 * 4"
     assert clean_text_for_speech("2*3*4") == "2*3*4"
@@ -186,7 +186,6 @@ def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
 
 
 def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _speak_local
 
     utt = tts._begin_utterance()
@@ -238,7 +237,6 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
 
 
 def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _speak_local
 
     utt = tts._begin_utterance()
@@ -261,8 +259,6 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
 
 
 def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
-    import plugin.audio.tts_service as tts
-
     ensure = MagicMock(return_value=True)
     synthesized: list[str] = []
 
@@ -300,8 +296,6 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
 
 
 def test_sentence_pipeline_stop_during_misaki_install_skips_os_speech():
-    import plugin.audio.tts_service as tts
-
     utt = tts._begin_utterance()
 
     try:
@@ -358,8 +352,6 @@ def test_sentences_for_speech_merges_dialogue():
 
 
 def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
-    import plugin.audio.tts_service as tts
-
     short = "Hi."
     longer = "This sentence is much longer and should already be synthesizing."
     long_started = threading.Event()
@@ -404,7 +396,6 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
 @pytest.mark.parametrize("max_clips", [2, None])
 def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
     """Prefetch stops one clip past the cap: one playing, max_clips queued, one blocked in put()."""
-    import plugin.audio.tts_service as tts
 
     cap = tts.SPEECH_READY_MAX_CLIPS if max_clips is None else max_clips
     sentences = ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H.", "I."]
@@ -463,8 +454,6 @@ def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
 
 
 def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
-    import plugin.audio.tts_service as tts
-
     played: list[str] = []
     hold_second = threading.Event()
     first_playing = threading.Event()
@@ -535,7 +524,6 @@ def _wait_until(deadline: float, predicate, *, interval: float = 0.02) -> bool:
 
 def test_stop_during_synthesis_plays_nothing(tmp_path):
     """Stop while synthesis is blocked must not play or fall back to system speech."""
-    import plugin.audio.tts_service as tts
 
     synth_entered = threading.Event()
     release_synth = threading.Event()
@@ -628,7 +616,6 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
 
 def test_stop_before_start_spawns_nothing():
     """stop_speech before the pipeline runs must not spawn synth or playback."""
-    import plugin.audio.tts_service as tts
 
     utt = tts._begin_utterance()
     tts.stop_speech()
@@ -653,7 +640,6 @@ def test_stop_before_start_spawns_nothing():
 
 def test_stop_speech_twice_is_idempotent(tmp_path):
     """Repeated stop_speech is safe while cleanup runs on a background thread."""
-    import plugin.audio.tts_service as tts
 
     hook_calls: list[bool] = []
     temp = tmp_path / "tracked.wav"
@@ -709,8 +695,6 @@ def test_sentence_speak_enabled_uses_schema_default_on():
 
 
 def _speak_sentence_case(cfg, *, provider=None, model=None):
-    import plugin.audio.tts_service as tts
-
     captured: dict[str, object] = {}
     oneshot: dict[str, str] = {}
     real_split = tts.sentences_for_speech
@@ -867,8 +851,6 @@ def test_speak_system_security(mock_which, mock_popen):
 
 
 def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
-    import plugin.audio.tts_service as tts
-
     calls = []
 
     def synth(sentence, *args):
@@ -947,7 +929,6 @@ def test_play_audio_file_logs_stderr_on_nonzero_exit(caplog: pytest.LogCaptureFi
 
 def test_windows_player_nonzero_exit_triggers_os_fallback():
     """A non-zero exit from the Windows MP3 player falls back to OS speech."""
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_endpoint import _EndpointClip
 
     utt = tts._begin_utterance()
@@ -1103,7 +1084,6 @@ def test_ready_queue_byte_cap_blocks_below_the_clip_cap():
     The first two clips are always accepted (the two-clip floor), whatever
     their size, so playback never stalls on one huge sentence.
     """
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _ReadyClip
 
     utt = tts._begin_utterance()
@@ -1146,7 +1126,6 @@ def test_ready_queue_byte_cap_blocks_below_the_clip_cap():
 @pytest.mark.parametrize("max_clips", [2, None])
 def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips):
     """A raise in playback must close the queue so prefetch is not stuck in put()."""
-    import plugin.audio.tts_service as tts
 
     cap = tts.SPEECH_READY_MAX_CLIPS if max_clips is None else max_clips
 
@@ -1215,7 +1194,6 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips)
 
 
 def test_kokoro_oneshot_times_out_and_reaps(tmp_path):
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _kokoro_oneshot_to_file
 
     utt = tts._begin_utterance()
@@ -1234,7 +1212,6 @@ def test_kokoro_oneshot_times_out_and_reaps(tmp_path):
     release.assert_called_with(str(wav))
 
 def test_kokoro_warm_exception_allows_fallback(tmp_path):
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _kokoro_warm_to_file
 
     utt = tts._begin_utterance()
@@ -1251,8 +1228,6 @@ def test_kokoro_warm_exception_allows_fallback(tmp_path):
 
 
 def test_remember_misaki_ready_ignores_stale_generation():
-    import plugin.audio.tts_service as tts
-
     utt = tts._begin_utterance()
     try:
         utt.remember_misaki("ja", True)
@@ -1267,7 +1242,6 @@ def test_remember_misaki_ready_ignores_stale_generation():
 
 
 def test_prepare_kokoro_misaki_stale_utterance_does_not_touch_current():
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _prepare_kokoro_misaki
 
     utt_a = tts._begin_utterance()
@@ -1284,7 +1258,6 @@ def test_prepare_kokoro_misaki_stale_utterance_does_not_touch_current():
 
 
 def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
-    import plugin.audio.tts_service as tts
     import plugin.framework.managed_subprocess as ms
 
     tts._speech_active = False
@@ -1331,7 +1304,6 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
 
 
 def test_popen_for_speech_raw_env_object_and_devnull() -> None:
-    import plugin.audio.tts_service as tts
     import plugin.framework.managed_subprocess as ms
 
     tts._speech_active = False
@@ -1368,8 +1340,6 @@ def test_popen_for_speech_raw_env_object_and_devnull() -> None:
 
 
 def test_reap_proc_windows_taskkill_timeout_stays_five() -> None:
-    import plugin.audio.tts_service as tts
-
     wait_calls: list[Any] = []
 
     def fake_wait(timeout: float | None = None) -> int:
@@ -1400,8 +1370,6 @@ def test_reap_proc_windows_taskkill_timeout_stays_five() -> None:
 
 
 def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
-    import plugin.audio.tts_service as tts
-
     proc = MagicMock()
     proc.poll.return_value = None
     proc.args = ["spd-say", "-w", "--", "hi"]
@@ -1428,7 +1396,6 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
 
 def test_stop_speech_non_spd_player_skips_spd_say_stop() -> None:
     """spd-say -S stops every speech-dispatcher client, including screen readers."""
-    import plugin.audio.tts_service as tts
 
     proc = MagicMock()
     proc.poll.return_value = None
@@ -1492,7 +1459,6 @@ def test_stop_speech_reaps_on_a_dedicated_thread():
 
 
 def test_popen_cancelled_during_spawn_reaps_on_dedicated_thread():
-    import plugin.audio.tts_service as tts
     from plugin.framework.managed_subprocess import ManagedSubprocess
 
     utt = tts._begin_utterance()
@@ -1521,7 +1487,6 @@ def test_popen_cancelled_during_spawn_reaps_on_dedicated_thread():
 
 
 def test_kokoro_warm_passes_scaled_timeout() -> None:
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _kokoro_warm_to_file, _synth_timeout
 
     calls: list[dict[str, Any]] = []
@@ -1574,8 +1539,6 @@ def test_kokoro_audio_file_resolves_models_when_venv_exists() -> None:
 
 
 def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pytest.LogCaptureFixture) -> None:
-    import plugin.audio.tts_service as tts
-
     utt = tts._begin_utterance()
     try:
         with patch.object(tts, "resolve_kokoro_python", return_value=None), \
@@ -1626,8 +1589,6 @@ def test_spd_say_zero_exit_speaks_every_chunk() -> None:
 
 
 def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
-    import plugin.audio.tts_service as tts
-
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/spd-say" if cmd == "spd-say" else None
 
@@ -1655,8 +1616,6 @@ def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) 
 
 
 def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> None:
-    import plugin.audio.tts_service as tts
-
     utt = tts._begin_utterance()
     clip = tmp_path / "clip.wav"
     clip.write_bytes(b"RIFF")
@@ -1708,8 +1667,6 @@ def test_notify_kokoro_g2p_fallback():
 
 
 def test_utterance_cancel_hooks_run_outside_speech_lock():
-    import plugin.audio.tts_service as tts
-
     events: list[object] = []
 
     def hook():
@@ -1754,7 +1711,6 @@ def test_utterance_cancel_hooks_run_outside_speech_lock():
 
 def test_stop_before_fetch_skips_playback_and_fallback():
     """Stop between _begin_utterance and fetch aborts without playback or system speech fallback."""
-    import plugin.audio.tts_service as tts
 
     utt = tts._begin_utterance()
 
@@ -1774,7 +1730,6 @@ def test_stop_before_fetch_skips_playback_and_fallback():
 
 def test_stop_speech_returns_while_playback_blocked_in_wait():
     """stop_speech() returns promptly without waiting for background process reaping."""
-    import plugin.audio.tts_service as tts
 
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
@@ -1799,7 +1754,6 @@ def test_stop_speech_returns_while_playback_blocked_in_wait():
 
 def test_new_speak_supersedes_old_one():
     """Calling _begin_utterance() cancels the previous utterance's scope and activates the new one."""
-    import plugin.audio.tts_service as tts
 
     utt1 = tts._begin_utterance()
     assert not utt1.scope.is_cancelled()
@@ -1820,7 +1774,6 @@ def test_new_speak_supersedes_old_one():
 
 def test_capped_ready_queue_put_wakes_on_stop():
     """A thread blocked in ready.put() wakes immediately and returns False when stop_speech() runs."""
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _ReadyClip, _ReadyQueue
 
     utt = tts._begin_utterance()
@@ -1889,7 +1842,6 @@ def test_speak_text_async_on_complete_fires_when_worker_raises():
 
 def test_download_failure_remembered_per_generation():
     """Failed model downloads are remembered per generation and not retried every sentence."""
-    import plugin.audio.tts_service as tts
 
     utt1 = tts.Utterance(SendCancellation())
     utt2 = tts.Utterance(SendCancellation())
@@ -1904,8 +1856,6 @@ def test_download_failure_remembered_per_generation():
 
 
 def test_remember_download_failed_ignores_stale_generation():
-    import plugin.audio.tts_service as tts
-
     utt = tts._begin_utterance()
     try:
         utt.note_download_failed("kokoro")
@@ -1918,8 +1868,6 @@ def test_remember_download_failed_ignores_stale_generation():
 
 
 def test_player_candidates_apply_playback_rate():
-    import plugin.audio.tts_service as tts
-
     with patch("sys.platform", "linux"), patch("shutil.which", return_value="/usr/bin/player"):
         mp3_fast = dict((name, cmd) for name, cmd, _env in tts._get_player_candidates("/tmp/clip.mp3", 1.25))
         assert mp3_fast["ffplay"][-3:] == ["-af", "atempo=1.25", "/tmp/clip.mp3"]
@@ -1955,7 +1903,6 @@ def test_player_candidates_apply_playback_rate():
 
 
 def test_endpoint_clip_rate_reaches_player():
-    import plugin.audio.tts_service as tts
     from plugin.audio.tts_endpoint import _EndpointClip
 
     proc = MagicMock()
@@ -1986,8 +1933,6 @@ def test_endpoint_clip_rate_reaches_player():
 
 
 def test_local_clips_play_at_unit_rate(tmp_path):
-    import plugin.audio.tts_service as tts
-
     wav = tmp_path / "local.wav"
     wav.write_bytes(b"RIFFdata")
 

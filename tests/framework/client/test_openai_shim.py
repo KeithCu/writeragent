@@ -43,8 +43,8 @@ def test_openai_shim_build_image_request():
     assert "response_format" not in data
     assert data["size"] == "1536x1024"
 
-    # chatgpt-image-latest is a GPT Image alias. It used to keep response_format
-    # and a raw WxH, which the API rejects.
+    # chatgpt-image-latest is a GPT Image alias, so it drops response_format
+    # and snaps the size; the API rejects response_format and a raw WxH.
     _method, _path, body, _headers = shim.build_image_request("prompt", "chatgpt-image-latest", 1024, 768)
     data = json.loads(body)
     assert "response_format" not in data
@@ -59,7 +59,7 @@ def test_openai_shim_build_image_request():
     assert "model" not in data
     assert data["size"] == "1024x1024"
 
-    # width=0 used to divide as 0 and pick the portrait size
+    # width=0 falls back to the square size instead of dividing as 0 and picking portrait.
     _method, _path, body, _headers = shim.build_image_request("prompt", "gpt-image-2", 0, 1024)
     assert json.loads(body)["size"] == "1024x1024"
 

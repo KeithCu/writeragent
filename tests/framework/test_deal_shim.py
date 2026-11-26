@@ -27,7 +27,7 @@ def test_ascii_bounded_unicode_rejected() -> None:
 
 
 def test_ascii_bounded_length_limits() -> None:
-    # Pytest/debug CELL_REF is 256 (sheet-qualified live ranges); not the old 32.
+    # Pytest/debug CELL_REF is 256 so sheet-qualified live ranges fit.
     assert ascii_bounded("A" * DEAL_MAX_CELL_REF, DEAL_MAX_CELL_REF) is True
     assert ascii_bounded("A" * (DEAL_MAX_CELL_REF + 1), DEAL_MAX_CELL_REF) is False
     assert ascii_bounded("abc", 5, min_len=4) is False

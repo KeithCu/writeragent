@@ -82,7 +82,7 @@ def test_probe_venv_path_with_progress_blank_fails_when_no_process_interpreter()
 def test_run_venv_self_check_with_progress_success():
     ok, msg = run_venv_self_check_with_progress(sys.executable, lambda text: None)
     assert ok is True
-    assert "OK" in msg or "ok" in msg.lower()
+    assert "responds OK." in msg
 
 
 @pytest.mark.parametrize(
@@ -769,7 +769,7 @@ def test_run_venv_self_check_with_progress_reports_duckdb():
 
 
 def test_probe_hints_translate_at_call_time(monkeypatch) -> None:
-    """Module-level _() used to freeze the catalog from import, before init_i18n(ctx)."""
+    """Hints call _() at call time; a module-level _() would freeze the catalog before init_i18n(ctx)."""
     import plugin.scripting.venv_diagnostics as diag
 
     def fake_translate(message: str) -> str:
@@ -839,8 +839,6 @@ def test_run_json_probe_rejects_stdout_without_prefix():
 
 
 def test_parse_probe_stdout_accepts_marker_glued_to_banner():
-    from plugin.scripting.venv_diagnostics import _parse_probe_stdout
-
     res1 = _parse_probe_stdout('banner without newlineWA_PROBE_JSON {"rapidocr": "present"}\n')
     assert res1 == {"rapidocr": "present"}
     res2 = _parse_probe_stdout('WA_PROBE_JSON {"docling": "present"}\nnoise WA_PROBE_JSON not-json\n')
