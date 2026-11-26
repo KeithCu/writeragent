@@ -218,16 +218,6 @@ def _check_reads(ctx: Any, path: Path) -> None:
         _assert_same(f"reading ({[name for name, _ in calls]})", before, _state(ctx, doc))
 
 
-def _has_redline(cell: Any) -> bool:
-    paragraphs = cell.createEnumeration()
-    while enum_has_more(paragraphs):
-        portions = paragraphs.nextElement().createEnumeration()
-        while enum_has_more(portions):
-            if portions.nextElement().getPropertyValue("TextPortionType") == "Redline":
-                return True
-    return False
-
-
 def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """Writing back what a read returned, with Track Changes off, changes nothing."""
     with _opened(ctx, path) as doc:
@@ -239,12 +229,8 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
             if read["is_on"]:
                 _ok(ctx, doc, "page_set_header_footer_text", region=region, content=read["content"])
         for name in doc.getTextTables().getElementNames():
-            table = doc.getTextTables().getByName(name)
             for cell, text in _ok(ctx, doc, "table_get_cells", name=name)["cells"].items():
-                # Left out: a cell with pending changes (rewriting it with Track Changes off resolves them)
-                # and an empty one (setting "" also clears a picture in the cell).
-                if text and not _has_redline(table.getCellByName(cell)):
-                    _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
+                _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
         _assert_same("unchanged writes", before, _state(ctx, doc))
 
 

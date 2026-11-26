@@ -1887,8 +1887,9 @@ def test_replace_preserving_format_equal_string_is_noop():
 
     text = _FakeReplaceText()
     with patch.object(record_changes, "is_recording_changes", return_value=False):
-        hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "IDENTICAL"), "IDENTICAL")
+        wrote = hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, "IDENTICAL"), "IDENTICAL")
 
+    assert wrote is False
     assert text.cursor.moves == []
     assert text.cursor.writes == []
 
@@ -1906,9 +1907,11 @@ def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_c
     text = _FakeText()
     target = _FakeRange(text)
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
-        fmt.replace_preserving_format(object(), target, "NEW TEXT",
-                                      in_undo_context=True, split_author=False)
+        wrote = fmt.replace_preserving_format(
+            object(), target, "NEW TEXT", in_undo_context=True, split_author=False
+        )
 
+    assert wrote is True
     assert text.cursor.getString() == "NEW TEXT"  # single atomic replace, not the two-step
     assert text.inserts == []                     # no delete-then-insert two-step at all
 
