@@ -59,7 +59,9 @@ def _is_stop_command(line: str) -> bool:
 def _stdin_stop_reader(stop_event: threading.Event) -> None:
     """Read stdin commands until stop, EOF, or read error.
 
-    The finally block always sets stop_event so record_to_wav cannot sit until MAX_RECORDING_DURATION_SEC when stdin read fails; the exception still propagates for stderr diagnostics.
+    The finally block always sets stop_event so record_to_wav cannot sit until
+    MAX_RECORDING_DURATION_SEC when stdin read fails; the exception still propagates for stderr
+    diagnostics.
     """
     try:
         for line in sys.stdin:

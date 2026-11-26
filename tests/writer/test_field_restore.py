@@ -457,7 +457,6 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
 
 
 def test_restore_fields_by_cursor_portion_disposal_raises():
-    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.field_restore import _restore_fields_by_cursor
 
     nonce = "test1234"
@@ -663,7 +662,6 @@ def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonc
 
 def test_restore_field_placeholders_skips_when_prefix_absent():
     """When the field token prefix is absent from plain text, return 0 without document search."""
-    from plugin.writer.field_restore import restore_field_placeholders
 
     # To avoid MagicMock infinite enumeration loop, set createEnumeration return_value
     text = MagicMock()

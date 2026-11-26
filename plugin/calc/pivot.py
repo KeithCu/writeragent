@@ -61,6 +61,7 @@ try:
     from com.sun.star.sheet.FilterOperator import EQUAL
 except (ImportError, ModuleNotFoundError):
     EQUAL = "EQUAL"  # type: ignore
+import uno
 
 from plugin.calc.address_utils import format_range_address, qualify_a1, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
@@ -154,8 +155,6 @@ def _set_field_orientations(
             fld.setPropertyValue("Function", fn_by_field.get(nm, SUM))
 
     if page_filters:
-        import uno
-
         filter_fields = []
         for pf_name, pf_val in page_filters.items():
             if pf_name not in page_fields:

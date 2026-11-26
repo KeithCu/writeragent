@@ -25,10 +25,6 @@ from plugin.tests.testing_utils import (
 from plugin.writer.specialized.embedded import EmbeddedInsert
 
 
-def _tool_ctx(ctx: Any, doc: Any):
-    return native_writer_tool_context(doc, ctx)
-
-
 def _sheet_values(doc: Any, name: str) -> tuple[Any, int, int]:
     eo = doc.getEmbeddedObjects()
     assert eo.hasByName(name), name
@@ -54,7 +50,7 @@ def test_embedded_insert_persists_odt_and_docx(ctx, doc):
             ["Adapter", 2, 8, "=B5*C5"],
             ["Total", "", "", "=SUM(D2:D5)"],
         ]
-        tctx = _tool_ctx(ctx, doc)
+        tctx = native_writer_tool_context(doc, ctx)
         inserted = EmbeddedInsert().execute(
             tctx,
             object_type="spreadsheet",
@@ -131,7 +127,7 @@ def test_embedded_insert_search_while_recording_accept_and_reject_uno(ctx, doc):
     from plugin.framework.uno_context import execute_dispatch
 
     text = doc.getText()
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
 
     for accept in (False, True):
         text.setString("hello MATCH world")
@@ -179,7 +175,7 @@ def test_embedded_insert_with_at_page_ole_selected_uno(ctx, doc):
     vc.gotoRange(cur.getEnd(), False)
     assert vc.getPage() == 2
 
-    tctx = _tool_ctx(ctx, doc)
+    tctx = native_writer_tool_context(doc, ctx)
     first = EmbeddedInsert().execute(
         tctx, object_type="spreadsheet", target="selection", name="Page2AtPage", data=[["a"]]
     )

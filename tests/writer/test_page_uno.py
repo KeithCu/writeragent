@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
@@ -50,10 +50,6 @@ def _header_logo_path() -> str:
     return os.path.join(root, "extension", "assets", "logo_32.png")
 
 
-def _tool_ctx(doc, ctx):
-    return writer_services_tool_context(doc, ctx)
-
-
 def _style_name(doc):
     styles = doc.getStyleFamilies().getByName("PageStyles")
     if styles.hasByName("Standard"):
@@ -68,13 +64,13 @@ def _style(doc):
 
 def _set_text(doc, ctx, region, content, **kwargs):
     return PageSetHeaderFooterText().execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), region=region, content=content, **kwargs,
+        writer_services_tool_context(doc, ctx), style=_style_name(doc), region=region, content=content, **kwargs,
     )
 
 
 def _set_props(doc, ctx, **kwargs):
     return PageSetStyleProperties().execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), **kwargs,
+        writer_services_tool_context(doc, ctx), style=_style_name(doc), **kwargs,
     )
 
 
@@ -226,7 +222,7 @@ def test_disable_header_refuses_while_table_remains(ctx, doc):
     header = style.getPropertyValue("HeaderText")
     found_table = False
     enum = header.createEnumeration()
-    while enum.hasMoreElements() is True:
+    while enum_has_more(enum):
         el = enum.nextElement()
         try:
             if el.supportsService("com.sun.star.text.TextTable") is True:
@@ -294,7 +290,7 @@ def test_page_insert_break_no_anchor(ctx, doc):
 
 def _para_with_text(doc, needle):
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         try:
             if needle in para.getString():
@@ -328,7 +324,7 @@ def test_page_insert_break_applies_cloned_style_and_restarts_numbering(ctx, doc)
 
     tool = PageInsertBreak()
     res = tool.execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         before_text="Annex start",
         page_style="AnnexRestart1424",
         restart_page_number=1,
@@ -377,7 +373,7 @@ def test_page_insert_break_after_text_styles_the_following_paragraph(ctx, doc):
 
     tool = PageInsertBreak()
     res = tool.execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         after_text="Lead clause",
         page_style="AnnexAfter1424",
         restart_page_number=3,
@@ -414,7 +410,7 @@ def test_page_insert_break_unknown_style_changes_nothing(ctx, doc):
 
     tool = PageInsertBreak()
     res = tool.execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         before_text="Annex start",
         page_style="MissingAnnex1424",
         occurrence=0,
@@ -451,7 +447,7 @@ def test_page_insert_break_after_last_paragraph_does_not_apply_style(ctx, doc):
 
     tool = PageInsertBreak()
     res = tool.execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         after_text="Only paragraph",
         page_style="AnnexLast1424",
         restart_page_number=1,
@@ -628,7 +624,7 @@ def test_replace_footer_keeps_field_and_graphic(ctx, doc):
     footer.insertTextContent(cursor, shape, False)
 
     tool = PageReplaceHeaderFooterText()
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = writer_services_tool_context(doc, ctx)
     title = tool.execute(
         tool_ctx, style=name, region="footer",
         old_content="Annex 1: Intro", content="Annex A: Methods", all_matches=False,
@@ -680,7 +676,7 @@ def test_replace_footer_refuses_character_anchor_inside_match(ctx, doc):
     before = footer.getString()
 
     res = PageReplaceHeaderFooterText().execute(
-        _tool_ctx(doc, ctx), style=name, region="footer",
+        writer_services_tool_context(doc, ctx), style=name, region="footer",
         old_content="Annex 1: Intro", content="Annex A: Methods", all_matches=False,
     )
     assert res["status"] == "error", res
@@ -721,7 +717,6 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
     field.setPropertyValue("SubType", CURRENT)
     footer.insertTextContent(cursor, field, False)
 
-    from plugin.writer.page import copy_page_style
     # Clone the page style
     stats = copy_page_style(doc, name, "CloneBug1424")
     assert stats["properties_copied"] > 0
@@ -742,7 +737,7 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
     clone_footer = clone.getPropertyValue("FooterText")
     enum = clone_footer.createEnumeration()
     para_count = 0
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         enum.nextElement()
         para_count += 1
     assert para_count == 1, "Cloned footer should have exactly 1 paragraph, got %d" % para_count
@@ -759,10 +754,10 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
 
     enum = clone_footer.createEnumeration()
     found_field = False
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         portions = para.createEnumeration()
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             if portion.getPropertyValue("TextPortionType") == "TextField":
                 cloned_field = portion.getPropertyValue("TextField")
@@ -797,7 +792,6 @@ def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
     field.setPropertyValue("NumberingType", 2) # ROMAN_UPPER
     header.insertTextContent(cursor, field, False)
 
-    from plugin.writer.page import copy_page_style
     # Clone the page style
     stats = copy_page_style(doc, name, "CloneBug1424_Next")
     assert stats["properties_copied"] > 0
@@ -807,10 +801,10 @@ def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
 
     enum = clone_header.createEnumeration()
     found_field = False
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         portions = para.createEnumeration()
-        while portions.hasMoreElements():
+        while enum_has_more(portions):
             portion = portions.nextElement()
             if portion.getPropertyValue("TextPortionType") == "TextField":
                 cloned_field = portion.getPropertyValue("TextField")
@@ -872,7 +866,7 @@ def test_page_break_inside_table_cell_uno(ctx, doc):
     cell_cursor.setString("UniqueCellWord")
 
     tool = PageInsertBreak()
-    res = tool.execute(_tool_ctx(doc, ctx), before_text="UniqueCellWord", occurrence=0)
+    res = tool.execute(writer_services_tool_context(doc, ctx), before_text="UniqueCellWord", occurrence=0)
     assert res["status"] == "error", res
     assert "table cell" in res["message"]
 
@@ -905,7 +899,7 @@ def test_page_break_inside_table_cell_with_page_style_uno(ctx, doc):
 
     tool = PageInsertBreak()
     res = tool.execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         before_text="UniqueCellWord",
         page_style="AnnexCell1424",
         restart_page_number=1,
@@ -925,7 +919,7 @@ def test_column_spacing_zero_uno(ctx, doc):
 
     set_tool = PageSetColumns()
     get_tool = PageGetColumns()
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = writer_services_tool_context(doc, ctx)
     s_name = _style_name(doc)
 
     res1 = set_tool.execute(tool_ctx, style=s_name, column_count=2, spacing_mm=5)
@@ -954,7 +948,7 @@ def test_page_insert_break_anchor_matches_nbsp_and_curly_quotes(ctx, doc):
     text.insertString(cursor, "Annex\u00a0\u201cstart\u201d", False)
 
     tool = PageInsertBreak()
-    res = tool.execute(_tool_ctx(doc, ctx), before_text='Annex "start"', occurrence=0)
+    res = tool.execute(writer_services_tool_context(doc, ctx), before_text='Annex "start"', occurrence=0)
     assert res["status"] == "ok", res
 
     para = _para_with_text(doc, "start")
@@ -969,7 +963,7 @@ def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
 
     set_tool = PageSetColumns()
     get_tool = PageGetColumns()
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = writer_services_tool_context(doc, ctx)
     style, s_name = _style(doc)
 
     res1 = set_tool.execute(tool_ctx, style=s_name, column_count=2, spacing_mm=5)
@@ -1120,7 +1114,7 @@ def test_page_back_color_string_transparent_and_alpha_roundtrip_uno(ctx, doc):
     from plugin.writer.page import get_page_style_properties
 
     tool = PageSetStyleProperties()
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = writer_services_tool_context(doc, ctx)
     style, s_name = _style(doc)
 
     res = tool.execute(tool_ctx, style=s_name, back_color="red")
@@ -1154,7 +1148,7 @@ def test_replace_header_ignores_struck_text_uno(ctx, doc):
         assert _set_text(doc, ctx, "header", "<p>Acme two Acme</p>")["status"] == "ok"
         tool = PageReplaceHeaderFooterText()
         res1 = tool.execute(
-            _tool_ctx(doc, ctx),
+            writer_services_tool_context(doc, ctx),
             style=s_name,
             region="header",
             old_content="Acme",
@@ -1165,7 +1159,7 @@ def test_replace_header_ignores_struck_text_uno(ctx, doc):
         assert res1["replaced_count"] == 2, res1
 
         res2 = tool.execute(
-            _tool_ctx(doc, ctx),
+            writer_services_tool_context(doc, ctx),
             style=s_name,
             region="header",
             old_content="Acme",
@@ -1194,7 +1188,7 @@ def test_replace_header_with_table_uno(ctx, doc):
     header.insertString(cur, "Acme", False)
 
     res = PageReplaceHeaderFooterText().execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         style=s_name,
         region="header",
         old_content="Acme",
@@ -1231,7 +1225,7 @@ def test_copy_page_style_leaves_out_struck_header_uno(ctx, doc):
         from plugin.doc.text_helpers import iter_elements
         from plugin.writer.page import PageGetHeaderFooterText
 
-        got = PageGetHeaderFooterText().execute(_tool_ctx(doc, ctx), style=s_name, region="header", include_images=False)
+        got = PageGetHeaderFooterText().execute(writer_services_tool_context(doc, ctx), style=s_name, region="header", include_images=False)
         assert got["status"] == "ok", got
         wrote = _set_text(doc, ctx, "header", got["content"])
         assert wrote["status"] == "ok", wrote
@@ -1251,7 +1245,6 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
     from com.sun.star.style.BreakType import NONE, PAGE_BEFORE
     from plugin.doc.text_helpers import selection_cursor_snapshot
     from plugin.framework.tool import SelectionPin
-    from plugin.framework.uno_context import enum_has_more
     from plugin.tests.testing_utils import native_writer_tool_context
     from plugin.writer.page import PageInsertBreak
 
@@ -1284,11 +1277,9 @@ def test_page_insert_break_uses_pinned_caret_uno(ctx, doc):
 @with_native_doc("writer")
 def test_page_replace_header_footer_with_controls_fields_and_frame_uno(ctx, doc):
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
-    from plugin.framework.uno_context import enum_has_more
-    from plugin.writer.page import PageReplaceHeaderFooterText
 
     tool = PageReplaceHeaderFooterText()
-    tool_ctx = _tool_ctx(doc, ctx)
+    tool_ctx = writer_services_tool_context(doc, ctx)
     style, s_name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")
@@ -1360,7 +1351,6 @@ def test_page_replace_header_footer_with_controls_fields_and_frame_uno(ctx, doc)
 @with_native_doc("writer")
 def test_replace_header_after_inline_logo_uno(ctx, doc):
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
-    from plugin.writer.page import PageReplaceHeaderFooterText
 
     style, style_name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
@@ -1373,7 +1363,7 @@ def test_replace_header_after_inline_logo_uno(ctx, doc):
     header.insertString(cur, " OldText", False)
 
     res = PageReplaceHeaderFooterText().execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         style=style_name,
         region="header",
         old_content="OldText",
@@ -1442,8 +1432,6 @@ def test_copy_page_style_joins_struck_paragraphs_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_scan_region_content_sees_nested_input_field_in_content_control_uno(ctx, doc):
-    from plugin.writer.page import _scan_region_content
-
     style, _ = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
     header = style.getPropertyValue("HeaderText")

@@ -16,6 +16,7 @@ import os
 import re
 import struct
 from typing import Any, NamedTuple, NoReturn
+import uno
 
 from plugin.calc.calc_utils import get_cell_geometry, selection_top_left_cell, sheet_is_rtl
 from plugin.calc.python.formula_edit import match_py_alias, normalize_formula_string
@@ -24,6 +25,7 @@ from plugin.calc.python.undo import add_undo_action, attach_to_newest_undo, undo
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import uno_same
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
 log = logging.getLogger(__name__)
@@ -457,7 +459,7 @@ def _drop_egress_of_undone_formula(doc: Any, sheet: Any, cell: Any, draw_page: A
     """Remove *cell*'s plots and image note when Undo took its =PY formula away; runs after the Undo finished."""
     # Proxies on a deleted sheet shift to the neighbouring sheet instead of raising,
     # so check the DrawPage identity before reading the cell or removing shapes.
-    if sheet.DrawPage != draw_page:
+    if not uno_same(sheet.DrawPage, draw_page):
         return
     addr = cell.getCellAddress()
     if _holds_py_formula(sheet, (addr.Column, addr.Row)):
@@ -563,11 +565,10 @@ def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
     """Sheet + column + row for a cell-like UNO object, or None."""
     if hasattr(cell, "getRangeAddress"):
         addr = cell.getRangeAddress()
-        sheet_idx = getattr(addr, "Sheet", None)
-        return (sheet_idx, int(addr.StartColumn), int(addr.StartRow))
+        return (addr.Sheet, int(addr.StartColumn), int(addr.StartRow))
     if hasattr(cell, "getCellAddress"):
         addr = cell.getCellAddress()
-        return (getattr(addr, "Sheet", None), int(addr.Column), int(addr.Row))
+        return (addr.Sheet, int(addr.Column), int(addr.Row))
     return None
 
 
@@ -873,8 +874,6 @@ def _insert_image_result_on_sheet_impl(
     spill_cols: int = 1,
 ) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
-    import uno
-
     # Resolve the target sheet and cell from the formula when the code is
     # known. During a workbook recalc (Ctrl+Shift+F9, or file open) the
     # active sheet can be sheet 0 while the formula is on another sheet, and

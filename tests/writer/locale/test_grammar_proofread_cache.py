@@ -240,7 +240,6 @@ def test_whitespace_normalization_cache_key() -> None:
 
 def test_cache_persistence_fallback() -> None:
     """Test that cache_get_sentence falls back to persistence and populates memory cache."""
-    from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
     
     mock_p = MagicMock(spec=DocumentPersistence)
@@ -261,7 +260,6 @@ def test_cache_persistence_fallback() -> None:
 
 def test_document_mode_populates_memory_cache() -> None:
     """When a doc_id is set, it uses document persistence but still populates memory cache for speed."""
-    from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
     mock_p = MagicMock(spec=DocumentPersistence)
@@ -286,7 +284,6 @@ def test_l1_miss_across_checker_identity() -> None:
 
 def test_cross_document_l1_cache_hit() -> None:
     """Doc B hits Tier-1 global LRU after Doc A checked the same sentence (copy-paste scenario)."""
-    from unittest.mock import MagicMock
 
     errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "wa_test"}]
     mock_p_a = MagicMock()
@@ -311,7 +308,6 @@ def test_cross_document_l1_cache_hit() -> None:
 
 def test_l1_hit_records_session_accessed_for_doc() -> None:
     """When a sentence hits L1 memory with a doc_id, it marks the sentence as session accessed for that doc."""
-    from unittest.mock import MagicMock
     from plugin.writer.locale.grammar_persistence import DocumentPersistence
 
     model = MagicMock()

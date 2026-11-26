@@ -728,7 +728,7 @@ def _write_package(
     def _transform(zin: zipfile.ZipFile, zout: zipfile.ZipFile) -> None:
         # Callers must never list a dropped name in `parts`. Because nothing in `parts`
         # is dropped, tracking written names is equivalent to checking whether the source
-        # contained the part (e.g. the old `written_scripts` flag for xl/pythonScripts.xml),
+        # contained the part (for example xl/pythonScripts.xml),
         # and any part in `parts` absent from the source is appended after the copied entries.
         written: set[str] = set()
         for info in zin.infolist():

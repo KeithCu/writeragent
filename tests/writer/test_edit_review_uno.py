@@ -12,6 +12,7 @@ import unittest
 
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import execute_dispatch
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.edit_review import EditReviewSession, _BOOKMARK_PREFIX
@@ -48,9 +49,8 @@ def _resolve_at(doc, ctx, needle, accept):
     view_cursor = doc.getCurrentController().getViewCursor()
     view_cursor.gotoRange(para.getStart(), False)
     view_cursor.gotoRange(para.getEnd(), True)
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     command = ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
-    helper.executeDispatch(doc.getCurrentController().getFrame(), command, "", 0, ())
+    execute_dispatch(ctx, doc.getCurrentController(), command)
 
 
 def _wa_bookmarks(doc):
@@ -106,8 +106,7 @@ def test_bookkeeping_stays_off_the_undo_stack_uno(ctx, doc):
         "internal bookkeeping leaked onto the user's undo stack: top=%r" % title
     # One undo must revert the edit (drop a redline), not no-op on an invisible bookmark.
     before = len(list_redlines(doc))
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:Undo", "", 0, ())
+    execute_dispatch(ctx, doc.getCurrentController(), ".uno:Undo")
     assert len(list_redlines(doc)) < before, \
         "the first undo must revert the agent edit, not toggle an invisible bookmark (had %d redlines)" % before
 
@@ -327,7 +326,6 @@ def test_whole_paragraph_and_leading_table_review_outcomes_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_edit_review_formula_only_change_reports_accepted_and_rejected_uno(ctx, doc):
-    from plugin.writer.edit_review import EditReviewSession
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 
     text = doc.getText()

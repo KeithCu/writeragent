@@ -396,7 +396,11 @@ def get_post_venv_domains() -> tuple[DomainWiring, ...]:
 
 @dataclass(frozen=True)
 class PickerWiring:
-    """Declarative picker section. `origin` is the WIRING_TABLE id whose `templates()` fills the section unless `templates_ref` names a `module:attr` function (vision and sql keep their own template builders)."""
+    """Declarative picker section.
+
+    `origin` is the WIRING_TABLE id whose `templates()` fills the section unless `templates_ref`
+    names a `module:attr` function (vision and sql keep their own template builders).
+    """
 
     origin: str
     display_prefix: str

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ from plugin.app import get_tools
 from plugin.framework.uno_context import create_property_value, enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory
+from plugin.writer import review_authors
 from tests.writer.corpus_fixture import (
     CONTRACT,
     LETTER,
@@ -231,15 +233,15 @@ def _check_unchanged_writes(ctx: Any, case: CorpusDoc, path: Path) -> None:
         for name in doc.getTextTables().getElementNames():
             for cell, text in _ok(ctx, doc, "table_get_cells", name=name)["cells"].items():
                 _ok(ctx, doc, "table_set_cell", name=name, cell=cell, text=text)
+        if case.redlines:
+            refused = _tool(ctx, doc, "apply_content", target="full_document", content="<p>Replaced.</p>")
+            assert refused.get("status") == "error" and refused.get("code") == "PENDING_TRACKED_CHANGES", refused
         _assert_same("unchanged writes", before, _state(ctx, doc))
 
 
 def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
     """One recorded edit survives save and reload; Reject All then gives what it gives without the edit."""
-    from collections import Counter
-
     from plugin.framework.config import get_config, save
-    from plugin.writer import review_authors
 
     def _redline_counts(doc: Any) -> Counter[tuple[str, str, str]]:
         return Counter(
@@ -266,6 +268,7 @@ def _check_recorded_edit(ctx: Any, case: CorpusDoc, path: Path) -> None:
             assert added, "expected new redline(s)"
             expected_author = review_authors.office_author(ctx)
             assert all(author == expected_author for (_t, author, _c) in added), added
+            assert {t for t, _a, _c in added} <= {"Insert", "Delete"}, added
             edited = _counts(ctx, doc)
             doc.storeToURL(uno.systemPathToFileUrl(str(saved)), (create_property_value("FilterName", _SAVE_FILTER[path.suffix]),))
             reject_all_changes(doc, ctx)

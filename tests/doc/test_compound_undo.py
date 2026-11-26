@@ -182,7 +182,6 @@ def test_writer_compound_undo_enters_when_islocked_returns_one():
 
 
 def test_writer_compound_undo_magicmock_islocked_enters():
-    from unittest.mock import MagicMock
     doc = MagicMock()
     mgr = MagicMock()
     assert mgr.isLocked() is not True
@@ -194,7 +193,6 @@ def test_writer_compound_undo_magicmock_islocked_enters():
 
 
 def test_writer_compound_undo_try_enter_returns_none_when_unavailable():
-    from unittest.mock import MagicMock
     # Locked
     doc_locked = MagicMock()
     doc_locked.getUndoManager.return_value.isLocked.return_value = True
@@ -217,7 +215,6 @@ def test_writer_compound_undo_try_enter_returns_none_when_unavailable():
 
 
 def test_writer_compound_undo_try_enter_reraises_disposal():
-    from unittest.mock import MagicMock
     doc_disp = MagicMock()
     doc_disp.getUndoManager.side_effect = _DisposedException("doc disposed")
     with pytest.raises(DocumentDisposedError):
@@ -225,7 +222,6 @@ def test_writer_compound_undo_try_enter_reraises_disposal():
 
 
 def test_writer_compound_undo_rollback_if_top():
-    from unittest.mock import MagicMock
     doc = MagicMock()
     mgr = MagicMock()
     mgr.isLocked.return_value = False
@@ -609,7 +605,6 @@ def test_commit_or_rollback_failed_leave_after_mutate_error_keeps_nothing_landed
 
 def test_commit_or_rollback_disposal_skips_rollback():
     from plugin.doc.compound_undo import commit_or_rollback
-    from plugin.framework.errors import DocumentDisposedError
 
     doc, mgr = _mock_undo_doc()
 
@@ -729,8 +724,6 @@ def test_nothing_landed_follows_the_undo_stack():
 
 
 def test_undo_step_or_rollback_full_stack_empty_group():
-    from plugin.doc.compound_undo import UndoStepOrRollback
-
     doc, mgr = _mock_undo_doc(titles_seq=[("Title", "b", "c"), ("Title", "b")])
     with pytest.raises(ValueError, match="refused"):
         with UndoStepOrRollback(doc, "Title") as step:

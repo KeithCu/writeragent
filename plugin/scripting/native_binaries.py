@@ -15,7 +15,11 @@ import hashlib
 import importlib
 import logging
 import os
+import platform
+import re
 import sys
+import tempfile
+import zipfile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -110,8 +114,6 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
     if os.name != "nt":
         return
     try:
-        import re
-
         backup_re = re.compile(r"^(?P<stem>.*)\.old(?:\.(?P<gen>\d+))?$")
         # dest path -> (generation, aside path). .old is generation 0.
         # _atomic_replace_native allocates the lowest free name, so the
@@ -247,7 +249,7 @@ def _download_url_to_file(
     leaves the previous file in place. Both are required and are checked
     before the partial replaces the destination.
     """
-    import tempfile
+    # Weight: urllib.request loads http.client, ssl and email; only a download needs them.
     import urllib.error
     import urllib.request
 
@@ -314,8 +316,6 @@ def _prepare_native_target() -> tuple[str, str]:
 
 
 def _display_download_header(on_display: Callable[[str], None], target_dir: str) -> None:
-    import platform
-
     on_display(f"Target directory: {target_dir}\n")
     on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
     on_display(f"Python: {platform.python_version()}\n\n")
@@ -373,9 +373,6 @@ def run_audio_download(
     Does not insert sys.path or clear the accelerator; Settings binds on the
     main thread after it returns.
     """
-    import platform
-    import zipfile
-
     target_dir, ext_suffix = _prepare_native_target()
 
     cffi_name = f"_cffi_backend{ext_suffix}"

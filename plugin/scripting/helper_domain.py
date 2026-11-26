@@ -42,7 +42,11 @@ _INJECTED_BINDING_NAMES: frozenset[str] = frozenset({"data", "text", "image", "d
 
 
 def _literal_value(node: ast.AST) -> Any:
-    """Best-effort static value for template-style literal AST nodes. Returns _UNRESOLVED for expressions that are not literals (a bare name that is not host-injected is not a literal)."""
+    """Best-effort static value for template-style literal AST nodes.
+
+    Returns _UNRESOLVED for expressions that are not literals (a bare name that is not host-injected
+    is not a literal).
+    """
     if isinstance(node, ast.Name):
         return node.id if node.id in _INJECTED_BINDING_NAMES else _UNRESOLVED
     if isinstance(node, ast.Constant):
@@ -66,9 +70,9 @@ def _literal_value(node: ast.AST) -> Any:
             return _UNRESOLVED
         return tuple(items) if isinstance(node, ast.Tuple) else items
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        # Recurse so -(-5) and {"n": -1} both resolve. The old check only
-        # accepted a top-level USub of a Constant, so nested unary and unary
-        # plus became None inside otherwise-literal params.
+        # Recurse so -(-5), +5 and {"n": -1} all resolve. Accepting only a top-level
+        # USub of a Constant would leave nested unary and unary plus unresolved
+        # inside otherwise-literal params.
         value = _literal_value(node.operand)
         if value is _UNRESOLVED or isinstance(value, bool) or not isinstance(value, int | float):
             return _UNRESOLVED

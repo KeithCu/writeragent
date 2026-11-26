@@ -12,6 +12,7 @@
 # Annotation registered (and that the spanning insert left the matched passage in the body).
 import uno  # noqa: F401
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.writer.specialized.comments import AddComment, CommentList
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -30,7 +31,7 @@ def _set_body(doc, text_value):
 def _annotation_contents(doc):
     out = []
     enum = doc.getTextFields().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         field = enum.nextElement()
         if field.supportsService("com.sun.star.text.textfield.Annotation"):
             out.append(field.getPropertyValue("Content"))
@@ -40,7 +41,7 @@ def _annotation_contents(doc):
 def _annotations(doc):
     out = []
     enum = doc.getTextFields().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             continue

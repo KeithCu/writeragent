@@ -77,7 +77,6 @@ def test_convert_mathml_to_starmath_rejects_non_math_root() -> None:
 
 
 def test_convert_mathml_to_starmath_closes_doc_on_property_error() -> None:
-    from unittest.mock import MagicMock
     from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
 
     mock_doc = MagicMock()

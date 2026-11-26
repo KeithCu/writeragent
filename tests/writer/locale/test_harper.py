@@ -1321,7 +1321,6 @@ def test_harper_try_lint_concurrent_threads_all_return_results() -> None:
 
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:
     """Fixture teardown must not hang if harper-ls stops reading stdin (Windows CI)."""
-    import time
 
     client = HarperLSClient.__new__(HarperLSClient)
     client.uri = "file:///tmp/unused.txt"
@@ -1468,8 +1467,6 @@ def test_read_loop_uses_captured_stream_not_current_proc() -> None:
 
 
 def test_read_cancel_does_not_wait_for_lint_budget() -> None:
-    import time
-
     client = HarperLSClient.__new__(HarperLSClient)
     client.proc = MagicMock()
     client.stdout_queue = queue.Queue()
@@ -1489,7 +1486,6 @@ def test_read_cancel_does_not_wait_for_lint_budget() -> None:
 
 def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
     """After the caller budget, the worker must drop ``runtime.lock`` promptly."""
-    import time
 
     started = threading.Event()
     client = MagicMock()

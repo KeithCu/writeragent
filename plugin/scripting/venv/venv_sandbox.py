@@ -388,7 +388,9 @@ def _inject_session_duckdb(
     executor: LocalPythonExecutor,
     host_scoped_dir: str | None,
 ) -> None:
-    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship (LibrePy and the compute bundle ship this file without `venv/duckdb_sql.py`, hence the `ImportError` arm)."""
+    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers
+    ship (LibrePy and the compute bundle ship this file without `venv/duckdb_sql.py`, hence the
+    `ImportError` arm)."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
@@ -925,7 +927,7 @@ def _ensure_mpl_agg() -> None:
             mpl.use("Agg")
             _MPL_AGG_SET = True
         except Exception:
-            # Remember the failed switch; retrying it on every execution hung.
+            # Remember the failed switch; retrying it on every execution can hang.
             _MPL_AGG_FAILED = True
 
 
@@ -996,7 +998,9 @@ def _returned_figures(obj: Any) -> list[Any]:
 
 
 def _is_mpl_artist_result(obj: Any) -> bool:
-    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns), or a list or tuple mixing both, such as the `(fig, axs)` that `plt.subplots(1, 2)` returns.
+    """True for a pyplot artist, or a non-empty list, tuple or object ndarray of them (plt.plot's
+    Line2D list, plt.title's Text, an Axes, the Axes array plt.subplots(2, 2) returns), or a list or
+    tuple mixing both, such as the `(fig, axs)` that `plt.subplots(1, 2)` returns.
 
     Checks one level deep only; recursion would overflow on a self-referential list that `to_wire` reports cleanly.
     """

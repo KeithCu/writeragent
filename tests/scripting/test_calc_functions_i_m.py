@@ -747,4 +747,3 @@ def test_regression_and_lookup_error_codes():
     assert calc.linest([1, 2, 3], [0, 0, 0], False) == "#VALUE!"
     assert calc.lookup("#DIV/0!", [1, 2, 3]) == "#DIV/0!"
     assert calc.lookup(CalcRange([[2]]), [1, 2, 3]) == 2
-

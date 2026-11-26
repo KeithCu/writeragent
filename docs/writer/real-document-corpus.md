@@ -18,8 +18,8 @@
 
 1. **Import shape (`_check_import`)**: verifies expected redlines (authors and types), body tables, document indexes, header images, footnotes, endnotes, comments, bookmarks, and section names/flags are present.
 2. **Read tools (`_check_reads`)**: runs every registered Writer read tool declaring `TextDocument` (excluding view-moving/folder reads and known-broken cases) and asserts all succeed and leave `_state` unchanged.
-3. **Unchanged writes (`_check_unchanged_writes`)**: with Track Changes off, writes back `apply_content` (`target="search"`), header/footer (`include_images=False`), and unredlined non-empty table cells, asserting `_state` is unchanged.
-4. **Recorded edit + Reject All + save/reload (`_check_recorded_edit`)**: enables `RecordChanges`, applies one edit, saves to the document's format and reloads, checks counts match, and verifies `Reject All` matches rejecting on an unedited copy.
+3. **Unchanged writes (`_check_unchanged_writes`)**: with Track Changes off, writes back `apply_content` (`target="search"`), refuses `apply_content` (`target="full_document"`, `PENDING_TRACKED_CHANGES`) when redlines exist, writes back header/footer (`include_images=False`) and unredlined non-empty table cells, asserting `_state` is unchanged.
+4. **Recorded edit + Reject All + save/reload (`_check_recorded_edit`)**: enables `RecordChanges`, applies one edit, asserts new redlines carry the recording author while earlier ones keep their author and type, saves to the document's format and reloads, checks counts match, and verifies `Reject All` matches rejecting on an unedited copy.
 
 ## Adding a document or read tool
 
@@ -32,6 +32,6 @@
 - **F2 (`shape_get_summary`)**: fails on Writer documents with pictures or frames because `SwXFrame::getPosition` (`sw/source/core/unocore/unoframe.cxx`) throws; skipped in `_read_calls` when pictures or frames exist.
 - **F3 (header write-back with images)**: `page_get_header_footer_text(include_images=True)` written back fails with `"Image 'Logo' was lost during header/footer import"` (`plugin/writer/image_placeholders.py`) for `logo_32.png` and a 64×64 PNG, while working for an 8×8 PNG; `_check_unchanged_writes` uses `include_images=False`. Separately, `apply_content` with `<img src="data:...">` returned `ok` with 0 pictures for five images of 268 to 3,172 bytes.
 - **F4 (redlined table cells)**: closed — `table_set_cell` reports `old_text` as the visible text, writing back the visible text changes nothing, and a different text is refused with `MATCH_CROSSES_DELETION` while Track Changes is off.
-- **F5 (`full_document` write-back)**: writing back full HTML from a numbered `.docx` duplicates heading numbers and drops all redlines, the TOC, and list labels; `_check_unchanged_writes` uses `target="search"`.
+- **F5 (`full_document` write-back)**: writing back full HTML from a numbered `.docx` duplicates heading numbers and drops the TOC and list labels; with Track Changes off over pending redlines, `full_document` now refuses with `PENDING_TRACKED_CHANGES` (verified in `_check_unchanged_writes`, which still uses `target="search"` for the unchanged write-back).
 - **F6 (empty table cells with pictures)**: closed — `table_set_cell` with `""` on a picture-only cell changes nothing, and new text keeps the picture.
 - **F7 (header logo spacing)**: a space between a header logo and text comes back as a no-break space.

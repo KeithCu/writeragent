@@ -13,18 +13,16 @@ import base64
 import os
 import tempfile
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc, writer_services_tool_context
 from plugin.writer.page import PageGetHeaderFooterText, PageSetHeaderFooterText
+from tests.writer.doc_builders import body_shape
 
 # Known-good 1x1 PNG (not the truncated IDAT that libpng rejects).
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
-
-
-def _tool_ctx(doc, ctx):
-    return writer_services_tool_context(doc, ctx)
 
 
 def _style_name(doc):
@@ -41,13 +39,13 @@ def _style(doc):
 
 def _get(doc, ctx, region, **kwargs):
     return PageGetHeaderFooterText().execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), region=region, **{"include_images": True, **kwargs},
+        writer_services_tool_context(doc, ctx), style=_style_name(doc), region=region, **{"include_images": True, **kwargs},
     )
 
 
 def _set(doc, ctx, region, content, **kwargs):
     return PageSetHeaderFooterText().execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), region=region, content=content, **kwargs,
+        writer_services_tool_context(doc, ctx), style=_style_name(doc), region=region, content=content, **kwargs,
     )
 
 
@@ -264,10 +262,10 @@ def test_first_page_footer_analogue(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_search_still_reaches_header_after_html_set(ctx, doc):
-    """Augusto's findFirst-into-headers reach must stay open (PR #365)."""
+    """findFirst still reaches header text after an HTML header write."""
     # findFirst only searches headers of in-use page styles. Windows pool
-    # reuse can leave PageDescName='First Page' while we write Standard
-    # (GHA 35466498641). Pin the body to Standard before the set.
+    # reuse can leave PageDescName='First Page' while we write Standard.
+    # Pin the body to Standard before the set.
     try:
         body = doc.getText().createTextCursor()
         body.gotoStart(False)
@@ -319,7 +317,7 @@ def test_apply_document_content_search_reaches_header_uno(ctx, doc):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     res = ApplyDocumentContent().execute(
-        _tool_ctx(doc, ctx),
+        writer_services_tool_context(doc, ctx),
         target="search",
         old_content=token,
         content="<p>New</p>",
@@ -359,7 +357,7 @@ def test_replace_emoji_in_header_uno(ctx, doc):
 
     tool = PageReplaceHeaderFooterText()
     res = tool.execute(
-        _tool_ctx(doc, ctx), style=_style_name(doc), region="header",
+        writer_services_tool_context(doc, ctx), style=_style_name(doc), region="header",
         old_content="😀", content="X", all_matches=False,
     )
     assert res["status"] == "ok", res
@@ -489,8 +487,6 @@ def test_header_trailing_paragraph_cleanup_single_undo_step_uno(ctx, doc):
 
     doc.getUndoManager().undo()
     assert header.getString().strip() == "OLD"
-
-
 
 
 def _first_paragraph(text_obj):
@@ -799,16 +795,8 @@ def test_header_table_round_trip_adds_no_paragraph_uno(ctx, doc):
 
 
 def _header_structure(header):
-    from plugin.doc.text_helpers import iter_elements
-    from plugin.writer.range_copy import supports_service
-
-    out = []
-    for el in iter_elements(header.createEnumeration()):
-        if supports_service(el, "com.sun.star.text.TextTable"):
-            out.append("T")
-        else:
-            out.append("P:" + el.getString())
-    return out
+    """``"T"`` per table and ``"P:<text>"`` per paragraph of *header*."""
+    return ["T" if style == "TABLE" else "P:" + text for style, text in body_shape(header)]
 
 
 @native_test
@@ -1226,7 +1214,7 @@ def test_header_html_hides_multi_para_deletion_and_keeps_live_page_number_attrs_
 
     field_enum = doc.getTextFields().createEnumeration()
     page_fields = []
-    while field_enum.hasMoreElements():
+    while enum_has_more(field_enum):
         f = field_enum.nextElement()
         if f.supportsService("com.sun.star.text.textfield.PageNumber"):
             page_fields.append(f)
@@ -1265,7 +1253,7 @@ def test_header_table_delete_recorded_round_trip_stays_deleted_uno(ctx, doc):
     ctrl = doc.getCurrentController()
     doc.setPropertyValue("RecordChanges", True)
     try:
-        del_res = TableDelete().execute(_tool_ctx(doc, ctx), name=tbl.getName())
+        del_res = TableDelete().execute(writer_services_tool_context(doc, ctx), name=tbl.getName())
         assert del_res["status"] == "ok", del_res
         assert del_res.get("pending_review") is True, del_res
         assert "T" in _header_structure(header), _header_structure(header)
@@ -1277,7 +1265,7 @@ def test_header_table_delete_recorded_round_trip_stays_deleted_uno(ctx, doc):
         assert got["paragraph_count"] == 2, got
         assert _scan_region_content(doc, header)["has_struck"] is True
         off_res = PageSetStyleProperties().execute(
-            _tool_ctx(doc, ctx), style=style_name, header_is_on=False,
+            writer_services_tool_context(doc, ctx), style=style_name, header_is_on=False,
         )
         assert off_res["status"] == "error"
 
@@ -1502,7 +1490,7 @@ def test_header_struck_logo_blocks_disable_uno(ctx, doc):
         got = _get(doc, ctx, "header")
         assert got["status"] == "ok", got
         assert not got.get("images"), got
-        res = PageSetStyleProperties().execute(_tool_ctx(doc, ctx), style=s_name, header_is_on=False)
+        res = PageSetStyleProperties().execute(writer_services_tool_context(doc, ctx), style=s_name, header_is_on=False)
         assert res["status"] == "error", res
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1561,7 +1549,7 @@ def test_header_table_omits_nested_struck_table_uno(ctx, doc):
 
     doc.setPropertyValue("RecordChanges", True)
     try:
-        res = TableDelete().execute(_tool_ctx(doc, ctx), name="HdrInner")
+        res = TableDelete().execute(writer_services_tool_context(doc, ctx), name="HdrInner")
         assert res["status"] == "ok", res
         got = _get(doc, ctx, "header")
         assert got["status"] == "ok", got
@@ -1571,17 +1559,6 @@ def test_header_table_omits_nested_struck_table_uno(ctx, doc):
         assert html.count("<table") == 1, html
     finally:
         doc.setPropertyValue("RecordChanges", False)
-
-
-def _header_shape(text_obj):
-    from plugin.framework.uno_context import enum_has_more
-
-    items = []
-    enum = text_obj.createEnumeration()
-    while enum_has_more(enum):
-        el = enum.nextElement()
-        items.append("T" if el.supportsService("com.sun.star.text.TextTable") else el.getString())
-    return items
 
 
 @native_test
@@ -1616,23 +1593,23 @@ def test_header_recorded_leading_table_rewrites_do_not_grow_uno(ctx):
             rdoc = TestingFactory.create_native_doc(ctx, "writer")
             try:
                 header = _seed(rdoc, case)
-                orig = _header_shape(header)
+                orig = _header_structure(header)
                 rdoc.setPropertyValue("RecordChanges", True)
                 lengths = []
                 for _i in range(3):
                     res = _set(rdoc, ctx, "header", html)
                     assert res["status"] == "ok", res
-                    lengths.append(len(_header_shape(header)))
+                    lengths.append(len(_header_structure(header)))
                 assert len(set(lengths)) == 1, (case, html, lengths)
 
                 # Reject All: [one, two] exact; original leading table has one leading blank; empty checks constant length only.
                 ctrl = rdoc.getCurrentController()
                 execute_dispatch(ctx, ctrl, ".uno:RejectAllTrackedChanges")
-                rejected = _header_shape(header)
+                rejected = _header_structure(header)
                 if case == "one_two":
-                    assert rejected == ["one", "two"], (case, html, rejected)
+                    assert rejected == ["P:one", "P:two"], (case, html, rejected)
                 elif case in ("tb", "t_empty"):
-                    assert rejected == ["", *orig], (case, html, rejected)
+                    assert rejected == ["P:", *orig], (case, html, rejected)
             finally:
                 rdoc.close(True)
 
@@ -1640,27 +1617,26 @@ def test_header_recorded_leading_table_rewrites_do_not_grow_uno(ctx):
         rdoc = TestingFactory.create_native_doc(ctx, "writer")
         try:
             header = _seed(rdoc, case)
-            orig = _header_shape(header)
+            orig = _header_structure(header)
             rdoc.setPropertyValue("RecordChanges", True)
             res = _set(rdoc, ctx, "header", table_p)
             assert res["status"] == "ok", res
             undo_mgr = rdoc.getUndoManager()
             undo_mgr.undo()
-            assert _header_shape(header) == orig, case
+            assert _header_structure(header) == orig, case
             undo_mgr.redo()
             undo_mgr.undo()
-            assert _header_shape(header) == orig, case
+            assert _header_structure(header) == orig, case
             undo_mgr.redo()
             execute_dispatch(ctx, rdoc.getCurrentController(), ".uno:AcceptAllTrackedChanges")
-            accepted = _header_shape(header)
-            assert accepted == ["T", "z", ""], (case, accepted)
+            accepted = _header_structure(header)
+            assert accepted == ["T", "P:z", "P:"], (case, accepted)
         finally:
             rdoc.close(True)
 
 
 @native_test
 def test_header_recorded_heading_does_not_leak_uno(ctx):
-    from plugin.framework.uno_context import enum_has_more
     from plugin.tests.testing_utils import TestingFactory
 
     for recording in (True, False):
@@ -1742,9 +1718,7 @@ def test_header_field_round_trip_keeps_spacing_uno(ctx):
 
 @native_test
 def test_header_read_joins_paragraphs_like_accept_uno(ctx):
-    import os
     import re
-    import tempfile
     import uno
     from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
     from plugin.doc.text_helpers import iter_elements
@@ -1878,8 +1852,6 @@ def test_header_read_joins_paragraphs_like_accept_uno(ctx):
 
 @native_test
 def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
-    import os
-    import tempfile
     import uno
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER, AT_PARAGRAPH
     from plugin.framework.uno_context import execute_dispatch
@@ -1966,7 +1938,6 @@ def test_header_read_keeps_edge_logo_drops_cell_logo_uno(ctx):
 @native_test
 @with_native_doc("writer")
 def test_header_write_keeps_picture_link_target_uno(ctx, doc):
-    import os
     from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_PARAGRAPH
 
     style, _name = _style(doc)

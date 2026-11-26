@@ -16,6 +16,7 @@
 import contextlib
 
 from plugin.doc.compound_undo import undo_titles
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     native_writer_tool_context,
@@ -34,6 +35,15 @@ from plugin.writer import html_import
 fmt = html_import
 from plugin.writer.edit_review import _string_skipping_redline
 from plugin.writer.inline_review import _resolve_all_agent_changes
+from tests.writer.doc_builders import (
+    accept_all_changes,
+    body_paragraphs,
+    body_shape,
+    body_texts,
+    list_redline_types,
+    list_redlines,
+    reject_all_changes,
+)
 
 _FLAG = "doc.agent_edit_review_mode"
 
@@ -50,7 +60,7 @@ def _reset(doc, ctx, text_str="Original body text."):
     text.insertString(cur, text_str, False)
     # Clear any redlines accumulated by a prior test (accept-all leaves a clean doc).
     if len(doc.getRedlines()):
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
 
 
 @contextlib.contextmanager
@@ -61,37 +71,6 @@ def _recording(doc):
         yield
     finally:
         doc.setPropertyValue("RecordChanges", False)
-
-
-def _redlines(doc):
-    out = []
-    e = doc.getRedlines().createEnumeration()
-    while e.hasMoreElements():
-        rl = e.nextElement()
-        entry = {"type": str(rl.getPropertyValue("RedlineType"))}
-        for prop in ("RedlineComment", "RedlineAuthor"):
-            try:
-                entry[prop] = str(rl.getPropertyValue(prop))
-            except Exception:
-                entry[prop] = ""
-        out.append(entry)
-    return out
-
-
-def _redline_types(doc):
-    return [r["type"] for r in _redlines(doc)]
-
-
-def _accept_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-    helper.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
-
-
-def _reject_all(doc, ctx):
-    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    frame = doc.getCurrentController().getFrame()
-    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
 
 
 def _para_text(doc):
@@ -109,10 +88,6 @@ def _para_range(doc):
     return cur
 
 
-def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(doc, ctx)
-
-
 # --- replace primitives must be Track-Changes-safe: a clean Delete+Insert, not a char-by-char
 # --- mess (plain text) nor a Format redline that keeps the old text on Accept (inline markup) ---
 
@@ -125,9 +100,9 @@ def test_search_replace_plain_text_clean_redline_uno(ctx, doc):
     _reset(doc, ctx, "This clause is important.")
     with _recording(doc):
         fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.", ctx)
-    rl = _redline_types(doc)
+    rl = list_redline_types(doc)
     assert "Insert" in rl and "Delete" in rl, "plain replace under recording must yield Insert+Delete, got %r" % rl
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert _para_text(doc) == "This clause is important.", "reject must restore the original exactly, got %r" % _para_text(doc)
 
 
@@ -138,7 +113,7 @@ def test_search_replace_plain_text_accept_keeps_only_new_uno(ctx, doc):
     _reset(doc, ctx, "This clause is important.")
     with _recording(doc):
         fmt.replace_preserving_format(doc, _para_range(doc), "This clause is critically important.", ctx)
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
     assert _para_text(doc) == "This clause is critically important.", "accept must keep only the new text, got %r" % _para_text(doc)
 
 
@@ -151,10 +126,10 @@ def test_search_replace_inline_markup_no_format_redline_uno(ctx, doc):
     with _recording(doc):
         fmt.replace_single_range_with_content(
             doc, _para_range(doc), "<span>This clause is critically important.</span>", ctx)
-    rl = _redline_types(doc)
+    rl = list_redline_types(doc)
     assert "Format" not in rl, "inline replace must not leave a Format redline (it keeps old text on accept), got %r" % rl
     assert "Delete" in rl and "Insert" in rl, "inline replace must be a clean Delete+Insert, got %r" % rl
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
     assert _para_text(doc) == "This clause is critically important.", "accept must keep ONLY the new text, got %r" % _para_text(doc)
 
 
@@ -168,7 +143,7 @@ def test_search_replace_inline_markup_heading_style_preserved_uno(ctx, doc):
     with _recording(doc):
         fmt.replace_single_range_with_content(
             doc, _para_range(doc), "<span>Powertrain selection</span>", ctx)
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
     assert _para_text(doc) == "Powertrain selection", "accept must keep only the new heading text, got %r" % _para_text(doc)
     assert _para_range(doc).getPropertyValue("ParaStyleName") == "Heading 3", \
         "heading style must be preserved, got %r" % _para_range(doc).getPropertyValue("ParaStyleName")
@@ -181,9 +156,9 @@ def test_full_replace_tracked_and_reject_restores_uno(ctx, doc):
     _reset(doc, ctx, "Old document body.")
     with _recording(doc):
         fmt.replace_full_document(doc, ctx, "<p>Brand new body.</p>")
-    rl = _redline_types(doc)
+    rl = list_redline_types(doc)
     assert "Insert" in rl and "Delete" in rl, "full replace under recording must yield Insert+Delete redlines, got %r" % rl
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert "Old document body." in _para_text(doc), "reject must restore the original body, got %r" % _para_text(doc)
 
 
@@ -205,9 +180,9 @@ def _session_run(doc, track_reviewable, prior_recording):
 @with_native_doc("writer")
 def test_session_flag_on_user_off_creates_redline_restores_off_uno(ctx, doc):
     _session_run(doc, track_reviewable=True, prior_recording=False)
-    assert _redline_types(doc), "flag on must collapse the streamed edit into a redline"
+    assert list_redline_types(doc), "flag on must collapse the streamed edit into a redline"
     assert doc.getPropertyValue("RecordChanges") is False, "recording restored to OFF"
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert _para_text(doc) == "Sentence to rewrite.", "reject restores the original sentence"
 
 
@@ -215,7 +190,7 @@ def test_session_flag_on_user_off_creates_redline_restores_off_uno(ctx, doc):
 @with_native_doc("writer")
 def test_session_flag_off_user_off_no_redline_uno(ctx, doc):
     _session_run(doc, track_reviewable=False, prior_recording=False)
-    assert _redline_types(doc) == [], "flag off + user off must not create a redline"
+    assert list_redline_types(doc) == [], "flag off + user off must not create a redline"
     assert _para_text(doc) == "Rewritten sentence.", "edit applied directly"
 
 
@@ -223,7 +198,7 @@ def test_session_flag_off_user_off_no_redline_uno(ctx, doc):
 @with_native_doc("writer")
 def test_session_prior_recording_on_preserved_uno(ctx, doc):
     _session_run(doc, track_reviewable=False, prior_recording=True)
-    assert _redline_types(doc), "user-on tracking must still collapse to a redline"
+    assert list_redline_types(doc), "user-on tracking must still collapse to a redline"
     assert doc.getPropertyValue("RecordChanges") is True, "prior ON state preserved"
     doc.setPropertyValue("RecordChanges", False)
 
@@ -234,13 +209,13 @@ def test_streamed_edit_tagged_as_agent_change_uno(ctx, doc):
     """The streamed rewrite collapses to one tracked change; it must also be TAGGED with a
     session token so the review tooling recognizes it as an agent change."""
     _session_run(doc, track_reviewable=True, prior_recording=False)
-    comments = [r["RedlineComment"] for r in _redlines(doc)]
+    comments = [r["RedlineComment"] for r in list_redlines(doc)]
     assert comments and all(c.startswith("wa-review:") for c in comments), \
         "streamed edit redlines must carry a session token, got %r" % comments
     assert len(set(comments)) == 1, "the streamed edit is ONE agent change (one token), got %r" % comments
-    authors = {r["RedlineAuthor"] for r in _redlines(doc)}
+    authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
     assert authors == {"WriterAgent"}, "the streamed change is authored as the agent, got %r" % authors
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
 
 
 # --- attribution: insertions vs deletions get different authors (-> 2 by-author colors) ---
@@ -255,14 +230,14 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
+            native_writer_tool_context(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
-        by_type = {r["type"]: r["RedlineAuthor"] for r in _redlines(doc)}
+        by_type = {r["type"]: r["RedlineAuthor"] for r in list_redlines(doc)}
         assert by_type.get("Insert") == "WriterAgent", "insertions authored WriterAgent: %r" % by_type
         assert by_type.get("Delete") == "WriterAgent (deletions)", "deletions authored distinctly: %r" % by_type
     finally:
         save({_FLAG: prev})
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
 
 @contextlib.contextmanager
@@ -274,7 +249,7 @@ def _saved_config(doc, ctx, overrides):
     finally:
         save(prev)
         if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
+            reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -290,13 +265,13 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
         "doc.agent_edit_diff_threshold": 0.0,
     }):
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
+            native_writer_tool_context(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
-        by_type = {r["type"]: r["RedlineAuthor"] for r in _redlines(doc)}
+        by_type = {r["type"]: r["RedlineAuthor"] for r in list_redlines(doc)}
         assert by_type.get("Insert") == "WriterAgent", "insert authored WriterAgent: %r" % by_type
         assert by_type.get("Delete") == "WriterAgent (deletions)", \
             "whole-block deletion must be authored distinctly (two colors): %r" % by_type
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text (whole-block atomicity), got %r" % _para_text(doc)
 
@@ -313,11 +288,11 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
         "doc.agent_edit_diff_threshold": 0.0,
     }):
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
+            native_writer_tool_context(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
-        authors = {r["RedlineAuthor"] for r in _redlines(doc)}
+        authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
         assert authors == {"WriterAgent"}, "toggle off -> one author / one color, got %r" % authors
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text, got %r" % _para_text(doc)
 
@@ -339,14 +314,14 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
         try:
             res = None
             try:
-                res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"])
+                res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=["<p>New body.</p>"])
             except Exception:
                 res = {"status": "error", "raised": True}
             assert res.get("status") == "error", "the failed import must surface as an error: %r" % res
             assert _para_text(doc) == "Original body text to keep.", \
                 "document must be restored (no stranded deletion), got %r" % _para_text(doc)
-            assert _redline_types(doc) == [], \
-                "no tracked change may survive the rolled-back edit, got %r" % _redline_types(doc)
+            assert list_redline_types(doc) == [], \
+                "no tracked change may survive the rolled-back edit, got %r" % list_redline_types(doc)
         finally:
             html_import._insert_mixed_or_plain_html = real
 
@@ -361,11 +336,11 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
         "doc.agent_edit_split_author_colors": False,
     }):
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
+            native_writer_tool_context(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
         assert res.get("status") == "ok", res
-        authors = {r["RedlineAuthor"] for r in _redlines(doc)}
+        authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
         assert authors == {"WriterAgent"}, "surgical toggle off -> one author, got %r" % authors
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert _para_text(doc) == "New clause body here.", "accept must yield the new text, got %r" % _para_text(doc)
 
 
@@ -382,11 +357,11 @@ def test_apply_document_content_tool_tracks_when_config_on_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         assert get_agent_edit_review_mode() == "record", "mode should read record (test-infra sanity)"
-        res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
+        res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
-        rl = _redline_types(doc)
+        rl = list_redline_types(doc)
         assert "Insert" in rl and "Delete" in rl, "tool path with flag on must create redlines, got %r" % rl
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert "Old tool body." in _para_text(doc), "reject must restore the original, got %r" % _para_text(doc)
     finally:
         save({_FLAG: prev})  # restore the dev's prior value, not a hardcoded False
@@ -401,12 +376,138 @@ def test_apply_document_content_tool_untracked_when_config_off_uno(ctx, doc):
     save({_FLAG: "off"})
     try:
         assert get_agent_edit_review_mode() == "off"
-        res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
+        res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
         assert res.get("status") == "ok", res
-        assert _redline_types(doc) == [], "flag off must not create redlines"
+        assert list_redline_types(doc) == [], "flag off must not create redlines"
         assert "Tool new body." in _para_text(doc)
     finally:
         save({_FLAG: prev})
+
+
+def _alice_changes(doc, ctx):
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from plugin.writer import review_authors
+
+    _reset(doc, ctx, "Clause one keep. Alice deletes this.")
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoEnd(False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    text.insertString(cur, "Clause two. Tail.", False)
+
+    prior = review_authors.begin(ctx)
+    try:
+        review_authors.set_office_author(ctx, "Alice")
+        with _recording(doc):
+            del_cur = text.createTextCursor()
+            del_cur.gotoStart(False)
+            del_cur.goRight(len("Clause one keep. "), False)
+            del_cur.goRight(len("Alice deletes this."), True)
+            del_cur.setString("")
+
+            ins_cur = text.createTextCursor()
+            ins_cur.gotoEnd(False)
+            text.insertString(ins_cur, " Alice inserted.", False)
+    finally:
+        review_authors.end(ctx, prior)
+
+
+def _redline_snapshot(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    out = []
+    e = doc.getRedlines().createEnumeration()
+    while enum_has_more(e):
+        rl = e.nextElement()
+        start = rl.getPropertyValue("RedlineStart")
+        end = rl.getPropertyValue("RedlineEnd")
+        cur = end.getText().createTextCursorByRange(start)
+        cur.gotoRange(end, True)
+        succ = rl.getPropertyValue("RedlineSuccessorData")
+        succ_dict = {pv.Name: pv.Value for pv in succ} if succ else {}
+        out.append(
+            (str(rl.getPropertyValue("RedlineType")), str(rl.getPropertyValue("RedlineAuthor")), cur.getString(), succ_dict)
+        )
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_untracked_refuses_over_pending_changes_uno(ctx, doc):
+    """full_document with Track Changes off refuses over pending Insert/Delete redlines by any author."""
+    _alice_changes(doc, ctx)
+    with _saved_config(doc, ctx, {_FLAG: "off"}):
+        before_text = doc.getText().getString()
+        before_redlines = _redline_snapshot(doc)
+        before_undo = undo_titles(doc)
+
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+        )
+        assert res.get("status") == "error", res
+        assert res.get("code") == "PENDING_TRACKED_CHANGES", res
+        assert doc.getText().getString() == before_text
+        assert _redline_snapshot(doc) == before_redlines
+        assert undo_titles(doc) == before_undo
+
+    # Also refuses over a lone agent-authored pending Insert left from an earlier record-mode turn.
+    _reset(doc, ctx, "Plain start.")
+    with _saved_config(doc, ctx, {_FLAG: "record"}):
+        seed = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="end", content=["<p>Agent added.</p>"]
+        )
+        assert seed.get("status") == "ok", seed
+        save({_FLAG: "off"})
+        res2 = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="full_document", content=["<p>Wipe all.</p>"]
+        )
+        assert res2.get("status") == "error", res2
+        assert res2.get("code") == "PENDING_TRACKED_CHANGES", res2
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_document_recorded_keeps_other_authors_changes_uno(ctx, doc):
+    """Recorded full_document keeps Alice's deletion and stacks on Alice's insertion."""
+    from plugin.writer import review_authors
+
+    for mode, user_rec in (("record", False), ("off", True)):
+        _alice_changes(doc, ctx)
+        with _saved_config(doc, ctx, {_FLAG: mode}):
+            doc.setPropertyValue("RecordChanges", user_rec)
+            try:
+                res = ApplyDocumentContent().execute(
+                    _tool_ctx(doc, ctx), target="full_document", content=["<p>New body.</p>"]
+                )
+                assert res.get("status") == "ok", res
+                snap = _redline_snapshot(doc)
+                assert any(
+                    rtype == "Delete" and author == "Alice" and rtext == "Alice deletes this."
+                    for rtype, author, rtext, _succ in snap
+                ), snap
+
+                assert any(
+                    rtext == " Alice inserted."
+                    and succ.get("RedlineType") == "Insert"
+                    and succ.get("RedlineAuthor") == "Alice"
+                    for _rtype, _author, rtext, succ in snap
+                ), snap
+
+                expected_authors = (
+                    {review_authors.INSERT_AUTHOR, review_authors.DELETE_AUTHOR}
+                    if mode == "record"
+                    else {review_authors.office_author(ctx)}
+                )
+                for _rtype, author, rtext, _succ in snap:
+                    if rtext == "Alice deletes this.":
+                        assert author == "Alice"
+                    else:
+                        assert author in expected_authors, (mode, author, rtext)
+
+                _accept_all(doc, ctx)
+                assert doc.getText().getString().rstrip("\r\n") == "New body."
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
 
 
 @native_test
@@ -420,16 +521,16 @@ def test_apply_document_content_tool_tags_changes_with_session_tokens_uno(ctx, d
     save({_FLAG: "record"})
     try:
         res = ApplyDocumentContent().execute(
-            _tool_ctx(doc, ctx), target="search", old_content="Tag alpha", content=["Tag beta"], all_matches=True)
+            native_writer_tool_context(doc, ctx), target="search", old_content="Tag alpha", content=["Tag beta"], all_matches=True)
         assert res.get("status") == "ok", res
         assert res.get("replaced_count") == 2, res
-        comments = [r["RedlineComment"] for r in _redlines(doc)]
+        comments = [r["RedlineComment"] for r in list_redlines(doc)]
         assert comments and all(c.startswith("wa-review:") for c in comments), \
             "all redlines must carry session tokens, got %r" % comments
         assert len(set(comments)) == 2, "two matches -> two distinct per-change tokens, got %r" % comments
     finally:
         save({_FLAG: prev})
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -443,13 +544,13 @@ def test_tool_never_blocks_on_main_thread_even_with_wait_flag_uno(ctx, doc):
     prev_mode = get_config(_FLAG)
     save({_FLAG: "wait"})
     try:
-        res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="end", content=["<p>Guard addition.</p>"])
+        res = ApplyDocumentContent().execute(native_writer_tool_context(doc, ctx), target="end", content=["<p>Guard addition.</p>"])
         assert res.get("status") == "ok", res
         assert "review" not in res, "main-thread call must not block-wait: %r" % res
-        assert _redline_types(doc), "wait mode must imply recording (redlines expected)"
+        assert list_redline_types(doc), "wait mode must imply recording (redlines expected)"
     finally:
         save({_FLAG: prev_mode})
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
 
 # --- paragraph apply_style records ParagraphFormat redlines in review mode ---------------
@@ -469,7 +570,7 @@ def test_apply_style_records_in_review_mode_on_non_recording_doc_uno(ctx, doc):
             para.setPropertyValue("ParaLeftMargin", 500)
             save({_FLAG: mode})
             res = ApplyStyle().execute(
-                _tool_ctx(doc, ctx),
+                native_writer_tool_context(doc, ctx),
                 style="Heading 2",
                 family="ParagraphStyles",
                 target="full_document",
@@ -478,11 +579,11 @@ def test_apply_style_records_in_review_mode_on_non_recording_doc_uno(ctx, doc):
             assert res.get("status") == "ok", res
             assert res.get("tracked") is True, res
             assert "style_unreviewed" not in res, res
-            rls = _redlines(doc)
+            rls = list_redlines(doc)
             assert [r["type"] for r in rls] == ["ParagraphFormat"], rls
             assert rls[0]["RedlineAuthor"] == review_authors.INSERT_AUTHOR, rls
             assert doc.getPropertyValue("RecordChanges") is False
-            _reject_all(doc, ctx)
+            reject_all_changes(doc, ctx)
             para = doc.getText().createEnumeration().nextElement()
             assert para.getPropertyValue("ParaStyleName") == "Standard"
             assert abs(para.getPropertyValue("ParaLeftMargin") - 500) <= 2
@@ -526,55 +627,55 @@ def test_whole_paragraph_char_change_over_para_redline_is_flagged_uno(ctx, doc):
         # 1. Para then whole Char: flagged, margin lost on Reject All (LibreOffice ResetAttrs).
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        r1 = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        r1 = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
         assert r1.get("status") == "ok", r1
-        r2 = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
+        r2 = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
         assert r2.get("status") == "ok", r2
         assert r2.get("style_unreviewed") is True, r2
         assert "direct paragraph formatting" in r2.get("warning", ""), r2
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
         # 2. Para then character apply_style: flagged.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
-        r_char = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Emphasis", family="CharacterStyles")
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
+        r_char = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Emphasis", family="CharacterStyles")
         assert r_char.get("status") == "ok", r_char
         assert r_char.get("style_unreviewed") is True, r_char
         assert "direct paragraph formatting" in r_char.get("warning", ""), r_char
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert _margin() <= 2
 
         # 3. Char then Para: not flagged, margin kept.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
-        r_para = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
+        r_para = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
         assert r_para.get("status") == "ok", r_para
         assert "style_unreviewed" not in r_para, r_para
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert abs(_margin() - 500) <= 2
 
         # 4. Para then one word: not flagged, margin kept.
         cur = _setup("Alpha beta.")
         _select_all(cur)
-        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
         _select_first_word(cur, 5)
-        r_word = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharWeight": 150})
+        r_word = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharWeight": 150})
         assert r_word.get("status") == "ok", r_word
         assert "style_unreviewed" not in r_word, r_word
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert abs(_margin() - 500) <= 2
 
         # 5. Para then whole Char on a paragraph with one bold word: not flagged, margin kept.
         cur = _setup("Alpha beta.", bold_first_word=True)
         _select_all(cur)
-        ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", clear_direct="none")
-        r_two = StyleFormatText().execute(_tool_ctx(doc, ctx), properties={"CharPosture": 2})
+        ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", clear_direct="none")
+        r_two = StyleFormatText().execute(native_writer_tool_context(doc, ctx), properties={"CharPosture": 2})
         assert r_two.get("status") == "ok", r_two
         assert "style_unreviewed" not in r_two, r_two
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert abs(_margin() - 500) <= 2
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -589,7 +690,7 @@ def test_apply_style_no_unreviewed_flag_when_review_off_uno(ctx, doc):
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
     try:
-        res = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
+        res = ApplyStyle().execute(native_writer_tool_context(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
         assert res.get("status") == "ok", res
         assert "style_unreviewed" not in res, "no unreviewed flag when review mode off: %r" % res
     finally:
@@ -608,11 +709,11 @@ def test_insert_content_at_position_recorded_by_session_uno(ctx, doc):
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(lambda: fmt.insert_content_at_position(doc, ctx, "<p>Inserted result.</p>", "end"))
     session.cleanup()
-    rls = _redlines(doc)
+    rls = list_redlines(doc)
     assert any(r["type"] == "Insert" for r in rls), "insert must create an Insert redline, got %r" % rls
     assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), "tagged: %r" % rls
     assert doc.getPropertyValue("RecordChanges") is False, "recording restored to OFF"
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -640,15 +741,6 @@ def test_domain_result_inserts_recorded_in_review_mode_uno(ctx, doc):
         doc.getCurrentController().select(cur)
         return [("Standard", "Alpha"), ("Heading 3", "Omega")]
 
-    def _body_styles_and_texts():
-        out = []
-        e = text.createEnumeration()
-        while e.hasMoreElements():
-            el = e.nextElement()
-            if el.supportsService("com.sun.star.text.Paragraph"):
-                out.append((str(el.getPropertyValue("ParaStyleName")), el.getString() or ""))
-        return out
-
     units_res = {"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h"}
     ta_res = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
     sym_res = {"status": "ok", "latex": "x^2", "helper": "solve"}
@@ -666,7 +758,7 @@ def test_domain_result_inserts_recorded_in_review_mode_uno(ctx, doc):
             for name, fn, check_kind, expected_substr in cases:
                 expected_seed = _seed_two()
                 fn()
-                rls = _redlines(doc)
+                rls = list_redlines(doc)
                 assert any(r["type"] == "Insert" for r in rls), (mode, name, rls)
                 assert all(r["RedlineComment"].startswith("wa-review:") for r in rls), (mode, name, rls)
                 assert doc.getPropertyValue("RecordChanges") is False, (mode, name)
@@ -677,26 +769,26 @@ def test_domain_result_inserts_recorded_in_review_mode_uno(ctx, doc):
                     assert expected_substr in text.getString(), (mode, name)
                 else:
                     assert doc.getEmbeddedObjects().getCount() == 1, (mode, name)
-                _reject_all(doc, ctx)
-                assert _body_styles_and_texts() == expected_seed, (mode, name)
+                reject_all_changes(doc, ctx)
+                assert body_shape(text) == expected_seed, (mode, name)
                 assert doc.getEmbeddedObjects().getCount() == 0, (mode, name)
                 assert doc.getTextTables().getCount() == 0, (mode, name)
 
         save({_FLAG: "record"})
         _seed_two()
         insert_units_result_into_writer(ctx, doc, units_res)
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert _para_text(doc) == "Al36 km/hpha"
 
         save({_FLAG: "off"})
         _seed_two()
         insert_units_result_into_writer(ctx, doc, units_res)
-        assert _redlines(doc) == []
+        assert list_redlines(doc) == []
         assert _para_text(doc) == "Al36 km/hpha"
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
+            reject_all_changes(doc, ctx)
 
 
 # --- extend-selection: append the continuation as ONE tracked INSERTION (the original is never
@@ -720,7 +812,7 @@ def test_streamed_append_tracks_only_appended_text_uno(ctx, doc):
     no Delete redline -- tagged as an agent change. Reject removes only the appended text."""
     doc.setPropertyValue("ShowChanges", False)
     _append_run(doc, ctx, track_reviewable=True, prior_recording=False)
-    rls = _redlines(doc)
+    rls = list_redlines(doc)
     assert rls, "review mode must collapse the appended continuation into a redline"
     assert all(r["type"] == "Insert" for r in rls), \
         "extend appends -> Insert only, the original keeps no Delete redline, got %r" % [r["type"] for r in rls]
@@ -730,7 +822,7 @@ def test_streamed_append_tracks_only_appended_text_uno(ctx, doc):
     assert len(set(comments)) == 1, "the append is ONE agent change (one token), got %r" % comments
     assert doc.getPropertyValue("ShowChanges") is True, "review mode forces markup visible"
     assert doc.getPropertyValue("RecordChanges") is False, "recording restored to OFF"
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert _para_text(doc) == "Original sentence.", "reject removes only the appended continuation"
 
 
@@ -739,7 +831,7 @@ def test_streamed_append_tracks_only_appended_text_uno(ctx, doc):
 def test_streamed_append_flag_off_no_redline_uno(ctx, doc):
     """Flag off + user not recording: extend appends directly, no redline (today's behavior)."""
     _append_run(doc, ctx, track_reviewable=False, prior_recording=False)
-    assert _redline_types(doc) == [], "flag off + user off must not create a redline"
+    assert list_redline_types(doc) == [], "flag off + user off must not create a redline"
     assert _para_text(doc) == "Original sentence. Added continuation.", "the continuation is appended in full"
 
 
@@ -774,11 +866,11 @@ def test_update_style_flags_unreviewed_when_review_on_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = StyleUpdate().execute(
-            _tool_ctx(doc, ctx), style="Standard", family="ParagraphStyles",
+            native_writer_tool_context(doc, ctx), style="Standard", family="ParagraphStyles",
             property_updates={"CharWeight": 150.0})  # 150.0 == BOLD
         assert res.get("status") == "ok", res
         assert res.get("style_unreviewed") is True, "update_style must flag unreviewed under review mode: %r" % res
-        assert _redline_types(doc) == [], "a style change creates no redline"
+        assert list_redline_types(doc) == [], "a style change creates no redline"
     finally:
         save({_FLAG: prev})
 
@@ -814,7 +906,6 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno(ctx, doc
 def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
     """#4: if the edit path raises AFTER a change was anchored (e.g. end insert recorded),
     execute() must still release the session's wa_review_* anchor bookmarks -- none may leak."""
-    from plugin.writer.apply_document_content import ApplyDocumentContent
 
     _reset(doc, ctx, "Anchor target paragraph.")
     prev = get_config(_FLAG)
@@ -834,7 +925,7 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
     try:
         raised = False
         try:
-            _BoomTool().execute(_tool_ctx(doc, ctx), target="end", content="<p>Inserted.</p>")
+            _BoomTool().execute(native_writer_tool_context(doc, ctx), target="end", content="<p>Inserted.</p>")
         except RuntimeError:
             raised = True
         assert raised, "the mid-edit failure must propagate to the caller"
@@ -843,7 +934,7 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _reject_all(doc, ctx)
+            reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -884,7 +975,7 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
         res = {}
         def _run_tool():
             # Must run on a background thread so the tool is considered async and enters wait path
-            tool_ctx = _tool_ctx(doc, ctx)
+            tool_ctx = native_writer_tool_context(doc, ctx)
             res["val"] = tool.execute(tool_ctx, target="full_document", content=["New document body."])
 
         t = threading.Thread(target=_run_tool)
@@ -902,7 +993,7 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
     finally:
         save({_FLAG: prev_mode})
         save({"doc.edit_review_timeout": prev_timeout})
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
 
 @native_test
@@ -931,7 +1022,7 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     # getString() keeps the deleted characters. The accept-view used by Edit Selection does not.
     raw = _para_text(doc)
     assert raw == "Original text with some words to delete.", raw
-    before_redlines = _redlines(doc)
+    before_redlines = list_redlines(doc)
     assert len(before_redlines) == 1, before_redlines
     assert before_redlines[0]["type"] == "Delete", before_redlines
     before_recording = bool(doc.getPropertyValue("RecordChanges"))
@@ -954,7 +1045,7 @@ def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
         raise AssertionError("rewrite over a tracked deletion must refuse before writing")
 
     assert _para_text(doc) == raw, "the refused rewrite must not accept or clear the deletion"
-    assert _redlines(doc) == before_redlines, "the existing Delete redline must be untouched"
+    assert list_redlines(doc) == before_redlines, "the existing Delete redline must be untouched"
     assert bool(doc.getPropertyValue("RecordChanges")) is before_recording
     assert get_string_without_tracked_deletions(rng) == visible
     assert undo.isUndoPossible(), "refuse must not leave an undo context open"
@@ -973,15 +1064,7 @@ def _two_para_body(doc, ctx, p1="Alpha initiative", p2="project Beta"):
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, p2, False)
     if len(doc.getRedlines()):
-        _accept_all(doc, ctx)
-
-
-def _all_paras(doc):
-    out = []
-    e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
-        out.append(e.nextElement().getString())
-    return out
+        accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -994,12 +1077,12 @@ def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
     prev = get_config(_FLAG)
     save({_FLAG: "wait"})
     try:
-        tool_ctx = _tool_ctx(doc, ctx)
+        tool_ctx = native_writer_tool_context(doc, ctx)
         tool = ApplyDocumentContent()
         res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
         assert res.get("status") == "ok", res
 
-        paras = _all_paras(doc)
+        paras = body_texts(doc.getText())
         for p in paras:
             assert "initiativeproject" not in p.lower(), "paragraph mark was deleted, joining words: %r" % p
 
@@ -1010,7 +1093,7 @@ def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1022,7 +1105,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
     prev = get_config(_FLAG)
     save({_FLAG: "wait"})
     try:
-        tool_ctx = _tool_ctx(doc, ctx)
+        tool_ctx = native_writer_tool_context(doc, ctx)
         tool = ApplyDocumentContent()
         res = tool.execute(tool_ctx, target="full_document", content=["<p>ALPHA INITIATIVE</p><p>PROJECT BETA</p>"])
         assert res.get("status") == "ok", res
@@ -1035,7 +1118,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
         um.undo()  # Undo of RejectAllTrackedChanges - must not crash soffice!
 
         # Redlines are back as clean Delete + Insert
-        rl_types = _redline_types(doc)
+        rl_types = list_redline_types(doc)
         assert "Delete" in rl_types and "Insert" in rl_types, "redlines must be restored: %r" % rl_types
         assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
         assert _string_skipping_redline(doc.getText(), "Delete") == "ALPHA INITIATIVE\nPROJECT BETA"
@@ -1048,7 +1131,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
     finally:
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1065,13 +1148,13 @@ def test_plain_two_para_track_changes_reject_and_undo_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     um = doc.getUndoManager()
     assert um.isUndoPossible()
     um.undo()  # Undo of RejectAllTrackedChanges
     assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
     assert _string_skipping_redline(doc.getText(), "Delete") == "ALPHA INITIATIVE\nPROJECT BETA"
-    rl_types = _redline_types(doc)
+    rl_types = list_redline_types(doc)
     assert len(rl_types) > 0, "redlines restored on undo"
 
     assert um.isUndoPossible()
@@ -1098,7 +1181,7 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
         cur.setPropertyValue("CharWeight", 100.0)
         text.insertString(cur, " bbb", False)
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
     def _seed_surgical():
         doc.setPropertyValue("RecordChanges", False)
@@ -1111,7 +1194,7 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
         cur.setPropertyValue("CharWeight", 100.0)
         text.insertString(cur, " fox ran far away", False)
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
     def _seed_plain_between_bold():
         doc.setPropertyValue("RecordChanges", False)
@@ -1124,13 +1207,13 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
         cur.setPropertyValue("CharWeight", 150.0)
         text.insertString(cur, " bbb", False)
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
     def _runs():
         para = text.createEnumeration().nextElement()
         pe = para.createEnumeration()
         out = []
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             p = pe.nextElement()
             if p.getPropertyValue("TextPortionType") == "Text" and p.getString():
                 out.append((p.getString(), float(p.getPropertyValue("CharWeight"))))
@@ -1150,18 +1233,18 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
             # aaa **Replace** bbb -> Swap (Accept)
             _seed_bold_mid()
             with mode_ctx():
-                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                res = tool.execute(native_writer_tool_context(doc, ctx), target="search", old_content="Replace", content="Swap")
                 assert res.get("status") == "ok", res
-                assert sorted(_redline_types(doc)) == ["Delete", "Insert"], _redline_types(doc)
-            _accept_all(doc, ctx)
+                assert sorted(list_redline_types(doc)) == ["Delete", "Insert"], list_redline_types(doc)
+            accept_all_changes(doc, ctx)
             assert _runs() == [("aaa ", 100.0), ("Swap", 150.0), (" bbb", 100.0)], (mode_label, _runs())
 
             # aaa **Replace** bbb -> Swap (Reject)
             _seed_bold_mid()
             with mode_ctx():
-                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                res = tool.execute(native_writer_tool_context(doc, ctx), target="search", old_content="Replace", content="Swap")
                 assert res.get("status") == "ok", res
-            _reject_all(doc, ctx)
+            reject_all_changes(doc, ctx)
             assert _runs() == [("aaa ", 100.0), ("Replace", 150.0), (" bbb", 100.0)], (mode_label, _runs())
 
             # Surgical The **quick** fox ran far away -> slow (review mode enables surgical split)
@@ -1169,27 +1252,27 @@ def test_recorded_replace_keeps_bold_uno(ctx, doc):
                 _seed_surgical()
                 with mode_ctx():
                     res = tool.execute(
-                        _tool_ctx(doc, ctx),
+                        native_writer_tool_context(doc, ctx),
                         target="search",
                         old_content="The quick fox ran far away",
                         content="The slow fox ran far away",
                     )
                     assert res.get("status") == "ok", res
-                _accept_all(doc, ctx)
+                accept_all_changes(doc, ctx)
                 assert _runs() == [("The ", 100.0), ("slow", 150.0), (" fox ran far away", 100.0)], (mode_label, _runs())
 
             # Plain word between bold runs stays plain after Accept
             _seed_plain_between_bold()
             with mode_ctx():
-                res = tool.execute(_tool_ctx(doc, ctx), target="search", old_content="Replace", content="Swap")
+                res = tool.execute(native_writer_tool_context(doc, ctx), target="search", old_content="Replace", content="Swap")
                 assert res.get("status") == "ok", res
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
             assert _runs() == [("aaa ", 150.0), ("Swap", 100.0), (" bbb", 150.0)], (mode_label, _runs())
     finally:
         save({_FLAG: prev})
         doc.setPropertyValue("RecordChanges", False)
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1203,7 +1286,7 @@ def test_recording_doc_with_review_off_records_styles_and_flags_header_uno(ctx, 
     save({_FLAG: "off"})
     doc.setPropertyValue("RecordChanges", True)
     try:
-        tool_ctx = _tool_ctx(doc, ctx)
+        tool_ctx = native_writer_tool_context(doc, ctx)
         assert len(doc.getRedlines()) == 0
         char_res = ApplyStyle().execute(
             tool_ctx, style="Emphasis", family="CharacterStyles", target="full_document"
@@ -1232,19 +1315,18 @@ def test_recording_doc_with_review_off_records_styles_and_flags_header_uno(ctx, 
         assert para_res["status"] == "ok", para_res
         assert para_res.get("tracked") is True
         assert "style_unreviewed" not in para_res
-        assert "ParagraphFormat" in _redline_types(doc)
+        assert "ParagraphFormat" in list_redline_types(doc)
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
 @with_native_doc("writer")
 def test_streamed_append_abort_and_restore_uno(ctx, doc):
     """abort_and_restore on WriterStreamedAppendSession collapses partial text when recording and stays plain when off."""
-    from plugin.writer.edit_review import WriterStreamedAppendSession
 
     _reset(doc, ctx, "Orig.")
     doc.setPropertyValue("RecordChanges", True)
@@ -1257,7 +1339,7 @@ def test_streamed_append_abort_and_restore_uno(ctx, doc):
         sess.abort_and_restore()
         assert doc.getPropertyValue("RecordChanges") is True
         assert len(doc.getRedlines()) == 1
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "Orig."
 
         cur2 = doc.getText().createTextCursor()
@@ -1266,7 +1348,7 @@ def test_streamed_append_abort_and_restore_uno(ctx, doc):
         sess2 = WriterStreamedAppendSession(doc, cur2, "Orig.")
         sess2.append_chunk(" Kept")
         sess2.abort_and_restore()
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert doc.getText().getString() == "Orig. Kept"
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1305,7 +1387,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         _reset(doc, ctx, "First words here.")
-        tool_ctx = _tool_ctx(doc, ctx)
+        tool_ctx = native_writer_tool_context(doc, ctx)
 
         ins = ApplyDocumentContent().execute(
             tool_ctx,
@@ -1326,7 +1408,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
 
         _assert_agent_insert_redline()
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "First words here."
 
         # Second case: character ApplyStyle on a recording document.
@@ -1354,7 +1436,7 @@ def test_format_of_agent_insertion_rejects_to_original_uno(ctx, doc):
 
         _assert_agent_insert_redline()
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "First words here."
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1378,14 +1460,14 @@ def test_format_of_user_insertion_keeps_it_rejectable_uno(ctx, doc):
         doc.getText().insertString(cur, "NEWTEXT ", False)
 
         res = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             target="search",
             old_content="NEWTEXT",
             properties={"CharWeight": 150.0},
         )
         assert res["status"] == "ok", res
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "aaa bbb ccc"
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1415,7 +1497,7 @@ def test_format_redline_author_uno(ctx, doc):
         _reset(doc, ctx, "Plain text.")
         save({_FLAG: "record"})
         res_rec = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             target="search",
             old_content="Plain",
             properties={"CharWeight": 150.0},
@@ -1430,7 +1512,7 @@ def test_format_redline_author_uno(ctx, doc):
         save({_FLAG: "off"})
         doc.setPropertyValue("RecordChanges", True)
         res_off = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             target="search",
             old_content="Plain",
             properties={"CharWeight": 150.0},
@@ -1447,7 +1529,6 @@ def test_format_redline_author_uno(ctx, doc):
 @with_native_doc("writer")
 def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
     from com.sun.star.awt.FontWeight import BOLD, NORMAL
-    from plugin.framework.uno_context import enum_has_more
 
     def _runs():
         out = []
@@ -1471,8 +1552,8 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoStart(False)
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "Swap", ctx)
-    assert [r["type"] for r in _redlines(doc)] == ["Delete", "Insert", "Delete"]
-    _accept_all(doc, ctx)
+    assert [r["type"] for r in list_redlines(doc)] == ["Delete", "Insert", "Delete"]
+    accept_all_changes(doc, ctx)
     assert _runs() == [("Swap", float(BOLD))]
 
     _reset(doc, ctx, "Alpha b")
@@ -1488,7 +1569,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoStart(False)
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "Swap", ctx)
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert _runs() == [("Alpha ", float(BOLD)), ("b", float(NORMAL))], _runs()
 
     # Plain longest last -> Accept plain
@@ -1505,7 +1586,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoStart(False)
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "Updated", ctx)
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
     assert _runs() == [("Updated", float(NORMAL))], _runs()
 
     # Emoji prefix and run -> Accept plain, Reject restores emoji
@@ -1522,7 +1603,7 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoStart(False)
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "New", ctx)
-    _accept_all(doc, ctx)
+    accept_all_changes(doc, ctx)
     assert _runs() == [("New", float(NORMAL))], _runs()
 
     _reset(doc, ctx, "😀 plain")
@@ -1538,18 +1619,8 @@ def test_recorded_mixed_ranges_longest_run_and_emoji_uno(ctx, doc):
         rng.gotoStart(False)
         rng.gotoEnd(True)
         fmt.replace_preserving_format(doc, rng, "New", ctx)
-    _reject_all(doc, ctx)
+    reject_all_changes(doc, ctx)
     assert _runs() == [("😀 ", float(BOLD)), ("plain", float(NORMAL))], _runs()
-
-
-def _paragraphs(doc):
-    out = []
-    e = doc.getText().createEnumeration()
-    while e.hasMoreElements():
-        el = e.nextElement()
-        if el.supportsService("com.sun.star.text.Paragraph"):
-            out.append(el)
-    return out
 
 
 @native_test
@@ -1558,7 +1629,7 @@ def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "First bold rest.\rSecond plain.")
-    paras = _paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     p0_cur = doc.getText().createTextCursorByRange(paras[0].getStart())
     p0_cur.gotoEndOfParagraph(True)
     p0_cur.setPropertyValue("ParaLeftMargin", 500)
@@ -1572,24 +1643,24 @@ def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", family="ParagraphStyles",
+            native_writer_tool_context(doc, ctx), style="Heading 1", family="ParagraphStyles",
             target="full_document", clear_direct="none",
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
-        assert _redline_types(doc) == ["ParagraphFormat", "ParagraphFormat"]
+        assert list_redline_types(doc) == ["ParagraphFormat", "ParagraphFormat"]
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert len(doc.getRedlines()) == 0
-        paras = _paragraphs(doc)
+        paras = body_paragraphs(doc.getText())
         assert paras[0].getPropertyValue("ParaStyleName") == "Standard"
         assert paras[1].getPropertyValue("ParaStyleName") == "Standard"
         assert abs(paras[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
         assert paras[0].getPropertyValue("ParaAdjust") == 3
         runs = []
         pe = paras[0].createEnumeration()
-        while pe.hasMoreElements():
+        while enum_has_more(pe):
             p = pe.nextElement()
             if p.getPropertyValue("TextPortionType") == "Text":
                 runs.append((p.getString(), p.getPropertyValue("CharWeight")))
@@ -1597,19 +1668,19 @@ def test_apply_para_style_recording_reject_and_accept_uno(ctx, doc):
 
         # Accept All keeps the new style and leaves no redlines.
         res2 = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", family="ParagraphStyles",
+            native_writer_tool_context(doc, ctx), style="Heading 1", family="ParagraphStyles",
             target="full_document", clear_direct="none",
         )
         assert res2["tracked"] is True
-        _accept_all(doc, ctx)
+        accept_all_changes(doc, ctx)
         assert len(doc.getRedlines()) == 0
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Heading 1"
-        assert _paragraphs(doc)[1].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert body_paragraphs(doc.getText())[1].getPropertyValue("ParaStyleName") == "Heading 1"
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1618,7 +1689,7 @@ def test_apply_para_style_recording_twice_and_all_matches_uno(ctx, doc):
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Alpha token and token end.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     p0.setPropertyValue("ParaLeftMargin", 400)
 
     prev = get_config(_FLAG)
@@ -1626,14 +1697,14 @@ def test_apply_para_style_recording_twice_and_all_matches_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         tool = ApplyStyle()
-        tctx = _tool_ctx(doc, ctx)
+        tctx = native_writer_tool_context(doc, ctx)
         res1 = tool.execute(tctx, style="Heading 1", target="full_document", clear_direct="none")
         res2 = tool.execute(tctx, style="Heading 2", target="full_document", clear_direct="none")
         assert res1["tracked"] is True and res2["tracked"] is True
-        assert _redline_types(doc) == ["ParagraphFormat"]
+        assert list_redline_types(doc) == ["ParagraphFormat"]
 
-        _reject_all(doc, ctx)
-        p0 = _paragraphs(doc)[0]
+        reject_all_changes(doc, ctx)
+        p0 = body_paragraphs(doc.getText())[0]
         assert p0.getPropertyValue("ParaStyleName") == "Standard"
         assert p0.getPropertyValue("ParaLeftMargin") == 400
 
@@ -1643,15 +1714,15 @@ def test_apply_para_style_recording_twice_and_all_matches_uno(ctx, doc):
             all_matches=True, clear_direct="none",
         )
         assert res3["applied_count"] == 2
-        assert _redline_types(doc) == ["ParagraphFormat"]
-        _reject_all(doc, ctx)
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
-        assert _paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") == 400
+        assert list_redline_types(doc) == ["ParagraphFormat"]
+        reject_all_changes(doc, ctx)
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaLeftMargin") == 400
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1674,18 +1745,18 @@ def test_apply_para_style_recording_table_cell_and_body_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
-        _reject_all(doc, ctx)
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+        reject_all_changes(doc, ctx)
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Standard"
         ce = cell.createEnumeration()
         assert ce.nextElement().getPropertyValue("ParaStyleName") == "Table Contents"
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1694,7 +1765,7 @@ def test_apply_para_style_recording_over_insert_and_delete_redlines_uno(ctx, doc
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Keep drop end.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     p0.setPropertyValue("ParaLeftMargin", 600)
 
     prev = get_config(_FLAG)
@@ -1710,20 +1781,20 @@ def test_apply_para_style_recording_over_insert_and_delete_redlines_uno(ctx, doc
         doc.getText().insertString(cur, " added", False)  # tracked Insert
 
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
-        assert "ParagraphFormat" in _redline_types(doc)
+        assert "ParagraphFormat" in list_redline_types(doc)
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "Keep drop end."
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
-        assert _paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") == 600
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaLeftMargin") == 600
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1732,7 +1803,7 @@ def test_apply_para_style_recording_numbered_paragraph_uno(ctx, doc):
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Numbered item.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     p0.setPropertyValue("NumberingStyleName", "Numbering 123")
     assert p0.getPropertyValue("ListLabelString") == "1."
 
@@ -1741,21 +1812,21 @@ def test_apply_para_style_recording_numbered_paragraph_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
         assert res.get("style_unreviewed") is True
         assert "list" in res["warning"].lower()
 
-        _reject_all(doc, ctx)
-        p0 = _paragraphs(doc)[0]
+        reject_all_changes(doc, ctx)
+        p0 = body_paragraphs(doc.getText())[0]
         assert p0.getPropertyValue("ParaStyleName") == "Standard"
         assert p0.getPropertyValue("ListLabelString") == "1."
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1767,7 +1838,7 @@ def test_apply_para_style_recording_fill_tabstop_border_survive_reject_uno(ctx, 
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Decorated paragraph.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     solid = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
     p0.setPropertyValue("FillStyle", solid)
     p0.setPropertyValue("FillColor", 0xDDEEFF)
@@ -1784,11 +1855,11 @@ def test_apply_para_style_recording_fill_tabstop_border_survive_reject_uno(ctx, 
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
-        _reject_all(doc, ctx)
-        p0 = _paragraphs(doc)[0]
+        reject_all_changes(doc, ctx)
+        p0 = body_paragraphs(doc.getText())[0]
         assert p0.getPropertyValue("FillStyle") == solid
         assert p0.getPropertyValue("FillColor") == 0xDDEEFF
         assert len(p0.getPropertyValue("ParaTabStops")) == 1
@@ -1800,7 +1871,7 @@ def test_apply_para_style_recording_fill_tabstop_border_survive_reject_uno(ctx, 
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1817,18 +1888,18 @@ def test_apply_para_style_recording_clear_direct_warns_without_format_redline_un
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert res.get("style_unreviewed") is True
         assert "warning" in res
-        assert _redline_types(doc) == ["ParagraphFormat"]
+        assert list_redline_types(doc) == ["ParagraphFormat"]
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1848,17 +1919,17 @@ def test_apply_para_style_recording_uses_office_author_uno(ctx, doc):
         cur.gotoEnd(False)
         doc.getText().insertString(cur, " typed", False)
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
-        authors = {r["RedlineAuthor"] for r in _redlines(doc)}
+        authors = {r["RedlineAuthor"] for r in list_redlines(doc)}
         assert authors == {"Test User"}
     finally:
         doc.setPropertyValue("RecordChanges", False)
         review_authors.end(ctx, prior)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1872,12 +1943,12 @@ def test_apply_para_style_recording_empty_paragraph_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="selection", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="selection", clear_direct="none"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is False
         assert res.get("style_unreviewed") is True
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Heading 1"
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Heading 1"
         assert doc.getPropertyValue("RecordChanges") is True
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -1894,7 +1965,7 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Roundtrip body.")
-    _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+    body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 500)
 
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
@@ -1902,7 +1973,7 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
     reloaded = None
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1917,9 +1988,9 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
             hv.Name = "Hidden"
             hv.Value = True
             reloaded = desktop.loadComponentFromURL(url, "_blank", 0, (hv,))
-            assert "ParagraphFormat" in _redline_types(reloaded)
-            _reject_all(reloaded, ctx)
-            p0 = _paragraphs(reloaded)[0]
+            assert "ParagraphFormat" in list_redline_types(reloaded)
+            reject_all_changes(reloaded, ctx)
+            p0 = body_paragraphs(reloaded.getText())[0]
             assert p0.getPropertyValue("ParaStyleName") == "Standard"
             assert abs(p0.getPropertyValue("ParaLeftMargin") - 500) <= 2
     finally:
@@ -1928,7 +1999,7 @@ def test_apply_para_style_recording_docx_roundtrip_uno(ctx, doc):
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
         if len(doc.getRedlines()):
-            _accept_all(doc, ctx)
+            accept_all_changes(doc, ctx)
 
 
 @native_test
@@ -1942,7 +2013,7 @@ def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
     cur.gotoEnd(False)
     text.insertControlCharacter(cur, 0, False)
     text.insertString(cur, "Second para.", False)
-    paras = _paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     paras[0].setPropertyValue("ParaLeftMargin", 500)
     paras[1].setPropertyValue("ParaLeftMargin", 700)
     orig_adjust = [p.getPropertyValue("ParaAdjust") for p in paras]
@@ -1950,17 +2021,17 @@ def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
             target="full_document",
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
-        assert _redline_types(doc).count("ParagraphFormat") == 2
+        assert list_redline_types(doc).count("ParagraphFormat") == 2
 
-        _reject_all(doc, ctx)
-        paras = _paragraphs(doc)
+        reject_all_changes(doc, ctx)
+        paras = body_paragraphs(doc.getText())
         assert abs(paras[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
         assert abs(paras[1].getPropertyValue("ParaLeftMargin") - 700) <= 2
         for idx, p in enumerate(paras):
@@ -1968,13 +2039,13 @@ def test_style_format_text_para_and_char_reject_and_accept_uno(ctx, doc):
             assert p.createEnumeration().nextElement().getPropertyValue("CharWeight") == 100.0
 
         res2 = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 1200, "ParaAdjust": "center", "CharWeight": 150.0},
             target="full_document",
         )
         assert res2["status"] == "ok", res2
-        _accept_all(doc, ctx)
-        for p in _paragraphs(doc):
+        accept_all_changes(doc, ctx)
+        for p in body_paragraphs(doc.getText()):
             assert abs(p.getPropertyValue("ParaLeftMargin") - 1200) <= 2
             assert int(p.getPropertyValue("ParaAdjust")) == 3  # ParagraphAdjust.CENTER
             assert p.createEnumeration().nextElement().getPropertyValue("CharWeight") == 150.0
@@ -1993,16 +2064,16 @@ def test_style_format_text_numbering_style_set_and_reject_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"NumberingStyleName": "List 1"},
             target="full_document",
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
-        assert "ParagraphFormat" in _redline_types(doc)
+        assert "ParagraphFormat" in list_redline_types(doc)
 
-        _reject_all(doc, ctx)
-        p0 = _paragraphs(doc)[0]
+        reject_all_changes(doc, ctx)
+        p0 = body_paragraphs(doc.getText())[0]
         assert not p0.getPropertyValue("NumberingStyleName")
         assert p0.getPropertyValue("ListLabelString") == ""
     finally:
@@ -2035,7 +2106,7 @@ def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc
     cur.setPropertyValue("NumberingStyleName", "List 1")
     cur.setPropertyValue("NumberingLevel", 1)
 
-    paras = _paragraphs(doc)
+    paras = body_paragraphs(doc.getText())
     assert paras[0].getPropertyValue("NumberingStyleName") != "List 1"
     assert paras[0].getPropertyValue("ListLabelString") == ""
     orig_h2_label = paras[0].getPropertyValue("ListLabelString")
@@ -2046,36 +2117,36 @@ def test_style_format_text_skips_list_item_and_heading_para_redline_uno(ctx, doc
     save({_FLAG: "record"})
     try:
         res_h2 = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="Heading two",
         )
         assert res_h2["tracked"] is False
         assert res_h2.get("style_unreviewed") is True
-        assert "ParagraphFormat" not in _redline_types(doc)
+        assert "ParagraphFormat" not in list_redline_types(doc)
 
         res_list = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="List item",
         )
         assert res_list["tracked"] is False
         assert res_list.get("style_unreviewed") is True
-        assert "ParagraphFormat" not in _redline_types(doc)
+        assert "ParagraphFormat" not in list_redline_types(doc)
 
         res_plain = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"ParaLeftMargin": 900},
             target="search",
             old_content="Plain body",
         )
         assert res_plain["tracked"] is True
-        assert "ParagraphFormat" in _redline_types(doc)
+        assert "ParagraphFormat" in list_redline_types(doc)
 
-        _reject_all(doc, ctx)
-        paras = _paragraphs(doc)
+        reject_all_changes(doc, ctx)
+        paras = body_paragraphs(doc.getText())
         assert paras[0].getPropertyValue("ListLabelString") == orig_h2_label
         assert paras[2].getPropertyValue("ListLabelString") == orig_list_label
         assert paras[2].getPropertyValue("NumberingLevel") == orig_list_level
@@ -2101,16 +2172,16 @@ def test_apply_para_style_recording_uses_agent_author_in_review_mode_uno(ctx, do
         cur.gotoEnd(False)
         doc.getText().insertString(cur, " typed", False)
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["tracked"] is True
         para_authors = {
-            r["RedlineAuthor"] for r in _redlines(doc) if r["type"] == "ParagraphFormat"
+            r["RedlineAuthor"] for r in list_redlines(doc) if r["type"] == "ParagraphFormat"
         }
         assert para_authors == {review_authors.INSERT_AUTHOR}
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         assert doc.getText().getString() == "Author test."
-        assert _paragraphs(doc)[0].getPropertyValue("ParaStyleName") == "Standard"
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaStyleName") == "Standard"
     finally:
         doc.setPropertyValue("RecordChanges", False)
         review_authors.end(ctx, prior)
@@ -2123,21 +2194,21 @@ def test_apply_para_style_undo_then_reapply_stale_redline_limitation_uno(ctx, do
     from plugin.writer.styles import ApplyStyle
 
     _reset(doc, ctx, "Stale redline.")
-    _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+    body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 500)
     prev = get_config(_FLAG)
     save({_FLAG: "off"})
     doc.setPropertyValue("RecordChanges", True)
     try:
         ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         doc.getUndoManager().undo()
-        _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 1300)
+        body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 1300)
         ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
-        _reject_all(doc, ctx)
-        assert abs(_paragraphs(doc)[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
+        reject_all_changes(doc, ctx)
+        assert abs(body_paragraphs(doc.getText())[0].getPropertyValue("ParaLeftMargin") - 500) <= 2
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
@@ -2160,17 +2231,17 @@ def test_apply_char_style_records_in_review_mode_on_non_recording_doc_uno(ctx, d
     doc.setPropertyValue("RecordChanges", False)
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Source Text", family="CharacterStyles", target="full_document"
+            native_writer_tool_context(doc, ctx), style="Source Text", family="CharacterStyles", target="full_document"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
         assert doc.getPropertyValue("RecordChanges") is False
-        fmt = [r for r in _redlines(doc) if r["type"] == "Format"]
+        fmt = [r for r in list_redlines(doc) if r["type"] == "Format"]
         assert fmt and fmt[0]["RedlineAuthor"] == review_authors.INSERT_AUTHOR
 
-        _reject_all(doc, ctx)
-        portion = _paragraphs(doc)[0].createEnumeration().nextElement()
+        reject_all_changes(doc, ctx)
+        portion = body_paragraphs(doc.getText())[0].createEnumeration().nextElement()
         assert portion.getPropertyValue("CharStyleName") == "Emphasis"
     finally:
         doc.setPropertyValue("RecordChanges", False)
@@ -2246,10 +2317,10 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
         return snap
 
     _reset(doc, ctx, "Wide direct formatting paragraph.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     has_wma = p0.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic")
     _configure_para(p0)
-    before = _snapshot(_paragraphs(doc)[0])
+    before = _snapshot(body_paragraphs(doc.getText())[0])
     assert before["ParaHyphenationMaxLeadingChars"] == 4
     assert before["ParaLastLineAdjust"] == 2
     assert before["FillTransparence"] == 40
@@ -2260,22 +2331,22 @@ def test_para_format_reject_restores_wide_direct_properties_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_style = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res_style["status"] == "ok", res_style
         assert res_style["tracked"] is True
         assert "style_unreviewed" not in res_style
-        _reject_all(doc, ctx)
-        assert _snapshot(_paragraphs(doc)[0]) == before
+        reject_all_changes(doc, ctx)
+        assert _snapshot(body_paragraphs(doc.getText())[0]) == before
 
         res_fmt = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"ParaBottomMargin": 500}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 500}, target="full_document"
         )
         assert res_fmt["status"] == "ok", res_fmt
         assert res_fmt["tracked"] is True
         assert "style_unreviewed" not in res_fmt
-        _reject_all(doc, ctx)
-        assert _snapshot(_paragraphs(doc)[0]) == before
+        reject_all_changes(doc, ctx)
+        assert _snapshot(body_paragraphs(doc.getText())[0]) == before
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
@@ -2303,7 +2374,7 @@ def test_para_format_reject_restores_bitmap_fill_uno(ctx, doc):
         pv.Value = uno.systemPathToFileUrl(png_path)
         graphic = gp.queryGraphic((pv,))
 
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     # Do not set FillBitmapMode: setting it or passing it to makeRedline crashes LibreOffice
     # (out-of-pool OWN_ATTR_FILLBMP_MODE id).
     p0.setPropertyValue("FillStyle", fill_bitmap)
@@ -2314,13 +2385,13 @@ def test_para_format_reject_restores_bitmap_fill_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
-        _reject_all(doc, ctx)
-        p0 = _paragraphs(doc)[0]
+        reject_all_changes(doc, ctx)
+        p0 = body_paragraphs(doc.getText())[0]
         assert p0.getPropertyValue("FillStyle") == fill_bitmap
         assert p0.getPropertyValue("FillBitmap") is not None
         assert p0.getPropertyValue("FillBitmapStretch") is False
@@ -2335,7 +2406,7 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
     from plugin.writer.styles import ApplyStyle, StyleFormatText
 
     _reset(doc, ctx, "Unrestorable property paragraph.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     dc = p0.getPropertyValue("DropCapFormat")
     dc.Lines = 3
     dc.Count = 1
@@ -2346,13 +2417,13 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_style = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert res_style.get("style_unreviewed") is True
         assert "DropCapCharStyleName" in res_style.get("warning", "")
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
-        p0 = _paragraphs(doc)[0]
+        p0 = body_paragraphs(doc.getText())[0]
         dc = p0.getPropertyValue("DropCapFormat")
         dc.Lines = 3
         dc.Count = 1
@@ -2360,16 +2431,16 @@ def test_para_format_names_unrestorable_property_uno(ctx, doc):
         p0.setPropertyValue("DropCapCharStyleName", "Emphasis")
 
         res_fmt = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"ParaBottomMargin": 400}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBottomMargin": 400}, target="full_document"
         )
         assert res_fmt.get("style_unreviewed") is True
         assert "DropCapCharStyleName" in res_fmt.get("warning", "")
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
 
         _reset(doc, ctx, "Restorable only paragraph.")
-        _paragraphs(doc)[0].setPropertyValue("ParaLeftMargin", 500)
+        body_paragraphs(doc.getText())[0].setPropertyValue("ParaLeftMargin", 500)
         res_clean = ApplyStyle().execute(
-            _tool_ctx(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
+            native_writer_tool_context(doc, ctx), style="Heading 1", target="full_document", clear_direct="none"
         )
         assert "style_unreviewed" not in res_clean
     finally:
@@ -2427,7 +2498,7 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
             hv.Name = "Hidden"
             hv.Value = True
             reloaded = desktop.loadComponentFromURL(uno.systemPathToFileUrl(docx_path), "_blank", 0, (hv,))
-            p0 = _paragraphs(reloaded)[0]
+            p0 = body_paragraphs(reloaded.getText())[0]
             info = p0.getPropertySetInfo()
             orig_left = p0.getPropertyValue("ParaLeftMargin")
             has_left_unit = info.hasPropertyByName("ParaLeftMarginUnit")
@@ -2439,13 +2510,13 @@ def test_para_format_character_unit_indent_is_tracked_uno(ctx, doc):
                 assert orig_left_unit is not None
 
             res = ApplyStyle().execute(
-                _tool_ctx(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none"
+                native_writer_tool_context(reloaded, ctx), style="Heading 1", target="full_document", clear_direct="none"
             )
             assert res["status"] == "ok", res
             assert res["tracked"] is True
 
-            _reject_all(reloaded, ctx)
-            p0 = _paragraphs(reloaded)[0]
+            reject_all_changes(reloaded, ctx)
+            p0 = body_paragraphs(reloaded.getText())[0]
             assert p0.getPropertyValue("ParaLeftMargin") == orig_left
             if has_left_unit:
                 assert p0.getPropertyValue("ParaLeftMarginUnit") == orig_left_unit
@@ -2467,16 +2538,16 @@ def test_style_format_text_register_mode_tracked_writing_mode_flagged_uno(ctx, d
     save({_FLAG: "record"})
     try:
         res_reg = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"ParaRegisterModeActive": True}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaRegisterModeActive": True}, target="full_document"
         )
         assert res_reg["status"] == "ok", res_reg
         assert res_reg["tracked"] is True
         assert "style_unreviewed" not in res_reg
-        _reject_all(doc, ctx)
-        assert _paragraphs(doc)[0].getPropertyValue("ParaRegisterModeActive") is False
+        reject_all_changes(doc, ctx)
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("ParaRegisterModeActive") is False
 
         res_wm = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"WritingMode": 1}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"WritingMode": 1}, target="full_document"
         )
         assert res_wm["status"] == "ok", res_wm
         assert res_wm["tracked"] is False
@@ -2494,29 +2565,29 @@ def test_style_format_text_para_back_color_tracked_reject_and_accept_uno(ctx, do
     from plugin.writer.styles import StyleFormatText
 
     _reset(doc, ctx, "Background tracked.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     p0.setPropertyValue("FillColor", 0x112233)
     p0.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
-        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+        assert int(body_paragraphs(doc.getText())[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
 
-        _reject_all(doc, ctx)
-        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0x112233
+        reject_all_changes(doc, ctx)
+        assert int(body_paragraphs(doc.getText())[0].getPropertyValue("ParaBackColor")) == 0x112233
 
         res2 = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"ParaBackColor": "#FFE4C4"}, target="full_document"
         )
         assert res2["status"] == "ok", res2
-        _accept_all(doc, ctx)
-        assert int(_paragraphs(doc)[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
+        accept_all_changes(doc, ctx)
+        assert int(body_paragraphs(doc.getText())[0].getPropertyValue("ParaBackColor")) == 0xFFE4C4
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
@@ -2529,25 +2600,25 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
     from plugin.writer.styles import StyleFormatText
 
     _reset(doc, ctx, "WritingModeAutomatic check.")
-    p0 = _paragraphs(doc)[0]
+    p0 = body_paragraphs(doc.getText())[0]
     if not p0.getPropertySetInfo().hasPropertyByName("WritingModeAutomatic"):
         return
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
     try:
         res = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document"
+            native_writer_tool_context(doc, ctx), properties={"WritingModeAutomatic": False}, target="full_document"
         )
         assert res["status"] == "ok", res
         assert res["tracked"] is True
         assert "style_unreviewed" not in res
-        assert _paragraphs(doc)[0].getPropertyValue("WritingModeAutomatic") is False
+        assert body_paragraphs(doc.getText())[0].getPropertyValue("WritingModeAutomatic") is False
 
-        _reject_all(doc, ctx)
+        reject_all_changes(doc, ctx)
         # Before LibreOffice 26.8, lcl_RstAttr (sw/source/core/doc/docfmt.cxx) preserves
         # RES_PARATR_AUTOFRAMEDIR when false across ResetAttrs.
         if libreoffice_version(ctx) >= (26, 8):
-            p_after = _paragraphs(doc)[0]
+            p_after = body_paragraphs(doc.getText())[0]
             assert p_after.getPropertyValue("WritingModeAutomatic") is True
             assert p_after.getPropertyState("WritingModeAutomatic").value == "DEFAULT_VALUE"
     finally:
@@ -2558,8 +2629,6 @@ def test_style_format_text_writing_mode_automatic_tracked_and_rejectable_uno(ctx
 @native_test
 @with_native_doc("writer")
 def test_string_skipping_redline_inside_content_control_uno(ctx, doc):
-    from plugin.writer.edit_review import _string_skipping_redline
-
     _reset(doc, ctx, "xx CTRL yy")
     text = doc.getText()
     cur = text.createTextCursor()
@@ -2599,30 +2668,30 @@ def test_style_format_text_caret_records_nothing_uno(ctx, doc):
     save({_FLAG: "record"})
     try:
         res_caret = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), properties={"CharWeight": 150}, target="end"
+            native_writer_tool_context(doc, ctx), properties={"CharWeight": 150}, target="end"
         )
         assert res_caret["status"] == "ok", res_caret
         assert res_caret["tracked"] is False
         assert "pending_review" not in res_caret
-        assert _redlines(doc) == []
+        assert list_redlines(doc) == []
 
         res_reset_caret = StyleFormatText().execute(
-            _tool_ctx(doc, ctx), reset=["CharWeight"], target="end"
+            native_writer_tool_context(doc, ctx), reset=["CharWeight"], target="end"
         )
         assert res_reset_caret["status"] == "ok", res_reset_caret
         assert res_reset_caret["tracked"] is False
         assert "pending_review" not in res_reset_caret
-        assert _redlines(doc) == []
+        assert list_redlines(doc) == []
 
         res_search = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"CharWeight": 150},
             target="search",
             old_content="format",
         )
         assert res_search["status"] == "ok", res_search
         assert res_search["pending_review"] is True
-        assert [r["type"] for r in _redlines(doc)] == ["Format"]
+        assert [r["type"] for r in list_redlines(doc)] == ["Format"]
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})
@@ -2639,7 +2708,7 @@ def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
     doc.setPropertyValue("RecordChanges", True)
     try:
         res_fmt = StyleFormatText().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             properties={"CharWeight": 150},
             target="search",
             old_content="recording",
@@ -2647,10 +2716,10 @@ def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
         assert res_fmt["status"] == "ok", res_fmt
         assert res_fmt["pending_review"] is True
         assert "review_mode" not in res_fmt
-        assert [r["type"] for r in _redlines(doc)] == ["Format"]
+        assert [r["type"] for r in list_redlines(doc)] == ["Format"]
 
         res_para = ApplyStyle().execute(
-            _tool_ctx(doc, ctx),
+            native_writer_tool_context(doc, ctx),
             style="Heading 1",
             family="ParagraphStyles",
             target="search",
@@ -2659,7 +2728,7 @@ def test_user_recording_with_review_off_reports_pending_uno(ctx, doc):
         assert res_para["status"] == "ok", res_para
         assert res_para["pending_review"] is True
         assert "review_mode" not in res_para
-        assert sorted(_redline_types(doc)) == ["Format", "ParagraphFormat"]
+        assert sorted(list_redline_types(doc)) == ["Format", "ParagraphFormat"]
     finally:
         doc.setPropertyValue("RecordChanges", False)
         save({_FLAG: prev})

@@ -2104,6 +2104,32 @@ def test_drop_egress_of_undone_formula_keeps_array_py_and_removes_empty():
     annotations.removeByIndex.assert_called_once_with(0)
 
 
+
+def test_drop_egress_of_undone_formula_matches_page_by_uno_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second PyUNO wrapper of the same draw page still counts as the page the plot was placed on."""
+    from plugin.calc.python.image_egress import _drop_egress_of_undone_formula
+
+    cell = CalcCellStub(col=0, row=0)
+    cell.getAnnotation = lambda: SimpleNamespace(getString=lambda: "")
+    plot = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    page = _DrawPage([plot])
+    doc = MagicMock()
+    doc.getUndoManager.return_value = MagicMock(isLocked=MagicMock(return_value=True))
+    sheet = _SheetStub(page, formulas={(0, 0): ""})
+
+    class _OtherWrapper:
+        """Same page, different Python object: == and != compare identity only."""
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(page, name)
+
+    sheet.DrawPage = _OtherWrapper()
+    sheet.getAnnotations = lambda: MagicMock(getCount=MagicMock(return_value=0))
+    monkeypatch.setattr("uno.isSame", lambda a, b: True, raising=False)
+
+    _drop_egress_of_undone_formula(doc, sheet, cell, page)
+    assert plot not in page.shapes
+
 def test_rtl_name_tag_ignores_column_shift():
     """On an RTL sheet, a Name-only tag ignores column shift while still following row moves."""
     from plugin.calc.python.image_egress import _shape_matches_target_cell

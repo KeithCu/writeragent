@@ -172,7 +172,6 @@ def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_struck_math_formula_skipped_and_live_tex_injected_uno(ctx, doc):
     from plugin.writer.html_export import document_to_content
-    from plugin.writer.math.math_mml_export import iter_writer_math_objects
 
     text = doc.getText()
     cur = text.createTextCursor()
