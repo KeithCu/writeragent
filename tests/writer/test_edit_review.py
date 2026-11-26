@@ -1555,10 +1555,68 @@ def test_string_skipping_redline_across_paragraphs():
     text_range = MagicMock()
     text_range.createEnumeration.side_effect = lambda: FakeUnoEnum([p1, p2, p3])
 
-    # Keeping the '\n' break is the walker's current behaviour, not the accepted reading
-    # (accepting a deletion that spans paragraph marks joins the paragraphs to "Start End").
-    assert _string_skipping_redline(text_range, "Delete") == "Start \nEnd"
+    # Accepting a deletion that spans paragraph marks joins the paragraphs (DeleteAndJoin).
+    assert _string_skipping_redline(text_range, "Delete") == "Start End"
     assert _string_skipping_redline(text_range, "Insert") == "Start gone1\ngone2\ngone3 End"
+
+
+@pytest.mark.parametrize(
+    ("make_paras", "skip_type", "expected"),
+    [
+        (
+            lambda P, R: [
+                P([R("Text", "A"), R("Redline", redline_type="Delete", is_start=True)]),
+                P([R("Redline", redline_type="Delete", is_start=False), R("Text", "B")]),
+            ],
+            "Delete",
+            "AB",
+        ),
+        (
+            lambda P, R: [
+                P([R("Text", "A"), R("Redline", redline_type="Delete", is_start=True)]),
+                P([R("Redline", redline_type="Delete", is_start=False), R("Text", "B")]),
+            ],
+            "Insert",
+            "A\nB",
+        ),
+        (
+            lambda P, R: [
+                P([R("Text", "A")]),
+                P([
+                    R("Redline", redline_type="Delete", is_start=True),
+                    R("Text", "xx"),
+                    R("Redline", redline_type="Delete", is_start=False),
+                ]),
+                P([R("Text", "B")]),
+            ],
+            "Delete",
+            "A\n\nB",
+        ),
+        (
+            lambda P, R: [
+                P([R("Text", "Start "), R("Redline", redline_type="Insert", is_start=True), R("Text", "new1")]),
+                P([R("Text", "new2 "), R("Redline", redline_type="Insert", is_start=False), R("Text", "End")]),
+            ],
+            "Insert",
+            "Start End",
+        ),
+        (
+            lambda P, R: [
+                P([R("Text", "Start "), R("Redline", redline_type="Insert", is_start=True), R("Text", "new1")]),
+                P([R("Text", "new2 "), R("Redline", redline_type="Insert", is_start=False), R("Text", "End")]),
+            ],
+            "Delete",
+            "Start new1\nnew2 End",
+        ),
+    ],
+)
+def test_string_skipping_redline_paragraph_breaks(make_paras, skip_type, expected):
+    from plugin.writer.edit_review import _string_skipping_redline
+    from tests.testing_utils import FakeUnoEnum, FakeUnoPara, FakeUnoPortion
+
+    text_range = MagicMock()
+    text_range.createEnumeration.side_effect = lambda: FakeUnoEnum(make_paras(FakeUnoPara, FakeUnoPortion))
+    assert _string_skipping_redline(text_range, skip_type) == expected
 
 
 def test_record_write_non_writer_runs_apply_without_touching_record_changes():

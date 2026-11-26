@@ -392,3 +392,37 @@ def test_refuse_tracked_insert_or_delete_blocks_interior_selection_uno(ctx, doc)
     caret_ins.gotoStart(False)
     caret_ins.goRight(6, False)
     refuse_tracked_insert_or_delete(doc, caret_ins)
+
+
+@native_test
+@with_native_doc("writer")
+def test_cross_paragraph_change_reports_accepted_and_rejected_uno(ctx, doc):
+    from plugin.doc.text_helpers import normalize_linebreaks
+
+    text = doc.getText()
+    for accept, expected_outcome in ((True, "accepted"), (False, "rejected")):
+        reset_body(doc, ctx, "Start gone1", "gone2", "gone3 End")
+        with EditReviewSession(doc, ctx, enabled=True) as session:
+            def mutate():
+                cur = text.createTextCursor()
+                cur.gotoStart(False)
+                text.insertString(cur, "NEW ", False)
+                start_hit = _find(doc, "gone1")
+                end_hit = _find(doc, "gone3 ")
+                assert start_hit is not None and end_hit is not None
+                del_cur = text.createTextCursorByRange(start_hit.getStart())
+                del_cur.gotoRange(end_hit.getEnd(), True)
+                del_cur.setString("")
+                cur.gotoEnd(False)
+                text.insertString(cur, " MORE", False)
+
+            session.record_mutation(mutate)
+            assert len(session.changes) == 1
+            change = session.changes[0]
+            resolve_all = accept_all_changes if accept else reject_all_changes
+            resolve_all(doc, ctx)
+            payload = session.wait_for_review(0)
+        assert payload["complete"] is True, payload
+        assert payload["changes"][0]["outcome"] == expected_outcome, payload
+        expected_text = change.accepted_text if accept else change.rejected_text
+        assert expected_text == normalize_linebreaks(text.getString())

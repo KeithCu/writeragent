@@ -932,7 +932,7 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 loc = "body"
             try:
-                text = (deletions.visible_text(found) if deletions else (found.getString() or ""))[:160]
+                text = (deletions.text_of(found) or "")[:160]
             except Exception:
                 text = ""
             return loc, text

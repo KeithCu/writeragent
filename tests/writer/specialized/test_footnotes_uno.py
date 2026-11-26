@@ -303,3 +303,25 @@ def test_footnote_insert_and_edit_off_mode_no_tracked_or_warning_uno(ctx, doc):
         assert "tracked" not in res, res
         assert "pending_review" not in res, res
         assert "warning" not in res, res
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_list_hides_tracked_deletion_uno(ctx, doc):
+    from plugin.writer.specialized.footnotes import FootnotesList
+
+    doc.getText().setString("Body ")
+    note = _insert_note(doc, "footnote", "note velha nova")
+    cur = note.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("note "), False)
+    cur.goRight(len("velha "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = FootnotesList().execute(native_writer_tool_context(doc, ctx), note="footnote")
+    assert res["status"] == "ok", res
+    assert res["notes"][0]["text"] == "note nova"

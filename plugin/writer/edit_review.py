@@ -364,13 +364,19 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
 
 
 def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
-    """Text of *text_range* with portions inside tracked *skip_type* redlines removed.
+    """Text of *text_range* as Writer leaves it after removing every *skip_type* redline.
 
-    ``skip_type="Delete"`` yields the text as it would read if everything were ACCEPTED;
-    ``skip_type="Insert"`` yields the text as if everything were REJECTED. ``Frame`` portions
-    read as ``_OBJECT_MARK`` so object-only changes are distinguishable. Content controls and
-    metadata are flattened via ``iter_portions``. Mirrors
-    ``text_helpers.get_string_without_tracked_deletions`` but parameterized.
+    ``skip_type="Delete"`` gives Accept All; ``skip_type="Insert"`` gives Reject All.
+    A paragraph break inside a removed run goes with it, because Writer removes the run
+    with ``DeleteAndJoin`` (``lcl_AcceptRedline`` / ``lcl_RejectRedline``,
+    ``sw/source/core/doc/DocumentRedlineManager.cxx``). ``Frame`` portions read as
+    ``_OBJECT_MARK`` so object-only changes are distinguishable. Content controls and
+    metadata are flattened via ``iter_portions``.
+
+    Separate from ``text_helpers.get_string_without_tracked_deletions``, which keeps a
+    wholly struck paragraph's slot as an empty line for offsets and is Delete-only. If the
+    walk cannot start, returns the raw string; if it fails part way, returns the text
+    read so far.
     """
     # The raw string is the fail-closed result when the walk cannot start.
     # A closed document must not come back as "".
@@ -381,33 +387,21 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     parts: list[str] = []
 
     def walk() -> None:
-        # Tip: keep skipping across paragraphs; emit a break only between paragraphs with kept text.
-        emitted_any = False
         skipping = False
-
-        def take_para(on_error: bool) -> None:
-            nonlocal emitted_any
-            if not has_non_skipped or (on_error and not para_chunks):
-                return
-            if emitted_any:
-                parts.append("\n")
-            if not on_error:
-                emitted_any = True
-            if para_chunks:
-                parts.append("".join(para_chunks))
-
+        joined = True
         for para in iter_elements(para_enum):
             try:
                 portion_enum = para.createEnumeration()
             except Exception as exc:
                 reraise_if_disposed(exc)
                 continue
-            para_chunks = []
-            has_non_skipped = False
+            lead = "" if joined else "\n"
+            chunks: list[str] = []
             try:
                 for portion, portion_type in iter_portions(portion_enum):
                     if portion_type is None:
-                        take_para(True)
+                        if chunks:
+                            parts.append(lead + "".join(chunks))
                         return
                     if portion_type == "Redline":
                         if str(portion.getPropertyValue("RedlineType")) == skip_type:
@@ -415,16 +409,16 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
                         continue
                     if skipping:
                         continue
-                    has_non_skipped = True
                     chunk = portion.getString() or (_OBJECT_MARK if portion_type == "Frame" else "")
                     if chunk:
-                        para_chunks.append(chunk)
+                        chunks.append(chunk)
             except Exception as exc:
                 reraise_if_disposed(exc)
-                take_para(True)
-                break
-
-            take_para(False)
+                if chunks:
+                    parts.append(lead + "".join(chunks))
+                return
+            parts.append(lead + "".join(chunks))
+            joined = skipping
 
     uno_read(walk, None)
     return "".join(parts)
@@ -1282,9 +1276,10 @@ def _portion_type(node: Any) -> str | None:
 
 
 def _open_enum(owner: Any) -> Any:
-    """Return an enumeration, ``None`` when the object has none, or ``FAILED``.
+    """Return the enumeration, ``None`` when *owner* has none, or ``FAILED``.
 
-    Missing ``createEnumeration`` is a plain test double (no redlines to protect).
+    A text table has none (``SwXTextTable`` is not an ``XEnumerationAccess``,
+    ``sw/inc/unotbl.hxx``), so its cells are not walked here.
     A method that exists and throws is a walk we could not finish.
     """
     create = getattr(owner, "createEnumeration", None)

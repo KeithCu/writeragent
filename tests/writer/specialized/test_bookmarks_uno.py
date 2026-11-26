@@ -324,3 +324,43 @@ def test_heading_read_keeps_undo_off_when_it_was_off_uno(ctx):
         assert um.isLocked() is True
     finally:
         doc.close(True)
+
+
+@native_test
+@with_native_doc("writer")
+def test_bookmark_reads_hide_tracked_deletion_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.specialized.bookmarks import BookmarkGet, BookmarkList, BookmarkResolve
+
+    text = doc.getText()
+    text.setString("Body velha nova text")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.goRight(len("Body "), False)
+    cur.goRight(len("velha "), True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        cur.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    bm_cur = text.createTextCursor()
+    bm_cur.gotoStart(False)
+    bm_cur.goRight(len("Body "), False)
+    bm_cur.goRight(len("velha nova"), True)
+    bm = doc.createInstance("com.sun.star.text.Bookmark")
+    bm.setName("BMDel")
+    text.insertTextContent(bm_cur, bm, True)
+
+    tctx = native_writer_tool_context(doc, ctx)
+    listed = BookmarkList().execute(tctx)
+    assert listed["status"] == "ok", listed
+    assert listed["bookmarks"] == [{"name": "BMDel", "text": "nova"}]
+
+    got = BookmarkGet().execute(tctx, name="BMDel")
+    assert got["status"] == "ok", got
+    assert got["bookmark"]["text"] == "nova"
+
+    resolved = BookmarkResolve().execute(tctx, name="BMDel")
+    assert resolved["status"] == "ok", resolved
+    assert resolved["text"] == "Body nova text"

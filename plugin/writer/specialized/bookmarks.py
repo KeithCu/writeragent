@@ -26,6 +26,7 @@ from typing import Any, ClassVar, Generator
 from plugin.doc.compound_undo import UndoLock
 from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
+from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
@@ -466,12 +467,13 @@ class BookmarkList(ToolWriterBookmarkBase):
         doc = ctx.doc
         bookmarks = doc.getBookmarks()
         names = bookmarks.getElementNames()
+        deletions = TrackedDeletions(doc)
         result = []
         for name in names:
             try:
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
-                anchor_text = anchor.getString() if anchor is not None else ""
+                anchor_text = deletions.text_of(anchor) if anchor is not None else ""
                 result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
             except Exception as exc:
                 reraise_if_disposed(exc)
@@ -623,7 +625,7 @@ class BookmarkGet(ToolWriterBookmarkBase):
         bm = bookmarks.getByName(name)
         try:
             anchor = bm.getAnchor()
-            text_content = anchor.getString()
+            text_content = TrackedDeletions(doc).text_of(anchor)
         except Exception as exc:
             reraise_if_disposed(exc)
             return self._tool_error(f"Bookmark '{name}' anchor is not in the document.", stale=True)
@@ -681,7 +683,7 @@ class BookmarkResolve(ToolWriterBookmarkBase):
         element = para_ranges[para_idx]
         if element.supportsService("com.sun.star.text.Paragraph"):
             try:
-                result["text"] = element.getString()
+                result["text"] = TrackedDeletions(doc).text_of(element)
                 result["outline_level"] = element.getPropertyValue("OutlineLevel")
             except Exception:
                 log.debug("bookmark locate: heading text or outline level unreadable", exc_info=True)

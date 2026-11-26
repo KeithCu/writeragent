@@ -1417,6 +1417,7 @@ def test_indexes_refuse_crossing_deletion_uno(ctx, doc):
     finally:
         doc.setPropertyValue("RecordChanges", False)
     assert res_refresh_rec["status"] == "ok", res_refresh_rec
+    assert res_refresh_rec.get("text_after") == "New Title", res_refresh_rec
     assert visible_range_text(doc, entry_para) == "New Title"
     reject_all_changes(doc, ctx)
     assert entry_para.getString() == "Heading 1\t1"

@@ -933,7 +933,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             replace_preserving_format(
                 doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
             try:
-                lived = (_select_paragraph(point).getString() or "")[:160]
+                lived = (TrackedDeletions(doc).text_of(_select_paragraph(point)) or "")[:160]
             except Exception as exc:
                 reraise_if_disposed(exc)
                 lived = ""
