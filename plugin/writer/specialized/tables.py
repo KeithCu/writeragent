@@ -582,11 +582,11 @@ def _column_span(grid: list[list[_Box]], left: int, right: int) -> int:
     return count
 
 
-def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tuple[int, int, int, int] | None:
+def _wide_box(grid: list[list[_Box]], idx: int) -> tuple[int, int, int, int] | None:
     """Widest merged box in column *idx*: ``(row, col, span, doomed_columns)``, or None.
 
-    The delete guard counts named cells only; the split planner sets ``covered=True``
-    because LibreOffice deletes covered boxes too.
+    Only named cells count; a box covered by a vertical merge is reported through
+    the cell that starts above it.
 
     ``SwXTableColumns::removeByIndex`` (``sw/source/core/unocore/unotbl.cxx``) calls
     ``SwDoc::DeleteCol`` (``sw/source/core/docnode/ndtbl.cxx``), which expands the
@@ -595,7 +595,7 @@ def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tup
     coords = [
         (row, col)
         for row, col in _column_band(grid, idx)
-        if covered or grid[row][col][0] is not None
+        if grid[row][col][0] is not None
     ]
     rows = [row for row, _col in coords]
     if len(set(rows)) == len(rows):
@@ -609,45 +609,6 @@ def _wide_box(grid: list[list[_Box]], idx: int, *, covered: bool = False) -> tup
     right_max = max(grid[r][c][2] for r, c in coords)
     doomed = _column_span(grid, left_min, right_max)
     return row, col, span, doomed
-
-
-def _column_split_plan(grid: list[list[_Box]], idx: int) -> list[tuple[str, int]] | None:
-    """Cells to split, with their part counts, so that column *idx* can be deleted, or None.
-
-    Simulates equal splits (table_split_cell cannot set widths) and re-applies the delete guard.
-    None means the equal parts would not line up with the other rows' edges, so a split would only
-    fragment the table. Covered boxes count because LibreOffice deletes them too.
-    """
-    grid = [list(row) for row in grid]
-    done: set[int] = set()
-    steps: list[tuple[str, int]] = []
-    while True:
-        if idx >= len(grid[0]):
-            spans = [_column_span(grid, left, right) for _name, left, right in grid[0]]
-            row, col, parts = 0, spans.index(max(spans)), max(spans)
-        else:
-            wide = _wide_box(grid, idx, covered=True)
-            if wide is None:
-                return steps
-            row, col, parts, _doomed = wide
-        name, left, right = grid[row][col]
-        # One split per row keeps the other rows' cell names valid, so the listed names stay correct.
-        if name is None or row in done or not 2 <= parts <= 20:
-            return None
-        done.add(row)
-        cuts = [left + (right - left) * k // parts for k in range(parts + 1)]
-        grid[row][col:col + 1] = [(name, cuts[k], cuts[k + 1]) for k in range(parts)]
-        # SwTable::SplitCol (sw/source/core/doc/tblrwcl.cxx:1157) expands across covered boxes below.
-        for r2 in range(row + 1, len(grid)):
-            match = next(
-                (c2 for c2, (n2, l2, r2_edge) in enumerate(grid[r2]) if n2 is None and l2 == left and r2_edge == right),
-                None,
-            )
-            if match is None:
-                break
-            grid[r2][match:match + 1] = [(None, cuts[k], cuts[k + 1]) for k in range(parts)]
-            done.add(r2)
-        steps.append((name, parts))
 
 
 def _column_refusal(table: Any, idx: int) -> str | None:
@@ -669,17 +630,11 @@ def _column_refusal(table: Any, idx: int) -> str | None:
             "Cannot delete this column: cell '%s' spans %d columns, so %d columns "
             "would be deleted." % (grid[row][col][0], span, doomed)
         )
-    steps = _column_split_plan(grid, idx)
-    if steps is None:
-        return reason + (
-            " Do not split cells: the parts would not line up with the other rows. "
-            "Empty that column's cells (not protected ones) with table_set_cell instead "
-            "(addresses from table_get_cells), or ask the user to delete the column."
-        )
-    splits = ", ".join("'%s' (parts=%d)" % step for step in steps)
     return reason + (
-        " Split %s with table_split_cell (direction='columns'), move the text to keep into "
-        "another part with table_set_cell, then delete the column." % splits
+        " Do not split cells to get around this: table_split_cell makes equal-width parts that may not "
+        "line up with the other rows' columns, and the split is not recorded as a tracked change. "
+        "Empty that column's cells (not protected ones) with table_set_cell instead "
+        "(addresses from table_get_cells), or ask the user to delete the column."
     )
 
 
