@@ -15,7 +15,6 @@ from __future__ import annotations
 import importlib
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
     build_helper_script_template,
+    elapsed_since,
     format_elapsed_time,
     is_status_helper_result,
     plot_insert_ok_outcome,
@@ -39,17 +39,13 @@ log = logging.getLogger("writeragent.scripting")
 
 SCRIPT_ORIGIN_USER = "user"
 SCRIPT_ORIGIN_DOCUMENT = "document"
-SCRIPT_ORIGIN_ANALYSIS = "analysis"
-SCRIPT_ORIGIN_VISION = "vision"
 
 DOC_SCRIPT_DISPLAY_PREFIX = "[Doc] "
-ANALYSIS_SCRIPT_DISPLAY_PREFIX = "[Analysis] "
-VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "
 
 
 def is_reserved_script_name(name: str) -> bool:
     """True when *name* begins with any reserved UI prefix (e.g. '[Doc] ', '[Vision] ')."""
-    return any(name.startswith(p) for p in RESERVED_SCRIPT_PREFIXES)
+    return name.startswith(RESERVED_SCRIPT_PREFIXES)
 
 
 FormatOkKind = Literal["generic", "plot", "symbolic", "units", "vision", "rows"]
@@ -122,10 +118,10 @@ class DomainWiring:
         helper = str(result.get("helper") or self.id)
 
         if self.format_ok_kind == "plot":
-            title = str(result.get("title") or helper or "Plot")
+            title = str(result.get("title") or helper)
             return plot_insert_ok_outcome(helper=helper, title=title, t0=t0, stdout=stdout, result=result)
         if self.format_ok_kind == "symbolic":
-            latex = str(result.get("latex") or result.get("text") or helper or "")
+            latex = str(result.get("latex") or result.get("text") or helper)
             return preview_insert_ok_outcome(domain_label=self.display_label, helper=helper, preview_text=latex, t0=t0, stdout=stdout, result=result)
         if self.format_ok_kind == "units":
             # Lazy (cycle): units.py imports get_domain_wiring from this module, so neither imports the other at its top.
@@ -134,7 +130,7 @@ class DomainWiring:
             formatted = units_display_text(result) or helper
             return preview_insert_ok_outcome(domain_label=self.display_label, helper=helper, preview_text=formatted, t0=t0, stdout=stdout, result=result)
 
-        formatted_time = format_elapsed_time(time.perf_counter() - t0)
+        formatted_time = format_elapsed_time(elapsed_since(t0))
         if self.format_ok_kind == "vision":
             if insert_outcome == "empty":
                 status_ok = _("Vision '{helper}' completed. No text detected. (took {time})").format(
@@ -368,8 +364,7 @@ def get_domain_wiring(wiring_id: str) -> DomainWiring:
     raise KeyError(f"Unknown wiring id: {wiring_id!r}")
 
 
-# Post-venv is_result order differs slightly (symbolic before units, then plot special case, then vision, then calc domains)
-# We encode post-venv order as a separate sequence of domain ids.
+# is_result scan order, separate from the WIRING_TABLE insert order: math, units, text, viz, then vision, then the Calc-only domains.
 POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
     "math",  # symbolic
     "units",
@@ -426,8 +421,8 @@ class PickerWiring:
 
 PICKER_WIRING: tuple[PickerWiring, ...] = (
     PickerWiring(
-        origin=SCRIPT_ORIGIN_VISION,
-        display_prefix=VISION_SCRIPT_DISPLAY_PREFIX,
+        origin="vision",
+        display_prefix="[Vision] ",
         title=N_("Vision Helpers"),
         supports_ref="plugin.vision.vision_runner:supports_vision_manual",
         templates_ref="plugin.vision.vision_templates:get_vision_script_templates",
@@ -445,8 +440,8 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         supports_ref="plugin.scripting.helper_domain:supports_calc_or_writer_manual",
     ),
     PickerWiring(
-        origin=SCRIPT_ORIGIN_ANALYSIS,
-        display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+        origin="analysis",
+        display_prefix="[Analysis] ",
         title=N_("Analysis Helpers"),
         supports_ref="plugin.framework.doc_type:is_calc",
     ),

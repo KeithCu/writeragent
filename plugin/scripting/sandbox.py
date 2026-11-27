@@ -42,7 +42,7 @@ _DEAL_BASENAME_LEN = DEAL_MAX_PATH
 try:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
     DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     DANGEROUS_MODULES = (
         "subprocess",
         "_posixsubprocess",
@@ -390,6 +390,7 @@ def policy_blocked_imports(policy: SandboxPolicy) -> list[str]:
         blocked.update(NETWORK_BLOCKED_MODULES)
     if not policy.files:
         blocked.update(FILE_BLOCKED_MODULES)
+    # Subtracting policy_allowlist(policy) still clears PROCESS_MODULES and policy.extra when enabled.
     allowed = tuple(policy_allowlist(policy))
     return sorted(b for b in blocked if not _matches_prefix(b, allowed))
 
@@ -398,7 +399,7 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
     roots: set[str] = set()
     if policy.network:
         roots.add("socket")
-    if policy.files or policy.os:
+    if policy.files:
         roots.update({"shutil", "pathlib", "io"})
     if policy.os:
         # relaxed_roots includes process modules when policy.os is set so the callable gate allows Process/Pool/pty, not only subprocess.
@@ -474,7 +475,7 @@ def wrap_command_for_sandbox(
         argv.append("--watch-bus")
     if env is not None:
         argv.append("--clear-env")
-    if isinstance(cwd, str) and cwd:
+    if cwd:
         argv.append("--directory=" + cwd)
     if env is not None:
         argv.extend(f"--env={key}={value}" for key, value in env.items())
@@ -650,7 +651,7 @@ def resolve_libreoffice_python() -> str | None:
     Callers still surface an error so the user can set a venv.
     """
     # crosshair: off
-    exe = (getattr(sys, "executable", None) or "").strip()
+    exe = (sys.executable or "").strip()
     if exe and os.path.isfile(exe):
         if _is_usable_python_file(exe):
             return exe

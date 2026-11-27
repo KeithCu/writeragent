@@ -69,9 +69,9 @@ def insert_image_payload_for_doc(
     if is_calc(doc):
         from plugin.calc.python.image_egress import insert_image_result_on_sheet  # host only: not in the compute bundle
 
-        # Pass the same document =PY() already read. Omitting doc= wrote the
-        # chart to desktop.getCurrentComponent(), so image egress fell back to
-        # the front window (MCP document_url, or a second open workbook).
+        # Pass the document =PY() already read. Without doc= the insert targets
+        # desktop.getCurrentComponent(), which is the wrong workbook for MCP
+        # document_url or a second open window.
         insert_image_result_on_sheet(payload, doc=doc)
         return
     writer = is_writer(doc)

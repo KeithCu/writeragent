@@ -464,8 +464,7 @@ _NAMES_BY_DOMAIN: dict[str, frozenset[str]] = {}
 _SPEC_BY_DOMAIN_NAME: dict[tuple[str, str], HelperSpec] = {}
 
 for _spec in _SPECS:
-    _SPECS_BY_DOMAIN.setdefault(_spec.domain, ())
-    _SPECS_BY_DOMAIN[_spec.domain] = (*_SPECS_BY_DOMAIN[_spec.domain], _spec)
+    _SPECS_BY_DOMAIN[_spec.domain] = (*_SPECS_BY_DOMAIN.get(_spec.domain, ()), _spec)
     _SPEC_BY_DOMAIN_NAME[(_spec.domain, _spec.name)] = _spec
 
 for _domain, _domain_specs in _SPECS_BY_DOMAIN.items():

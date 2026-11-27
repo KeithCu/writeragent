@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Optimize helper host RPC and Calc egress (LO host).
+"""Optimize helper facade and Calc egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.optimize`` via ``__getattr__``.
 """

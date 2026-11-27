@@ -465,8 +465,17 @@ def test_uneven_row_lengths_rejected_on_split_grid_only() -> None:
     jagged = [[1, 2], [3]]
     assert host_pack_data(jagged, force="never") == jagged
     assert host_pack_data(jagged) == jagged
-    with pytest.raises(ValueError, match="Uneven row lengths"):
+    with pytest.raises(ValueError, match="Uneven row lengths") as exc_info:
         host_pack_data(jagged, force="always")
+    assert "row 1 has 1 cells, expected 2" in str(exc_info.value)
+
+
+def test_uneven_row_lengths_error_message_is_bounded() -> None:
+    """Jagged-grid error reports only the first offending row, not all row lengths."""
+    jagged = [[1, 2]] * 500 + [[3]] + [[4, 5]] * 500
+    with pytest.raises(ValueError, match=r"row 500 has 1 cells, expected 2") as exc_info:
+        host_pack_data(jagged, force="always")
+    assert len(str(exc_info.value)) < 120
 
 
 def test_rectangular_tuple_rows_egress_as_lists() -> None:

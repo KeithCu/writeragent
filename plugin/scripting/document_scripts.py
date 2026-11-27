@@ -82,8 +82,7 @@ class DocumentScriptError(str):
 def document_scripts_identity(doc: Any) -> str:
     """Stable identity for stale detection (normalized URL or empty for untitled)."""
     try:
-        if hasattr(doc, "getURL"):
-            return normalize_doc_url(doc.getURL() or "")
+        return normalize_doc_url(doc.getURL() or "")
     except Exception:
         log.debug("document_scripts_identity failed", exc_info=True)
     return ""
@@ -93,7 +92,7 @@ def is_document_readonly_for_scripts(doc: Any) -> bool:
     if doc is None:
         return True
     try:
-        if hasattr(doc, "isReadonly") and doc.isReadonly():
+        if doc.isReadonly():
             return True
     except Exception:
         log.debug("document_scripts: isReadonly check failed", exc_info=True)
@@ -291,7 +290,7 @@ def attach_document_script(
     *,
     overwrite: bool = False,
 ) -> DocumentScriptError | None:
-    name = (name or "").strip()
+    name = name.strip()
     name_err = new_script_name_error(name, attach=True)
     if name_err is not None:
         return name_err
@@ -303,13 +302,13 @@ def attach_document_script(
             _("A script named '{0}' already exists in this document.").format(name),
             DocumentScriptErrorCode.ALREADY_EXISTS,
         )
-    scripts[name] = code if code is not None else ""
+    scripts[name] = code
     return set_document_scripts(doc, scripts)
 
 
 def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
-    # INIT shares this property map with named scripts. The picker hides it,
-    # Deleting INIT by storage name is blocked like attach_document_script so the workbook init script is not wiped accidentally.
+    # INIT shares this property map with named scripts and the picker hides it.
+    # Deleting it by storage name is refused, as in attach_document_script, so the workbook init script is not removed by accident.
     if is_calc_init_script_name(name):
         return new_script_name_error(name, attach=True)
     scripts, err = _load_document_script_map(doc)
@@ -419,10 +418,9 @@ def build_xdl_script_picker_state(
     saved_scripts: dict[str, str],
 ) -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Return (dropdown_items, merged_scripts_by_display_key, origin_map)."""
-    user_scripts = dict(saved_scripts) if isinstance(saved_scripts, dict) else {}
     doc_scripts = get_document_scripts(doc)
     domain_entries = domain_template_entries(doc)
-    return _picker_state_from_parts(user_scripts, doc_scripts, domain_entries)
+    return _picker_state_from_parts(saved_scripts, doc_scripts, domain_entries)
 
 
 def resolve_run_script_name_config_key(doc: Any) -> str:
@@ -438,8 +436,8 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
 def resolve_run_script_selection(
     doc: Any | None,
     picker_state: tuple[list[str], dict[str, str], dict[str, str]],
-) -> tuple[str, str, dict[str, str]]:
-    """Return (selected_name, selected_code, merged_scripts) for Run Python Script."""
+) -> tuple[str, str]:
+    """Return (selected_name, selected_code) for Run Python Script."""
     name_config_key = resolve_run_script_name_config_key(doc)
     last_name = config.get_config(name_config_key)
     names, merged_scripts, _unused_origin_map = picker_state
@@ -454,7 +452,7 @@ def resolve_run_script_selection(
         if last_name:
             config.save({name_config_key: last_name})
     selected_code = merged_scripts.get(last_name, "")
-    return last_name, selected_code, merged_scripts
+    return last_name, selected_code
 
 
 def build_scripts_list_message(
@@ -482,9 +480,7 @@ def build_scripts_list_message(
     load_err: DocumentScriptError | None = None
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:
-        # Same keys as build_xdl_script_picker_state. Raw names collided with
-        # My Scripts and did not match selected_script_name ([Doc] …), so
-        # reopen loaded the wrong row and Save wrote a different script.
+        # Same "[Doc] name" keys as build_xdl_script_picker_state, so a document script cannot collide with a My Scripts name and selected_script_name matches a row.
         # scripts_manager.js documentScriptListKey must probe these keys for
         # the New / Save As overwrite check. The typed name is not a key.
         loaded, load_err = _load_document_script_map(doc)
@@ -493,9 +489,8 @@ def build_scripts_list_message(
                 document_script_display_name(name): code
                 for name, code in picker_document_scripts(loaded).items()
             }
-        else:
-            if not status_ok_text and not status_error_text:
-                status_error_text = str(load_err)
+        elif not status_ok_text and not status_error_text:
+            status_error_text = str(load_err)
 
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
@@ -510,23 +505,18 @@ def build_scripts_list_message(
             "scripts": display_scripts,
         })
 
-    # A stale document must not be passed to resolve_run_script_selection.
-    # That returned a '[Doc] X' selection missing from sections and wrote a
-    # selection config entry against the stale doc. Pass None so selection
-    # only considers user scripts and templates.
+    # A stale document is not passed to resolve_run_script_selection: its '[Doc] X' rows are not in sections, and the selection config must not be written for it.
     selection_doc = None if document_stale else doc
 
-    # Reuse one property read and template expansion for picker_state so Monaco does not double-load document scripts on each scripts_list message.
     if selection_doc is None:
-        picker_state = _picker_state_from_parts(
-            user_scripts, {}, domain_template_entries(None)
-        )
+        picker_state = _picker_state_from_parts(user_scripts, {}, [])
     else:
+        # Reuse the already-loaded document scripts and template entries so Monaco does not double-read properties.
         picker_state = _picker_state_from_parts(
             user_scripts, loaded, domain_entries
         )
 
-    selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
+    selected_name, _selected_code = resolve_run_script_selection(
         selection_doc, picker_state
     )
 
@@ -691,7 +681,7 @@ def _on_select_script(
     session_doc_url: str | None,
     send_list: Callable[..., None],
 ) -> bool:
-    name = str(msg.get("name", "") or "").strip()
+    name = str(msg.get("name") or "").strip()
     config.save({resolve_run_script_name_config_key(session_doc): name})
     return True
 
@@ -704,8 +694,8 @@ def _validate_script_target(
     session_doc_url: str | None = None,
     action_label: str = "delete",
 ) -> tuple[str, str] | None:
-    name = str(msg.get("name", "") or "").strip()
-    origin = str(msg.get("origin", "") or "").strip()
+    name = str(msg.get("name") or "").strip()
+    origin = str(msg.get("origin") or "").strip()
     if not name:
         send_list(status_error_text=_("Script name cannot be empty."))
         return None

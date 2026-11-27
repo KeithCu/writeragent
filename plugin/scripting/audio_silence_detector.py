@@ -14,16 +14,16 @@ from dataclasses import dataclass
 
 from plugin.framework.deal_shim import deal
 
+log = logging.getLogger(__name__)
+
 
 def _deal_pcm_ok_pytest(pcm: object) -> bool:
-    # A mic buffer is larger than DEAL_MAX_ARGV bytes. The cap raised
-    # PreContractError before RMS ran. The body walks every sample.
+    # No length cap: a mic buffer is larger than DEAL_MAX_ARGV bytes and the body walks every sample.
+    # CrossHair swaps in a 32-byte cap (scripts/crosshair_domains.py).
     return isinstance(pcm, (bytes, bytearray))
 
 
 _deal_pcm_ok = _deal_pcm_ok_pytest
-
-log = logging.getLogger(__name__)
 
 # Algorithm tuning (not user config — adjust here if mic edge cases appear).
 MIN_SPEECH_MS = 500
@@ -96,7 +96,7 @@ def load_silence_detector_config() -> SilenceDetectorConfig:
 
     try:
         stop_ms = max(0, int(get_config("chatbot.audio_silence_stop_ms")))
-    except (TypeError, ValueError, Exception):
+    except Exception:
         stop_ms = DEFAULT_SILENCE_STOP_MS
     if stop_ms == 0:
         log.info("audio VAD: auto-stop disabled (silence_stop_ms=0)")
@@ -170,10 +170,10 @@ class SilenceDetector:
         self._push_level(sample_count, rms)
 
         # Speech is LOUD_ONSET_RMS, or energy above a floor learned from quieter
-        # chunks; runs shorter than SPEECH_ONSET_MS do not count. Freezing the
-        # 0.003 floor on the first chunk (>= 0.0054, including amplitude-328
-        # room noise) left later noise classified as speech, so auto-stop never
-        # fired. A STEADY_NOISE_MS window of similar sub-loud RMS is ambient:
+        # chunks; runs shorter than SPEECH_ONSET_MS do not count. The floor adapts
+        # on every non-speech chunk; a floor fixed by the first chunk would
+        # classify steady room noise (amplitude ~328) as speech and auto-stop
+        # would never fire. A STEADY_NOISE_MS window of similar sub-loud RMS is ambient:
         # not speech, and the floor snaps to that window's minimum. A shorter
         # dip stays speech because the window still holds the louder audio.
         ambient_low = self._window_ambient()

@@ -322,6 +322,10 @@ class ExecRequest(SandboxRequest):
         return request
 
 
+def _worker_env(env: dict[str, str]) -> dict[str, str]:
+    return {**env, "WRITERAGENT_IS_WORKER": "1"}
+
+
 class PythonWorkerManager:
     """One warm child process per (pool, Python executable path) pair."""
 
@@ -335,8 +339,7 @@ class PythonWorkerManager:
 
     def __init__(self, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> None:
         self.exe = exe
-        self.env = dict(env)
-        self.env["WRITERAGENT_IS_WORKER"] = "1"
+        self.env = _worker_env(env)
         self.pool = pool
         self._warm = None
         # Same-thread owner -> WORKER_REENTRY; host callback in flight (tool RPC or on_heartbeat) -> busy.
@@ -461,7 +464,7 @@ class PythonWorkerManager:
                 if lease_acquired:
                     raise
                 global _systemd_scope_disabled
-                if _systemd_scope_disabled or not _systemd_run_path(self.env):
+                if not _systemd_run_path(self.env):
                     yield self._err("WORKER_SPAWN_FAILED", f"Failed to spawn Python worker: {exc}")
                     return
                 log.warning("Python worker failed to start under systemd-run, retrying without a scope: %s", exc)
@@ -504,20 +507,16 @@ class PythonWorkerManager:
             # Replacing pool:exe evicts other exe keys under the same pool so a Settings path change does not leave orphan worker children.
             for other_key in list(_instances):
                 if other_key.startswith(prefix) and other_key != key:
-                    old = _instances.pop(other_key, None)
-                    if old is not None:
-                        stale.append(old)
+                    stale.append(_instances.pop(other_key))
             mgr = _instances.get(key)
             if mgr is None:
-                mgr = cls(exe, dict(env), pool=pool)
+                mgr = cls(exe, env, pool=pool)
                 _instances[key] = mgr
             else:
                 # The live process keeps the env it was spawned with. The next
                 # Popen (crash, or a path change) must see a later scrub, including
                 # WRITERAGENT_DEBUG_LOG_PATH once logging is up.
-                fresh = dict(env)
-                fresh["WRITERAGENT_IS_WORKER"] = "1"
-                mgr.env = fresh
+                mgr.env = _worker_env(env)
             for old in stale:
                 # In-flight execute holds the warm pipe lock. Do not retire here
                 # under _registry_lock: a tool call may be waiting on the UI thread.
@@ -537,7 +536,7 @@ class PythonWorkerManager:
 
     def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | None:
         """Prime auto-imports once per warm-child generation. Returns error dict or None."""
-        if self._primed and self._primed_generation == leased.generation and self._warm is not None and self._warm.is_alive():
+        if self._primed and self._primed_generation == leased.generation and self._is_worker_alive():
             return None
         prime = self._execute_ipc_unlocked(
             ExecRequest(code="result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC),
@@ -603,7 +602,6 @@ class PythonWorkerManager:
         stdout: IO[bytes],
         stdin: IO[bytes],
         req: ExecRequest,
-        wire: dict[str, Any],
         state: _TurnState,
         *,
         host_read_timeout_sec: float,
@@ -671,7 +669,7 @@ class PythonWorkerManager:
                     response = parse_worker_stdout_frame(response_bytes)
                 if response.get("type") == EXEC_STARTED:
                     state.execution_started = True
-                    if response.get("id") != wire.get("id"):
+                    if response.get("id") != req.request_id:
                         # Hand the mismatched frame back; the caller's id check
                         # refuses it without replaying the request.
                         return Terminal(response)
@@ -693,7 +691,6 @@ class PythonWorkerManager:
                         script_session_id=resolved_script_session_id,
                     )
                 if is_intermediate:
-                    state.dispatched_intermediate = True
                     continue
                 return Terminal(response)
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout, ValueError, OSError, RuntimeError) as exc:
@@ -746,7 +743,6 @@ class PythonWorkerManager:
             stdout,
             stdin,
             req,
-            wire,
             state,
             host_read_timeout_sec=host_read_timeout_sec,
             write_timeout_sec=write_timeout_sec,
@@ -790,7 +786,7 @@ class PythonWorkerManager:
             text = message if isinstance(message, str) and message else "Invalid pickle request"
             log.warning("Python worker rejected the request frame (worker kept): %s", text)
             return self._err("WORKER_IPC_ERROR", text)
-        req_id = wire.get("id")
+        req_id = req.request_id
         if response.get("id") != req_id:
             # A terminal frame must carry this request's id, or one cell would
             # consume another cell's result. A mismatch means the pipe is out of
@@ -938,7 +934,7 @@ class PythonWorkerManager:
     def _read_response_bytes(
         self,
         stdout: IO[bytes],
-        timeout_sec: float | int,
+        timeout_sec: float,
         cancel: SendCancellation | None = None,
     ) -> bytes | FailedAfterStart:
         return self._read_frame_bytes(stdout, timeout_sec, cancel=cancel)
@@ -946,7 +942,7 @@ class PythonWorkerManager:
     def _read_frame_bytes(
         self,
         stdout: IO[bytes],
-        timeout_sec: float | int,
+        timeout_sec: float,
         cancel: SendCancellation | None = None,
         *,
         deadline: float | None = None,
@@ -980,7 +976,7 @@ class PythonWorkerManager:
     def _read_response_with_heartbeats(
         self,
         stdout: IO[bytes],
-        timeout_sec: float | int,
+        timeout_sec: float,
         grace_sec: float,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
         cancel: SendCancellation | None = None,
@@ -1087,8 +1083,7 @@ def _resolve_worker_python(
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Return (exe, error_response) for the configured venv / LO interpreter.
 
-    Config is process-global (``get_config``). Callers that still have a
-    UNO context pass it to ``run_code_in_user_venv``, not here.
+    Config is process-global (``get_config``), so no UNO context is needed.
     """
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     embeddings = pool == WORKER_POOL_EMBEDDINGS
@@ -1106,7 +1101,7 @@ def _resolve_worker_python(
             prefix = "Embeddings venv not configured or invalid" if embeddings else "No python executable found under configured venv"
             return None, _worker_error("VENV_NOT_FOUND", f"{prefix}: {venv_dir!r}")
         which = "embeddings venv" if embeddings else "venv"
-        log.debug("run_venv_code: using %s interpreter under %s", which, venv_dir)
+        log.debug("worker python: using %s interpreter under %s", which, venv_dir)
         return exe, None
     exe = resolve_libreoffice_python()
     if not exe:
@@ -1116,11 +1111,11 @@ def _resolve_worker_python(
             "Set scripting.python_venv_path in Settings → Python for a dedicated venv, or fix the LibreOffice install.",
         )
 
-    log.debug("run_venv_code: using process interpreter %s (no venv path set)", exe)
+    log.debug("worker python: using process interpreter %s (no venv path set)", exe)
     return exe, None
 
 
-def _get_worker_manager(
+def get_worker_manager(
     *,
     pool: str = WORKER_POOL_DEFAULT,
 ) -> tuple[PythonWorkerManager | None, dict[str, Any] | None]:
@@ -1173,7 +1168,7 @@ def run_code_in_user_venv(
     if not action and not (code or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No code provided.")
 
-    manager, err = _get_worker_manager(pool=worker_pool)
+    manager, err = get_worker_manager(pool=worker_pool)
     if manager is None:
         assert err is not None
         return err
@@ -1188,7 +1183,7 @@ def run_code_in_user_venv(
         extra_modules = get_config("scripting.python_extra_modules")
         sandbox_policy = {
             "network": allow_network,
-            "files": allow_files or allow_os,
+            "files": allow_files,
             "os": allow_os,
             "extra_modules": extra_modules,
         }
@@ -1224,10 +1219,10 @@ def reset_python_session(
 
     A missing or exited child returns {"status": "ok"} and does not spawn.
     """
-    if not (session_id or "").strip():
+    if not session_id.strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")
 
-    manager, err = _get_worker_manager()
+    manager, err = get_worker_manager()
     if manager is None:
         assert err is not None
         return err
@@ -1251,9 +1246,10 @@ def reset_python_session(
 def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
     """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model
     if embeddings pool). Safe to call from a background thread."""
-    manager, err = _get_worker_manager(pool=pool)
+    manager, err = get_worker_manager(pool=pool)
     if manager is None:
-        log.warning("warm_venv_worker skipped for pool %s: %s", pool, (err or {}).get("message"))
+        assert err is not None
+        log.warning("warm_venv_worker skipped for pool %s: %s", pool, err.get("message"))
         return
     manager.warm()
 
@@ -1287,6 +1283,7 @@ def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
 __all__ = [
     "ExecRequest",
     "PythonWorkerManager",
+    "get_worker_manager",
     "parse_worker_stdout_frame",
     "reset_python_session",
     "run_code_in_user_venv",

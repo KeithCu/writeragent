@@ -27,12 +27,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# master-branch raw.githubusercontent.com had no digest, so a swapped body was
-# imported into the LibreOffice process. Pin the commit and check sha256 before
-# the partial replaces a host-mapped native.
+# Downloads are pinned to one commit and checked against _NATIVE_SHA256 before
+# the partial replaces a native that LibreOffice will import.
 _CONTRIB_COMMIT = "c8c615bfb5ed95936bae478fe3535677fa51accb"
 _CONTRIB_BASE_URL = f"https://raw.githubusercontent.com/KeithCu/writeragent/{_CONTRIB_COMMIT}/contrib/"
-# urlopen's default is no timeout, so a stalled native download blocked the caller.
+# urlopen has no default timeout; this bounds a stalled download.
 _NATIVE_DOWNLOAD_TIMEOUT_SEC = 60
 _MAX_NATIVE_BYTES = 1_048_576
 # sha256 of contrib blobs at _CONTRIB_COMMIT (keys do not overlap).
@@ -89,8 +88,7 @@ def _remove_quiet(path: str) -> None:
     """Remove *path*. OSError means it is already gone or still mapped.
 
     A loaded Windows ``.pyd`` or an open partial cannot be deleted yet.
-    The next startup sweep tries again. This swallows the same OSError
-    the inline handlers swallowed, and it does not log.
+    The next startup sweep tries again, so the OSError is dropped without a log line.
     """
     try:
         os.remove(path)
@@ -191,7 +189,6 @@ def ensure_native_binaries_on_path() -> None:
     _prepend_dir(os.path.join(contrib_dir, "vec_pack"))
 
 
-
 def _atomic_replace_native(partial_path: str, dest_path: str) -> None:
     """Move *partial_path* onto *dest_path* without ever overwriting a live mapping.
 
@@ -246,8 +243,7 @@ def _download_url_to_file(
 
     Aborts once the body grows past ``_MAX_NATIVE_BYTES``. *expected_sha256*
     is checked on the partial before it replaces *dest_path*; a mismatch
-    leaves the previous file in place. Both are required and are checked
-    before the partial replaces the destination.
+    leaves the previous file in place.
     """
     # Weight: urllib.request loads http.client, ssl and email; only a download needs them.
     import urllib.error
