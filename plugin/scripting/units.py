@@ -53,8 +53,9 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
         message = str(result.get("message") or "Units helper failed.")
         return [[f"Units error ({code})"], [message]]
 
-    if "values" in result and isinstance(result["values"], list):
-        return ensure_rectangular_2d(result["values"])
+    values = result.get("values")
+    if isinstance(values, list):
+        return ensure_rectangular_2d(values)
 
     helper = str(result.get("helper") or "units")
     formatted = units_display_text(result)

@@ -14,8 +14,8 @@ from plugin.framework.errors import CalcError, UnoObjectError
 from plugin.calc.manipulator import (
     CellManipulator,
     WritePlan,
-    _delimited_text_message,
-    _parse_json_array_string,
+    delimited_text_message,
+    parse_json_array_string,
     _ref_named_ranges,
     _write_report,
     looks_numeric_text,
@@ -864,11 +864,11 @@ def test_plan_write_expands_2d_from_one_cell():
 
 
 def test_write_values_grid_cell_error_rejects_mixed_rows():
-    from plugin.calc.manipulator import _write_values_grid_cell_error
+    from plugin.calc.manipulator import write_values_grid_cell_error
 
-    assert _write_values_grid_cell_error([["a"], "b"]) is not None
-    assert _write_values_grid_cell_error([{"x": 1}]) is not None
-    assert _write_values_grid_cell_error([["a", True]]) is None
+    assert write_values_grid_cell_error([["a"], "b"]) is not None
+    assert write_values_grid_cell_error([{"x": 1}]) is not None
+    assert write_values_grid_cell_error([["a", True]]) is None
 
 
 @pytest.mark.parametrize(("v_align", "expected"), [("top", 1), ("center", 2), ("bottom", 3)])
@@ -936,37 +936,37 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
 class TestFormulaParsingLogic:
     def test_parse_json_array(self):
         s = '["A"; "B"; "C"]'
-        assert _parse_json_array_string(s) == ["A", "B", "C"]
+        assert parse_json_array_string(s) == ["A", "B", "C"]
 
     def test_complex_formula_in_json_array(self):
         s = '["Highest Consumer"; "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]'
         # Ensure the semicolon inside the formula is NOT replaced by a comma
-        result = _parse_json_array_string(s)
+        result = parse_json_array_string(s)
         assert result == ["Highest Consumer", "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]
 
     def test_formula_not_split(self):
         # Should return None so it's treated as a single formula string
-        assert _parse_json_array_string("=SUM(A1;A2)") is None
+        assert parse_json_array_string("=SUM(A1;A2)") is None
 
     def test_single_value_not_split(self):
-        assert _parse_json_array_string("Plain text") is None
-        assert _parse_json_array_string("Name;Age;Salary") is None
+        assert parse_json_array_string("Plain text") is None
+        assert parse_json_array_string("Name;Age;Salary") is None
 
     def test_nested_json_arrays(self):
         s = '[["r1c1"; "r1c2"]; ["r2c1"; "r2c2"]]'
-        assert _parse_json_array_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
+        assert parse_json_array_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
 
     def test_unicode_and_emoji(self):
         s = '["Česká"; "Republika"; "📈"]'
-        assert _parse_json_array_string(s) == ["Česká", "Republika", "📈"]
+        assert parse_json_array_string(s) == ["Česká", "Republika", "📈"]
 
     def test_quoted_semicolon_in_formula_json(self):
         s = '["=IF(A1=\\";\\"; 1; 0)"]'
-        assert _parse_json_array_string(s) == ['=IF(A1=";"; 1; 0)']
+        assert parse_json_array_string(s) == ['=IF(A1=";"; 1; 0)']
 
     def test_trailing_spaces_in_json(self):
         s = '  [  "A"  ;  "B"  ]  '
-        assert _parse_json_array_string(s) == ["A", "B"]
+        assert parse_json_array_string(s) == ["A", "B"]
 
 
 @pytest.mark.parametrize(
@@ -986,7 +986,7 @@ class TestFormulaParsingLogic:
     ],
 )
 def test_delimited_text_message_refuses_ambiguous_text(s: str, single_cell: bool, refused: bool):
-    msg = _delimited_text_message("A1", s, single_cell=single_cell)
+    msg = delimited_text_message("A1", s, single_cell=single_cell)
     assert (msg is not None) is refused
 
 
@@ -1754,7 +1754,7 @@ def test_ordinary_nested_py_still_plans_as_cells() -> None:
 
 def test_free_block_right_of_skips_wide_tall_data_and_keeps_one_column() -> None:
     from plugin.calc.manipulator import _refuse_circular_py
-    from plugin.calc.python.cell_discovery import py_formula_or_none
+    from plugin.calc.python.formula_edit import py_formula_or_none
 
     sheet = MagicMock()
     sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",),)

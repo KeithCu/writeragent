@@ -244,6 +244,50 @@ def test_web_search_preview_shown_before_approval_returns():
     assert "Tool: web_search" in chat_lines[0]
 
 
+def test_web_research_tool_call_handler_redacts_thinking_arguments():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    thinking_lines: list[str] = []
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        browser=None,
+        status_callback=None,
+        append_thinking_callback=thinking_lines.append,
+        approval_callback=None,
+        chat_append_callback=None,
+        outer_query="Check docs",
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        if tool_call_handler:
+            tool_call_handler(
+                ToolCall(
+                    name="visit_webpage",
+                    arguments={"url": "https://example.com/docs", "api_key": "supersecret123"},
+                    id="t1",
+                )
+            )
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "Check docs", None, params)
+
+    joined = "".join(thinking_lines)
+    assert "Running tool: visit_webpage with " in joined
+    assert "supersecret123" not in joined
+    assert "<redacted>" in joined
+
+
 def test_web_search_reject_keeps_preview_in_chat():
     chat_lines: list[str] = []
 

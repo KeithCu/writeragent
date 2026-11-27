@@ -5,10 +5,10 @@
 
 """Pure state machine and effect definitions for the tool-calling loop.
 
-This module contains only pure state transitions and effect descriptions.
-No UNO calls, no I/O, no UI formatting, and no safe_json_loads parsing.
-UI formatting and side effects are performed by the action interpreter in
-plugin.chatbot.tool_loop_actions.
+``next_state`` contains only pure state transitions and effect descriptions:
+no UNO calls, no I/O, no UI formatting, and no JSON parsing. ``as_dict`` is
+a helper for callers. UI formatting and side effects are performed by the
+action interpreter in plugin.chatbot.tool_loop_actions.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Literal, Optional, NamedTuple, TypeVar, asse
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
 from plugin.framework.i18n import _
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.service import BaseState, FsmTransition
 
 SendOutcome = Literal["ready", "error", "stopped"]
@@ -44,8 +45,6 @@ def as_dict(value: object) -> dict[str, Any]:
     if type(value) is dict:
         return cast("dict[str, Any]", value)
     if isinstance(value, (str, bytes)):
-        from plugin.framework.json_utils import safe_json_loads
-
         parsed = safe_json_loads(value)
         if type(parsed) is dict:
             return cast("dict[str, Any]", parsed)
@@ -255,6 +254,7 @@ _TRUNCATION_BANNERS: dict[str, str] = {
     "length": "[Response truncated -- the model ran out of tokens...]",
     "content_filter": "[Content filter: response was truncated.]",
 }
+NO_TEXT_FROM_MODEL_BANNER = "[No text from model; any tool changes were still applied.]"
 
 _T = TypeVar("_T")
 
@@ -373,7 +373,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n" + banner + "\n"))
                     effects.append(AddMessageEffect(role=MessageRole.ASSISTANT, content=banner))
                 else:
-                    banner = "[No text from model; any tool changes were still applied.]"
+                    banner = NO_TEXT_FROM_MODEL_BANNER
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n" + banner + "\n"))
                     effects.append(
                         ToolLoopUIEffect(

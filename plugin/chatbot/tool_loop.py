@@ -19,7 +19,7 @@ import inspect
 import dataclasses
 import os
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple, cast
 
 if TYPE_CHECKING:
     from plugin.chatbot.chat_session import ChatSession
@@ -80,6 +80,7 @@ from plugin.chatbot.tool_loop_actions import (
     session_for_turn,
     spawn_queue,
     take_stop_partial,
+    typed_api_key,
 )
 
 from plugin.chatbot.tool_loop_state import (
@@ -97,6 +98,14 @@ from plugin.chatbot.compaction import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _BoundSpawn(NamedTuple):
+    turn: TurnController | None
+    session: ChatSession | None
+    scope: SendCancellation | None
+    emit: Callable[[Any], None]
+    stopped_for_this_send: Callable[[], bool]
 
 
 class StreamErrorOutcome(Enum):
@@ -298,7 +307,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
             else:
                 turn_session.add_user_message(combined)
             turn.active_query_text = combined
-            host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num, query_text=combined)
+            host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num)
             return StreamErrorOutcome.SPAWNED
         except Exception:
             log.exception("STT fallback after native-audio error failed")
@@ -340,6 +349,7 @@ def _append_user_message_for_send(
     def _tag_transcript(msg: dict[str, Any]) -> None:
         if user_transcript_text:
             msg["_transcript_text"] = user_transcript_text
+
     if b64_image or panel.audio_wav_path:
         content_list: list[dict[str, Any]] = []
         if query_text:
@@ -594,9 +604,8 @@ class ToolCallingMixin:
         if not skip_append_user:
             # Check for vision capability and selected image base64.
             # `model` in this function is the UNO document, not the model id.
-            # get_api_config stores the chat model as "model". Reading
-            # "text_model" was always empty, so has_native_vision returned
-            # False and a selected image was never attached.
+            # get_api_config stores the chat model as "model"; there is no
+            # "text_model" key.
             # _do_send runs on the UI thread and the config has no key yet.
             # On the UI thread has_native_vision answers from memory and never
             # reads the keyring. Capture unless it is a known no; round 0 of
@@ -667,9 +676,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
 
-    def _bind_spawn(
-        self, client: LlmClient
-    ) -> tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]]:
+    def _bind_spawn(self, client: LlmClient) -> _BoundSpawn:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
@@ -681,11 +688,11 @@ class ToolCallingMixin:
         def stopped_for_this_send() -> bool:
             return is_cancelled(bound_scope) or client.stopped() is True
 
-        return turn, bound_session, bound_scope, emit, stopped_for_this_send
+        return _BoundSpawn(turn, bound_session, bound_scope, emit, stopped_for_this_send)
 
     def _run_stream_worker(
         self,
-        bound_spawn: tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]],
+        bound_spawn: _BoundSpawn,
         *,
         batched: BatchingStreamQueue,
         client: LlmClient,
@@ -732,9 +739,8 @@ class ToolCallingMixin:
             if strip_round_0_image:
                 image_msg = _last_user_message_with_image(session)
                 if image_msg is not None:
-                    client_config = getattr(client, "config", None)
-                    typed_key = str(client_config.get("api_key") or "").strip() if isinstance(client_config, dict) else ""
-                    if model_fetcher.has_native_vision(turn.text_model, turn.endpoint, api_key_override=typed_key or None) is not True:
+                    typed_key = typed_api_key(client)
+                    if model_fetcher.has_native_vision(turn.text_model, turn.endpoint, api_key_override=typed_key) is not True:
                         _strip_user_image(session, image_msg, turn.active_query_text or "")
 
             with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
@@ -770,7 +776,7 @@ class ToolCallingMixin:
             log.exception(error_log_msg)
             emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
-    def _spawn_llm_worker(self, batched: BatchingStreamQueue, client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
+    def _spawn_llm_worker(self, batched: BatchingStreamQueue, client: LlmClient, max_tokens: int, tools: list[dict[str, Any]], round_num: int, force_compact: bool = False) -> None:
         """Spawn a background thread that streams the LLM response into the batcher."""
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
@@ -815,7 +821,7 @@ class ToolCallingMixin:
     def _spawn_final_stream(
         self,
         batched: BatchingStreamQueue,
-        client: "LlmClient",
+        client: LlmClient,
         max_tokens: int,
         tools: list[dict[str, Any]] | None = None,
     ) -> None:
@@ -988,8 +994,8 @@ class ToolCallingMixin:
 
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death
-        # is not overflow — compact-and-retry on a dead llama-server is worse
-        # than today's sentence. Kill switch offs this path too.
+        # is not overflow: a dead llama-server gets the plain crash sentence below,
+        # not a compact-and-retry. chat_compaction_enabled=False turns this path off too.
         if get_config("chat_compaction_enabled"):
             stopped = bool(self._panel.stop_requested)
             live_turn = running_turn(self._panel)
@@ -1015,7 +1021,6 @@ class ToolCallingMixin:
                     live_turn.active_max_tokens,
                     live_turn.active_tools or [],
                     self._sm_state.round_num,
-                    query_text=live_turn.active_query_text,
                     force_compact=True,
                 )
                 return StreamErrorOutcome.SPAWNED
@@ -1024,8 +1029,7 @@ class ToolCallingMixin:
         if is_local_model_server_crash(crash_blob):
             display = err_msg
             if (
-                not isinstance(display, str)
-                or display.lstrip()[:1] in "{["
+                display.lstrip()[:1] in "{["
                 or "HTTP Error" in display
                 or not is_local_model_server_crash(display)
             ):
@@ -1061,7 +1065,7 @@ class ToolCallingMixin:
             self._panel._events.begin_inline_web_approval(item[1], item[3])
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", item[2])
 
-    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None:
+    def _start_tool_calling_async(self, client: LlmClient, model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None:
         """Tool-calling event loop: single queue, main-thread drain.
 
         Background threads push messages onto q. The main thread drains via
@@ -1069,7 +1073,6 @@ class ToolCallingMixin:
         batches; the blocking fallback still pumps with ``pump_ui_idle``.
         """
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
-        # Overflow retry counters live on the fresh per-send TurnController.
         self._panel._append_response("\nAI: ")
 
         def _get_async_tools() -> frozenset[str]:
@@ -1083,7 +1086,7 @@ class ToolCallingMixin:
             )
 
         async_tool_default = frozenset({"web_research", "image_generate"})
-        async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=async_tool_default) or async_tool_default
+        async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=async_tool_default)
 
         self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 
@@ -1116,8 +1119,6 @@ class ToolCallingMixin:
             sig = inspect.signature(execute_tool_fn)
             turn.active_supports_status = "status_callback" in sig.parameters or "kwargs" in sig.parameters
 
-            # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
-
             self._refresh_active_tools_for_session()
 
             # run_stream_drain_loop must flush the batcher on Stop so one interval of text is not lost.
@@ -1140,7 +1141,6 @@ class ToolCallingMixin:
                     turn.active_max_tokens,
                     turn.active_tools or [],
                     self._sm_state.round_num,
-                    query_text=turn.active_query_text,
                 ),
             )
 

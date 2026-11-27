@@ -114,7 +114,8 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
         try:
             # The converter loads only once the file on disk is an Excel-Python workbook.
             from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
-            from plugin.calc.excel_py_convert.convert import convert_to_dag, store_dag_meta_on_doc
+            from plugin.calc.excel_py_convert.convert import convert_to_dag
+            from plugin.calc.excel_py_convert.uno_snapshot import store_dag_meta_on_doc
 
             report = convert_to_dag(path)
             if not report.ok:

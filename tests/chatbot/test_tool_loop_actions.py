@@ -191,8 +191,8 @@ class FakeHost:
     def _refresh_active_tools_for_session(self):
         self.refreshed_tools += 1
 
-    def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
-        self.spawned_llm.append((q, client, max_tokens, tools, round_num, query_text))
+    def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num):
+        self.spawned_llm.append((q, client, max_tokens, tools, round_num))
 
     def _spawn_final_stream(self, q, client, max_tokens):
         del q, client, max_tokens
@@ -672,6 +672,7 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     class Host:
         def __init__(self) -> None:
             self.session = Session()
+            self._orphan_send_outcome = None
 
     host = Host()
     turn = begin_send_turn(host)
@@ -721,6 +722,7 @@ class _TurnHost:
     def __init__(self, messages=None, session=_DEFAULT_SESSION) -> None:
         self.session = _TurnSession(messages) if session is _DEFAULT_SESSION else session
         self._turn = None
+        self._orphan_send_outcome = None
 
 
 def test_turn_take_open_text_folds_stripper_tail():
@@ -833,6 +835,7 @@ def test_stop_keeps_open_row_instead_of_no_response():
     class Host:
         def __init__(self) -> None:
             self.session = Session()
+            self._orphan_send_outcome = None
 
     host = Host()
     turn = begin_send_turn(host)
@@ -1245,6 +1248,7 @@ class _StopHost:
             session = ChatSession()
             session.add_user_message("q")
         self.session = session
+        self._orphan_send_outcome = None
 
 
 def test_stop_mid_tool_round_keeps_one_result_per_call():
@@ -1340,6 +1344,7 @@ def test_cleanup_audio_uses_spawn_captured_model(monkeypatch, tmp_path):
         def __init__(self):
             self.session = None
             self.audio_wav_path = str(audio_file)
+            self._orphan_send_outcome = None
 
     host = Host()
 
@@ -1370,6 +1375,7 @@ def test_cleanup_audio_handles_remove_failure(monkeypatch):
         def __init__(self):
             self.session = None
             self.audio_wav_path = "/nonexistent/path/to/test.wav"
+            self._orphan_send_outcome = None
 
     host = Host()
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.set_native_audio_support", lambda *a, **k: None)
@@ -1425,6 +1431,7 @@ def test_close_stopped_second_call_writes_nothing_more():
     class Host:
         def __init__(self, session=None) -> None:
             self.session = session if session is not None else Session()
+            self._orphan_send_outcome = None
 
     # Empty turn
     host = Host()
@@ -1533,6 +1540,7 @@ def test_begin_send_turn_snapshots_message_count():
     class Host:
         def __init__(self, session):
             self.session = session
+            self._orphan_send_outcome = None
 
     session = MagicMock()
     session.messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
@@ -1557,6 +1565,7 @@ def test_stored_user_row_ignores_earlier_user_rows():
         def __init__(self, messages):
             self.session = MagicMock()
             self.session.messages = messages
+            self._orphan_send_outcome = None
 
     host = Host([{"role": "user", "content": "earlier"}])
     turn = begin_send_turn(host)
@@ -1711,6 +1720,7 @@ def test_turn_session_or_stop():
     class Host:
         def __init__(self):
             self.session = MagicMock()
+            self._orphan_send_outcome = None
 
     host = Host()
     session = turn_session_or_stop(host)

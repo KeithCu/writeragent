@@ -34,6 +34,7 @@ def test_confirm_unsaved_cell_edit_maps_yes_no_cancel():
         assert confirm_unsaved_cell_edit(ctx, "A1") == "discard"
         box.execute.return_value = 0
         assert confirm_unsaved_cell_edit(ctx, "A1") == "cancel"
+        assert box.dispose.call_count == 3
 
 
 def test_monaco_cell_open_delegates_unsaved_guard_to_launch():

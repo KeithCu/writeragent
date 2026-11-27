@@ -16,7 +16,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld, parse_a1_range
-from plugin.calc.manipulator import _sort_unchanged_message
+from plugin.calc.manipulator import sort_unchanged_message
 from string_eval_tools import dispatch_string_tool
 
 _BOX = {"x": 1000, "y": 1000, "width": 2000, "height": 1000}
@@ -458,7 +458,7 @@ def test_range_sort_reports_no_rows_moved() -> None:
     calc = CalcWorld("Item\tVal\nA\t10\nB\t20\nC\t30")
     res = calc.sort_range(range=["A1:B4"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
-    assert res["message"] == _sort_unchanged_message("A1:B4", [(1, True)])
+    assert res["message"] == sort_unchanged_message("A1:B4", [(1, True)])
 
     res_moved = calc.sort_range(range=["A1:B4"], sort_column=1, ascending=False, has_header=True)
     assert res_moved["status"] == "ok"

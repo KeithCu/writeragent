@@ -152,12 +152,10 @@ class ErrorDetector:
 
     bridge: CalcBridge
     inspector: CellInspector
-    ctx: Any
 
-    def __init__(self, bridge: CalcBridge, inspector: CellInspector, ctx: Any = None) -> None:
+    def __init__(self, bridge: CalcBridge, inspector: CellInspector) -> None:
         self.bridge = bridge
         self.inspector = inspector
-        self.ctx = ctx
 
     @staticmethod
     def get_error_type(cell: Any) -> dict[str, Any]:
@@ -246,7 +244,7 @@ class ErrorDetector:
 
         dependency_chain = None
         try:
-            dependency_chain = fetch_formula_dep_chain(self.bridge.doc, self.ctx, address)
+            dependency_chain = fetch_formula_dep_chain(self.bridge.doc, address)
         except Exception as e:
             log.debug("FormulaDepChain unavailable for %s: %s", address, e)
 

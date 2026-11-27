@@ -1,18 +1,25 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Snapshot DAG-style =PY cells from a live LibreOffice Calc document (UNO) for Excel export."""
+"""Snapshot DAG-style =PY cells from a live LibreOffice Calc document (UNO) for Excel export.
+
+Also owns the ``ExcelPyDagMeta`` udprop that auto-open writes and the save snapshot reads.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import format_address
-from plugin.calc.excel_py_convert.convert import cell_meta_key, load_dag_meta_from_doc
+from plugin.calc.calc_utils import CELL_FLAG_FORMULA
+from plugin.calc.excel_py_convert.convert import cell_meta_key, dag_report_to_meta_payload
 from plugin.calc.excel_py_convert.models import DagCellMeta, DagFormulaItem, find_sheet_ci
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
 from plugin.calc.python.formula_edit import CALC_PYTHON_FN, PyFormula, escape_code_for_formula
+from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.errors import uno_read
+from plugin.framework.json_utils import safe_json_loads
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport
@@ -22,6 +29,24 @@ log = logging.getLogger(__name__)
 
 FORMULA_SCAN_CHUNK_ROWS = 2048
 FORMULA_SCAN_CAP = 2_000_000
+
+# Udprop: per-cell JSON so auto-save can restore return_type / data_args / excel_deps.
+EXCEL_PY_DAG_META_PROP = "ExcelPyDagMeta"
+
+
+def store_dag_meta_on_doc(doc: Any, report: ConversionReport) -> None:
+    """Persist DAG conversion meta on *doc* for later native Excel export on save."""
+    payload = dag_report_to_meta_payload(report)
+    set_document_property(doc, EXCEL_PY_DAG_META_PROP, json.dumps(payload, separators=(",", ":")))
+
+
+def load_dag_meta_from_doc(doc: Any) -> dict[str, Any]:
+    """Load ``ExcelPyDagMeta`` JSON map, or ``{}``."""
+    raw = get_document_property(doc, EXCEL_PY_DAG_META_PROP)
+    if not raw:
+        return {}
+    data = safe_json_loads(raw, default={})
+    return data if isinstance(data, dict) else {}
 
 
 def _iter_sheet_formulas(sheet: Any, formula_cells: Any):
@@ -48,9 +73,6 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     When ``ExcelPyDagMeta`` udprop is present (set on auto-open), uses stored
     ``return_type`` / ``data_args``.
     """
-    # UNO constant; resolves only once pyuno is loaded.
-    from com.sun.star.sheet import CellFlags
-
     meta_map = load_dag_meta_from_doc(doc)
     items: list[DagFormulaItem] = []
 
@@ -75,7 +97,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     for sheet_name, sheet in named_sheets:
         if sheet_name.startswith(CODE_SHEET_PREFIX):
             continue
-        formula_cells = sheet.queryContentCells(CellFlags.FORMULA)
+        formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
         if formula_cells is None:
             continue
         for row, col, formula in _iter_sheet_formulas(sheet, formula_cells):

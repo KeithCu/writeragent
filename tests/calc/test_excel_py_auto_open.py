@@ -334,7 +334,7 @@ def test_maybe_convert_uno_applies_dag_and_preserves_modified_flag(tmp_path: Pat
     with (
         patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.doc.udprops.get_document_property", return_value="1"),
-        patch("plugin.doc.udprops.set_document_property") as set_prop,
+        patch("plugin.calc.excel_py_convert.uno_snapshot.set_document_property") as set_prop,
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", side_effect=_dirty_doc) as apply_uno,
     ):
@@ -690,7 +690,7 @@ def test_maybe_convert_excel_py_document_meta_store_failure_still_converts(tmp_p
         patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
+        patch("plugin.calc.excel_py_convert.uno_snapshot.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
     ):
         result = maybe_convert_excel_py_document(doc)
         assert result is True

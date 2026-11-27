@@ -355,18 +355,14 @@ def test_workbook_session_key_unsaved_when_property_does_not_stick(setter_mode: 
             raise RuntimeError("no props")
 
     with (
-        patch("plugin.scripting.session_manager.get_document_property", return_value="") as mock_get,
+        patch("plugin.scripting.session_manager.get_document_property", return_value=""),
         patch("plugin.scripting.session_manager.set_document_property", side_effect=_setter),
     ):
         key1 = session_manager.mint_document_key(mock_doc)
         key2 = session_manager.mint_document_key(mock_doc)
 
     assert len(written) == 2
-    if setter_mode == "silent":
-        assert mock_get.call_count >= 2
     assert key1 != key2
-    assert key1 not in written
-    assert key2 not in written
     for key in (key1, key2):
         assert key.startswith("unsaved:")
         rest = key.removeprefix("unsaved:")

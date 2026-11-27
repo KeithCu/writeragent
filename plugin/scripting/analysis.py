@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Analysis helper constants (host / LO process).
+"""Analysis helper facade (host / LO process).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.analysis`` via ``__getattr__``.
 """

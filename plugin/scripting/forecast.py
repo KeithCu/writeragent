@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Forecast helper host RPC and Calc egress (LO host).
+"""Forecast helper facade and Calc egress (LO host).
 
 Compute is lazy-loaded from ``plugin.scripting.venv.forecast`` via ``__getattr__``.
 """

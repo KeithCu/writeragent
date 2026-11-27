@@ -462,7 +462,7 @@ class TreeService(ServiceBase):
             hint = "Bookmark '%s' not found." % bookmark_name
             names = [str(n) for n in bookmarks.getElementNames()]
             details = name_miss_details(bookmark_name, names, "bookmark_list")
-            if bookmark_name.startswith("_mcp_"):
+            if is_mcp_bookmark_name(bookmark_name):
                 hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
                 existing = [n for n in names if is_mcp_bookmark_name(n)]
                 if existing:

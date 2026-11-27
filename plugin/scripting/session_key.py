@@ -66,8 +66,7 @@ class SessionKey:
     def with_init_suffix(self) -> SessionKey:
         """Return the init-script companion id for this session (sets ``init=True``).
 
-        Idempotent when ``init`` is already set (``calc:x:init`` stays ``calc:x:init``;
-        older code that concatenated ``:init`` could yield ``:init:init``). Compute
+        Idempotent: ``calc:x:init`` stays ``calc:x:init``. Compute
         rejects caller ids ending in ``:init``; sandbox reset uses the flag, not stacked suffixes.
         """
         return replace(self, init=True)

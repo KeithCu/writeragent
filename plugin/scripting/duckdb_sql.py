@@ -9,6 +9,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.duckdb_sql`` via ``__getattr
 
 from __future__ import annotations
 
+import functools
 import json
 from typing import Any
 
@@ -64,7 +65,7 @@ def _sql_row_cap_note() -> str:
 def _template_body(helper: str, params: dict[str, Any]) -> str:
     note = _sql_row_cap_note()
     params_json = json.dumps(params, separators=(",", ":"))
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper)
+    desc = _HELPER_DESCRIPTIONS[helper]
     if helper == "query_sheet_sql":
         how_to = "# Set the Data range in the toolbar (or select cells), then Run.\n"
         call_args = (
@@ -94,14 +95,12 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
 def get_sql_script_templates() -> dict[str, str]:
     """Return built-in SQL helper templates for the Run Python Script picker."""
-    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
-
+    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS[helper])) for helper in sorted(SQL_HELPER_NAMES)}
 
 
 def _deal_sql_result_value_ok_pytest(value: object) -> bool:
-    # A SQL error string is longer than a token. The cap raised
-    # PreContractError instead of is_sql_result returning a bool.
-    # ``value`` is unused. CrossHair keeps the short dict.
+    # Any value is in domain: is_sql_result must return False, not raise, for a long SQL error string.
+    # CrossHair swaps in a short-dict domain (scripts/crosshair_domains.py).
     return True
 
 
@@ -114,22 +113,9 @@ def is_sql_result(value: Any) -> bool:
     return is_status_helper_result(value, SQL_RESULT_HELPERS, SQL_RESULT_ERROR_CODES)
 
 
-def insert_sql_result_into_calc(
-    doc: Any,
-    uno_ctx: Any,
-    result: dict[str, Any],
-    *,
-    start_col: int | None = None,
-    start_row: int | None = None,
-) -> int:
-    """Write formatted SQL output starting at the selection (or given anchor)."""
-    return insert_helper_result_into_calc(
-        doc,
-        uno_ctx,
-        result,
-        start_col=start_col,
-        start_row=start_row,
-        domain_label="SQL",
-        default_helper="query_folder_sql",
-        failed_message="SQL query failed.",
-    )
+insert_sql_result_into_calc = functools.partial(
+    insert_helper_result_into_calc,
+    domain_label="SQL",
+    default_helper="query_folder_sql",
+    failed_message="SQL query failed.",
+)

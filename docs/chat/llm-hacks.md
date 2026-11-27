@@ -5,8 +5,8 @@ This document tracks technical workarounds and "hacks" implemented to handle the
 ## 1. Delimited text in `write_range`
 **Problem**: A plain string in `write_range` is one cell value. If a model sends a whole table or delimited row as one string (with line breaks, `,`, or `;`), it would silently land in a single cell or repeat across the range with `status: ok`.
 
-### [Workaround] Refusal Guard (`_delimited_text_message`)
-In `plugin/calc/manipulator.py`, `_delimited_text_message` refuses plain (non-formula, non-JSON) strings with `INVALID_PARAM` when:
+### [Workaround] Refusal Guard (`delimited_text_message`)
+In `plugin/calc/manipulator.py`, `delimited_text_message` refuses plain (non-formula, non-JSON) strings with `INVALID_PARAM` when:
 - the string contains `\n` (any target); or
 - the string contains `,` or `;` and the target has more than one cell.
 
@@ -15,8 +15,8 @@ Formulas (leading `=` after strip) are exempt so `=PY` code with line breaks and
 ## 2. JSON-string arrays
 **Problem**: LLMs sometimes send a 1-D or 2-D array serialized as a JSON string (e.g., `'["Name"; "Age"; "Salary"]'`) instead of a native JSON array.
 
-### [Workaround] `_parse_json_array_string`
-`_parse_json_array_string` in `plugin/calc/manipulator.py` parses strings starting with `[` as JSON arrays (normalizing Calc-style `;` separators outside quotes to `,`). The old one-line `Name;Age;Salary` and multiline CSV splits were removed in favour of the `INVALID_PARAM` refusal above.
+### [Workaround] `parse_json_array_string`
+`parse_json_array_string` in `plugin/calc/manipulator.py` parses strings starting with `[` as JSON arrays (normalizing Calc-style `;` separators outside quotes to `,`). The old one-line `Name;Age;Salary` and multiline CSV splits were removed in favour of the `INVALID_PARAM` refusal above.
 
 **Preferred shape:** Tool schemas advertise a 2-D native array (one inner array per row).
 
@@ -24,7 +24,7 @@ Formulas (leading `=` after strip) are exempt so `=PY` code with line breaks and
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
 
 ### [Workaround] Character-Loop Normalization
-In `plugin/calc/manipulator.py`, `_parse_json_array_string` walks the string with a character loop tracking double-quoted strings and backslash escapes.
+In `plugin/calc/manipulator.py`, `parse_json_array_string` walks the string with a character loop tracking double-quoted strings and backslash escapes.
 - **Behavior**: This only replaces semicolons that are **not** inside double quotes with commas. This preserves semicolons inside formula strings while fixing the JSON structure.
 
 ## 4. Formula dialect acceptance
