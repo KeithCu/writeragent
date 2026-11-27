@@ -16,7 +16,7 @@ from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.calc_utils import CELL_FLAG_FORMULA
-from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.python.formula_edit import py_formula_or_none
 from plugin.calc.python.formula_locator_cache import iter_range_formula_texts
 from plugin.framework.errors import best_effort
 
@@ -61,15 +61,6 @@ def sheet_name_of(sheet: Any) -> str:
     if sheet is None:
         return ""
     return best_effort(lambda: sheet.getName(), "sheet name read failed", "")
-
-
-def py_formula_or_none(formula: str) -> PyFormula | None:
-    """Parse *formula* as ``=PY(...)`` or return None for non-PY formulas."""
-    # Every alias in formula_edit's table contains "PY", so the substring test
-    # skips the parser for the ordinary formulas a sheet is mostly made of.
-    if "PY" not in formula.upper():
-        return None
-    return PyFormula.parse(formula)
 
 
 def is_py_formula_text(formula: str) -> bool:

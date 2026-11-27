@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Excel Python-in-Excel ↔ DAG-style ``=PY`` conversion: offline stages and the udprop meta.
+"""Excel Python-in-Excel ↔ DAG-style ``=PY`` conversion: offline stages and the udprop meta payload.
 
 No single caller runs every stage. The four pipelines:
 
@@ -16,7 +16,9 @@ Excel → ``=PY``   ``convert_path`` → ``convert_to_dag``       open: ``has_ex
                   ``write_excel_python_xlsx``
 ================  ==========================================  ==============================================
 
-Per-cell rewrite rules are in ``to_dag.py`` and ``to_excel.py``.
+Per-cell rewrite rules are in ``to_dag.py`` and ``to_excel.py``. The ``ExcelPyDagMeta`` udprop
+read and write (``store_dag_meta_on_doc`` / ``load_dag_meta_from_doc``) are in ``uno_snapshot.py``,
+because they need UNO and the command-line converter loads this module without LibreOffice.
 """
 
 from __future__ import annotations
@@ -35,13 +37,8 @@ from plugin.calc.excel_py_convert.to_excel import (
     convert_dag_cells_to_excel,
     convert_dag_report_to_excel,
 )
-from plugin.framework.json_utils import safe_json_loads
 
 log = logging.getLogger(__name__)
-
-# Udprop: per-cell JSON so auto-save can restore return_type / data_args / excel_deps.
-EXCEL_PY_DAG_META_PROP = "ExcelPyDagMeta"
-
 
 def convert_to_dag(path: str | Path, *, best_effort: bool = False) -> ConversionReport:
     """Excel XLSX or JSON fixture → DAG-style conversion report.
@@ -85,27 +82,6 @@ def dag_report_to_meta_payload(report: ConversionReport) -> dict[str, Any]:
     Includes ``excel_deps`` for Table/ANCHORARRAY export fidelity — see models module doc.
     """
     return {cell_meta_key(c.sheet, c.cell): c.dag_meta() for c in report.cells if c.converted}
-
-
-def store_dag_meta_on_doc(doc: Any, report: ConversionReport) -> None:
-    """Persist DAG conversion meta on *doc* for later native Excel export on save."""
-    # udprops imports uno; the command-line converter loads this module without LibreOffice.
-    from plugin.doc.udprops import set_document_property
-
-    payload = dag_report_to_meta_payload(report)
-    set_document_property(doc, EXCEL_PY_DAG_META_PROP, json.dumps(payload, separators=(",", ":")))
-
-
-def load_dag_meta_from_doc(doc: Any) -> dict[str, Any]:
-    """Load ``ExcelPyDagMeta`` JSON map, or ``{}``."""
-    # udprops imports uno; the command-line converter loads this module without LibreOffice.
-    from plugin.doc.udprops import get_document_property
-
-    raw = get_document_property(doc, EXCEL_PY_DAG_META_PROP)
-    if not raw:
-        return {}
-    data = safe_json_loads(raw, default={})
-    return data if isinstance(data, dict) else {}
 
 
 def _items_from_json(data: Any) -> list[DagFormulaItem]:

@@ -25,7 +25,7 @@ def test_fetch_formula_dep_chain_uses_command_values(nav_side_effect):
     doc = CalcDocStub(command_values='{"commandValues": {"root": {"address": "B2"}}}')
 
     with patch("plugin.calc.formula_dep_chain.navigate_to_cell", side_effect=nav_side_effect) as nav:
-        chain = fetch_formula_dep_chain(doc, MagicMock(), "B2")
+        chain = fetch_formula_dep_chain(doc, "B2")
 
     nav.assert_called_once_with(doc, "B2")
     assert chain is not None
@@ -42,7 +42,7 @@ def test_fetch_formula_dep_chain_falls_back_to_formula_query(nav_side_effect):
         "plugin.calc.formula_dep_chain._precedents_via_formula_query",
         return_value=fallback,
     ):
-        chain = fetch_formula_dep_chain(doc, MagicMock(), "A1")
+        chain = fetch_formula_dep_chain(doc, "A1")
 
     assert chain == fallback
 
@@ -320,7 +320,7 @@ def test_cell_snapshot_quotes_sheet_name(sheet_name: str, expected_addr: str):
 
 def test_fetch_formula_dep_chain_preserves_sheet_name_case():
     doc = CalcDocStub(sheets=[CalcSheetStub("mySheet")], command_values='{"commandValues": {"root": {}}}')
-    chain = fetch_formula_dep_chain(doc, None, "mySheet.B2")
+    chain = fetch_formula_dep_chain(doc, "mySheet.B2")
     assert chain is not None
     assert chain["cell"] == "mySheet.B2"
 
@@ -332,7 +332,7 @@ def test_fetch_formula_dep_chain_ignores_non_json_command_values():
         "plugin.calc.formula_dep_chain._precedents_via_formula_query",
         return_value=fallback,
     ) as mock_fallback:
-        chain = fetch_formula_dep_chain(doc, None, "A1")
+        chain = fetch_formula_dep_chain(doc, "A1")
 
     assert chain is not None
     assert chain["source"] == "formula_query"
