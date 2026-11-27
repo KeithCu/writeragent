@@ -264,21 +264,15 @@ def _apply_pipeline_params(pipeline_options: Any, norm: DoclingPipelineParams) -
         acc_kwargs["device"] = norm.device
     if norm.num_threads > 0:
         acc_kwargs["num_threads"] = norm.num_threads
-    pipeline_options_mod = (
-        importlib.import_module("docling.datamodel.pipeline_options")
-        if (acc_kwargs or norm.table_mode == "fast")
-        else None
-    )
-    if acc_kwargs:
-        # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
-        # so a bad device raises ValueError (INVALID_PARAM).
-        assert pipeline_options_mod is not None
-        pipeline_options.accelerator_options = pipeline_options_mod.AcceleratorOptions(**acc_kwargs)
-
     table_opts = pipeline_options.table_structure_options
-    if norm.table_mode == "fast":
-        assert pipeline_options_mod is not None
-        table_opts.mode = pipeline_options_mod.TableFormerMode.FAST
+    if acc_kwargs or norm.table_mode == "fast":
+        pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
+        if acc_kwargs:
+            # Constructing (not assigning fields) runs Docling's AcceleratorOptions.validate_device,
+            # so a bad device raises ValueError (INVALID_PARAM).
+            pipeline_options.accelerator_options = pipeline_options_mod.AcceleratorOptions(**acc_kwargs)
+        if norm.table_mode == "fast":
+            table_opts.mode = pipeline_options_mod.TableFormerMode.FAST
     table_opts.do_cell_matching = norm.do_cell_matching
 
     layout_opts = pipeline_options.layout_options

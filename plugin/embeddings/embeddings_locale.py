@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import zipfile
+import zlib
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -77,7 +78,7 @@ def _odf_locale_from_meta_root(root: Element) -> str | None:
 def _read_zip_member(zf: zipfile.ZipFile, member: str) -> Element | None:
     try:
         return ET.fromstring(zf.read(member))
-    except (KeyError, ET.ParseError, zipfile.BadZipFile, OSError):
+    except (KeyError, ET.ParseError, zipfile.BadZipFile, zlib.error, OSError):
         log.debug("zip member read failed for %s", member, exc_info=True)
         return None
 

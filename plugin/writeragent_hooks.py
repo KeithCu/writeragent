@@ -85,10 +85,9 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     )
 
     def _filter_vision_tools(tool_list: list[Any], ctx: Any = None) -> list[Any]:
-        tools_copy = list(tool_list)
         if ctx is None:
-            return tools_copy
-        return filter_vision_specialized_tools(tools_copy, ctx)
+            return tool_list
+        return filter_vision_specialized_tools(tool_list, ctx)
 
     def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)

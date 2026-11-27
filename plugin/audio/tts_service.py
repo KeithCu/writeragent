@@ -1111,12 +1111,9 @@ def _kokoro_audio_file(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
-    *,
-    py_exe: str | None = None,
+    py_exe: str | None,
 ) -> str | None:
     """Write one Kokoro wav. Warm worker first, then kokoro_worker.py --once."""
-    if py_exe is None:
-        py_exe = resolve_kokoro_python()
     # Return before model download when no Kokoro python is configured so sentence mode can fall back to OS speech without pulling large files.
     if not py_exe:
         return None
@@ -1155,13 +1152,10 @@ def _piper_audio_file(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
-    *,
-    py_exe: str | None = None,
+    py_exe: str | None,
 ) -> str | None:
     """One Piper wav via CLI. Timeout scales with text length."""
     cancel = utt.scope
-    if py_exe is None:
-        py_exe = resolve_kokoro_python()
     if not py_exe:
         return None
     model_file = resolve_piper_model_file(
@@ -1249,8 +1243,7 @@ def _synthesize_sentence_clip(
     speed: float,
     on_status: Callable[[str], None] | None,
     utt: Utterance,
-    *,
-    py_exe: str | None = None,
+    py_exe: str | None,
 ) -> _ReadyClip | None:
     """Synthesize one sentence without playing it for sentence prefetch."""
     cancel = utt.scope

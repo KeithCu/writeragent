@@ -93,10 +93,10 @@ def resolve_kokoro_model_paths() -> tuple[Path, Path]:
     placed in that same directory if we can create a file there; if not, it
     points at ``<cache>/kokoro`` and the two paths may differ.
     """
-    model_path = _env_override("KOKORO_MODEL_PATH")
+    model_path = env_override("KOKORO_MODEL_PATH")
     if model_path is not None and not _is_usable_file(model_path):
         _warn_unusable_override("KOKORO_MODEL_PATH", model_path)
-    voices_path = _env_override("KOKORO_VOICES_PATH")
+    voices_path = env_override("KOKORO_VOICES_PATH")
     if voices_path is not None and not _is_usable_file(voices_path):
         _warn_unusable_override("KOKORO_VOICES_PATH", voices_path)
     model_found: Path | None = None
@@ -136,7 +136,7 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
     filename = _KOKORO_ENV_FILES.get(env_var)
     if filename is None:
         return True
-    override = _env_override(env_var)
+    override = env_override(env_var)
     if override is None:
         return True
     canonical = shared_cache_root().joinpath(*_KOKORO_CANONICAL) / filename
@@ -171,7 +171,7 @@ def _under_cache(relative: tuple[tuple[str, ...], ...]) -> tuple[Path, ...]:
     return tuple(root.joinpath(*parts) for parts in relative)
 
 
-def _env_override(name: str) -> Path | None:
+def env_override(name: str) -> Path | None:
     """Set env path, or None when the variable is missing or blank.
 
     A blank or whitespace variable is unset. ``~`` is expanded; a missing file stays that expanded path (no probe).

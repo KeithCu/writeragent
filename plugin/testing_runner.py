@@ -62,6 +62,7 @@ _OFFICE_STDERR_TAIL = 30
 class RunOptions:
     """CLI flags and filters for one harness invocation."""
 
+    # Suite/function substring or packet/case CLI filter tokens.
     filters: list[str] = field(default_factory=list)
     exact_function_names: list[str] = field(default_factory=list)
     soak_repeat: int = 1
@@ -164,6 +165,12 @@ class HarnessOffice:
             self.soffice_proc = None
 
     def reset_lifecycle_breadcrumb(self) -> None:
+        """Reset lifecycle breadcrumbs once per run, not per suite.
+
+        A DisposedException on the next factory open can come from the previous
+        suite's final close tearing down URP, so resetting per suite would hide
+        cross-suite URP deaths.
+        """
         self.lc = SimpleNamespace(**_LC_INITIAL)
         self.reset_death_signals()
 
@@ -431,7 +438,7 @@ def probe_uno_bridge(ctx: Any = None) -> str:
     if ctx is None:
         return "no_probe"
     getter = getattr(ctx, "getServiceManager", None)
-    if getter is None or not callable(getter):
+    if not callable(getter):
         return "no_probe"
     try:
         getter()
@@ -671,18 +678,17 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     return filters
 
 
-# Headless throwaway UserInstallation created by ``_soffice_bootstrap_command``.
-# Leftover geometric UNO writes Shared-kernel config here so soffice ``get_config``
-# and the URP client are not looking at different ``writeragent.json`` files.
-
-
 def on_github_actions() -> bool:
     """True inside GitHub Actions (``GITHUB_ACTIONS=true``)."""
     return os.environ.get("GITHUB_ACTIONS") == "true"
 
 
 def throwaway_writeragent_json() -> Path | None:
-    """``user/config/writeragent.json`` under the headless throwaway profile, if any."""
+    """``user/config/writeragent.json`` under the headless throwaway profile, if any.
+
+    Matches the UserInstallation created by ``_soffice_bootstrap_command`` so
+    soffice ``get_config`` and the URP client read the same config file.
+    """
     if _office.throwaway_profile_dir is None:
         return None
     return _office.throwaway_profile_dir / "user" / "config" / "writeragent.json"
@@ -932,7 +938,8 @@ def _uno_resolver_for_local_ctx() -> Any:
     import uno
 
     local = uno.getComponentContext()
-    smgr = getattr(local, "getServiceManager", lambda: None)()
+    getter = getattr(local, "getServiceManager", None)
+    smgr: Any = getter() if callable(getter) else None
     if smgr is None:
         smgr = getattr(local, "ServiceManager", None)
     if smgr is None:
@@ -1395,7 +1402,7 @@ def run_module_suite(
     _progress_verbose(
         "SUITE pids %s python_pid=%s soffice.bin=%s" % (name, os.getpid(), _soffice_pids())
     )
-    # Separate notebook pool on all platforms; see set_windows_notebook_host.
+    # Isolate notebook suites in their own soffice pool.
     from tests.testing_utils import set_windows_notebook_host
 
     set_windows_notebook_host(
@@ -1467,7 +1474,7 @@ def run_module_suite(
                 # call vs returned splits body hang from post-return bookkeeping.
                 _progress(f"TEST call {qual}")
                 # In-process SalAbort text hits Python stderr; soffice PIPE drain
-                # catches the same marker from the child (Popen inherits no longer).
+                # catches the same marker from the child.
                 old_err = sys.stderr
                 sys.stderr = _StderrMarkerTee(old_err)
                 try:
@@ -1627,14 +1634,9 @@ def run_all_tests(ctx: Any) -> str:
     setattr(plugin.framework.config, "save", test_save)
     setattr(plugin.framework.config, "get_config_dict", test_get_config_dict)
     try:
-
         suites: List[Dict[str, Any]] = []
-
-
         total_passed = 0
         total_failed = 0
-
-
         keeper_doc = None
 
         if not options.use_user_profile:
@@ -1698,8 +1700,7 @@ def run_all_tests(ctx: Any) -> str:
                 for filename in files:
                     if not (filename.startswith("test_") and filename.endswith("_uno.py")):
                         continue
-                    # Demo scenes drive the user's real profile, so they are user-profile-only
-                    # too; without this, --user-profile skipped them ("No native test suites matched").
+                    # Demo scenes drive the user's real profile, so they are user-profile-only too.
                     user_only = filename in _USER_PROFILE_ONLY_UNO or filename in _DEMO_ONLY_UNO
                     if user_only != options.use_user_profile:
                         continue

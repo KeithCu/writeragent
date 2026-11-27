@@ -12,6 +12,7 @@ from plugin.framework.queue_executor import main
 from typing import Any
 
 from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
+from plugin.chatbot.slash_commands import KEY_RETURN
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
@@ -47,8 +48,6 @@ def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
     paragraphs = int(payload.get("paragraphs") or 0)
     chunks = int(payload.get("upserted") or payload.get("chunks") or paragraphs)
     return paragraphs, chunks
-
-from plugin.chatbot.slash_commands import KEY_RETURN as _SEARCH_KEY_RETURN
 
 
 def format_cache_age(age_secs: float) -> str:
@@ -160,7 +159,8 @@ class SearchDialog:
 
         class _SearchEnterKeyListener(BaseKeyListener):
             def on_key_pressed(self, e: Any) -> None:
-                if e.KeyCode != _SEARCH_KEY_RETURN:
+                # Single-line edits have no newline use for Shift+Enter.
+                if e.KeyCode != KEY_RETURN:
                     return
                 btn_search = dlg.getControl("BtnSearch")
                 if btn_search and not btn_search.getModel().Enabled:

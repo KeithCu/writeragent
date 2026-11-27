@@ -73,8 +73,7 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
     return str(html)
 
 
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 
 def _image_name_from_params(params: dict[str, Any] | None) -> str | None:
@@ -285,7 +284,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
         elif not cursor.isCollapsed():
             cursor.collapseToEnd()
         # Model-level separator: keeps the graphic char out of the HTML import range.
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         _enter_paragraph_after_break(cursor)
     except ToolExecutionError:
         raise

@@ -52,7 +52,10 @@ DEFAULT_VISION_INSERT_MODE = "html"
 
 
 def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Apply persisted vision.* settings defaults; template params win on conflict."""
+    """Apply persisted vision.* settings defaults; template params win on conflict.
+
+    ``get_config`` takes no ``ctx``, so Settings are read even when ``ctx`` is None.
+    """
     merged: dict[str, Any] = {}
     try:
         from plugin.framework.config import get_config
@@ -188,7 +191,11 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
 
 
 def resolve_engine(params: dict[str, Any]) -> str:
-    """Resolve vision engine name, raising ValueError on unknown engines."""
+    """Resolve vision engine name, raising ValueError on unknown engines.
+
+    An unknown name raises so a typo such as ``padle`` is reported instead of
+    silently running Docling.
+    """
     raw = params.get("engine")
     if raw is None or str(raw).strip() == "":
         return DEFAULT_ENGINE

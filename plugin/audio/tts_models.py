@@ -10,7 +10,6 @@ import contextlib
 import enum
 import logging
 import os
-from pathlib import Path
 import shutil
 import socket
 import tempfile
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,
     KOKORO_VOICES_FILENAME,
+    env_override,
     kokoro_should_download,
     resolve_kokoro_model_paths,
     resolve_piper_voice_paths,
@@ -399,12 +399,10 @@ def resolve_kokoro_model_files(
     model_s = os.fspath(model_path)
     voices_s = os.fspath(voices_path)
 
-    raw_m = (os.environ.get("KOKORO_MODEL_PATH") or "").strip()
-    raw_v = (os.environ.get("KOKORO_VOICES_PATH") or "").strip()
-    env_m = os.fspath(Path(raw_m).expanduser()) if raw_m else ""
-    env_v = os.fspath(Path(raw_v).expanduser()) if raw_v else ""
-    is_env_m = bool(env_m and env_m == model_s)
-    is_env_v = bool(env_v and env_v == voices_s)
+    env_m = env_override("KOKORO_MODEL_PATH")
+    env_v = env_override("KOKORO_VOICES_PATH")
+    is_env_m = env_m is not None and os.fspath(env_m) == model_s
+    is_env_v = env_v is not None and os.fspath(env_v) == voices_s
 
     model_exists = os.path.exists(model_s)
     voices_exists = os.path.exists(voices_s)

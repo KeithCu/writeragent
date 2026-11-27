@@ -14,6 +14,7 @@ from typing import Any
 import unicodedata
 
 from com.sun.star.awt import Size
+from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.framework.errors import best_effort
@@ -31,7 +32,6 @@ STYLE_MD_H2 = "Heading 2"
 STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 # Stdout left as Text Body is a cell boundary, so a re-run would keep the old paragraph.
 STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
-PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 
 IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
 _MAX_IMPORT_TEXT_CHARS = 50_000

@@ -368,7 +368,10 @@ def parse_whisper_stdout(stdout: str) -> str:
             last_error = message if isinstance(message, str) and message.strip() else "Local Whisper failed"
     if last_error:
         raise ConfigError(_("Local Whisper failed: {0}").format(last_error))
-    raise ConfigError(_("Local Whisper did not return a transcript."), code="WHISPER_NO_TRANSCRIPT")
+    raise ConfigError(_("Local Whisper did not return a transcript."), code=_WHISPER_NO_TRANSCRIPT_CODE)
+
+
+_WHISPER_NO_TRANSCRIPT_CODE = "WHISPER_NO_TRANSCRIPT"
 
 
 def _local_timeout_message(cached: bool) -> str:
@@ -435,7 +438,7 @@ def _transcribe_local(
                     "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
                 ).format(_FASTER_WHISPER_PIP_INSTALL)
             ) from exc
-        if exc.code == "WHISPER_NO_TRANSCRIPT":
+        if exc.code == _WHISPER_NO_TRANSCRIPT_CODE:
             detail = tail or "no error output"
             err_msg = f"Local Whisper exited {completed.returncode}: {detail}."
             if completed.returncode is not None and completed.returncode < 0:

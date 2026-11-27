@@ -553,7 +553,7 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
                     rows.append([str(c.get("text", c) if isinstance(c, dict) else c) for c in row])
             if rows:
                 columns = rows[0]
-                data = rows[1:]
+                data = rows[1:] if len(rows) > 1 else []
                 return {
                     "name": name,
                     "columns": columns,
@@ -679,11 +679,12 @@ def _parse_v3_structure_page(
 
 
 def _normalize_structure_pages(raw: Any) -> list[Any]:
-    """Pages as a flat list: 2.x per-page region lists are flattened into their regions; 3.x pages stay Results.
+    """Flatten Paddle 2.x per-page region lists; keep 3.x Result pages intact for ``_parse_v3_structure_page``.
 
-    ``PPStructureV3.predict()`` yields per-page Results (often a generator) that
-    bundle ``parsing_res_list`` and ``table_res_list`` together, so 3.x pages
-    must stay whole for ``_parse_v3_structure_page``.
+    PPStructureV3.predict() yields per-page Results (often a generator). The old
+    normalizer peeled ``parsing_res_list`` off that dict and dropped
+    ``table_res_list``. LayoutBlock entries are not ``{type, bbox, res}``, so
+    ``_parse_structure_output`` then returned no blocks, tables, or HTML.
     """
     if isinstance(raw, Iterator):
         raw = [page for page in raw if page is not None]

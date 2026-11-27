@@ -955,14 +955,13 @@ def test_piper_timeout_scaling_and_reap(tmp_path):
     mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["piper"], timeout=30)
     mock_proc.returncode = None
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
+    with patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
          patch("os.path.isfile", return_value=True), \
          patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc):
         # Long text
         long_text = "Word " * 200
         try:
-            _piper_audio_file(long_text, "voice", 1.0, None, utt)
+            _piper_audio_file(long_text, "voice", 1.0, None, utt, "/venv/bin/python")
         except Exception:
             pass
 
@@ -986,13 +985,12 @@ def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
     mock_proc.communicate.return_value = ("", "boom")
     mock_proc.returncode = 2
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
+    with patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
          patch("os.path.isfile", return_value=True), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
          patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
          patch("plugin.audio.tts_service._release_temp") as release:
-        assert _piper_audio_file("hello", "voice", 1.0, None, utt) is None
+        assert _piper_audio_file("hello", "voice", 1.0, None, utt, "/venv/bin/python") is None
     release.assert_called_with(str(wav))
 
 
@@ -1519,9 +1517,8 @@ def test_kokoro_audio_file_skips_model_download_without_venv() -> None:
     from plugin.audio.tts_service import _kokoro_audio_file
 
     utt = tts._begin_utterance()
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=None), \
-         patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve:
-        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt)
+    with patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve:
+        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt, None)
         assert res is None
         resolve.assert_not_called()
 
@@ -1530,9 +1527,8 @@ def test_kokoro_audio_file_resolves_models_when_venv_exists() -> None:
     from plugin.audio.tts_service import _kokoro_audio_file
 
     utt = tts._begin_utterance()
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=("/no/model.onnx", "/no/voices.bin")) as resolve:
-        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt)
+    with patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=("/no/model.onnx", "/no/voices.bin")) as resolve:
+        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt, "/venv/bin/python")
         resolve.assert_called_once()
         assert res is None
 

@@ -18,7 +18,7 @@ from typing import Any, Callable
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from plugin.audio.tts_models import notify_tts_status
-from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
+from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family, provider_or_none
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import log_target, origin_and_path
 from plugin.framework.errors import ConfigError, NetworkError
@@ -47,8 +47,6 @@ def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
     Together's SDK schema (together-ai 0.40.0 speech.ts) has no speed field for
     any model, Kokoro included. OpenAI documents speed 0.25-4.0 on /audio/speech.
     """
-    from plugin.audio.tts_voices import provider_or_none
-
     host = provider_or_none(endpoint_url)
     return host == "openai" or ("kokoro" in (model or "").casefold() and host != "together")
 

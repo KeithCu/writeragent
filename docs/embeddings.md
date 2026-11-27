@@ -1044,7 +1044,7 @@ Drive from UI (Search dialog, `document_research` tools) or CLI. Eval harness di
 
 - Settings + full stack propagation (indexer, service, tools, search UI, empty/stale checks, rebuild)
 - Guarded venv: schema, stable-id upsert, per-file delete, knn + hybrid search, maintain with shared extract + embedder
-- Host path helpers, FS-only `looks_populated`, meta updates, sandbox + diagnostics
+- Host path helpers, FS-only [`_store_dir_populated`](../plugin/embeddings/embeddings_cache.py), meta updates, sandbox + diagnostics
 - Tests and documentation; zero interference with `corpus.db` users
 
 **Exit criteria:** flip setting on `~/Desktop/Writing`, build/rebuild, search and routing eval behave like other modes — produce A/B data.
@@ -1084,7 +1084,7 @@ Experimental: **Settings → LanceDB (experimental)** (`folder_search_mode="lanc
 
 **Implementation:** PyArrow tables via `lancedb.connect()`; `lancedb_hybrid_search` and `lancedb_knn_search` return the same hit shape as other backends. Maintain via `maintain_folder_lancedb` — per-file refresh similar to Zvec v1.
 
-**Host checks:** [`lancedb_collection_path`](plugin/embeddings/embeddings_cache.py), [`lancedb_collection_looks_populated`](plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host. Auto maintenance uses those checks with `chunk_count`, not the absence of `corpus.db` (see Zvec maintain above).
+**Host checks:** [`lancedb_collection_path`](../plugin/embeddings/embeddings_cache.py), [`_store_dir_populated`](../plugin/embeddings/embeddings_cache.py) — no LanceDB import on the LibreOffice host. Auto maintenance uses those checks with `chunk_count`, not the absence of `corpus.db` (see Zvec maintain above).
 
 **Evaluation:** same `eval_folder_search_routing.py` / Search dialog workflow; select LanceDB in Settings and rebuild.
 
