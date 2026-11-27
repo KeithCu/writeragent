@@ -216,6 +216,19 @@ def ensure_modify_listener(model: Any) -> None:
         attachment.modify_listener = listener
 
 
+def _release_controller(controller: Any, interceptor: Any, click_handler: Any) -> None:
+    try:
+        controller.releaseContextMenuInterceptor(interceptor)
+    except Exception:
+        log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
+    # removeMouseClickHandler touches a disposed view listener list; skip when already dead.
+    try:
+        if controller_alive(controller):
+            controller.removeMouseClickHandler(click_handler)
+    except Exception:
+        log.debug("review_view_attachment: removeMouseClickHandler failed", exc_info=True)
+
+
 def _drop_attachment(key: str, *, remove_modify_listener: bool) -> None:
     attachment = _attachments.pop(key, None)
     _clear_pending(key)
@@ -227,15 +240,7 @@ def _drop_attachment(key: str, *, remove_modify_listener: bool) -> None:
         except Exception:
             log.debug("review_view_attachment: modify listener removal failed", exc_info=True)
     for controller, interceptor, click_handler in list(attachment.controllers):
-        try:
-            controller.releaseContextMenuInterceptor(interceptor)
-        except Exception:
-            log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
-        try:
-            if controller_alive(controller):
-                controller.removeMouseClickHandler(click_handler)
-        except Exception:
-            log.debug("review_view_attachment: removeMouseClickHandler failed", exc_info=True)
+        _release_controller(controller, interceptor, click_handler)
     attachment.controllers.clear()
 
 
@@ -264,8 +269,6 @@ def register_controller(controller: Any) -> None:
         model = controller.getModel()
         if not is_writer(model) or is_scratch_document(model):
             return
-        if not hasattr(controller, "registerContextMenuInterceptor"):
-            return
         attachment = _get_or_create(model)
         with _lock:
             if any(uno_same(controller, ctrl) for ctrl, _i, _h in attachment.controllers):
@@ -273,9 +276,9 @@ def register_controller(controller: Any) -> None:
         interceptor = change_context_menu.make_interceptor(model)
         # detach_click_handler breaks the import cycle: disposing must not import this registry.
         click_handler = review_click_popup.ClickReviewHandler(model, detach_click_handler)
+        # Every Writer view controller derives from SfxBaseController, which implements both interfaces.
         controller.registerContextMenuInterceptor(interceptor)
-        if hasattr(controller, "addMouseClickHandler"):
-            controller.addMouseClickHandler(click_handler)
+        controller.addMouseClickHandler(click_handler)
         with _lock:
             attachment.controllers.append((controller, interceptor, click_handler))
         ensure_modify_listener(model)
@@ -306,14 +309,7 @@ def unregister_controllers_for_model(model: Any) -> None:
                 keep.append(triple)
         attachment.controllers[:] = keep
     for controller, interceptor, click_handler in removed:
-        try:
-            controller.releaseContextMenuInterceptor(interceptor)
-        except Exception:
-            log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
-        try:
-            controller.removeMouseClickHandler(click_handler)
-        except Exception:
-            log.debug("review_view_attachment: removeMouseClickHandler failed", exc_info=True)
+        _release_controller(controller, interceptor, click_handler)
 
 
 def cleanup_disposed_controllers() -> None:

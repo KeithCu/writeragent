@@ -284,8 +284,8 @@ jobs:
           if-no-files-found: warn
 
   # The UNO suites run as three parallel jobs per OS, each with its own soffice.
-  # plugin/testing_runner.py (_UNO_SHARD_CUTS) assigns every *_uno.py file to
-  # one shard by its sorted path; the shard list below must match it
+  # plugin/testing_runner.py packs every *_uno.py file into one shard by
+  # recorded duration; the shard list below must match _UNO_SHARD_COUNT
   # (tests/framework/test_testing_runner.py checks this).
   test-uno-shard:
     name: UNO Shard ${{ matrix.shard }}/3 (${{ matrix.os }})

@@ -269,11 +269,11 @@ def test_heading_tree_fingerprint():
     tree_svc.build_heading_tree(doc_with_count)
     assert tree_svc._tree_cache["doc_test"][0] == 42
 
-    doc_none = WriterDocStub([])
+    doc_default = WriterDocStub([])
     tree_svc._tree_cache.clear()
-    first = tree_svc.build_heading_tree(doc_none)
-    assert tree_svc._tree_cache["doc_test"][0] is None
-    second = tree_svc.build_heading_tree(doc_none)
+    first = tree_svc.build_heading_tree(doc_default)
+    assert tree_svc._tree_cache["doc_test"][0] == 0
+    second = tree_svc.build_heading_tree(doc_default)
     assert second is first
 
 

@@ -146,7 +146,7 @@ class TreeService(ServiceBase):
         self._doc_svc = services.document
         self._bm_svc = services.writer_bookmarks
         events = services.events
-        self._tree_cache: dict[Any, tuple[int | None, dict[str, Any]]] = {}  # doc_key -> (fingerprint, root)
+        self._tree_cache: dict[Any, tuple[int, dict[str, Any]]] = {}  # doc_key -> (fingerprint, root)
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
     def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
@@ -177,15 +177,12 @@ class TreeService(ServiceBase):
         # Cheap stale-cache check when XModifyListener misses a programmatic edit.
         # Reusing a leftover Writer on Windows can leave a live
         # RuntimeUID listener that does not fire on ``insertString``;
-        # ``CharacterCount`` still moves. ``None`` means no signal — keep
-        # listener-only caching (WriterDocStub / missing property).
-        count = getattr(doc, "CharacterCount", None)
-        fingerprint = int(count) if count is not None else None
+        # ``CharacterCount`` still moves.
+        fingerprint: int = doc.CharacterCount
         if is_cacheable_doc_key(key) and key in self._tree_cache:
             cached_fp, cached_root = self._tree_cache[key]
-            # No fingerprint (stubs) → listener-only. Same count → still valid.
-            # A moved CharacterCount means the modify listener missed the edit.
-            if fingerprint is None or fingerprint == cached_fp:
+            # Same count → still valid; a moved CharacterCount means the modify listener missed the edit.
+            if fingerprint == cached_fp:
                 return cached_root
 
         root = build_heading_tree(doc, elements=elements)
