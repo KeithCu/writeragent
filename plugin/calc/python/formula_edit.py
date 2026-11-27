@@ -297,7 +297,7 @@ def format_data_binding_text(data_args: list[str]) -> str:
 
 
 @deal.pre(lambda c: isinstance(c, str) and len(c) == 1)
-def _is_ascii_letter(c: str) -> bool:
+def is_ascii_letter(c: str) -> bool:
     return "A" <= c <= "Z" or "a" <= c <= "z"
 
 
@@ -307,10 +307,10 @@ def _is_sheet_identifier(s: str) -> bool:
     if not s:
         return False
     first = s[0]
-    if not (first == "_" or _is_ascii_letter(first)):
+    if not (first == "_" or is_ascii_letter(first)):
         return False
     for c in s[1:]:
-        if not (c == "_" or "0" <= c <= "9" or _is_ascii_letter(c)):
+        if not (c == "_" or "0" <= c <= "9" or is_ascii_letter(c)):
             return False
     return True
 
@@ -502,6 +502,15 @@ class PyFormula:
         return assemble_python_formula(pfx, escaped, suffix, quoted=True)
 
 
+def py_formula_or_none(formula: str) -> PyFormula | None:
+    """Parse *formula* as ``=PY(...)`` or return None for non-PY formulas."""
+    # Every alias in ``_PY_CALLS`` contains "PY", so the substring test
+    # skips the parser for the ordinary formulas a sheet is mostly made of.
+    if "PY" not in formula.upper():
+        return None
+    return PyFormula.parse(formula)
+
+
 def build_editor_formula_save(
     *,
     parsed_parts: PyFormula | None,
@@ -596,9 +605,9 @@ def repair_py_code_newlines(formula: str) -> str:
     the resulting code parses with ``ast.parse`` and the original either fails
     to parse or has no real newlines.
     """
-    if "\\n" not in formula or "PY" not in formula.upper():
+    if "\\n" not in formula:
         return formula
-    parts = PyFormula.parse(formula)
+    parts = py_formula_or_none(formula)
     if parts is None or parts.code_is_ref:
         return formula
     if not normalize_formula_string(formula)[len(parts.prefix) :].lstrip().startswith('"'):

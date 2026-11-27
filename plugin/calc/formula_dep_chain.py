@@ -27,7 +27,7 @@ _MAX_PRECEDENT_CELLS = 80
 def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
     val, type_name = cell_value_and_type(cell, empty_as_none=False)
-    addr = qualify_a1(sheet_name, format_address(col, row)) if sheet_name else format_address(col, row)
+    addr = qualify_a1(sheet_name, format_address(col, row))
     snapshot: dict[str, Any] = {"address": addr, "type": type_name, "value": val}
 
     err = cell.getError()
@@ -94,18 +94,19 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
     }
 
 
-def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
-    """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``."""
+def fetch_formula_dep_chain(doc: Any, address: str) -> dict[str, Any] | None:
+    """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``.
+
+    Selects the cell first, because ``.uno:FormulaDepChain`` reads the current selection.
+    """
     resolved = resolve_sheet_and_cell(doc, address)
     if resolved is None:
         return None
     sheet, col, row = resolved
 
-    if ctx is not None:
-        # Navigation selects the cell for the UNO command. A disposed document, a
-        # headless run, or a missing controller can throw here; the dependency
-        # chain does not need the view, so collection continues.
-        best_effort(lambda: navigate_to_cell(doc, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
+    # A disposed document, a headless run, or a missing controller can throw here;
+    # the XFormulaQuery fallback does not need the view, so collection continues.
+    best_effort(lambda: navigate_to_cell(doc, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
 
     chain: dict[str, Any] | None = None
     raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
@@ -122,6 +123,6 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
 
     local = format_address(col, row)
     sheet_name = sheet.getName()
-    cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None and sheet_name else local
+    cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None else local
     chain.setdefault("cell", cell)
     return chain

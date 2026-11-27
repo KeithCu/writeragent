@@ -30,7 +30,7 @@ from plugin.calc.address_utils import (
     index_to_column,
 )
 from plugin.calc.array_formula import skip_quoted
-from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.python.formula_edit import PyFormula, is_ascii_letter
 
 
 @dataclass(frozen=True)
@@ -192,10 +192,6 @@ def repeated_formula_columns(
     return repeated
 
 
-def _is_letter(ch: str) -> bool:
-    return "A" <= ch <= "Z" or "a" <= ch <= "z"
-
-
 def _is_digit(ch: str) -> bool:
     return "0" <= ch <= "9"
 
@@ -216,7 +212,7 @@ def _read_dollar(s: str, i: int) -> tuple[int, bool]:
 def _read_col(s: str, i: int) -> tuple[int, int] | None:
     start = i
     n = len(s)
-    while i < n and _is_letter(s[i]):
+    while i < n and is_ascii_letter(s[i]):
         i += 1
     if i == start:
         return None
@@ -265,7 +261,7 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
         return None
     j += 1
     j = _skip_ws(s, j)
-    if j >= n or not (s[j] == "$" or _is_letter(s[j]) or _is_digit(s[j])):
+    if j >= n or not (s[j] == "$" or is_ascii_letter(s[j]) or _is_digit(s[j])):
         return None
     return s[i:j], j
 
@@ -294,7 +290,7 @@ def _next_is_open_paren(s: str, i: int) -> bool:
 
 def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
     """Match a cell / range / whole-col / whole-row (optional sheet) at *i*."""
-    if i > 0 and (_is_letter(s[i - 1]) or _is_digit(s[i - 1]) or s[i - 1] == "_"):
+    if i > 0 and (is_ascii_letter(s[i - 1]) or _is_digit(s[i - 1]) or s[i - 1] == "_"):
         return None
     sheet1 = ""
     j = i

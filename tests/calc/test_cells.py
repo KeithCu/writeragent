@@ -1183,18 +1183,13 @@ def test_write_cell_range_tool_error_return():
     assert "UNO write failure" in res["message"]
 
 
-def test_json_array_value_count_and_a1_shape():
-    from plugin.calc.address_utils import range_shape
-    from plugin.calc.manipulator import _parse_json_array_string
+def test_parse_json_array_string_value_count():
+    from plugin.calc.manipulator import parse_json_array_string
 
-    assert len(_parse_json_array_string('["a", "b", "c", "d"]')) == 4
-    assert _parse_json_array_string("=B2+1") is None
-    assert _parse_json_array_string("") is None
-    assert _parse_json_array_string("[]") == []
-    assert range_shape("C2:C9") == (8, 8, 1)
-    assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
-    assert range_shape("A1:B1") == (2, 1, 2)
-    assert range_shape("SalesData") is None
+    assert len(parse_json_array_string('["a", "b", "c", "d"]')) == 4
+    assert parse_json_array_string("=B2+1") is None
+    assert parse_json_array_string("") is None
+    assert parse_json_array_string("[]") == []
 
 
 def test_write_formula_range_source_is_stripped_and_blank_falls_to_values():

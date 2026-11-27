@@ -61,7 +61,7 @@ class DetectErrors(ToolCalcErrorBase):
 
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
-        error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
+        error_detector = ErrorDetector(bridge, inspector)
 
         if len(ranges) <= 1:
             return make_tool_ok(result=error_detector.detect_and_explain(range_str=ranges[0] if ranges else None))
