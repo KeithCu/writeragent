@@ -291,7 +291,7 @@ def _pipe_reader_loop(stdin: IO[bytes]) -> None:
                 win_to_destroy.destroy()
 
 
-class MonacoEditorApi:
+class EditorApi:
     """JS API exposed via pywebview (runs on the GUI thread)."""
 
     def __init__(self) -> None:
@@ -310,8 +310,10 @@ class MonacoEditorApi:
                 break
             batch.append(msg)
             if msg.get("type") == "load":
+                # The stdin reader already applied this load to the session
+                # before queueing it. Applying it again here would clear a
+                # closed_for set by a close that arrived in between.
                 log.info("editor_main: poll_messages received load; showing window")
-                session.load(msg)
                 try:
                     if session.window is not None:
                         title = msg.get("title")
@@ -492,7 +494,7 @@ def _bind_window_events(window: Any) -> None:
             log.debug("editor_main: could not hook events.%s", name, exc_info=True)
 
 
-def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | None:
+def static_asset_path(url_path: str, assets: str, rocher_root: str) -> str | None:
     """Map a request path to a file, or None.
 
     Reject ``..`` and absolute segments under ``/vs/`` so static assets cannot escape the rocher root.
@@ -559,7 +561,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         start_response("200 OK", [("Content-Type", "application/javascript"), ("Content-Length", str(len(body)))])
         return [body]
     assets = _assets_dir()
-    filepath = monaco_static_path(path, assets, _ROCHER_ROOT)
+    filepath = static_asset_path(path, assets, _ROCHER_ROOT)
 
     if filepath is not None and os.path.isfile(filepath):
         mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
@@ -606,7 +608,7 @@ def main() -> None:
     except ImportError as e:
         _fatal(f"pywebview is not installed in this interpreter: {e}", exc=e)
 
-    api = MonacoEditorApi()
+    api = EditorApi()
     log.info("editor_main: assets=%s index=%s argv0=%s", assets, index_html, sys.argv[0])
     print(f"editor_main: serving {index_html} via WSGI app", file=sys.stderr, flush=True)
     try:

@@ -225,7 +225,7 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 **Run Python Script templates:** **Viz Helpers →** `[Viz] quick_plot`, `[Viz] correlation_heatmap`, `[Viz] time_series`.
 
-**Result contract (draft):** The host reads `{status, helper, title, image}` (one envelope, possibly nested; `code`/`message` on error). `chart_type`, `legend`, and `writer_cleanup_hints` are informational with no host consumer. Image bytes use the same `__wa_payload__: "image"` envelope as Phase A. SVG payloads over 8 MiB are re-rendered as PNG so the image fits the 16 MiB IPC frame cap.
+**Result contract (draft):** The host reads `{status, helper, title, image}` (one envelope, possibly nested; `code`/`message` on error). `chart_type` and `writer_cleanup_hints` are informational with no host consumer. Image bytes use the same `__wa_payload__: "image"` envelope as Phase A. SVG payloads over 8 MiB are re-rendered as PNG so the image fits the 16 MiB IPC frame cap.
 Viz helpers close the matplotlib figure on every exit, including when savefig fails, so a trusted-action error does not leave the figure open on the warm worker.
 
 **Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py)).

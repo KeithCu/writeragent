@@ -489,17 +489,13 @@ def test_filter_msgids_translate_at_call():
         assert _filter_choices()[0] == ("T:All", "all")
 
 
-def test_filter_from_combo_matches_translation_and_msgid():
+def test_filter_from_combo_matches_translation():
     from plugin.librepy.python_sidebar import _filter_from_combo
 
     with patch("plugin.librepy.python_sidebar._", side_effect=lambda s: f"T:{s}"):
         combo1 = MagicMock()
         combo1.getText.return_value = "T:Errors"
         assert _filter_from_combo(combo1) == "errors"
-
-        combo2 = MagicMock()
-        combo2.getText.return_value = "Errors"
-        assert _filter_from_combo(combo2) == "errors"
 
         combo3 = MagicMock()
         combo3.getText.return_value = "some error happened"

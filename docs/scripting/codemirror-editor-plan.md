@@ -6,7 +6,7 @@
 - **It's a pywebview window in a child process, not a UNO dialog.** The child runs in the user's configured venv, not in LibreOffice's Python. A native UNO dialog is the fallback.
   - Host side: `plugin/scripting/editor_host.py`. `resolve_editor_python` finds the venv interpreter, `probe_webview_import` checks it, and `spawn_editor_process` starts the child. `PersistentEditor` keeps one child alive across opens. `launch_monaco_editor` registers the focused `EditorSessionState` on it for each open, and `monaco_editor_available` decides between the web editor and the native dialog. Dirty-buffer handling lives in `confirm_unsaved_monaco_edit` and `queue_save_then_load`.
   - IPC: `plugin/scripting/editor_ipc.py` over stdin/stdout, using `!I` length-prefixed pickle protocol 5 (same as `worker_harness.py`). UNO calls are marshalled to the main thread with `QueueExecutor`.
-  - Child: `plugin/scripting/venv/editor_main.py`. `MonacoEditorApi` is the pywebview `js_api` (`poll_messages`, `notify_save`, `notify_run`, `notify_dirty`, `notify_cancel`, `get_completions` via jedi, `is_jedi_available`). `wsgi_app` serves `assets/editor/*` and Monaco `vs/*`, and `monaco_static_path` guards against path traversal. `main()` refuses to start without the `rocher` venv package, which provides Monaco's `vs/` files.
+  - Child: `plugin/scripting/venv/editor_main.py`. `EditorApi` is the pywebview `js_api` (`poll_messages`, `notify_save`, `notify_run`, `notify_dirty`, `notify_cancel`, `get_completions` via jedi, `is_jedi_available`). `wsgi_app` serves `assets/editor/*` and Monaco `vs/*`, and `static_asset_path` guards against path traversal. `main()` refuses to start without the `rocher` venv package, which provides Monaco's `vs/` files.
   - Frontend: `plugin/contrib/scripting/assets/editor/{index.html, editor.js, scripts_manager.js, style.css}`. `index.html` loads `vs/loader.js`. `editor.js` mixes the toolbar/IPC shell with Monaco calls: `applyLoadMessage`, `getEditorCode`, `require(["vs/editor/editor.main"])` (around line 384), a LaTeX Monarch language, a jedi completion provider (around line 498), and `monaco.editor.create` (around line 552).
 - **Callers.**
   - Edit Cell: `plugin/calc/python/editor.py` `_open_python_cell_editor_impl` checks `monaco_editor_available`, then calls `_launch_editor_with_code`, which calls `launch_monaco_editor`. Otherwise it calls `cell_editor_ui.show_native_python_cell_editor` (`NativePythonCellEditorDialog`, `extension/Dialogs/PythonCellEditorDialog.xdl`).
@@ -22,7 +22,7 @@
 
 ## 2. Web view options
 - The only web view is **pywebview**, always in the venv child. It's never loaded inside soffice's Python (`editor_host.py` around line 113: "LibreOffice's built-in Python cannot run the Monaco editor"). `venv_diagnostics.py` (`_UI_PACKAGE_KEYS`: webview, rocher, jedi, PyQt6/QtWebEngine, qtpy) reports the GUI backend: GTK/WebKit2 or Qt WebEngine on Linux, Edge WebView2 on Windows, WKWebView on macOS. Flatpak spawn is still open (2F in `monaco-editor-dev-plan.md`).
-- IPC is the pipe protocol above. CM6 needs **no new IPC**: it runs in the same child and talks to the same `MonacoEditorApi`.
+- IPC is the pipe protocol above. CM6 needs **no new IPC**: it runs in the same child and talks to the same `EditorApi`.
 
 ## 3. Shipping CM6
 - CM6 is MIT-licensed, and its packages are modular: `@codemirror/{state,view,commands,language,autocomplete,lint,search}`, `@codemirror/lang-python`, `@lezer/python`, plus a theme such as `@codemirror/theme-one-dark`.

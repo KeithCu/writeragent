@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import io
 import queue
 import threading
 from unittest.mock import MagicMock
+
+from plugin.scripting.editor_ipc import write_message
 from plugin.scripting.venv import editor_main as em
 
 
@@ -19,6 +22,14 @@ def _reset_closed_state() -> None:
             em._ui_queue.get_nowait()
         except queue.Empty:
             break
+
+
+def _read_from_parent(msg: dict) -> None:
+    """Run the stdin reader over one framed message, as the parent sends it."""
+    buf = io.BytesIO()
+    write_message(buf, msg)
+    buf.seek(0)
+    em._pipe_reader_loop(buf)
 
 
 def test_send_closed_once_writes_single_message(monkeypatch):
@@ -39,7 +50,7 @@ def test_notify_cancel_sends_closed_once_and_hides(monkeypatch):
     messages: list[dict] = []
     monkeypatch.setattr(em, "_emit", messages.append)
 
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
     mock_window = MagicMock()
     em.session.window = mock_window
     api.notify_cancel()
@@ -71,14 +82,14 @@ def test_handle_window_closing_returns_true_when_shutting_down():
 
 def test_poll_messages_load_shows_window_and_updates_title():
     _reset_closed_state()
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
     mock_window = MagicMock()
     em.session.window = mock_window
 
     em.session.closed_for = "stale"
     em.session.session_id = "stale"
 
-    em._ui_queue.put({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
+    _read_from_parent({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
     msgs = api.poll_messages()
 
     assert len(msgs) == 1
@@ -89,11 +100,27 @@ def test_poll_messages_load_shows_window_and_updates_title():
     assert em.session.session_id == "s1"
 
 
+def test_close_between_reader_and_poll_is_not_reopened_by_load(monkeypatch):
+    _reset_closed_state()
+    messages: list[dict] = []
+    monkeypatch.setattr(em, "_emit", messages.append)
+    api = em.EditorApi()
+    em.session.window = MagicMock()
+
+    _read_from_parent({"type": "load", "session_id": "s1", "mode": "calc_cell", "target": {"cell_address": "A1"}})
+    # The user closes the window before the GUI thread drains the load.
+    em._send_closed_once()
+    api.poll_messages()
+    em._send_closed_once()
+
+    assert [m["session_id"] for m in messages] == ["s1"]
+
+
 def test_notify_save_stamps_session_envelope(monkeypatch):
     _reset_closed_state()
     captured: list[dict] = []
     monkeypatch.setattr(em, "write_message", lambda _stream, msg: captured.append(msg))
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
     api.notify_save("print(1)", False, "", "cell_save", "sid-1", "calc_cell", {"cell_address": "A1"})
     assert captured[0]["type"] == "save"
     assert captured[0]["session_id"] == "sid-1"

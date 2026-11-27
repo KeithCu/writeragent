@@ -114,7 +114,7 @@ def test_api_init_does_not_build_a_jedi_environment(monkeypatch):
     mock_jedi = MagicMock()
     mock_jedi.create_environment.side_effect = AssertionError("should not be called")
     monkeypatch.setattr(ej, "jedi", mock_jedi)
-    api = ej.MonacoEditorApi()
+    api = ej.EditorApi()
     assert api.is_jedi_available() is True
     mock_jedi.create_environment.assert_not_called()
 
@@ -153,7 +153,7 @@ def test_jedi_completions_caps_docstrings(monkeypatch):
 
 
 def test_monaco_api_get_completions_drops_stale_request(monkeypatch):
-    api = ej.MonacoEditorApi()
+    api = ej.EditorApi()
     mock_jedi_session = MagicMock()
     # Simulate a slow request that completes after generation advances
     def slow_completions(*args, **kwargs):
@@ -169,7 +169,7 @@ def test_monaco_api_get_completions_drops_stale_request(monkeypatch):
 
 def test_get_completions_returns_empty_while_a_call_is_in_flight(monkeypatch):
     monkeypatch.setattr(ej, "jedi", MagicMock())
-    api = ej.MonacoEditorApi()
+    api = ej.EditorApi()
     mock_jedi = MagicMock()
 
     started_ev = threading.Event()
@@ -230,7 +230,7 @@ def test_get_completions_abandons_a_stuck_worker(monkeypatch):
     monkeypatch.setattr(ej, "jedi", MagicMock())
     monkeypatch.setattr(ej, "_JEDI_CALL_TIMEOUT_SEC", 0.05)
 
-    api = ej.MonacoEditorApi()
+    api = ej.EditorApi()
     started_ev = threading.Event()
     release_ev = threading.Event()
 

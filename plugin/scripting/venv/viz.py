@@ -49,7 +49,7 @@ def _figure_payload(fig: Any) -> dict[str, Any]:
     return payload
 
 
-def _ok_viz(helper: str, fig: Any, *, chart_type: str, title: str = "", legend: bool = False) -> dict[str, Any]:
+def _ok_viz(helper: str, fig: Any, *, chart_type: str, title: str = "") -> dict[str, Any]:
     # Call only inside _open_figure. This function does not close the figure.
     return {
         "status": "ok",
@@ -57,7 +57,6 @@ def _ok_viz(helper: str, fig: Any, *, chart_type: str, title: str = "", legend: 
         "image": _figure_payload(fig),
         "title": title or helper,
         "chart_type": chart_type,
-        "legend": legend,
         "writer_cleanup_hints": [],
     }
 

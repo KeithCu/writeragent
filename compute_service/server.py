@@ -55,6 +55,24 @@ from plugin.vision.vision_common import HELPER_NAMES
 log = logging.getLogger("compute_service")
 
 
+def _formula_pool():
+    """Return ``compute_service.formula_pool``, imported on first use.
+
+    The pool stack loads lazily (see ``create_wsgi_app``); every formula-pool
+    access goes through this helper so the import and that rule live once.
+    """
+    from compute_service import formula_pool
+
+    return formula_pool
+
+
+def _vision():
+    """Return ``compute_service.vision``, imported on first use like ``_formula_pool``."""
+    from compute_service import vision
+
+    return vision
+
+
 def _accept_clock(accept_time: float | None) -> float:
     """Accept monotonic timestamp from the listener, or now when missing."""
     if accept_time is not None:
@@ -74,10 +92,7 @@ def check_dependencies(pool: Any) -> None:
     ok, err = pool.check_dependencies()
     if not ok:
         print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
-        # pool stack loads on first use (see create_wsgi_app)
-        from compute_service.formula_pool import shutdown_formula_pool
-
-        shutdown_formula_pool()
+        _formula_pool().shutdown_formula_pool()
         sys.exit(1)
 
 
@@ -869,10 +884,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     else:
         return _error(start_response, ec.INVALID_REQUEST, "params must be an object.", req_id=req_id)
 
-    # pool stack loads on first use (see create_wsgi_app)
-    from compute_service.vision import get_vision_pool
-
-    vision_pool = get_vision_pool(settings)
+    vision_pool = _vision().get_vision_pool(settings)
     result_payload = vision_pool.execute(
         helper=helper,
         image=image_bytes,
@@ -905,9 +917,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     def _current_formula_pool() -> Any:
         # Resolve the pool on each call. shutdown_formula_pool() can replace
         # it, and a cached bound method would keep talking to the dead pool.
-        from compute_service.formula_pool import get_formula_pool
-
-        return get_formula_pool(settings)
+        return _formula_pool().get_formula_pool(settings)
 
     def _get_execute() -> ExecuteFn:
         if execute_fn is not None:
@@ -978,20 +988,14 @@ def run_server(settings: ComputeSettings) -> None:
     auth_note = "auth=yes" if settings.auth_required else "auth=no (insecure)"
     log.info("Starting Python Compute Service on %s:%d (%s, workers=%d, ocr_workers=%d)...", settings.host, settings.port, auth_note, settings.workers, settings.ocr_workers)
 
-    # pool stack loads on first use (see create_wsgi_app)
-    from compute_service.formula_pool import get_formula_pool
-
-    formula_pool = get_formula_pool(settings)
+    formula_pool = _formula_pool().get_formula_pool(settings)
     # Shut the pool down on bind failure and on the normal exit. The HTTP
     # drain stays on serve_forever, which is the only path that has a server.
     try:
         check_dependencies(formula_pool)
 
         if settings.ocr_workers > 0:
-            # pool stack loads on first use (see create_wsgi_app)
-            from compute_service.vision import get_vision_pool
-
-            get_vision_pool(settings)
+            _vision().get_vision_pool(settings)
 
         try:
             server = WSGIDualStackServer(settings.host, settings.port, listener_threads=listener_thread_count(settings.threads))
@@ -1030,12 +1034,8 @@ def run_server(settings: ComputeSettings) -> None:
             server.drain_executor(HTTP_DRAIN_SEC)
             server.server_close()
     finally:
-        # pool stack loads on first use (see create_wsgi_app)
-        from compute_service.formula_pool import shutdown_formula_pool
-        from compute_service.vision import shutdown_vision_pool
-
-        shutdown_formula_pool(permanent=True)
-        shutdown_vision_pool(permanent=True)
+        _formula_pool().shutdown_formula_pool(permanent=True)
+        _vision().shutdown_vision_pool(permanent=True)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

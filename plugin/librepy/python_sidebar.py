@@ -260,9 +260,6 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
     for label, filt in _filter_choices():
         if text == label:
             return filt
-    for msgid, filt in _FILTER_MSGIDS:
-        if text == msgid:
-            return filt
     return "all"
 
 
