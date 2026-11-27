@@ -145,6 +145,19 @@ class TestJsonEgressUnit:
         out = to_dumb_json_value(np.array([[1.0, float("nan")], [3.0, 4.0]]))
         assert out == [[1.0, None], [3.0, 4.0]]
 
+    def test_zero_d_object_array_holding_numpy_scalar(self) -> None:
+        import numpy as np
+
+        # item() on a 0-d object array returns the numpy scalar unchanged,
+        # which json.dumps rejects unless it is converted.
+        out_int = to_dumb_json_value(np.array(np.int64(5), dtype=object))
+        assert out_int == 5 and type(out_int) is int
+        out_bool = to_dumb_json_value(np.array(np.bool_(True), dtype=object))
+        assert out_bool is True
+        out_nan = to_dumb_json_value(np.array(np.float32("nan"), dtype=object))
+        assert out_nan is None
+        json.dumps([out_int, out_bool, out_nan], allow_nan=False)
+
     def test_split_grid_unpacked_to_lists(self) -> None:
         from plugin.scripting.payload_codec import child_pack_result
 

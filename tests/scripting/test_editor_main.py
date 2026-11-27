@@ -274,7 +274,7 @@ def test_wsgi_editor_config_output_per_env(monkeypatch):
     assert b'window.WA_EDITOR_BACKEND = "codemirror";' in body
 
 
-def test_monaco_static_path_serves_cm6_files(tmp_path):
+def test_static_asset_path_serves_cm6_files(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
     cm6_dir = assets / "cm6"
@@ -282,10 +282,10 @@ def test_monaco_static_path_serves_cm6_files(tmp_path):
     (assets / "backend_cm6.js").write_text("// cm6", encoding="utf-8")
     (cm6_dir / "cm6.bundle.js").write_text("// bundle", encoding="utf-8")
 
-    served_backend = em.monaco_static_path("/backend_cm6.js", str(assets), "")
+    served_backend = em.static_asset_path("/backend_cm6.js", str(assets), "")
     assert served_backend == str(assets / "backend_cm6.js")
 
-    served_bundle = em.monaco_static_path("/cm6/cm6.bundle.js", str(assets), "")
+    served_bundle = em.static_asset_path("/cm6/cm6.bundle.js", str(assets), "")
     assert served_bundle == str(cm6_dir / "cm6.bundle.js")
 
 
@@ -354,7 +354,7 @@ def test_main_codemirror_backend_fatals_when_cm6_assets_missing(tmp_path, monkey
 
 def test_poll_messages_load_restores_shows_and_focuses_window():
     _reset_state()
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
     mock_window = MagicMock()
     mock_window.on_top = False
     em.session.window = mock_window
@@ -373,7 +373,7 @@ def test_poll_messages_load_restores_shows_and_focuses_window():
 
 def test_poll_messages_load_handles_missing_window_methods():
     _reset_state()
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
 
     class BareWindow:
         def __init__(self):
@@ -398,7 +398,7 @@ def test_save_script_sends_requested_flag(monkeypatch):
     _reset_state()
     written: list[dict[str, Any]] = []
     monkeypatch.setattr(em, "_write_parent", lambda msg: written.append(dict(msg)))
-    api = em.MonacoEditorApi()
+    api = em.EditorApi()
 
     api.save_script("MyScript", "x = 1", "user", True)
     api.save_script("MyScript", "x = 2")

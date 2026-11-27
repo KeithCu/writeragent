@@ -137,7 +137,7 @@ The Monaco **shell** (toolbar, status line, script picker, `prompt()`/`confirm()
 ### Autocompletion (Jedi)
 
 - Run Jedi only in the **editor child**, not over the pipe on every key.
-- `jedi.create_environment(sys.executable)` runs on the first completion, on that daemon thread. `MonacoEditorApi` construction and `ready` do not build it. `is_jedi_available` is only `jedi is not None`.
+- `jedi.create_environment(sys.executable)` runs on the first completion, on that daemon thread. `EditorApi` construction and `ready` do not build it. `is_jedi_available` is only `jedi is not None`.
 - A completion that finds that thread still inside `_JEDI_CALL_TIMEOUT_SEC` (5s) returns no items and does not queue. A thread still running after that budget is abandoned with its environment; the next completion creates a new one.
 - Target: sub-10ms after warm-up.
 

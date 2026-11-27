@@ -204,7 +204,7 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
     seen: set[str] = set()
     key_phrases = []
     for chunk in chunks:
-        lemma = " ".join([t.lemma_ if t.lemma_ != "-PRON-" else t.text.lower() for t in chunk])
+        lemma = " ".join(t.lemma_ for t in chunk)
         key = lemma.lower().strip()
         if key and key not in seen and len(key) > 1:
             seen.add(key)

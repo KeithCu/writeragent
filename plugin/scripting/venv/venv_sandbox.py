@@ -34,7 +34,7 @@ from contextvars import ContextVar, copy_context
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from plugin.scripting.venv.sandbox_request import SandboxRequest
 
 from plugin.contrib.smolagents.local_python_executor import (
@@ -511,21 +511,36 @@ def _auto_import_alias(module_name: str, import_stmt: str) -> str:
     return module_name
 
 
-def apply_auto_imports(code: str) -> tuple[str, int]:
-    """Prepend imports from AUTO_IMPORTS if missing and available. Returns (new_code, lines_added)."""
+def _missing_auto_imports(code: str) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(module_name, alias, import_stmt)`` for each AUTO_IMPORTS entry *code* does not bind or import.
+
+    The callers decide whether the module is installed (``optional_module``)
+    so ``inject_auto_imports`` can skip pyplot before importing it.
+    """
     scanned = _scan_user_code(code)
     bound: set[str] = scanned[0] if scanned is not None else set()
-    prepended_lines: list[str] = []
     for module_name, import_stmt in auto_imports().items():
-        if _auto_import_alias(module_name, import_stmt) in bound:
+        alias = _auto_import_alias(module_name, import_stmt)
+        if alias in bound:
             continue
+        # A cell that fails to parse never runs, but the executor is reused,
+        # so its imports fall back to a substring test.
         imported_already = (
             _code_says_imported(code, module_name)
             if scanned is None
             else _code_imports_module(scanned[1], module_name)
         )
-        if not imported_already and optional_import.optional_module(module_name) is not None:
-            prepended_lines.append(import_stmt)
+        if not imported_already:
+            yield module_name, alias, import_stmt
+
+
+def apply_auto_imports(code: str) -> tuple[str, int]:
+    """Prepend imports from AUTO_IMPORTS if missing and available. Returns (new_code, lines_added)."""
+    prepended_lines = [
+        import_stmt
+        for module_name, _alias, import_stmt in _missing_auto_imports(code)
+        if optional_import.optional_module(module_name) is not None
+    ]
     if not prepended_lines:
         return code, 0
     return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
@@ -589,28 +604,18 @@ def _module_binds_name(code: str, name: str) -> bool:
 
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     """Inject auto imports into executor state if not already bound or imported in code."""
-    scanned = _scan_user_code(code)
-    bound_names: set[str] = scanned[0] if scanned is not None else set()
-    imported: set[str] | None = None if scanned is None else scanned[1]
     bindings: dict[str, Any] = {}
-    for module_name, import_stmt in auto_imports().items():
-        alias = _auto_import_alias(module_name, import_stmt)
-        if alias in bound_names or alias in executor.state:
+    for module_name, alias, _import_stmt in _missing_auto_imports(code):
+        # A name an earlier cell left in the reused executor stays as it is.
+        if alias in executor.state:
             continue
         # pyplot costs seconds (font cache) on first import. Bind plt only when
         # the code names it or pyplot is already loaded.
         if module_name == "matplotlib.pyplot" and alias not in code and module_name not in sys.modules:
             continue
-        # A cell that fails to parse never runs, but the executor is reused.
-        already = (
-            _code_says_imported(code, module_name)
-            if imported is None
-            else _code_imports_module(imported, module_name)
-        )
-        if not already:
-            mod = optional_import.optional_module(module_name)
-            if mod is not None:
-                bindings[alias] = mod
+        mod = optional_import.optional_module(module_name)
+        if mod is not None:
+            bindings[alias] = mod
     if bindings:
         executor.send_variables(bindings)
 

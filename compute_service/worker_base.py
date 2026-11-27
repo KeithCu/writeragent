@@ -153,7 +153,7 @@ class BaseProcessPool:
         max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
     ) -> None:
         self.script_path = script_path
-        self.num_workers = max(0, num_workers)
+        self.num_workers = num_workers
         self.default_timeout_sec = default_timeout_sec
         # At least one task per child, as config enforces.
         self.max_tasks = max(1, max_tasks)
@@ -175,18 +175,17 @@ class BaseProcessPool:
         self._reaper_stop_event = threading.Event()
 
         try:
-            if self.num_workers > 0:
-                # Workers spawn one at a time, each waiting on its ready handshake.
-                # Spawning them in parallel would cut startup roughly with the
-                # worker count. Left for later.
-                for i in range(self.num_workers):
-                    w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
-                    self.workers.append(w)
-                    # Idle only after the ready handshake. A failed spawn stays
-                    # out of the idle set; the next lease respawns that slot.
-                    if w.is_alive():
-                        # Idle time starts after the handshake.
-                        self._idle[w] = time.monotonic()
+            # Workers spawn one at a time, each waiting on its ready handshake.
+            # Spawning them in parallel would cut startup roughly with the
+            # worker count. Left for later.
+            for i in range(self.num_workers):
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
+                self.workers.append(w)
+                # Idle only after the ready handshake. A failed spawn stays
+                # out of the idle set; the next lease respawns that slot.
+                if w.is_alive():
+                    # Idle time starts after the handshake.
+                    self._idle[w] = time.monotonic()
 
             # 0 and None mean this pool does not evict for idle time, and no reaper thread starts.
             period = self._reaper_period_sec()
@@ -202,10 +201,12 @@ class BaseProcessPool:
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> None:
         def _loop() -> None:
-            # Stops on the shutdown event; a failed tick is logged and the loop continues.
+            # Stops on the shutdown event; a failed tick is logged and the loop
+            # continues. The tick functions do not check for shutdown
+            # themselves, so this check keeps a tick from running after it.
             while not self._reaper_stop_event.wait(interval):
                 if self._is_shutdown:
-                    continue
+                    break
                 try:
                     fn()
                 except Exception:
@@ -230,8 +231,6 @@ class BaseProcessPool:
         return float(ttl)
 
     def _evict_idle_workers(self) -> None:
-        if self._is_shutdown:
-            return
         now = time.monotonic()
         idle_ttl = self.idle_worker_ttl_sec
         with self._cond:

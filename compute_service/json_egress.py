@@ -43,20 +43,12 @@ def sanitize_for_strict_json(obj: Any) -> Any:
     return obj
 
 
-def _ndarray_to_lists(arr: Any) -> Any:
+def _ndarray_to_lists(arr: Any, *, drop_image_ids: set[int] | None) -> Any:
     """Convert ndarray to nested Python lists with NaN/Inf → null."""
-    # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
-    import numpy as np
-
     if arr.ndim == 0:
-        val = arr.item()
-        if isinstance(val, float):
-            return _finite_or_none(val)
-        if isinstance(val, (np.integer,)):
-            return int(val)
-        if isinstance(val, (np.bool_,)):
-            return bool(val)
-        return val
+        # A 0-d object array's item() can still be a numpy scalar or an image
+        # dict, so the scalar goes through the same conversion as any value.
+        return to_dumb_json_value(arr.item(), drop_image_ids=drop_image_ids)
     # object / string arrays: tolist then sanitize
     as_list = arr.tolist()
     return sanitize_for_strict_json(as_list)
@@ -98,7 +90,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
     if isinstance(obj, float):
         return _finite_or_none(obj)
     if _is_ndarray(obj):
-        return _ndarray_to_lists(obj)
+        return _ndarray_to_lists(obj, drop_image_ids=drop_image_ids)
     if is_image_payload(obj):
         if drop_image_ids is not None and id(obj) in drop_image_ids:
             return None

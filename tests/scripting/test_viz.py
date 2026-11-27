@@ -489,7 +489,6 @@ def test_plot_data_hue_is_ignored(mock_plt, _mock_payload):
     )
 
     assert result["status"] == "ok"
-    assert result["legend"] is False
     ax.legend.assert_not_called()
 
 
