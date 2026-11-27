@@ -131,7 +131,7 @@ def test_draw_context_active_slide_index_matches_controller(ctx, doc):
             real = i
             break
     assert real >= 0
-    text = get_draw_context_for_chat(doc, 8000, ctx)
+    text = get_draw_context_for_chat(doc, 8000)
     assert "Active Slide Index: %d" % real in text
     assert "Active Slide Index: -1" not in text
     assert "Slide Size: width=" in text

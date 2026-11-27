@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from com.sun.star.awt import Point
+from com.sun.star.awt.FontSlant import ITALIC, NONE
 
 from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
@@ -289,16 +290,7 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
 
 
 def _font_slant(italic: bool) -> Any:
-    """Return ``FontSlant.ITALIC`` or ``FontSlant.NONE``.
-
-    Integer 1 is ``OBLIQUE``, not italic. Pytest has no pyuno enum module, so
-    the import falls back to the IDL integers (ITALIC=2, NONE=0).
-    """
-    try:
-        from com.sun.star.awt.FontSlant import ITALIC, NONE
-    except ImportError:
-        # Stubs type those names as FontSlant, so the integers stay on this path only.
-        return 2 if italic else 0
+    """Return ``FontSlant.ITALIC`` or ``FontSlant.NONE`` (integer 1 is ``OBLIQUE``)."""
     return ITALIC if italic else NONE
 
 

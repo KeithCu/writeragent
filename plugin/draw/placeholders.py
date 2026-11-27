@@ -50,7 +50,7 @@ def _role_from_label(label: Any) -> str | None:
 
 def _shape_type(shape: Any) -> str:
     """Short UNO service name, e.g. ``TitleTextShape``."""
-    raw = uno_read(lambda: shape.getShapeType(), "") or uno_read(lambda: getattr(shape, "ClassName", ""), "")
+    raw = uno_read(lambda: shape.getShapeType(), "")
     return str(raw).rsplit(".", 1)[-1] if raw else ""
 
 
@@ -59,7 +59,7 @@ def _scan_shapes(page: Any) -> list[_ScanRow]:
     out = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        name = uno_read(lambda: str(shape.Name), "") or ""
+        name = uno_read(lambda: str(shape.Name), "")
         shape_type = _shape_type(shape)
         role = _role_from_label(shape_type) or ""
         has_text = uno_read(lambda: hasattr(shape, "getString"), False)
