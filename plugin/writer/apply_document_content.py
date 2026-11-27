@@ -296,11 +296,7 @@ def _find_ranges(
 ) -> tuple[list[Any], search_mod.MatchMode]:
     if regex:
         resolved_cs = search_mod.resolve_case_sensitive(cs)
-        if limit > 1:
-            hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=True)
-        else:
-            first = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=False)
-            hits = [] if first is None else [first]
+        hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=limit > 1)
         return hits, search_mod.MatchMode(resolved_cs, False)
     return search_mod.find_literal_ranges(doc, pattern, case_sensitive=cs, limit=limit)
 

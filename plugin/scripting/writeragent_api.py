@@ -1933,7 +1933,7 @@ class _PageProxy:
         """Get the column layout for a page style. Column widths are relative weights, not millimetres. Margins are millimetres.
 
         Args:
-            style (optional): The name of the page style.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
         """
         return _result(call_host_tool("page_get_columns", style=style))
 
@@ -1989,7 +1989,7 @@ class _PageProxy:
             region (required): Which region to edit. 'header'/'footer' are the shared ones. '_first' and '_left' are skipped when they only mirror the shared region. One of: header, footer, header_first, footer_first, header_left, footer_left.
             old_content (required): Exact substring to find in the region's text. Does not match inside a field.
             content (required): Text to write in place of old_content. Empty deletes the match.
-            style (optional): Page style name.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
             case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode.
             occurrence (optional): 0-based match to replace (default 0). Cannot be combined with all_matches=true.
             all_matches (optional): Replace every match. Cannot be combined with occurrence.
@@ -2001,7 +2001,7 @@ class _PageProxy:
 
         Args:
             column_count (required): Number of columns (1-99).
-            style (optional): The name of the page style.
+            style (optional): The name of the page style (e.g., 'Standard' or 'Default Style').
             spacing_mm (optional): Spacing between columns in mm.
         """
         return _result(call_host_tool("page_set_columns", style=style, column_count=column_count, spacing_mm=spacing_mm))

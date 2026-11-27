@@ -26,7 +26,7 @@ from datetime import datetime
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 import uno
 from com.sun.star.awt import Point, Size
@@ -93,7 +93,6 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
     Name is the stable address.
     """
     if index is not None:
-        assert isinstance(index, int)
         err = index_error(index, dp.getCount(), "draw-page shape")
         if err:
             return None, None, make_tool_error(err)
@@ -112,7 +111,7 @@ def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> 
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
             continue
         model = shape.Control
-        model_name = getattr(model, "Name", "") or ""
+        model_name = model.Name or ""
         shape_name = shape.Name
         if model_name == wanted or shape_name == wanted:
             hits.append((i, shape))
@@ -189,7 +188,7 @@ _STACK_GAP = 400
 
 def _preferred_control_name(shape: Any) -> str:
     shape_name = shape.Name
-    model_name = getattr(getattr(shape, "Control", None), "Name", "") or ""
+    model_name = shape.Control.Name or ""
     return shape_name or model_name
 
 
@@ -217,7 +216,7 @@ class _StackedDrawPageCursor:
         return Point(_STACK_MARGIN_X, y)
 
 
-# One cursor per draw page. The active-page cursor supplied every field's Y, then the shape was added to field page=.
+# One cursor per draw page, so a field with page= stacks below the shapes of its own page, not the active one.
 class _PageCursors:
     def __init__(self) -> None:
         self._entries: list[tuple[Any, _StackedDrawPageCursor]] = []
@@ -351,14 +350,19 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
 _PAGE_PROPERTY: dict[str, Any] = page_index_param("Draw/Impress only; the active page if omitted. Ignored in Writer/Calc.")
 _PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
 
+
+def _items_property(description: str) -> dict[str, Any]:
+    # A string is split on commas by _coerce_items (JSON array strings are parsed first);
+    # the union keeps coerce_call_args from wrapping "a,b" into a single option.
+    return {"type": ["array", "string"], "items": {"type": "string"}, "description": description}
+
+
 _CONTROL_PROPERTIES: dict[str, Any] = {
     "control": enum_param(list(CONTROL_TYPE_MAP), "The type of form control to create."),
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
     "name": {"type": "string", "description": "Internal name/key for the control."},
     "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
-    # A string is split on commas by _coerce_items (JSON array strings are parsed first);
-    # the union keeps coerce_call_args from wrapping "a,b" into a single option.
-    "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
+    "items": _items_property("List of options for a combobox or list box."),
     "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
     "width": {"type": "integer", "description": "Width, 1/100 mm (default varies by type)."},
@@ -415,24 +419,24 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
     except ToolExecutionError as exc:
         return format_error_payload(exc)
     cursor = None
+    duplicate_err = make_tool_error(f"A form control named '{name}' already exists on this page.")
     if page_cursors is not None and dp is not None:
         cursor = page_cursors.for_page(dp)
         if name in cursor.control_names:
-            return make_tool_error(f"A form control named '{name}' already exists on this page.")
+            return duplicate_err
     elif dp is not None:
         for i in range(dp.getCount()):
             shape_i = dp.getByIndex(i)
             try:
                 if shape_i.getShapeType() == "com.sun.star.drawing.ControlShape":
                     if _preferred_control_name(shape_i) == name:
-                        return make_tool_error(f"A form control named '{name}' already exists on this page.")
+                        return duplicate_err
             except Exception as exc:
                 log.debug("Failed to inspect shape for name collision: %s", exc)
 
     full_comp_name = CONTROL_TYPE_MAP[control_type]
 
     try:
-        # Create control model
         model = doc.createInstance(full_comp_name)
         if not model:
             return make_tool_error(f"Failed to create form component {full_comp_name}")
@@ -451,10 +455,10 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if control_type == "date" and date_val is not None:
             year, month, day = date_val
             try:
-                d_struct = uno.createUnoStruct("com.sun.star.util.Date")
-                setattr(d_struct, "Year", year)
-                setattr(d_struct, "Month", month)
-                setattr(d_struct, "Day", day)
+                d_struct = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
+                d_struct.Year = year
+                d_struct.Month = month
+                d_struct.Day = day
                 if hasattr(model, "Date"):
                     model.Date = d_struct
                 if hasattr(model, "DefaultDate"):
@@ -469,10 +473,8 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if control_type in ("combobox", "listbox") and coerced_items is not None:
             model.StringItemList = tuple(coerced_items)
 
-        # Create the shape
         shape = doc.createInstance("com.sun.star.drawing.ControlShape")
 
-        # Default sizes (100ths of mm)
         w = kwargs.get("width", 3000 if control_type not in ("checkbox", "radio") else 500)
         h = kwargs.get("height", 600 if control_type not in ("checkbox", "radio") else 500)
         shape.setSize(Size(w, h))
@@ -524,7 +526,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if is_disposal(e):
             raise
         log.exception("Error creating form control")
-        return make_tool_error(f"Error creating form control: {str(e)}")
+        return make_tool_error(f"Error creating form control: {e}")
 
 
 class FormCreate(ToolWriterFormBase):
@@ -554,7 +556,6 @@ class FormCreate(ToolWriterFormBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         fields = kwargs["fields"]
-        assert isinstance(fields, list)
         doc = ctx.doc
         results: list[Any] = []
         names: list[str] = []
@@ -565,7 +566,6 @@ class FormCreate(ToolWriterFormBase):
                 res = _create_control(ctx, page_cursors=page_cursors, **field)
                 results.append(res)
                 names.append(str(field.get("name") or ""))
-                # Call _insert_space only when that field's result is not status="error"
                 if res.get("status") != "error":
                     self._insert_space(ctx)
 
@@ -643,7 +643,6 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if main.is_current():
                 return self._tool_error("FormGenerate LLM call must not run on the UI thread")
 
-            # Get the full document from LLM
             content = client.chat_completion_sync(
                 messages,
                 max_tokens=2048,
@@ -651,7 +650,6 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 status_callback=ctx.status_callback,
             )
 
-            # Process the content
             return main.run(self._process_form_content, ctx, content)
 
         except Exception as e:
@@ -660,7 +658,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if getattr(e, "code", None) == "USER_STOPPED":
                 return format_error_payload(e)
             log.exception("Error in form_generate")
-            return self._tool_error(f"Form generation failed: {str(e)}")
+            return self._tool_error(f"Form generation failed: {e}")
 
     def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
         doc = ctx.doc
@@ -692,10 +690,9 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         snippet = part if len(part) <= 80 else part[:77] + "..."
                         field_results.append(self._tool_error(f"Could not parse form field tag: {snippet}"))
                         field_names.append("")
-                else:
-                    if part:
-                        # Errors propagate: retrying after a partial insert would insert the text twice and hide the error.
-                        self._insert_text(ctx, part, page_cursors=page_cursors)
+                elif part:
+                    # Errors propagate: retrying after a partial insert would insert the text twice and hide the error.
+                    self._insert_text(ctx, part, page_cursors=page_cursors)
 
             return _field_failure_result(self, field_results, action="form_generate", names=field_names)
 
@@ -714,7 +711,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             flag_tracked(result)
         return result
 
-    def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:
+    def _insert_text(self, ctx: Any, text: str, page_cursors: _PageCursors | None) -> None:
         doc = ctx.doc
         if is_calc(doc) or is_draw(doc):
             plain = _plain_text_for_calc_html_fragment(text)
@@ -731,6 +728,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             dp = bridge.get_active_page()
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
+            assert page_cursors is not None
             pos = page_cursors.for_page(dp).next_position(h)
             shape, _unused, _unused2 = DrawShapes().safe_create_shape(
                 doc, dp, "com.sun.star.drawing.TextShape", Point(pos.X, pos.Y), Size(w, h)
@@ -780,7 +778,7 @@ class FormListControls(ToolWriterFormBase):
                 shape = dp.getByIndex(i)
                 if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                     model = shape.Control
-                    model_name = getattr(model, "Name", "") or ""
+                    model_name = model.Name or ""
                     ctrl_name = _preferred_control_name(shape)
                     snap = control_snapshot(model)
                     info = {"index": i, "name": ctrl_name, "type": snap.get("type", "unknown")}
@@ -790,7 +788,6 @@ class FormListControls(ToolWriterFormBase):
                         if k in snap:
                             info[k] = snap[k]
 
-                    # Geometry
                     pos = shape.getPosition()
                     sz = shape.getSize()
                     info["x"] = pos.X
@@ -831,9 +828,7 @@ class FormEditControl(ToolWriterFormBase):
             "label": {"type": "string", "description": "New label text."},
             "text": {"type": "string", "description": "New text value (for text fields)."},
             "state": {"type": "integer", "description": "Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted)."},
-            # A string is split on commas by _coerce_items (JSON array strings are parsed first);
-            # the union keeps coerce_call_args from wrapping "a,b" into a single option.
-            "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
+            "items": _items_property("New item list (for comboboxes or list boxes)."),
             "x": {"type": "integer"},
             "y": {"type": "integer"},
             "width": {"type": "integer"},
@@ -872,10 +867,9 @@ class FormEditControl(ToolWriterFormBase):
         else:
             coerced_state = None
 
-        is_radio = (ctrl_type == "radio")
+        is_radio = ctrl_type == "radio"
 
         def mutate() -> None:
-            # Update Model and Shape
             rename_to = kwargs.get("new_name")
             if rename_to is None and "index" in kwargs and "name" in kwargs:
                 rename_to = kwargs["name"]
@@ -897,12 +891,11 @@ class FormEditControl(ToolWriterFormBase):
             if coerced_items is not None:
                 model.StringItemList = tuple(coerced_items)
 
-            # Update Shape Geometry
-            if any(k in kwargs for k in ["x", "y"]):
+            if any(k in kwargs for k in ("x", "y")):
                 pos = shape.getPosition()
                 shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
 
-            if any(k in kwargs for k in ["width", "height"]):
+            if any(k in kwargs for k in ("width", "height")):
                 sz = shape.getSize()
                 shape.setSize(Size(kwargs.get("width", sz.Width), kwargs.get("height", sz.Height)))
 
@@ -933,7 +926,7 @@ class FormEditControl(ToolWriterFormBase):
 
 
 class FormDeleteControl(ToolWriterFormBase):
-    """Deletes a form control by its index."""
+    """Delete a form control by name or draw-page index."""
 
     name: str | None = "form_delete_control"
     description: str = (

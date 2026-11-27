@@ -36,9 +36,9 @@ def session_token_prefix(session_id: str) -> str:
 def normalize_redline_comment(comment: Any) -> str | None:
     """Comment text with the trailing newline LibreOffice adds on ODF load removed.
 
-    The token is saved as ``<text:p>wa-review:..</text:p>``; on reopen LibreOffice reads it
-    back as ``"wa-review:..\n"``, which the exact token regex rejected, so a saved and
-    reopened document had no agent changes (no click popup, no review toolbar).
+    The token is saved as ``<text:p>wa-review:..</text:p>`` and LibreOffice reads it
+    back as ``"wa-review:..\n"``. Without this strip the exact token regex rejects it,
+    and a reopened document shows no agent changes.
     """
     if comment is None:
         return None
@@ -60,8 +60,6 @@ def read_redline_comment(redline: Any) -> tuple[str | None, bool]:
         raw = redline.getPropertyValue("RedlineComment")
     except Exception:
         return None, False
-    if raw is None:
-        return None, True
     return normalize_redline_comment(raw), True
 
 
@@ -91,8 +89,6 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
         # Incomplete or dead doc: unreliable, NOT "zero pending / review complete".
         # wait_for_review probes document_is_disposed separately; do not fold dispose into this.
         return False, 0, 0
-    if total < 0:
-        return False, 0, total
     reliable = True
     seen = 0
     # Cap iterations at getCount(), not hasMoreElements() alone: auto-mocked UNO enumerations
@@ -100,16 +96,13 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
     try:
         for rl in iter_elements_limited(enum, total):
             seen += 1
-            try:
-                if not on_item(rl):
-                    reliable = False
-            except RedlineScanAbort:
-                return False, seen, total
-            except Exception:
-                # A per-redline read failed (for example the document closed mid-scan).
-                # Fail closed in one place so callbacks can read properties directly.
-                return False, seen, total
+            if not on_item(rl):
+                reliable = False
+    except RedlineScanAbort:
+        return False, seen, total
     except Exception:
+        # A per-redline read failed (for example the document closed mid-scan).
+        # Fail closed in one place so callbacks can read properties directly.
         return False, seen, total
     if seen != total:
         reliable = False
@@ -161,14 +154,11 @@ def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[i
     return len(tokens), reliable
 
 
-
 def redline_date_key(dt: Any) -> tuple[Any, ...] | None:
     """Extract (Year, Month, Day, Hours, Minutes, Seconds, NanoSeconds) from RedlineDateTime."""
     if dt is None:
         return None
-    return tuple(
-        getattr(dt, f, None) for f in ("Year", "Month", "Day", "Hours", "Minutes", "Seconds", "NanoSeconds")
-    )
+    return (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes, dt.Seconds, dt.NanoSeconds)
 
 
 _UNREAD = object()
@@ -213,9 +203,9 @@ def _stacked_on_someone_else(rl: Any) -> bool:
     """True when *rl* sits on top of another author's pending change (``RedlineSuccessorData``
     is the layer underneath) that is not an agent change.
 
-    Tagging such a stack marks the user's layer as the agent's too: the comment reads the top
-    layer only, so "Reject all agent changes" popped the agent's Delete and then rejected the
-    user's own Insert under it -- the user's text was gone (checked live).
+    Tagging such a stack would mark the user's layer too: the comment reads the top
+    layer only, so 'Reject all agent changes' would pop the agent's Delete and then
+    reject the user's Insert under it.
     """
     try:
         below = rl.getPropertyValue("RedlineSuccessorData")

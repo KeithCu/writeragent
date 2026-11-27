@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
+from plugin.writer.specialized.bookmarks import is_mcp_bookmark_name
 from plugin.doc.paragraph_search import find_paragraph_for_range
 from plugin.doc.text_helpers import (
     DeletionState,
@@ -463,7 +464,7 @@ class TreeService(ServiceBase):
             details = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
                 hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
-                existing = [n for n in names if n.startswith("_mcp_")]
+                existing = [n for n in names if is_mcp_bookmark_name(n)]
                 if existing:
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
             raise ToolExecutionError(hint, details=details)
