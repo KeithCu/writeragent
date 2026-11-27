@@ -448,3 +448,26 @@ def test_emptying_a_table_with_a_protected_cell_is_refused_uno(ctx, doc):
             assert table.getCellByName("A1").getString() == "ONLY_FEE"
     finally:
         table.getCellByName("B1").setPropertyValue("IsProtected", False)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_refused_table_into_cell_keeps_view_cursor_uno(ctx, doc):
+    """A table that cannot replace a match inside a cell is refused and the user's caret stays put."""
+    text = doc.getText()
+    text.setString("Before.")
+    insert_named_table(doc, "T1", 2, 2, {"A1": "a1", "B1": "b1", "A2": "a2", "B2": "ee4"})
+    text.insertString(text.getEnd(), "After.", False)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    caret = text.createTextCursorByRange(vc.getStart())
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute_safe(
+        tool_ctx,
+        target="search",
+        old_content="ee4",
+        content=["<table><tr><th>H1</th><th>H2</th></tr><tr><td>v1</td><td>v2</td></tr></table>"],
+    )
+    assert res["status"] == "error" and res["code"] == "TABLE_INSERT_FAILED", res
+    assert vc.TextTable is None
+    assert text.compareRegionStarts(caret, vc.getStart()) == 0

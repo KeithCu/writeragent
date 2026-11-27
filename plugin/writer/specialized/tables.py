@@ -21,6 +21,7 @@ from plugin.doc.text_helpers import (
     FAILED,
     KeepViewSelection,
     TrackedDeletions,
+    bounds_cover,
     get_string_without_tracked_deletions,
     iter_elements,
     normalize_linebreaks,
@@ -33,7 +34,13 @@ from plugin.framework.tool_schema import page_index_param
 from plugin.framework.uno_context import enum_has_more, execute_dispatch, resolve_uno_context, supports_service, uno_same
 from plugin.writer.edit_review import flag_tracked, record_write
 from plugin.writer.html_import import non_text_portion_type, replace_preserving_format
-from plugin.writer.record_changes import is_recording_changes
+from plugin.writer import review_authors
+from plugin.writer.record_changes import (
+    is_recording_changes,
+    overlaps_foreign_insertion,
+    redline_kinds_covering,
+    redline_spans,
+)
 from plugin.writer.review_scan import scan_redlines
 
 from ..range_copy import cells_all_tracked_deleted, writer_cell_position  # range_copy/table_nesting also ship in LibrePy and must not import this module.
@@ -62,9 +69,19 @@ _CELL_DELETION_REFUSAL = (
     "user; with Track Changes on the rewrite is recorded as a tracked change. Do not accept or reject "
     "the deletion yourself."
 )
+_STRUCK_ROW_REFUSAL = (
+    "Cell %s of table '%s' is in a row that is pending deletion as a tracked change (table_get_cells "
+    "lists it in deleted_rows). Writing into it would keep the row when the user accepts the deletion, "
+    "so the cell was not changed. Tell the user; do not accept or reject the deletion yourself."
+)
+_NUMBER_CELL_REFUSAL = (
+    "Cell %s of table '%s' holds a formula or a number value. Writer cannot record replacing it as a "
+    "tracked change: rejecting the change would bring back its text as plain text, not the formula or "
+    "value, so the cell was not changed. Tell the user; they can edit the cell themselves."
+)
 _NOT_RECORDED_HELP = (
     "Do not retry; tell the user. If the table or its text is a pending tracked insertion, "
-    "the user must accept or reject that first (table_set_cell can still change its text); "
+    "the user must accept or reject that first; "
     "if the table is in a protected section (Format > Sections) or a protected merged cell "
     "reaches in (Table > Unprotect Cells), the user must unprotect it."
 )
@@ -92,6 +109,21 @@ def _unscanned_redlines_error(subject: str) -> ToolExecutionError:
         "Could not scan tracked changes before deleting %s, so it was left in place. "
         "Retry once; if it fails again, ask the user to delete it." % subject,
         code="TABLE_DELETE_NOT_TRACKABLE",
+    )
+
+
+def _pending_insertion_error(subject: str, shell: str, code: str = "TABLE_DELETE_NOT_TRACKABLE") -> ToolExecutionError:
+    """Refusal for deleting or editing what is itself a pending tracked insertion.
+
+    LibreOffice then takes the inserted text back (same author) or stacks deletions on it (another
+    author) and drops the insertion of the table or row itself, so Reject All would leave an empty
+    one behind.
+    """
+    return ToolExecutionError(
+        "%s is a pending tracked insertion; changing it now would leave an empty %s after Reject All, "
+        "so nothing was changed. Do not retry; tell the user to accept or reject that insertion first."
+        % (subject, shell),
+        code=code,
     )
 
 
@@ -683,6 +715,97 @@ def _pending_insertions(doc: Any, names: list[str]) -> set[str]:
     return pending
 
 
+def _table_pending_insertion(doc: Any, table: Any, name: str) -> bool:
+    """True when *table* was itself inserted as a pending tracked change, by any author.
+
+    An insertion that starts at the table node has the table as ``RedlineStart``
+    (``_pending_insertions``); one typed after a paragraph starts at that paragraph's end, so
+    it is found by covering the table's anchor (``redline_bounds``).
+    """
+    if name in _pending_insertions(doc, [name]):
+        return True
+    inserts = [bounds for kind, bounds in redline_spans(doc) if kind == "Insert"]
+    if not inserts:
+        return False
+    anchor = table.getAnchor()
+    return any(bounds_cover(bounds, anchor) for bounds in inserts)
+
+
+def _row_cells(table: Any, idx: int) -> list[Any]:
+    return [table.getCellByName(n) for n in _band_cell_names(table, "row", idx)]
+
+
+def _row_tracked(table: Any, idx: int) -> bool:
+    """True when row *idx* was inserted or deleted as a tracked change.
+
+    LibreOffice sets ``HasTextChangesOnly`` false on such a row, and Accept or Reject then
+    keeps or removes the row by the redlines in its cells
+    (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx).
+    """
+    return table.getRows().getByIndex(idx).getPropertyValue("HasTextChangesOnly") is False
+
+
+def _row_pending_deletion(doc: Any, table: Any, idx: int) -> bool:
+    """True when accepting the pending changes removes row *idx*: tracked, and all its text struck."""
+    return _row_tracked(table, idx) and cells_all_tracked_deleted(_row_cells(table, idx), doc)
+
+
+def _deleted_rows(doc: Any, table: Any) -> list[int]:
+    """0-based indexes of the rows of *table* that are pending deletion."""
+    return [i for i in range(table.getRows().getCount()) if _row_pending_deletion(doc, table, i)]
+
+
+def _row_pending_insertion(doc: Any, table: Any, idx: int) -> bool:
+    """True when row *idx* is a tracked row insertion: tracked, and one of its cells holds an Insert redline."""
+    if not _row_tracked(table, idx):
+        return False
+    cells = _row_cells(table, idx)
+    return not cells_all_tracked_deleted(cells, doc) and any(
+        kind == "Insert" and any(uno_same(bounds[0], cell) for cell in cells) for kind, bounds in redline_spans(doc)
+    )
+
+
+def _starts_with_row_insertion_anchor(doc: Any, cell: Any) -> bool:
+    """True when *cell* starts with the U+200D of a pending Insert (Writer's tracked row insertion marker)."""
+    if not cell.getString().startswith(_EMPTY_ROW_ANCHOR):
+        return False
+    first = cell.createTextCursor()
+    first.gotoStart(False)
+    first.goRight(1, True)
+    return "Insert" in redline_kinds_covering(redline_spans(doc), first)
+
+
+def _holds_object(span: Any) -> bool:
+    """True when *span* holds an as-character object (picture, frame, shape)."""
+    return any(
+        portion.getPropertyValue("TextPortionType") == "Frame"
+        for para in iter_elements(span.createEnumeration())
+        for portion in iter_elements(para.createEnumeration())
+    )
+
+
+def _replace_text_beside_objects(cell: Any, span: Any, new: str) -> None:
+    """Record replacing the text of *span* with *new*, striking each text run on its own.
+
+    A tracked replace of the whole span would also strike the anchor character of an
+    as-character picture, so Accept All would delete the picture. Recorded deletions leave
+    the struck text in place, so the insert point taken first still lies after the longest
+    run, whose formatting the new text takes.
+    """
+    runs = [
+        cell.createTextCursorByRange(portion)
+        for para in iter_elements(span.createEnumeration())
+        for portion in iter_elements(para.createEnumeration())
+        if portion.getPropertyValue("TextPortionType") == "Text" and portion.getString()
+    ]
+    longest = max(runs, key=lambda run: len(run.getString()), default=span)
+    point = cell.createTextCursorByRange(longest.getEnd())
+    for run in runs:
+        run.setString("")
+    if new:
+        cell.insertString(point, new, False)
+
+
 def delete_leading_tables(session: Any, doc: Any, uno_ctx: Any) -> None:
     """Delete leading body TextTables before a full-document replace.
 
@@ -751,6 +874,11 @@ def _delete_band_tracked(doc: Any, uno_ctx: Any, table: Any, name: str, axis: st
         if col_target is None:
             raise _band_locate_error()
         target_cell = col_target
+
+    if _table_pending_insertion(doc, table, name):
+        raise _pending_insertion_error("Table '%s'" % name, "table")
+    if axis == "row" and _row_pending_insertion(doc, table, idx):
+        raise _pending_insertion_error("The row at index %d of table '%s'" % (idx, name), "row")
 
     controller = doc.getCurrentController()
     if controller is None:
@@ -834,6 +962,8 @@ def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: 
     """
     _require_no_protected_cells(doc, table, name, nesting)
     if uno_read(lambda: is_recording_changes(doc), False):
+        if _table_pending_insertion(doc, table, name):
+            raise _pending_insertion_error("Table '%s'" % name, "table")
         _delete_writer_table_tracked(doc, uno_ctx, table, name)
         return True
     _remove_writer_table(doc, table, name, nesting)
@@ -906,6 +1036,7 @@ class TableList(ToolWriterTableBase):
         "table_get_cells cells. "
         "Each row includes nesting (direct parent table/cell) and nested_in_cells (host cells that "
         "contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). "
+        "Writer: deleted_rows (0-based) lists rows pending deletion as a tracked change; their cells read empty. "
         "Draw/Impress: also page and shape index; cell_count is rows times cols."
     )
     is_mutation: bool | None = False
@@ -932,26 +1063,32 @@ class TableList(ToolWriterTableBase):
             cell_count = cell_counts.get(name)
             if cell_count is None:
                 cell_count = rows * cols
-            out.append({
+            entry = {
                 "name": name,
                 "rows": rows,
                 "cols": cols,
                 "cell_count": cell_count,
                 "nesting": nesting_by_name[name],
                 "nested_in_cells": hosted.get(name, {}),
-            })
+            }
+            deleted_rows = _deleted_rows(ctx.doc, table_obj)
+            if deleted_rows:
+                entry["deleted_rows"] = deleted_rows
+            out.append(entry)
         return {"status": "ok", "count": len(out), "tables": out}
 
 
 def _cell_text(deletions: TrackedDeletions, cell: Any, hosted: list[str]) -> str:
-    """Visible plain text of *cell*.
+    """Visible plain text of *cell*, without a leading empty-row anchor.
 
     Host cells omit concatenated inner-table text. ``get_string_without_tracked_deletions``
     hides pending tracked deletions: ``getString()`` also returns deleted text, so a pending
     "velha" -> "nova" would otherwise read "celula novavelha".
     """
     state = deletions.state_at(cell)
-    return cell_plain_siblings(cell, state) if hosted else get_string_without_tracked_deletions(cell, state)
+    text = cell_plain_siblings(cell, state) if hosted else get_string_without_tracked_deletions(cell, state)
+    # The U+200D that Writer puts in a tracked inserted or deleted row is not cell text.
+    return text.removeprefix(_EMPTY_ROW_ANCHOR)
 
 
 class TableGetCells(ToolWriterTableBase):
@@ -959,6 +1096,8 @@ class TableGetCells(ToolWriterTableBase):
     description: str = (
         "Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). "
         "Empty string is an empty cell; a missing name is not a cell. "
+        "Writer: deleted_rows (0-based) lists rows pending deletion as a tracked change; their cells read "
+        "empty, and table_set_cell refuses to write into them. "
         "A failed Draw/Impress cell read is an error, not an empty string. "
         "Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. "
         "Draw/Impress: read matrix; when cell is set, matrix is that one cell only. "
@@ -1028,6 +1167,7 @@ class TableGetCells(ToolWriterTableBase):
                 return self._tool_error(
                     "Could not read cell '%s' in table '%s'." % (cell_raw, name)
                 )
+            deleted_rows = _deleted_rows(ctx.doc, table)
             payload = {
                 "status": "ok",
                 "table_name": name,
@@ -1037,6 +1177,7 @@ class TableGetCells(ToolWriterTableBase):
                 "cells": cells,
                 "nesting": _nesting_for(ctx.doc, table, name),
                 "nested_in_cells": nested_in_cells,
+                **({"deleted_rows": deleted_rows} if deleted_rows else {}),
             }
             if resolved:
                 payload["cell"] = resolved
@@ -1052,10 +1193,13 @@ class TableSetCell(ToolWriterTableBase):
         "Writer: the new text keeps the character formatting of the text it replaces, writing the "
         "cell's current text changes nothing, and the write is recorded as a tracked change while "
         "Track Changes or review mode is on. A cell holding a formula or a number value becomes plain "
-        "text (the formula is removed). A cell that hosts a nested table keeps that table and "
-        "rewrites only the host paragraphs; edit the nested table by its own name. Refuses a "
-        "protected cell (CELLS_PROTECTED) and, while Track Changes is off, a cell holding a pending "
-        "tracked deletion (MATCH_CROSSES_DELETION)."
+        "text (the formula is removed); while changes are recorded such a cell is refused "
+        "(CELL_VALUE_NOT_TRACKABLE), because rejecting would not bring the formula back. A cell that "
+        "hosts a nested table keeps that table and rewrites only the host paragraphs; edit the nested "
+        "table by its own name. Refuses a protected cell (CELLS_PROTECTED), a cell in a row pending "
+        "deletion (MATCH_CROSSES_DELETION), while changes are recorded a cell holding another author's "
+        "pending insertion of its table or row (CELL_IN_PENDING_INSERTION) and, while Track Changes is off, "
+        "a cell holding a pending tracked deletion (MATCH_CROSSES_DELETION)."
     )
     is_mutation: bool | None = True
     parameters: dict[str, Any] | None = {
@@ -1114,6 +1258,9 @@ class TableSetCell(ToolWriterTableBase):
                     _protected_refusal("change", "cell %s of table '%s'" % (cell_name, name), protected),
                     code="CELLS_PROTECTED",
                 )
+            row = writer_cell_position(cell_name)
+            if row is not None and _row_pending_deletion(ctx.doc, table, row[1]):
+                return self._tool_error(_STRUCK_ROW_REFUSAL % (cell_name, name), code="MATCH_CROSSES_DELETION")
             uno_ctx = resolve_uno_context(ctx)
             # Decide from Writer's recording state at write time, not from the review mode or
             # left_tracked_changes() (False when the user records with review Off): the review
@@ -1128,12 +1275,31 @@ class TableSetCell(ToolWriterTableBase):
                     set_host_paragraphs(cell, new)
                     recorded = is_recording_changes(ctx.doc)
                     return
+                recording = is_recording_changes(ctx.doc)
                 span = cell.createTextCursor()
                 span.gotoStart(False)
+                if recording and _starts_with_row_insertion_anchor(ctx.doc, cell):
+                    # Writer keeps a tracked row insertion only through that anchor's Insert
+                    # redline, so replacing it would make Reject All keep the row.
+                    span.goRight(1, False)
                 span.gotoEnd(True)
+                if recording:
+                    # Another author's edit stacks on the insertion of a pending table or row and
+                    # splits its Insert redline, so Reject All would keep an empty table or row
+                    # (SwTableLine::UpdateTextChangesOnly, swtable.cxx). The same author's edit
+                    # folds into that insertion.
+                    shell = (
+                        "table" if _table_pending_insertion(ctx.doc, table, name)
+                        else "row" if row is not None and _row_pending_insertion(ctx.doc, table, row[1])
+                        else None
+                    )
+                    if shell and overlaps_foreign_insertion(ctx.doc, [span], review_authors.office_author(uno_ctx)):
+                        raise _pending_insertion_error(
+                            "The text of cell %s of table '%s'" % (cell_name, name), shell, "CELL_IN_PENDING_INSERTION"
+                        )
                 # An untracked replace writes into the struck run, and setString removes another
                 # author's deletion.
-                if not is_recording_changes(ctx.doc) and deletions.overlaps(span):
+                elif deletions.overlaps(span):
                     raise ToolExecutionError(
                         _CELL_DELETION_REFUSAL % (cell_name, name),
                         code="MATCH_CROSSES_DELETION",
@@ -1142,15 +1308,19 @@ class TableSetCell(ToolWriterTableBase):
                 # in-place replace would keep them, and Writer would recompute the cell text over
                 # the edit.
                 if cell.getType().value in ("VALUE", "FORMULA"):
+                    if recording:
+                        raise ToolExecutionError(_NUMBER_CELL_REFUSAL % (cell_name, name), code="CELL_VALUE_NOT_TRACKABLE")
                     cell.setString(new)
-                    recorded = is_recording_changes(ctx.doc)
+                elif recording and _holds_object(span):
+                    _replace_text_beside_objects(cell, span, new)
+                    recorded = True
                 else:
                     # One atomic op authored once, as index_refresh_toc_entry does: a cell replace
                     # is a single small edit, and the atomic path cannot leave a half-applied delete.
                     wrote = replace_preserving_format(
                         ctx.doc, span, new, in_undo_context=True, split_author=False
                     )
-                    recorded = wrote and is_recording_changes(ctx.doc)
+                    recorded = wrote and recording
 
             _mutate_or_rollback(ctx.doc, uno_ctx, _("WriterAgent: Set table cell"), _apply)
             if recorded:
@@ -1174,6 +1344,8 @@ class ManageTableStructure(ToolWriterTableBase):
         "refuses to delete a row or column that holds a protected cell; "
         "refuses to delete a row in which a non-empty cell spanning several rows starts (as a tracked change, also an empty one that is first or last in the row); "
         "refuses to delete a column that a wider (merged) cell covers together with other columns; "
+        "while changes are recorded, refuses to delete from a table, or delete a row, that is itself a "
+        "pending tracked insertion (TABLE_DELETE_NOT_TRACKABLE); "
         "when Track Changes or review mode is on, delete is recorded as a tracked change."
     )
     is_mutation: bool | None = True
@@ -1538,7 +1710,8 @@ class TableDelete(ToolWriterTableBase):
         "Delete a table by name. Writer: removes a top-level or nested TextTable from its "
         "containing XText. Nested children of the deleted table are removed with it — this is "
         "the intentional remove (do not use table_set_cell, which refuses host cells). "
-        "Refuses a table that has, or is nested in, a protected cell. "
+        "Refuses a table that has, or is nested in, a protected cell, and, while changes are recorded, "
+        "a table that is itself a pending tracked insertion (TABLE_DELETE_NOT_TRACKABLE). "
         "Draw/Impress: removes the TableShape from the page."
     )
     parameters: dict[str, Any] | None = {

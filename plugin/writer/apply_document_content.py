@@ -1761,13 +1761,17 @@ class ApplyDocumentContent(ToolBase):
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
         report = html_import_styles.WriteReport()
-        reports = self._replace_found(
-            session, doc, found, use_preserve=params.use_preserve,
-            content=params.content, ctx=ctx,
-            track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain, report=report,
-            fix_outline=params.anchor is None,
-            has_table=params.has_table)
+        # A table that cannot go where the match is (inside a cell) is refused after the import,
+        # and the rollback's Undo leaves the view cursor at the match; put the user's selection back.
+        keep = KeepViewSelection(uno_read(lambda: doc.getCurrentController(), None)) if params.has_table else contextlib.nullcontext()
+        with keep:
+            reports = self._replace_found(
+                session, doc, found, use_preserve=params.use_preserve,
+                content=params.content, ctx=ctx,
+                track_reviewable=params.track_reviewable, override=params.override, batch=False,
+                plain=params.plain, report=report,
+                fix_outline=params.anchor is None,
+                has_table=params.has_table)
         if params.anchor is not None:
             resp = build_search_replace_response(
                 1,

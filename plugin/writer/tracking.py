@@ -30,10 +30,12 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.doc.text_helpers import KeepViewSelection, iter_elements_limited
 from plugin.framework.doc_type import is_writer
+from plugin.framework.errors import uno_read
 from plugin.framework.uno_context import execute_dispatch, uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
+from plugin.writer.range_copy import writer_cell_position
 from plugin.writer.search import LocationLabeler
 from .specialized_base import ToolWriterTrackingBase, enum_param
 
@@ -103,6 +105,48 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
         except Exception as rb_err:
             return _overlap_bounds_error(i, rb_err)
     return None
+
+
+def _redline_start(redline: Any) -> Any:
+    return uno_read(lambda: redline.getPropertyValue("RedlineStart"), None)
+
+
+def _tracked_row(start: Any) -> tuple[str, int] | None:
+    """(table name, row index) when *start* lies in a row inserted or deleted as a tracked change.
+
+    LibreOffice marks such a row with ``HasTextChangesOnly`` false and records one redline per
+    cell (``SwTableLine::UpdateTextChangesOnly``, sw/source/core/table/swtable.cxx). A start
+    outside a table, or at a table itself (no ``TextTable`` property), gives None.
+    """
+    table = uno_read(lambda: start.getPropertyValue("TextTable"), None)
+    cell = uno_read(lambda: start.getPropertyValue("Cell"), None)
+    if table is None or cell is None:
+        return None
+    pos = writer_cell_position(cell.CellName)
+    if pos is None or table.getRows().getByIndex(pos[1]).getPropertyValue("HasTextChangesOnly") is not False:
+        return None
+    return table.getName(), pos[1]
+
+
+def _row_sibling_refusal(index: int, objs: list[Any], start: Any) -> str | None:
+    """Refusal when the change at *index* is one cell of a tracked row change that has other cells.
+
+    Resolving one cell's redline by index resolves only that cell and resets the row's tracked
+    state, so the rest of the row would stay struck (or inserted) as plain text changes.
+    """
+    row = _tracked_row(start)
+    if row is None:
+        return None
+    siblings = [i for i, r in enumerate(objs) if i != index and _tracked_row(_redline_start(r)) == row]
+    if not siblings:
+        return None
+    return (
+        "Tracked change %d is one cell of a tracked row change in row %d of table '%s' (the row's other "
+        "cells are changes %s). Accepting or rejecting one cell would leave the rest of the row "
+        "half-resolved, so nothing was changed. Ask the user to accept or reject the row "
+        "(Edit > Track Changes > Manage)."
+        % (index, row[1] + 1, row[0], ", ".join(str(i) for i in siblings))
+    )
 
 
 def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys: list[tuple[Any, ...]]) -> str | None:
@@ -367,8 +411,9 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
         "(from tracking_list). That index is stale after any resolve; call "
-        "tracking_list again before the next accept or reject. action=accept_all/reject_all "
-        "resolves every change."
+        "tracking_list again before the next accept or reject. Writer refuses accept/reject of one "
+        "cell of a tracked row insertion or deletion whose other cells have their own changes. "
+        "action=accept_all/reject_all resolves every change."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -497,7 +542,7 @@ class ManageTrackedChanges(ToolWriterTrackingBase, ToolCalcSpecialTracking):  # 
             # collapsed span (e.g. a deletion) — selecting the start point suffices
             log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
-        refusal = _overlap_refusal(index, objs, start, end)
+        refusal = _row_sibling_refusal(index, objs, start) or _overlap_refusal(index, objs, start, end)
         if refusal is not None:
             return self._tool_error(refusal)
 
