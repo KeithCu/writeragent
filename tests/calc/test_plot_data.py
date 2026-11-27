@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +26,13 @@ def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
         "image": {"__wa_payload__": "image", "format": "png", "data": b"x"},
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    # The selection's top-left cell, where the plot is anchored, with real geometry.
+    sheet = calc_ctx.doc.getCurrentController.return_value.getActiveSheet.return_value
+    cell = sheet.getCellByPosition.return_value
+    cell.IsMerged = False
+    cell.Position = SimpleNamespace(X=0, Y=0)
+    cell.Size = SimpleNamespace(Width=2258, Height=452)
+    cell.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0)
 
     tool = PlotDataTool()
     result = tool.execute(calc_ctx, helper="quick_plot", data_range="Sheet1.A1:C10")
