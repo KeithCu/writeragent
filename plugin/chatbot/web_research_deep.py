@@ -38,7 +38,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.chatbot.web_research import norm_research_query, _user_stopped_payload
+from plugin.chatbot.web_research import WEB_SEARCH_STOPPED_MSG, norm_research_query, _user_stopped_payload
 
 log = logging.getLogger(__name__)
 
@@ -62,10 +62,10 @@ LEARNING_LINE_PATTERN = re.compile(
 )
 URL_PATTERN = re.compile(r"https?://[^\s\]\)>\",;]+")
 
-WebAgentRunner = Callable[[str, str], str | dict[str, Any]]
+WebAgentRunner = Callable[[str, str], str | dict[str, Any] | None]
 LlmChatFn = Callable[[list[dict[str, str]], int], str]
-# Each pool task returns its own (run_web_agent, extraction llm_chat). The
-# parent llm_chat stays on the planning thread and is not safe to share.
+# Each pool worker gets its own (run_web_agent, extraction llm_chat, cleanup).
+# The parent llm_chat stays on the planning thread and is not safe to share.
 WorkerFactory = Callable[[], tuple[WebAgentRunner, LlmChatFn, Callable[[], None]]]
 StopChecker = Callable[[], bool] | None
 StatusCallback = Callable[[str], None] | None
@@ -240,7 +240,7 @@ def _is_user_stopped(exc: Any) -> bool:
 
 def _check_stopped(stop_checker: StopChecker) -> None:
     if stop_checker and stop_checker():
-        raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
+        raise ToolExecutionError(WEB_SEARCH_STOPPED_MSG, code="USER_STOPPED")
 
 
 @dataclass
@@ -292,13 +292,9 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
             pass
         out["knowledge_gaps"] = _clean_str_list(parsed.get("knowledge_gaps") or parsed.get("gaps"))
         out["suggested_queries"] = _clean_str_list(parsed.get("suggested_queries") or parsed.get("queries"))
-        stop_flag = parsed.get("stop")
-        # ``bool("false")``, ``bool("0")``, and ``bool("no")`` are True, so a
-        # stringified flag ended the research loop early. `as_bool` correctly
-        # handles standard boolean token strings. Parse tokens the way score
-        # is coerced above: only a real boolean counts, and bad input falls
-        # back to "do not stop".
-        out["stop"] = as_bool(stop_flag)
+        # The model may send "false" or "0" as a string, and bool() of those is True.
+        # as_bool reads the token; anything it does not recognise is "do not stop".
+        out["stop"] = as_bool(parsed.get("stop"))
         out["reasoning"] = str(parsed.get("reasoning") or "")
     return out
 
@@ -454,7 +450,7 @@ def _partial_report_from_evidence(
     return "\n".join(lines)
 
 
-def _coerce_agent_result(result: str | dict[str, Any]) -> str:
+def _coerce_agent_result(result: str | dict[str, Any] | None) -> str:
     if result is None:
         return ""
     if isinstance(result, dict):
@@ -474,9 +470,9 @@ def _merge_branch_results(acc: _ResearchAccumulator, branch: dict[str, Any]) -> 
     acc.learnings.extend(branch["learnings"])
     for learning, urls in branch["citations"].items():
         acc.citations.setdefault(learning, []).extend(urls)
-    ctx = branch["context"]
-    if ctx:
-        acc.context_chunks.append(str(ctx))
+    sub_context = branch["context"]
+    if sub_context:
+        acc.context_chunks.append(sub_context)
     for url in branch["sources"]:
         if url not in acc.sources:
             acc.sources.append(url)
@@ -632,7 +628,7 @@ def _run_sub_queries_parallel(
             except queue.Empty:
                 break
 
-        # No public join timeout. The worker set is what shutdown(wait=True) joins.
+        # Join each worker handle against one shared deadline.
         deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
         for handle in handles:
             remaining = deadline - time.monotonic()
@@ -829,7 +825,7 @@ def run_deep_research(
     except ToolExecutionError as exc:
         # Planning, a sub-query, or synthesis can raise USER_STOPPED.
         # execute() only caches status "ok", so the stopped payload must be
-        # returned here. Letting it become a partial report string cached it.
+        # returned here; a partial report string would be cached as a result.
         if _is_user_stopped(exc):
             return _user_stopped_payload()
         raise

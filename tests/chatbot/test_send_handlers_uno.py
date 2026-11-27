@@ -31,6 +31,7 @@ class _DirectImageHost(SendHandlersMixin):
         self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
         self.stop_requested = False
         self._send_cancellation = None
+        self._orphan_send_outcome = None
         self._active_mode = ""
         self._mode_topic = ""
         self.cached_doc_type = "writer"

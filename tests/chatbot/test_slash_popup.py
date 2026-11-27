@@ -932,3 +932,14 @@ def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():
     popup.reposition()
     assert host.pos[-1][3] == 18 + 4 + 14
     assert popup._row_px == 18 + 4
+
+
+def test_mouse_released_at_y_zero_accepts_top_row():
+    popup, _box = _controller()
+    listeners = []
+    popup.control = SimpleNamespace(addMouseListener=listeners.append)
+    popup.accept_row_at_y = MagicMock(return_value=True)
+    popup._attach_click()
+    assert len(listeners) == 1
+    listeners[0].mouseReleased(SimpleNamespace(Y=0))
+    popup.accept_row_at_y.assert_called_once_with(0)

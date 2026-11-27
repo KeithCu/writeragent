@@ -95,7 +95,7 @@ class HtmlContentToolBase(ToolWriterSpecialBase):
         if target not in HTML_CONTENT_TARGETS:
             target = "end"
 
-        registry = ctx.services.get("tools") if ctx.services else None
+        registry = ctx.services.get("tools")
         apply_tool = registry.get("apply_content") if registry else None
         if apply_tool is None:
             return self._tool_error("apply_content is not available.", code="TOOL_NOT_FOUND")

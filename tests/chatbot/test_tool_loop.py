@@ -57,6 +57,7 @@ class FakePanel(ToolCallingMixin):
         self.stop_requested = False
         self._stop_requested_fallback = False
         self._send_cancellation = None
+        self._orphan_send_outcome = None
         self.audio_wav_path = None
         self.image_model_selector = Mock()
         self._append_response = Mock()
