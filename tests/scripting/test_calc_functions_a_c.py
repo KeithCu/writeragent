@@ -45,9 +45,9 @@ def test_aggregate_stubs_and_bools():
     res_bool = calc.aggregate(1, 4, [1.0, 2.0, True, False, 3.0])
     assert res_bool == 2.0
 
-    # Functions 14..19 must fail assertion 1 <= fn <= 13
+    # Functions 14..19 need k and are not implemented; ValueError shows #VALUE!.
     for fn in range(14, 20):
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             calc.aggregate(fn, 4, [1, 2, 3])
 
     import warnings

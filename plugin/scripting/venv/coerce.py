@@ -426,7 +426,7 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
         series = pd.Series(series)
 
     if pd.api.types.is_datetime64_any_dtype(series):
-        if getattr(series.dt, "tz", None) is not None:
+        if series.dt.tz is not None:
             series = series.dt.tz_localize(None)
         return series.astype("datetime64[ns]")
 
@@ -473,7 +473,7 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
             # and raises ValueError on pandas 3. Convert every cell to UTC instead.
             if parsed_str is None or not pd.api.types.is_datetime64_any_dtype(parsed_str):
                 parsed_str = pd.to_datetime(str_slice, errors="coerce", format="mixed", utc=True)
-        if getattr(parsed_str.dt, "tz", None) is not None:
+        if parsed_str.dt.tz is not None:
             parsed_str = parsed_str.dt.tz_localize(None)
         result.loc[not_num] = parsed_str.astype("datetime64[ns]")
 

@@ -1056,10 +1056,8 @@ def subtotal(fn_num: Any, r: Any) -> float | str:
     if fn == 10:
         # VAR.S needs two samples. One point or none is #DIV/0!.
         return float(np.var(arr, ddof=1)) if len(arr) > 1 else float("nan")
-    if fn == 11:
-        # ScVarP: empty sample is #DIV/0! (NaN).
-        return float(np.var(arr, ddof=0)) if len(arr) else float("nan")
-    return float("nan")
+    # fn is 11, ScVarP: empty sample is #DIV/0! (NaN).
+    return float(np.var(arr, ddof=0)) if len(arr) else float("nan")
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float | str:

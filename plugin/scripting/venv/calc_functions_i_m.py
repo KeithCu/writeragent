@@ -26,6 +26,7 @@ from plugin.scripting.calc_range import CalcRange
 from .calc_functions_util import (
     RegressionError,
     as_nonzero,
+    cell_text,
     cell_value,
     clean_paired_arrays,
     collect_a_values,
@@ -554,11 +555,7 @@ _JIS_TRANS = str.maketrans({0x20: "\u3000", **{cp: chr(cp + 0xFEE0) for cp in ra
 def jis(text: Any) -> str:
     # Convert half-width ASCII (0x21-0x7E) to full-width (U+FF01-U+FF5E), space to
     # U+3000, and half-width katakana (U+FF61-U+FF9F) to full-width via NFKC.
-    # nan and inf are not integers; str() is their text
-    if isinstance(text, float) and text.is_integer():
-        s = str(int(text))
-    else:
-        s = py_str(text)
+    s = cell_text(text)
     return _JIS_KANA_RE.sub(
         lambda match: unicodedata.normalize("NFKC", match.group()),
         s.translate(_JIS_TRANS),

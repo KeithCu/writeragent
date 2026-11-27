@@ -134,6 +134,11 @@ def test_query_folder_sql_requires_scoped_and_files(tmp_path):
     res = query_folder_sql(str(tmp_path), "select 1", files=[])
     assert res["status"] == "ok", res
 
+    # An empty file list or mapping names no folder files, so no folder is needed.
+    for empty in ([], {}):
+        res = query_folder_sql(None, "select 1", files=empty)
+        assert res["status"] == "ok", res
+
     res = query_folder_sql(str(tmp_path), "SELECT * FROM missing", files=["nope.csv"])
     assert res["status"] == "error"
     assert res.get("code") == "MISSING_FILE"
