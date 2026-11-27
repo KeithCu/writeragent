@@ -113,8 +113,9 @@ def _dbapi() -> Any:
         return _dbapi_mod
     if not hasattr(sqlite3.Connection, "enable_load_extension"):
         try:
-            pysqlite3_mod = importlib.import_module("pysqlite3.dbapi2")
+            from pysqlite3 import dbapi2 as pysqlite3
 
+            pysqlite3_mod: Any = pysqlite3
             if hasattr(pysqlite3_mod.Connection, "enable_load_extension"):
                 _dbapi_mod = pysqlite3_mod
                 return _dbapi_mod
