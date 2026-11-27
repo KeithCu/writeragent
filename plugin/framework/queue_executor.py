@@ -13,7 +13,7 @@ Solution: use com.sun.star.awt.AsyncCallback.addCallback() to post work
 into the VCL event loop. The HTTP thread blocks on a threading.Event
 until the main thread has executed the work item and stored the result.
 
-`execute()` off the main thread with no AsyncCallback raises `RuntimeError`
+`call()` off the main thread with no AsyncCallback raises `RuntimeError`
 and does not call `fn` on the caller. `post()` does not run the callback on
 the background thread. Before AsyncCallback exists it keeps a pending list.
 A list shorter than the cap stores the callable. A full list waits for a
@@ -22,7 +22,7 @@ initialization has finished and AsyncCallback is `None` (eval harness), a
 full list raises `TimeoutError` immediately and does not store the callable;
 waiting cannot create the callback. A flush that fails partway logs, puts
 the failed item and the tail back on the list, and does not raise; the
-caller's own `execute` / `post` still runs.
+caller's own `call` / `post` still runs.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
 main thread owns a queued function. An item that has not started is
@@ -94,7 +94,7 @@ def install_from_environ(
         MainThread.poke = poke
 
 
-def marshal_thread_tag(executor: "MainThread | None" = None) -> str:
+def marshal_thread_tag(executor: MainThread | None = None) -> str:
     """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
     from plugin.framework.thread_guard import get_background_task_name
 
@@ -113,13 +113,13 @@ def marshal_thread_tag(executor: "MainThread | None" = None) -> str:
     )
 
 
-def _log_marshal(level: int, msg: str, *args: Any, executor: "MainThread | None" = None) -> None:
+def _log_marshal(level: int, msg: str, *args: Any, executor: MainThread | None = None) -> None:
     """Log *msg* plus a marshal thread tag, only when *level* is enabled.
 
     ``log.debug(..., marshal_thread_tag())`` still builds the tag when debug
     is off: the argument is evaluated before the logger checks the level.
     The tag takes ``is_agent_active``'s lock and reads queue depth, so the
-    hot path (execute, post, process_queue) must not call it unless this
+    hot path (call, post, process_queue) must not call it unless this
     record will be emitted. *msg* must end with a ``%s`` for the tag.
     """
     if not log.isEnabledFor(level):
@@ -130,6 +130,11 @@ def _log_marshal(level: int, msg: str, *args: Any, executor: "MainThread | None"
 
 def _fn_label(fn: Callable[..., Any]) -> str:
     return getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None) or repr(fn)
+
+
+def _resolve_scope(bound_scope: SendCancellation | None | ScopeUnset) -> SendCancellation | None:
+    # ``is`` does not narrow ScopeUnset. None is an explicit scope.
+    return get_current_send_cancellation() if bound_scope is SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
 
 
 class _WorkItem:
@@ -278,10 +283,8 @@ class MainThread:
             if self._ctx is not raw:
                 self._ctx = raw
                 # Reset initialization so AsyncCallback is re-created with the updated context if needed.
-                # One warning per context object; the same object keeps the
-                # latch. A failed marshal latches the two log flags. Clearing
-                # the service without the flags leaves a later context's
-                # missing-ctx or toolkit failure silent.
+                # One warning per context object: _logged_callback_problem is cleared here so
+                # a new context can log its own missing-ctx or toolkit failure.
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
@@ -303,7 +306,7 @@ class MainThread:
 
     def is_marshal_ready(self) -> bool:
         """True when AsyncCallback initialization has completed successfully."""
-        return bool(self._initialized and self._async_callback_service is not None)
+        return self._initialized and self._async_callback_service is not None
 
     def _await_pending_slot_locked(self) -> bool:
         """True when the pending list can take one post. Caller holds the lock.
@@ -392,20 +395,18 @@ class MainThread:
                 # Use the extension's self.ctx (set_context at bootstrap).
                 # uno.getComponentContext() can return a different context and
                 # cause AsyncCallback to be created in the wrong context — silently
-                # making execute() pokes no-ops. Missing ctx is logged, not probed.
+                # making call() pokes no-ops. Missing ctx is logged, not probed.
                 # self._ctx is already raw from __init__ and set_context; the service manager is unwrapped below.
                 from plugin.framework.thread_guard import unwrap_uno
 
                 ctx = self._ctx
                 # get_ctx() is @main_thread_only. This runs on the first worker
-                # post/execute; calling it here raises, the except swallows it,
+                # post/call; calling it here raises, the except swallows it,
                 # and we would fall through to a wrong context. Bootstrap
                 # set_context() is the path that works. Missing ctx logs below
                 # and leaves AsyncCallback unset (tests without VCL still run).
                 if ctx is None:
-                    # Do not latch _initialized. A post before set_context used
-                    # to fail the assert below and then refuse every later marshal
-                    # until the context object identity changed.
+                    # Do not latch _initialized: a later set_context must be able to create the callback.
                     if not self._logged_callback_problem:
                         log.warning("MainThread has no component context; call set_context() from bootstrap on the main thread")
                         self._logged_callback_problem = True
@@ -581,8 +582,7 @@ class MainThread:
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: SendCancellation | None | ScopeUnset = SCOPE_UNSET, poke: bool = True) -> _WorkItem:
         """Add work item to queue. *poke* False lets a batch caller poke once."""
-        # ``is`` does not narrow ScopeUnset. None is an explicit scope.
-        scope = get_current_send_cancellation() if bound_scope is SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
+        scope = _resolve_scope(bound_scope)
         if scope is not None:
             scope.bind_executor(self)
         item = _WorkItem(fn, args, kwargs, blocking, scope)
@@ -602,13 +602,10 @@ class MainThread:
         """Wait for and return result from main thread."""
         assert item.event is not None
         if not item.event.wait(timeout):
-            # Atomically cancel only if process_queue hasn't already claimed
-            # this item for execution. Without _claim_lock there was a window
-            # where the main thread could start executing fn() after this thread
-            # gave up, causing UNO calls to run against an abandoned caller.
-            # wait() can also return false in the same window the result is
-            # stored and the event is set. Raising TimeoutError then drops a
-            # finished result.
+            # _claim_lock makes cancel-or-claim atomic, so fn() cannot start after
+            # this thread has given up. wait() can also return false in the same
+            # window the result is stored and the event is set. Raising TimeoutError
+            # then drops a finished result.
             #
             # TimeoutError only when the item had not started and is now
             # cancelled. An in-flight call is waited out with no second
@@ -667,24 +664,21 @@ class MainThread:
         """
         from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch
 
-        fn_label = _fn_label(fn)
-        bg_task = get_background_task_name()
-
         if self._is_marshal_thread():
             return fn(*args, **kwargs)
 
         if in_sync_host_dispatch():
-            msg = "marshal refused: main.call called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
+            msg = "marshal refused: main.call called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % _fn_label(fn)
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
         # test_inline inlines call on Dummy-N because call() blocks, and a Dummy-N
         # UNO test waiting on AsyncCallback deadlocks. post is fire-and-forget so it can enqueue.
-        if self.policy is Policy.test_inline and not bg_task:
+        if self.policy is Policy.test_inline and not get_background_task_name():
             return fn(*args, **kwargs)
 
         if self.policy is not Policy.test_marshal and self._get_async_callback() is None:
-            msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
+            msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % _fn_label(fn)
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
@@ -711,11 +705,8 @@ class MainThread:
         """
         from plugin.framework.thread_guard import get_background_task_name
 
-        fn_label = _fn_label(fn)
-        bg_task = get_background_task_name()
-
         # Spill timer and untagged workers enqueue when AsyncCallback exists; inlining touches UNO off-main.
-        if not force_queue and self.policy is Policy.test_inline and not bg_task and (self._is_marshal_thread() or self._get_async_callback() is None):
+        if not force_queue and self.policy is Policy.test_inline and not get_background_task_name() and (self._is_marshal_thread() or self._get_async_callback() is None):
             fn(*args, **kwargs)
             return
 
@@ -726,9 +717,8 @@ class MainThread:
             # Wait for a flush to free a slot; a dropped icon or status update would look like a normal return.
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
-                    raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                scope = get_current_send_cancellation() if bound_scope is SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
-                self._pending_posts.append((fn, args, kwargs, scope))
+                    raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % _fn_label(fn))
+                self._pending_posts.append((fn, args, kwargs, _resolve_scope(bound_scope)))
                 return
 
         self._flush_pending_posts()

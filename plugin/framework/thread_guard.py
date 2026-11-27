@@ -111,8 +111,6 @@ def set_thread_violation_ui(fn: Callable[[Any, str, str], None] | None) -> None:
     _thread_violation_ui = fn
 
 
-
-
 def set_background_task(name: str | None) -> None:
     """Tag the current thread as a background worker task (for better diagnostics).
 
@@ -160,10 +158,7 @@ def _notify_thread_violation(msg: str) -> None:
     # A blocking call() from here deadlocks if the UI thread is waiting or if
     # the calling thread was dispatched synchronously from an external UNO call (#402).
     # Only post asynchronously when AsyncCallback is available; never block the worker.
-    try:
-        if not main.is_marshal_ready():
-            return
-    except Exception:
+    if not main.is_marshal_ready():
         return
 
     # Only one violation dialog is shown at a time.
@@ -253,8 +248,7 @@ def _is_pyuno(obj: Any) -> bool:
         return False
     t = type(obj)
     # PyUNO_callable is not wrapped so method invocations keep native PyUNO return values.
-    mod = getattr(t, "__module__", "") or ""
-    if "pyuno" in mod:
+    if "pyuno" in t.__module__:
         return True
     # Many UNO objects support XInterface.queryInterface
     for cls in t.__mro__:
@@ -448,7 +442,6 @@ class _UnoThreadGuardProxy:
     # Implicit special methods do not use __getattr__, so these do not reach
     # _target (TypeError or object's default). copy and pickle restore
     # __dict__["_target"] and are covered by test_proxy_copy / test_proxy_pickle.
-
 
 
 def guard_uno(obj: Any) -> Any:

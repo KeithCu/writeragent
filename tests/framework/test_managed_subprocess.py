@@ -780,7 +780,7 @@ def test_abandoned_reaper_thread_is_a_daemon(monkeypatch: pytest.MonkeyPatch) ->
     try:
         managed.abandon()
         managed.abandon()
-        assert calls == [{"name": "managed-subprocess-reaper", "dedicated": True, "daemon": True}]
+        assert calls == [{"name": "managed-subprocess-reaper", "dedicated": True}]
     finally:
         while True:
             try:
@@ -1494,7 +1494,7 @@ def test_reaper_start_failure_retries(monkeypatch: pytest.MonkeyPatch) -> None:
 
         managed.abandon()
         assert len(calls) == 1
-        assert calls[0] == {"name": "managed-subprocess-reaper", "dedicated": True, "daemon": True}
+        assert calls[0] == {"name": "managed-subprocess-reaper", "dedicated": True}
         assert ms._reaper_started is True
     finally:
         while True:

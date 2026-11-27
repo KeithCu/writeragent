@@ -2,11 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""VCL event loop pumping and idle waiting helpers.
-
-Split out from ``uno_context`` to separate VCL loop pumping and focus preservation
-from core context and desktop lookup.
-"""
+"""VCL event loop pumping and idle waiting helpers."""
 
 from __future__ import annotations
 
@@ -51,20 +47,19 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
     callers that own an Ask field pass it.
 
     *restore_focus* is the panel's ``FrameSession.restore_focus`` callback.
-    When given, it runs on exit instead of ``restore.setFocus()``. Why: a
-    raw ``setFocus`` here ignored the frame session (closed, user left the
-    Ask field, frame not the active window) and pulled focus back into a
-    background document window (release QA BUG A, fix 3).
+    When given, it runs on exit instead of ``restore.setFocus()``, so focus
+    stays with the active frame session rather than pulling into a background
+    document window.
     """
     from plugin.framework.uno_context import get_toolkit
 
     saved = None
-    if not callable(restore_focus):
+    if restore_focus is None:
         saved = restore
         if saved is None:
             try:
                 tk = get_toolkit(ctx)
-                if tk is not None and hasattr(tk, "getFocusWindow"):
+                if tk is not None:
                     saved = tk.getFocusWindow()
             except Exception as e:
                 log.debug("focus_preserved capture: %s", e)
@@ -72,9 +67,9 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
         yield
     finally:
         try:
-            if callable(restore_focus):
+            if restore_focus is not None:
                 restore_focus()
-            elif saved is not None and hasattr(saved, "setFocus"):
+            elif saved is not None:
                 saved.setFocus()
         except Exception as e:
             log.debug("focus_preserved restore: %s", e)
@@ -83,7 +78,7 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
 def pump_vcl_events(toolkit: Any) -> bool:
     """Call toolkit.processEventsToIdle(); only used from approved pump entry points."""
     global _vcl_pump_depth
-    if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
+    if toolkit is not None:
         try:
             with _vcl_pump_lock:
                 _vcl_pump_depth += 1
@@ -191,18 +186,18 @@ def pump_secondary_idle_tick(ctx: Any, *, on_caller: bool | None = None) -> None
         else:
             _post_secondary_idle(ctx)
     except Exception:
-        log.debug("wait_while_pumping process_events_to_idle failed", exc_info=True)
+        log.debug("pump_secondary_idle_tick process_events_to_idle failed", exc_info=True)
 
 
-def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
+def wait_while_pumping(done: threading.Event, ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
     """Wait for *done* while pumping VCL as a secondary caller.
 
     On the LibreOffice main thread, each tick calls :func:`process_events_to_idle`
     with ``force=False`` so a chat/MCP drain owner suppresses nested VCL.
     Off the main thread (Writer ``doProofreading`` linguistic workers are
     ``Dummy-*``, not VCL) PE2I is **posted** to the main thread — never called
-    on the waiter. Calling PE2I on Dummy-21 popped a UNO thread-violation
-    dialog every poll tick (the wait loop from #778). Repeated off-main ticks
+    on the waiter, because calling PE2I on Dummy-21 pops a UNO thread-violation
+    dialog on every poll tick. Repeated off-main ticks
     coalesce to one outstanding secondary-idle pump; other marshal items do
     not count. Drain-owner wait loops must keep using
     :func:`~plugin.framework.queue_executor.pump_ui_idle` /

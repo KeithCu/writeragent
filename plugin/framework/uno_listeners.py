@@ -243,12 +243,7 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
                     return failure
                 if signal is not None:
                     reraise_listener_boundary(exc)
-                label = "unhandled exception"
-                if isinstance(exc, TypeError):
-                    label = "TypeError"
-                elif isinstance(exc, ValueError):
-                    label = "ValueError"
-                log.exception(f"{self.__class__.__name__} {label} in {fn.__name__}")
+                log.exception("%s failed in %s", self.__class__.__name__, fn.__name__)
                 return failure
 
         setattr(wrapper, _CATCH_LOGGED_ATTR, (failure,))
@@ -260,7 +255,7 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
 
 
 # ---------------------------------------------------------
-# Static Base Classes (100% clean MRO for all typecheckers)
+# Static Base Classes
 # ---------------------------------------------------------
 
 
@@ -644,7 +639,7 @@ def install_view_doc_listener(
                     register_controller(controller)
                     return
                 source = Event.Source
-                if source is not None and hasattr(source, "getCurrentController"):
+                if source is not None:
                     register_controller(source.getCurrentController())
 
         smgr = ctx.getServiceManager()

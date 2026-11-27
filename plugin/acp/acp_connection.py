@@ -210,7 +210,7 @@ class ACPConnection:
         # One thread owns stdin for the life of the child. Request writes,
         # notifications, and the kill all go through it.
         self._ensure_writer()
-        self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
+        self._reader_thread = run_in_background(self._reader_loop, name="acp-reader", dedicated=True)
 
     def _wake_pending(self, message: str) -> None:
         """Fail in-flight ``send_request`` calls that have no response yet.

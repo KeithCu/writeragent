@@ -34,6 +34,7 @@ from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
+# Child lifecycle logs under compute_service.worker, the name the compute service and its tests capture.
 _child_log = logging.getLogger("compute_service.worker")
 
 SPAWN_READY_TIMEOUT_SEC = 15.0
@@ -153,7 +154,8 @@ class Child:
                 self.managed.join_stderr(1.0)
                 self.managed.unregister()
                 return True
-            pid = getattr(self.managed.popen, "pid", None)
+            popen = self.managed.popen
+            pid = popen.pid if popen is not None else None
             _child_log.warning("%s #%s pid=%s still alive after SIGKILL; abandoning", self.worker_name, self.worker_id, pid)
             self.managed.abandon()
             return True
@@ -246,8 +248,7 @@ class ChildSlot:
         """
         # kill() sets self.child to None under _lifecycle_lock while a caller's
         # select loop calls this. Read self.child once: a second read can see None
-        # and raise AttributeError, which a write handler could misreport (the
-        # compute pool's execute write handler reported it as REQUEST_NOT_SERIALIZABLE).
+        # and raise AttributeError, which a write handler could misreport as REQUEST_NOT_SERIALIZABLE.
         child = self.child
         if child is None:
             return False
@@ -898,7 +899,7 @@ class Supervisor:
 
     def spawn(self, managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
         # PDEATHSIG follows the creating thread (see child_runtime.die_with_parent).
-        # spawn waits under _spawn_gate with a bounded timeout and cleans up late spawns after shutdown.
+        # The gate covers only the shutdown check and the enqueue; the bounded wait runs outside it.
         with self._spawn_gate:
             if self._shutdown:
                 raise RuntimeError("Supervisor is shut down")

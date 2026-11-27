@@ -80,7 +80,7 @@ def test_marshal_via_call_allows_affine_access(uno_thread_safety):
         except BaseException as e:
             err = e
 
-    t = run_in_background(worker, name="run_marshal_ok", daemon=False)
+    t = run_in_background(worker, name="run_marshal_ok", dedicated=True)
     t.join(timeout=3.0)
     assert err is None
     assert result == ["hello"]
@@ -104,7 +104,7 @@ def test_post_allows_affine_access(uno_thread_safety):
             err = e
             done.set()
 
-    t = run_in_background(worker, name="run_post_ok", daemon=False)
+    t = run_in_background(worker, name="run_post_ok", dedicated=True)
     done.wait(timeout=3.0)
     t.join(timeout=3.0)
     assert err is None
@@ -121,7 +121,7 @@ def test_direct_affine_access_from_run_in_background_fails(uno_thread_safety):
         except AssertionError as e:
             err = e
 
-    t = run_in_background(worker, name="run_direct_bad", daemon=False)
+    t = run_in_background(worker, name="run_direct_bad", dedicated=True)
     t.join(timeout=3.0)
     assert err is not None
     assert "run_direct_bad" in str(err)
@@ -159,7 +159,7 @@ def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_sa
         finally:
             done.set()
 
-    t = run_in_background(worker, name="run_get_doc_type", daemon=False)
+    t = run_in_background(worker, name="run_get_doc_type", dedicated=True)
     finished = done.wait(timeout=3.0)
     t.join(timeout=1.0)
     state = (
@@ -191,7 +191,7 @@ def test_charts_process_events_regression_must_marshal(uno_thread_safety, monkey
     monkeypatch.setattr(tg, "assert_main_thread", recording_assert)
     monkeypatch.setattr("plugin.framework.uno_context.process_events_to_idle", lambda *a, **k: violations.append("process_events_to_idle"))
 
-    t = run_in_background(lambda: charts._process_events(MagicMock()), name="chart_process_events", daemon=False)
+    t = run_in_background(lambda: charts._process_events(MagicMock()), name="chart_process_events", dedicated=True)
     t.join(timeout=3.0)
 
     assert violations
@@ -220,7 +220,7 @@ def test_yellow_context_refuses_call(uno_thread_safety):
         except BaseException as e:
             err = e
 
-    t = run_in_background(worker, name="yellow_bridge_worker", daemon=False)
+    t = run_in_background(worker, name="yellow_bridge_worker", dedicated=True)
     t.join(timeout=3.0)
     assert err is not None
     assert isinstance(err, RuntimeError)

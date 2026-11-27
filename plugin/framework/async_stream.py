@@ -1209,7 +1209,7 @@ def run_async_worker_with_drain(
     resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn(None)) if on_done_fn is not None else (lambda: None))
 
     def _spawn_worker() -> None:
-        run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)
+        run_in_background(worker_wrapper, name=name, dedicated=True)
 
     run_stream_drain_loop(
         _real_q,

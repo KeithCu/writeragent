@@ -394,7 +394,7 @@ class HttpServer:
             self._server.ssl_ctx = ssl_ctx
 
         self._running = True
-        self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)
+        self._thread = run_in_background(self._run, name="http-server", dedicated=True)
 
         status = self.get_status()
         log.info("HTTP server ready — %s (%d routes)", status["url"], status["routes"])

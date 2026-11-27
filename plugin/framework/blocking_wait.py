@@ -134,7 +134,7 @@ def run_blocking_in_thread(ctx: Any, func: Callable[..., Any], *args: Any, pump_
     pump = (lambda: pump_ui_idle(toolkit)) if pump_vcl else pump_main_thread_work_queue
     # GC off before the worker starts when this wait will not return to VCL.
     with (automatic_gc_suspended() if not pump_vcl else contextlib.nullcontext()):
-        run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
+        run_in_background(worker, name="blocking-thread", dedicated=True)
         # Do not take drain_owner_scope here: this helper may run under an active stream
         # drain. pump_ui_idle remains the owner-safe VCL pump path.
         # Always wait 0.1 s, never ``timeout=None``. With no timeout this thread

@@ -30,9 +30,9 @@ import inspect
 import logging
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any, Generic, List, TypeVar, cast
+from typing import Any, Generic, Iterator, List, TypeVar, cast
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("writeragent.services")
 
 
 # ── FSM State Markers ─────────────────────────────────────────────
@@ -70,7 +70,7 @@ class ServiceBase(ABC):
     name: str | None = None
 
 
-def iter_named_concrete_subclasses(module: Any, base: type, *skip_bases: type) -> Any:
+def iter_named_concrete_subclasses(module: Any, base: type, *skip_bases: type) -> Iterator[type]:
     """Yield concrete subclasses defined in ``module`` that set ``name``.
 
     ``base`` itself is skipped. ``skip_bases`` drops further families
@@ -108,7 +108,7 @@ class ServiceRegistry:
     def __init__(self) -> None:
         self._services: dict[str, Any] = {}
 
-    def register(self, name: Any, instance: Any) -> None:
+    def register(self, name: str, instance: Any) -> None:
         """Register an arbitrary object as a named service."""
         if name in self._services:
             raise ValueError(f"Service already registered: {name}")
@@ -116,21 +116,18 @@ class ServiceRegistry:
 
     def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ServiceBase subclasses in a module."""
-        svc_log = logging.getLogger("writeragent.services")
-
         for obj in iter_named_concrete_subclasses(module, ServiceBase):
             try:
                 # Contract: override __init__ → __init__(self, registry); else no-arg.
                 # Do not use inspect.signature (UNO/C types). TypeError is logged and skipped.
-                if obj.__init__ is not object.__init__:
+                if cast("Any", obj).__init__ is not object.__init__:
                     svc_instance = cast("Any", obj)(self)
                 else:
                     svc_instance = obj()
-                self.register(obj.name, svc_instance)
-            except (TypeError, ValueError, ImportError):
-                svc_log.exception("Failed to instantiate service %s (TypeError/ValueError/ImportError)", obj.__name__)
+                # iter_named_concrete_subclasses (:84) already filters on a truthy name.
+                self.register(cast("str", getattr(obj, "name")), svc_instance)
             except Exception:
-                svc_log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
+                log.exception("Failed to instantiate service %s", obj.__name__)
 
     def get(self, name: str) -> Any:
         """Get a service by name, or None if not registered."""

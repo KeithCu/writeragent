@@ -1068,6 +1068,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
         result = registry.execute("test_fail", DummyContext())
         assert result["status"] == "error"
         assert "Test error" in result["details"]["original_error"]
@@ -1091,6 +1093,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
 
         result = DeadTool().execute_safe(DummyContext())
         assert result["status"] == "error"
@@ -1120,6 +1124,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
 
         result = DeadTool().execute_safe(DummyContext())
         assert result["status"] == "error"
@@ -1144,6 +1150,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
 
         result = DeniedTool().execute_safe(DummyContext())
         assert result["status"] == "error"
@@ -1296,6 +1304,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
         result = registry.execute("test_slow", DummyContext())
         assert result["status"] == "error"
         assert result["code"] == "TOOL_TIMEOUT"
@@ -1379,6 +1389,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
 
         try:
             with patch.object(worker_pool.thread_guard, "set_background_task", block_unwind):
@@ -1412,6 +1424,8 @@ class TestToolIsolation:
             doc = None
             doc_type = None
             caller = None
+            uno_services_supported = frozenset()
+            read_only_target = False
 
         box: dict = {}
 
@@ -1693,6 +1707,7 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
         uno_services = None
         doc_types = None
         fills_schema_defaults = True
+        timeout = None
 
         def get_parameters(self, doc_type=None):
             return self.parameters
@@ -1741,6 +1756,7 @@ def _guard_probe_registry():
         uno_services = None
         doc_types = None
         fills_schema_defaults = True
+        timeout = None
 
         def get_parameters(self, doc_type=None):
             return self.parameters

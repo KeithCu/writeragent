@@ -817,7 +817,7 @@ def test_run_stream_drain_loop_connection_drop():
         except Exception as e:
             q.put((StreamQueueKind.ERROR, e))
 
-    t = run_in_background(worker, daemon=False)
+    t = run_in_background(worker, dedicated=True)
 
     # Run the drain loop in the main thread (simulated)
     # The loop should terminate when outcome.done becomes True, which happens on error

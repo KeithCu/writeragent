@@ -97,17 +97,13 @@ def reset_menu_icon_dpi_cache() -> None:
 def _ppm_scale(win: Any) -> float | None:
     if win is None:
         return None
-    info = None
     try:
-        if hasattr(win, "getInfo"):
-            info = win.getInfo()
-        elif hasattr(win, "Info"):
-            info = win.Info
+        info = win.getInfo()
     except Exception:
         return None
     if info is None:
         return None
-    ppm = float(getattr(info, "PixelPerMeterX", 0.0) or 0.0)
+    ppm = float(info.PixelPerMeterX)
     if ppm <= 0.0:
         return None
     return ppm / _PPM_96DPI
@@ -146,16 +142,13 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
         for frame in frames_to_try:
             if frame is None:
                 continue
-            for name in ("getContainerWindow", "getComponentWindow"):
-                fn = getattr(frame, name, None)
-                if not callable(fn):
-                    continue
-                try:
+            try:
+                for fn in (frame.getContainerWindow, frame.getComponentWindow):
                     w = fn()
                     if w is not None:
                         wins.append(w)
-                except Exception:
-                    log.debug("menu icon DPI: %s failed", name, exc_info=True)
+            except Exception:
+                log.debug("menu icon DPI: frame window lookup failed", exc_info=True)
     except Exception:
         log.debug("candidate windows failed", exc_info=True)
     # Dedupe by id while preserving order (first wins).
@@ -211,7 +204,7 @@ def probe_menu_font_scale(ctx: Any = None) -> float | None:
         fd = getattr(ss, attr, None)
         if fd is None:
             continue
-        h = int(getattr(fd, "Height", 0) or 0)
+        h = int(fd.Height)
         if h > 0:
             return h / 10.0
     return None
@@ -223,8 +216,6 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
     LO values: 0=auto; positive enums map toward 16/24/32. Best-effort.
     """
     try:
-        from com.sun.star.beans import PropertyValue
-
         if ctx is None:
             ctx = get_ctx()
         # ty rejects ctx.getServiceManager() on Any; use the shared getattr helper.
@@ -232,9 +223,7 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
         if sm is None:
             return None
         cfg_prov = sm.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
-        arg = PropertyValue()
-        arg.Name = "nodepath"
-        arg.Value = "/org.openoffice.Office.Common/Misc"
+        arg = create_property_value("nodepath", "/org.openoffice.Office.Common/Misc")
         access = cfg_prov.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (arg,))
         for key in ("SidebarIconSize", "NotebookbarIconSize"):
             try:
@@ -288,9 +277,8 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
         # probe (vcl/quartz/salgdicommon.cxx initResolution reports the clamped
         # logical DPI, never the backing scale) must not run.
         _state.px = _ONE_X_PX
-        if not _state.logged_strong:
-            log.info("menu_icon_dpi source=macos px=%s", _ONE_X_PX)
-            _state.logged_strong = True
+        log.info("menu_icon_dpi source=macos px=%s", _ONE_X_PX)
+        _state.logged_strong = True
         return _ONE_X_PX
 
     probes = (
@@ -313,7 +301,7 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
         log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _HIDPI_PX)
         return _HIDPI_PX
 
-    px = menu_icon_px_for_scale(float(scale))
+    px = menu_icon_px_for_scale(scale)
     # Only PixelPerMeterX is cached. Font, toolbar, and env stay uncached and retry.
     if source == "vcl_dpi":
         _state.px = px
@@ -353,9 +341,8 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
     anywhere ("my_assets/x.png" becomes "my_x.png").
     On Windows, ``os.path.join`` does not rewrite a "/" already inside the
     next component, so "my_assets/icon.png" becomes
-    assets\\my_assets/icon.png and fails the endswith check
-    (GHA 37719557033). ``normpath`` the relative remainder so separators
-    match the platform.
+    assets\\my_assets/icon.png and fails the endswith check. ``normpath`` the
+    relative remainder so separators match the platform.
     """
     clean = icon_filename.replace("\\", "/").lstrip("/").removeprefix("assets/")
     # normpath("") is "."; an empty remainder must stay empty so the join
@@ -393,7 +380,7 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
     if cached is not None:
         return cached
 
-    res = pick_shipped_icon(prefix, px, _AVAILABLE_PX, fallback_px=16)
+    res = pick_shipped_icon(prefix, px, _AVAILABLE_PX, fallback_px=_ONE_X_PX)
     _state.filename_cache[cache_key] = res
     return res
 
@@ -407,7 +394,7 @@ def load_menu_graphic(ctx: Any, icon: str) -> Any:
     ``testing_runner``'s fresh profile), so disk fallback keeps tests working.
     """
     try:
-        ext_url = get_extension_url(ctx) or ""
+        ext_url = get_extension_url(ctx)
         cache_key = (ext_url, icon)
         cached = _state.graphic_cache.get(cache_key)
         if cached is not None:

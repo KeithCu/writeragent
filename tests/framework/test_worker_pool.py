@@ -539,13 +539,6 @@ def test_timeout_join_dedicated_still_alive():
     assert not handle.is_alive()
 
 
-def test_daemon_false_uses_dedicated_thread():
-    handle = run_in_background(lambda: None, name="non-daemon", daemon=False)
-    handle.join(timeout=2)
-    assert handle._thread is not None
-    assert handle._future is None
-
-
 def test_pool_bounds_native_thread_count(monkeypatch: pytest.MonkeyPatch):
     import plugin.framework.worker_pool as worker_pool
 

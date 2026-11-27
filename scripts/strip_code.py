@@ -449,11 +449,7 @@ from typing import Any, Generator
 
 GUARD_ON = False
 
-# What was wrong: LibrePy and release builds failed on install with ImportError
-# for THREAD_VIOLATION_MARK when uno_listeners was imported by import_filter.py.
-# How it happened: THREAD_GUARD_RELEASE_STUB omitted THREAD_VIOLATION_MARK when replacing
-# thread_guard.py during strip_production_code().
-# Why this change fixes it: define THREAD_VIOLATION_MARK matching thread_guard.py's value.
+# Imported by uno_listeners; matches thread_guard.py.
 THREAD_VIOLATION_MARK = "UNO thread violation"
 
 _bg = threading.local()
@@ -493,11 +489,7 @@ def set_background_task(name: str | None) -> None:
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
-# What was wrong: release/LibrePy install ImportError on set_thread_violation_ui
-# when bootstrap_ui_hooks.register_framework_ui_hooks() ran after strip.
-# How it happened: THREAD_GUARD_RELEASE_STUB omitted the setter while the real
-# module and bootstrap still import it.
-# Why this change fixes it: no-op stub so registration is a no-op under GUARD_ON=False.
+# No-op under GUARD_ON=False; bootstrap_ui_hooks still imports and calls it.
 def set_thread_violation_ui(fn: Any) -> None:
     pass
 

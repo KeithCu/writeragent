@@ -98,6 +98,7 @@ class ModuleBase(ABC):
         """
         return None
 
+
 class ModuleLoader:
     """
     Handles discovery, topological sorting, and initialization of plugin modules.
@@ -156,15 +157,19 @@ class ModuleLoader:
                     attr = getattr(mod_pkg, attr_name)
                     if any(attr is seen for seen in candidates):
                         continue
-                    if inspect.isclass(attr) and getattr(attr, "__name__", "") != "ModuleBase":
-                        if any(getattr(b, "__name__", "") == "ModuleBase" for b in getattr(attr, "__mro__", [])):
+                    if inspect.isclass(attr) and attr.__name__ != "ModuleBase":
+                        if any(b.__name__ == "ModuleBase" for b in attr.__mro__):
                             candidates.append(attr)
-                if len(candidates) > 1:
-                    chosen = candidates[0]
-                    log.warning("Module %s exposes %d ModuleBase subclasses (%s); using %s", name, len(candidates), ", ".join(getattr(c, "__name__", "?") for c in candidates), getattr(chosen, "__name__", "?"))
-                    module_class = chosen
-                elif candidates:
+                if candidates:
                     module_class = candidates[0]
+                    if len(candidates) > 1:
+                        log.warning(
+                            "Module %s exposes %d ModuleBase subclasses (%s); using %s",
+                            name,
+                            len(candidates),
+                            ", ".join(c.__name__ for c in candidates),
+                            module_class.__name__,
+                        )
 
                 if module_class:
                     mod = module_class()

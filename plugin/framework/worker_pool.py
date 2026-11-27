@@ -37,7 +37,7 @@ import threading
 import uuid
 from collections import deque
 from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
-from typing import Optional, Callable, Any, ClassVar, IO, Iterator
+from typing import Any, Callable, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import ToolExecutionError, WorkerPoolError
@@ -59,7 +59,7 @@ def _in_pool_worker() -> bool:
     return getattr(_pool_worker_local, "active", False)
 
 
-_pool: "_DaemonWorkPool | None" = None
+_pool: _DaemonWorkPool | None = None
 
 
 def background_pool_max_workers() -> int:
@@ -194,11 +194,11 @@ def _get_pool() -> _DaemonWorkPool:
         return _pool
 
 
-def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
+def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
     """Run *func* off the caller thread with WorkerPoolError isolation and Layer A tagging.
 
     Short fire-and-forget work is queued on a daemon pool with a fixed worker
-    count (unbounded submit queue). Pass ``dedicated=True`` (or ``daemon=False``)
+    count (unbounded submit queue). Pass ``dedicated=True``
     for servers, pipe drains, infinite loops, and any job another thread will
     ``join()`` — those must not occupy a pool slot.
 
@@ -209,9 +209,9 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     blocked still propagates.
 
     *name* is the Layer A task tag for every job; a dedicated thread also uses
-    it as ``threading.Thread.name``, while a pooled job keeps ``wa-bg-N``. The
-    pool-deadlock ``RuntimeError`` is ``_in_pool_worker()``. A dedicated
-    thread keeps that flag false when its name starts with ``wa-bg-``.
+    it as ``threading.Thread.name``, while a pooled job keeps ``wa-bg-N``.
+    ``join()`` from a pool worker raises ``RuntimeError``; the check is a
+    thread-local flag set in ``_DaemonWorkPool._run``, not the thread name.
 
     :return: A :class:`BackgroundHandle` with ``join`` / ``is_alive``.
     """
@@ -238,9 +238,8 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
             error_id = str(uuid.uuid4())
             log.exception("Task %s failed", task_id, extra={"task_id": task_id, "task_name": task_name, "error_id": error_id, "error_type": type(e).__name__})
 
-            wrapped_error = WorkerPoolError(f"Task '{task_name}' failed", code="WORKER_TASK_FAILED", details={"task_id": task_id, "task_name": task_name, "error_id": error_id, "original_error": str(e), "error_type": type(e).__name__})
-
             if error_callback:
+                wrapped_error = WorkerPoolError(f"Task '{task_name}' failed", code="WORKER_TASK_FAILED", details={"task_id": task_id, "task_name": task_name, "error_id": error_id, "original_error": str(e), "error_type": type(e).__name__})
                 try:
                     error_callback(wrapped_error)
                 except Exception:
@@ -251,10 +250,9 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     def _run_in_caller_context() -> None:
         caller_ctx.run(_worker)
 
-    use_dedicated = dedicated or (daemon is False)
-    if use_dedicated:
+    if dedicated:
         thread_name = name or f"worker-{getattr(func, '__name__', 'anon')}"
-        t = threading.Thread(target=_run_in_caller_context, name=thread_name, daemon=daemon)
+        t = threading.Thread(target=_run_in_caller_context, name=thread_name, daemon=True)
         t.start()
         return BackgroundHandle(thread=t)
 
@@ -279,7 +277,7 @@ class StderrTail:
         self._chunks: deque[str] = deque()
         self._chars = 0
         self._max_chars = max(256, max_chars)
-        self._thread: BackgroundHandle | threading.Thread | None = None
+        self._thread: BackgroundHandle | None = None
 
     def _append(self, text: str) -> None:
         if not text:
@@ -305,7 +303,7 @@ class StderrTail:
         self.join(timeout)
         return self.text()
 
-    def attach_thread(self, thread: BackgroundHandle | threading.Thread) -> None:
+    def attach_thread(self, thread: BackgroundHandle) -> None:
         self._thread = thread
 
     def join(self, timeout: float | None = None) -> None:
@@ -325,7 +323,7 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
     """One short read. Empty means EOF. None means the pipe is already gone.
 
     ``BufferedReader.read(n)`` keeps reading until *n* bytes arrive or the
-    pipe hits EOF, so a short burst from a still-running child never reached
+    pipe hits EOF, so a short burst from a still-running child never reaches
     the tail. ``read1`` returns the bytes already in the pipe. A raw
     ``FileIO`` (``bufsize=0``) has no ``read1``; its ``read(n)`` is one
     ``os.read`` and already returns a short count.
@@ -358,7 +356,7 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     while True:
         chunk = _read_stderr_chunk(stream)
-        if chunk is None or chunk == "" or chunk == b"":
+        if not chunk:
             break
         if isinstance(chunk, str):
             text = chunk
@@ -473,18 +471,18 @@ class AsyncProcess:
     """
 
     args: list[str]
-    stdout_cb: Optional[Callable[[str], None]]
-    stderr_cb: Optional[Callable[[str], None]]
-    on_exit_cb: Optional[Callable[[int], None]]
-    _env: Optional[dict[str, str]]
+    stdout_cb: Callable[[str], None] | None
+    stderr_cb: Callable[[str], None] | None
+    on_exit_cb: Callable[[int], None] | None
+    _env: dict[str, str] | None
     _die_with_parent: bool
 
     def __init__(
         self,
         args: list[str],
-        stdout_cb: Optional[Callable[[str], None]] = None,
-        stderr_cb: Optional[Callable[[str], None]] = None,
-        on_exit_cb: Optional[Callable[[int], None]] = None,
+        stdout_cb: Callable[[str], None] | None = None,
+        stderr_cb: Callable[[str], None] | None = None,
+        on_exit_cb: Callable[[int], None] | None = None,
         *,
         env: dict[str, str] | None = None,
         die_with_parent: bool = False,
@@ -496,7 +494,7 @@ class AsyncProcess:
         self._child_generation: int = 0
         # Binary pipes: _read_stream decodes UTF-8 itself, and a TextIOWrapper
         # over the same pipe would desync the two buffers.
-        self.process: Optional[subprocess.Popen[Any]] = None
+        self.process: subprocess.Popen[Any] | None = None
         self._env = env
         self._die_with_parent = die_with_parent
 
@@ -514,10 +512,11 @@ class AsyncProcess:
         # The generation is the child's identity; only the latest one notifies.
         self._child_generation += 1
         generation = self._child_generation
-        if self.process is not None and self.process.poll() is None:
+        if self.is_running:
             # terminate() returns before the child is dead so it cannot join
             # callback threads on this stack. Wait here, without those joins.
             old = self.process
+            assert old is not None
             old_managed = self._managed
             self.terminate()
             try:
@@ -735,7 +734,7 @@ class AsyncProcess:
         EPIPE. Waiting up to 5s twice, then joining the stdout, stderr, and
         wait threads, freezes LibreOffice: MCP tunnel stop calls this while
         holding the lock those line callbacks need, including from the UI
-        thread. A callback that called terminate joined itself. The timed
+        thread. A callback that calls terminate would join itself. The timed
         wait stays on the reaper so a stuck SIGKILL cannot block forever.
         """
         proc = self.process

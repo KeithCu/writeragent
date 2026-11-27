@@ -75,6 +75,7 @@ def _compute_slot_fail_message(
         return f"{worker_name} error: {detail}"
     raise AssertionError(f"unhandled fail code {code!r}")
 
+
 # A killing failure while the slot is stopping. _fail_request reports
 # SERVICE_SHUTDOWN instead, and does not kill again. A spent clock passes
 # kill=False and stays EXECUTION_TIMEOUT. HTTP 500 or 200 here would hide a stop.
@@ -96,6 +97,7 @@ class BaseProcessWorker(ChildSlot):
         self.worker_id: int = worker_id
         self.script_path: str = script_path
         self.worker_name: str = worker_name
+        self._label: str = f"{worker_name} #{worker_id}"
         self.max_payload_bytes: int = max_payload_bytes
         # None is stock pickle.
         self._unpacker: Callable[[bytes], Any] | None = unpacker
@@ -116,7 +118,6 @@ class BaseProcessWorker(ChildSlot):
         # stays unlocked.
         self._shutting_down: bool = False
         self.pending_exit: bool = False
-        # start=True spawns in __init__.
         if start:
             self.respawn()
 
@@ -139,7 +140,7 @@ class BaseProcessWorker(ChildSlot):
         if current is not None and current.managed.popen is proc:
             return
         self.child = Child(
-            ManagedSubprocess.wrap_existing(proc, label=f"{self.worker_name} #{self.worker_id}"),
+            ManagedSubprocess.wrap_existing(proc, label=self._label),
             worker_name=self.worker_name,
             worker_id=self.worker_id,
         )
@@ -172,8 +173,8 @@ class BaseProcessWorker(ChildSlot):
         ``execute`` is what calls this. ``_shutting_down`` stops that spawn.
 
         *deadline* is the caller's request clock. The reap wait is inside that
-        clock: budgeting the handshake from the time left before the reap let
-        a call run about a second past its timeout. ``None`` is startup, which
+        clock: budgeting the handshake from the time left before the reap
+        would let a call run past its timeout. ``None`` is startup, which
         has no request clock. ``execute`` holds ``self.lock`` across this call;
         ``__init__(start=True)`` calls it without the lock, which is not
         re-entrant, so ``_publish`` refuses a second child.
@@ -184,7 +185,6 @@ class BaseProcessWorker(ChildSlot):
             return
         if self._shutting_down or self.child is not None:
             return
-        # Refuse spawn when the remaining budget is insufficient for the handshake.
         budget = spawn_budget(deadline) if deadline is not None else None
         if deadline is not None and budget is None:
             return
@@ -195,7 +195,7 @@ class BaseProcessWorker(ChildSlot):
             optimize_pipes=True,
             stderr_tail_chars=STDERR_LOG_CAP,
             stderr_name=stderr_thread_name(self.worker_name, fallback="worker", worker_id=self.worker_id),
-            label=f"{self.worker_name} #{self.worker_id}",
+            label=self._label,
         )
         outcome = self._spawn_child(
             managed,
@@ -209,14 +209,14 @@ class BaseProcessWorker(ChildSlot):
             max_payload_bytes=self.max_payload_bytes,
             unpacker=self._unpacker,
         )
-        label = f"{self.worker_name} #{self.worker_id}"
+        label = self._label
         if outcome.tag == "ready":
             ready_data = outcome.detail
+            popen = managed.popen
             log.info(
-                "%s #%d spawned (pid=%s, status=%s)",
-                self.worker_name,
-                self.worker_id,
-                ready_data.get("pid", getattr(managed.popen, "pid", None)),
+                "%s spawned (pid=%s, status=%s)",
+                self._label,
+                ready_data.get("pid", popen.pid if popen is not None else None),
                 ready_data.get("status"),
             )
             self.tasks_executed = 0
@@ -282,9 +282,9 @@ class BaseProcessWorker(ChildSlot):
         """The slot is stopping. Do not kill, and do not read stderr.
 
         The shutdown thread has already called ``kill``, or is about to.
-        A crash code here was HTTP 500 for a stop the client can retry.
+        A crash code here would return HTTP 500 for a stop the client can retry.
         """
-        return error_dict("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.")
+        return error_dict("SERVICE_SHUTDOWN", f"{self._label} is shutting down.")
 
     def _timeout_message(self, deadline: Deadline) -> str:
         """Error text for a spent budget. Sub-second budgets are refused, not reported as 0."""
@@ -296,11 +296,11 @@ class BaseProcessWorker(ChildSlot):
         unit = "second" if shown == 1 else "seconds"
         return f"Execution exceeded maximum timeout of {shown} {unit}."
 
-    def _fail_timeout(self, deadline: Deadline, pid: int | None, *, kill: bool = True) -> dict[str, Any]:
+    def _fail_timeout(self, deadline: Deadline, pid: int | None, *, kill: bool) -> dict[str, Any]:
         """``EXECUTION_TIMEOUT`` for *deadline*. ``kill`` is false when no child should die."""
         return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), pid=pid, kill=kill)
 
-    def _fail_if_unusable(self, deadline: Deadline, proc: Any) -> dict[str, Any] | None:
+    def _fail_if_unusable(self, deadline: Deadline) -> dict[str, Any] | None:
         """``EXECUTION_TIMEOUT`` when a spawn or a write must not start, else None.
 
         Does not kill. The frame has not been sent. The check after a
@@ -309,6 +309,7 @@ class BaseProcessWorker(ChildSlot):
         """
         if deadline.usable() is not None:
             return None
+        proc = self.process
         pid = proc.pid if proc is not None else None
         return self._fail_timeout(deadline, pid, kill=False)
 
@@ -348,21 +349,20 @@ class BaseProcessWorker(ChildSlot):
             refused = _refused_dead_slot()
             if refused is not None:
                 return refused
-            # respawn recomputes the handshake timeout from spawn_budget
-            # after Popen. A budget taken before the reap wait can disagree
-            # with the time left, and the argument is unused when deadline is set.
+            # ``_spawn_child`` recomputes the handshake timeout from ``spawn_budget``
+            # after ``Popen``, because the reap wait in ``respawn`` spends part of the clock.
             self.respawn(deadline=deadline)
             proc = self.process
             if proc is None or proc.poll() is not None:
                 refused = _refused_dead_slot()
                 if refused is not None:
                     return refused
-                return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", pid=proc.pid if proc is not None else None, kill=False)
+                return self._fail_request("WORKER_SPAWN_FAILED", f"{self._label} could not be started.", pid=proc.pid if proc is not None else None, kill=False)
 
         stdin = proc.stdin
         stdout = proc.stdout
         if stdin is None or stdout is None:
-            return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", pid=proc.pid, kill=False)
+            return self._fail_request("WORKER_SPAWN_FAILED", f"{self._label} has no stdio pipes.", pid=proc.pid, kill=False)
         return proc, stdin, stdout
 
     def execute(self, payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
@@ -371,7 +371,7 @@ class BaseProcessWorker(ChildSlot):
         ``req_id`` is copied onto the returned dict when it is not None.
         """
         res = self._execute(payload, timeout_sec)
-        if req_id is not None and isinstance(res, dict):
+        if req_id is not None:
             res["id"] = req_id
         return res
 
@@ -383,7 +383,7 @@ class BaseProcessWorker(ChildSlot):
         # caller that already passed 0 would still spawn.
         with self.lock:
             deadline = Deadline(timeout_sec)
-            spent = self._fail_if_unusable(deadline, self.process)
+            spent = self._fail_if_unusable(deadline)
             if spent is not None:
                 return spent
             try:
@@ -397,7 +397,7 @@ class BaseProcessWorker(ChildSlot):
             except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
                 # Serialization error occurred before any byte was written; child stays alive.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
-            spent = self._fail_if_unusable(deadline, self.process)
+            spent = self._fail_if_unusable(deadline)
             if spent is not None:
                 # Packing spent the clock. Do not spawn, and do not kill a
                 # child that was sent nothing.
@@ -406,8 +406,6 @@ class BaseProcessWorker(ChildSlot):
             if isinstance(ensured, dict):
                 return ensured
             proc, stdin, stdout = ensured
-            # proc is live here. The nullable pid helper stays in
-            # _ensure_live_process, where the slot may still be empty.
             pid = proc.pid
             ready = deadline.usable()
             if ready is None:

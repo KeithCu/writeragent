@@ -44,6 +44,12 @@ def _prepended(lru: list[str], val_str: str) -> list[str]:
     return [val_str] + [x for x in dict.fromkeys(lru) if x != val_str]
 
 
+def _normalize_lru(current: Any, val: Any) -> tuple[list[str], str]:
+    val_str = "" if val is None else str(val).strip()
+    lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
+    return lru, val_str
+
+
 def next_lru_list(current: Any, val: Any) -> list[str] | None:
     """LRU list after prepending *val*, or None when that would not be a write.
 
@@ -51,11 +57,9 @@ def next_lru_list(current: Any, val: Any) -> list[str] | None:
     not a write. *current* may be a non-list (a missing key read as something
     else); that still becomes a one-item list.
     """
-    val_str = "" if val is None else str(val).strip()
+    lru, val_str = _normalize_lru(current, val)
     if not val_str:
         return None
-    # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
-    lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
     # Already at the head: a save here would rewrite the file and emit
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
@@ -123,8 +127,7 @@ def next_model_lru_list(current: Any, val: Any) -> list[str] | None:
     oldest real entry, and cleans even when *val* is already the head so an
     upgraded config is cleaned on its first commit.
     """
-    lru = [str(x) for x in current] if isinstance(current, list) else []
-    val_str = "" if val is None else str(val).strip()
+    lru, val_str = _normalize_lru(current, val)
     cleaned = drop_typed_partials(_prepended(lru, val_str))[:LRU_MAX_ITEMS]
     return None if cleaned == lru else cleaned
 

@@ -77,7 +77,7 @@ class HtmlContentToolBase(ToolWriterSpecialBase):
     tier: str = "unlisted"
     is_mutation: bool | None = True
     long_running: bool = True
-    timeout: float = 300.0
+    timeout: float | None = 300.0
     parameters: dict[str, Any] | None = HTML_CONTENT_PARAMETERS
 
     def is_async(self) -> bool:
