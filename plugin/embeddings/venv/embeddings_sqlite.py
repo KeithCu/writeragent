@@ -283,7 +283,7 @@ def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
             wanted,
             actual,
         )
-    return cast(sqlite3.Connection, conn)
+    return cast("sqlite3.Connection", conn)
 
 
 def ensure_schema(

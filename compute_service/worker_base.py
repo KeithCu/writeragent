@@ -29,13 +29,15 @@ import logging
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Generator
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from compute_service.worker_stdio import unpack_restricted_pickle_frame
 from plugin.framework.process_worker import BaseProcessWorker
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
 
 __all__ = ["BaseProcessPool", "BaseProcessWorker", "PoolSingleton", "bind_pool_singleton"]
 

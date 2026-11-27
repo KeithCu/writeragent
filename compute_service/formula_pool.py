@@ -24,17 +24,15 @@ import math
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Generator
+from typing import Any, Generator
 
 from compute_service import error_codes as ec
 from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, DEFAULT_SETTINGS, ComputeSettings
 from compute_service.json_forward import ExecuteRequestError, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton
 from plugin.framework.child_runtime import Deadline, error_dict
+from plugin.framework.warm_child import Child
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-
-if TYPE_CHECKING:
-    from plugin.framework.warm_child import Child
 
 log = logging.getLogger("compute_service.formula")
 

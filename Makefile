@@ -278,7 +278,7 @@ help:
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make pyspector              PySpector AI/taint SAST on plugin/ (--ai; part of make typecheck / make test; skipped on Windows if not installed)"
 	@echo "  make pyspector-report       Same scan, write build/pyspector-report.json (optional report; skipped on Windows if not installed)"
-	@echo "  make ruff                   Ruff lint (plugin tests scripts; excludes contrib/lib/demos; see pyproject.toml)"
+	@echo "  make ruff                   Ruff lint (plugin tests scripts compute_service; excludes contrib/lib/demos; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check plugin/"
 	@echo "  make ruff-for-build         Ruff --fix then check (used by make build)"
 	@echo "  make ruff-format-grammar    Ruff format ai_grammar_proofreader.py only (project line-length 320)"
@@ -1118,7 +1118,7 @@ vulture:
 	fi
 
 # demos/ is never in the ruff gate (local packs only).
-RUFF_PATHS := plugin tests scripts
+RUFF_PATHS := plugin tests scripts compute_service
 
 ruff:
 	"$(PYTHON)" -m ruff check $(RUFF_PATHS)

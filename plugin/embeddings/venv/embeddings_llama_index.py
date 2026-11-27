@@ -13,12 +13,15 @@ from __future__ import annotations
 import importlib
 import logging
 import time
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from plugin.embeddings.venv.embeddings_cross_encoder_rerank import DEFAULT_RERANK_MODEL, resolve_rerank_model
 from plugin.embeddings.venv.embeddings_retrieval_pool import MIN_FETCH_K, hybrid_retrieval_pool
 from plugin.embeddings.venv.embeddings_sqlite import DEFAULT_NEAR_SLOP
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from llama_index.core import QueryBundle  # type: ignore
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +166,6 @@ def _apply_llama_index_postprocessors(
 
 
 if llama_index_installed():
-    from llama_index.core import QueryBundle  # type: ignore
     from llama_index.core.base.base_retriever import BaseRetriever  # type: ignore
     from llama_index.core.embeddings import BaseEmbedding  # type: ignore
     from llama_index.core.schema import NodeWithScore, TextNode  # type: ignore
