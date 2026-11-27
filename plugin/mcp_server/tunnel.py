@@ -48,8 +48,9 @@ DEFAULT_BORE_SERVER = "bore.pub"
 
 
 def normalize_provider(name: str | None) -> str:
-    """Return normalized provider name, defaulting to DEFAULT_PROVIDER."""
+    """One spelling for config, dialog and start(); empty means the default."""
     return (name or DEFAULT_PROVIDER).strip().lower() or DEFAULT_PROVIDER
+
 
 # ── Provider helpers (pure build/parse) ───────────────────────────────
 
@@ -90,8 +91,7 @@ def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
     ``run`` and ``extra_env`` sets ``TUNNEL_TOKEN``; ``--token`` is
     not placed on argv.
     """
-    token = (provider_token or "").strip()
-    if token:
+    if provider_token:
         return ["cloudflared", "tunnel", "--no-autoupdate", "run"]
     return ["cloudflared", "tunnel", "--no-autoupdate", "--url", "http://localhost:%s" % int(port)]
 
@@ -345,10 +345,9 @@ class CloudflareProvider(Provider):
         return parse_cloudflare_url(line)
 
     def extra_env(self, provider_token: str = "") -> dict[str, str]:
-        token = (provider_token or "").strip()
-        if not token:
+        if not provider_token:
             return {}
-        return {"TUNNEL_TOKEN": token}
+        return {"TUNNEL_TOKEN": provider_token}
 
 
 class BoreProvider(Provider):
@@ -364,10 +363,9 @@ class BoreProvider(Provider):
         return parse_bore_url(line)
 
     def extra_env(self, provider_token: str = "") -> dict[str, str]:
-        token = (provider_token or "").strip()
-        if not token:
+        if not provider_token:
             return {}
-        _server, secret = parse_bore_provider_config(token)
+        _server, secret = parse_bore_provider_config(provider_token)
         if secret:
             return {"BORE_SECRET": secret}
         return {}
@@ -386,10 +384,9 @@ class NgrokProvider(Provider):
         return parse_ngrok_url(line)
 
     def extra_env(self, provider_token: str = "") -> dict[str, str]:
-        token = (provider_token or "").strip()
-        if not token:
+        if not provider_token:
             return {}
-        return {"NGROK_AUTHTOKEN": token}
+        return {"NGROK_AUTHTOKEN": provider_token}
 
 
 class TailscaleProvider(Provider):

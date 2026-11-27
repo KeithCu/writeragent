@@ -37,7 +37,7 @@ _OFFICE_RELS_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relati
 _PKG_RELS_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 
-def _frames_to_rows(sheets: dict[Any, Any], pd_mod: Any) -> list[str]:
+def frames_to_rows(sheets: dict[Any, Any], pd_mod: Any) -> list[str]:
     rows: list[str] = []
     for sheet_name, frame in sheets.items():
         for _unused, row in frame.iterrows():
@@ -92,7 +92,7 @@ def extract_spreadsheet_rows(path: str) -> list[str] | None:
         log.debug("extract_spreadsheet_rows failed for %s", path, exc_info=True)
         return None
 
-    return _frames_to_rows(sheets, pd)
+    return frames_to_rows(sheets, pd)
 
 
 def extract_csv_rows(path: str) -> list[str]:

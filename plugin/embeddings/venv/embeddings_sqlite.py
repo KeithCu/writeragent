@@ -124,7 +124,7 @@ def _dbapi() -> Any:
     return _dbapi_mod
 
 
-def _conn_operational_error(conn: Any) -> type[BaseException]:
+def conn_operational_error(conn: Any) -> type[BaseException]:
     """OperationalError class for the DB-API that created *conn*.
 
     pysqlite3.OperationalError does not subclass sqlite3.OperationalError.
@@ -146,7 +146,7 @@ def _load_vec_extension(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SELECT vec_version()")
         return
-    except _conn_operational_error(conn):
+    except conn_operational_error(conn):
         pass
 
     if not hasattr(conn, "enable_load_extension"):
@@ -345,7 +345,7 @@ def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
     On a cold corpus ``model_metadata`` may not exist yet. macOS often opens the
     DB via pysqlite3; its ``OperationalError`` is not a subclass of stdlib
     ``sqlite3.OperationalError``, so missing-table errors must be caught per
-    connection (see ``_conn_operational_error``).
+    connection (see ``conn_operational_error``).
     """
     try:
         row = conn.execute(
@@ -354,7 +354,7 @@ def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
         ).fetchone()
         if row is not None:
             return int(row["dim"])
-    except _conn_operational_error(conn):
+    except conn_operational_error(conn):
         pass
     return None
 
@@ -551,7 +551,7 @@ def _insert_chunk_row(
             body,
         ),
     )
-    assert cursor.lastrowid is not None
+    assert cursor.lastrowid is not None  # INSERT always sets lastrowid
     chunk_id = int(cursor.lastrowid)
     if with_fts:
         _fts_index_row(conn, chunk_id)
@@ -783,7 +783,7 @@ def fts_corpus_search(
 
     try:
         rows = conn.execute(sql, tuple(params)).fetchall()
-    except _conn_operational_error(conn) as exc:
+    except conn_operational_error(conn) as exc:
         log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
         return []
 
@@ -1003,6 +1003,7 @@ def paragraph_bodies_for_locators(
 
 __all__ = [
     "DEFAULT_NEAR_SLOP",
+    "conn_operational_error",
     "connect_corpus_db",
     "corpus_chunk_count",
     "delete_by_chunk_locator",
@@ -1022,11 +1023,9 @@ __all__ = [
     "missing_vector_chunks",
     "model_slug",
     "paragraph_bodies_for_locators",
-    "path_is_local_disk",
     "rebuild_fts_corpus_index",
     "remove_file_from_index_in_db",
     "stored_model_dim",
-    "strip_fts_snippet_markers",
     "upsert_chunk_with_vector",
     "vec0_search",
     "vec_table_name",

@@ -419,7 +419,7 @@ class HttpServer:
     @background
     def _run(self) -> None:
         server = self._server
-        assert server is not None
+        assert server is not None  # start() sets _server before queuing _run
         try:
             server.serve_forever()
         except Exception:

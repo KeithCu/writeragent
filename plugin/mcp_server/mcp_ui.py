@@ -208,7 +208,7 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     set_control_text(snippet_ctrl, build_mcp_config_snippet(port=port_val, url=active_url))
 
 
-class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
+class McpSnippetListener(BaseListener, XItemListener, XTextListener):
     """Update MCP client config snippet when tunnel settings or port change."""
 
     _dlg: Any

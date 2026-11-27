@@ -24,14 +24,12 @@ import threading
 from typing import Any, Callable
 
 from plugin.framework import keystore
-from plugin.framework.config import get_config, get_config_file_path, get_secret_config, save
+from plugin.framework.config import get_config, get_secret_config, save
 from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
-from plugin.framework.i18n import _
 from plugin.framework.module_base import ModuleBase
-from plugin.framework.queue_executor import Policy, main
 import plugin.mcp_server.mcp_session as mcp_session
 from plugin.mcp_server.cors import reload_cors_policy_from_config
-from plugin.mcp_server.routes import HttpRouteRegistry, json_route
+from plugin.mcp_server.routes import json_route
 from plugin.mcp_server.server import mcp_endpoint_url
 from plugin.mcp_server.tunnel import DEFAULT_PROVIDER, TunnelManager, normalize_provider, provider_label, provider_uses_token, tunnel_status_line
 from plugin.version import EXTENSION_VERSION
@@ -75,6 +73,8 @@ _LIFECYCLE_SUFFIXES = frozenset({"mcp_enabled", "mcp_port", "tunnel_enabled", "t
 
 def _debug_token_path() -> str | None:
     try:
+        from plugin.framework.config import get_config_file_path
+
         cfg_path = get_config_file_path()
         if cfg_path:
             return os.path.join(os.path.dirname(str(cfg_path)), _DEBUG_TOKEN_FILENAME)
@@ -84,6 +84,8 @@ def _debug_token_path() -> str | None:
 
 
 def _write_debug_token_file(token: str) -> None:
+    from plugin.framework.queue_executor import Policy, main
+
     if main.policy is Policy.test_inline:
         return
     token_path = _debug_token_path()
@@ -132,6 +134,8 @@ class McpModule(ModuleBase):
 
     def initialize(self, services: Any) -> None:
         global _current_module
+
+        from plugin.mcp_server.routes import HttpRouteRegistry, json_route
 
         self._registry = HttpRouteRegistry()
         self.tunnel = TunnelManager()
@@ -218,6 +222,7 @@ class McpModule(ModuleBase):
 
     def _show_start_failure_dialog(self, ctx: Any | None = None) -> None:
         from plugin.chatbot.dialogs import msgbox_with_report
+        from plugin.framework.i18n import _
         from plugin.framework.uno_context import get_ctx
 
         if ctx is None:
@@ -228,6 +233,8 @@ class McpModule(ModuleBase):
         msgbox_with_report(ctx, "WriterAgent", message, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
+        from plugin.framework.queue_executor import Policy, main
+
         if main.policy is Policy.test_inline:
             return True
 
@@ -339,6 +346,8 @@ class McpModule(ModuleBase):
         # Leave the UI thread first. The probe also runs outside
         # TunnelManager._lock so stop() is not stuck behind it. dedicated so
         # the wait does not occupy the shared background pool.
+        from plugin.framework.queue_executor import main
+
         if main.is_current():
             from plugin.framework.worker_pool import run_in_background
 
@@ -389,6 +398,8 @@ class McpModule(ModuleBase):
             super().on_action(action)
 
     def get_menu_text(self, action: str) -> str | None:
+        from plugin.framework.i18n import _
+
         if action == "toggle_server":
             if is_mcp_server_running():
                 return _("Stop MCP Server")
@@ -417,6 +428,8 @@ class McpModule(ModuleBase):
                 self._show_start_failure_dialog()
 
     def _not_running_status_message(self) -> str:
+        from plugin.framework.i18n import _
+
         msg = _("MCP server is not running")
         detail = self._formatted_start_failure()
         if detail:
@@ -428,6 +441,7 @@ class McpModule(ModuleBase):
     def _action_server_status(self) -> None:
         from plugin.chatbot.dialogs import CopyListener, DismissDialogListener, load_writeragent_dialog, msgbox
         from plugin.framework.uno_context import get_ctx
+        from plugin.framework.i18n import _
 
         ctx = get_ctx()
         b = self.server

@@ -236,15 +236,16 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
 
     ctx = get_ctx()
     try:
-        log.info("_run_test_suite start: %s", test_name)
+        log.info(f"_run_test_suite start: {test_name}")
         # Import test module dynamically on demand.
         import importlib
 
         test_module = importlib.import_module(module_name)
         from plugin.testing_runner import run_module_suite
 
+        log.debug(f"Calling run_module_suite for {test_name}")
         p, f, suite_log = run_module_suite(ctx, test_module, test_name)
-        log.info("_run_test_suite finished: %s, p=%s, f=%s", test_name, p, f)
+        log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
         msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.").format(test_name, p, f) + "\n\n" + "\n".join(suite_log))
     except Exception as e:
         log.exception("_run_test_suite failed: %s", test_name)

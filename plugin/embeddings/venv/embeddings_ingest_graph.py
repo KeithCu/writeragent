@@ -17,7 +17,7 @@ from plugin.embeddings.embeddings_cache import CorpusMeta
 from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 from plugin.embeddings.venv.embeddings_index import embed_texts
 from plugin.embeddings.venv.embeddings_sqlite import (
-    _conn_operational_error,
+    conn_operational_error,
     connect_corpus_db,
     corpus_chunk_count,
     delete_by_chunk_locator,
@@ -239,7 +239,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                 conn.commit()
                 try:
                     conn.execute("VACUUM")
-                except _conn_operational_error(conn) as exc:
+                except conn_operational_error(conn) as exc:
                     log.debug("VACUUM skipped after model expiry: %s", exc)
 
         return {"upserted": upserted, "dim": dim}

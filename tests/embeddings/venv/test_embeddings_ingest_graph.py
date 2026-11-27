@@ -122,7 +122,7 @@ def _pysqlite3_shaped_module(monkeypatch) -> str:
     """Module name whose OperationalError is not sqlite3.OperationalError.
 
     Uses pysqlite3 when that class is installed and is not a stdlib subclass.
-    Otherwise registers a stand-in module. ``_conn_operational_error`` resolves
+    Otherwise registers a stand-in module. ``conn_operational_error`` resolves
     the class by importing ``type(conn).__module__`` and reading OperationalError.
     """
     import sqlite3
@@ -157,7 +157,7 @@ def test_cold_model_metadata_swallows_pysqlite3_operational_error(tmp_path, monk
     """A missing model_metadata table must not abort when OperationalError is not sqlite3's."""
     import sqlite3
 
-    from plugin.embeddings.venv.embeddings_sqlite import _conn_operational_error
+    from plugin.embeddings.venv.embeddings_sqlite import conn_operational_error
 
     module_name = _pysqlite3_shaped_module(monkeypatch)
 
@@ -167,7 +167,7 @@ def test_cold_model_metadata_swallows_pysqlite3_operational_error(tmp_path, monk
 
         def execute(self, sql, params=()):
             if isinstance(sql, str) and "SELECT dim FROM model_metadata" in sql:
-                raise _conn_operational_error(self)("no such table: model_metadata")
+                raise conn_operational_error(self)("no such table: model_metadata")
             if params:
                 return self._inner.execute(sql, params)
             return self._inner.execute(sql)
@@ -189,7 +189,7 @@ def test_cold_model_metadata_swallows_pysqlite3_operational_error(tmp_path, monk
 
     probe = _connect(tmp_path / "probe.db")
     try:
-        resolved = _conn_operational_error(probe)
+        resolved = conn_operational_error(probe)
     finally:
         probe.close()
     assert resolved is not sqlite3.OperationalError

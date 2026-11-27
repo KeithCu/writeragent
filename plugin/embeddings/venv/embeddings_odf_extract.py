@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.embeddings.venv.embeddings_ooxml_extract import _frames_to_rows
+from plugin.embeddings.venv.embeddings_ooxml_extract import frames_to_rows
 
 log = logging.getLogger(__name__)
 
@@ -103,4 +103,4 @@ def extract_calc_rows(path: str) -> list[str] | None:
         log.debug("extract_calc_rows failed for %s", path, exc_info=True)
         return None
 
-    return _frames_to_rows(sheets, pd)
+    return frames_to_rows(sheets, pd)

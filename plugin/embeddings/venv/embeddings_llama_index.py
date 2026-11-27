@@ -385,7 +385,7 @@ def _vector_retriever(
     return index.as_retriever(similarity_top_k=fetch_k, filters=filters)
 
 
-def _write_meta(db_path: str, meta_path: str, model_name: str, dim: int) -> int:
+def _write_meta(db_path: str, meta_path: str, model_name: str, dim: int) -> None:
     from plugin.embeddings.embeddings_cache import CorpusMeta
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
@@ -402,7 +402,6 @@ def _write_meta(db_path: str, meta_path: str, model_name: str, dim: int) -> int:
         chunk_count=count,
         updated_at=str(time.time()),
     ).save(meta_path)
-    return count
 
 
 def build_writer_agent_hybrid_retriever(
@@ -450,9 +449,9 @@ def run_hybrid_retrieval_pipeline(
     rerank_model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve with RRF fusion, then optional cross-encoder rerank (use_mmr=True)."""
+    _require_llama_index()
     query = str(query_text or "").strip()
     if not query:
-        _require_llama_index()
         return []
 
     final_k, fetch_k = hybrid_retrieval_pool(k)

@@ -52,10 +52,8 @@ def detect_lang_sample(text: str) -> str | None:
     return _raw_lang_to_bcp47(_detect_raw_lang(text))
 
 
-def detect_lang_batch(texts: list[str] | None) -> list[str | None]:
+def detect_lang_batch(texts: list[str]) -> list[str | None]:
     """Detect language for each text; return aligned BCP-47 tags (None when unknown)."""
-    if texts is None:
-        return []
     return [detect_lang_sample(text) for text in texts]
 
 

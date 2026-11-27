@@ -241,7 +241,7 @@ def _write_forbidden(handler: Any) -> None:
     handler.send_header("Content-Length", "0")
     handler.send_header("Connection", "close")
     handler.end_headers()
-    setattr(handler, "close_connection", True)
+    handler.close_connection = True
 
 
 def reject_forbidden_origin(handler: Any) -> bool:
