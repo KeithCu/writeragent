@@ -250,6 +250,7 @@ def test_resolve_form_page_reraises_disposed(monkeypatch):
     monkeypatch.setattr("plugin.writer.specialized.forms.is_draw", lambda d: True)
 
     bridge_mock = MagicMock()
+    bridge_mock.get_pages.return_value.getCount.return_value = 1
     bridge_mock.get_pages.return_value.getByIndex.side_effect = DisposedException("closed")
     monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge_mock)
 
@@ -409,14 +410,6 @@ def test_form_create_control_date_default_value_applied(monkeypatch):
     assert res["status"] == "ok"
     assert (model.DefaultDate.Year, model.DefaultDate.Month, model.DefaultDate.Day) == (2026, 10, 18)
     assert model.Date is model.DefaultDate
-
-    # Older UNO fallback: when createUnoStruct fails, YYYYMMDD integer is assigned.
-    model_long = SimpleNamespace(Date=None, DefaultDate=None)
-    monkeypatch.setattr(uno, "createUnoStruct", MagicMock(side_effect=RuntimeError("no struct")))
-    res_long = _create_control(SimpleNamespace(doc=_make_doc(model_long), selection_pin=None), control="date", name="dt2", default_value="2026-10-18")
-    assert res_long["status"] == "ok"
-    assert model_long.DefaultDate == 20261018
-    assert model_long.Date == 20261018
 
 
 def test_form_create_second_field_failure_triggers_undo(monkeypatch):

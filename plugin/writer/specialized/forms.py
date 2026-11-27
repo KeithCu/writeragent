@@ -67,15 +67,13 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
 
         try:
             pages = DrawBridge(doc).get_pages()
+            # validate() checks only top-level arguments, so form_create's fields[].page reaches here unchecked.
             try:
                 page_idx = int(page)
             except (ValueError, TypeError):
                 raise ToolExecutionError(f"Page index must be an integer, got {page!r}.")
-            try:
-                n = int(pages.getCount())
-            except Exception:
-                n = None
-            if n is not None and not (0 <= page_idx < n):
+            n = pages.getCount()
+            if not (0 <= page_idx < n):
                 raise ToolExecutionError(f"Page index {page_idx} is out of range (document has {n} pages).")
             return pages.getByIndex(page_idx)
         except Exception as exc:
@@ -449,29 +447,21 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
 
         # Type-specific settings
         if control_type == "text" and kwargs.get("placeholder"):
-            if hasattr(model, "HelpText"):
-                model.HelpText = kwargs["placeholder"]
+            model.HelpText = kwargs["placeholder"]
 
         if control_type == "text" and kwargs.get("default_value"):
             model.Text = kwargs["default_value"]
 
         if control_type == "date" and date_val is not None:
+            # DateField declares DefaultDate as util::Date (forms/source/component/Date.cxx
+            # ODateModel::describeFixedProperties) and Date comes from UnoControlDateFieldModel.idl.
             year, month, day = date_val
-            try:
-                d_struct = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
-                d_struct.Year = year
-                d_struct.Month = month
-                d_struct.Day = day
-                if hasattr(model, "Date"):
-                    model.Date = d_struct
-                if hasattr(model, "DefaultDate"):
-                    model.DefaultDate = d_struct
-            except Exception:
-                date_long = int(f"{year:04d}{month:02d}{day:02d}")
-                if hasattr(model, "Date"):
-                    model.Date = date_long
-                if hasattr(model, "DefaultDate"):
-                    model.DefaultDate = date_long
+            d_struct = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
+            d_struct.Year = year
+            d_struct.Month = month
+            d_struct.Day = day
+            model.Date = d_struct
+            model.DefaultDate = d_struct
 
         if control_type in ("combobox", "listbox") and coerced_items is not None:
             model.StringItemList = tuple(coerced_items)

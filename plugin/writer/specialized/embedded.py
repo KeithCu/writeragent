@@ -14,9 +14,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
 from plugin.calc.formula_dialect import to_api
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
-from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value, execute_dispatch
 from plugin.writer.edit_review import flag_tracked
 from plugin.writer.record_changes import insert_recorded_content, is_recording_changes
@@ -28,9 +29,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.embedded")
 
-# Integer constants (PyUNO enums are ints; pytest has no com.sun.star.embed types).
-# Same values as math_mml_convert._ANCHOR_AS_CHARACTER and plugin/draw/math_insert._ASPECT_CONTENT (MSOLE_CONTENT).
-_ANCHOR_AS_CHARACTER = 1
+# com.sun.star.embed.EmbedStates constants (pytest has no com.sun.star.embed types).
 _EMBED_STATE_RUNNING = 1
 _EMBED_STATE_INPLACE_ACTIVE = 3
 _EMBED_STATE_UI_ACTIVE = 4
@@ -221,7 +220,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
         return tool._tool_error("Failed to create TextEmbeddedObject.")
 
     emb.CLSID = clsid
-    emb.AnchorType = _ANCHOR_AS_CHARACTER
+    emb.AnchorType = AS_CHARACTER
     if req.name:
         emb.Name = req.name
 
@@ -344,13 +343,3 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if recorded:
             flag_tracked(result)
         return result
-
-
-class EmbeddedEdit(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
-    name: str | None = "embedded_edit"
-    description: str = "Activate or edit an embedded OLE object (planned)."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
-    is_mutation: bool | None = True
-
-    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return self._tool_error("embedded_edit is not implemented yet. Double-click the object in Writer.")

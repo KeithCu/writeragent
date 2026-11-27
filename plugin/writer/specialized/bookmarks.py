@@ -24,7 +24,7 @@ import uuid
 from typing import Any, ClassVar, Generator
 
 from plugin.doc.compound_undo import UndoLock
-from plugin.doc.document_helpers import compute_doc_key, is_cacheable_doc_key
+from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_entries, paragraph_index_for_anchor
 from plugin.doc.text_helpers import TrackedDeletions
 from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
@@ -116,21 +116,16 @@ class BookmarkService(ServiceBase):
 
     _doc_svc: Any
 
-    def __init__(self, services: Any = None) -> None:
-        # Optional so unit/UNO tests can still call BookmarkService().
-        # ServiceRegistry passes the registry; document is used for
-        # ignore_cache_invalidation() and doc_key().
-        self._doc_svc = getattr(services, "document", None) if services is not None else None
+    def __init__(self, services: Any) -> None:
+        # ServiceRegistry passes the registry; its document service supplies
+        # doc_key() and ignore_cache_invalidation().
+        self._doc_svc = services.document
 
     def _doc_key(self, doc: Any) -> str:
-        if self._doc_svc is not None:
-            return self._doc_svc.doc_key(doc)
-        return compute_doc_key(doc)
+        return self._doc_svc.doc_key(doc)
 
     def _ignore_cache(self) -> Any:
-        if self._doc_svc is not None:
-            return self._doc_svc.ignore_cache_invalidation()
-        return contextlib.nullcontext()
+        return self._doc_svc.ignore_cache_invalidation()
 
     @contextlib.contextmanager
     def _untracked(self, doc: Any) -> Generator[None, None, None]:

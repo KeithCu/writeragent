@@ -60,7 +60,7 @@ class MockServices:
         s = SimpleNamespace()
         s.document = self.document
         s.events = self.events
-        s.writer_bookmarks = BookmarkService()
+        s.writer_bookmarks = BookmarkService(s)
         s.writer_tree = TreeService(s)
         s.writer_proximity = ProximityService(s)
         self.writer_bookmarks = s.writer_bookmarks

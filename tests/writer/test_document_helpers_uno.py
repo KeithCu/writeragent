@@ -189,9 +189,9 @@ def test_resolve_locator(ctx, doc):
 @with_native_doc("writer")
 def test_proximity_service(ctx, doc):
     from plugin.writer.proximity import ProximityService
-    from plugin.writer.specialized.bookmarks import BookmarkService
     from plugin.writer.tree import TreeService
     from plugin.framework.event_bus import EventBus
+    from tests.writer.doc_builders import bookmark_service
 
     # Setup minimal doc content
     text = doc.getText()
@@ -217,7 +217,7 @@ def test_proximity_service(ctx, doc):
     services = SimpleNamespace()
     services.document = DocSvcAdapter()
     services.events = events
-    services.writer_bookmarks = BookmarkService()
+    services.writer_bookmarks = bookmark_service()
     services.writer_tree = TreeService(services)
     services.writer_proximity = ProximityService(services)
 
