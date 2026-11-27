@@ -84,7 +84,7 @@ try:
 except ImportError as e:
     _fatal(f"editor_main: cannot import plugin.scripting dependencies ({e}). sys.path={sys.path!r}", exc=e)
 
-# Try to import jedi dynamically. If missing, we degrade gracefully without autocomplete.
+# jedi is optional: without it the editor runs with no autocomplete.
 try:
     import jedi  # type: ignore
 except ImportError:
@@ -124,10 +124,8 @@ class JediSession:
             for idx, comp in enumerate(completions):
                 doc = ""
                 if idx < 20:
-                    try:
+                    with contextlib.suppress(Exception):
                         doc = comp.docstring()
-                    except Exception:
-                        doc = ""
 
                 items.append({
                     "label": comp.name,
@@ -231,8 +229,6 @@ _JEDI_CALL_TIMEOUT_SEC = 5.0
 
 
 def _js_str(value: Any) -> str:
-    if isinstance(value, str):
-        return value
     return "" if value is None else str(value)
 
 
@@ -271,7 +267,10 @@ def _send_closed_once() -> None:
 
 def _pipe_reader_loop(stdin: IO[bytes]) -> None:
     try:
-        while not session.shutting_down:
+        while True:
+            with session.lock:
+                if session.shutting_down:
+                    break
             msg = read_message(stdin)
             if msg is None:
                 break
@@ -294,10 +293,8 @@ def _pipe_reader_loop(stdin: IO[bytes]) -> None:
         win_to_destroy = session.shutdown()
         log.info("editor_main: stdin reader finished; destroying window to exit event loop")
         if win_to_destroy is not None:
-            try:
+            with contextlib.suppress(Exception):  # Window may already be gone.
                 win_to_destroy.destroy()
-            except Exception:
-                pass
 
 
 class MonacoEditorApi:
@@ -387,7 +384,7 @@ class MonacoEditorApi:
             worker.start()
 
         if not done.wait(_JEDI_CALL_TIMEOUT_SEC):
-            log.warning("Jedi completions timed out or failed")
+            log.warning("Jedi completion timed out after %s s", _JEDI_CALL_TIMEOUT_SEC)
             return {"items": []}
 
         # worker.join() after done.wait() so the next completion does not see a still-alive _jedi_thread during unwind.
@@ -547,8 +544,12 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
 try:
     import rocher  # type: ignore[import-untyped]
     _ROCHER_ROOT: str = rocher.path()
-except Exception:
+except ImportError:
     _ROCHER_ROOT = ""
+
+
+def _assets_dir() -> str:
+    return os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
 
 
 def selected_backend() -> str:
@@ -563,10 +564,10 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         body = f"window.WA_EDITOR_BACKEND = {json.dumps(selected_backend())};\n".encode("utf-8")
         start_response("200 OK", [("Content-Type", "application/javascript"), ("Content-Length", str(len(body)))])
         return [body]
-    assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
-    filepath = monaco_static_path(path, assets, _ROCHER_ROOT) or ""
+    assets = _assets_dir()
+    filepath = monaco_static_path(path, assets, _ROCHER_ROOT)
 
-    if filepath and os.path.isfile(filepath):
+    if filepath is not None and os.path.isfile(filepath):
         mime = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
         try:
             with open(filepath, "rb") as f:
@@ -586,7 +587,7 @@ def main() -> None:
     _ipc_stream = claim_ipc_channel()
 
     logging.basicConfig(level=logging.INFO)
-    assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
+    assets = _assets_dir()
     index_html = os.path.join(assets, "index.html")
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")

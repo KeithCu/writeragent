@@ -5,7 +5,7 @@
 """Trusted LanguageTool grammar checker executing inside the user's virtual environment."""
 
 import threading
-from typing import Any, Dict
+from typing import Any
 
 from plugin.framework.grammar_rule_ids import (
     LANGUAGETOOL_RULE_PREFIX,
@@ -17,19 +17,8 @@ from plugin.framework.grammar_rule_ids import (
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
 # Check-then-set must be locked: two threads that both miss the key would
 # each construct LanguageTool(), and the loser's JVM would be orphaned.
-_LT_CACHE: Dict[str, Any] = {}
+_LT_CACHE: dict[str, Any] = {}
 _LT_CACHE_LOCK = threading.Lock()
-
-
-def _match_wrong_text(m: Any) -> str:
-    """Text the match covered.
-
-    ``matched_text`` of ``""`` is a real value. An ``or`` fallback to a
-    context slice would treat it as missing and underline the wrong span. On
-    ``language_tool_python.Match`` this property always returns ``str``.
-    """
-    matched = getattr(m, "matched_text", "")
-    return matched if isinstance(matched, str) else ""
 
 
 def _cached_languagetool(bcp47_clean: str) -> Any:
@@ -70,7 +59,8 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
         matches = tool.check(text)
         errors = [
             grammar_match(
-                wrong=_match_wrong_text(m),
+                # matched_text of "" is a real value; do not or-fallback.
+                wrong=m.matched_text,
                 correct=m.replacements[0] if m.replacements else "",
                 n_error_start=m.offset,
                 n_error_length=m.error_length,

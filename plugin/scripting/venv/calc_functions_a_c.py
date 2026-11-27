@@ -338,7 +338,7 @@ def amordegrc(
     basis: Any = 0,
 ) -> float:
     # French declining-balance schedule from LibreOffice
-    # ScInterpreter AnalysisAddIn::getAmordegrc.
+    # AnalysisAddIn::getAmordegrc (scaddins/source/analysis/financial.cxx).
     parsed = _parse_amor(cost, date_purchased, first_period, salvage, period, rate, basis)
     if parsed is None:
         return float("nan")
@@ -366,7 +366,7 @@ def amordegrc(
         f_n_rate = _round_amor(f_rate * f_cost)
         f_rest -= f_n_rate
         if f_rest < 0.0:
-            # n is in range(n_per), so n_per - n is at least 1. The last period is half the remaining cost.
+            # GetAmordegrc switches on nPer - n: the last period (n == n_per - 1) writes off half the remaining cost, earlier ones 0. Its case 0 cannot occur inside range(n_per).
             return _round_amor(f_cost * 0.5) if n == n_per - 1 else 0.0
         f_cost -= f_n_rate
 
@@ -384,7 +384,7 @@ def amorlinc(
     basis: Any = 0,
 ) -> float:
     # French linear schedule from LibreOffice
-    # ScInterpreter AnalysisAddIn::getAmorlinc.
+    # AnalysisAddIn::getAmorlinc (scaddins/source/analysis/financial.cxx).
     parsed = _parse_amor(cost, date_purchased, first_period, salvage, period, rate, basis)
     if parsed is None:
         return float("nan")
@@ -572,7 +572,7 @@ def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
         import scipy.special  # optional and heavy: loaded on first Bessel call
 
         return float(getattr(scipy.special, name)(nv, xv))
-    except (ValueError, TypeError, OverflowError):
+    except (ImportError, ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -1020,7 +1020,7 @@ def _cum_payment(
             cum_princ -= p * r / (1.0 + r)
         pmt_val /= 1.0 + r
     res = cum_princ if kind == "ppmt" else m * pmt_val - cum_princ
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 @propagate_errors

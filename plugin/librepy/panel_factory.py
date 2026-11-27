@@ -128,10 +128,10 @@ class PythonPanelElement(unohelper.Base, XUIElement):
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self.toolpanel:
             try:
-                # Dummy-N URP getRealInterface: hop path init + window create
-                # (get_extension_url is @main_thread_only) onto the VCL thread.
-                # Off-main AWT creation is a UNO thread violation and leaves
-                # black menus.
+                # URP calls getRealInterface off the main thread. Path init and
+                # window creation (get_extension_url is @main_thread_only) hop
+                # to the VCL thread. Off-main AWT creation is a UNO thread
+                # violation and leaves black menus.
                 def _create_panel() -> None:
                     if self.toolpanel is not None:
                         return

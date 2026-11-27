@@ -33,6 +33,7 @@ from .calc_functions_util import (
     extract_numeric_array,
     finite_or_nan,
     first_coded_error,
+    first_error,
     format_quantized,
     is_calc_error,
     is_criteria_blank,
@@ -632,7 +633,7 @@ def edate(start_date: Any, months: Any) -> float:
 def effect(nominal_rate: Any, npery: Any) -> float:
     nr = float(nominal_rate)
     n_per = int(float(npery))
-    # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect both
+    # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect (scaddins/source/analysis/financial.cxx) both
     # reject nominal_rate <= 0 with #NUM!. The algebra at rate 0 is 0, but
     # that is not the spreadsheet result.
     if nr <= 0 or n_per < 1:
@@ -765,7 +766,7 @@ def fact(n: Any) -> float | str:
 
 @propagate_errors
 def factdouble(n: Any) -> float:
-    # n < 0 or n > 300 is #NUM!. LibreOffice ScInterpreter caps FACTDOUBLE at 300;
+    # n < 0 or n > 300 is #NUM!. LibreOffice AnalysisAddIn::getFactdouble (scaddins/source/analysis/analysis.cxx) caps FACTDOUBLE at 300;
     # a larger n walks down to 0 by twos.
     v = int(float(n))
     if v < 0 or v > 300:
@@ -811,8 +812,9 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any = NESTED_ARRAY_NAN) -> A
         # and an empty cell is 0.
         include: list[bool] = []
         for x in crit.ravel():
-            if is_calc_error(x):
-                return x.strip() if isinstance(x, str) else float(x)
+            err = first_error([x])
+            if err is not None:
+                return err
             if isinstance(x, str) and x != "":
                 return "#VALUE!"
             include.append(x is not None and x != "" and float(x) > 0)
@@ -877,7 +879,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
     try:
         nc = as_nonzero(no_commas)
     except (ValueError, TypeError, OverflowError):
-        # Calc shows #VALUE! for a text flag; this returns #VALUE!.
+        # A text flag is #VALUE!, as in Calc.
         return "#VALUE!"
     # Non-finite input is #NUM!. round_half_up(inf) raises ValueError (#VALUE!).
     if not math.isfinite(val):

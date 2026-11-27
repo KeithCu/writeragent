@@ -206,16 +206,21 @@ def days360_dates(sd: dt.date, ed: dt.date, european: bool = False) -> float:
     return float((y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1))
 
 
-def _days_between(d1: Any, d2: Any, basis: int) -> float:
+def _days_between_dates(sd: dt.date, ed: dt.date, basis: int) -> float:
     """Days between two dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
-    sd = serial_to_date(d1)
-    ed = serial_to_date(d2)
-    if sd is None or ed is None:
-        return float("nan")
     # 30/360 day count, including the 31st and end-of-month adjustments from DAYS360.
     if basis in (0, 4):
         return days360_dates(sd, ed, european=(basis == 4))
     return float((ed - sd).days)
+
+
+def _days_between(d1: Any, d2: Any, basis: int) -> float:
+    """Days between two serial dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
+    sd = serial_to_date(d1)
+    ed = serial_to_date(d2)
+    if sd is None or ed is None:
+        return float("nan")
+    return _days_between_dates(sd, ed, basis)
 
 
 def _actual_actual_year_length(start: dt.date, end: dt.date) -> float:
@@ -261,12 +266,12 @@ def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
         return float("nan")
     if s > e:
         s, e = e, s
-    # yearfrac reaches DAYS360 through _days_between → days360_dates rather than d_h.days360, because calc_functions_d_h imports yearfrac from this module.
+    # yearfrac reaches DAYS360 through _days_between_dates → days360_dates rather than d_h.days360, because calc_functions_d_h imports yearfrac from this module.
     sd = serial_to_date(s)
     ed = serial_to_date(e)
     if sd is None or ed is None:
         return float("nan")
-    days = _days_between(sd, ed, b)
+    days = _days_between_dates(sd, ed, b)
     if b == 1:
         return days / _actual_actual_year_length(sd, ed)
     return days / (365.0 if b == 3 else 360.0)
@@ -692,9 +697,7 @@ def npf_result(kind: str, *args: Any) -> float:
             result = float(np.sum(getattr(npf, kind)(*args)))
     except (AttributeError, OverflowError, ValueError, ZeroDivisionError, TypeError):
         return float("nan")
-    if not math.isfinite(result):
-        return float("nan")
-    return result
+    return finite_or_nan(result)
 
 
 def wildcard_fullmatch(pattern: str, text: str) -> bool:
@@ -761,14 +764,8 @@ def criterion_error(crits: Iterable[Any]) -> float | str | None:
 
 def _lookup_number(val: Any) -> float | None:
     """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
-    if isinstance(val, (bool, np.bool_, int, float, np.integer, np.floating)):
-        try:
-            number = float(val)
-        except (ValueError, TypeError, OverflowError):
-            return None
-        # a NaN key compares false and is already a miss (#N/A)
-        return number
-    return None
+    # a NaN key compares false and is already a miss (#N/A)
+    return _to_float_or_none(val) if isinstance(val, _NUMERIC_TYPES) else None
 
 
 def sorted_match(lookup_val: Any, keys: Iterable[Any]) -> int | None:
@@ -822,7 +819,7 @@ def value_matcher(op: str, operand: Any) -> Callable[[Any], bool]:
         if val_is_blank:
             return op == "<>"
 
-        v_num = _to_float_or_none(val) if isinstance(val, _NUMERIC_TYPES) else None
+        v_num = _lookup_number(val)
         if c_num is not None and v_num is not None:
             # compareByValue (queryevaluator.cxx): approxEqual counts as equal for every operator.
             return _CMP[op](v_num, v_num if approx_equal(v_num, c_num) else c_num)
@@ -862,7 +859,7 @@ def criterion_text(crit: Any) -> Any:
     A criterion cell is read as text (doubleref.cxx passes the cell string to FillInExcelSyntax),
     and a boolean is "1" or "0".
     """
-    num = _to_float_or_none(crit) if isinstance(crit, _NUMERIC_TYPES) else None
+    num = _lookup_number(crit)
     return crit if num is None else number_text(num)
 
 

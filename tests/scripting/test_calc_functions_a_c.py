@@ -341,6 +341,14 @@ def test_besselk_bessely_reject_negative_order():
     assert math.isclose(calc.bessely(1.0, 1), float(scipy.special.yn(1, 1.0)))
 
 
+def test_bessel_returns_nan_when_scipy_missing(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "scipy.special", None)
+    assert math.isnan(calc.besseli(1.5, 1))
+    assert math.isnan(calc.besselj(1.5, 1))
+
+
 def test_code_empty_string_is_zero():
     # ScCode pushes 0 for empty text and blank cells. Do not follow Excel's #VALUE!.
     assert calc.code("") == 0.0

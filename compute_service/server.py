@@ -27,7 +27,15 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service import error_codes as ec
-from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_ms, load_settings, ocr_path_is_allowed
+from compute_service.config import (
+    DEFAULT_SETTINGS,
+    FILE_PATH_DENIED_MESSAGE,
+    ComputeSettings,
+    ConfigError,
+    clamp_timeout_ms,
+    load_settings,
+    ocr_path_is_allowed,
+)
 from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count, request_conn
 from plugin.framework.child_runtime import Deadline
 from compute_service.json_forward import (
@@ -103,9 +111,12 @@ def _error(start_response: Any, code: str, msg: str, req_id: Any = None, *, extr
     """Send a coded JSON error; HTTP status comes from ``error_codes.HTTP_STATUS``."""
     status = ec.HTTP_STATUS[code]
     payload: dict[str, Any] = {"status": "error", "error": msg, "code": code}
-    if req_id is not None:
-        payload["id"] = req_id
-    return _start_json(start_response, status, payload, extra_headers=extra_headers)
+    return _start_json(start_response, status, _inject_req_id(payload, req_id), extra_headers=extra_headers)
+
+
+def _request_error(start_response: Any, exc: ExecuteRequestError, req_id: Any) -> list[bytes]:
+    err_code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
+    return _error(start_response, err_code, str(exc), req_id=req_id)
 
 
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
@@ -173,27 +184,27 @@ ResetFn = Callable[..., dict[str, Any]]
 # =============================================================================
 
 
-def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> bool:
+def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> None:
     """Read the unread request body before an error reply so the client does not get a TCP RST.
 
     Reads stop after one second (each read's socket timeout is the time left,
-    and the previous timeout is put back) or *max_bytes*. Returns whether the
-    declared body was fully consumed; when it was not (chunked, a bad length,
-    the cap, EOF or a timeout) the connection is marked to close so leftover
-    bytes never parse as the next request.
+    and the previous timeout is put back) or *max_bytes*. When the declared body
+    is not fully consumed (chunked, a bad length, the cap, EOF or a timeout)
+    the connection is marked to close so leftover bytes never parse as the next
+    request.
     """
     rc = request_conn(environ)
     if _transfer_encoding_is_chunked(environ):
         rc.close_connection = True
-        return False
+        return
     # Already buffered: reading Content-Length again would eat the next request.
     if rc.raw_body is not None:
-        return True
+        return
     try:
         length = int(environ.get("CONTENT_LENGTH") or 0)
     except (TypeError, ValueError):
         rc.close_connection = True
-        return False
+        return
     stream = environ.get("wsgi.input")
     cap = min(length, max_bytes)
     done = 0
@@ -224,8 +235,6 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
                     pass
     if done < length:
         rc.close_connection = True
-        return False
-    return True
 
 
 def _has_declared_body(environ: dict[str, Any]) -> bool:
@@ -384,7 +393,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
             if conn is not None:
                 try:
                     conn.settimeout(max(0.1, remaining_time))
-                except Exception:
+                except OSError:
                     # If the deadline cannot be armed, stop. The next read would
                     # keep the previous socket timeout.
                     log.debug("failed to arm body-read deadline", exc_info=True)
@@ -781,8 +790,7 @@ def _handle_execute(
 
         init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False, max_bytes=settings.max_body_bytes)
     except ExecuteRequestError as exc:
-        code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
-        return _error(start_response, code, str(exc), req_id=req_id)
+        return _request_error(start_response, exc, req_id)
 
     # Resolved per request (shutdown can replace the pool); after validation so a bad request does not start workers.
     run_execute = get_execute()
@@ -809,8 +817,7 @@ def _handle_session_reset(
     try:
         session_id = _parse_session_id(environ)
     except ExecuteRequestError as exc:
-        code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
-        return _error(start_response, code, str(exc), req_id=req_id)
+        return _request_error(start_response, exc, req_id)
 
     if not session_id:
         return _error(start_response, ec.BAD_REQUEST_BODY, "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
@@ -819,7 +826,7 @@ def _handle_session_reset(
     run_reset = get_reset()
     result_payload = run_reset(session_id, deadline=admission.deadline)
 
-    if isinstance(result_payload, dict) and result_payload.get("status") == "error":
+    if result_payload.get("status") == "error":
         # Unmapped reset failures are a server fault (500). Mapped codes
         # (503, 413, 400) stay on the shared table.
         return _send_execution_result(start_response, result_payload, req_id, error_status="500 Internal Server Error")
@@ -853,7 +860,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
         return _error(start_response, ec.MISSING_IMAGE_SOURCE, "Missing image input: either 'image' (raw binary part) or 'file_path' (server path) is required.", req_id=req_id)
 
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
-        return _error(start_response, ec.FILE_PATH_DENIED, "file_path is not under ocr.allow_paths (default deny).", req_id=req_id)
+        return _error(start_response, ec.FILE_PATH_DENIED, FILE_PATH_DENIED_MESSAGE, req_id=req_id)
 
     raw_params = parts.params
     if raw_params is None:

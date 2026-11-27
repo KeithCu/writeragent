@@ -57,24 +57,22 @@ def _mock_control(x, y, width, height):
 
 
 def test_format_runtime_status_isolated_embedded():
-    ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="isolated"),
         patch("plugin.librepy.python_sidebar.get_config", return_value=""),
     ):
-        text = format_runtime_status(ctx)
+        text = format_runtime_status()
     assert "Isolated" in text
     assert "embedded" in text.lower() or "LibreOffice" in text
 
 
 def test_format_runtime_status_shared_with_venv():
-    ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="shared"),
         patch("plugin.librepy.python_sidebar.get_config", return_value="/tmp/myvenv"),
         patch("plugin.librepy.python_sidebar.resolve_venv_python", return_value="/tmp/myvenv/bin/python"),
     ):
-        text = format_runtime_status(ctx)
+        text = format_runtime_status()
     assert "Shared" in text
     assert "/tmp/myvenv" in text
 

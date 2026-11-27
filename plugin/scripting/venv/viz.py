@@ -148,7 +148,7 @@ def quick_plot(
             else:
                 ax.plot(y_float)
         ax.set_ylabel(str(y_name))
-        ax.set_title(f"Quick plot: {str(y_name)}")
+        ax.set_title(f"Quick plot: {y_name}")
         fig.tight_layout()
         return _ok_viz("quick_plot", fig, chart_type=chart_type, title=ax.get_title())
 
@@ -157,7 +157,7 @@ _CHART_TYPES = frozenset({"line", "scatter", "histogram", "bar"})
 
 
 def _parse_chart_type(raw: Any) -> str:
-    if raw is None or raw == "":
+    if raw is None:
         return "line"
     if isinstance(raw, str):
         stripped = raw.strip().lower()
@@ -210,7 +210,7 @@ def plot_data(
             scatter_x = others[0]
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
-        if chart_type == "scatter" and scatter_x is not None:
+        if chart_type == "scatter":
             sample = df[[scatter_x, y_name]].dropna()
             ax.scatter(sample[scatter_x].astype(float), sample[y_name].astype(float))
             ax.set_xlabel(str(scatter_x))
@@ -271,7 +271,7 @@ def correlation_heatmap(
         return error_result("NOT_ENOUGH_NUMERIC", "Need at least two numeric columns.", helper="correlation_heatmap")
 
     corr = numeric.corr(method=method_name)
-    n_cols = int(numeric.shape[1])
+    n_cols = numeric.shape[1]
     with _open_figure(plt, (max(6, n_cols), max(5, n_cols - 1))) as (fig, ax):
         try:
             import seaborn as sns

@@ -23,7 +23,7 @@ from plugin.scripting.payload_codec import (
 
 
 def _is_ndarray(obj: object) -> bool:
-    return type(obj).__name__ == "ndarray" and getattr(type(obj), "__module__", "") == "numpy"
+    return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
 
 
 def _finite_or_none(x: float) -> float | None:
@@ -127,25 +127,22 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
     if isinstance(obj, (list, tuple)):
         return [to_dumb_json_value(x, drop_image_ids=drop_image_ids) for x in obj]
     # numpy scalars that slipped through
-    mod = getattr(type(obj), "__module__", "")
+    mod = type(obj).__module__
     if mod == "numpy":
-        try:
-            # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
-            import numpy as np
+        # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
+        import numpy as np
 
-            if isinstance(obj, (np.integer,)):
-                return int(obj)
-            if isinstance(obj, (np.floating,)):
-                return _finite_or_none(float(obj))
-            if isinstance(obj, np.bool_):
-                return bool(obj)
-        except Exception:
-            pass
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return _finite_or_none(float(obj))
+        if isinstance(obj, np.bool_):
+            return bool(obj)
     return obj
 
 
 def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map venv_sandbox payload → §8 HTTP response {status, result|error, stdout?, images?, traceback?}."""
+    """Map venv_sandbox payload → the `/v1/execute` response body (compute_service/README.md) {status, result|error, stdout?, images?, traceback?}."""
     status = payload.get("status")
     if status != "ok":
         err = payload.get("error") or payload.get("message") or "execution failed"
@@ -159,20 +156,18 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     images: list[dict[str, Any]] = []
 
     # Promote image payloads to top-level images[]; clear result if it *is* the image.
-    if is_image_payload(result) or (isinstance(result, dict) and _image_tag_has_data(result)):
-        images.append(_image_to_json(result if isinstance(result, dict) else {}))
+    if isinstance(result, dict) and (is_image_payload(result) or _image_tag_has_data(result)):
+        images.append(_image_to_json(result))
         result_out: Any = None
     elif isinstance(result, dict) and is_multi_data(result) and isinstance(items := result.get("items"), list) and items and all(is_image_payload(x) or (isinstance(x, dict) and _image_tag_has_data(x)) for x in items):
-        for item in items:
-            images.append(_image_to_json(item if isinstance(item, dict) else {}))
+        images.extend(_image_to_json(item) for item in items)
         result_out = None
     else:
         # Collect nested images without requiring them as the sole result.
-        # Null only the objects the finder returned. It stops at depth 12;
-        # dropping every image nulled a deeper plot and omitted it from images.
+        # Null only the objects the finder returned; it stops at depth 12, so
+        # dropping every image would null a deeper plot and omit it from images.
         found = find_image_payloads(result)
-        for img in found:
-            images.append(_image_to_json(img))
+        images.extend(_image_to_json(img) for img in found)
         result_out = to_dumb_json_value(result, drop_image_ids={id(img) for img in found})
 
     out = {"status": "ok", "result": result_out, "stdout": payload.get("stdout") or ""}

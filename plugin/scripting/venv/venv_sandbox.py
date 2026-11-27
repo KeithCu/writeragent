@@ -367,7 +367,7 @@ _install_timeout_context_pool()
 
 
 def _close_session_duckdb(session_id: str) -> None:
-    """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
+    """Close the session's DuckDB catalog for *session_id* (LibrePy has no module)."""
     try:
         from plugin.scripting.venv.duckdb_sql import close_session_duckdb
     except ImportError:
@@ -466,9 +466,6 @@ _INIT_STATE_SKIP_KEYS = frozenset(
 class CellNamespace:
     """Namespace builder for sandboxed execution: fresh, seed, bind."""
 
-    CELL_OWNED_NAMES: tuple[str, ...] = _CELL_OWNED_NAMES
-    SKIP_KEYS: frozenset[str] = _INIT_STATE_SKIP_KEYS
-
     executor: LocalPythonExecutor
 
     def __init__(self, executor: LocalPythonExecutor) -> None:
@@ -481,8 +478,8 @@ class CellNamespace:
     ) -> CellNamespace:
         return cls(_new_executor(policy=policy))
 
-    def seed(self, init_session_id: str, *, copy: bool = False) -> None:
-        _seed_executor_from_init(self.executor, init_session_id, copy_values=copy, skip_keys=self.SKIP_KEYS)
+    def seed(self, init_session_id: str, *, copy_values: bool = False) -> None:
+        _seed_executor_from_init(self.executor, init_session_id, copy_values=copy_values)
 
     def seed_shared(
         self,
@@ -492,10 +489,10 @@ class CellNamespace:
     ) -> None:
         """Copy init bindings into a shared executor once per init digest.
 
-        ``send_variables`` is ``state.update``. Seeding on every cell overwrote
-        names the cell had rebound (init ``FACTOR = 10``, cell ``FACTOR = 99``,
-        the next cell saw 10). Init-script edits already drop the cell executor
-        in ``SessionStore._clear_init_unlocked``, so a new digest seeds a fresh one.
+        ``send_variables`` is ``state.update``, so seeding on every cell would
+        overwrite a name the cell rebound (init ``FACTOR = 10``, cell ``FACTOR = 99``).
+        Init-script edits already drop the cell executor in
+        ``SessionStore._clear_init_unlocked``, so a new digest seeds a fresh one.
         Isolated cells have no ``session_id`` and still seed on every run.
         """
         digest = init_script_hash or ""
@@ -680,9 +677,7 @@ def _capture_open_figures_payload() -> tuple[dict[str, Any] | None, str]:
     """
     # No figure can be open before something imported pyplot; importing it
     # here would cost the multi-second font cache load on non-plot cells.
-    if "matplotlib.pyplot" not in sys.modules:
-        return None, ""
-    plt_mod = optional_import.optional_module("matplotlib.pyplot")
+    plt_mod = _loaded_pyplot()
     if plt_mod is None:
         return None, ""
     fignums = plt_mod.get_fignums()
@@ -696,13 +691,8 @@ def _capture_open_figures_payload() -> tuple[dict[str, Any] | None, str]:
         return _figures_payload(figs), note
     finally:
         # Close even when rendering raises or figure(num) fails; a figure left
-        # open would be what the next cell returns. A close failure must not
-        # replace the payload or the original render error (same swallow as
-        # _close_open_figures).
-        try:
-            plt_mod.close("all")
-        except Exception:
-            log.debug("failed to close pyplot figures", exc_info=True)
+        # open would be what the next cell returns.
+        _close_open_figures()
 
 
 def _new_executor(
@@ -721,10 +711,7 @@ def _new_executor(
     return executor
 
 
-def _snapshot_init_bindings(
-    init_session_id: str,
-    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
-) -> dict[str, Any]:
+def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
     """Copy user-visible names from the init executor (references, not deep copies)."""
     executor = SESSIONS.executor(init_session_id)
     if executor is None:
@@ -734,7 +721,7 @@ def _snapshot_init_bindings(
         for key, value in executor.state.items()
         if (
             isinstance(key, str)
-            and key not in skip_keys
+            and key not in _INIT_STATE_SKIP_KEYS
             and not key.startswith("_")
         )
     }
@@ -751,13 +738,12 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
 def _copy_isolated_seed_value(value: Any) -> Any:
     """Duplicate an init binding so a cell cannot mutate that copied object.
 
-    Cell 1 wrote ``items.append(...)`` without reassigning ``items``; that
-    changed what every later isolated cell on that worker saw. Deepcopy gives
-    each cell its own containers. Functions and modules stay shared: deepcopy
-    rejects them, and a smolagents function closes over the init executor
-    state. ``def add(x): items.append(x)`` therefore mutates the seed, and
-    the next isolated cell sees that change. Lambdas and methods on
-    init-defined classes do the same. Shared-kernel seeding does not use
+    Without deepcopy, mutating a container (such as ``items.append(...)``)
+    would affect every later isolated cell on this worker. Functions and modules
+    stay shared: deepcopy rejects them, and a smolagents function closes over
+    the init executor state. ``def add(x): items.append(x)`` therefore mutates
+    the seed, and the next isolated cell sees that change. Lambdas and methods
+    on init-defined classes do the same. Shared-kernel seeding does not use
     this — that workbook is one namespace.
 
     A lazy copy-on-demand or size guard would be too complex and prone to edge
@@ -776,9 +762,8 @@ def _seed_executor_from_init(
     init_session_id: str,
     *,
     copy_values: bool = False,
-    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
 ) -> None:
-    bindings = _snapshot_init_bindings(init_session_id, skip_keys=skip_keys)
+    bindings = _snapshot_init_bindings(init_session_id)
     if copy_values and bindings:
         bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
@@ -834,14 +819,13 @@ def _ensure_init_executed(
     *,
     timeout_sec: int,
     deadline: float,
-    init_script_hash: str | None = None,
+    init_script_hash: str,
     policy: SandboxPolicy,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
     script = init_script.strip()
 
-    script_digest = init_script_hash or ""
-    if SESSIONS.init_is_current(init_session_id, script_digest, policy):
+    if SESSIONS.init_is_current(init_session_id, init_script_hash, policy):
         return None
 
     init_executor, _unused = SESSIONS.get_or_create(init_session_id, policy=policy)
@@ -857,7 +841,7 @@ def _ensure_init_executed(
         SESSIONS.abort_init(init_session_id)
         return result
 
-    SESSIONS.commit_init(init_session_id, script_digest)
+    SESSIONS.commit_init(init_session_id, init_script_hash)
     return None
 
 
@@ -892,11 +876,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
         data_var = ranges_list
     else:
         data_var = None
-    variables: dict[str, Any] = {
-        "data": data_var,
-        "ranges": ranges_list,
-    }
-    executor.send_variables(variables)
+    executor.send_variables({"data": data_var, "ranges": ranges_list})
     return ranges
 
 
@@ -922,7 +902,7 @@ def _ensure_mpl_agg() -> None:
     if _MPL_AGG_SET or _MPL_AGG_FAILED:
         return
     mpl = optional_import.optional_module("matplotlib")
-    if mpl is not None and hasattr(mpl, "use"):
+    if mpl is not None:
         try:
             mpl.use("Agg")
             _MPL_AGG_SET = True
@@ -931,10 +911,7 @@ def _ensure_mpl_agg() -> None:
             _MPL_AGG_FAILED = True
 
 
-def _sync_custom_tools(
-    executor: LocalPythonExecutor,
-    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
-) -> None:
+def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
     """Copy user callables into custom_tools for named-library eval.
 
     evaluate_name and evaluate_call read executor.state before custom_tools,
@@ -946,7 +923,7 @@ def _sync_custom_tools(
     ``def session_duckdb`` must not be seeded into the next cell.
     """
     for key, value in executor.state.items():
-        if not isinstance(key, str) or key in skip_keys or key.startswith("_"):
+        if not isinstance(key, str) or key in _INIT_STATE_SKIP_KEYS or key.startswith("_"):
             continue
         if callable(value) and key not in executor.custom_tools:
             executor.custom_tools[key] = value
@@ -1020,10 +997,14 @@ def _is_mpl_artist_result(obj: Any) -> bool:
     return bool(items) and all(holds_artists(item) for item in items)
 
 
-def _close_open_figures() -> None:
+def _loaded_pyplot() -> Any | None:
     if "matplotlib.pyplot" not in sys.modules:
-        return
-    plt_mod = optional_import.optional_module("matplotlib.pyplot")
+        return None
+    return optional_import.optional_module("matplotlib.pyplot")
+
+
+def _close_open_figures() -> None:
+    plt_mod = _loaded_pyplot()
     if plt_mod is None:
         return
     try:
@@ -1202,7 +1183,6 @@ def _run_on_executor(
     # covers writes the visitor does not see, such as ``except Exception as result``.
     # On failure, restore the pre-cell value.
     prior_result = executor.state.get("result", _RESULT_MISSING)
-    token = None
     try:
         token = bind_named_scripts_executor(executor)
         try:
@@ -1420,7 +1400,7 @@ def run_sandboxed_code(
             executor = ns.executor
             created = False
             if init_sid:
-                ns.seed(init_sid, copy=True)
+                ns.seed(init_sid, copy_values=True)
 
         spent = _arm_alarm(executor, deadline, req.timeout_sec)
         if spent is not None:

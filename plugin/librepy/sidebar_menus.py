@@ -204,8 +204,7 @@ class _HamburgerListener(BaseActionListener):
         self._frame = frame
 
     def on_action_performed(self, rEvent: Any) -> None:
-        button_ctrl = getattr(rEvent, "Source", None)
-        show_python_sidebar_hamburger(self.ctx, self._frame, button_ctrl)
+        show_python_sidebar_hamburger(self.ctx, self._frame, rEvent.Source)
 
 
 def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], *, calc_doc: bool) -> None:

@@ -231,11 +231,11 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
     def handle_expect_100(self) -> bool:
         """Answer an oversized ``Expect: 100-continue`` body with 413, not 100 Continue."""
-        limit = getattr(self.server, "max_body_bytes", None)
+        limit = cast("WSGIDualStackServer", self.server).max_body_bytes
         raw_len = self.headers.get("Content-Length", "")
         if limit is None or not raw_len.isdigit() or int(raw_len) <= limit:
             return super().handle_expect_100()
-        body = b'{"status": "error", "error": "Request body too large"}'
+        body = b'{"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": "Request body too large"}'
         self.send_response(413, "Payload Too Large")
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -278,7 +278,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
     def __init__(self, host: str, port: int, *, listener_threads: int) -> None:
         DualStackThreadPoolHTTPServer.__init__(self, (host, port), DeadlineRequestHandler, bind_and_activate=True, max_threads=listener_threads)
         raw_host = str(self.server_address[0])
-        self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
+        self.server_name = raw_host if raw_host not in ("", "0.0.0.0", "::") else "localhost"
         self.server_port = self.server_address[1]
         self._conns = {}
         self._park_lock = threading.Lock()

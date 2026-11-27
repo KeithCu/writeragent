@@ -63,9 +63,10 @@ def _as_path_tuple(value: Any) -> tuple[str, ...]:
     raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
 
 
+FILE_PATH_DENIED_MESSAGE = "file_path is not under ocr.allow_paths (default deny)."
 _FILE_PATH_DENIED: dict[str, Any] = error_dict(
     ec.FILE_PATH_DENIED,
-    "file_path is not under ocr.allow_paths (default deny).",
+    FILE_PATH_DENIED_MESSAGE,
 )
 
 
@@ -101,8 +102,7 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
         resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
     except (OSError, ValueError, TypeError):
         return False
-    # Allowlist check still applies for missing files so we do not leak existence
-    # via a different error before prefix match. Prefix-only:
+    # The prefix check also runs for a missing file, so a denied path and a missing path cannot be told apart by the error.
     return _resolved_under_prefixes(resolved, allow_prefixes)
 
 
@@ -112,11 +112,10 @@ def _post_open_realpath(fd: int, file_path: str) -> str:
     Linux ``/proc/self/fd/<fd>`` is the inode ``open`` returned, so a symlink
     swapped in between the name check and ``open`` is still outside the
     prefix even if the directory entry is restored afterward. macOS and
-    Windows have no ``/proc``. ``realpath`` of that string is the literal
-    path, which is never under ``ocr.allow_paths``, so every vision
-    ``file_path`` was denied. Those platforms realpath the path that was
-    opened. A swap that landed before ``open`` returned is still outside
-    the prefix.
+    Windows have no ``/proc`` (``realpath`` of that string would not be under
+    ``ocr.allow_paths``, denying every ``file_path``), so those platforms
+    realpath the path that was opened. A swap that landed before ``open``
+    returned is still outside the prefix.
     """
     if sys.platform.startswith("linux"):
         return os.path.realpath(f"/proc/self/fd/{fd}")
@@ -237,7 +236,7 @@ class ComputeSettings:
             raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
         if not math.isfinite(self.idle_worker_ttl_sec) or self.idle_worker_ttl_sec < 0:
             raise ConfigError("idle_worker_ttl_sec must be a finite number >= 0")
-        if self.log_level.upper() not in VALID_LOG_LEVELS:
+        if self.log_level not in VALID_LOG_LEVELS:
             raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
         # Loopback with no key stays open for local dev. Any other bind
         # must have a key, or the process listens with auth off.
@@ -285,7 +284,7 @@ def _as_float(value: Any, *, field: str) -> float:
         raise ConfigError(f"{field} must be a number: {value!r}") from exc
     if not math.isfinite(number):
         # JSON Infinity/NaN and 1e9999 become inf/nan without raising.
-        # See ComputeSettings.validate for how that disables the reapers.
+        # inf would make `now - last >= ttl` never true, so no idle worker or stale session would be reaped.
         raise ConfigError(f"{field} must be a finite number >= 0: {value!r}")
     return number
 
@@ -370,8 +369,8 @@ _SECTION_FIELDS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ("logging", (("level", "log_level"), ("log_level", "log_level"))),
 )
 
-_INT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is int or f.type == "int")
-_FLOAT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is float or f.type == "float")
+_INT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type == "int")
+_FLOAT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type == "float")
 
 _ENV_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("PYTHON_COMPUTE_HOST", "host"),
@@ -445,8 +444,8 @@ def load_settings(
             values[field_name] = val
 
     # Do not strip. _read_key_file keeps leading and trailing spaces (it
-    # removes one trailing newline only). strip() here made " secret "
-    # from the environment compare unequal to the same bytes from a key file.
+    # removes one trailing newline only), so a stripped environment key would
+    # not equal the same bytes read from a key file.
     env_key = env.get("PYTHON_COMPUTE_API_KEY") or ""
     env_key_file = (env.get("PYTHON_COMPUTE_API_KEY_FILE") or "").strip()
     json_key_file = str(values.pop("api_key_file", "") or "").strip()
@@ -461,13 +460,12 @@ def load_settings(
                 values[key] = val
 
     # Secret resolution: CLI key-file > env key > env key-file > JSON key-file.
-    chosen_key_file = api_key_file or env_key_file or json_key_file or None
     if api_key_file:
         values["api_key"] = _read_key_file(api_key_file)
     elif env_key:
         values["api_key"] = env_key
-    elif chosen_key_file:
-        values["api_key"] = _read_key_file(chosen_key_file)
+    elif env_key_file or json_key_file:
+        values["api_key"] = _read_key_file(env_key_file or json_key_file)
 
     for int_field in _INT_FIELDS:
         if int_field in values:

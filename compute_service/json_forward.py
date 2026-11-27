@@ -57,8 +57,9 @@ class ExecuteRequestError(ValueError):
 def reject_json_constant(token: str) -> None:
     """``json.loads`` accepts NaN/Infinity. The peel walker does not.
 
-    ``timeout_ms: Infinity`` then raised OverflowError outside the execute
-    try, and ``id: NaN`` failed the kit dump. Reject the tokens here.
+    A non-finite ``timeout_ms`` (``Infinity``) or ``id`` (``NaN``) would raise
+    OverflowError outside the execute try or fail the kit dump, so reject the
+    tokens here.
     """
     raise ValueError(token)
 
@@ -67,8 +68,8 @@ def reject_nonfinite_number(value: Any) -> None:
     """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
 
     ``json.loads`` turns ``1e9999`` into ``inf`` without calling
-    ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
-    ``allow_nan=False`` and the WSGI callable crashed.
+    ``parse_constant``; echoing that ``id`` through ``allow_nan=False`` would
+    crash the WSGI callable.
     """
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -149,11 +150,10 @@ def dumps_response(payload: dict[str, Any]) -> bytes:
 
 def json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: bool = False, namespace_created: bool = False) -> dict[str, Any]:
     """Pickle envelope: small status for host logs + result_json bytes to forward."""
-    body = res
     if session_reset:
-        body["session_reset"] = True
+        res["session_reset"] = True
     try:
-        result_json = dumps_response(body)
+        result_json = dumps_response(res)
         status = res.get("status")
     except (TypeError, ValueError) as exc:
         fallback: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {exc}"}
@@ -294,11 +294,11 @@ def _unquote_param(value: str) -> str:
 def _scan_multipart_parts(body: bytes, boundary: bytes, allowed: frozenset[str]) -> dict[str, bytes]:
     """Slice named parts by boundary.
 
-    ``email.parser.BytesParser`` built a message tree and walked every part,
-    including the grid and the formula source. A delimiter scan only finds
-    ``--boundary`` lines and slices the bytes between them. Part bodies are
-    not decoded: ``base64`` and ``quoted-printable`` are rejected so the host
-    never transforms payload bytes.
+    A delimiter scan finds ``--boundary`` lines and slices the bytes between
+    them instead of building an ``email.parser.BytesParser`` message tree over
+    the grid and formula source. Part bodies are not decoded: ``base64`` and
+    ``quoted-printable`` are rejected so the host never transforms payload
+    bytes.
     """
     delim = b"--" + boundary
     found = _next_delimiter(body, 0, delim)
@@ -477,8 +477,8 @@ def _disposition_name(value: str) -> str:
         key, raw_value = item.split("=", 1)
         if key.lower() != "name":
             continue
-        # Unquoted empty, or a token that starts with space or tab, is the old
-        # scanner's immediate "missing part name" (name=; name="code").
+        # Unquoted empty, or a token that starts with space or tab, is rejected
+        # as "missing part name" (name=; name="code").
         # A quoted empty name is stored and a later name= can replace it.
         if raw_value == "" or (raw_value[0] != '"' and raw_value[0] in " \t"):
             raise ExecuteRequestError("missing part name")
@@ -503,7 +503,7 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
     req_id = obj.get("id")
     timeout_ms = obj.get("timeout_ms")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
-    # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
+    # tokens) and becomes inf, which would crash allow_nan=False when echoed as id.
     # Checked before the field checks so it stays a body (JSON) error.
     reject_nonfinite_number(req_id)
     reject_nonfinite_number(timeout_ms)

@@ -178,9 +178,7 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
 @propagate_errors
 def nominal(effect_rate: Any, npery: Any) -> float:
     er = float(effect_rate)
-    # int(float(+inf)) and float() of an oversized period count raise
-    # OverflowError; without it in the except, NOMINAL would raise instead of
-    # returning #NUM! (NaN here), which is what Excel gives.
+    # int(float(+inf)) and float() of an oversized period count raise OverflowError, which the worker returns as #NUM!.
     np_y = int(float(npery))
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
@@ -796,7 +794,7 @@ def _calc_sort_key(val: Any) -> tuple[int, Any]:
     if is_number(val):
         try:
             return (0, float(val))
-        except (ValueError, TypeError, OverflowError):
+        except OverflowError:
             return (3, "")
     return (1, str(val).casefold())
 
@@ -997,7 +995,7 @@ def _cell_number(val: Any) -> float | None:
     and TypeError are None, while OverflowError from a huge integer propagates
     so the caller can return NaN for the call.
     """
-    if val is None or val == "" or isinstance(val, str):
+    if val is None or isinstance(val, str):
         return None
     try:
         return float(val)
