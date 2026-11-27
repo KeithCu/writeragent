@@ -167,20 +167,17 @@ def test_resolve_grep_candidates_listing_truncated_flag():
 
 
 def test_resolve_grep_candidates_open_files_first():
-    closed = "/tmp/closed.ods"
-    open_f = "/tmp/open.ods"
+    closed_entry = file_entry_for_path("/tmp/closed.ods")
+    open_entry = file_entry_for_path("/tmp/open.ods") | {"is_open": True}
     with patch("plugin.doc.document_research_grep.scan_nearby_files") as mock_list:
         mock_list.return_value = {
             "status": "ok",
-            "files": [
-                file_entry_for_path(closed),
-                file_entry_for_path(open_f) | {"is_open": True},
-            ],
+            "files": [closed_entry, open_entry],
             "truncated": False,
         }
         candidates, _, _ = resolve_grep_candidates(MagicMock(), MagicMock())
 
-    assert candidates[0]["path"] == open_f
+    assert candidates[0]["path"] == open_entry["path"]
 
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
@@ -709,11 +706,10 @@ def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, m
 def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
     mock_resolve, mock_search, mock_open, mock_close
 ):
+    entry_a = file_entry_for_path("/tmp/a.ods")
+    entry_b = file_entry_for_path("/tmp/b.ods")
     mock_resolve.return_value = (
-        [
-            file_entry_for_path("/tmp/a.ods"),
-            file_entry_for_path("/tmp/b.ods"),
-        ],
+        [entry_a, entry_b],
         False,
         None,
     )
@@ -736,9 +732,9 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "hit")
 
     assert result["status"] == "ok"
-    assert result["errors"][0]["path"] == "/tmp/a.ods"
+    assert result["errors"][0]["path"] == entry_a["path"]
     assert len(result["hits"]) == 1
-    assert result["hits"][0]["path"] == "/tmp/b.ods"
+    assert result["hits"][0]["path"] == entry_b["path"]
     assert result["files_scanned"] == 2
 
 
