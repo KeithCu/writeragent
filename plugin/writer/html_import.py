@@ -2011,19 +2011,22 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
     """Non-empty text portions in *target_range*, or [] when it holds anything but text.
 
     A break between paragraphs is in no run, so a range over several paragraphs adds up to
-    less than its string. When *in_redlines* is True, ``Redline`` boundary portions and
-    zero-width ``Bookmark`` portions are skipped so recorded replaces across another
-    author's change still keep formatting. Skipping bookmarks keeps touching matches on
-    the insert-after-run path: the previous change's ``wa_review_`` anchor starts at this
-    range's end. The two-step path of ``_replace_recorded`` inserts at the range start,
-    which is the end of the next match to the left, so that match would grow over the new
-    text and its own replace would strike it.
+    less than its string. When *in_redlines* is True, ``Redline`` boundary portions are
+    skipped so recorded replaces across another author's change still keep formatting, and
+    so is a review anchor bookmark (``record_changes.REVIEW_ANCHOR_PREFIX``) after the last run. That keeps
+    touching all_matches hits on the insert-after-run path: the previous change's anchor
+    starts at this range's end, and the two-step path of ``_replace_recorded`` inserts at
+    the range start, which is the end of the next match to the left, so that match would
+    grow over the new text and its own replace would strike it. Any other bookmark, or an
+    anchor with text after it, returns ``[]``: the run path inserts at that bookmark's
+    point, and Reject would then drop a bookmark that sits inside the match.
     When *in_redlines* is False (untracked), a range edge may carry a leading/trailing
     marker, but text inside a redline or a mid-range redline returns ``[]`` so untracked
     replaces do not alter or split tracked-change markup without recording.
     """
     runs: list[Any] = []
     inside = False
+    anchor_seen = False
     try:
         for para in iter_elements(target_range.createEnumeration()):
             for portion in iter_elements(para.createEnumeration()):
@@ -2033,12 +2036,18 @@ def _text_runs(target_range: Any, *, in_redlines: bool) -> list[Any]:
                     if runs and not inside and not in_redlines:
                         return []
                     continue
-                if kind == "Bookmark" and in_redlines:
+                if (
+                    kind == "Bookmark"
+                    and in_redlines
+                    and runs
+                    and portion.getPropertyValue("Bookmark").getName().startswith(record_changes.REVIEW_ANCHOR_PREFIX)
+                ):
+                    anchor_seen = True
                     continue
                 if kind not in ("Text", "SoftPageBreak"):
                     return []
                 if portion.getString():
-                    if inside and not in_redlines:
+                    if (inside and not in_redlines) or anchor_seen:
                         return []
                     runs.append(portion)
     except Exception as exc:
@@ -2142,6 +2151,10 @@ def _replace_recorded(
         # Trade-off on this path: the deletion and insertion share one author (one color).
         cursor.setString(new_text)
         return
+    # Touching all_matches hits reach this branch only when a match holds a field, a bookmark or
+    # another non-text portion: _text_runs skips the review anchor at the range end. The new text
+    # goes in at the range start, which is the left neighbour's end, so that neighbour's range
+    # grows over it (already read as old_text by then); bounding this strike cannot undo that.
     # split_author AND in_undo_context: the caller GUARANTEES this runs inside an open undo context
     # that will roll back a failed delete+insert, so use the two-step that preserves split-author
     # deletion coloring. The restore on insert-failure is a best-effort extra net (the caller's

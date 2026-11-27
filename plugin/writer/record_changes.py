@@ -26,6 +26,8 @@ from plugin.framework.errors import reraise_if_disposed
 
 log = logging.getLogger("writeragent.writer")
 
+# Name prefix of the bookmark EditReviewSession anchors each reviewable change with.
+REVIEW_ANCHOR_PREFIX = "wa_review_"
 # (RedlineType, (text, start, end)) of one tracked change.
 RedlineSpan = tuple[str, tuple[Any, Any, Any]]
 
@@ -51,13 +53,9 @@ def is_recording_changes(model: Any) -> bool:
 class record_changes:  # Named like a function: callers write ``with record_changes(doc, on):``.
     """Temporarily set the document's RecordChanges state, restoring it on exit.
 
-    ``__enter__`` returns the prior recording state (was_recording). This is a class, not a
-    ``contextlib.contextmanager`` generator: when an exception leaves the block, that
-    generator wrapper assigns ``exc.__traceback__`` (CPython ``Lib/contextlib.py``,
-    ``_GeneratorContextManager.__exit__``). pyuno exception objects forward every attribute
-    write to the UNO value (``_uno_struct__setattr__`` in ``pyuno/source/module/uno.py``),
-    so that assignment raises "Couldn't convert <traceback object> to a UNO type" in place
-    of the original UNO error, and callers such as ``is_disposal`` see the wrong exception.
+    ``__enter__`` returns the prior recording state (was_recording). A class, not a
+    generator context manager, so a UNO exception from the block reaches the caller
+    unchanged (see ``plugin.doc.compound_undo.UndoStepOrRollback``).
     """
 
     _doc: Any

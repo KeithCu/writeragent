@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 import uno  # noqa: F401
+from com.sun.star.beans import UnknownPropertyException
 
 from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
@@ -44,3 +45,20 @@ def test_restore_author_after_crash_new_redline_has_user_name_uno(ctx: Any, doc:
         review_authors.end(ctx, prior)
         cleanup_access = review_authors._author_access(ctx)
         review_authors._commit_author(cleanup_access, saved_profile[0], saved_profile[1])
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_uno_error_inside_deletion_author_keeps_its_cause_uno(ctx: Any, doc: Any) -> None:
+    """A UNO exception from the authored deletion reaches the caller as itself, and the insert author comes back."""
+    prior = review_authors.begin(ctx)
+    try:
+        try:
+            with review_authors.deletion_author():
+                doc.getPropertyValue("NoSuchProperty")
+            raise AssertionError("the UNO exception did not propagate")
+        except UnknownPropertyException:
+            pass
+        assert review_authors.office_author(ctx) == review_authors.INSERT_AUTHOR
+    finally:
+        review_authors.end(ctx, prior)

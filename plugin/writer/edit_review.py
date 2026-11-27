@@ -45,14 +45,13 @@ returns an empty complete result), and degrades to inert if tracking cannot be e
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 import itertools
 import logging
 import re
 import time
 import uuid
-from typing import Any, Callable, ClassVar, Generator, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
@@ -71,6 +70,7 @@ from plugin.writer import review_scan as _review_scan
 from plugin.writer.heading_links import headings_if_touched, retarget_renamed_links
 from plugin.writer.html_import import replace_preserving_format
 from plugin.writer.record_changes import (
+    REVIEW_ANCHOR_PREFIX,
     is_recording_changes,
     overlaps_foreign_insertion,
     record_changes,
@@ -82,7 +82,6 @@ from plugin.writer.word_diff_split import split_change
 
 log = logging.getLogger(__name__)
 
-_BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
 # Frame portions read "", so without a mark an object-only change reads the same accepted
 # and rejected; _preview strips it because it is not document text.
@@ -128,27 +127,41 @@ def edit_is_recorded(doc: Any) -> bool:
     return review_recording_enabled() or is_recording_changes(doc)
 
 
-@contextlib.contextmanager
-def agent_format_author(doc: Any, ctx: Any, ranges: list[Any]) -> Generator[None, None, None]:
+class agent_format_author:  # Named like a function: callers write ``with agent_format_author(...):``.
     """Author redlines recorded on *ranges* in this block as WriterAgent in record/wait mode.
 
     LibreOffice folds a format into a pending insertion only when both have the same author;
     otherwise rejecting keeps the inserted text (PreAppendFormatRedline in
     DocumentRedlineManager.cxx). So the office author stays when *ranges* overlap an insertion
-    that is not WriterAgent's.
+    that is not WriterAgent's. A class, not a generator context manager, so a UNO exception
+    from the block reaches the caller unchanged (see
+    ``plugin.doc.compound_undo.UndoStepOrRollback``).
     """
-    if (
-        not review_recording_enabled()
-        or not is_recording_changes(doc)
-        or overlaps_foreign_insertion(doc, ranges, review_authors.INSERT_AUTHOR)
-    ):
-        yield
-        return
-    prior = review_authors.begin(ctx)
-    try:
-        yield
-    finally:
-        review_authors.end(ctx, prior)
+
+    _doc: Any
+    _ctx: Any
+    _ranges: list[Any]
+    _begun: bool
+    _prior: tuple[str, str] | None
+
+    def __init__(self, doc: Any, ctx: Any, ranges: list[Any]) -> None:
+        self._doc = doc
+        self._ctx = ctx
+        self._ranges = ranges
+        self._begun = False
+        self._prior = None
+
+    def __enter__(self) -> None:
+        self._begun = (
+            review_recording_enabled()
+            and is_recording_changes(self._doc)
+            and not overlaps_foreign_insertion(self._doc, self._ranges, review_authors.INSERT_AUTHOR)
+        )
+        self._prior = review_authors.begin(self._ctx) if self._begun else None
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
+        if self._begun:
+            review_authors.end(self._ctx, self._prior)
 
 
 def paragraph_redline_author(ctx: Any) -> str:
@@ -625,7 +638,7 @@ class EditReviewSession:
                         if anchor_span is None and (acc != rej or (len(groups) == 1 and not at_table)):
                             anchor_span, accepted_text, rejected_text = span, acc, rej
                     if anchor_span is not None:
-                        bookmark_name = "%s%s_%d" % (_BOOKMARK_PREFIX, self.session_id, n)
+                        bookmark_name = "%s%s_%d" % (REVIEW_ANCHOR_PREFIX, self.session_id, n)
                         bm = self.doc.createInstance("com.sun.star.text.Bookmark")
                         bm.setName(bookmark_name)
                         anchor_span.getText().insertTextContent(anchor_span, bm, True)
