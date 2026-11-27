@@ -858,17 +858,17 @@ def test_insert_slide_from_master_lands_after_requested_slide():
 
 
 class _DistinctPage:
-    """Two wrappers for one slide: ``==`` fails, ``uno.isSame`` can succeed."""
+    """Two wrappers for one slide: ``is`` fails, ``==`` succeeds."""
 
     def __init__(self, key: str) -> None:
         self.key = key
 
     def __eq__(self, other: object) -> bool:
-        return False
+        return isinstance(other, _DistinctPage) and self.key == other.key
 
 
 def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
-    """Active Slide Index must not be -1 when PyUNO wrappers are not ``==``."""
+    """Active Slide Index must not be -1 when PyUNO wrappers are distinct Python objects."""
     first = _DistinctPage("0")
     listed = _DistinctPage("1")
     current = _DistinctPage("1")
@@ -885,13 +885,9 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
     bridge.get_active_page.return_value = current
     bridge.get_shapes.return_value = []
 
-    def _issame(left: object, right: object) -> bool:
-        return isinstance(left, _DistinctPage) and isinstance(right, _DistinctPage) and left.key == right.key
-
     with (
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
         patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
-        patch("uno.isSame", _issame),
     ):
         out = get_draw_context_for_chat(model, 8000)
 

@@ -56,7 +56,7 @@ These variants are exposed as the `region` values of `page_get_header_footer_tex
 
 Images in a header/footer must be anchored **`AS_CHARACTER`** (in the text flow). A floating `AT_CHARACTER` image does not contribute to line height, so even with dynamic height the region may not grow.
 
-Region membership (is this draw-page shape or search hit in *this* header `XText`?) uses [`uno_same`](../framework/uno-utilities.md) (`is` → `==` → `uno.isSame`). PyUNO often returns distinct Python wrappers for the same UNO object, so bare `==` / `!=` can miss a letterhead logo in `page_get_header_footer_text` metadata. That is a LibreOffice / PyUNO wrapper issue, not the debug UNO thread proxy. A false miss is still wrong for get/scan; historically it also made a wipe look safe.
+Region membership (is this draw-page shape or search hit in *this* header `XText`?) uses [`uno_same`](../framework/uno-utilities.md) (`is` → `==`). PyUNO often returns distinct Python wrappers for the same UNO object, so bare `is` can miss a letterhead logo in `page_get_header_footer_text` metadata. That is a LibreOffice / PyUNO wrapper issue, not the debug UNO thread proxy. A false miss is still wrong for get/scan; historically it also made a wipe look safe.
 
 ### Reading and writing: shared body HTML pipeline
 

@@ -53,7 +53,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import _UnoThreadGuardProxy, main_thread_only, unwrap_uno
+from plugin.framework.thread_guard import _UnoThreadGuardProxy, main_thread_only
 from plugin.framework.url_utils import normalize_file_url
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
@@ -485,40 +485,31 @@ def get_runtime_uid(model: Any) -> str:
     return ""
 
 
-# @main_thread_only (same decorator as resolve_document_by_url) never
-# enters the ladder off the main thread. Off-thread, proxy __eq__ raises
-# RuntimeError from assert_main_thread. A bare except Exception swallows
-# that and then uno.isSame runs on unwrapped PyUNO: the identity ladder
-# treats any comparison error as "try the next step", and the guard's
-# RuntimeError is an Exception. The on-thread ladder, including unwrap
-# before uno.isSame, stays.
+# @main_thread_only (same decorator as resolve_document_by_url) prevents
+# entering uno_same off the main thread, so an off-thread caller fails
+# immediately instead of having proxy __eq__'s RuntimeError swallowed by
+# the except Exception fallback below.
 @main_thread_only
 def uno_same(a: Any, b: Any) -> bool:
     """True when *a* and *b* are the same underlying UNO object.
 
-    PyUNO often hands out **distinct Python wrappers** for one UNO identity.
-    Bare ``is`` / ``==`` / ``!=`` can then miss that a draw shape's
+    PyUNO often hands out **distinct Python wrappers** for one UNO identity,
+    so bare ``is`` can miss that a draw shape's
     ``shape.getAnchor().getText()`` is the same header ``XText`` as
-    ``style.getPropertyValue("HeaderText")``.
+    ``style.getPropertyValue("HeaderText")``. ``PyUNO_cmp`` compares the
+    wrapped UNO ``Any`` values (UNO interface identity), so ``==`` handles
+    distinct PyUNO wrappers.
 
-    This is **not** a requirement of the debug viral UNO thread proxy
-    (``_UnoThreadGuardProxy`` in ``thread_guard.py``). That proxy is a
-    separate GUARD_ON tool; release OXTs stub it off. The flaky identity is a
-    LibreOffice / PyUNO wrapper issue and exists with the proxy stripped.
-
-    It still works when proxying is on: ``_UnoThreadGuardProxy.__eq__``
+    When debug thread-guard proxying is on, ``_UnoThreadGuardProxy.__eq__``
     unwraps ``_target`` and compares ``self._target == unwrap_uno(other)``
-    (see ``thread_guard.py``), so step 2 (``==``) succeeds for
-    proxy↔unwrapped. ``uno.isSame`` is a UNO/C++ identity test and must see
-    real PyUNO objects, so step 3 unwraps via ``unwrap_uno`` first.
+    (see ``thread_guard.py``), so ``==`` also handles proxy↔unwrapped
+    comparisons.
 
     Ladder:
 
     1. ``a is b``
-    2. try ``a == b`` (covers viral-proxy ``__eq__`` unwrap when GUARD_ON)
-    3. try ``uno.isSame`` on unwrapped objects when the function exists
-       (not all LibreOffice Python-UNO builds ship it)
-    4. else False
+    2. try ``a == b`` (covers PyUNO wrapper identity and viral-proxy unwrap)
+    3. else False
     """
     if a is b:
         return True
@@ -527,17 +518,7 @@ def uno_same(a: Any, b: Any) -> bool:
             return True
     except Exception:
         log.debug("uno_same equality probe failed", exc_info=True)
-    try:
-        import uno
-
-        is_same = getattr(uno, "isSame", None)
-        if not callable(is_same):
-            return False
-        # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
-        # which is truthy. Real PyUNO returns a bool.
-        return is_same(unwrap_uno(a), unwrap_uno(b)) is True
-    except Exception:
-        return False
+    return False
 
 
 def enum_has_more(enum: Any) -> bool:
@@ -558,7 +539,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
     in ``framework/source/helper``), so the walk needs no limit. A failed
     ``nextElement`` ends the walk.
 
-    Handles frame controller unwrapping and guards against truthy mock loops.
+    Guards against truthy mock loops.
     Registered scratch documents (see ``plugin.framework.scratch_writer``) are
     skipped: the user did not open them, so they must not be a lookup target,
     count as an open file, or make a single match ambiguous.
@@ -581,8 +562,9 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
                     model = elem
                 elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
-                    # Desktop enumeration can yield frames, not models. Frames
-                    # expose the document via getController().getModel().
+                    # OComponentAccess::impl_getFrameComponent (framework/source/helper/ocomponentaccess.cxx:135-162)
+                    # returns the model, else the controller, else the component window (never a frame).
+                    # Kept for test doubles or components that expose the model via getController().getModel().
                     controller = elem.getController()
                     if controller is not None:
                         model = controller.getModel()

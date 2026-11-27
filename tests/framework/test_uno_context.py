@@ -302,35 +302,11 @@ def test_uno_same_eq_when_not_same_ref():
     assert uno_same(AlwaysEq(), AlwaysEq()) is True
 
 
-@pytest.mark.parametrize(
-    "return_value, expected",
-    [
-        pytest.param(True, True, id="test_uno_same_issame_when_is_and_eq_fail"),
-        pytest.param(False, False, id="test_uno_same_false_when_all_paths_differ"),
-    ],
-)
-def test_uno_same_issame_when_is_and_eq_fail(return_value, expected):
+def test_uno_same_false_when_is_and_eq_fail():
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=return_value):
-        assert uno_same(a, b) is expected
-
-def test_uno_same_false_when_issame_missing():
-    from plugin.framework.uno_context import uno_same
-
-    a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", None):
-        assert uno_same(a, b) is False
-
-
-def test_uno_same_mocked_issame_is_not_treated_as_true():
-    """A session-wide MagicMock ``uno.isSame`` is truthy; must not collapse every pair to same."""
-    from plugin.framework.uno_context import uno_same
-
-    a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", MagicMock()):
-        assert uno_same(a, b) is False
+    assert uno_same(a, b) is False
 
 
 def test_uno_same_proxy_eq_unwraps_target():
@@ -347,28 +323,7 @@ def test_uno_same_proxy_eq_unwraps_target():
     assert uno_same(real, proxy) is True
 
 
-def test_uno_same_issame_unwraps_proxy_first():
-    """``uno.isSame`` must see the real PyUNO target, not the viral proxy wrapper."""
-    from plugin.framework import thread_guard as tg
-    from plugin.framework.uno_context import uno_same
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
-    real_a, real_b = object(), object()
-    proxy_a = tg._UnoThreadGuardProxy(real_a)
-    seen: list[tuple[object, object]] = []
-
-    def _issame(left: object, right: object) -> bool:
-        seen.append((left, right))
-        return left is real_a and right is real_b
-
-    with patch.object(sys.modules["uno"], "isSame", _issame):
-        # ``==`` is False (distinct objects / proxy target ≠ other), so ladder hits isSame.
-        assert uno_same(proxy_a, real_b) is True
-    assert seen == [(real_a, real_b)]
-
-
-def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
+def test_uno_same_off_thread_raises_on_thread_still_works(monkeypatch):
     from plugin.framework import thread_guard as tg
     from plugin.framework.uno_context import uno_same
     from tests.harness.strip_bundle import skip_if_release_build
@@ -376,8 +331,8 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
     skip_if_release_build("release bundles stub main_thread_only")
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=True):
-        assert uno_same(a, b) is True
+    assert uno_same(a, a) is True
+    assert uno_same(a, b) is False
 
     was = tg.GUARD_ON
     tg.GUARD_ON = True

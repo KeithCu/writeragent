@@ -2118,14 +2118,16 @@ def test_drop_egress_of_undone_formula_matches_page_by_uno_identity(monkeypatch:
     sheet = _SheetStub(page, formulas={(0, 0): ""})
 
     class _OtherWrapper:
-        """Same page, different Python object: == and != compare identity only."""
+        """Same page, different Python object: ``is`` is False, ``==`` is True."""
+
+        def __eq__(self, other: object) -> bool:
+            return other is page
 
         def __getattr__(self, name: str) -> Any:
             return getattr(page, name)
 
     sheet.DrawPage = _OtherWrapper()
     sheet.getAnnotations = lambda: MagicMock(getCount=MagicMock(return_value=0))
-    monkeypatch.setattr("uno.isSame", lambda a, b: True, raising=False)
 
     _drop_egress_of_undone_formula(doc, sheet, cell, page)
     assert plot not in page.shapes

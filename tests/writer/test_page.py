@@ -1,4 +1,3 @@
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -517,37 +516,47 @@ def test_first_page_region_uses_the_header_height_properties():
     assert _height_props("footer_left")[0] == "FooterIsDynamicHeight"
 
 
-def test_scan_sees_logo_when_pyuno_wrappers_differ():
-    """Distinct wrappers for the same header XText: bare ``!=`` would skip the logo."""
-    from unittest.mock import patch
+class _EqualWrapper:
+    """Two distinct Python objects that compare equal via ``==``."""
 
-    header = MagicMock()
-    header.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Frame")])])
-    other = MagicMock()
+    def __init__(self, inner: object) -> None:
+        self._inner = inner
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _EqualWrapper) and self._inner is other._inner
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+
+def test_scan_sees_logo_when_pyuno_wrappers_differ():
+    """Distinct wrappers for the same header XText compare equal via ``==``."""
+    base = MagicMock()
+    base.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Frame")])])
+    header = _EqualWrapper(base)
+    other = _EqualWrapper(base)
     assert header is not other
-    assert header != other
+    assert header == other
     doc, _style = _page_style_doc(header, shapes=[_logo_anchored_in(other)])
 
-    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {header, other}):
-        scan = _scan_region_content(doc, header)
+    scan = _scan_region_content(doc, header)
 
     assert scan["images"] == ["TIMBRE"]
 
 
 def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
-    """page_get metadata must list the image even when ``==`` on XText would miss it."""
+    """page_get metadata must list the image for distinct wrappers of the same XText."""
     from unittest.mock import patch
 
-    text_obj = MagicMock()
-    text_obj.getString.return_value = "\n"
-    text_obj.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Frame")])])
-    other = MagicMock()
-    doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
+    base = MagicMock()
+    base.getString.return_value = "\n"
+    base.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Frame")])])
+    text_obj = _EqualWrapper(base)
+    other = _EqualWrapper(base)
+    doc, style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
+    style.getPropertyValue.side_effect = lambda n: True if n.endswith("IsOn") else (500 if "Height" in n else text_obj)
 
-    with (
-        patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}),
-        patch("plugin.writer.page.xtext_to_content", return_value=""),
-    ):
+    with patch("plugin.writer.page.xtext_to_content", return_value=""):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header", include_images=True)
 

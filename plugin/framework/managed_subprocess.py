@@ -229,13 +229,8 @@ class ManagedSubprocess:
         try:
             if isinstance(proc, _RealPopen):
                 kill_process_tree(proc)
-            else:
-                poll_fn = getattr(proc, "poll", None)
-                poll_val = poll_fn() if callable(poll_fn) else None
-                if poll_val is None:
-                    kill_fn = getattr(proc, "kill", None)
-                    if callable(kill_fn):
-                        kill_fn()
+            elif proc.poll() is None:
+                proc.kill()
         except Exception:
             log.debug("kill_tree failed for %s pid=%s", self._label, self.pid, exc_info=True)
 
@@ -247,7 +242,7 @@ class ManagedSubprocess:
         proc = self._proc
         if proc is None:
             return
-        for stream in (getattr(proc, "stdin", None), getattr(proc, "stdout", None)):
+        for stream in (proc.stdin, proc.stdout):
             if stream is None:
                 continue
             try:
