@@ -575,6 +575,7 @@ def test_acp_approval_default_and_dead_turn():
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self._send_cancellation = None
+            self._orphan_send_outcome = None
             self.session = None
             self._acp_backend = None
             self._acp_backend_id = None
@@ -623,6 +624,7 @@ def test_acp_approval_auto_approve_when_configured():
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
             self._send_cancellation = None
+            self._orphan_send_outcome = None
             self.session = None
             self._acp_backend = None
             self._acp_backend_id = None

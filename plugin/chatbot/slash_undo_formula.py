@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Slash commands /undo and /formula (handlers extracted from slash_commands)."""
+"""Slash commands /undo and /formula."""
 
 from __future__ import annotations
 
@@ -40,14 +40,14 @@ def run_slash_undo(host: SlashHost) -> None:
 
 def clean_formula_model_reply(text: str) -> str:
     """Strip fences and whitespace from a one-line formula completion."""
-    raw = (text or "").strip()
+    raw = text.strip()
     if raw.startswith("```"):
         lines = raw.splitlines()
         if len(lines) >= 2 and lines[-1].strip() == "```":
             raw = "\n".join(lines[1:-1]).strip()
         else:
             raw = raw.strip("`").strip()
-    return raw.strip()
+    return raw
 
 
 def _header_row_text(header_range: Any) -> str:
@@ -70,7 +70,7 @@ def build_slash_formula_prompt(model: Any, description: str) -> tuple[str, str, 
 
     view = model.CurrentController
     sheet = view.ActiveSheet
-    sheet_name = str(sheet.getName() or "")
+    sheet_name = sheet.getName()
     selection = view.getSelection()
     if selection is None:
         raise SlashFormulaPromptError(_("Select a cell first."))
@@ -80,8 +80,8 @@ def build_slash_formula_prompt(model: Any, description: str) -> tuple[str, str, 
         reraise_if_disposed(exc)
         raise SlashFormulaPromptError(_("Select a cell first.")) from exc
 
-    col = int(range_addr.StartColumn)
-    row = int(range_addr.StartRow)
+    col = range_addr.StartColumn
+    row = range_addr.StartRow
     cell = sheet.getCellByPosition(col, row)
     target = format_address(col, row)
 
@@ -139,20 +139,19 @@ def insert_slash_formula_on_main(
         cell.setFormula(formula)
 
     try:
-        outcome = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
-        outcome.raise_mutate_error()
-    except Exception as exc:
-        log.exception("slash /formula insert failed")
-        host.append_output("\n" + format_error_message(exc) + "\n")
+        try:
+            outcome = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
+            outcome.raise_mutate_error()
+        except Exception as exc:
+            log.exception("slash /formula insert failed")
+            host.append_output("\n" + format_error_message(exc) + "\n")
+            return
+        err = outcome.error
+        if err is not None:
+            host.append_output("\n" + str(err.get("message", _("Could not insert the formula."))) + "\n")
+            return
+    finally:
         record_agent_turn_after(model)
-        return
-    err = outcome.error
-    if err is not None:
-        host.append_output("\n" + str(err.get("message", _("Could not insert the formula."))) + "\n")
-        record_agent_turn_after(model)
-        return
-
-    record_agent_turn_after(model)
     lines = [_("Formula for {0}: {1}").format(target_addr, formula)]
     try:
         if int(cell.getError()) != 0:

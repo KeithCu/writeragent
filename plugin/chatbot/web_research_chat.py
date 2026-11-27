@@ -80,7 +80,7 @@ def web_search_engine_step_chat_text(query_for_engine: str) -> str:
     from plugin.framework.i18n import _
 
     block = "\n" + _("Tool: %s") % "web_search" + "\n"
-    block += _("This search query '%s' will be sent to the search engine.") % (query_for_engine or "",) + "\n\n"
+    block += _("This search query '%s' will be sent to the search engine.") % (query_for_engine,) + "\n\n"
     return block
 
 
@@ -124,7 +124,7 @@ def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
 
 def display_name_for_path_or_name(path_or_name: str) -> str:
     """Basename for absolute paths; otherwise the string as given (basename, filter, URL fragment)."""
-    raw = (path_or_name or "").strip()
+    raw = path_or_name.strip()
     if not raw:
         return ""
     if raw.startswith("/"):

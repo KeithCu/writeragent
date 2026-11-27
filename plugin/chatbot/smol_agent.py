@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Match ``writeragent.specialized`` messages when ``safe=True`` (delegation path).
+# Child logger for per-call adapter lines, so they can be filtered apart from the model wrapper.
 _spec_log = logging.getLogger(__name__ + ".specialized")
 
 SmolInputsStyle = Literal["librarian", "specialized"]
@@ -150,9 +150,8 @@ class SmolToolAdapter(SmolTool):
         if prepared.error is not None:
             result = prepared.error
         elif getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
-            # Refuse before dispatch with the same flag, detects_mutation(), and
-            # READ_ONLY_TARGET blocks mutating tools before dispatch, same as ToolRegistry.execute.
-            # Only explicit True on read_only_target triggers the refusal.
+            # Refuse a mutating tool on a read-only target before dispatch,
+            # with the same flag and code as ToolRegistry.execute.
             result = make_tool_error(
                 "This document is open for read-only document_research access; writes are not allowed.",
                 code="READ_ONLY_TARGET",
@@ -221,20 +220,20 @@ class InnerCallRecorder(SmolToolAdapter):
 class WriterAgentSmolModel(Model):
     """
     A wrapper that implements `smolagents.models.Model` by delegating
-    requests to WriterAgent's `LlmClient` (`core.api`).
+    requests to WriterAgent's `LlmClient` (`plugin.framework.client.llm_client`).
     """
 
     api: LlmClient
     max_tokens: int
     model_id: str | None
-    _status_callback: Any
+    _status_callback: Callable[[str], None] | None
     _cancel: SendCancellation | None
 
     def __init__(
         self,
         llm_client: LlmClient,
         max_tokens: int = 1024,
-        status_callback: Any = None,
+        status_callback: Callable[[str], None] | None = None,
         cancel: SendCancellation | None = None,
     ) -> None:
         # Note: Model.kwargs are intentionally ignored; request_with_tools defines wire keys.
@@ -394,13 +393,11 @@ class SmolAgentExecutor:
         Returns:
             The final answer or a formatted error payload.
         """
-        from plugin.framework.i18n import _
-
         try:
             return self.run(agent, task, tool_call_handler=tool_call_handler)
         except ToolExecutionError as e:
             if e.code == "USER_STOPPED":
-                err = ToolExecutionError(_(stop_message), code="USER_STOPPED")
+                err = ToolExecutionError(stop_message, code="USER_STOPPED")
                 return format_error_payload(err)
             log.exception("%s execution failed", error_prefix)
             err = ToolExecutionError(f"{error_prefix}: {str(e)}", code=e.code, details=e.details)
@@ -416,7 +413,7 @@ def create_smol_model(
     *,
     client: LlmClient | None = None,
     max_tokens: int | None = None,
-    status_callback: object | None = None,
+    status_callback: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
@@ -438,6 +435,27 @@ def create_smol_model(
     )
 
 
+def call_tool_unvalidated(
+    agent: ToolCallingAgent,
+    tool: Any,
+    tool_name: str,
+    arguments: dict[str, Any] | str,
+) -> Any:
+    """Substitute state variables and invoke *tool* without schema validation."""
+    resolved_args = agent._substitute_state_variables(arguments)
+    try:
+        if isinstance(resolved_args, dict):
+            return tool(**resolved_args, sanitize_inputs_outputs=True)
+        return tool(resolved_args, sanitize_inputs_outputs=True)
+    except Exception as e:
+        # same text as ToolCallingAgent.execute_tool_call's tool branch (plugin/contrib/smolagents/agents.py)
+        error_msg = (
+            f"Error executing tool '{tool_name}' with arguments {str(resolved_args)}: {type(e).__name__}: {e}\n"
+            "Please try again or use another tool"
+        )
+        raise AgentToolExecutionError(error_msg, agent.logger) from e
+
+
 class WriterAgentToolCallingAgent(ToolCallingAgent):
     """ToolCallingAgent that skips smolagents' pre-validation for ``SmolToolAdapter`` tools.
 
@@ -457,18 +475,7 @@ class WriterAgentToolCallingAgent(ToolCallingAgent):
         if not isinstance(tool, SmolToolAdapter):
             return super().execute_tool_call(tool_name, arguments)
 
-        arguments = self._substitute_state_variables(arguments)
-        try:
-            if isinstance(arguments, dict):
-                return tool(**arguments, sanitize_inputs_outputs=True)
-            return tool(arguments, sanitize_inputs_outputs=True)
-        except Exception as e:
-            # same text as ToolCallingAgent.execute_tool_call's tool branch (plugin/contrib/smolagents/agents.py)
-            error_msg = (
-                f"Error executing tool '{tool_name}' with arguments {str(arguments)}: {type(e).__name__}: {e}\n"
-                "Please try again or use another tool"
-            )
-            raise AgentToolExecutionError(error_msg, self.logger) from e
+        return call_tool_unvalidated(self, tool, tool_name, arguments)
 
 
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> WriterAgentToolCallingAgent:
@@ -499,7 +506,7 @@ def run_inner_tool_agent(
     task: str,
     stop_message: str,
     error_prefix: str,
-    tool_call_handler: Callable[[Any], Any] | None = None,
+    tool_call_handler: Callable[[ToolCall], Any] | None = None,
 ) -> Any:
     """Build and execute a tool-calling agent loop safely."""
     examples_block = smol_examples.get_examples_block(examples_key)
@@ -561,13 +568,13 @@ def run_smol_side_turn(
     error_prefix: str,
     collector_safe: bool = True,
     inputs_style: SmolInputsStyle = "specialized",
-    tool_call_handler: Callable[[Any], Any] | None = None,
+    tool_call_handler: Callable[[ToolCall], Any] | None = None,
 ) -> dict[str, Any]:
     """One smol turn shared by brainstorming, writing plan, and deep research.
 
-    The three runners were the same setup. Status text, the stop message, and
-    whether a document open is written into the chat stay arguments so deep
-    research can keep the executor's default tool status.
+    Status text, the stop message, and whether a document open is written into
+    the chat stay arguments so deep research can keep the executor's default tool
+    status.
     """
     from plugin.chatbot.web_research_chat import clip_sub_agent_history
 

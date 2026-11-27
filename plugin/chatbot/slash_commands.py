@@ -24,13 +24,16 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Protocol, Sequence
 
 from plugin.doc.text_helpers import get_selection_text
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.chatbot.send_state import spawn_scope, SendEvent, SendEventKind
+
+if TYPE_CHECKING:
+    from plugin.chatbot.compaction import CompactResult
 
 log = logging.getLogger(__name__)
 
@@ -237,8 +240,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         N_("compact"),
         N_("Compact older chat history now"),
         run=SlashRun.COMPACT,  # Send after _begin_send; run_slash_compact, not run_slash_command handler
-        usage="/compact [focus]",
-        handler=None,  # COMPACT: no popup/local handler
+        usage="/compact [focus]",  # COMPACT: no popup/local handler
     ),
     SlashCommand(
         N_("undo"),
@@ -251,8 +253,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         N_("Write a Calc formula from a plain-English description"),
         run=SlashRun.FORMULA,  # Send after _begin_send; panel run_slash_formula
         requires_arg=True,
-        usage="/formula <description>",
-        handler=None,  # FORMULA: no popup/local handler
+        usage="/formula <description>",  # FORMULA: no popup/local handler
         apps=("calc",),
     ),
 )
@@ -288,7 +289,7 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
 def _raw_localized_name(english_name: str) -> str:
     """Catalog spelling of the active-locale alias, or the English id."""
     translated = _(english_name)
-    return (translated or "").strip().lstrip("/")
+    return translated.strip().lstrip("/")
 
 
 def _usable_alias(english_name: str) -> str | None:
@@ -353,7 +354,7 @@ def _registry_map() -> dict[str, SlashCommand]:
 
 def get_slash_command(name: str) -> SlashCommand | None:
     """Lookup by English id or the active locale's alias (no leading slash)."""
-    clean = (name or "").lstrip("/").strip().lower()
+    clean = name.lstrip("/").strip().lower()
     if not clean:
         return None
     return _registry_map().get(clean)
@@ -361,7 +362,7 @@ def get_slash_command(name: str) -> SlashCommand | None:
 
 def parse_slash_text(text: str) -> tuple[SlashCommand, str] | None:
     """Return ``(command, arg)`` when the first token is a registered name, else None."""
-    stripped = (text or "").strip()
+    stripped = text.strip()
     if not stripped.startswith("/"):
         return None
     parts = stripped.split(maxsplit=1)
@@ -379,8 +380,6 @@ def slash_ask_past_command_name(text: str) -> bool:
     The slash popup should stay closed so Enter runs Send, not ``accept_selected``
     (QA B2: ``/tone very formal`` must not lose the argument to a usage line).
     """
-    if not isinstance(text, str):
-        return False
     stripped = text.lstrip()
     if not stripped.startswith("/"):
         return False
@@ -419,7 +418,7 @@ def filter_slash_commands(
     lru: Sequence[str] | None = None,
     doc_type: str | None = None,
 ) -> list[SlashCommand]:
-    """Prefix-filter ``commands`` and rank by LRU then registry order.
+    """Prefix-filter the registered commands and rank by LRU, then registry order.
 
     ``typed`` is raw Ask-box text (``/he`` or the active locale's alias).
     The prefix matches the English id or that locale's alias. Recently
@@ -459,7 +458,7 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 def command_usage_hint(cmd: SlashCommand) -> str:
     """``/name`` or ``/name <arg>`` using the display token and a translated arg."""
     token = slash_display_name(cmd)
-    raw = (cmd.usage or "").strip()
+    raw = cmd.usage.strip()
     if not raw:
         if cmd.requires_arg:
             return "/%s <…>" % token
@@ -524,7 +523,7 @@ def record_slash_lru(name: str) -> None:
     from plugin.framework.errors import best_effort
     from plugin.framework.model_lru import update_lru_history
 
-    clean = (name or "").lstrip("/").strip().lower()
+    clean = name.lstrip("/").strip().lower()
     if not clean:
         return
     best_effort(
@@ -535,7 +534,7 @@ def record_slash_lru(name: str) -> None:
 
 def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     base = _(cmd.instruction)
-    arg_text = (arg or "").strip()
+    arg_text = arg.strip()
     if "{arg}" in base:
         # "/translate Spanish: Hello." plus a template period after {arg} would end in "..".
         # Strip at most one trailing char when it duplicates punctuation immediately after {arg}.
@@ -572,7 +571,7 @@ def _calc_active_cell_explain_line(model: Any) -> str:
     selection = view.getSelection()
     addr = selection.getCellAddress()
     cell = sheet.getCellByPosition(addr.Column, addr.Row)
-    formula = str(cell.getFormula() or "")
+    formula = cell.getFormula()
     address = format_address(addr.Column, addr.Row)
     if formula:
         return _("Cell {0} formula: {1}").format(address, formula)
@@ -638,10 +637,7 @@ def _peek_slash_from_ask(host: SlashHost) -> tuple[SlashCommand, str] | None:
     from plugin.chatbot.dialogs import get_control_text
 
     peek = (get_control_text(query) or "").strip()
-    parsed = parse_slash_text(peek)
-    if parsed is None:
-        return None
-    return parsed
+    return parse_slash_text(peek)
 
 
 def try_dispatch_slash_on_send_click(host: SlashHost) -> bool:
@@ -715,10 +711,10 @@ def _complete_ask_draft(host: SlashHost, name: str) -> None:
     host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
 
 
-def _compact_result_line(result: Any) -> str:
+def _compact_result_line(result: CompactResult) -> str:
     if result.compacted:
         return _("Conversation compacted.")
-    reason = getattr(result, "reason", "") or ""
+    reason = result.reason
     if reason == "nothing_to_compact":
         return _("Nothing to compact.")
     if reason == "below_threshold":
@@ -751,7 +747,7 @@ def run_slash_command(
         _complete_ask_draft(host, slash_display_name(cmd))
         return SlashResult.HANDLED
 
-    if cmd.requires_arg and not (arg or "").strip():
+    if cmd.requires_arg and not arg.strip():
         _commit_slash_command(cmd, host)
         host.append_output("\n" + format_usage_line(cmd) + "\n")
         return SlashResult.HANDLED
