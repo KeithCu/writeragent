@@ -605,7 +605,6 @@ class _Route:
     two error strings are read by ``_admit_parts`` (execute, vision).
     """
 
-    method: str
     prepare: Prepare
     handle: Handle
     default_timeout_sec: int
@@ -922,7 +921,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
     routes: dict[str, _Route] = {
         "/v1/execute": _Route(
-            "POST",
             _admit_parts,
             partial(_handle_execute, get_execute=_get_execute),
             default_timeout_sec=settings.default_timeout_sec,
@@ -931,14 +929,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             other_error="Invalid JSON",
         ),
         "/v1/session/reset": _Route(
-            "POST",
             _admit_reset,
             partial(_handle_session_reset, get_reset=_get_reset),
             # Reset carries no timeout_ms, so this is its whole budget, sized to the longest cell it can wait behind.
             default_timeout_sec=settings.max_timeout_sec,
         ),
         "/v1/vision": _Route(
-            "POST",
             _admit_vision,
             _handle_vision,
             default_timeout_sec=settings.ocr_timeout_sec,
@@ -964,8 +960,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         if route is None:
             return _plain_reply(environ, start_response, "404 Not Found", b"Not Found")
 
-        if method != route.method:
-            return _plain_reply(environ, start_response, "405 Method Not Allowed", b"Method Not Allowed", allow=route.method)
+        if method != "POST":
+            return _plain_reply(environ, start_response, "405 Method Not Allowed", b"Method Not Allowed", allow="POST")
 
         return _gated(environ, start_response, settings, permits, route)
 
