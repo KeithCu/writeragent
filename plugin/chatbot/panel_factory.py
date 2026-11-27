@@ -71,7 +71,7 @@ from plugin.framework.uno_context import (
     get_runtime_uid,
     document_id_for_frame,
 )
-from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
+from plugin.chatbot.panel_wiring import wire_chatpanel_controls
 from plugin.chatbot.rich_text_control import debug_env_active, log_rich_scroll
 
 # debug-only: omitted in release.
@@ -250,7 +250,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         self.PanelWindow = panel_window
         self.Window = panel_window
         self.parent_window = parent_window
-        # Set by panel wiring after _PanelResizeListener is created.
+        # Set by panel wiring after PanelResizeListener is created.
         self.resize_listener = None
         self._in_hfw = False
 
@@ -424,7 +424,7 @@ def _holds_typed_text(
     control (``ComboBox::ImplInit`` calls ``SetCompoundControl``, ``vcl/source/control/combobox.cxx:220``)
     and reports ``False``.
     """
-    typed = sanitize_model_combobox_value(str(ctrl.getText() or ""))
+    typed = sanitize_model_combobox_value(ctrl.getText())
     return painted is not None and painted[0] == endpoint and typed not in ("", painted[1], stored)
 
 
@@ -467,7 +467,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self._frame_close_hook = None
-        self.session: Any = None  # Created in _wireControls
+        self.session: Any = None  # Created in wire_chatpanel_controls
         self.doc_session = None
         self.web_session = None
         self.librarian_session = None
@@ -644,26 +644,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         self.rich_text_widget = None
 
-    def _render_session_history(self, session: Any, response_ctrl: Any, greeting: str = "") -> None:
-        """Update the response control with the contents of the given session."""
-        try:
-            if self.rich_text_widget:
-                self.rich_text_widget.paint_session(session, greeting)
-                return
-
-            if response_ctrl and response_ctrl.getModel():
-                from plugin.chatbot.rich_text_paste import plain_transcript_text
-
-                text = plain_transcript_text(session, greeting)
-
-                set_control_text(response_ctrl, text)
-                # Scroll to bottom
-                if hasattr(response_ctrl, "setSelection"):
-                    length = len(text)
-                    response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
-        except Exception:
-            log.exception("_render_session_history failed [greeting=%s]", greeting)
-
     def _refresh_controls_from_config(self) -> None:
         """Reload sidebar controls from config (e.g. after user changes Settings).
 
@@ -778,87 +758,92 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         except Exception:
             log.exception("_update_backend_indicator failed")
 
-    def _get_document_model(self) -> Any | None:
+    def get_document_model(self) -> Any | None:
         """Helper to get the current document model strictly from the frame."""
         return get_document_from_frame(self.xFrame)
 
     def _populate_model_combos(self, model_selector: Any, image_model_selector: Any) -> None:
         """Populate model and image model selectors and persist if values changed."""
-        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
-
-        current_model = get_text_model()
-        current_endpoint = get_current_endpoint()
-
+        endpoint = get_current_endpoint()
         if model_selector:
-            # Warm memo now; cold memo via background worker (never HTTP on UI thread).
-            def _on_fetched(ids: list[str]) -> None:
-                self._paint_fetched_text_models(current_endpoint, ids)
-
-            catalog = memo_text_models_or_fetch(
-                current_endpoint,
-                _on_fetched,
+            self._populate_model_combo(
+                model_selector,
+                endpoint,
+                control_name="model_selector",
+                lru_key="model_lru",
+                get_model=get_text_model,
+                set_model=set_text_model,
+                memo_fetch=memo_text_models_or_fetch,
                 task_name="sidebar-models",
+                log_label="paint fetched sidebar models",
             )
-            keep = _holds_typed_text(
-                model_selector,
-                self._painted_models.get("model_lru"),
-                current_endpoint,
-                current_model,
-            )
-            set_val = populate_combobox_with_lru(
-                model_selector,
-                current_model,
-                "model_lru",
-                current_endpoint,
-                remote_models=catalog,
-                keep_text=keep,
-            )
-            if not keep:
-                self._painted_models["model_lru"] = (current_endpoint, sanitize_model_combobox_value(set_val))
-            if set_val != current_model:
-                set_text_model(set_val, update_lru=False)
-
         if image_model_selector:
-            # Warm memo now; cold memo via background worker (never HTTP on UI thread).
-            current_image = get_image_model()
-
-            def _on_image_fetched(ids: list[str]) -> None:
-                self._paint_fetched_image_models(current_endpoint, ids)
-
-            image_catalog = memo_image_models_or_fetch(
-                current_endpoint,
-                _on_image_fetched,
+            self._populate_model_combo(
+                image_model_selector,
+                endpoint,
+                control_name="image_model_selector",
+                lru_key="image_model_lru",
+                get_model=get_image_model,
+                set_model=set_image_model,
+                memo_fetch=memo_image_models_or_fetch,
                 task_name="sidebar-image-models",
+                log_label="paint fetched sidebar image models",
             )
-            keep_image = _holds_typed_text(
-                image_model_selector,
-                self._painted_models.get("image_model_lru"),
-                current_endpoint,
-                current_image,
-            )
-            set_image_val = populate_image_model_selector(
-                image_model_selector,
-                current_endpoint,
-                remote_models=image_catalog,
-                keep_text=keep_image,
-            )
-            if not keep_image:
-                self._painted_models["image_model_lru"] = (current_endpoint, sanitize_model_combobox_value(set_image_val))
-            if set_image_val != current_image:
-                set_image_model(set_image_val, update_lru=False)
 
-    def _paint_fetched_text_models(self, endpoint: str, ids: list[str]) -> None:
-        """Repaint the sidebar text model combo after an off-thread catalog fetch.
+    def _populate_model_combo(
+        self,
+        ctrl: Any,
+        endpoint: str,
+        *,
+        control_name: str,
+        lru_key: str,
+        get_model: Callable[[], str],
+        set_model: Callable[..., None],
+        memo_fetch: Callable[..., list[str] | None],
+        task_name: str,
+        log_label: str,
+    ) -> None:
+        """Fill one model combo from its LRU and the memoized catalog, and store the shown value.
+
+        A warm memo paints now; a cold memo fetches on a background worker and
+        repaints through ``_paint_fetched_models`` (never HTTP on the UI thread).
+        """
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+        current = get_model()
+
+        def _on_fetched(ids: list[str]) -> None:
+            self._paint_fetched_models(endpoint, ids, control_name=control_name, lru_key=lru_key, get_model=get_model, log_label=log_label)
+
+        catalog = memo_fetch(endpoint, _on_fetched, task_name=task_name)
+        keep = _holds_typed_text(ctrl, self._painted_models.get(lru_key), endpoint, current)
+        shown = populate_combobox_with_lru(ctrl, current, lru_key, endpoint, remote_models=catalog, keep_text=keep)
+        if not keep:
+            self._painted_models[lru_key] = (endpoint, sanitize_model_combobox_value(shown))
+        if shown != current:
+            set_model(shown, update_lru=False)
+
+    def _paint_fetched_models(
+        self,
+        endpoint: str,
+        ids: list[str],
+        *,
+        control_name: str,
+        lru_key: str,
+        get_model: Callable[[], str],
+        log_label: str,
+    ) -> None:
+        """Repaint a sidebar model combo after an off-thread catalog fetch.
 
         When the box holds uncommitted typed text for *endpoint*, only the list
         items are replaced, so the text and caret stay as they were. Otherwise
-        the stored model is shown and recorded as the last painted value. It runs
-        between commit points (item select, focus lost, Send), so it writes
-        nothing to config.
+        the stored model (or endpoint placeholder) is shown and recorded as the
+        last painted value. It runs between commit points (item select, focus
+        lost, Send), so it writes nothing to config.
         """
         if self._released or endpoint != get_current_endpoint():
             return
-        sel = get_optional_control(self.m_panelRootWindow, "model_selector")
+        sel = get_optional_control(self.m_panelRootWindow, control_name)
         if not sel:
             return
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
@@ -866,52 +851,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         prior = self._in_refresh_controls
         self._in_refresh_controls = True
         try:
-            with suppress_disposed("paint fetched sidebar models", logger=log):
-                stored = get_text_model()
-                keep = _holds_typed_text(sel, self._painted_models.get("model_lru"), endpoint, stored)
-                shown = populate_combobox_with_lru(
-                    sel,
-                    stored,
-                    "model_lru",
-                    endpoint,
-                    remote_models=ids,
-                    keep_text=keep,
-                )
+            with suppress_disposed(log_label, logger=log):
+                stored = get_model()
+                keep = _holds_typed_text(sel, self._painted_models.get(lru_key), endpoint, stored)
+                shown = populate_combobox_with_lru(sel, stored, lru_key, endpoint, remote_models=ids, keep_text=keep)
                 if not keep:
-                    self._painted_models["model_lru"] = (endpoint, sanitize_model_combobox_value(shown))
-        finally:
-            self._in_refresh_controls = prior
-
-    def _paint_fetched_image_models(self, endpoint: str, ids: list[str]) -> None:
-        """Repaint the sidebar image model combo after an off-thread catalog fetch.
-
-        When the box holds uncommitted typed text for *endpoint*, only the list
-        items are replaced, so the text and caret stay as they were. Otherwise
-        the stored model (or endpoint placeholder) is shown and recorded as the
-        last painted value. It runs between commit points, so it writes nothing
-        to config.
-        """
-        if self._released or endpoint != get_current_endpoint():
-            return
-        sel = get_optional_control(self.m_panelRootWindow, "image_model_selector")
-        if not sel:
-            return
-        from plugin.chatbot.config_ui_helpers import populate_image_model_selector
-
-        prior = self._in_refresh_controls
-        self._in_refresh_controls = True
-        try:
-            with suppress_disposed("paint fetched sidebar image models", logger=log):
-                stored = get_image_model()
-                keep = _holds_typed_text(sel, self._painted_models.get("image_model_lru"), endpoint, stored)
-                shown = populate_image_model_selector(
-                    sel,
-                    endpoint,
-                    remote_models=ids,
-                    keep_text=keep,
-                )
-                if not keep:
-                    self._painted_models["image_model_lru"] = (endpoint, sanitize_model_combobox_value(shown))
+                    self._painted_models[lru_key] = (endpoint, sanitize_model_combobox_value(shown))
         finally:
             self._in_refresh_controls = prior
 
@@ -1046,7 +991,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return initial_mode, mode_flags
 
-    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any) -> None:
+    def _apply_sidebar_mode(self, mode: str, model: Any, send_listener: Any, clear_listener: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_CHAT,
             CHAT_MODE_DEEP_RESEARCH,
@@ -1080,14 +1025,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         send_listener.set_session(self.session)
         if clear_listener:
             clear_listener.set_session(self.session, greeting=greeting)
-        if response_ctrl:
-            self._render_session_history(self.session, response_ctrl, greeting)
+        send_listener.render_session_messages(self.session, greeting=greeting)
 
-    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, mode_flags: SidebarModeFlags) -> None:
+    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, send_listener: Any, clear_listener: Any, mode_flags: SidebarModeFlags) -> None:
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
         def apply_mode(mode: str) -> None:
-            self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener)
+            self._apply_sidebar_mode(mode, model, send_listener, clear_listener)
 
         # Librarian switch_to_document_mode must apply Chat even if ComboBox
         # selectItemPos does not fire the item listener (UNO is inconsistent).
@@ -1340,7 +1284,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         active_greeting = greeting_for_sidebar_mode(initial_mode, model)
         if controls["clear"]:
-            clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
+            clear_listener = ClearButtonListener(self.session, controls["status"], send_listener, greeting=active_greeting)
             controls["clear"].addActionListener(clear_listener)
             send_listener.clear_listener = clear_listener
 
@@ -1361,11 +1305,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(chk_ctrl, "addItemListener"):
                 chk_ctrl.addItemListener(_SelectorItemSyncListener(self, _sync_voice))
 
-        self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener)
+        self._apply_sidebar_mode(initial_mode, model, send_listener, clear_listener)
         self._wire_chat_mode_listener(
             controls["chat_mode_selector"],
             model,
-            controls["response"],
             send_listener,
             clear_listener,
             mode_flags,

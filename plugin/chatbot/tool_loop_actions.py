@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.tool import SelectionPin
 
+from plugin.chatbot.chat_session import STOP_BANNER
 from plugin.chatbot.compaction import tool_rows_after
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.chatbot.tool_loop_state import (
@@ -227,7 +228,7 @@ def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
 
 # Stop writes this as an ordinary assistant row. It is not matched by text
 # to decide whether a dead turn may still paint.
-STOP_LINE = "\n[Stopped by user]\n"
+STOP_LINE = f"\n{STOP_BANNER}\n"
 # One row per tool call that never received a result. Not a second controller.
 _CANCELLED_TOOL = "Cancelled by user. The call may have completed."
 
@@ -261,10 +262,10 @@ class TurnController:
     _stop_partial_text: str | None
     closed_by_document: bool
     send_start_msg_count: int
-    _overflow_compact_attempts: int
-    _last_compact_reason: str | None
-    _last_compact_tokens_before: int | None
-    _last_compact_tokens_after: int | None
+    overflow_compact_attempts: int
+    last_compact_reason: str | None
+    last_compact_tokens_before: int | None
+    last_compact_tokens_after: int | None
     active_client: "LlmClient | None"
     active_max_tokens: int
     active_tools: list[dict[str, Any]] | None
@@ -295,10 +296,10 @@ class TurnController:
         self._stop_partial_text = None
         self.closed_by_document = False
         self.selection_pin = None
-        self._overflow_compact_attempts = 0
-        self._last_compact_reason = None
-        self._last_compact_tokens_before = None
-        self._last_compact_tokens_after = None
+        self.overflow_compact_attempts = 0
+        self.last_compact_reason = None
+        self.last_compact_tokens_before = None
+        self.last_compact_tokens_after = None
         self.active_client = None
         self.active_max_tokens = 0
         self.active_tools = None
@@ -779,7 +780,7 @@ class ToolLoopActionHost(Protocol):
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
-    def _get_document_model(self) -> Any: ...
+    def get_document_model(self) -> Any: ...
 
 
 def build_tool_execute_fn(
@@ -948,7 +949,7 @@ class ToolLoopEffectInterpreter:
             if target is None:
                 return True
             turn, q = target
-            host._tool_calling._spawn_final_stream(
+            host._tool_calling.spawn_final_stream(
                 q, turn.active_client, turn.active_max_tokens, tools=turn.active_tools
             )
         elif isinstance(effect, UpdateDocumentContextEffect):
@@ -964,8 +965,8 @@ class ToolLoopEffectInterpreter:
             if target is None:
                 return True
             turn, q = target
-            host._tool_calling._refresh_active_tools_for_session()
-            host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num)
+            host._tool_calling.refresh_active_tools_for_session()
+            host._tool_calling.spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num)
         elif isinstance(effect, UpdateActivityStateEffect):
             update_activity_state(effect.phase, round_num=effect.round_num, tool_name=effect.tool_name)
         elif isinstance(effect, CleanupAudioEffect):
@@ -1000,7 +1001,7 @@ class ToolLoopEffectInterpreter:
             # the turn is what tool workers run against. Every action host has
             # the method; falling back to turn.model would refresh from the spawn
             # capture.
-            doc = host._get_document_model()
+            doc = host.get_document_model()
             if not doc:
                 log.debug("Tool loop: document disposed during context refresh")
                 return _fail("\n[Document closed or unavailable.]\n")

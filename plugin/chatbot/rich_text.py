@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# Legacy plain-sidebar prefix; _append_rich_text_with_span adds "Assistant:" instead.
+# Legacy plain-sidebar prefix; append_rich_text_with_span adds "Assistant:" instead.
 _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
 
 
@@ -196,7 +196,7 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
     is full of ``A1 grade`` and ``MP3``. Text with no real HTML tag is returned
     unchanged so plain replies are not pushed through the HTML filter.
     """
-    if not html or not contains_html_tag(html):
+    if not html or not text_has_real_html_tag(html):
         return html
     known = {name.casefold() for name in sheet_names}
 
@@ -304,15 +304,6 @@ def _tighten_list_indent(body_range: Any) -> None:
         best_effort(_tighten, f"_tighten_list_indent: failed for level {level}")
 
 
-def contains_html_tag(text: str) -> bool:
-    """True when *text* contains a real HTML tag, not a bare ``<`` comparison.
-
-    ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` are
-    not tags. ``<b>``, ``<i>``, and ``<script>`` are.
-    """
-    return text_has_real_html_tag(text)
-
-
 def role_prefix(role: str) -> str:
     if role == "user":
         return "You: "
@@ -326,7 +317,7 @@ def span_matches_message(added: str, role: str, content: str) -> bool:
     (paragraph breaks, list layout). A tag, or a word that is not in the
     message, is a failed edit. The caller undoes that span.
     """
-    if contains_html_tag(added):
+    if text_has_real_html_tag(added):
         return False
     remainder = added.lstrip()
     labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
@@ -371,7 +362,7 @@ def _sidebar_import_html(text: str) -> str:
     return text
 
 
-def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
+def append_rich_text_with_span(
     doc: Any,
     text: str,
     role: str = "assistant",
@@ -426,7 +417,7 @@ def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
 
         looks_html = False
         if has_body:
-            looks_html = contains_html_tag(text)
+            looks_html = text_has_real_html_tag(text)
 
             if looks_html:
                 try:

@@ -33,9 +33,9 @@ When the setting is off, behavior reverts to the legacy plain-text sidebar; mode
 
 ### Streaming experience
 
-During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `contains_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
+During an assistant stream, text is appended as **plain** characters on the RichTextControl (styled with assistant body color). Chunks go through [`StreamingHTMLStripper`](../../plugin/framework/html_stripper.py) (`SendButtonListener._plain_text_stripper` in [`panel.py`](../../plugin/chatbot/panel.py)) so raw HTML tags are not shown mid-stream. Fallback path uses `strip_html_tags` when the stateful stripper is unset. A tag is a known HTML element whose name is followed by a delimiter — end of the tag (`<b>`, `</em>`), whitespace (`<a href="x">`, `<b >`), or a self-closing slash token (`<br/>`, `<a/>`) — a `<!` / `<?` declaration, or any self-closing tag (`<widget/>`). Angle-bracket tokens that are not tags — `List<String>`, `<https://…>`, `<user@host>`, or an element name glued to prose (`<a@b.com>`, `<b, c>`, `<em@x>`) — stay in the live stream and in the committed paint. `text_has_real_html_tag` uses that same check, so the hidden-doc paint does not treat those tokens as leftover HTML.
 
-After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `contains_html_tag`), the sidebar **re-renders only the tail** of that message: it cuts from `_formatted_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
+After **`STREAM_DONE`** / **`FINAL_DONE`**, if the final assistant message contains HTML tags (detected by `text_has_real_html_tag`), the sidebar **re-renders only the tail** of that message: it cuts from `_formatted_len`, then pastes formatted content via the hidden-Writer bridge. Earlier messages in the control keep their formatting.
 
 Producer-side **250 ms batching** of stream chunks reduces UI stutter; see [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
 
@@ -63,7 +63,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Theme-aware **You:** / **Assistant:** colors | `get_theme_colors` in [`rich_text.py`](../../plugin/chatbot/rich_text.py) |
 | Chat typography (Liberation Sans 10pt, para side margins) | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN`, `apply_chat_char_props`, `configure_hidden_writer_for_chat` in [`rich_text_paste.py`](../../plugin/chatbot/rich_text_paste.py) |
 | Spellcheck off for hidden HTML import doc | `zxx` locale on Standard style in `configure_hidden_writer_for_chat` (`rich_text_paste.py`) |
-| List indent tightening after HTML import | `_tighten_list_indent` in `_append_rich_text_with_span` (`rich_text.py`) |
+| List indent tightening after HTML import | `_tighten_list_indent` in `append_rich_text_with_span` (`rich_text.py`) |
 | Streaming plain append | `RichTextChatWidget.stream_session` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `rollback_rich_insert` (cursor delete, not `model.Text = ""`) |
@@ -147,7 +147,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 - Implements **`com.sun.star.text.TextRange`** and character/paragraph properties — not a mini Writer document and not a general HTML layout engine.
 - **Not** available from XDL (`dlg:textfield` has no `richtext` attribute in [dialog.dtd](https://github.com/LibreOffice/core/blob/master/xmlscript/dtd/dialog.dtd)); the control is created in Python and registered as `response_rich`.
-- Supported HTML for detection and prompts is the constrained set checked by `contains_html_tag` and `RICH_CHAT_SIDEBAR_INSTRUCTIONS` — not arbitrary web HTML.
+- Supported HTML for detection and prompts is the constrained set checked by `text_has_real_html_tag` and `RICH_CHAT_SIDEBAR_INSTRUCTIONS` — not arbitrary web HTML.
 
 ---
 
@@ -167,7 +167,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 ## Limitations and backlog
 
 - **Shipped (do not re-open):** Mid-stream raw HTML flash — fixed via `StreamingHTMLStripper` on the append path; see [Streaming experience](#streaming-experience). Still open below is *formatted* HTML during stream (vs plain stripped text + end-of-stream rerender), which is a different feature.
-- **HTML tag detection via `contains_html_tag`** — Unrecognized markup or plain-text-looking tokens that do not look like real HTML tags skip formatted rerender.
+- **HTML tag detection via `text_has_real_html_tag`** — Unrecognized markup or plain-text-looking tokens that do not look like real HTML tags skip formatted rerender.
 - **Form component caveat** — `RichTextControl` is designed around database forms; extension dialogs use form components without a bound DB, but edge cases on some LO builds are possible ([forum discussion](https://forum.openoffice.org/en/forum/viewtopic.php?t=92134)).
 - **Calc/Draw QA** — Same wiring as Writer deck; verify formatted paste and resize on non-Writer sidebars when changing behavior.
 - **Native UNO HTML paste test** — `test_rich_text_control_append_formatted_row` in `test_rich_text_control_uno.py` verifies direct copy formatting without clipboard transfer or idle pumping.
@@ -194,7 +194,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN` | Single source of truth for sidebar chat typography |
 | `apply_chat_char_props` | Set Liberation Sans / weight / height on cursor, portion, or style |
 | `apply_rich_control_para_margins` | EditEngine horizontal inset for sidebar density |
-| `_append_rich_text_with_span` | HTML filter import + list tightening |
+| `append_rich_text_with_span` | HTML filter import + list tightening |
 | `link_plain_cell_refs` | Wrap plain Calc cell refs in `cell://` anchors (HTML replies only) |
 | `get_theme_colors` | Theme-aware role colors |
 
@@ -203,7 +203,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | Function | Role |
 |----------|------|
 | `create_sidebar_rich_text_control` | Create `TextField` model + peer, position over placeholder |
-| `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `_PanelResizeListener.last_response_rect` |
+| `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `PanelResizeListener.last_response_rect` |
 | `RichTextChatWidget` | **Primary panel facade** — paint from `session.messages`, clear, history |
 | `append_text_chunk` | Plain-text fallback rows (role color). The transcript paint does not splice with this |
 | `rollback_rich_insert` | Drop a tail that a failed single-message copy left behind |
@@ -237,7 +237,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
-Shared HTML import and theme: [`html_import.py`](../../plugin/writer/html_import.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
+Shared HTML import and theme: [`html_import.py`](../../plugin/writer/html_import.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text_with_span`, `get_theme_colors`, `text_has_real_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
 
@@ -304,7 +304,7 @@ grep '\[RICH-SCROLL\]' ~/.config/libreoffice/4/user/config/writeragent_debug.log
 
 DEBUG-level `[RICH-SCROLL]` lines record caret reveal, formatted inserts, layout sync, and `on_rich_control_ready` steps. They are gated off by default, even when `log_level=DEBUG`, because resize and streaming generate many entries. Each line includes a monotonic `seq`, `phase`, optional `reason`, `text_len`, and `main=` (1 when on the UI thread). `phase=reveal_caret` means `setFocus` + idle ran (no document mutation).
 
-**User-send pattern (healthy):** after `phase=copy_done` / `reason=copy`, expect `phase=trailing_break` then another Hidden `_scroll_rich_to_tail` (not `reason=user_trailing_break` / `phase=reveal_caret`) before `phase=user_append_done`. A `phase=reveal_caret` on the user insert is the whole-control flash.
+**User-send pattern (healthy):** after `phase=copy_done` / `reason=copy`, expect `phase=separator` then another Hidden `scroll_rich_to_tail` (not `reason=user_trailing_break` / `phase=reveal_caret`) before `phase=user_append_done`. A `phase=reveal_caret` on the user insert is the whole-control flash.
 
 **If scroll jumps after open/resize:** look for `phase=sync_bounds` then Hidden SelectAll (not `reason=resize` / `phase=reveal_caret`). Stock `layoutWindow()` resets VisArea to the origin; we restick to the tail. Mid-transcript scroll cannot be restored on stock.
 
@@ -411,7 +411,7 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 | 19 | User trailing-break used reveal_caret after SelectAll (GetFocus + Std + All()). Same Hidden scroll as stream; no reveal. | Pass. Keith click-test: You: insert no longer flashes; stream still Hidden; stick-to-bottom held. |
 | 20 | After resize `setPosSize`, Hidden SelectAll instead of reveal_caret. Stock layoutWindow jumps VisArea to origin; C++ patch not required for stick-to-bottom. | Nonempty skip removed (was skip_nonempty). Drag restick is Hidden SelectAll with re-entrancy guard, no idle. Click-test: drag width with transcript at bottom; no hang; stay on newest text. |
 | 21 | Leftover All() painted as a whole-transcript highlight whenever the viewport got focus (window pop-up/activation, create-time `reveal_caret` in `_on_rich_control_ready`, Tab). `SelectAllCollapseListener`: on focusGained after a stick-to-bottom SelectAll, an AsyncCallback posts Ctrl+End (`XToolkitRobot.keyPress`) to the focused viewport; EditView collapses to a caret at the end, so the view does not move. A click's mousePressed (same VCL event as its focusGained) cancels it; focusLost cancels it (the key goes to the focus window, never post it to Ask). A SelectAll while the transcript is focused collapses at once. | Pass (2026-11-14, gen backend). Focus on transcript: caret at end, no highlight (master: whole transcript highlighted). Create, stream, click-during-stream, click/drag select: no highlight, stick-to-bottom held, click caret and drag selection kept. Model insert/delete, temp paragraph break, and `.uno:End` dispatch do not collapse the selection. Superseded by 22. |
-| 22 | First click in the transcript ended a selection instead of starting one. A press inside the hidden All() is a drag-and-drop start in the SelectionEngine (`RichTextViewPort::MouseButtonDown` runs `EditView::MouseButtonDown` before `GrabFocus`, so no focus hook can collapse it first): a drag dragged the whole transcript, a click only placed a caret on release. Mid-stream, every chunk's SelectAll (plus the async Ctrl+End) also replaced a selection the user was making, and `restore_focus` pulled focus back to Ask. Now: `_select_all_collapsed` appends an empty paragraph (fixed 1/100 mm line height, paragraph attributes only so nothing sticks to the next chunk), SelectAll (end PaM lands in it, ShowCursor scrolls to the end), then removes the break; `ImpEditEngine::UpdateSelections` collapses a selection whose end node was deleted, with no focus needed. Net text unchanged; caret ends at the start of the last paragraph. `_scroll_rich_to_tail` skips (no restore, no SelectAll) while `RichFocusTracker.has_focus`: no stick-to-bottom while the user is in the transcript, it resumes after focus goes to Ask or the document. A press in the transcript calls `note_user_left_query` so chunks stop refocusing Ask. Ctrl+End robot key and AsyncCallback removed. | Pass (2026-11-14, gen backend, mock ramble at 200 ms/chunk plus gpt-oss-20b). First drag, double-click, click+shift-click work from Ask, document and transcript focus, mid-stream and after; mid-stream selection survives later chunks; copy then paste into document and Ask match. Document selection/caret and Ask text/caret/selection unchanged during streams. Stick-to-bottom held while unfocused; no highlight on create or focus. Expected from the code, not hit in testing: a non-click focus (Tab, window activation) runs ShowCursor to the caret, so a final paragraph taller than the view would scroll to its start. |
+| 22 | First click in the transcript ended a selection instead of starting one. A press inside the hidden All() is a drag-and-drop start in the SelectionEngine (`RichTextViewPort::MouseButtonDown` runs `EditView::MouseButtonDown` before `GrabFocus`, so no focus hook can collapse it first): a drag dragged the whole transcript, a click only placed a caret on release. Mid-stream, every chunk's SelectAll (plus the async Ctrl+End) also replaced a selection the user was making, and `restore_focus` pulled focus back to Ask. Now: `_select_all_collapsed` appends an empty paragraph (fixed 1/100 mm line height, paragraph attributes only so nothing sticks to the next chunk), SelectAll (end PaM lands in it, ShowCursor scrolls to the end), then removes the break; `ImpEditEngine::UpdateSelections` collapses a selection whose end node was deleted, with no focus needed. Net text unchanged; caret ends at the start of the last paragraph. `scroll_rich_to_tail` skips (no restore, no SelectAll) while `RichFocusTracker.has_focus`: no stick-to-bottom while the user is in the transcript, it resumes after focus goes to Ask or the document. A press in the transcript calls `note_user_left_query` so chunks stop refocusing Ask. Ctrl+End robot key and AsyncCallback removed. | Pass (2026-11-14, gen backend, mock ramble at 200 ms/chunk plus gpt-oss-20b). First drag, double-click, click+shift-click work from Ask, document and transcript focus, mid-stream and after; mid-stream selection survives later chunks; copy then paste into document and Ask match. Document selection/caret and Ask text/caret/selection unchanged during streams. Stick-to-bottom held while unfocused; no highlight on create or focus. Expected from the code, not hit in testing: a non-click focus (Tab, window activation) runs ShowCursor to the caret, so a final paragraph taller than the view would scroll to its start. |
 | 23 | After the user selected text in the transcript and then clicked the document or Ask, the next press inside that (now hidden, HideInactiveSelection) selection was again a drag-and-drop start: the first drag/click/double-click did nothing new. `RichFocusTracker.focus_lost` runs `collapse_rich_selection_keep_view`: `_select_all_collapsed` (pad trick, as in row 22) and then the vertical scroll bar is put back through its accessible value (`AccessibleRole.SCROLL_BAR`, `XAccessibleValue.setCurrentValue`), so the transcript does not jump to the end. PRIMARY keeps the old text. | Click-test after 3 inserting rounds, from Ask and from the doc: drag, drag + shift-click, click + shift-click, double-click, copy/paste into doc and Ask on an earlier turn; transcript rows outside the selection unchanged. Doc click must not land on an agent tracked change (that opens the Accept/Reject popup, which eats the next press by design). |
 
 ### Sidebar column / H-scroll (2026-08-27)

@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import threading
 import uno
-from plugin.chatbot.dialogs import query_text as read_query_text
+from plugin.chatbot.dialogs import query_text as read_query_text, set_model_enabled
 from plugin.chatbot.send_handlers import SendHandlersMixin, dispatch_sidebar_send
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_actions import (
@@ -253,12 +253,6 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
 
 
-def _set_control_enabled(control: Any, enabled: bool, why: str) -> None:
-    if control and control.getModel():
-        with suppress_disposed(why, logger=log):
-            control.getModel().Enabled = enabled
-
-
 def _continue_do_send(
     host: Any,
     query_text: str,
@@ -402,7 +396,7 @@ class SendButtonListener(BaseActionListener):
         self.sidebar_mode_flags = SidebarModeFlags()
         self.apply_sidebar_mode = None
         self.ensure_path_fn = ensure_path_fn
-        self.initial_doc_type = None  # Set by _wireControls
+        self.initial_doc_type = None  # Set by wire_chatpanel_controls
         self.cached_doc_type = None
         self.cached_uno_services = None
         self._stop_requested_fallback = False
@@ -449,9 +443,9 @@ class SendButtonListener(BaseActionListener):
             assert _AudioRecorderCls is not None
             self.audio_recorder = _AudioRecorderCls()
             self.audio_recorder.set_auto_stop_callbacks(
-                on_auto_stop=lambda: self.queue_executor.post(self._voice._on_audio_auto_stop),
-                on_silence_progress=lambda ms: self.queue_executor.post(self._voice._on_audio_silence_progress, ms),
-                on_error=lambda msg: self.queue_executor.post(self._voice._on_audio_recorder_error, msg),
+                on_auto_stop=lambda: self.queue_executor.post(self._voice.on_audio_auto_stop),
+                on_silence_progress=lambda ms: self.queue_executor.post(self._voice.on_audio_silence_progress, ms),
+                on_error=lambda msg: self.queue_executor.post(self._voice.on_audio_recorder_error, msg),
                 on_device_ready=lambda: self.queue_executor.post(self.audio_recorder.apply_device_ready),
                 on_capture_stopped=lambda path: self.queue_executor.post(self._voice.on_capture_stopped, path),
             )
@@ -481,10 +475,10 @@ class SendButtonListener(BaseActionListener):
             # builds this listener on a PyUNO Dummy thread before bootstrap has
             # run, and get_tools() raised BOOTSTRAP_OFF_THREAD here. Defer the
             # MCP subscription to the main thread in that case.
-            if self._events._mcp_subscribe_must_defer():
-                self._events._post_to_main(self._events._subscribe_mcp_events)
+            if self._events.mcp_subscribe_must_defer():
+                self._events.post_to_main(self._events.subscribe_mcp_events)
             else:
-                self._events._subscribe_mcp_events()
+                self._events.subscribe_mcp_events()
             self._subscribe(get_event_bus(), "grammar:status", self._on_grammar_status)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
@@ -607,14 +601,14 @@ class SendButtonListener(BaseActionListener):
         StopButtonListener(self).on_action_performed(None)
 
     def slash_document_model(self) -> Any:
-        return self._get_document_model(log_failure=False)
+        return self.get_document_model(log_failure=False)
 
     def slash_run_rewrite(self, instruction: str) -> None:
         """Edit Selection with a preset instruction (sidebar frame document)."""
         from plugin.chatbot.selection import do_selection_action_for_document
         from plugin.framework.i18n import _
 
-        model = self._get_document_model(log_failure=True)
+        model = self.get_document_model(log_failure=True)
         if not model:
             self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
             return
@@ -638,7 +632,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.doc_type import DocumentType, get_document_type
         from plugin.framework.i18n import _
 
-        model = self._get_document_model(log_failure=True)
+        model = self.get_document_model(log_failure=True)
         if not model:
             self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
             return
@@ -710,20 +704,30 @@ class SendButtonListener(BaseActionListener):
         """Run rich-control UI work inline on the main thread; post from workers."""
         return self.queue_executor.post_or_run(fn, *args, **kwargs)
 
-    def render_session_messages(self, session: Any) -> None:
-        """Draw the sidebar from ``session.messages``."""
+    def render_session_messages(self, session: Any, greeting: str | None = None) -> None:
+        """Draw the sidebar from ``session.messages``.
+
+        A *greeting* that is not None becomes the greeting shown above the
+        transcript (first paint, mode switch, Clear); None keeps the one the rich
+        widget already shows. When the rich paint raises, the plain transcript is
+        written into the rich control so it is not left stale or blank.
+        """
         def _paint() -> None:
+            from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
+
             widget = self.rich_text_widget
             if widget is not None:
-                widget.paint_session(session)
+                try:
+                    widget.paint_session(session, greeting)
+                except Exception:
+                    log.exception("render_session_messages: rich paint failed [greeting=%s]", greeting)
+                    set_control_text(widget.control, plain_transcript_text(session, greeting or ""))
                 return
             control = self.response_control
             if control is None or not control.getModel():
                 return
-            from plugin.chatbot.dialogs import set_control_text
-            from plugin.chatbot.rich_text_paste import plain_transcript_text
-
-            set_control_text(control, plain_transcript_text(session))
+            set_control_text(control, plain_transcript_text(session, greeting or ""))
             self._scroll_response_to_bottom()
 
         self._run_rich_ui(_paint)
@@ -827,7 +831,7 @@ class SendButtonListener(BaseActionListener):
                 set_control_text(self.response_control, current + clean_text)
                 self._scroll_response_to_bottom()
 
-    def _get_document_model(self, *, log_failure: bool = False) -> Any | None:
+    def get_document_model(self, *, log_failure: bool = False) -> Any | None:
         """Get the document model strictly from the frame.
 
         Always prefers the document bound to this sidebar's frame (same window as the user)
@@ -870,8 +874,8 @@ class SendButtonListener(BaseActionListener):
 
     def _set_button_states(self, send_enabled: bool, stop_enabled: bool) -> None:
         """Set Send/Stop enabled flags (per-control try/except so one UNO failure cannot strand the other)."""
-        _set_control_enabled(self.send_control, send_enabled, "set send_control enabled state")
-        _set_control_enabled(self.stop_control, stop_enabled, "set stop_control enabled state")
+        set_model_enabled(self.send_control, send_enabled, "set send_control enabled state")
+        set_model_enabled(self.stop_control, stop_enabled, "set stop_control enabled state")
 
     @property
     def _send_busy(self) -> bool:
@@ -1038,7 +1042,7 @@ class SendButtonListener(BaseActionListener):
             return
 
         if self._button_action == ButtonAction.ACCEPT:
-            self._events._finish_inline_web_approval(True)
+            self._events.finish_inline_web_approval(True)
             return
 
         # Mouse press/hold/release owns Record. ActionEvent still runs, and by
@@ -1181,7 +1185,7 @@ class SendButtonListener(BaseActionListener):
                         self._voice.speak_reply(speak=True)
                     elif terminal:
                         self._set_status(_(terminal))
-                    self._voice._flush_sticky_restart()
+                    self._voice.flush_sticky_restart()
         finally:
             # drop_turn and kick_pending_peer_starts run under finally.
             # An early return when content_to_speak is empty (or a TTS
@@ -1211,7 +1215,7 @@ class SendButtonListener(BaseActionListener):
         if not self._panel_teardown and self.sidebar_state.send.is_busy:
             self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
             self.sync_has_text_from_query()
-            self._voice._flush_sticky_restart()
+            self._voice.flush_sticky_restart()
         from plugin.doc.peer_message import kick_pending_peer_starts
 
         kick_pending_peer_starts()
@@ -1258,7 +1262,7 @@ class SendButtonListener(BaseActionListener):
         self._set_status(_("Getting document..."))
         log.debug("_require_send_document: getting document model...")
         # 1. Get document model
-        model = self._get_document_model(log_failure=True)
+        model = self.get_document_model(log_failure=True)
         if not model:
             self._fail_send(
                 _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]"),
@@ -1560,8 +1564,8 @@ class SendButtonListener(BaseActionListener):
             except Exception:
                 log.exception("ACP shutdown on panel dispose failed")
         self._stop_requested_fallback = True
-        self._voice._kill_inflight_stt()
-        self._voice._release_open_microphone()
+        self._voice.kill_inflight_stt()
+        self._voice.release_open_microphone()
         self._voice.exit_hands_free_record()
         clear_pending_audio_wav(self)
         try:
@@ -1653,12 +1657,12 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
 def notify_record_mouse_pressed(send_listener: Any) -> None:
     """Record mousePressed: arm the 2s hold timer. Do not start capture yet."""
     label_is_record = send_listener._button_action == ButtonAction.RECORD
-    send_listener._voice._apply_record_gesture(gesture_press(send_listener._record_gesture, label_is_record=label_is_record))
+    send_listener._voice.apply_record_gesture(gesture_press(send_listener._record_gesture, label_is_record=label_is_record))
 
 
 def notify_record_mouse_released(send_listener: Any) -> None:
     """Record mouseReleased: short click records once; long press already did."""
-    send_listener._voice._apply_record_gesture(gesture_release(send_listener._record_gesture))
+    send_listener._voice.apply_record_gesture(gesture_release(send_listener._record_gesture))
 
 
 def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
@@ -1685,7 +1689,7 @@ class StopButtonListener(BaseActionListener):
         if not self.send_listener:
             return
         if self.send_listener._stop_button_action == ButtonAction.CHANGE:
-            self.send_listener._events._open_web_search_change_dialog()
+            self.send_listener._events.open_web_search_change_dialog()
             return
         # During a take Stop steps down (leave hands-free, then cancel). Only
         # this ActionEvent path does it; mousePressed returns while not busy,
@@ -1707,16 +1711,14 @@ class StopButtonListener(BaseActionListener):
 class ClearButtonListener(BaseActionListener):
     """Listener for the Clear button - resets conversation history."""
 
-    send_listener: Any
+    send_listener: SendButtonListener
     session: Any
-    response_control: Any
     status_control: Any
     greeting: str
 
-    def __init__(self, session: Any, response_control: Any, status_control: Any, greeting: str = "", send_listener: Any = None) -> None:
+    def __init__(self, session: Any, status_control: Any, send_listener: SendButtonListener, greeting: str = "") -> None:
         self.send_listener = send_listener
         self.session = session
-        self.response_control = response_control
         self.status_control = status_control
         self.greeting = greeting
 
@@ -1729,31 +1731,30 @@ class ClearButtonListener(BaseActionListener):
     def on_action_performed(self, rEvent: Any) -> None:
         stop_tts()
         sl = self.send_listener
-        if sl is not None:
-            sl._voice.exit_hands_free_record()
-            sl._voice._release_open_microphone()
-            if sl._clear_button_action == ButtonAction.REJECT or sl._approval_event is not None:
-                sl._events._finish_inline_web_approval(False)
-                return
-            # Latch Stop before wiping messages. Clear on the UI thread while
-            # a send drain is still active leaves the in-flight reply to append
-            # onto that wiped chat.
-            if sl.sidebar_state.send.is_busy:
-                sl.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        sl._voice.exit_hands_free_record()
+        sl._voice.release_open_microphone()
+        if sl._clear_button_action == ButtonAction.REJECT or sl._approval_event is not None:
+            sl._events.finish_inline_web_approval(False)
+            return
+        # Latch Stop before wiping messages. Clear on the UI thread while
+        # a send drain is still active leaves the in-flight reply to append
+        # onto that wiped chat.
+        if sl.sidebar_state.send.is_busy:
+            sl.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
-            # Abort before the list is replaced. Stop already aborted a busy
-            # send; abort again when it was idle so a worker that outlived
-            # the button cannot paint onto the new list.
-            abort_turn(sl)
-            # Reset mode topic so the next prompt sets a fresh one. Clear
-            # wipes session history; leaving _mode_topic lets _do_send reuse
-            # the stale topic with an empty history.
-            sl._mode_topic = ""
+        # Abort before the list is replaced. Stop already aborted a busy
+        # send; abort again when it was idle so a worker that outlived
+        # the button cannot paint onto the new list.
+        abort_turn(sl)
+        # Reset mode topic so the next prompt sets a fresh one. Clear
+        # wipes session history; leaving _mode_topic lets _do_send reuse
+        # the stale topic with an empty history.
+        sl._mode_topic = ""
         self.session.clear()
 
         greeting = self.greeting
         if not greeting:
-            model = sl._get_document_model() if sl else None
+            model = sl.get_document_model()
             from plugin.framework.prompts import get_greeting_for_document
 
             try:
@@ -1762,22 +1763,7 @@ class ClearButtonListener(BaseActionListener):
                 # Disposed document on Clear: get_greeting_for_document(None) keeps localized Writer greeting.
                 greeting = get_greeting_for_document(None)
 
-        if self.send_listener and self.send_listener.rich_text_widget:
-            try:
-                self.send_listener.rich_text_widget.paint_session(self.session, greeting)
-            except Exception:
-                log.exception("Error clearing RichTextControl sidebar")
-                ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
-                if ctrl is not None:
-                    from plugin.chatbot.dialogs import set_control_text
-                    from plugin.chatbot.rich_text_paste import plain_transcript_text
-
-                    set_control_text(ctrl, plain_transcript_text(self.session, greeting))
-        elif self.response_control and self.response_control.getModel():
-            from plugin.chatbot.dialogs import set_control_text
-            from plugin.chatbot.rich_text_paste import plain_transcript_text
-
-            set_control_text(self.response_control, plain_transcript_text(self.session, greeting))
+        sl.render_session_messages(self.session, greeting=greeting)
 
         if self.status_control:
             self.status_control.setText("")

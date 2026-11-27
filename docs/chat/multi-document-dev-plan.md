@@ -121,7 +121,7 @@ flowchart TD
     MainAgent --> WriteActive
 ```
 
-**Document resolution today:** sidebar uses `frame.getController().getModel()` ([`SendButtonListener._get_document_model`](../../plugin/chatbot/panel.py)); MCP uses `X-Document-URL` + [`resolve_document_by_url`](../../plugin/framework/uno_context.py). Nearby reads add: filesystem path → file URL → match open component or `loadComponentFromURL`.
+**Document resolution today:** sidebar uses `frame.getController().getModel()` ([`SendButtonListener.get_document_model`](../../plugin/chatbot/panel.py)); MCP uses `X-Document-URL` + [`resolve_document_by_url`](../../plugin/framework/uno_context.py). Nearby reads add: filesystem path → file URL → match open component or `loadComponentFromURL`.
 
 See [Threading / nested delegation](#threading--nested-delegation) for UNO thread rules.
 

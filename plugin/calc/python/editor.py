@@ -37,7 +37,7 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.python.geometric_recalc import after_py_cell_save
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
-from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.chatbot.dialogs import ask_save_discard_cancel, msgbox, msgbox_with_report
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
 from plugin.framework.doc_type import is_calc
@@ -46,11 +46,7 @@ from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
 from plugin.scripting.document_scripts import document_scripts_identity
-from plugin.scripting.editor_host import (
-    ask_save_discard_cancel,
-    launch_monaco_editor,
-    monaco_editor_available,
-)
+from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
 log = logging.getLogger(__name__)

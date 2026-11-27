@@ -174,16 +174,16 @@ class FakeHost:
     def _set_status(self, text):
         self.statuses.append(text)
 
-    def _get_document_model(self):
+    def get_document_model(self):
         return self.document
 
-    def _refresh_active_tools_for_session(self):
+    def refresh_active_tools_for_session(self):
         self.refreshed_tools += 1
 
-    def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num):
+    def spawn_llm_worker(self, q, client, max_tokens, tools, round_num):
         self.spawned_llm.append((q, client, max_tokens, tools, round_num))
 
-    def _spawn_final_stream(self, q, client, max_tokens):
+    def spawn_final_stream(self, q, client, max_tokens):
         del q, client, max_tokens
 
 
@@ -2064,7 +2064,7 @@ def test_execute_fn_copies_turn_selection_pin_onto_tool_context():
 
     host = FakeHost()
     turn = begin_send_turn(host)
-    pin = SelectionPin(MagicMock(), host._get_document_model())
+    pin = SelectionPin(MagicMock(), host.get_document_model())
     turn.selection_pin = pin
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
@@ -2085,7 +2085,7 @@ def test_refresh_document_context_passes_pin_range():
     host = FakeHost()
     turn = begin_send_turn(host)
     pin_range = MagicMock()
-    turn.selection_pin = SelectionPin(pin_range, host._get_document_model())
+    turn.selection_pin = SelectionPin(pin_range, host.get_document_model())
     interpreter = ToolLoopEffectInterpreter(host)
 
     assert interpreter.execute(UpdateDocumentContextEffect()) is False

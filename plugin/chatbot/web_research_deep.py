@@ -38,7 +38,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.chatbot.web_research import WEB_SEARCH_STOPPED_MSG, norm_research_query, _user_stopped_payload
+from plugin.chatbot.web_research import WEB_SEARCH_STOPPED_MSG, norm_research_query, web_search_stopped_payload
 
 log = logging.getLogger(__name__)
 
@@ -827,5 +827,5 @@ def run_deep_research(
         # execute() only caches status "ok", so the stopped payload must be
         # returned here; a partial report string would be cached as a result.
         if _is_user_stopped(exc):
-            return _user_stopped_payload()
+            return web_search_stopped_payload()
         raise

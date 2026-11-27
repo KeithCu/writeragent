@@ -332,7 +332,7 @@ def _context_tokens_from_v1_entries(entries: list[Any]) -> dict[str, int]:
     return out
 
 
-def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str, bool]] | None:
+def parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str, bool]] | None:
     """Return (all_ids, image_output_ids, vision_declarations) from a /v1/models body.
 
     Vision declarations are id -> accepts image, only when the row listed
@@ -427,7 +427,7 @@ def _get_catalog_memo(endpoint: str = "", api_key_override: str | None = None) -
     return memo
 
 
-def _v1_models_request(endpoint: str) -> tuple[str, str] | None:
+def v1_models_request(endpoint: str) -> tuple[str, str] | None:
     url = _v1_url(endpoint, "/models")
     if not url:
         return None
@@ -467,7 +467,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def _model_fetch_auth_headers(base: str, api_key_override: str | None, url: str, *, is_openwebui: bool, is_openrouter: bool, log_label: str) -> dict[str, str] | None:
+def model_fetch_auth_headers(base: str, api_key_override: str | None, url: str, *, is_openwebui: bool, is_openrouter: bool, log_label: str) -> dict[str, str] | None:
     """Headers for a model-list GET.
 
     None: a key was present and auth setup failed; the caller skips the request.
@@ -501,7 +501,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     lifetime. Failed lookups are not cached, so the next Settings open retries.
     Settings skips the request when ``settings_catalog_is_warm`` is already true.
     """
-    built = _v1_models_request(endpoint)
+    built = v1_models_request(endpoint)
     if built is None:
         return None
     key_slot, url = built
@@ -513,7 +513,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
     # merely contains "openrouter.ai" is not this provider.
     is_openrouter = is_openrouter_endpoint(key_slot, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
-    req_headers = _model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=is_openwebui, is_openrouter=is_openrouter, log_label="fetch_available_models")
+    req_headers = model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=is_openwebui, is_openrouter=is_openrouter, log_label="fetch_available_models")
     if req_headers is None:
         return None
 
@@ -521,7 +521,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
         from plugin.framework.client.requests import sync_request
 
         data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
-        parsed = _parse_v1_models_response(data)
+        parsed = parse_v1_models_response(data)
         if parsed is not None:
             models, image_models, vision_declared = parsed
             entries = _v1_models_entries_from_body(data) or []
@@ -563,7 +563,7 @@ def _fetch_openrouter_entries(
     url: str,
     log_label: str,
 ) -> list[Any] | None:
-    req_headers = _model_fetch_auth_headers(
+    req_headers = model_fetch_auth_headers(
         key_slot,
         api_key_override,
         url,
@@ -592,7 +592,7 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     - ollama / lm studio / custom: keyword filter (flux, sdxl, …) stored with
       that same /v1/models memo. The catalog is not fetched again here.
     """
-    built = _v1_models_request(endpoint)
+    built = v1_models_request(endpoint)
     if built is None:
         return None
     key_slot, _url = built
@@ -1091,7 +1091,7 @@ def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_ke
     if not url:
         return None
 
-    req_headers = _model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=_resolved_openwebui(endpoint), is_openrouter=False, log_label="fetch together voices")
+    req_headers = model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=_resolved_openwebui(endpoint), is_openrouter=False, log_label="fetch together voices")
     if req_headers is None:
         return None
 
@@ -1233,7 +1233,7 @@ def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> N
 # --- Resolved model getters (text / STT / grammar / image) ---
 
 
-def _sanitize_stored_model_value(val: Any) -> str:
+def sanitize_stored_model_value(val: Any) -> str:
     """Drop combobox placeholder strings from persisted model config."""
     from plugin.framework.model_lru import sanitize_model_combobox_value
 
@@ -1242,7 +1242,7 @@ def _sanitize_stored_model_value(val: Any) -> str:
 
 def _stored_or_default(config_key: str, default_field: str) -> str:
     """Stored model id, or the current endpoint's provider default."""
-    val = _sanitize_stored_model_value(get_config(config_key))
+    val = sanitize_stored_model_value(get_config(config_key))
     if val:
         return val
     current_endpoint = get_current_endpoint()
@@ -1270,7 +1270,7 @@ def _set_stored_model(config_key: str, lru_key: str, val: Any, update_lru: bool,
     """Helper for persisting text/image/TTS model selections and updating LRU."""
     if val is None:
         return
-    val_str = _sanitize_stored_model_value(val)
+    val_str = sanitize_stored_model_value(val)
     if not val_str:
         return
 
@@ -1358,7 +1358,7 @@ def _fetch_vision_list(endpoint: str, provider: str | None, api_key_override: st
     url = _vision_list_url(provider, endpoint)
     if not url:
         return
-    req_headers = _model_fetch_auth_headers(
+    req_headers = model_fetch_auth_headers(
         _key_slot_base(endpoint),
         api_key_override,
         url,

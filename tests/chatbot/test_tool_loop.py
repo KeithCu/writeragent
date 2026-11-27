@@ -62,9 +62,9 @@ class FakePanel(ToolCallingMixin):
         self.image_model_selector = Mock()
         self._append_response = Mock()
         self._set_status = Mock()
-        self._spawn_llm_worker = Mock()
-        self._spawn_final_stream = Mock()
-        self._get_document_model = Mock(return_value=None)
+        self.spawn_llm_worker = Mock()
+        self.spawn_final_stream = Mock()
+        self.get_document_model = Mock(return_value=None)
         self.rich_text_widget = None
         self.response_control = None
         self.cached_doc_type = None
@@ -129,9 +129,9 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
 
     panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
-    assert panel._spawn_llm_worker.call_count >= 1
+    assert panel.spawn_llm_worker.call_count >= 1
     # args: q, client, max_tokens, tools, round_num, …
-    assert panel._spawn_llm_worker.call_args[0][4] == 0
+    assert panel.spawn_llm_worker.call_args[0][4] == 0
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
@@ -291,7 +291,7 @@ def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
     assert results[0] is False
     # When pending_tools is empty, it advances the round and spawns another worker
     panel._set_status.assert_called_with("Sending results to AI...")
-    panel._spawn_llm_worker.assert_called()
+    panel.spawn_llm_worker.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
 @patch('plugin.chatbot.tool_loop.get_config')
@@ -419,8 +419,8 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
         assert item == (StreamQueueKind.NEXT_TOOL,)
 
         # Kickoff already spawned the first worker. The stop must not spawn another.
-        panel._spawn_llm_worker.reset_mock()
-        panel._spawn_final_stream.reset_mock()
+        panel.spawn_llm_worker.reset_mock()
+        panel.spawn_final_stream.reset_mock()
         panel.stop_requested = True
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
@@ -436,8 +436,8 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
 
     # Stop skips the pending tool and does not start another model round.
     execute_tool_mock.assert_not_called()
-    panel._spawn_llm_worker.assert_not_called()
-    panel._spawn_final_stream.assert_not_called()
+    panel.spawn_llm_worker.assert_not_called()
+    panel.spawn_final_stream.assert_not_called()
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
@@ -522,8 +522,8 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=2)
 
-    panel._spawn_llm_worker.assert_called()
-    panel._spawn_final_stream.assert_called()
+    panel.spawn_llm_worker.assert_called()
+    panel.spawn_final_stream.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
 @patch('plugin.chatbot.tool_loop.get_config')
@@ -604,7 +604,7 @@ def test_refresh_active_tools_for_session(monkeypatch):
     turn = begin_send_turn(panel)
     turn.active_tools = [{"function": {"name": "stale"}}]
 
-    panel._refresh_active_tools_for_session()
+    panel.refresh_active_tools_for_session()
 
     fake_registry.get_schemas.assert_called_once_with(
         "openai",
@@ -688,14 +688,14 @@ def _run_captured_llm_worker(spawn):
 
 def test_llm_worker_keeps_spawn_scope_after_next_send():
     def spawn(panel, q, client):
-        ToolCallingMixin._spawn_llm_worker(panel, q, client, 100, [], 0)
+        ToolCallingMixin.spawn_llm_worker(panel, q, client, 100, [], 0)
 
     _run_captured_llm_worker(spawn)
 
 
 def test_final_stream_keeps_spawn_scope_after_next_send():
     def spawn(panel, q, client):
-        ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
+        ToolCallingMixin.spawn_final_stream(panel, q, client, 100)
 
     _run_captured_llm_worker(spawn)
 
@@ -716,7 +716,7 @@ def test_toolkit_none_starts_drain_and_first_worker():
     with patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None), \
          patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.chatbot.tool_loop.run_stream_drain_loop", side_effect=mock_drain), \
-         patch.object(panel, "_spawn_llm_worker", MagicMock()) as mock_spawn:
+         patch.object(panel, "spawn_llm_worker", MagicMock()) as mock_spawn:
         panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert recorded_kwargs.get("toolkit") is None
@@ -759,7 +759,7 @@ def test_retry_status_restored_on_first_chunk():
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
-        ToolCallingMixin._spawn_llm_worker(panel, batched, client, 100, [], 0)
+        ToolCallingMixin.spawn_llm_worker(panel, batched, client, 100, [], 0)
         started[0]()
     batched._timer.stop()
 
@@ -799,7 +799,7 @@ def test_retry_status_restored_on_first_chunk_final_stream():
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
-        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100)
+        ToolCallingMixin.spawn_final_stream(panel, batched, client, 100)
         started[0]()
     batched._timer.stop()
 
@@ -831,7 +831,7 @@ def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
-        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100, tools=tools)
+        ToolCallingMixin.spawn_final_stream(panel, batched, client, 100, tools=tools)
         started[0]()
     batched._timer.stop()
 

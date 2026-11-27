@@ -119,7 +119,7 @@ class TestAppendTextChunk:
         style_window = MagicMock()
 
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
-             patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
+             patch("plugin.chatbot.rich_text_control.insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret"), \
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_control._select_all_collapsed"):
@@ -130,7 +130,7 @@ class TestAppendTextChunk:
 
     def test_insert_table_header_applies_bold_and_underline(self):
         from plugin.chatbot.rich_text import CHAT_FONT_WEIGHT
-        from plugin.chatbot.rich_text_control import _insert_string_at_rich_cursor
+        from plugin.chatbot.rich_text_control import insert_string_at_rich_cursor
 
         model = MagicMock()
         cursor = MagicMock()
@@ -140,7 +140,7 @@ class TestAppendTextChunk:
         sel = MagicMock()
         model.createTextCursor.return_value = sel
 
-        _insert_string_at_rich_cursor(
+        insert_string_at_rich_cursor(
             model, cursor, "Col A\tCol B", 0x1E293B, bold=True, underline=True,
         )
 
@@ -152,7 +152,7 @@ class TestAppendTextChunk:
 
     def test_insert_table_body_forces_normal_weight(self):
         from plugin.chatbot.rich_text import CHAT_FONT_WEIGHT
-        from plugin.chatbot.rich_text_control import _insert_string_at_rich_cursor
+        from plugin.chatbot.rich_text_control import insert_string_at_rich_cursor
 
         model = MagicMock()
         cursor = MagicMock()
@@ -162,7 +162,7 @@ class TestAppendTextChunk:
         sel = MagicMock()
         model.createTextCursor.return_value = sel
 
-        _insert_string_at_rich_cursor(
+        insert_string_at_rich_cursor(
             model, cursor, "stream\tplain", 0x1E293B, bold=False, underline=False,
         )
 
@@ -177,7 +177,7 @@ class TestAppendTextChunk:
         model = MagicMock(Text="hello", ReadOnly=True)
         control.getModel.return_value = model
 
-        with patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
+        with patch("plugin.chatbot.rich_text_control.insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
              patch("plugin.chatbot.rich_text_control.set_prop") as mock_prop, \
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
@@ -200,9 +200,9 @@ class TestAppendTextChunk:
 
         restore = MagicMock()
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
-             patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
+             patch("plugin.chatbot.rich_text_control.insert_string_at_rich_cursor"), \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal, \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
+             patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail") as mock_scroll, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle:
             append_text_chunk(
                 control, " tail", style_window=MagicMock(), ctx=MagicMock(), restore_focus=restore,
@@ -212,7 +212,7 @@ class TestAppendTextChunk:
         # A forced pump nests an unbounded PE2I inside the drain slice.
         assert "force" not in mock_idle.call_args.kwargs
         mock_scroll.assert_called_once()
-        # The only restores per chunk are the pair inside _scroll_rich_to_tail
+        # The only restores per chunk are the pair inside scroll_rich_to_tail
         # (patched out here). A third one after it was a redundant GrabFocus.
         assert mock_scroll.call_args.kwargs["restore_focus"] is restore
         restore.assert_not_called()
@@ -235,8 +235,8 @@ class TestAppendTextChunk:
 
         reset_suppressed_vcl_pump_count()
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
-             patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_control.insert_string_at_rich_cursor"), \
+             patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail"), \
              patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
             with drain_owner_scope("stream"):
                 append_text_chunk(control, " tail", style_window=MagicMock(), ctx=MagicMock())
@@ -247,7 +247,7 @@ class TestAppendTextChunk:
             toolkit.processEventsToIdle.assert_called()
 
     def test_scroll_rich_to_tail_dispatches_select_all(self):
-        from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
+        from plugin.chatbot.rich_text_control import scroll_rich_to_tail
 
         control = MagicMock()
         parent = MagicMock()
@@ -255,7 +255,7 @@ class TestAppendTextChunk:
         parent.attach_mock(restore, "restore")
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as mock_uno:
             parent.attach_mock(mock_uno, "uno")
-            _scroll_rich_to_tail(control, restore_focus=restore)
+            scroll_rich_to_tail(control, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
         # Restore focus before and after SelectAll so the selection flash stays hidden.
         assert [c[0] for c in parent.mock_calls] == ["restore", "uno", "restore"]
@@ -268,10 +268,10 @@ class TestAppendTextChunk:
 
         def nested(_control, _command):
             calls["n"] += 1
-            rtc._scroll_rich_to_tail(control)
+            rtc.scroll_rich_to_tail(control)
 
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
-            rtc._scroll_rich_to_tail(control)
+            rtc.scroll_rich_to_tail(control)
 
         assert calls["n"] == 1
         assert id(control) not in rtc._IN_SCROLL_TO_TAIL
@@ -287,10 +287,10 @@ class TestAppendTextChunk:
         def nested(control, _command):
             calls.append(control)
             if control is ctrl1:
-                rtc._scroll_rich_to_tail(ctrl2)
+                rtc.scroll_rich_to_tail(ctrl2)
 
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
-            rtc._scroll_rich_to_tail(ctrl1)
+            rtc.scroll_rich_to_tail(ctrl1)
 
         assert calls == [ctrl1, ctrl2]
         assert len(rtc._IN_SCROLL_TO_TAIL) == 0
@@ -306,7 +306,7 @@ class TestAppendTextChunk:
         placeholder = MagicMock()
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
-        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
+        with patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail") as mock_scroll, \
              patch.object(rtc.log, "warning") as mock_warn:
             res = sync_rich_control_bounds(rich, None, placeholder)
 
@@ -326,7 +326,7 @@ class TestAppendTextChunk:
         placeholder = MagicMock()
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
-        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
+        with patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail") as mock_scroll, \
              patch("plugin.chatbot.rich_text_control._try_dialog_embedded_rich_control", return_value=None) as mock_reinsert:
             res = sync_rich_control_bounds(rich, None, placeholder)
 
@@ -443,7 +443,7 @@ class TestRichTextChatWidget:
         ]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain:
+             patch("plugin.chatbot.rich_text_paste.plain_append_messages") as plain:
             widget.stream_session(session)
         paint.assert_called_once()
         assert paint.call_args[0][2] == [("user", "q")]
@@ -480,7 +480,7 @@ class TestRichTextChatWidget:
              patch("plugin.chatbot.rich_text_control.clear_control") as clear, \
              patch("plugin.chatbot.rich_text_paste.plain_fallback_text", side_effect=lambda t: t), \
              patch("plugin.chatbot.rich_text_control.rollback_rich_insert") as rollback, \
-             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain:
+             patch("plugin.chatbot.rich_text_paste.plain_append_messages") as plain:
             widget.stream_session(session)
         paint.assert_not_called()
         clear.assert_not_called()
@@ -514,7 +514,7 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hel"}]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain:
+             patch("plugin.chatbot.rich_text_paste.plain_append_messages") as plain:
             widget.stream_session(session)
         assert paint.call_args[0][2] == [("user", "q"), ("assistant", "Hel")]
         plain.assert_not_called()
@@ -541,7 +541,7 @@ class TestRichTextChatWidget:
             {"role": "user", "content": "q2"},
         ]
         with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
-             patch("plugin.chatbot.rich_text_paste._plain_append_messages") as plain, \
+             patch("plugin.chatbot.rich_text_paste.plain_append_messages") as plain, \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=40):
             widget.stream_session(session)
         paint.assert_not_called()
@@ -617,10 +617,10 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Hello"}]
         calls = []
         with patch("plugin.chatbot.rich_text_control.rollback_rich_insert"), \
-             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
+             patch("plugin.chatbot.rich_text_paste.ensure_blank_line_after_tail"), \
              patch("plugin.chatbot.rich_text_paste.append_formatted_rows"), \
              patch("plugin.chatbot.rich_text_control.force_rich_full_reformat", side_effect=lambda c: calls.append("reformat")), \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
+             patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail", side_effect=lambda *a, **k: calls.append("scroll")), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=20):
             assert widget.rerender_last_assistant_if_html(session) is True
         assert calls == ["reformat", "scroll"]
@@ -632,10 +632,10 @@ class TestRichTextChatWidget:
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<b>Hello</b>"}]
         with patch.object(widget, "paint_session") as full, \
              patch("plugin.chatbot.rich_text_control.rollback_rich_insert") as rollback, \
-             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
+             patch("plugin.chatbot.rich_text_paste.ensure_blank_line_after_tail"), \
              patch("plugin.chatbot.rich_text_paste.append_formatted_rows") as rich, \
              patch("plugin.chatbot.rich_text_control.force_rich_full_reformat"), \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
             assert widget.rerender_last_assistant_if_html(session) is True
         full.assert_not_called()
@@ -672,10 +672,10 @@ class TestRichTextChatWidget:
         session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<p>See Sheet1.B2</p>"}]
         with patch("plugin.chatbot.rich_text_control.rollback_rich_insert"), \
-             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
+             patch("plugin.chatbot.rich_text_paste.ensure_blank_line_after_tail"), \
              patch("plugin.chatbot.rich_text_paste.append_formatted_rows") as rich, \
              patch("plugin.chatbot.rich_text_control.force_rich_full_reformat"), \
-             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_control.scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
             assert widget.rerender_last_assistant_if_html(session) is True
         assert 'cell://Sheet1.B2' in rich.call_args[0][2][0][1]
@@ -943,7 +943,7 @@ class TestSelectAllCollapsedAndFocusSkip:
             return True
 
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=uno):
-            rtc._scroll_rich_to_tail(control)
+            rtc.scroll_rich_to_tail(control)
         steps = [e[0] for e in log if e[0] != "pad_prop"]
         # The end PaM of All() sits in the pad; deleting its node collapses the view selection.
         assert steps == ["add_pad", "dispatch", "remove_pad"]
@@ -969,7 +969,7 @@ class TestSelectAllCollapsedAndFocusSkip:
         control = MagicMock()
         control.getModel.return_value = None
         with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as d:
-            rtc._scroll_rich_to_tail(control)
+            rtc.scroll_rich_to_tail(control)
         d.assert_called_once_with(control, ".uno:SelectAll")
 
     def test_focused_transcript_skips_select_all_and_restore(self):
@@ -983,14 +983,14 @@ class TestSelectAllCollapsedAndFocusSkip:
         try:
             tracker.focus_gained()
             with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as d:
-                rtc._scroll_rich_to_tail(control, restore_focus=restore)
+                rtc.scroll_rich_to_tail(control, restore_focus=restore)
             d.assert_not_called()
             restore.assert_not_called()
 
             with patch("plugin.chatbot.rich_text_control.collapse_rich_selection_keep_view"):
                 tracker.focus_lost()
             with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as d:
-                rtc._scroll_rich_to_tail(control, restore_focus=restore)
+                rtc.scroll_rich_to_tail(control, restore_focus=restore)
             d.assert_called_once_with(control, ".uno:SelectAll")
         finally:
             rtc._FOCUS_TRACKERS.pop(id(control), None)
@@ -1106,7 +1106,7 @@ def test_insert_after_tagged_cell_link_clears_the_tag():
     """EditEngine stretches the link tag over text inserted right after it; the insert clears it."""
 
     from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
-    from plugin.chatbot.rich_text_control import _follows_cell_link, _insert_string_at_rich_cursor
+    from plugin.chatbot.rich_text_control import _follows_cell_link, insert_string_at_rich_cursor
 
     model = MagicMock()
     probe = model.createTextCursor.return_value
@@ -1116,13 +1116,13 @@ def test_insert_after_tagged_cell_link_clears_the_tag():
 
     cursor = MagicMock()
     with patch("plugin.chatbot.rich_text_control.mark_cell_link_range") as mark:
-        _insert_string_at_rich_cursor(model, cursor, " after", None)
+        insert_string_at_rich_cursor(model, cursor, " after", None)
     mark.assert_called_once_with(probe, None)
 
     probe.getPropertyValue.return_value = ""
     assert _follows_cell_link(model, MagicMock()) is False
     with patch("plugin.chatbot.rich_text_control.mark_cell_link_range") as mark:
-        _insert_string_at_rich_cursor(model, cursor, " plain", None)
+        insert_string_at_rich_cursor(model, cursor, " plain", None)
     mark.assert_not_called()
 
     probe.goLeft.return_value = False  # insert at the very start of the control

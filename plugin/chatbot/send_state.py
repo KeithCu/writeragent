@@ -340,7 +340,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
                 return _noop(state)
 
             # Keep typed text so the user can retry. Always drop has_audio: Stop Rec
-            # auto-send and _transcribe_audio already consume/delete the WAV, and
+            # auto-send and transcribe_audio already consume/delete the WAV, and
             # leaving has_audio True after STT/chat errors shows a dead Send button.
             # Clearing is_recording with only UpdateUIEffect leaves the FSM idle
             # while capture can still be running if the caller has not stopped the

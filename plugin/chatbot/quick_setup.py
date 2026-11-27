@@ -9,9 +9,9 @@ import urllib.error
 import urllib.request
 
 from plugin.framework.client.model_fetcher import (
-    _model_fetch_auth_headers,
-    _parse_v1_models_response,
-    _v1_models_request,
+    model_fetch_auth_headers,
+    parse_v1_models_response,
+    v1_models_request,
 )
 from plugin.framework.client.provider_detection import is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.config import get_config
@@ -28,12 +28,12 @@ def check_endpoint_connection(endpoint: str, api_key: str = "") -> tuple[bool, s
         return False, _("Endpoint URL cannot be empty."), []
 
     # Same model-list URL and auth headers as fetch_available_models.
-    built = _v1_models_request(endpoint)
+    built = v1_models_request(endpoint)
     if built is None:
         return False, _("Invalid endpoint URL."), []
     base, models_url = built
 
-    auth_headers = _model_fetch_auth_headers(
+    auth_headers = model_fetch_auth_headers(
         base,
         api_key,
         models_url,
@@ -52,7 +52,7 @@ def check_endpoint_connection(endpoint: str, api_key: str = "") -> tuple[bool, s
             elapsed_ms = int((time.monotonic() - start_time) * 1000)
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
-                parsed = _parse_v1_models_response(data)
+                parsed = parse_v1_models_response(data)
                 models = parsed[0] if parsed is not None else []
 
                 msg = _("✓ Connected successfully! ({0}ms, {1} models available)").format(elapsed_ms, len(models))

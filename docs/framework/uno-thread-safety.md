@@ -244,7 +244,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 |---|---|---|
 | Primary UNO getters | `plugin/framework/uno_context.py` | Wrapped via `guard_uno()` on `get_ctx()`, `get_desktop()`, `get_active_document()`, `get_toolkit()`, `get_package_info()`. |
 | Document Model Resolver | `plugin/framework/uno_context.py` | `resolve_document_by_url()` returns `guard_uno(doc)`. |
-| Panel Frame Resolver | `plugin/chatbot/panel.py`, `panel_factory.py` | `_get_document_model()` resolves frame controller model with `guard_uno`. |
+| Panel Frame Resolver | `plugin/chatbot/panel.py`, `panel_factory.py` | `get_document_model()` resolves frame controller model with `guard_uno`. |
 | Hidden Document Loader | `plugin/doc/document_research.py` | `open_document_for_read()` guards hidden component model. |
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
 | Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active Calc model. A focused Writer, Draw, or Impress document returns `None` without enumerating (`is_draw` is Draw or Impress). Base, Math, and no current component still enumerate. The fallback returns the only open Calc model not counting registered scratch documents, or `None` when zero or several are open. |

@@ -14,6 +14,7 @@ from plugin.chatbot.record_gesture import (
     hands_free_silence_text,
     hands_free_status_text,
 )
+from plugin.chatbot.dialogs import set_model_enabled
 from plugin.chatbot.send_state import SendEvent, SendEventKind, StartSendEffect, spawn_scope
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import fill_api_key, get_api_config, get_current_endpoint, get_config
@@ -51,11 +52,7 @@ def stop_playback_if_speaking(host: Any) -> bool:
             # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
             # hands-free, or the TTS poll would arm the mic again.
             host._voice.exit_hands_free_record()
-            if host.stop_control and host.stop_control.getModel():
-                from plugin.framework.errors import suppress_disposed
-
-                with suppress_disposed("disable stop on speech stopped", logger=log):
-                    host.stop_control.getModel().Enabled = False
+            set_model_enabled(host.stop_control, False, "disable stop on speech stopped")
             return True
     return False
 
@@ -143,7 +140,7 @@ class PanelVoiceController:
                 return True
         return False
 
-    def _kill_inflight_stt(self) -> None:
+    def kill_inflight_stt(self) -> None:
         """Kill the local Whisper child when the sidebar is disposed.
 
         Stop does not call this: STT runs to completion and ``_do_send`` puts the
@@ -191,7 +188,7 @@ class PanelVoiceController:
             self._panel.dispatch(SendEvent(SendEventKind.CANCEL_REC_CLICKED))
         return True
 
-    def _apply_record_gesture(self, step: Any) -> None:
+    def apply_record_gesture(self, step: Any) -> None:
         was_sticky = self._panel._record_gesture.sticky
         self._panel._record_gesture = step.gesture
         if step.gesture.sticky and not was_sticky:
@@ -215,9 +212,9 @@ class PanelVoiceController:
     def _on_record_hold_elapsed(self) -> None:
         if self._panel_gone():
             return
-        self._apply_record_gesture(gesture_hold_elapsed(self._panel._record_gesture))
+        self.apply_record_gesture(gesture_hold_elapsed(self._panel._record_gesture))
 
-    def _release_open_microphone(self) -> None:
+    def release_open_microphone(self) -> None:
         """Stop capture and leave the Stop Rec label.
 
         Clear and sidebar close must stop the mic, not only
@@ -238,7 +235,7 @@ class PanelVoiceController:
             except Exception:
                 log.debug("leave Stop Rec on teardown failed", exc_info=True)
 
-    def _flush_sticky_restart(self) -> None:
+    def flush_sticky_restart(self) -> None:
         """Arm Record again if this completed turn left sticky on."""
         pending = self._sticky_restart_pending
         self._sticky_restart_pending = False
@@ -278,7 +275,7 @@ class PanelVoiceController:
             return
         self._begin_sticky_rerecord()
 
-    def _on_audio_auto_stop(self) -> None:
+    def on_audio_auto_stop(self) -> None:
         """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
         # A post can already be queued when disposing clears the recorder hooks.
         if self._panel_gone():
@@ -322,7 +319,7 @@ class PanelVoiceController:
 
         self._panel._interpret_effect(StartSendEffect())
 
-    def _on_audio_recorder_error(self, msg: str) -> None:
+    def on_audio_recorder_error(self, msg: str) -> None:
         """Child error after ready, on the UI thread.
 
         The stdout monitor only posts here. The recorder event is applied here
@@ -345,7 +342,7 @@ class PanelVoiceController:
         self._panel._start_local_error_turn("\n[Audio error: %s]\n" % msg)
         self._panel.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
 
-    def _on_audio_silence_progress(self, silence_ms: int) -> None:
+    def on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
 
         if self._panel_gone():
@@ -418,7 +415,7 @@ class PanelVoiceController:
                 def _kill() -> None:
                     terminate_stt_process(managed)
 
-                # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
+                # Sidebar teardown (kill_inflight_stt) calls this. Stop does
                 # not: the transcript is kept for the Ask box.
                 self._panel._stt_kill = _kill
 
@@ -441,7 +438,7 @@ class PanelVoiceController:
             self._cleanup_stt(wav_path)
             raise
 
-    def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
+    def transcribe_audio(self, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread.
 
         The send-scoped checker is taken via ``spawn_scope(self._panel)`` on this
@@ -470,7 +467,7 @@ class PanelVoiceController:
             except Exception as e:
                 from plugin.framework.i18n import _
 
-                log.exception("Transcription error in _transcribe_audio")
+                log.exception("Transcription error in transcribe_audio")
                 self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise
             if is_cancelled(cancel_scope):
@@ -509,7 +506,7 @@ class PanelVoiceController:
             else:
                 query_text = _join_voice_text(query_text, transcript)
 
-        # WAV is deleted in _transcribe_audio finally. Empty STT must not
+        # WAV is deleted in transcribe_audio finally. Empty STT must not
         # fall through into a chat POST with a blank user message.
         if not query_text.strip():
             self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
@@ -539,7 +536,7 @@ class PanelVoiceController:
         let ``on_resolved`` continue the turn when STT completes).
         """
         qe = self._panel.queue_executor
-        if qe is None or getattr(qe, "_async_callback_service", None) is None:
+        if qe is None or not qe.is_marshal_ready():
             return False
         wav_path = self._panel.audio_wav_path
         if not wav_path:
@@ -635,7 +632,7 @@ class PanelVoiceController:
         query_text = self._ask_text()
 
         try:
-            transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
+            transcript = self.transcribe_audio(self._panel.audio_wav_path, stt_model)
             if transcript:
                 self._put_stopped_transcript_in_ask(transcript, query_text)
         except Exception as exc:
@@ -677,7 +674,7 @@ class PanelVoiceController:
                         stt_model,
                     )
                 try:
-                    transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
+                    transcript = self.transcribe_audio(self._panel.audio_wav_path, stt_model)
                 except Exception as e:
                     self._record_stt_error(e, query_text, append_ui=False)
                     return query_text, True
@@ -733,8 +730,6 @@ class PanelVoiceController:
                         and len(spoken.messages) > start_count
                     )
                     if has_new_assistant_msg:
-                        from plugin.chatbot.panel import _set_control_enabled
-
                         content_to_speak = last_msg["content"].replace(STOP_LINE, "")
                         if content_to_speak.strip():
                             from plugin.audio.tts_service import speak_text_async, is_speaking
@@ -750,7 +745,7 @@ class PanelVoiceController:
                                         if self._panel._record_gesture.sticky:
                                             self._panel._set_status(hands_free_status_text())
                                     else:
-                                        _set_control_enabled(self._panel.stop_control, False, "disable stop after speech")
+                                        set_model_enabled(self._panel.stop_control, False, "disable stop after speech")
                                         self._panel._set_status(_(prior_status))
 
                             def _on_tts_status(message: str) -> None:
@@ -769,7 +764,7 @@ class PanelVoiceController:
                                 ctx=self._panel.ctx,
                             )
                             if is_speaking():
-                                _set_control_enabled(self._panel.stop_control, True, "enable stop for speech")
+                                set_model_enabled(self._panel.stop_control, True, "enable stop for speech")
         except Exception as e:
             log.debug("TTS playback trigger: %s", e)
 

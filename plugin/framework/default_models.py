@@ -116,7 +116,7 @@ def merge_provider_default_models(to_show: list[str], provider: str, req_cap: st
             to_show.append(effective_id)
 
 
-def _catalog_id_matches(provider: str | None, catalog_id: str, model_id: str) -> bool:
+def catalog_id_matches(provider: str | None, catalog_id: str, model_id: str) -> bool:
     # Suffix and an optional vendor prefix are the same model only on OpenRouter.
     if provider == "openrouter":
         return openrouter_model_ids_equivalent(catalog_id, model_id)
@@ -132,7 +132,7 @@ def get_model_capability(model_id: Any, endpoint: Any) -> ModelCapability:
         effective_id = resolve_model_id(m, provider)
         if not effective_id:
             continue
-        if _catalog_id_matches(provider, effective_id, model_id):
+        if catalog_id_matches(provider, effective_id, model_id):
             return m["capability"]
     return ModelCapability.NONE
 

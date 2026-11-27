@@ -104,7 +104,7 @@ flowchart TB
   harness --> codex
 ```
 
-WriterAgent has **one** of those boxes: a LibreOffice sidebar `ChatSession` that already owns `messages`, already talks to `LlmClient`, and already spawns `_spawn_llm_worker`. There is no Gateway, no channel `/compact`, no native Codex/Claude CLI session to compact, no plugin summarizer registry, no server-side compact transport.
+WriterAgent has **one** of those boxes: a LibreOffice sidebar `ChatSession` that already owns `messages`, already talks to `LlmClient`, and already spawns `spawn_llm_worker`. There is no Gateway, no channel `/compact`, no native Codex/Claude CLI session to compact, no plugin summarizer registry, no server-side compact transport.
 
 Each extra runtime is not a re-export. It brings real constraints:
 
@@ -190,9 +190,9 @@ OpenClaw's compact files keep re-solving session identity, HTTP, concurrency, st
 | Concern | WriterAgent (already exists) | OpenClaw compact files that re-bind it |
 | --- | --- | --- |
 | Session + messages | `ChatSession` in `panel.py` (1,565). Plan adds one field, `self.compaction` | `agent-session-compaction.ts`, `compaction-session-agent.ts`, `compaction-session-execution.ts`, successor, checkpoints |
-| Send / tool loop | `tool_loop.py` (775) + `tool_loop_state.py` (581) + `tool_loop_actions.py` (325). One spawn path: `_spawn_llm_worker` / `_spawn_final_stream` | `run/preemptive-compaction.ts`, `run/compaction-runtime.ts`, post-compaction loop guard |
+| Send / tool loop | `tool_loop.py` (775) + `tool_loop_state.py` (581) + `tool_loop_actions.py` (325). One spawn path: `spawn_llm_worker` / `spawn_final_stream` | `run/preemptive-compaction.ts`, `run/compaction-runtime.ts`, post-compaction loop guard |
 | HTTP / LLM | `LlmClient` (`llm_client.py` 1,257). Summarizer is `request_with_tools(stream=False)` on the same client | `compaction.ts` `generateSummary`, planning workers, live-model-selection, plugin providers |
-| Concurrency gate | `llm_request_lane` in `_spawn_llm_worker` | `compact.queued.ts` + command-queue admission |
+| Concurrency gate | `llm_request_lane` in `spawn_llm_worker` | `compact.queued.ts` + command-queue admission |
 | Stop | `SendCancellation` | AbortSignal plumbing in timeout/safety files |
 | Overflow vs death | `errors.py` already maps llama-server 500s; plan splits the predicates | `packages/ai/src/utils/overflow.ts` (247) + `failover/context-overflow.ts` (137) |
 | Persistence | `history_db.py` (179). v1 does **not** rewrite rows | Session transcript writer, checkpoints, successor files |

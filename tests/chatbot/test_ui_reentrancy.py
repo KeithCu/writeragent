@@ -99,10 +99,11 @@ def _make_panel(combo: FiringCombo):
         send_listener=None,
         refresh_count=0,
         _painted_models={},
-        _get_document_model=lambda: None,
+        get_document_model=lambda: None,
         _update_backend_indicator=lambda root_window=None: None,
     )
     panel._populate_model_combos = lambda *args, **kwargs: ChatPanelElement._populate_model_combos(cast("Any", panel), *args, **kwargs)
+    panel._populate_model_combo = lambda *args, **kwargs: ChatPanelElement._populate_model_combo(cast("Any", panel), *args, **kwargs)
     return panel
 
 
@@ -132,7 +133,6 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
 
     with (
         patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", side_effect=_fake_populate),
-        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value=""),
         patch("plugin.chatbot.panel_factory.get_text_model", return_value=_MODEL),
         patch("plugin.chatbot.panel_factory.get_image_model", return_value=""),
         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=_ENDPOINT),
@@ -175,7 +175,6 @@ def test_typing_in_model_combo_saves_nothing_until_focus_lost(
 
     with (
         patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", side_effect=_fake_populate),
-        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value=""),
         patch("plugin.chatbot.panel_factory.get_text_model", return_value=_MODEL),
         patch("plugin.chatbot.panel_factory.get_image_model", return_value=""),
         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=_ENDPOINT),

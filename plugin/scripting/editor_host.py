@@ -38,10 +38,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
 
-from plugin.chatbot.dialogs import msgbox_with_report
+from plugin.chatbot.dialogs import ask_save_discard_cancel, msgbox_with_report
 from plugin.framework.appearance import get_monaco_theme_info
 from plugin.framework.config import get_config
-from plugin.framework.errors import best_effort
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.ipc import (
@@ -53,7 +52,7 @@ from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_
 from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.framework.thread_guard import background, main_thread_only
-from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
+from plugin.framework.uno_context import product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, python_exec_timeout
 from plugin.scripting.document_scripts import (
@@ -85,12 +84,6 @@ from plugin.scripting.venv_worker import (
 )
 
 log = logging.getLogger(__name__)
-
-# Toolkit createMessageBox constants
-_BOX_QUERYBOX = 4
-_BOX_BUTTONS_YES_NO_CANCEL = 4
-_BOX_RESULT_YES = 2
-_BOX_RESULT_NO = 3
 
 
 # --- Launcher ---
@@ -1152,32 +1145,6 @@ def _dirty_blocks_replace(state: EditorSessionState) -> bool:
 
 class DirtyBufferError(RuntimeError):
     """Refused to replace a live Monaco buffer that still has unsaved edits."""
-
-
-def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: str) -> str:
-    """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame() if desktop is not None else None
-        window = frame.getContainerWindow() if frame is not None else None
-        if window is None:
-            return "cancel"
-        smgr = ctx.getServiceManager()
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        box = toolkit.createMessageBox(window, _BOX_QUERYBOX, _BOX_BUTTONS_YES_NO_CANCEL, title, message)
-        try:
-            result = int(box.execute())
-        finally:
-            best_effort(box.dispose, "message box dispose failed")
-        if result == _BOX_RESULT_YES:
-            return "save"
-        if result == _BOX_RESULT_NO:
-            return "discard"
-        # Cancel (MessageBoxResults CANCEL = 0), closing the box, or any other result keeps the buffer as it is.
-        return "cancel"
-    except Exception:
-        log.exception("%s failed", log_label)
-        return "cancel"
 
 
 @main_thread_only
