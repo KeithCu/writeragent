@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from plugin.framework.http_server import (
-    _PORT_IN_USE_GUIDANCE,
+    PORT_IN_USE_GUIDANCE,
     format_bind_failure,
     is_port_in_use_error,
 )
@@ -80,7 +80,7 @@ def test_format_mcp_start_failure_port_in_use():
     msg = format_bind_failure("localhost", 18765, OSError(98, "Address already in use"))
     assert "localhost:18765" in msg
     assert "OSError" in msg
-    assert _PORT_IN_USE_GUIDANCE in msg
+    assert PORT_IN_USE_GUIDANCE in msg
     assert "mcp.mcp_port" in msg
 
 
@@ -88,7 +88,7 @@ def test_format_mcp_start_failure_other_oserror():
     msg = format_bind_failure("127.0.0.1", 9000, OSError(13, "Permission denied"))
     assert "127.0.0.1:9000" in msg
     assert "Permission denied" in msg
-    assert _PORT_IN_USE_GUIDANCE not in msg
+    assert PORT_IN_USE_GUIDANCE not in msg
 
 
 def test_start_server_stashes_last_start_error(monkeypatch):
@@ -138,7 +138,7 @@ def test_start_server_stashes_last_start_error(monkeypatch):
     assert mod._last_start_failure is not None and mod._last_start_failure[2] is boom
     detail = mod._formatted_start_failure()
     assert "localhost:18765" in detail
-    assert _PORT_IN_USE_GUIDANCE in detail
+    assert PORT_IN_USE_GUIDANCE in detail
     assert mod._start_failure_reportable() is False
 
 

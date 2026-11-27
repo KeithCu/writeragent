@@ -18,8 +18,6 @@ def snapshot_text(doc_text: str) -> str:
 def extract_snapshot_text(content: Any) -> str | None:
     """Extract document snapshot text from message content, or None if absent."""
     if isinstance(content, str):
-        if content.startswith(SNAPSHOT_HEADER):
-            return content
         if SNAPSHOT_HEADER in content:
             return content[content.find(SNAPSHOT_HEADER) :]
     elif isinstance(content, list) and content:

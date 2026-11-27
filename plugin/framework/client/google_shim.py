@@ -25,10 +25,9 @@ log = logging.getLogger(__name__)
 def _google_model_id(model: str | None) -> str:
     """Resource id for ``/v1beta/models/{id}:…``.
 
-    Native ``models.list`` returns ``models/gemini-…``. Pasting that name used
-    to build ``/v1beta/models/models/…`` and 404. Official ids are lowercase;
-    ``Imagen-4`` missed ``startswith("imagen")`` and went to generateContent,
-    which also skipped the Imagen edit guard.
+    Native ``models.list`` returns ``models/gemini-…``, so a leading ``models/``
+    is stripped. Official ids are lowercase, so the id is lowercased before the
+    ``startswith("imagen")`` routing check.
     https://ai.google.dev/api/models
     """
     name = str(model or "").strip().lower()
@@ -76,7 +75,7 @@ class GoogleShim(BaseProviderShim):
         if model_name.startswith("imagen"):
             # Imagen :predict is text-to-image only. Posting a prompt-only
             # predict while a graphic is selected would replace it with a
-            # new image (same silent miss as OpenRouter's old image_url).
+            # new image.
             if has_source:
                 raise ValueError("Imagen models cannot edit an existing image. Pick a Gemini image model (for example gemini-2.5-flash-image).")
             url = f"{endpoint}/v1beta/models/{model_name}:predict"
@@ -112,10 +111,8 @@ class GoogleShim(BaseProviderShim):
         if not isinstance(response_data, dict):
             return []
         out: list[str] = []
-        # A success body can include "error": null. Checking the key treated
-        # that as a failure and raised NetworkError("None") via str(None).
-        # Only a truthy error is a Google API error. Chat parse already
-        # ignores a null error the same way.
+        # A success body can include "error": null. Only a truthy error is a
+        # Google API error, the same as the chat parse.
         err = response_data.get("error")
         if err:
             msg = err.get("message", "Unknown Google API error") if isinstance(err, dict) else str(err)

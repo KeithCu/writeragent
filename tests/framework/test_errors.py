@@ -11,7 +11,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.tool import ToolBase
 from unittest.mock import MagicMock
-from plugin.framework.errors import safe_python_literal_eval
+from plugin.framework.json_utils import safe_python_literal_eval
 import inspect
 from plugin.tests.testing_utils import DisposedException
 

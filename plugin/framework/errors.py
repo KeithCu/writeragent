@@ -33,8 +33,9 @@ if TYPE_CHECKING:
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
-
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, deal
+
+log = logging.getLogger("writeragent.errors")
 
 _FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
     val
@@ -75,7 +76,7 @@ def name_miss_details(wanted: str, names: list[str], list_tool: str) -> dict[str
 def available_miss_details(wanted: str, available: list[str]) -> dict[str, Any]:
     """Miss hints when the legal set is already in ``details.available``."""
     out: dict[str, Any] = {"hint": "Valid names are in details.available."}
-    similar = similar_names(wanted, [str(x) for x in available])
+    similar = similar_names(wanted, available)
     if similar:
         out["similar"] = similar
     return out
@@ -141,7 +142,7 @@ def best_effort(fn: Callable[[], _T], what: str, default: _T | None = None) -> _
     try:
         return fn()
     except Exception:
-        logging.getLogger("writeragent.errors").debug("%s", what, exc_info=True)
+        log.debug("%s", what, exc_info=True)
         return default
 
 
@@ -179,7 +180,7 @@ class suppress_disposed(contextlib.ContextDecorator):
         if exc_type is not None and not issubclass(exc_type, Exception):
             return False
 
-        log_obj = self.logger or logging.getLogger("writeragent.errors")
+        log_obj = self.logger or log
 
         if _looks_like_teardown(exc_val):
             log_obj.debug("%s skipped (likely disposed): %s", self.action, exc_val, exc_info=self.exc_info)
@@ -197,7 +198,7 @@ def _exception_text(obj: Any) -> str:
         if isinstance(raw_msg, str) and raw_msg.strip():
             return raw_msg.strip()
     except Exception as exc:
-        logging.getLogger("writeragent.errors").debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
+        log.debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
 
     # str() on a UNO struct walks PyUNO fields and takes SolarMutex (see logging._logged_uno_label).
     # When Message is empty, skip str() to avoid deadlocks on background threads holding locks.
@@ -206,10 +207,10 @@ def _exception_text(obj: Any) -> str:
 
     try:
         raw_str = str(obj)
-        if isinstance(raw_str, str) and raw_str.strip():
+        if raw_str.strip():
             return raw_str.strip()
     except Exception as exc:
-        logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
+        log.debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
     return ""
 
 
@@ -221,12 +222,12 @@ def resolve_exception_message(e: Any) -> str:
         try:
             cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
         except Exception as exc:
-            logging.getLogger("writeragent.errors").debug("resolve_exception_message: cause lookup failed (%s)", type(exc).__name__)
+            log.debug("resolve_exception_message: cause lookup failed (%s)", type(exc).__name__)
         if cause is not None and cause is not e:
             msg = _exception_text(cause)
     if not msg:
         if isinstance(e, BaseException):
-            msg = type(e).__name__.strip() or "BaseException"
+            msg = type(e).__name__
         else:
             msg = "Unknown error"
     return msg
@@ -351,10 +352,9 @@ def format_error_message(e: BaseException) -> str:
     msg = resolve_exception_message(e)
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
-    # Only HTTPError carries a status. RemoteDisconnected, BadStatusLine,
-    # and IncompleteRead have no .code/.status/.reason; treating every
-    # HTTPException like HTTPError discarded str(e) and reported "HTTP Error 0".
-    # Those fall through to the connection/OSError path or the final str(e).
+    # Only HTTPError carries a status. RemoteDisconnected, BadStatusLine, and
+    # IncompleteRead have no .code or .reason, so they take the
+    # connection/OSError path or the final message below.
     if isinstance(e, urllib.error.HTTPError):
         try:
             code = int(e.code)
@@ -554,7 +554,7 @@ class DocumentDisposedError(WriterAgentException):
     object_type: str
 
     def __init__(self, message: Any, object_type: str = "Object", code: str | None = None, details: dict[str, Any] | None = None) -> None:
-        super().__init__(message, code=code or self.code, details=details)
+        super().__init__(message, code=code, details=details)
         self.object_type = object_type
 
 

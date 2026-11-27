@@ -30,7 +30,7 @@ def _max_col_index(n: int) -> int:
 # These are not production limits.
 DEAL_MAX_COL_LETTERS = 3
 DEAL_MAX_COL_INDEX = _max_col_index(DEAL_MAX_COL_LETTERS)  # 18277; not 26**n - 1
-DEAL_MAX_CELL_REF = 256  # sheet-qualified ranges; was 32
+DEAL_MAX_CELL_REF = 256  # sheet-qualified ranges
 DEAL_MAX_ROW_INDEX = 1_048_575  # Calc max 0-based row (1_048_576 rows)
 DEAL_MAX_ARGV = 8192  # wrap_command argv, including venv -c probes (~1–5k)
 DEAL_MAX_CMD_ARGS = 32  # wrap_command list length
@@ -47,7 +47,7 @@ DEAL_MAX_URL = 256  # endpoint URLs
 DEAL_MAX_RETRY = 8
 DEAL_MAX_BACKOFF = 300.0
 DEAL_MAX_BACKOFF_FACTOR = 10.0
-DEAL_MAX_HTML_CHUNK = 4096  # feed() / strip_html_tags slice to this (was 512)
+DEAL_MAX_HTML_CHUNK = 4096  # feed() / strip_html_tags slice to this
 
 
 def ascii_bounded(s: object, max_len: int, min_len: int = 0) -> bool:

@@ -79,11 +79,10 @@ HttpSender = Callable[..., http.client.HTTPResponse]
 def parse_strict_json(raw: Any) -> Any:
     """Parse provider bytes with ``json.loads`` only.
 
-    ``safe_json_loads`` repairs truncated model text, so a cut-off envelope
-    such as ``{"choices":[{"message":{"content":"hel`` or a cut-off catalog
-    ``{"data":[{"id":"gpt`` became a dict and looked finished. Provider
-    envelopes and catalogs are not model text. A decode failure is
-    ``BAD_RESPONSE``, not a reply.
+    ``safe_json_loads`` repairs truncated model text, which would turn a cut-off
+    envelope or catalog into a finished-looking dict. Provider envelopes and
+    catalogs are not model text. A decode failure is ``BAD_RESPONSE``, not a
+    reply.
     """
     try:
         if isinstance(raw, (bytes, bytearray)):
@@ -136,15 +135,10 @@ class LlmHttpTransport:
         self._redirect_origin: str | None = None
 
     def _current_endpoint(self) -> str:
-        return self._redirect_origin if self._redirect_origin else self._endpoint_getter()
+        return self._redirect_origin or self._endpoint_getter()
 
     def _endpoint_parts(self) -> tuple[str, str, int]:
-        endpoint = self._current_endpoint()
-        parsed = http_security._parse_url(endpoint)
-        scheme = parsed.scheme.lower()
-        host = parsed.hostname or ""
-        port = http_security._explicit_port(parsed) or (443 if scheme == "https" else 80)
-        return scheme, host, port
+        return http_security.origin_key(self._current_endpoint())
 
     def pacing_key_for_model(self, model: str | None = None) -> str:
         _unused, host, port = self._endpoint_parts()
@@ -169,12 +163,12 @@ class LlmHttpTransport:
 
         if self._persistent_conn:
             if self._conn_key != new_key:
-                log.debug("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key))
+                log.debug("Closing old connection to %s, opening new to %s", self._conn_key, new_key)
                 self.close()
             else:
                 return self._persistent_conn
 
-        log.debug("Opening new connection to %s://%s:%s" % (scheme, host, port))
+        log.debug("Opening new connection to %s://%s:%s", scheme, host, port)
         self._conn_key = new_key
         # The constructor timeout is the connect budget, not request_timeout
         # (default 120). A dead host must not block DNS/TCP for the full stream
@@ -209,8 +203,8 @@ class LlmHttpTransport:
         self._persistent_conn = None
         self._conn_key = None
         try:
-            log.debug("Closing persistent connection to %s" % (conn_key,))
-            self._shutdown_socket(getattr(conn, "sock", None))
+            log.debug("Closing persistent connection to %s", conn_key)
+            self._shutdown_socket(conn.sock)
             conn.close()
         except Exception:
             log.debug("persistent connection close failed", exc_info=True)
@@ -221,7 +215,7 @@ class LlmHttpTransport:
             self.close()
             return
         try:
-            self._shutdown_socket(getattr(conn, "sock", None))
+            self._shutdown_socket(conn.sock)
             conn.close()
         except Exception:
             log.debug("stopped connection close failed", exc_info=True)
@@ -257,7 +251,7 @@ class LlmHttpTransport:
         conn = self.get_connection()
         # Refresh read timeout from Settings on each request for keep-alive connections.
         read_timeout = self._timeout_getter()
-        sock = getattr(conn, "sock", None)
+        sock = conn.sock
         # Captured before connect(). A socket http.client already holds is a
         # reused keep-alive connection. A fresh connect leaves this false even
         # after sock is assigned.
@@ -268,7 +262,7 @@ class LlmHttpTransport:
             # Stop already latched: do not start DNS.
             self._raise_if_stopped(cancel, conn)
             self._connect_abortable(conn, cancel)
-            sock = getattr(conn, "sock", None)
+            sock = conn.sock
         conn.timeout = read_timeout
         if sock is not None:
             sock.settimeout(read_timeout)
@@ -278,7 +272,6 @@ class LlmHttpTransport:
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)
             headers["User-Agent"] = USER_AGENT
-        allow_stale_resend = _allow_stale_resend
         try:
             self.request_started = True
             conn.request(method, path, body=body, headers=headers)
@@ -296,11 +289,10 @@ class LlmHttpTransport:
             # failure while connecting a new socket still uses the budget.
             # Close and send this same request once. Do not reconnect if Stop
             # was requested.
-            if is_cancelled(cancel) or not reused_socket or not allow_stale_resend:
+            if is_cancelled(cancel) or not reused_socket or not _allow_stale_resend:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
             self._drop_stopped_connection(conn)
-            allow_stale_resend = False
             return self.send(method, path, body, headers, cancel=cancel, status_callback=status_callback, _allow_stale_resend=False)
 
     def _run_abortable(
@@ -390,39 +382,22 @@ class LlmHttpTransport:
         if is_cancelled(cancel):
             self.close()
             raise stopped_error()
-        raw_body = response.read()
-        if isinstance(raw_body, (bytes, bytearray)):
-            err_body = raw_body.decode("utf-8", errors="replace")
-        elif isinstance(raw_body, str):
-            err_body = raw_body
-        else:
-            err_body = str(raw_body or "")
-        if not isinstance(err_body, str):
-            err_body = str(err_body)
+        status = response.status
+        err_body = response.read().decode("utf-8", errors="replace")
         wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_target(path))
         if observe_http_error is not None:
             message = observe_http_error(response, err_body, path, request_body)
         else:
-            try:
-                st = int(response.status)
-            except (TypeError, ValueError):
-                st = 500
             message = format_http_error_response(
-                st, str(getattr(response, "reason", "") or ""), err_body, source=error_source
+                status, response.reason or "", err_body, source=error_source
             )
         message = http_security.redact_secrets(message, wire_secrets)
-        if not isinstance(message, str):
-            message = str(message)
         safe_target = http_security.public_target(path)
         if observe_http_error is None:
-            log.error("HTTP %s for %s: %s", response.status, safe_target, message)
+            log.error("HTTP %s for %s: %s", status, safe_target, message)
         self.close()
         if is_cancelled(cancel):
             raise stopped_error()
-        try:
-            status = int(response.status)
-        except (TypeError, ValueError):
-            status = 500
         model = request_model_from_body(request_body)
         retry_after = parse_retry_after(response.getheader("Retry-After"))
         if retry_after is None:
@@ -532,7 +507,7 @@ class LlmHttpTransport:
                     cancel=cancel,
                     status_callback=status_callback,
                 )
-            status = int(getattr(response, "status", 0) or 0)
+            status = response.status
             if status in http_security.REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
                 # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
                 # catalogs, and update checks follow Location. One hop
@@ -713,14 +688,13 @@ class LlmHttpTransport:
         # Stop closes the socket, which looks like a broken pipe. Check
         # cancel before log.error so a user cancel is debug, not ERROR.
         if is_cancelled(cancel):
-            log.debug("Connection closed by user stop; exiting streaming loop")
+            log.debug("Connection closed by user stop")
             self.close()
             raise stopped_error()
-        log.error("Connection error, closing: %s" % http_security.redact_secrets(str(err), secrets))
+        log.error("Connection error, closing: %s", http_security.redact_secrets(str(err), secrets))
         self.close()
         if retries_left > 0 and enable_local_unverified(self._endpoint_parts()[1], err):
             # Immediate reopen: TLS mode just changed; do not add backoff.
-            self.close()
             return
 
         err_msg = http_security.redact_secrets(format_error_message(err), secrets)
@@ -736,7 +710,7 @@ class LlmHttpTransport:
                 clear_host_gap(self.pacing_key_for_model(model))
                 raise stopped_error()
             return
-        log.error("Connection retry failed: %s" % err_msg)
+        log.error("Connection retry failed: %s", err_msg)
         raise NetworkError(err_msg, code="CONNECTION_ERROR", details={"url": path}) from err
 
     def _read_bounded_response(
@@ -750,7 +724,7 @@ class LlmHttpTransport:
         cl = response.getheader("Content-Length")
         if cl is not None:
             try:
-                if int(str(cl)) > max_bytes:
+                if int(cl) > max_bytes:
                     self.close()
                     raise NetworkError(f"HTTP response exceeded {max_bytes} bytes", code="HTTP_ERROR")
             except ValueError:

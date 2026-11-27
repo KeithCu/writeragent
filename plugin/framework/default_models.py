@@ -14,10 +14,8 @@ from __future__ import annotations
 from typing import Any
 from plugin.framework.constants import ModelCapability
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
-from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-
-
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
+from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 
 
 @deal.post(lambda result: result is None or isinstance(result, str))
@@ -50,7 +48,6 @@ def _row_is_stt(model: dict[str, Any]) -> bool:
     return bool(model.get("default_audio") or model.get("stt"))
 
 
-# FIXME, this should be a list, stored with the other endpoint pre-configured params
 @deal.pre(lambda provider: not provider or str_bounded(provider, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, dict))
 def get_provider_defaults(provider: str | None) -> dict[str, str]:
@@ -69,7 +66,7 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
         effective_id = resolve_model_id(model, provider)
         if not effective_id:
             continue
-        caps = model.get("capability", ModelCapability.NONE)
+        caps = model["capability"]
         chat = bool(caps & ModelCapability.CHAT)
         image = bool(caps & ModelCapability.IMAGE)
         audio = bool(caps & ModelCapability.AUDIO)
@@ -100,7 +97,7 @@ def merge_provider_default_models(to_show: list[str], provider: str, req_cap: st
     if mask is None:
         return
     for m in DEFAULT_MODELS:
-        capability = m.get("capability", ModelCapability.CHAT)
+        capability = m["capability"]
         if not (capability & mask):
             continue
         effective_id = resolve_model_id(m, provider)
@@ -126,7 +123,7 @@ def _catalog_id_matches(provider: str | None, catalog_id: str, model_id: str) ->
     return catalog_id == model_id
 
 
-def get_model_capability(model_id: Any, endpoint: Any) -> int:
+def get_model_capability(model_id: Any, endpoint: Any) -> ModelCapability:
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
     model_id = str(model_id or "").strip()
@@ -136,7 +133,7 @@ def get_model_capability(model_id: Any, endpoint: Any) -> int:
         if not effective_id:
             continue
         if _catalog_id_matches(provider, effective_id, model_id):
-            return m.get("capability", ModelCapability.CHAT)
+            return m["capability"]
     return ModelCapability.NONE
 
 

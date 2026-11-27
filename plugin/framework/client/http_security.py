@@ -28,7 +28,7 @@ from plugin.framework.log_redaction import (
 )
 
 
-# urllib followed these. 304/300 are not automatic hops.
+# The statuses followed as redirects (the set urllib follows). 300 and 304 are not automatic hops.
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
@@ -130,7 +130,7 @@ def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
         raise _invalid_url_error(f"{scheme}://{host}{parsed.path or '/'}", "Invalid URL port") from None
 
 
-def _origin_key(url: str) -> tuple[str, str, int]:
+def origin_key(url: str) -> tuple[str, str, int]:
     """``(scheme, host, port)`` with the default port filled in."""
     parsed = _parse_url(url)
     scheme = (parsed.scheme or "http").lower()
@@ -185,7 +185,7 @@ def apply_redirect(
         new_method = "GET"
         new_body = None
         new_headers = {key: value for key, value in new_headers.items() if key.lower() not in ("content-length", "content-type")}
-    cross_origin = _origin_key(current_url) != _origin_key(origin)
+    cross_origin = origin_key(current_url) != origin_key(origin)
     if cross_origin:
         new_headers = {key: value for key, value in new_headers.items() if not is_credential_name(key)}
     return new_method, new_body, new_headers, origin, path, cross_origin

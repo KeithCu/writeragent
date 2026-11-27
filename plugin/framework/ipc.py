@@ -31,7 +31,7 @@ from weakref import WeakKeyDictionary
 
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
-log = logging.getLogger("writeragent.scripting.ipc")
+log = logging.getLogger("writeragent.framework.ipc")
 
 # select(0) returns immediately. Callers refuse a spent deadline before
 # they reach these waits, so this only lifts a remainder that is already
@@ -120,7 +120,7 @@ def claim_ipc_stdin() -> BinaryIO:
 
     Detach the ``BufferedReader`` before the first read. ``PeekNamedPipe`` does
     not see bytes already in its 8KiB buffer, so the next ``exchange_tool_call``
-    stays one frame behind. ``claim_ipc_channel`` only replaced stdout, and
+    stays one frame behind. ``claim_ipc_channel`` covers stdout only, and
     ``-u`` does not unbuffer stdin. Detach to the raw ``FileIO`` so the kernel
     queue is the whole tail.
     """
@@ -567,9 +567,10 @@ def _write_bytes_until_joined(
         except Exception as exc:
             errors.append(exc)
 
+    # Raw Thread: ipc.py also runs in the venv child without worker_pool/UNO.
     writer = threading.Thread(target=_writer, name="ipc-stdin-write", daemon=True)
     writer.start()
-    deadline = time.monotonic() + max(0.0, timeout_sec)
+    deadline = time.monotonic() + timeout_sec
     while writer.is_alive():
         if is_alive is not None and not is_alive():
             raise BrokenPipeError("IPC frame write aborted: child exited")
@@ -596,7 +597,7 @@ def _write_fd_with_timeout(
     ``TimeoutExpired`` can mean a partial frame is already in the pipe;
     the caller kills that child.
     """
-    deadline = time.monotonic() + max(0.0, timeout_sec)
+    deadline = time.monotonic() + timeout_sec
     view = memoryview(payload)
     offset = 0
     with _nonblocking(fd):
@@ -664,7 +665,6 @@ def _nonblocking(fd: int) -> Generator[None, None, None]:
     if sys.platform == "win32":
         yield
         return
-    was_blocking = True
     try:
         was_blocking = os.get_blocking(fd)
     except OSError:
@@ -712,7 +712,7 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
         try:
             with _nonblocking(fd):
                 return os.read(fd, n)
-        except (BlockingIOError, OSError, AttributeError, ValueError):
+        except OSError:
             return b""
     try:
         data = stream.read(n)
@@ -786,6 +786,10 @@ class _PipeWait(enum.Enum):
     CLOSED = "closed"  # Windows peek returned None (broken / not connected)
 
 
+def _partial_frame_timeout(cmd: str) -> IpcPartialFrameTimeout:
+    return IpcPartialFrameTimeout(f"{cmd} stream desynchronized: timeout mid-frame")
+
+
 def _poll_pipe(
     fd: int | None,
     deadline: float,
@@ -812,7 +816,7 @@ def _poll_pipe(
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         if partial:
-            raise IpcPartialFrameTimeout(f"{cmd} stream desynchronized: timeout mid-frame")
+            raise _partial_frame_timeout(cmd)
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_label)
     if use_peek:
         avail = _peek_pipe_bytes_available(fd) if fd is not None else None
@@ -878,13 +882,13 @@ def read_frame_payload(
     else:
         timeout_sec = max(0.0, float(timeout_sec))
         abs_deadline = time.monotonic() + timeout_sec if deadline is None else float(deadline)
-        label = float(timeout_sec)
+        label = timeout_sec
         cmd_name = frame_label if cmd is None else cmd
         fd = _stream_fileno(stream)
 
         def _timeout_error(frame_started: bool) -> BaseException:
             if frame_started:
-                return IpcPartialFrameTimeout(f"{cmd_name} stream desynchronized: timeout mid-frame")
+                return _partial_frame_timeout(cmd_name)
             return subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
 
         if fd is None:
@@ -905,6 +909,7 @@ def read_frame_payload(
                     except Exception as exc:
                         error[0] = exc
 
+                # Raw Thread: ipc.py also runs in the venv child without worker_pool/UNO.
                 t = threading.Thread(target=_reader, daemon=True)
                 t.start()
                 t.join(timeout=max(0.0, remaining))
@@ -935,11 +940,10 @@ def read_frame_payload(
                         break
                     if state is _PipeWait.EMPTY:
                         continue
-                    if state in (_PipeWait.READY, _PipeWait.CLOSED):
-                        chunk = stream.read(min(n - len(buf), avail) if avail > 0 else n - len(buf))
-                        if not chunk:
-                            return bytes(buf)
-                        buf.extend(chunk)
+                    chunk = stream.read(min(n - len(buf), avail) if avail > 0 else n - len(buf))
+                    if not chunk:
+                        return bytes(buf)
+                    buf.extend(chunk)
                 return bytes(buf)
 
     header = _read_exact(FRAME_HEADER_SIZE)
@@ -981,7 +985,6 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         # A length-valid truncated payload raises EOFError or KeyError, not only
         # UnpicklingError. Map them to ValueError. The worker turns that into
         # WORKER_IPC_ERROR and kills the child instead of replaying.
-        # PythonWorkerManager still exists.
         raise ValueError(str(exc)) from exc
 
 
@@ -1091,7 +1094,7 @@ def _drain_queued_pipe_bytes(
             if not avail:
                 return
             try:
-                chunk = stream.read(min(int(avail), 65536))
+                chunk = stream.read(min(avail, 65536))
             except OSError:
                 log.exception("tool_call id-mismatch drain failed")
                 return
@@ -1126,6 +1129,7 @@ def _resume_script_alarm(paused: tuple[float, float, float] | None) -> bool:
         return False
     delay, interval, started = paused
     left = delay - (time.monotonic() - started)
+    # Win32 returns before signal.setitimer so Windows ty never type-checks that POSIX call.
     if sys.platform == "win32":
         return left <= 0
     try:
@@ -1152,7 +1156,6 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     call_id = str(uuid.uuid4())
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
     paused = _pause_script_alarm()
-    overdue = False
     response = None
     mismatched = False
     try:
@@ -1163,13 +1166,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             write_pickle_frame(
                 get_child_ipc_stream(),
                 request,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
             stdin = get_child_ipc_stdin()
             response = read_pickle_frame(
                 stdin,
                 require_dict=True,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
                 frame_label="tool_call response",
             )
             # Drain while _tool_call_lock is still held. Releasing it first
@@ -1178,7 +1179,7 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             # The same flag is what the raise below checks. A spent alarm
             # budget is still raised first: the reply was consumed, and the
             # cell's timeout is the result the script already had coming.
-            mismatched = isinstance(response, dict) and response.get("id") != call_id
+            mismatched = response is not None and response.get("id") != call_id
             if mismatched:
                 try:
                     _drain_queued_pipe_bytes(stdin)
@@ -1229,10 +1230,8 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
 def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> str | None:
     """Return one complete line from *pending*, or None when it has no newline.
 
-    Pop the line only after the size check. Raising on an oversize line after
-    the pop dropped those bytes, so the next read started mid-line. Put the
-    partial back before raising so the next read of this stream still sees
-    the same bytes.
+    Check the size before the pop. Put the partial back before raising so the
+    next read of this stream sees the same bytes instead of starting mid-line.
     """
     if len(pending) > max_bytes:
         _save_json_line_pending(stream, pending)
@@ -1304,7 +1303,7 @@ def _readline_blocking_with_pending(stream: IO[str], max_bytes: int) -> str:
 # Bytes read past a newline, or a partial line saved when the deadline fires.
 # Keyed by the text stream so the next read_json_line continues that line.
 # TextIOWrapper.readline() is not used: after select says the fd is readable it
-# still blocks until a newline, so a partial JSON line ignored the timeout.
+# still blocks until a newline, so a partial JSON line would ignore the timeout.
 _json_line_pending: WeakKeyDictionary[Any, bytearray] = WeakKeyDictionary()
 
 
@@ -1354,8 +1353,6 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes
                 deadline,
                 timeout_label=timeout_sec,
                 cmd="IPC JSON line",
-                select_cap=1.0,
-                partial=False,
                 use_peek=use_peek,
             )
         except subprocess.TimeoutExpired:
@@ -1367,7 +1364,7 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes
             continue
         if use_peek:
             try:
-                piece = os.read(fd, min(int(avail), 65536))
+                piece = os.read(fd, min(avail, 65536))
             except BlockingIOError:
                 time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
                 continue
@@ -1408,9 +1405,9 @@ def read_json_line(
     try:
         payload = json.loads(line.strip())
     except json.JSONDecodeError as exc:
-        # A finished line that is not JSON says so. A partial with no newline
-        # is the pipe closing mid-object. Calling that "Invalid JSON" hid the
-        # truncation. A final object with no newline still parses above.
+        # A partial with no newline is the pipe closing mid-object, so it is
+        # reported as truncated, not as invalid JSON. A final object with no
+        # newline still parses above.
         if not line.endswith("\n"):
             raise ValueError(f"JSON line truncated at EOF: {line!r}") from exc
         raise ValueError(f"Invalid JSON line: {line!r}") from exc

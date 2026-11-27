@@ -312,7 +312,9 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
             try:
                 selector.register(state.sock, selectors.EVENT_READ, data=state)
             except (KeyError, OSError, ValueError) as exc:
-                if self._warn_due("_last_park_error_warn", time.monotonic()):
+                now = time.monotonic()
+                if now - self._last_park_error_warn >= 1.0:
+                    self._last_park_error_warn = now
                     log.warning("Failed to park connection (%s); closing", type(exc).__name__)
                 self.shutdown_request(state.sock)
         parked = [key.data for key in list(selector.get_map().values()) if isinstance(key.data, ConnState)]

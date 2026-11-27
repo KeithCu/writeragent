@@ -21,6 +21,8 @@ from typing import Any, Literal
 from plugin.framework.errors import uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
 
+log = logging.getLogger(__name__)
+
 DocTypeLabel = Literal["writer", "calc", "draw", "impress", "unknown"]
 DocTypeFamily = Literal["writer", "calc", "draw", "unknown"]
 
@@ -28,15 +30,14 @@ TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
 CALC_DOCUMENT_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
 DRAW_DOCUMENT_SERVICE = "com.sun.star.drawing.DrawingDocument"
 IMPRESS_DOCUMENT_SERVICE = "com.sun.star.presentation.PresentationDocument"
-WRITER_DOCUMENT_SERVICE = TEXT_DOCUMENT_SERVICE
 WEB_DOCUMENT_SERVICE = "com.sun.star.text.WebDocument"
 
-DOCUMENT_SERVICES: list[str] = [
+DOCUMENT_SERVICES: tuple[str, ...] = (
     TEXT_DOCUMENT_SERVICE,
     CALC_DOCUMENT_SERVICE,
     DRAW_DOCUMENT_SERVICE,
     IMPRESS_DOCUMENT_SERVICE,
-]
+)
 
 
 class DocumentType(Enum):
@@ -63,8 +64,6 @@ _LABEL_TO_UNO_SERVICES: dict[str, frozenset[str]] = {
     "impress": frozenset((IMPRESS_DOCUMENT_SERVICE,)),
     "draw": frozenset((DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)),
 }
-
-_log = logging.getLogger(__name__)
 
 
 def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
@@ -106,8 +105,7 @@ def get_document_uno_services(model: Any) -> frozenset[str]:
         if model is None:
             return frozenset()
         found: set[str] = set()
-        for _unused_dt, row in _TYPE_ROWS.items():
-            service_name = row[0]
+        for service_name, _label in _TYPE_ROWS.values():
             if uno_call(lambda: model.supportsService(service_name), f"Check {service_name}"):
                 found.add(service_name)
         return frozenset(found)
@@ -139,7 +137,7 @@ def doc_type_str_from_doc(doc: Any) -> str | None:
         label = doc_type_family_label(dt)
         return None if label == "unknown" else label
     except Exception:
-        _log.exception("doc_type probe failed")
+        log.exception("doc_type probe failed")
     return None
 
 
@@ -191,8 +189,7 @@ def get_document_type(model: Any) -> DocumentType:
         # Four supportsService calls; id(model) is reused after close so a cache
         # keyed that way would return the wrong type for a new document.
         # Check services in priority order
-        for dt, row in _TYPE_ROWS.items():
-            service_name = row[0]
+        for dt, (service_name, _label) in _TYPE_ROWS.items():
             if uno_call(lambda: model.supportsService(service_name), f"Check {service_name}"):
                 return dt
 

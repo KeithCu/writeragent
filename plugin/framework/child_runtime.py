@@ -77,8 +77,7 @@ def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -
     res: dict[str, Any] = {"status": "error", "code": code, "error": error}
     if req_id is not _OMIT_ID:
         res["id"] = req_id
-    if extra:
-        res.update(extra)
+    res.update(extra)
     return res
 
 
@@ -136,11 +135,10 @@ def die_with_parent() -> bool:
 
     Returns True when PDEATHSIG was configured (Linux and prctl succeeded).
     """
-    if sys.platform != "linux":
-        return False
     try:
         ppid = os.getppid()
-        bind_pdeathsig()
+        if not bind_pdeathsig():
+            return False
         return _arm_pdeathsig(expected_ppid=ppid)
     except Exception as exc:
         log.debug("Failed to configure PR_SET_PDEATHSIG: %s", exc)

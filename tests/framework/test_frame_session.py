@@ -28,7 +28,8 @@ from plugin.framework.uno_context import document_id_for_frame
 @pytest.fixture(autouse=True)
 def _reset_sessions():
     reset_frame_sessions()
-    yield
+    with patch("plugin.framework.uno_listeners.HAVE_UNO", True):
+        yield
     reset_frame_sessions()
 
 
@@ -557,7 +558,7 @@ def test_frame_without_close_api_is_not_tracked():
 
 def test_close_listener_import_failure_is_not_tracked():
     frame = MagicMock()
-    with patch.dict(sys.modules, {"unohelper": None}):
+    with patch("plugin.framework.uno_listeners.HAVE_UNO", False):
         session = open_frame_session(frame, "doc-a")
     frame.addEventListener.assert_not_called()
     assert session.frame is frame

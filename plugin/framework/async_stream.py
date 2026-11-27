@@ -270,9 +270,7 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
     # crosshair: off
     state.finish_display()
     if not state.on_approval_required:
-        # There is no dialog to answer.
         log.warning("APPROVAL_REQUIRED with no handler; unblocking worker")
-        # Unblock worker waiting on approval when no handler is present.
         _set_approval_event(item)
         return
     try:
@@ -450,7 +448,7 @@ def _process_batch(
             outcome.done = True
 
 
-# Idle re-arm: a 100 ms cadence, the top of the 50–100 ms band. Immediate re-arm is used only when items are already queued,
+# Idle re-arm every 100 ms. Immediate re-arm is used only when items are already queued,
 # so an empty stream does not spin the main thread.
 _DRAIN_IDLE_REARM_SEC = 0.1
 
@@ -465,7 +463,7 @@ _DRAIN_YIELD_GAP_SEC = 0.02
 
 # The event-driven session, main thread only. Callers register epilogues on it
 # after ``run_stream_drain_loop`` returns and before the VCL callback unwinds.
-_event_drain: Any = None
+_event_drain: _EventDrain | None = None
 
 
 def clear_drain_capture() -> None:
@@ -930,8 +928,9 @@ def run_stream_drain_loop(
         # Drop the callback the same way a finished drain does. acquire
         # raises before _held, so _finish never closes the re-arm and the
         # XCallback waits on cyclic GC. arm() has not run, so there is no
-        # idle thread. A start() that returns already closed from _finish;
-        # do not close again.
+        # idle thread. When ``start()`` returns normally it has either armed
+        # the drain or already closed the scheduler through ``_finish``, so
+        # only this ``except`` closes it.
         try:
             scheduler.close()
         except Exception:
@@ -944,10 +943,10 @@ def run_stream_drain_loop(
 
 # Pytest (and similar) can force the blocking drain without sniffing MagicMock
 # inside queue_executor. A factory that returns None selects the blocking path.
-_drain_scheduler_override: Callable[[], Any | None] | None = None
+_drain_scheduler_override: Callable[[], DrainRearm | None] | None = None
 
 
-def set_drain_scheduler_override(factory: Callable[[], Any | None] | None) -> Callable[[], Any | None] | None:
+def set_drain_scheduler_override(factory: Callable[[], DrainRearm | None] | None) -> Callable[[], DrainRearm | None] | None:
     """Install a factory used by :func:`_make_drain_rearm` instead of production.
 
     Returns the previous factory so callers can restore it. Pass ``None`` to
@@ -961,7 +960,7 @@ def set_drain_scheduler_override(factory: Callable[[], Any | None] | None) -> Ca
     return previous
 
 
-def _make_drain_rearm() -> _AsyncCallbackRearm | None:
+def _make_drain_rearm() -> DrainRearm | None:
     """Production re-arm, or None when the blocking loop must be used."""
     # crosshair: off
     if _drain_scheduler_override is not None:
@@ -980,7 +979,7 @@ def _run_stream_drain_blocking(
     state: _DrainState,
     toolkit: Any,
     cancel: SendCancellation | None,
-    flush_pending: Any,
+    flush_pending: Callable[[], None] | None,
     on_drain_started: Callable[[], None] | None = None,
 ) -> None:
     """Blocking drain used when ``AsyncCallback`` cannot take the next slice.
@@ -1052,9 +1051,9 @@ _TERMINAL_WATCH_KINDS = frozenset((
 class StreamQueue(queue.Queue[Any]):
     """Thread-safe queue tracking terminal item occurrences for drain watchers.
 
-    Replaces the runtime Queue.put monkeypatch. Individual drain callers
-    subscribe with subscribe_terminal(), receiving a threading.Event that is set
-    when any terminal StreamQueueKind item is put onto the queue.
+    Individual drain callers subscribe with subscribe_terminal(), receiving a
+    threading.Event that is set when any terminal StreamQueueKind item is put
+    onto the queue.
     """
 
     _terminal_lock: threading.Lock
@@ -1166,7 +1165,6 @@ def run_async_worker_with_drain(
             except BaseException as e:
                 error_item = (StreamQueueKind.ERROR, format_error_payload(e))
                 if saw_terminal.is_set():
-                    # Log exception if worker raises after a terminal item without queuing a duplicate ERROR.
                     log.exception("Worker raised after terminal item was already queued; exception not queued")
             try:
                 if _flush is not None:
@@ -1204,15 +1202,12 @@ def run_async_worker_with_drain(
         # Return True so _handle_stream_done_like sets outcome.done and the drain loop exits.
         # NEXT_TOOL is not a terminal exit; STREAM_DONE / FINAL_DONE / TOOL_DONE end the drain.
         kind, _payload = split_stream_item(item)
-        if kind == StreamQueueKind.NEXT_TOOL:
-            return False
-        return True
+        return kind != StreamQueueKind.NEXT_TOOL
 
     resolved_apply_chunk = apply_chunk_fn or (lambda _text, _is_thinking: None)
     resolved_on_error = on_error_fn or (lambda _payload: None)
     resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn(None)) if on_done_fn is not None else (lambda: None))
 
-    # Chat's tool loop passes flush_pending so Stop emits text still inside the 250ms batcher.
     def _spawn_worker() -> None:
         run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)
 
@@ -1227,6 +1222,7 @@ def run_async_worker_with_drain(
         on_status_fn=on_status_fn,
         on_approval_required=on_approval_required,
         cancel=cancel,
+        # Chat's tool loop passes flush_pending so Stop emits text still inside the 250ms batcher.
         flush_pending=_flush,
         on_drain_started=_spawn_worker,
     )

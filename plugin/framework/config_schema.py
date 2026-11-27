@@ -21,16 +21,16 @@ schema/coercion names from this module. I/O stays on ``plugin.framework.config``
 This file must not import ``config``, chatbot, calc, or uno_context.
 
 Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
-``DOTTED_FALLBACKS``) live here because they are in-memory schema, not
-``writeragent.json`` I/O. ``MODULES`` from ``plugin._manifest`` is the source
-of truth; ``set_manifest_modules`` rebuilds the derived tables at import.
+``FLAT_TO_MODULE_KEY``, ``SECRET_CONFIG_KEYS``, ``SECRET_ENTRY_FIELDS``) live
+here because they are in-memory schema, not ``writeragent.json`` I/O.
+``MODULES`` from ``plugin._manifest`` is the source of truth;
+``set_manifest_modules`` rebuilds the derived tables at import.
 
 Dataclass fields may declare ``min``, ``max``, and ``min_exclusive`` in
-``field.metadata``. ``get_config_schema`` copies those onto the schema so
-``coerce_config_value(..., strict=True)`` rejects the same out-of-range
-numbers ``WriterAgentConfig.validate`` rejects. Validate still runs that
-check itself, before coercion: a load repair uses the field fallback
-(``chat_max_tokens`` -1 becomes 16384, not the inclusive minimum 0).
+``field.metadata``. ``get_config_schema`` copies those onto the schema, and
+``validate`` raises ``ConfigValidationError`` for a number outside them. A
+load repair then uses the field's ``fallback`` (``chat_max_tokens`` -1 becomes
+16384, not the inclusive minimum 0).
 """
 
 # crosshair: off
@@ -52,12 +52,10 @@ from plugin.framework.url_utils import normalize_endpoint_url
 
 log = logging.getLogger(__name__)
 
-# Import MODULES only. Generated ``_manifest.py`` always has MODULES (and
-# VERSION); CONFIG_DEFAULTS / CONFIG_SCHEMAS / DOTTED_FALLBACKS may be absent.
-# Importing those names together was an all-or-nothing trap: one missing
-# name raised ImportError, MODULES stayed [], and module.yaml keys never
-# reached ``CONFIG_DEFAULTS`` / ``get_config``. Empty fallback is only
-# for LibrePy-style trees that omit ``_manifest`` itself.
+# Import MODULES only. The generated ``_manifest.py`` always has MODULES;
+# importing optional names in the same statement would raise ImportError when
+# one is absent and leave MODULES empty. The empty fallback is for
+# LibrePy-style trees that omit ``_manifest`` itself.
 try:
     from plugin._manifest import MODULES as _imported_modules
 except ImportError:
@@ -108,8 +106,8 @@ def is_secret_config_key(key: str) -> bool:
     return key in SECRET_CONFIG_KEYS
 
 
-# Bind derived tables from MODULES at import so callers do not need
-# ``set_manifest_modules`` (almost nobody called it).
+# Bind the derived tables from MODULES at import so callers never need to call
+# ``set_manifest_modules``.
 set_manifest_modules(_imported_modules)  # type: ignore[arg-type]
 
 
@@ -172,7 +170,7 @@ def parse_int_robust(val: Any) -> int:
     # Try normal int parsing first
     try:
         return int(s)
-    except (ValueError, TypeError):
+    except ValueError:
         pass
 
     # A single comma is a thousands group only when the suffix is exactly
@@ -230,7 +228,7 @@ def parse_float_robust(val: Any) -> float:
 
     try:
         return _float_or_value_error(s)
-    except (ValueError, TypeError):
+    except ValueError:
         pass
 
     # Same comma rule as parse_int_robust: "1,234" is 1234, "1,5" is 1.5.
@@ -238,7 +236,7 @@ def parse_float_robust(val: Any) -> float:
     if normalized is not None:
         try:
             return _float_or_value_error(normalized)
-        except (ValueError, TypeError) as e:
+        except ValueError as e:
             raise ValueError(f"Could not robustly parse float from {val!r}") from e
 
     raise ValueError(f"Could not robustly parse float from {val!r}")
@@ -303,8 +301,9 @@ _endpoint_normalizer: Callable[[str, bool], str] = normalize_endpoint_url
 def set_endpoint_normalizer(fn: Callable[[str, bool], str]) -> None:
     """Register a custom endpoint normalization function.
 
-    Called by ``config.py`` to parse Settings combobox labels when chatbot is present,
-    since this schema module cannot import chatbot helpers directly.
+    Called by ``plugin/writeragent_hooks.py`` so Settings combobox labels are
+    parsed when the chatbot is present; this schema module cannot import
+    chatbot helpers.
     """
     global _endpoint_normalizer
     _endpoint_normalizer = fn
@@ -339,7 +338,7 @@ class WriterAgentConfig:
     image_auto_gallery: bool = True
     image_insert_frame: bool = False
     image_model: str = ""
-    # Local sentence-transformers model id (Phase A embeddings); see docs/embeddings.md.
+    # Embeddings provider; ``local`` is sentence-transformers in the venv (docs/embeddings.md).
     embedding_provider: str = "local"
     seed: str = ""
     enable_agent_log: bool = False
@@ -360,7 +359,7 @@ class WriterAgentConfig:
     # Wire always sends parallel_tool_calls: false until the tool loop can apply
     # parallel calls. Default matches the wire so Options/file do not lie.
     parallel_tool_calls: bool = False
-    # Merged into POST …/chat/completions JSON when OpenRouter is active; see AGENTS.md.
+    # Merged into POST …/chat/completions JSON when OpenRouter is active.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     last_python_script_name_writer: str = "Universal Sample"
     last_python_script_name_calc: str = "Universal Sample"
@@ -376,9 +375,6 @@ class WriterAgentConfig:
 
     # Persists multiple user-saved Python scripts (name -> code)
     saved_python_scripts: Dict[str, str] = dataclasses.field(default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS))
-
-
-_MISSING_VALUE = object()
 
 
 def _normalize_schema_type(schema_type: Any) -> str | None:
@@ -428,15 +424,15 @@ def _module_schema_for_key(key: str) -> dict[str, Any] | None:
 def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
     safe_key = key.replace(".", "_")
     for field in dataclasses.fields(WriterAgentConfig):
-        if field.name == "_extra_config" or field.name != safe_key:
+        if field.name != safe_key:
             continue
         schema: dict[str, Any] = {"default": _dataclass_field_default(field)}
         field_type = _dataclass_field_type(field)
         if field_type:
             schema["type"] = field_type
-        # validate() reads these from field metadata. Callers of
-        # get_config_schema / strict coerce (settings compare, save)
-        # never saw them, so temperature 5.0 and chat_max_tokens -1 passed.
+        # Copy the bounds and fallbacks from field metadata so ``validate`` and
+        # Settings see the same limits (temperature 5.0 and chat_max_tokens -1
+        # are rejected).
         for bound in ("min", "max", "min_exclusive", "code", "message", "fallback", "parse_fallback"):
             if bound in field.metadata:
                 schema[bound] = field.metadata[bound]
@@ -486,6 +482,13 @@ def _strict_bool_ok(value: Any) -> bool:
     return False
 
 
+def _schema_validation_error(schema: dict[str, Any], generic_msg: str, details: dict[str, Any]) -> ConfigValidationError:
+    msg = schema.get("message")
+    if msg:
+        return ConfigValidationError(_(msg), code=schema.get("code", "CONFIG_INVALID_VALUE"), details=details)
+    return ConfigValidationError(generic_msg, code="CONFIG_INVALID_VALUE", details=details)
+
+
 def validate(data: dict[str, Any]) -> dict[str, Any]:
     """Pure config validator.
 
@@ -526,7 +529,7 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
                 out["calc_prompt_max_tokens"] = 4096
             else:
                 out["calc_prompt_max_tokens"] = c_int
-        except (ValueError, OverflowError):
+        except ValueError:
             pass
 
     # 4. saved-script sample migration
@@ -564,16 +567,11 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
             parser = parse_int_robust if schema_type == "int" else parse_float_robust
             try:
                 coerced_val = parser(val)
-            except (ValueError, OverflowError) as exc:
-                code = schema.get("code", "CONFIG_INVALID_VALUE")
-                msg = schema.get("message")
-                details = {"key": key, "value": val, "reason": "parse"}
-                if msg:
-                    raise ConfigValidationError(_(msg), code=code, details=details) from exc
-                raise ConfigValidationError(
+            except ValueError as exc:
+                raise _schema_validation_error(
+                    schema,
                     f"Invalid configuration value for {key}: not an {'integer' if schema_type == 'int' else 'number'}",
-                    code="CONFIG_INVALID_VALUE",
-                    details=details,
+                    {"key": key, "value": val, "reason": "parse"},
                 ) from exc
 
             out_of_range = False
@@ -584,18 +582,14 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
                     out_of_range = True
                 if "max" in schema and coerced_val > parse_float_robust(schema["max"]):
                     out_of_range = True
-            except (ValueError, OverflowError):
+            except ValueError:
                 pass
 
             if out_of_range:
-                code = schema.get("code", "CONFIG_INVALID_VALUE")
-                msg = schema.get("message")
-                if msg:
-                    raise ConfigValidationError(_(msg), code=code, details={"key": key, "value": val})
-                raise ConfigValidationError(
+                raise _schema_validation_error(
+                    schema,
                     f"Invalid configuration value for {key}: out of range",
-                    code="CONFIG_INVALID_VALUE",
-                    details={"key": key, "value": val},
+                    {"key": key, "value": val},
                 )
             out[key] = coerced_val
 
@@ -664,7 +658,7 @@ def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:
             return False
         try:
             return parse_float_robust(value) == parse_float_robust(default_val)
-        except (ValueError, TypeError, OverflowError):
+        except ValueError:
             return False
 
     if isinstance(default_val, (dict, list)):
