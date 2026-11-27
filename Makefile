@@ -263,20 +263,20 @@ help:
 	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
-	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make typecheck / make test)"
+	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make typecheck-full)"
 	@echo "  make opengrep-lint-advisory Same rules including WARNING-level nudges"
 	@echo "  make opengrep-rules-sync    Refresh vendored third-party Opengrep rules"
 	@echo "  make opengrep-rules-audit   Live registry sweep (p/python; manual triage only)"
 	@echo "  make uno-thread-lint        Alias for make opengrep-lint"
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
-	@echo "  make typecheck              ruff-for-build and bare-underscore-check, then incremental basedpyright/bandit/opengrep/pyspector/mypy (staged/unstaged/untracked; run before each commit) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
+	@echo "  make typecheck              ruff-for-build and bare-underscore-check, then full ty + incremental basedpyright (staged/unstaged/untracked; run before each commit). CI=true or TYPECHECK_FULL=1 runs typecheck-full"
 	@echo "  make typecheck-full         full-repo checkers including basedpyright library source and thread-safety-lint; used by CI and make release"
 	@echo "  make thread-safety-lint     Standalone UNO thread-safety + deadlock AST check (included in typecheck-full, not default typecheck)"
 	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"
 	@echo "  make fix-uno                Same as ensure-uno with verbose output"
 	@echo "  make mypy / make basedpyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
-	@echo "  make pyspector              PySpector AI/taint SAST on plugin/ (--ai; part of make typecheck / make test; skipped on Windows if not installed)"
+	@echo "  make pyspector              PySpector AI/taint SAST on plugin/ (--ai; part of make typecheck-full; skipped on Windows if not installed)"
 	@echo "  make pyspector-report       Same scan, write build/pyspector-report.json (optional report; skipped on Windows if not installed)"
 	@echo "  make ruff                   Ruff lint (plugin tests scripts compute_service; excludes contrib/lib/demos; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check plugin/"
@@ -653,8 +653,8 @@ typecheck: manifest ruff-for-build bare-underscore-check
 ifeq ($(_USE_FULL_TYPECHECK),1)
 	@$(MAKE) _typecheck-full-run
 else
-	@echo "=== typecheck (incremental): basedpyright + bandit + opengrep + pyspector + ty + mypy (parallel) ==="
-	@$(MAKE) -j6 basedpyright-incr-run bandit-incr opengrep-lint-incr pyspector-incr ty-run mypy-incr-run
+	@echo "=== typecheck: ty + incremental basedpyright (parallel) ==="
+	@$(MAKE) -j2 basedpyright-incr-run ty-run
 endif
 
 # Full-repo checkers including thread-safety-lint and basedpyright library-source walk.
@@ -1063,7 +1063,7 @@ bandit-incr:
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit --root plugin --config-path pyproject.toml -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium; \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) bandit; else exit $$rc; fi
 
-# Cross-file / AI-agent SAST (part of make typecheck / make test; not build/release).
+# Cross-file / AI-agent SAST (part of make typecheck-full; not build or default typecheck).
 # Wrapper disables reviewed FP rules; see scripts/run_pyspector.py.
 # PyPI has no CPython 3.13 Windows wheel, so uv sync does not install pyspector
 # there. Skip on Windows instead of failing typecheck; Linux and macOS still fail if missing.
