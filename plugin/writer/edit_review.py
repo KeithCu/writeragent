@@ -706,6 +706,27 @@ class EditReviewSession:
         after, after_ok = self._redline_idents()
         return not (before_ok and after_ok) or bool(after - before)
 
+    def accepted_paragraph_formats(self) -> bool:
+        """Return True when a ``ParagraphFormat`` redline pending before this session's first edit is gone.
+
+        LibreOffice accepts a paragraph's tracked paragraph formatting before every recorded insert
+        or delete in it (tdf#119019: ``DocumentContentOperationsManager::InsertString`` and
+        ``DeleteAndJoinWithRedlineImpl`` call ``AcceptRedlineParagraphFormatting``,
+        ``sw/source/core/doc/DocumentContentOperationsManager.cxx``), so after the edit Reject All
+        keeps that style change. A redline counts as gone when no redline with its type, author,
+        date and comment is left (a split piece keeps all four). False when either scan is
+        incomplete or the document was not recording at the first mutation. Main thread only.
+        """
+        if self._first_snapshot is None:
+            return False
+        before, before_ok = self._first_snapshot
+        after, after_ok = self._redline_idents()
+
+        def signatures(keys: set[Any]) -> set[Any]:
+            return {key[1:] for key in keys if key[1] == "ParagraphFormat"}
+
+        return before_ok and after_ok and bool(signatures(before) - signatures(after))
+
     # -- review ------------------------------------------------------------------------------
 
     def _pending_tokens(self) -> tuple[set[str], bool]:

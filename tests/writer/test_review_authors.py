@@ -40,6 +40,7 @@ class FakeAuthorAccess:
 @pytest.fixture
 def clean_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_authors, "_state", threading.local())
+    monkeypatch.setattr(review_authors, "inside_insertion_by", lambda _doc, _range, _author: False)
 
 
 @pytest.fixture
@@ -77,13 +78,29 @@ def test_deletion_author_swaps_and_restores(clean_state: None, fake_profile: tup
     prior = review_authors.begin(ctx)
     assert store["givenname"] == "WriterAgent"
 
-    with review_authors.deletion_author():
+    with review_authors.deletion_author(object(), object()):
         assert store["givenname"] == "WriterAgent (deletions)"
         assert getattr(review_authors._state, "last", None) == "WriterAgent (deletions)"
 
     assert store["givenname"] == "WriterAgent"
     assert getattr(review_authors._state, "last", None) == "WriterAgent"
 
+    review_authors.end(ctx, prior)
+
+
+def test_deletion_author_keeps_insert_author_inside_own_insertion(
+    clean_state: None, fake_profile: tuple[dict[str, str], list[dict[str, str]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _commits = fake_profile
+    ctx = object()
+    monkeypatch.setattr(
+        review_authors, "inside_insertion_by", lambda _doc, _range, author: author == review_authors.INSERT_AUTHOR
+    )
+
+    prior = review_authors.begin(ctx)
+    with review_authors.deletion_author(object(), object()):
+        assert store["givenname"] == "WriterAgent"
+    assert store["givenname"] == "WriterAgent"
     review_authors.end(ctx, prior)
 
 
@@ -102,7 +119,7 @@ def test_begin_failed_returns_none_and_deletion_author_no_writes(
 
     # deletion_author should be inert (no swaps, runs body)
     ran = False
-    with review_authors.deletion_author():
+    with review_authors.deletion_author(object(), object()):
         ran = True
     assert ran
 
@@ -127,7 +144,7 @@ def test_deletion_author_failed_swap_runs_body_and_does_not_restore(
     monkeypatch.setattr(review_authors, "set_office_author", _failing_set)
 
     ran = False
-    with review_authors.deletion_author():
+    with review_authors.deletion_author(object(), object()):
         ran = True
     assert ran
     # set_office_author was called once for delete, returned False, so body yielded and finally was not reached
@@ -149,7 +166,7 @@ def test_deletion_author_failed_restore_is_swallowed(
     monkeypatch.setattr(review_authors, "_author_access", _failing_restore_access)
 
     ran = False
-    with review_authors.deletion_author():
+    with review_authors.deletion_author(object(), object()):
         ran = True
         assert store["givenname"] == "WriterAgent (deletions)"
     assert ran

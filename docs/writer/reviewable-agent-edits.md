@@ -45,9 +45,12 @@ What is implemented today (not every Writer mutation tool):
 | Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`, also when the user is recording with review Off — except header/footer text-only writes, character `apply_style`, and paragraph `apply_style`; turning a header/footer on or changing `auto_height` is flagged; `page_insert_break` is not in this set) | No | No |
 | `section_create` | No (inserted untracked so `SwDoc::InsertSwSection` does not mark the wrapped text as a tracked insertion; flags `style_unreviewed: true`; refuses with `SECTION_IN_TRACKED_CHANGE` when a pending Insert or Delete redline spans past both ends) | No | No |
 | `frame_delete`, `chart_delete`, `shape_delete` (non-picture), `form_delete_control`, `shape_upsert` (create), `shape_connect`, `diagram_create`, `frame_insert` (non-inline; with `target="search"`, also returns `pending_review: true` when the replaced text is a pending tracked deletion), `image_replace` / `image_generate` (in-place replace), `index_create`, `index_update_all` | No (`tracked: false` with a `warning` when recording or review is on; `index_create` refuses with `INDEX_IN_TRACKED_CHANGE` if it would split a pending tracked change, and while the document is recording or in Record/Wait its `target='search'` deletion is recorded — tagged as an agent change only in Record/Wait — and the result carries `pending_review: true` while the index itself is not tracked; `index_update_all` refuses with `INDEX_HAS_TRACKED_CHANGES` if any index holds pending insertions or deletions) | No | No |
+| `clone_heading_block` | Yes (in Record/Wait and while the document is recording via `record_write`, as one Ctrl+Z step; the result carries `tracked: true` and `pending_review: true` when LibreOffice recorded the clone; struck text is left out of the copy, and when nothing records the clone a block holding a pending tracked insertion is refused with `BLOCK_HAS_PENDING_INSERTION`) | No | No |
 | Other Writer tools (`index_delete_toc_entry` is recorded; comments, …) | No | No | No |
 
-Search matches and `start_anchor`/`end_anchor` ranges (including chained multi-paragraph matches) that overlap a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` when the edit is not recorded on `apply_content` replace, `insert_at_target` replacements, `index_refresh_toc_entry`, and `table_set_cell`; while recording (Record/Wait or Track Changes > Record), LibreOffice keeps the other author's deletion as its own redline beside the new change. `index_create target="search"` refuses whether recording is on or not, and `apply_style` (character styles) / `style_format_text` with `target="search"` refuse only while recording or in review mode.
+Search matches and `start_anchor`/`end_anchor` ranges (including chained multi-paragraph matches) that overlap a pending tracked deletion are refused with `MATCH_CROSSES_DELETION` when the edit is not recorded on `apply_content` replace, `insert_at_target` replacements, `index_refresh_toc_entry`, and `table_set_cell`; while recording (Record/Wait or Track Changes > Record), LibreOffice keeps the other author's deletion as its own redline beside the new change.
+
+A recorded `apply_content` replace (search match or anchor range, in Record/Wait or while the user records) that overlaps another author's pending `Format` redline is refused with `MATCH_CROSSES_FORMAT_CHANGE`: the tracked deletion would delete or trim that redline (`DocumentRedlineManager::PreAppendDeleteRedline`, `case RedlineType::Format`), so the other author's formatting could no longer be rejected. Over the agent's own `Format` redline the replace goes ahead with `style_unreviewed: true` and a warning, because Reject All then keeps that formatting. Any recorded `apply_content` edit that makes LibreOffice accept a pending `ParagraphFormat` redline (tdf#119019, see Limitations) gets the same flag and a warning. `index_create target="search"` refuses whether recording is on or not, and `apply_style` (character styles) / `style_format_text` with `target="search"` refuse only while recording or in review mode.
 
 Extend / Edit Selection stop when the selection contains, or lies wholly inside, a tracked insertion or deletion.
 `WriterStreamedRewriteSession` and `WriterStreamedAppendSession` raise before the undo context,
@@ -118,7 +121,13 @@ other path releases it, including a successful non-wait edit.
   `RecordChanges` state is restored afterward. Markup is forced **visible** (`ShowChanges = True`)
   so a reviewable change is never left invisible.
 * Insertions are authored `WriterAgent` and deletions `WriterAgent (deletions)`, so LibreOffice's
-  by-author coloring renders new vs removed text in two distinct colors.
+  by-author coloring renders new vs removed text in two distinct colors. A deletion that lies
+  wholly inside one pending `WriterAgent` insertion keeps the `WriterAgent` author
+  (`review_authors.deletion_author`), so LibreOffice removes the text from that insertion outright.
+  A `WriterAgent (deletions)` deletion would stack on the insertion and split it, and Reject All
+  would then leave the inserted paragraph's style or list on the next original paragraph. Such an
+  edit leaves no new redline: it is part of the earlier insertion, gets no review fields, and a
+  Wait call returns at once.
 * Crash recovery for the office author:
   * The user's real name is saved to `<profile>/user/config/writeragent_office_author.json` before
     the first swap, and whenever that name changes.
@@ -348,7 +357,7 @@ When the user turns on Track Changes > Record while agent review is Off, operati
   * Undo leaves the `ParagraphFormat` redline in place (matching LibreOffice's UI). Direct paragraph formatting set after such an undo is not restored on Reject, because the next change reuses the stale redline. Rejecting the leftover redline on a list paragraph resets its level (LibreOffice's UI loses the number too).
   * Rejecting a `Format` redline over a whole paragraph drops that paragraph's direct formatting (`RejectRedline` → `ResetAttrs`). A whole-paragraph character change recorded *after* a `ParagraphFormat` redline therefore loses the restored margins on Reject All; `apply_style` and `style_format_text` detect this redline order and set `style_unreviewed: true` with a warning (this can over-report paragraphs that had no direct formatting, because revert properties are not readable through UNO).
   * ODT save drops `ParagraphFormat` redlines while DOCX keeps them.
-  * Typing into a paragraph while recording accepts its `ParagraphFormat` redline.
+  * Any recorded text change in a paragraph (the user typing, or an agent edit) accepts its `ParagraphFormat` redline, whoever made it (tdf#119019: `DocumentContentOperationsManager::InsertString` and `DeleteAndJoinWithRedlineImpl` call `AcceptRedlineParagraphFormatting`), so Reject All keeps the style change. `apply_content` detects a `ParagraphFormat` redline that its edit made disappear (`EditReviewSession.accepted_paragraph_formats`) and returns `style_unreviewed: true` with a warning; other tools do not check.
   * A second style change on the same paragraph reuses the first redline and its author, so Reject undoes both changes.
   * Reject restores the direct paragraph properties listed in `_REVERT_PARA_PROPERTIES` (`styles.py`). Any other hand-set one (for example `DropCapCharStyleName`, `FillBitmapSizeX/Y`) is dropped by `lcl_RejectRedline`'s `ResetAttrs`; the result sets `style_unreviewed: true` and the warning names it. Import metadata (`ParaInteropGrabBag`, `ParRsid`, foreign XML attributes) is dropped without a warning.
 * **Recorded inserts at an empty paragraph:** When recording is on, inserting at a caret in an empty paragraph or at `beginning` when the first paragraph is empty places the imported content after that empty paragraph (so Reject restores the paragraph's style and direct formatting); content ending in a table keeps one extra empty paragraph after the table. The whole insert is one Ctrl+Z step.
@@ -375,6 +384,18 @@ When the user turns on Track Changes > Record while agent review is Off, operati
 * **Undo then Redo of a review-session edit:** Redo brings the redline back untagged, splits an
   `Unknown Author` Insert piece, and restores the `wa_review_*` anchor bookmark (`RedlineComment`
   is not an undoable action, while the bookmark lives inside the edit's undo group).
+* **Undo then Redo of rejecting a stacked Delete:** rejecting a Delete that sits on an Insert
+  (for example the user's deletion inside the agent's pending insertion), then Undo and Redo,
+  drops the Insert redline as well. The text becomes ordinary text and survives Reject All. This is
+  stock LibreOffice (`SwUndoRejectRedline::RedoRedlineImpl`, `sw/source/core/undo/unredln.cxx`,
+  runs `RejectRedline` again with a different result) and cannot be fixed in WriterAgent. Resolving
+  the whole agent change at once (`_resolve_overlapping_agent_changes`) is not affected.
+* **Comments:** the comment tools are not recorded in Record/Wait. When the user records changes,
+  `comment_delete` is recorded, but Reject brings the comment back without the text range it
+  spanned (LibreOffice records only the deletion of the comment's field character,
+  `SwTextField::DeleteTextField` in `sw/source/core/txtnode/atrfld.cxx`); the result carries a
+  warning. A comment added on text that is a pending tracked insertion stays behind as a point
+  comment when that insertion is rejected; `comment_add` warns.
 
 ## Ways to improve
 

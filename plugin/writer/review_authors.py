@@ -10,7 +10,8 @@ RedlineAuthor on an existing redline is a silent no-op), so the only way to auth
 Insert and Delete differently is to swap the office author BETWEEN the deletion and the
 insertion. EditReviewSession makes the INSERT author the default for the whole edit via
 ``begin()``; each replace primitive wraps its ``setString("")`` deletion in ``deletion_author()``,
-which flips the office author to the DELETE author for that moment and back. All of this runs
+which flips the office author to the DELETE author for that moment and back, except inside the
+agent's own pending insertion, where the deletion keeps the INSERT author. All of this runs
 synchronously on the main thread, so the brief intermediate author state is never observed.
 
 The actual colors are LibreOffice's automatic per-author choice (we cannot pick them) -- the two
@@ -32,13 +33,15 @@ from typing import Any, Generator
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.i18n import get_lo_locale
+from plugin.writer.record_changes import inside_insertion_by
 
 log = logging.getLogger(__name__)
 
 # Distinct authors -> distinct by-author colors. Both read as the agent in the Manage dialog.
 INSERT_AUTHOR = "WriterAgent"
 DELETE_AUTHOR = "WriterAgent (deletions)"
-_AGENT_PROFILES: frozenset[tuple[str, str]] = frozenset({(INSERT_AUTHOR, ""), (DELETE_AUTHOR, "")})
+AGENT_AUTHORS: frozenset[str] = frozenset({INSERT_AUTHOR, DELETE_AUTHOR})
+_AGENT_PROFILES: frozenset[tuple[str, str]] = frozenset((author, "") for author in AGENT_AUTHORS)
 _SAVED_AUTHOR_FILE = "writeragent_office_author.json"
 
 _state = threading.local()
@@ -209,11 +212,22 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
 
 
 @contextlib.contextmanager
-def deletion_author() -> Generator[None, None, None]:
-    """Author the tracked deletion inside this block as the DELETE author, then restore the
-    INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
+def deletion_author(doc: Any, doomed: Any) -> Generator[None, None, None]:
+    """Author the tracked deletion of *doomed* inside this block as the DELETE author, then restore
+    the INSERT author. A no-op unless ``begin()`` armed split authoring on this thread.
+
+    Also a no-op when *doomed* lies wholly inside one pending insertion by the INSERT author.
+    Deleted as that author, the text leaves the insertion outright; a DELETE-author deletion would
+    stack on the insertion and split it, and Reject All would then keep the inserted paragraph's
+    style or list on the following original paragraph (``sw_GetJoinFlags``,
+    ``sw/source/core/doc/docedt.cxx``, joins backwards only from offset 0).
+    """
     ctx = getattr(_state, "ctx", None)
-    if ctx is None or not set_office_author(ctx, DELETE_AUTHOR):
+    if (
+        ctx is None
+        or inside_insertion_by(doc, doomed, INSERT_AUTHOR)
+        or not set_office_author(ctx, DELETE_AUTHOR)
+    ):
         yield
         return
     try:

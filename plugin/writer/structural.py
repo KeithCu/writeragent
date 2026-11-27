@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_CHARACTER, AT_PAGE, AT_PARAGRAPH
 
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import (
     TrackedDeletions,
     clone_text_range,
@@ -44,6 +45,8 @@ from plugin.draw.tree import custom_shape_geometry
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.tool_schema import page_index_param
+from plugin.writer.edit_review import edit_is_recorded, flag_tracked, next_agent_edit_undo_title, record_write
+from plugin.writer.record_changes import overlapping_redline_authors
 from plugin.writer.target_resolver import update_selection_pin
 
 from .search import shape_text_boxes
@@ -54,6 +57,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 _VIEW_CURSOR_ERR = "Cannot resolve view cursor page: %s"
+_CLONE_PENDING_INSERTION_MESSAGE = (
+    "The heading block holds a pending tracked insertion, and with nothing recording the clone it would "
+    "copy that unreviewed text as ordinary text. Nothing was changed. Ask the user to accept or reject "
+    "the pending changes in the block, or to turn on Track Changes so the clone is recorded."
+)
 
 
 def _at_page_anchor_page(obj: Any) -> Any | None:
@@ -316,7 +324,8 @@ class CloneHeadingBlock(ToolBaseDummy):
     description: str = (
         "Clone an entire heading block (heading + all sub-headings + body). Plain paragraph text and "
         "paragraph style are copied; character formatting, lists, fields, hyperlinks, bookmarks, and "
-        "inline objects are not copied; tables are skipped. The clone is inserted right after the original block."
+        "inline objects are not copied; tables are skipped. The clone is inserted right after the original block. "
+        "When neither Track Changes nor agent review records the clone, a block holding a pending tracked insertion is refused (BLOCK_HAS_PENDING_INSERTION)."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -369,6 +378,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         # body never gets written. get_string_without_tracked_deletions has to
         # run before that split so the body clone is the visible text.
         clones: list[tuple[str, Any]] = []
+        paragraphs: list[Any] = []
         skipped_tables = 0
         state = TrackedDeletions(ctx.doc).state_at(elements[0])
         for el in elements:
@@ -377,10 +387,15 @@ class CloneHeadingBlock(ToolBaseDummy):
             if is_text_table(el):
                 skipped_tables += 1
                 continue
+            paragraphs.append(el)
             clones.append((
                 get_string_without_tracked_deletions(el, state),
                 el.getPropertyValue("ParaStyleName"),
             ))
+        # An unrecorded clone would turn someone's pending insertion into ordinary text that
+        # Reject All keeps. Recorded, the copy is part of the clone's own insertion.
+        if overlapping_redline_authors(ctx.doc, paragraphs, "Insert") and not edit_is_recorded(ctx.doc):
+            return self._tool_error(_CLONE_PENDING_INSERTION_MESSAGE, code="BLOCK_HAS_PENDING_INSERTION")
 
         last = elements[-1]
         if is_text_table(last):
@@ -390,21 +405,29 @@ class CloneHeadingBlock(ToolBaseDummy):
             cursor = doc_text.createTextCursorByRange(last)
             cursor.gotoEndOfParagraph(False)
 
-        for txt, sty in clones:
-            doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
-            # This cursor is already in the new paragraph after the break
-            # (insertString fills it). gotoNextParagraph would skip that empty
-            # paragraph and write into whatever follows the block. html_export's
-            # temp-doc cursor stays before the break and must step forward;
-            # this one must not. Collapse to the end after styling so the next
-            # break is after the clone, not inside it.
-            doc_text.insertString(cursor, txt, False)
-            cursor.gotoStartOfParagraph(False)
-            cursor.gotoEndOfParagraph(True)
-            cursor.setPropertyValue("ParaStyleName", sty)
-            cursor.gotoEndOfParagraph(False)
+        def insert_clones() -> None:
+            for txt, sty in clones:
+                doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                # This cursor is already in the new paragraph after the break
+                # (insertString fills it). gotoNextParagraph would skip that empty
+                # paragraph and write into whatever follows the block. html_export's
+                # temp-doc cursor stays before the break and must step forward;
+                # this one must not. Collapse to the end after styling so the next
+                # break is after the clone, not inside it.
+                doc_text.insertString(cursor, txt, False)
+                cursor.gotoStartOfParagraph(False)
+                cursor.gotoEndOfParagraph(True)
+                cursor.setPropertyValue("ParaStyleName", sty)
+                cursor.gotoEndOfParagraph(False)
+
+        # One reviewable change and one Ctrl+Z step for the whole clone.
+        with WriterCompoundUndo(ctx.doc, next_agent_edit_undo_title()):
+            _unused, recording = record_write(ctx.doc, ctx.ctx, insert_clones)
 
         suffix = (", %d tables skipped" % skipped_tables) if skipped_tables else ""
         msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
 
-        return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        result: dict[str, Any] = {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
+        if recording:
+            flag_tracked(result)
+        return result

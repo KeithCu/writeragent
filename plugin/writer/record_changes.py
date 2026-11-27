@@ -23,7 +23,7 @@ from typing import Any, Generator, Iterator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import bounds_cover, iter_elements_limited, redline_bounds
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 log = logging.getLogger("writeragent.writer")
 
@@ -123,6 +123,46 @@ def redline_spans(doc: Any) -> list[RedlineSpan]:
 def redline_kinds_covering(spans: list[RedlineSpan], text_range: Any) -> set[str]:
     """``RedlineType`` of every tracked change in *spans* that covers all of *text_range*."""
     return {kind for kind, bounds in spans if bounds_cover(bounds, text_range)}
+
+
+def inside_insertion_by(doc: Any, text_range: Any, author: str) -> bool:
+    """True when one pending Insert redline by *author* spans all of *text_range*.
+
+    A Delete by the same author inside such an insertion removes the text outright instead of
+    stacking on it (``PreAppendDeleteRedline``, ``case RedlineType::Insert`` with
+    ``IsOwnRedline``, ``sw/source/core/doc/DocumentRedlineManager.cxx``).
+    """
+    return any(
+        rl.getPropertyValue("RedlineType") == "Insert"
+        and rl.getPropertyValue("RedlineAuthor") == author
+        and bounds_cover(redline_bounds(rl), text_range)
+        for rl in _iter_redlines(doc)
+    )
+
+
+def overlapping_redline_authors(doc: Any, ranges: list[Any], kind: str) -> set[str]:
+    """Authors of the pending *kind* redlines that share at least one character with one of *ranges*.
+
+    A redline in another text object (a footnote or frame next to a body range) cannot be
+    compared with the range and does not count.
+    """
+    bounds = [(r.getStart(), r.getEnd()) for r in ranges]
+    authors: set[str] = set()
+    for rl in _iter_redlines(doc):
+        if rl.getPropertyValue("RedlineType") != kind:
+            continue
+        text, start, end = redline_bounds(rl)
+        # compareRegionStarts(a, b): 1 when a starts before b.
+        if uno_read(
+            lambda: any(
+                text.compareRegionStarts(start, r_end) > 0 and text.compareRegionStarts(r_start, end) > 0
+                for r_start, r_end in bounds
+            ),
+            False,
+            object_type="TextRange",
+        ):
+            authors.add(str(rl.getPropertyValue("RedlineAuthor")))
+    return authors
 
 
 def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool:

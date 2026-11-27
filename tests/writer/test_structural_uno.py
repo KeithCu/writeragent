@@ -14,7 +14,9 @@ from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc, writer_services_tool_context
 from plugin.writer.images.image_tools import graphic_from_bytes
+from plugin.doc.compound_undo import undo_titles
 from plugin.writer.structural import GetPageObjects, CloneHeadingBlock
+from tests.writer.doc_builders import body_texts, find_first, recording_as, reject_all_changes, reset_body, review_mode
 
 
 @native_test
@@ -467,3 +469,41 @@ def test_get_page_objects_print_preview_returns_tool_error_uno(ctx):
             assert "Cannot resolve view cursor page:" in res.get("message", ""), res
     finally:
         doc.close(True)
+
+
+def _heading_blocks_with_alice_changes(doc, ctx):
+    reset_body(doc, ctx, "Intro para.", "Heading A", "Body a text.", "Heading B", "Body b text.")
+    for heading in ("Heading A", "Heading B"):
+        find_first(doc, heading).setPropertyValue("ParaStyleName", "Heading 1")
+    with recording_as(doc, ctx, "Alice"):
+        found = find_first(doc, "Body a")
+        found.getText().insertString(found.getEnd(), " ALICE-INSERT", False)
+        find_first(doc, " text.").setString(".")
+    doc.getUndoManager().clear()
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_clone_heading_block_record_mode_is_one_rejectable_change_uno(ctx, doc):
+    """In Record mode the clone, including the copy of Alice's pending insertion, is one tracked
+    insertion in one undo step, so Reject All removes it instead of keeping her text as ordinary text."""
+    _heading_blocks_with_alice_changes(doc, ctx)
+    with review_mode("record"):
+        res = CloneHeadingBlock().execute(writer_services_tool_context(doc, ctx), paragraph_index=1)
+    assert res.get("status") == "ok", res
+    assert res.get("tracked") is True, res
+    assert len(undo_titles(doc) or ()) == 1, undo_titles(doc)
+    reject_all_changes(doc, ctx)
+    assert body_texts(doc.getText()) == ["Intro para.", "Heading A", "Body a text.", "Heading B", "Body b text."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_clone_heading_block_unrecorded_refuses_pending_insertion_uno(ctx, doc):
+    """With nothing recording, the clone would copy Alice's pending insertion as ordinary text; it is refused."""
+    _heading_blocks_with_alice_changes(doc, ctx)
+    before = body_texts(doc.getText())
+    with review_mode("off"):
+        res = CloneHeadingBlock().execute(writer_services_tool_context(doc, ctx), paragraph_index=1)
+    assert res.get("code") == "BLOCK_HAS_PENDING_INSERTION", res
+    assert body_texts(doc.getText()) == before

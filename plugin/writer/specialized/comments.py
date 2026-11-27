@@ -20,7 +20,7 @@ import logging
 from typing import Any, Callable, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
-from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
+from plugin.framework.errors import append_warnings, make_tool_error, reraise_if_disposed, uno_read
 import uno
 
 from plugin.doc.paragraph_search import paragraph_entries
@@ -30,6 +30,7 @@ from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
 from plugin.framework.uno_context import uno_same
 from ..edit_review import next_agent_edit_undo_title
+from ..record_changes import is_recording_changes, overlapping_redline_authors
 from ..search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
@@ -40,6 +41,18 @@ from ..search import (
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
+
+_COMMENT_ON_PENDING_INSERTION_WARNING = (
+    "The commented text is a pending tracked insertion. If that insertion is rejected, the comment "
+    "stays in the document as a comment on an empty point."
+)
+# removeTextContent reaches SwTextField::DeleteTextField (sw/source/core/txtnode/atrfld.cxx), whose
+# DeleteAndJoin covers only the comment's field character, so the recorded deletion does not hold the
+# comment's text range and Reject cannot restore it.
+_RECORDED_COMMENT_DELETE_WARNING = (
+    "Track Changes recorded the deletion. If the user rejects it, the comment comes back without "
+    "the text range it was attached to (as a comment on one point)."
+)
 
 
 def _prop(field: Any, name: str, default: Any = "") -> Any:
@@ -234,7 +247,7 @@ class AddComment(ToolBase):
 
         prior = {n for n in names_before if n}
         new_name = next((n for n in names_after if n and n not in prior), "")
-        return {
+        result = {
             "status": "ok",
             "message": "Comment added.",
             "author": author,
@@ -244,6 +257,10 @@ class AddComment(ToolBase):
             "name": _annotation_name(annotation) or new_name,
             **mode.result_fields(),
         }
+        # LibreOffice keeps the annotation when the insertion under it is rejected.
+        if overlapping_redline_authors(doc, [found], "Insert"):
+            append_warnings(result, [_COMMENT_ON_PENDING_INSERTION_WARNING])
+        return result
 
 
 class CommentDelete(ToolWriterCommentBase):
@@ -312,6 +329,7 @@ class CommentDelete(ToolWriterCommentBase):
             )
 
         undo_title = next_agent_edit_undo_title()
+        recording = is_recording_changes(doc)
 
         def mutate() -> dict[str, Any] | None:
             for field in to_delete:
@@ -330,7 +348,10 @@ class CommentDelete(ToolWriterCommentBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "deleted": len(to_delete)}
+        result: dict[str, Any] = {"status": "ok", "deleted": len(to_delete)}
+        if recording:
+            append_warnings(result, [_RECORDED_COMMENT_DELETE_WARNING])
+        return result
 
 
 class CommentResolve(ToolWriterCommentBase):

@@ -42,7 +42,7 @@ from plugin.writer.edit_review import (
 )
 from plugin.writer.target_resolver import request_insert_range
 from plugin.doc.compound_undo import UndoStepOrRollback, UndoUnavailable, commit_or_rollback
-from plugin.writer.record_changes import is_recording_changes
+from plugin.writer.record_changes import is_recording_changes, overlapping_redline_authors
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
 from plugin.writer.specialized.tables import delete_leading_tables, record_table_deletions
@@ -66,6 +66,7 @@ from plugin.writer import (
     html_import,
     html_import_styles,
     image_placeholders,
+    review_authors,
     search as search_mod,
 )
 from plugin.writer.heading_links import (
@@ -87,6 +88,49 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("writeragent.writer")
+
+
+_FOREIGN_FORMAT_CHANGE_MESSAGE = (
+    "The matched text carries another author's pending tracked formatting change, so it was not "
+    "changed: replacing it while Track Changes records would remove that tracked change, and its "
+    "formatting could no longer be rejected. Do not accept or reject that change; edit text outside "
+    "it, or ask the user to review it first."
+)
+_OWN_FORMAT_CHANGE_WARNING = (
+    "The replaced text carried the agent's own pending tracked formatting change, which LibreOffice "
+    "drops when that text is replaced, so rejecting the changes keeps that formatting. Tell the user."
+)
+_PARAGRAPH_FORMAT_ACCEPTED_WARNING = (
+    "LibreOffice accepted the pending tracked paragraph-style change of the edited paragraph when "
+    "the text was changed, so rejecting the changes no longer restores that paragraph's earlier "
+    "style. Tell the user."
+)
+
+
+def _format_change_check(doc: Any, ranges: list[Any], recorded: bool) -> tuple[dict[str, Any] | None, bool]:
+    """``(MATCH_CROSSES_FORMAT_CHANGE error or None, own)`` for a replace of *ranges*.
+
+    A tracked deletion that covers or overlaps a pending Format redline deletes or trims it
+    (``DocumentRedlineManager::PreAppendDeleteRedline``, ``case RedlineType::Format``,
+    ``sw/source/core/doc/DocumentRedlineManager.cxx``), and the recorded replace inserts its new
+    text inside the match first, which splits that redline at the match. Reject All then keeps
+    the formatting. The replace is refused when another author's Format redline overlaps a match;
+    *own* is True when only the agent's own Format redlines do. Unrecorded edits are not checked.
+    """
+    if not recorded:
+        return None, False
+    authors = overlapping_redline_authors(doc, ranges, "Format")
+    if authors - review_authors.AGENT_AUTHORS:
+        return make_tool_error(
+            _FOREIGN_FORMAT_CHANGE_MESSAGE, code="MATCH_CROSSES_FORMAT_CHANGE", top_level={"replaced_count": 0}
+        ), False
+    return None, bool(authors)
+
+
+def _flag_unrejectable_style(result: dict[str, Any], warning: str) -> None:
+    if result.get("status") == "ok":
+        result["style_unreviewed"] = True
+        append_warnings(result, [warning])
 
 
 _OVERRIDE_NEEDS_ONE_LINK = (
@@ -1028,6 +1072,8 @@ class ApplyDocumentContent(ToolBase):
             session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
             result = append_warnings(result, diags)
+            if result.get("status") == "ok" and session.accepted_paragraph_formats():
+                _flag_unrejectable_style(result, _PARAGRAPH_FORMAT_ACCEPTED_WARNING)
             pending = result.get("status") == "ok" and session.left_tracked_changes()
             return result, session, pending
 
@@ -1583,7 +1629,13 @@ class ApplyDocumentContent(ToolBase):
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
             else:
-                res = self._edit_replace_one(ctx, session, params, found)
+                format_refusal, own_format = _format_change_check(doc, [found], recorded)
+                if format_refusal is not None:
+                    res = format_refusal
+                else:
+                    res = self._edit_replace_one(ctx, session, params, found)
+                    if own_format:
+                        _flag_unrejectable_style(res, _OWN_FORMAT_CHANGE_WARNING)
             res.update(mode.result_fields())
             return res
 
@@ -1601,6 +1653,9 @@ class ApplyDocumentContent(ToolBase):
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
         editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
+        format_refusal, own_format = _format_change_check(
+            doc, editable, recorded and params.position == "replace"
+        )
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
         if picked and not editable:
             res = make_tool_error(
@@ -1608,6 +1663,8 @@ class ApplyDocumentContent(ToolBase):
                 code="MATCH_CROSSES_DELETION",
                 top_level={"replaced_count": 0},
             )
+        elif format_refusal is not None:
+            res = format_refusal
         elif not ranges:
             res = self._finish_search_miss(doc, params)
         elif params.all_matches:
@@ -1632,6 +1689,8 @@ class ApplyDocumentContent(ToolBase):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
+        if own_format:
+            _flag_unrejectable_style(res, _OWN_FORMAT_CHANGE_WARNING)
         res.update(mode.result_fields())
         return res
 

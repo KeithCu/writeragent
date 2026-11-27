@@ -349,6 +349,7 @@ def test_delete_comment_thread_selection(
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
+    doc.getPropertyValue.return_value = False  # RecordChanges
     _setup_mock_undo_manager(doc)
     text_obj = MagicMock()
     doc.getText.return_value = text_obj

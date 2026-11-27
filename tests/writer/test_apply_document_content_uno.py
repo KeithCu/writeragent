@@ -8,8 +8,20 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, pinned_writer_tool_context, with_native_doc
+from plugin.writer import review_authors
 from plugin.writer.apply_document_content import ApplyDocumentContent
-from tests.writer.doc_builders import body_paragraphs, body_texts, reject_all_changes
+from plugin.writer.styles import ApplyStyle
+from tests.writer.doc_builders import (
+    body_paragraphs,
+    body_texts,
+    find_first,
+    list_redline_types,
+    list_redlines,
+    recording_as,
+    reject_all_changes,
+    reset_body,
+    review_mode,
+)
 
 
 def _clear_body(doc):
@@ -336,9 +348,14 @@ def test_full_document_table_tail_under_review_uno(ctx, doc):
             rl_types.append(str(enum.nextElement().getPropertyValue("RedlineType")))
         assert "Insert" in rl_types, rl_types
 
+        # The whole body is now the agent's own pending insertion, so the second replace removes it
+        # outright instead of striking it, and Reject All still returns the empty document.
         res2 = ApplyDocumentContent().execute(tctx, target="full_document", content=content)
         assert res2.get("status") == "ok", res2
-        assert doc.getTextTables().getCount() == 2
+        assert doc.getTextTables().getCount() == 1
+        reject_all_changes(doc, ctx)
+        assert doc.getTextTables().getCount() == 0
+        assert doc.getText().getString() == ""
     finally:
         save({flag: prev})
         doc.setPropertyValue("RecordChanges", False)
@@ -2511,3 +2528,54 @@ def test_user_recording_with_review_off_reports_tracked_uno(ctx):
                 doc.setPropertyValue("RecordChanges", False)
     finally:
         save({flag: prev})
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_replace_refuses_over_foreign_format_change_uno(ctx, doc):
+    """A recorded replace over another author's pending bold would delete that Format redline,
+    so the bold could no longer be rejected; the edit is refused and the redline stays."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    with recording_as(doc, ctx, "Alice"):
+        find_first(doc, "plain").setPropertyValue("CharWeight", 150.0)
+    before = list_redlines(doc)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two plain text", content="two simple text"
+        )
+    assert res.get("code") == "MATCH_CROSSES_FORMAT_CHANGE", res
+    assert list_redlines(doc) == before
+    assert body_texts(doc.getText()) == ["Alpha one.", "Beta two plain text."]
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_recorded_replace_over_own_format_change_flags_style_unreviewed_uno(ctx, doc):
+    """Over the agent's own pending Format redline the replace goes ahead and says Reject All keeps the formatting."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    with recording_as(doc, ctx, review_authors.INSERT_AUTHOR):
+        find_first(doc, "plain").setPropertyValue("CharWeight", 150.0)
+    with review_mode("record"):
+        res = ApplyDocumentContent().execute(
+            native_writer_tool_context(doc, ctx), target="search", old_content="two plain text", content="two simple text"
+        )
+    assert res.get("status") == "ok", res
+    assert res.get("style_unreviewed") is True, res
+    assert res.get("warnings"), res
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_text_edit_that_accepts_paragraph_style_change_flags_style_unreviewed_uno(ctx, doc):
+    """A recorded word edit in a paragraph with a pending style change makes LibreOffice accept
+    that change (tdf#119019), so Reject All keeps the new style; the result says so."""
+    reset_body(doc, ctx, "Alpha one.", "Beta two plain text.")
+    tctx = native_writer_tool_context(doc, ctx)
+    with review_mode("record"):
+        styled = ApplyStyle().execute(tctx, style="Heading 1", target="search", old_content="Beta two")
+        assert styled.get("status") == "ok", styled
+        assert "ParagraphFormat" in list_redline_types(doc)
+        res = ApplyDocumentContent().execute(tctx, target="search", old_content="two", content="2")
+    assert res.get("status") == "ok", res
+    assert res.get("style_unreviewed") is True, res
+    assert res.get("warnings"), res
