@@ -37,8 +37,7 @@ _SPEED_ENUM: tuple[str, ...] = ("slow", "medium", "fast")
 
 def _pres_enum(type_name: str, member: str) -> Any:
     """One com.sun.star.presentation enum member."""
-    # uno.Enum works in every PyUNO; importing FadeEffect/AnimationSpeed from
-    # com.sun.star.presentation broke in 788b91a31 (#1996).
+    # uno.Enum builds the member by name, so no com.sun.star.presentation import is needed.
     import uno
 
     return uno.Enum("com.sun.star.presentation.%s" % type_name, member)
@@ -137,46 +136,21 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
                 )
             ops.append(("effect", "Effect", effect_key.upper()))
 
-        # Speed and TransitionDuration are one LibreOffice double.
-        # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
-        # medium 2s, fast 1s) and the getter derives speed from that double.
-        # LibreOffice maps Speed and TransitionDuration to one double; setting both overwrites speed.
+        # Speed and TransitionDuration are one double in LibreOffice (sd/source/ui/unoidl/unopage.cxx, WID_PAGE_SPEED writes setTransitionDuration: slow 3 s, medium 2 s, fast 1 s), so transition_duration wins when both are passed.
         td = kwargs.get("transition_duration")
         speed = kwargs.get("speed")
         if td is not None:
-            try:
-                ops.append(("transition_duration", "TransitionDuration", float(td)))
-            except (TypeError, ValueError):
-                return self._tool_error("Invalid transition_duration: %r" % (td,))
+            ops.append(("transition_duration", "TransitionDuration", float(td)))
         elif speed is not None:
-            speed_key = str(speed).lower()
-            if speed_key not in _SPEED_ENUM:
-                avail = sorted(_SPEED_ENUM)
-                return self._tool_error(
-                    "Unknown speed: %s" % speed,
-                    available=avail,
-                    **available_miss_details(str(speed), avail),
-                )
-            ops.append(("speed", "Speed", speed_key.upper()))
+            ops.append(("speed", "Speed", str(speed).upper()))
 
         duration = kwargs.get("duration")
         if duration is not None:
-            try:
-                ops.append(("duration", "Duration", int(duration)))
-            except (TypeError, ValueError):
-                return self._tool_error("Invalid duration: %r" % (duration,))
+            ops.append(("duration", "Duration", int(duration)))
 
         advance = kwargs.get("advance")
         if advance is not None:
-            change = _ADVANCE_CHANGES.get(advance)
-            if change is None:
-                avail = sorted(_ADVANCE_CHANGES)
-                return self._tool_error(
-                    "Unknown advance: %s" % advance,
-                    available=avail,
-                    **available_miss_details(str(advance), avail),
-                )
-            ops.append(("advance", "Change", change))
+            ops.append(("advance", "Change", _ADVANCE_CHANGES[advance]))
 
         updated: list[str] = []
         try:
@@ -220,14 +194,14 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        layout_name = kwargs["layout"].strip().lower()
-        if layout_id(layout_name) is None:
+        wanted = kwargs["layout"].strip().lower()
+        if layout_id(wanted) is None:
             avail = available_layout_names()
             return self._tool_error(
-                "Unknown layout: %s" % layout_name,
+                "Unknown layout: %s" % wanted,
                 available=avail,
-                **available_miss_details(str(layout_name), avail),
+                **available_miss_details(wanted, avail),
             )
         page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
-        applied = apply_slide_layout(page, layout_name)
+        applied = apply_slide_layout(page, wanted)
         return {"status": "ok", "page": page_idx, "layout": applied}

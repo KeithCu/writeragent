@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-log = logging.getLogger(__name__)
-
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import (
     ApplyChunkFn,
@@ -32,6 +30,8 @@ from plugin.framework.errors import format_error_message, is_disposal, reraise_i
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 
+log = logging.getLogger(__name__)
+
 _MAX_SHAPES = 250
 
 
@@ -48,12 +48,11 @@ def _is_text_edit_cursor(obj: Any) -> bool:
 
 def _read_text(text_obj: Any) -> str | None:
     try:
-        val = text_obj.getString()
+        return text_obj.getString()
     except Exception as exc:
         if is_disposal(exc):
             raise
         return None
-    return None if val is None else str(val)
 
 
 def _text_surfaces(shape: Any) -> list[Any]:
@@ -78,7 +77,7 @@ def _text_surfaces(shape: Any) -> list[Any]:
     return surfaces
 
 
-def _append_text_target(targets: list[Any], shape: Any) -> None:
+def _append_text_target(targets: list[tuple[Any, str]], shape: Any) -> None:
     surfaces = _text_surfaces(shape)
     non_empty: list[tuple[Any, str]] = []
     for surface in surfaces:
@@ -88,14 +87,14 @@ def _append_text_target(targets: list[Any], shape: Any) -> None:
     if not non_empty:
         return
     # Prefer the shape object when it holds the same text; Impress undo stacks more reliably on the shape.
-    for surface, _text in non_empty:
+    for surface, text in non_empty:
         if surface is shape:
-            targets.append(surface)
+            targets.append((surface, text))
             return
-    targets.append(non_empty[0][0])
+    targets.append(non_empty[0])
 
 
-def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool]) -> None:
+def _walk_shape_for_targets(shape: Any, targets: list[tuple[Any, str]], saw_table: list[bool]) -> None:
     if is_table_shape(shape):
         saw_table[0] = True
         return
@@ -103,18 +102,17 @@ def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool
         for _child_idx, child in iter_children(shape):
             _walk_shape_for_targets(child, targets, saw_table)
         return
-    if _text_surfaces(shape):
-        _append_text_target(targets, shape)
+    _append_text_target(targets, shape)
 
 
-def iter_draw_rewrite_targets(selection: Any) -> tuple[list[Any], bool]:
-    """Return (text objects with getString/setString, saw_table).
+def iter_draw_rewrite_targets(selection: Any) -> tuple[list[tuple[Any, str]], bool]:
+    """Return ((text_obj, text) pairs, saw_table).
 
     ShapeCollection and a bare shape are both accepted.
     An XTextCursor (getString, getText, getStart, getEnd, and no getByIndex)
     contributes cursor.getText(), not the cursor.
     """
-    targets: list[Any] = []
+    targets: list[tuple[Any, str]] = []
     saw_table = [False]
     if selection is None:
         return targets, False
@@ -124,7 +122,7 @@ def iter_draw_rewrite_targets(selection: Any) -> tuple[list[Any], bool]:
         # otherwise the marked shapes are returned as a ShapeCollection (SdUnoDrawView.cxx).
         # Partial highlight still rewrites the whole shape text (setString on XText replaces all text).
         text_obj = selection.getText()
-        if text_obj is not None and hasattr(text_obj, "getString") and hasattr(text_obj, "setString"):
+        if text_obj is not None:
             _append_text_target(targets, text_obj)
         return targets, saw_table[0]
 
@@ -202,15 +200,9 @@ def do_draw_extend_edit(
     edit_max = get_config("chatbot.edit_selection_max_new_tokens")
 
     tasks: list[StreamCompletionTask] = []
-    for text_obj in text_targets:
+    for text_obj, original in text_targets:
         if len(tasks) >= _MAX_SHAPES:
             break
-        try:
-            original = text_obj.getString()
-        except Exception as exc:
-            if is_disposal(exc):
-                raise
-            continue
         if not original:
             continue
         tasks.append(
@@ -245,19 +237,14 @@ def do_draw_extend_edit(
     produced_text = [False]
     autogrow_done: set[int] = set()
 
-    # Capture text objects and originals for custom undo action
-    text_obj_originals: list[tuple[Any, str]] = []
-    final_texts: list[str] = []
-    for task in tasks:
-        text_obj, original = task.payload
-        text_obj_originals.append((text_obj, original))
-        final_texts.append(original)  # Will be updated during streaming
+    text_obj_originals: list[tuple[Any, str]] = [t.payload for t in tasks]
+    final_texts: list[str] = [orig for _obj, orig in text_obj_originals]
 
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         text_obj, original = task.payload
         obj_id = id(text_obj)
         accumulated_text = [task.prompt if not is_edit else ""]
-        task_idx = [i for i, (obj, _orig) in enumerate(text_obj_originals) if obj is text_obj][0]
+        task_idx = tasks.index(task)
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:

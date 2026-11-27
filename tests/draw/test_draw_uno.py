@@ -519,7 +519,7 @@ def test_list_pages_reports_lo_default_names(ctx, doc):
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
     for _idx in range(2):
-        added = AddSlide().execute(tctx)
+        added = AddSlide().execute(tctx, activate=True)
         assert added.get("status") == "ok", added
 
     out = ListPages().execute(tctx)
@@ -539,9 +539,9 @@ def test_list_pages_reports_slide_title(ctx, doc):
     from plugin.framework.tool import ToolContext
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
-    assert AddSlide().execute(tctx, layout="text").get("status") == "ok"
+    assert AddSlide().execute(tctx, layout="text", activate=True).get("status") == "ok"
     assert SetPlaceholderText().execute(tctx, role="title", text="Pricing", page=1).get("status") == "ok"
-    assert AddSlide().execute(tctx, layout="blank").get("status") == "ok"
+    assert AddSlide().execute(tctx, layout="blank", activate=True).get("status") == "ok"
 
     out = ListPages().execute(tctx)
     assert out.get("status") == "ok", out
@@ -558,7 +558,7 @@ def test_move_slide_reports_final_order(ctx, doc):
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
     for _idx in range(2):
-        assert AddSlide().execute(tctx).get("status") == "ok"
+        assert AddSlide().execute(tctx, activate=True).get("status") == "ok"
 
     for idx, title in enumerate(("Intro", "Body", "End")):
         assert RenameSlide().execute(tctx, page=idx, name=title).get("status") == "ok"
@@ -645,7 +645,7 @@ def test_rename_slide_refuses_reserved_and_duplicate_names_uno(ctx, doc):
 
     tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
     for _idx in range(2):
-        assert AddSlide().execute(tctx).get("status") == "ok"
+        assert AddSlide().execute(tctx, activate=True).get("status") == "ok"
 
     assert RenameSlide().execute(tctx, page=1, name="Intro").get("status") == "ok"
 

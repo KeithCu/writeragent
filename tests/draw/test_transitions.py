@@ -174,10 +174,20 @@ def test_set_slide_transition_effect_and_speed():
     page.setPropertyValue.assert_any_call("Change", 1)
 
 
+def test_set_slide_transition_unknown_effect_writes_nothing():
+    ctx = MagicMock()
+    page = MagicMock()
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = SetSlideTransition().execute(ctx, page=0, effect="not_a_real_effect")
+
+    assert out["status"] == "error"
+    page.setPropertyValue.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
-        pytest.param({"effect": "not_a_real_effect"}, id="unknown_effect"),
         pytest.param({"speed": "supersonic"}, id="unknown_speed"),
         pytest.param({"advance": "telepathic"}, id="unknown_advance"),
         pytest.param({"effect": "dissolve", "speed": "supersonic"}, id="invalid_speed_with_effect"),
@@ -186,15 +196,9 @@ def test_set_slide_transition_effect_and_speed():
         pytest.param({"transition_duration": "long"}, id="bad_transition_duration_type"),
     ],
 )
-def test_set_slide_transition_invalid_args_write_nothing(kwargs):
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, **kwargs)
-
-    assert out["status"] == "error"
-    page.setPropertyValue.assert_not_called()
+def test_set_slide_transition_schema_rejects_invalid_args(kwargs):
+    ok, _err = SetSlideTransition().validate(doc_type="impress", page=0, **kwargs)
+    assert ok is False
 
 
 def test_set_slide_transition_enum_import_error_is_a_tool_error():
