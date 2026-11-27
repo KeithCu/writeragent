@@ -12,6 +12,7 @@ from plugin.tests.testing_utils import with_native_doc
 _calc_uids: list = []
 _writer_uids: list = []
 _writer_shape_uids: list = []
+_writer_style_seen: list = []
 
 
 def _runtime_uid(doc) -> str:
@@ -96,6 +97,32 @@ def test_writer_reuse_next_test_sees_empty_draw_page(ctx, doc):
     assert _writer_shape_uids, "run test_writer_reuse_leaves_free_shape_on_draw_page first (pairs share the pooled doc)"
     assert _runtime_uid(doc) == _writer_shape_uids[0], "expected reused Writer doc, got a different RuntimeUID"
     assert doc.getDrawPage().getCount() == 0, "free shape leaked across the pooled Writer wipe"
+
+
+_STYLE_PROPS = ("CharHeight", "CharFontName", "NumberingStyleName")
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_reuse_rewrites_builtin_heading_style(ctx, doc):
+    heading = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Heading 1")
+    original = tuple(heading.getPropertyValue(name) for name in _STYLE_PROPS)
+    heading.setPropertyValue("CharHeight", 33.0)
+    heading.setPropertyValue("CharFontName", "Liberation Mono")
+    heading.setPropertyValue("NumberingStyleName", "")
+    assert heading.getPropertyValue("CharHeight") == 33.0
+    _writer_style_seen.append((_runtime_uid(doc), original))
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_reuse_next_test_sees_original_builtin_heading_style(ctx, doc):
+    assert _writer_style_seen, "run test_writer_reuse_rewrites_builtin_heading_style first (pairs share the pooled doc)"
+    uid, original = _writer_style_seen[0]
+    assert _runtime_uid(doc) == uid, "expected reused Writer doc, got a different RuntimeUID"
+    heading = doc.getStyleFamilies().getByName("ParagraphStyles").getByName("Heading 1")
+    now = tuple(heading.getPropertyValue(name) for name in _STYLE_PROPS)
+    assert now == original, "built-in style rewrite leaked across the pooled Writer wipe"
 
 
 @native_test
