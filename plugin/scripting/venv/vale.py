@@ -70,7 +70,7 @@ def _run_vale(cmd: list[str], timeout: int, timeout_label: str, fail_label: str,
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"{timeout_label} timed out after {timeout}s") from exc
     if proc.returncode not in ok_codes:
-        stderr_msg = (proc.stderr or "").strip()
+        stderr_msg = proc.stderr.strip()
         raise RuntimeError(f"{fail_label} (code {proc.returncode}): {stderr_msg}")
     return proc
 
@@ -199,10 +199,10 @@ def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, An
     # 3. Parse JSON output
     try:
         output_data = json.loads(proc.stdout or "{}")
-    except Exception as e:
+    except ValueError as e:
         raise RuntimeError(f"Vale returned invalid JSON: {e}. Output was: {proc.stdout}") from e
 
-    # Minimal guard: null Action or non-list file entry does not raise
+    # Vale keys alerts by file name; stdin is `stdin.txt`. Anything that is not a list of alerts is no alerts.
     file_errors: Any = []
     if isinstance(output_data, dict):
         file_errors = output_data.get("stdin.txt")

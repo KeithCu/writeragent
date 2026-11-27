@@ -185,7 +185,7 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     # Do not catch. get_runtime_uid and get_document_path are @main_thread_only;
     # an off-main RuntimeError must propagate and must not fall through to getTitle().
     # get_document_path already catches Exception in its body and returns None.
-    uid = get_runtime_uid(doc) or ""
+    uid = get_runtime_uid(doc)
     url = str(doc.getURL() or "")
     name = ""
     if url:
@@ -222,8 +222,8 @@ def format_peer_envelope(
     name: str,
     uid: str,
     url: str,
-    message: str | None,
-    kind: str = "work",
+    message: str,
+    kind: str,
 ) -> str:
     """Code-inserted wrapper. ``message`` is the body only.
 
@@ -236,8 +236,7 @@ def format_peer_envelope(
         f"[{label}: {_sanitize_peer_field(name)[:PEER_NAME_MAX_CHARS]} | "
         f"uid={_sanitize_peer_field(uid)} | url={_sanitize_peer_field(url)}]"
     )
-    # None message becomes an empty body, not the literal "None".
-    body = "" if message is None else message.rstrip("\n")
+    body = message.rstrip("\n")
     if kind == "result":
         return f"{header}\n\n{body}"
     return f"{header}\n\n{body}\n\n{PEER_WORK_DELIVERY_FOOTER}"
@@ -250,10 +249,10 @@ def format_peer_catalog(peers: list[dict[str, str]]) -> str:
     parts = []
     for p in peers:
         parts.append(
-            f"{_sanitize_peer_field(p.get('name') or 'Untitled')[:PEER_NAME_MAX_CHARS]} "
-            f"(uid={_sanitize_peer_field(p.get('uid') or '')}, "
-            f"url={_sanitize_peer_field(p.get('url') or '')}, "
-            f"type={_sanitize_peer_field(p.get('type') or '')})"
+            f"{_sanitize_peer_field(p['name'])[:PEER_NAME_MAX_CHARS]} "
+            f"(uid={_sanitize_peer_field(p['uid'])}, "
+            f"url={_sanitize_peer_field(p['url'])}, "
+            f"type={_sanitize_peer_field(p['type'])})"
         )
     return "Open peers: " + "; ".join(parts) + "."
 
@@ -273,9 +272,7 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     (specialized scaffolding / ``get_peer_inner_choice_block``) or this asserts.
     """
     assert_main_thread("peer_message.list_v1_peers")
-    self_uid = ""
-    if self_doc is not None:
-        self_uid = get_runtime_uid(self_doc) or ""
+    self_uid = get_runtime_uid(self_doc) if self_doc is not None else ""
     peers: list[dict[str, str]] = []
     try:
         catalog = document_research.get_open_documents(uno_ctx, self_doc)
@@ -284,8 +281,8 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
         return []
     seen: set[str] = set()
     for rec in catalog:
-        uid = str(rec.get("uid") or "")
-        url = str(rec.get("url") or "")
+        uid = rec["uid"]
+        url = rec["url"]
         if not uid or uid == self_uid or uid in seen:
             continue
         model = _resolve_open_model(uno_ctx, uid)
@@ -299,7 +296,7 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
         seen.add(uid)
         peers.append(
             {
-                "name": str(rec.get("name") or "Untitled"),
+                "name": rec["name"],
                 "uid": uid,
                 "url": url,
                 "type": label,
@@ -312,40 +309,34 @@ def resolve_peer_target(
     uno_ctx: Any,
     self_doc: Any,
     document_url: str,
-) -> tuple[Any | None, str | None, str]:
+) -> tuple[Any, None, str] | tuple[None, str, str]:
     """Resolve *document_url* as file URL, RuntimeUID, or unique display name.
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    target = (document_url or "").strip()
-    if not target:
-        return None, "VALIDATION_ERROR", "document_url is required."
+    self_uid = get_runtime_uid(self_doc) if self_doc is not None else ""
 
-    self_uid = ""
-    if self_doc is not None:
-        self_uid = get_runtime_uid(self_doc) or ""
-
-    model = _resolve_open_model(uno_ctx, target)
+    model = _resolve_open_model(uno_ctx, document_url)
 
     if model is None:
         peers = list_v1_peers(uno_ctx, self_doc)
-        name_hits = [p for p in peers if p.get("name") == target]
+        name_hits = [p for p in peers if p["name"] == document_url]
         if len(name_hits) > 1:
             return (
                 None,
                 "PEER_AMBIGUOUS",
-                f"document_url {target!r} matches more than one open peer; use a uid or file URL.",
+                f"document_url {document_url!r} matches more than one open peer; use a uid or file URL.",
             )
         if len(name_hits) == 1:
             model = _resolve_open_model(uno_ctx, name_hits[0]["uid"])
 
     if model is None:
         # list_v1_peers omits self; match identity_from_doc so the caller does not get PEER_NOT_FOUND.
-        if self_doc is not None and target == identity_from_doc(self_doc)["name"]:
+        if self_doc is not None and document_url == identity_from_doc(self_doc)["name"]:
             return None, "PEER_SELF", "Cannot send a peer message to the same document."
-        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
+        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {document_url!r}."
 
-    peer_uid = get_runtime_uid(model) or ""
+    peer_uid = get_runtime_uid(model)
     if self_uid and peer_uid and self_uid == peer_uid:
         return None, "PEER_SELF", "Cannot send a peer message to the same document."
     if self_doc is not None and (not self_uid or not peer_uid) and uno_same(self_doc, model):
@@ -525,15 +516,15 @@ def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str
         return []
 
 
-def filter_peer_tools_for_specialized(tools: list[Any], uno_ctx: Any, doc: Any) -> list[Any]:
+def filter_peer_tools_for_specialized(tools: list[ToolBase], uno_ctx: Any, doc: Any) -> list[ToolBase]:
     """Keep both peer tools on document_research only when a v1 peer is open."""
-    if not any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
+    if not any(t.name in PEER_TOOL_NAMES for t in tools):
         return tools
     peers: list[dict[str, str]] = []
     if uno_ctx is not None:
         peers = _list_v1_peers_or_empty(uno_ctx, doc, "filter_peer_tools_for_specialized")
     if not peers:
-        return [t for t in tools if getattr(t, "name", None) not in PEER_TOOL_NAMES]
+        return [t for t in tools if t.name not in PEER_TOOL_NAMES]
     return tools
 
 
@@ -629,9 +620,6 @@ class _SendPeerBase(ToolBase):
     uno_services: list[str] | None = list(DOCUMENT_SERVICES)
     parameters: dict[str, Any] | None = _PEER_PARAMETERS
 
-    def is_async(self) -> bool:
-        return False
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not peer_send_caller_allowed(ctx):
             return self._tool_error(
@@ -645,13 +633,11 @@ class _SendPeerBase(ToolBase):
         if not message.strip():
             return self._tool_error("message is required.", code="VALIDATION_ERROR")
 
-        envelope_kind = self.envelope_kind
-
         model, err_code, err_msg = resolve_peer_target(ctx.ctx, ctx.doc, document_url)
-        if err_code or model is None:
-            return self._tool_error(err_msg, code=err_code or "PEER_NOT_FOUND")
+        if err_code is not None:
+            return self._tool_error(err_msg, code=err_code)
 
-        uid = get_runtime_uid(model) or ""
+        uid = get_runtime_uid(model)
         if not uid:
             return self._tool_error(
                 "Peer document has no RuntimeUID.",
@@ -677,7 +663,7 @@ class _SendPeerBase(ToolBase):
             uid=sender["uid"],
             url=sender["url"],
             message=message,
-            kind=envelope_kind,
+            kind=self.envelope_kind,
         )
 
         # The slot is reserved inside schedule_peer_turn before the transcript write.
@@ -694,7 +680,7 @@ class _SendPeerBase(ToolBase):
         return {
             "status": "ok",
             "accepted": True,
-            "envelope_kind": envelope_kind,
+            "envelope_kind": self.envelope_kind,
             "message": PEER_ACCEPTED_FINISH_HINT,
         }
 
@@ -704,7 +690,6 @@ class SendPeerWork(_SendPeerBase):
 
     name: str | None = PEER_WORK_TOOL_NAME
     description: str = _WORK_DESCRIPTION
-    envelope_kind: ClassVar[str] = "work"
 
 
 class SendPeerResult(_SendPeerBase):

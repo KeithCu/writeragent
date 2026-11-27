@@ -312,7 +312,7 @@ def responses_payload(
     if converted:
         data["tools"] = converted
         data["tool_choice"] = tool_choice if tool_choice is not None else "auto"
-        data["parallel_tool_calls"] = False  # chat path, base_provider_shim.py lines 212–215
+        data["parallel_tool_calls"] = False  # Same rule as BaseProviderShim._chat_payload: always false until the tool loop applies parallel calls.
     if effort:
         data["reasoning"] = {"effort": effort, "summary": "auto"}
     if effort == "none" and temperature is not None:
@@ -339,21 +339,41 @@ def _event_text(chunk: dict[str, Any]) -> str:
 
 def responses_failed_message(chunk: dict[str, Any]) -> str:
     response = chunk.get("response")
-    err = response.get("error") if isinstance(response, dict) else None
-    if isinstance(err, dict):
-        message = err.get("message") or err.get("code") or err.get("type")
-        if message:
-            return str(message)
-    if isinstance(err, str) and err.strip():
-        return err.strip()
-    top_err = chunk.get("error")
-    if isinstance(top_err, dict):
-        message = top_err.get("message") or top_err.get("code") or top_err.get("type")
-        if message:
-            return str(message)
-    if isinstance(top_err, str) and top_err.strip():
-        return top_err.strip()
+    candidates = (response.get("error") if isinstance(response, dict) else None, chunk.get("error"))
+    for err in candidates:
+        if isinstance(err, dict):
+            message = err.get("message") or err.get("code") or err.get("type")
+            if message:
+                return str(message)
+        if isinstance(err, str) and err.strip():
+            return err.strip()
     return "response.failed"
+
+
+def _terminal_delta(resp: dict[str, Any], chunk: dict[str, Any]) -> dict[str, Any]:
+    delta_ret: dict[str, Any] = {}
+    resp_usage = resp.get("usage")
+    chunk_usage = chunk.get("usage")
+    usage_obj = resp_usage if isinstance(resp_usage, dict) else chunk_usage
+    if isinstance(usage_obj, dict):
+        delta_ret["usage"] = normalize_usage(usage_obj)
+    resp_m = resp.get("model")
+    chunk_m = chunk.get("model")
+    m = resp_m if isinstance(resp_m, str) else chunk_m
+    if isinstance(m, str) and m:
+        delta_ret["model"] = m
+    return delta_ret
+
+
+def _incomplete_finish_reason(details: Any) -> str:
+    raw_reason = details.get("reason") if isinstance(details, dict) else None
+    if raw_reason == "max_output_tokens":
+        return "length"
+    if raw_reason == "content_filter":
+        return "content_filter"
+    if isinstance(raw_reason, str) and raw_reason.strip():
+        return raw_reason.strip()
+    return "length"
 
 
 def parse_responses_chunk(
@@ -481,43 +501,12 @@ def parse_responses_chunk(
 
     if event_type in ("response.completed", "response.done"):
         finish_reason = "tool_calls" if stream_state.get("_responses_saw_call") else "stop"
-        delta_ret: dict[str, Any] = {}
-        resp_usage = resp.get("usage")
-        chunk_usage = chunk.get("usage")
-        usage_obj = resp_usage if isinstance(resp_usage, dict) else chunk_usage
-        if isinstance(usage_obj, dict):
-            delta_ret["usage"] = normalize_usage(usage_obj)
-        resp_m = resp.get("model")
-        chunk_m = chunk.get("model")
-        m = resp_m if isinstance(resp_m, str) else chunk_m
-        if isinstance(m, str) and m:
-            delta_ret["model"] = m
-        return "", finish_reason, None, delta_ret
+        return "", finish_reason, None, _terminal_delta(resp, chunk)
 
     if event_type == "response.incomplete":
         details_val = resp.get("incomplete_details") or chunk.get("incomplete_details")
-        details: dict[str, Any] = details_val if isinstance(details_val, dict) else {}
-        raw_reason = details.get("reason")
-        if raw_reason == "max_output_tokens":
-            finish_reason = "length"
-        elif raw_reason == "content_filter":
-            finish_reason = "content_filter"
-        elif isinstance(raw_reason, str) and raw_reason.strip():
-            finish_reason = raw_reason.strip()
-        else:
-            finish_reason = "length"
-        delta_ret = {}
-        resp_usage = resp.get("usage")
-        chunk_usage = chunk.get("usage")
-        usage_obj = resp_usage if isinstance(resp_usage, dict) else chunk_usage
-        if isinstance(usage_obj, dict):
-            delta_ret["usage"] = normalize_usage(usage_obj)
-        resp_m = resp.get("model")
-        chunk_m = chunk.get("model")
-        m = resp_m if isinstance(resp_m, str) else chunk_m
-        if isinstance(m, str) and m:
-            delta_ret["model"] = m
-        return "", finish_reason, None, delta_ret
+        finish_reason = _incomplete_finish_reason(details_val)
+        return "", finish_reason, None, _terminal_delta(resp, chunk)
 
     if event_type == "response.failed":
         raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
@@ -615,16 +604,7 @@ def parse_responses_sync(
         message["reasoning"] = summary_text
 
     if status == "incomplete":
-        details_obj = response_data.get("incomplete_details")
-        raw_reason = details_obj.get("reason") if isinstance(details_obj, dict) else None
-        if raw_reason == "max_output_tokens":
-            finish_reason = "length"
-        elif raw_reason == "content_filter":
-            finish_reason = "content_filter"
-        elif isinstance(raw_reason, str) and raw_reason.strip():
-            finish_reason = raw_reason.strip()
-        else:
-            finish_reason = "length"
+        finish_reason = _incomplete_finish_reason(response_data.get("incomplete_details"))
     elif tool_calls_ret:
         finish_reason = "tool_calls"
     else:

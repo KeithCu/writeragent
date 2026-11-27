@@ -27,12 +27,12 @@ from compute_service import error_codes as ec
 from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, DEFAULT_SETTINGS, ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton
 from compute_service.worker_stdio import run_compute_worker
-from plugin.framework.child_runtime import Deadline
-from plugin.framework.child_runtime import error_dict
+from plugin.framework.child_runtime import Deadline, error_dict
 
 log = logging.getLogger("compute_service.vision")
 
 _WORKER_SCRIPT = os.path.abspath(__file__)
+_VISION_POOL_BUSY = "All vision workers are currently busy and request timed out waiting for worker lease."
 
 
 class VisionProcessPool(BaseProcessPool):
@@ -41,8 +41,8 @@ class VisionProcessPool(BaseProcessPool):
     def __init__(self, settings: ComputeSettings | None = None) -> None:
         cfg = DEFAULT_SETTINGS if settings is None else settings
 
-        # Formula workers already pass this. The 16 MiB IPC default rejected a
-        # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
+        # The pool frame cap must cover the 32 MiB HTTP body cap; the 16 MiB
+        # IPC default would reject a body the HTTP layer accepted.
         # A read timeout kills the child. The next lease respawns it.
         super().__init__(
             script_path=_WORKER_SCRIPT,
@@ -80,26 +80,20 @@ class VisionProcessPool(BaseProcessPool):
 
         # Only None means "use the default". Zero is an explicit timeout.
         clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
-        prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
-        payload = {"id": req_id, "helper": helper, "image_bytes": image, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
+        payload = {"id": req_id, "helper": helper, "image_bytes": image, "file_path": file_path, "params": params, "allow_paths": allow_paths}
 
         if clock.usable() is None:
-            return error_dict(ec.VISION_POOL_BUSY, "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
+            return error_dict(ec.VISION_POOL_BUSY, _VISION_POOL_BUSY, req_id=req_id)
         with self.leased(timeout_sec=max(clock.left(), 0.0)) as worker:
             if worker is None or clock.usable() is None:
-                return error_dict(ec.VISION_POOL_BUSY, "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
+                return error_dict(ec.VISION_POOL_BUSY, _VISION_POOL_BUSY, req_id=req_id)
             return worker.execute(payload, timeout_sec=clock.run_for(), req_id=req_id)
 
 
 # Global singleton per server process
 _POOL_SINGLETON: PoolSingleton[VisionProcessPool] = PoolSingleton()
 
-
-def _new_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPool:
-    return VisionProcessPool(settings=settings)
-
-
-get_vision_pool, shutdown_vision_pool = bind_pool_singleton(_POOL_SINGLETON, _new_vision_pool)
+get_vision_pool, shutdown_vision_pool = bind_pool_singleton(_POOL_SINGLETON, VisionProcessPool)
 
 
 def _missing_module_from_vision_result(res: dict[str, Any]) -> str | None:
@@ -142,13 +136,13 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     try:
         # OCR backends are optional in the image
         from plugin.vision.venv.vision import run_vision
-    except (ModuleNotFoundError, ImportError):
+    except ImportError:
         return error_dict(ec.VISION_UNAVAILABLE, "OCR is not installed in this server", req_id=req_id)
 
     try:
         spec = {"helper": helper, "params": params}
         res = run_vision(spec=spec, image=image_bytes)
-        if isinstance(res, dict) and res.get("code") == "VISION_ERROR":
+        if res.get("code") == "VISION_ERROR":
             # run_vision sets details.missing_module on ModuleNotFoundError; VISION_ERROR is not in
             # HTTP_STATUS, so _infrastructure_status keeps HTTP 200. Translate here only (501) so a
             # proxy does not treat a permanent backend gap as a normal OCR result.
@@ -159,7 +153,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
                     _ocr_backend_missing_message(backend),
                     req_id=req_id,
                 )
-        if req_id is not None and isinstance(res, dict):
+        if req_id is not None:
             res["id"] = req_id
         return res
     except Exception as exc:

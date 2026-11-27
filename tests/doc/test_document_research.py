@@ -139,7 +139,7 @@ def test_list_nearby_files_filter():
         with patch("plugin.doc.document_research.get_document_path", return_value=None):
             with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
-                    result = list_nearby_files(ctx, model, filter="budget")
+                    result = list_nearby_files(ctx, model, name_filter="budget")
         assert result["status"] == "ok"
         assert [f["name"] for f in result["files"]] == ["Budget.ods"]
 
@@ -505,7 +505,7 @@ def test_resolve_path_or_name_strips_matching_quotes(tmp_path):
         }
         path2, url2 = resolve_path_or_name(MagicMock(), MagicMock(), "'Budget.ods'")
     mock_scan.assert_called_once()
-    assert mock_scan.call_args.kwargs["filter"] == "Budget.ods"
+    assert mock_scan.call_args.kwargs["name_filter"] == "Budget.ods"
     assert (path2, url2) == (expected, expected_url)
 
 

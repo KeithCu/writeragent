@@ -108,10 +108,6 @@ def execute_popup_under_button(popup: Any, button_ctrl: Any) -> int:
         return 0
 
     ps = button_ctrl.getPosSize()
-    if ps is None:
-        log.warning("execute_popup_under_button: button has no position; not showing the popup")
-        return 0
-
     rect = Rectangle()
     rect.X = int(ps.X)
     rect.Y = int(ps.Y + ps.Height)
@@ -204,8 +200,7 @@ class _HamburgerListener(BaseActionListener):
         self._frame = frame
 
     def on_action_performed(self, rEvent: Any) -> None:
-        button_ctrl = getattr(rEvent, "Source", None)
-        show_python_sidebar_hamburger(self.ctx, self._frame, button_ctrl)
+        show_python_sidebar_hamburger(self.ctx, self._frame, rEvent.Source)
 
 
 def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], *, calc_doc: bool) -> None:

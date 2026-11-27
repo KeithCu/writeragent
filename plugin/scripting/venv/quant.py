@@ -96,8 +96,7 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     extra_time = list(
         df.select_dtypes(include=["datetime64", "datetimetz", "timedelta64"]).columns
     )
-    if len(extra_time) > 0:
-        df = df.drop(columns=extra_time)
+    df = df.drop(columns=extra_time)
 
     numeric_df = df.apply(pd.to_numeric, errors="coerce")
     numeric_df = numeric_df.dropna(how="all")
@@ -282,7 +281,7 @@ def portfolio_tearsheet(
             else:
                 returns = numeric_df.mean(axis=1)
 
-        returns = pd.to_numeric(returns, errors="coerce").dropna()
+        returns = returns.dropna()
         if dates is not None:
             dates = dates.loc[returns.index]
         if returns.empty:
@@ -350,12 +349,12 @@ def efficient_frontier(
         numeric_df = _returns_frame_from_df(df)[0]
         # Drop fully empty columns then non-finite rows so mean and covariance see identical rows.
         numeric_df = numeric_df.replace([math.inf, -math.inf], float("nan"))
-        n_cols_before = int(numeric_df.shape[1])
+        n_cols_before = numeric_df.shape[1]
         numeric_df = numeric_df.dropna(axis=1, how="all")
-        n_empty_cols = n_cols_before - int(numeric_df.shape[1])
-        n_rows_before = int(len(numeric_df))
+        n_empty_cols = n_cols_before - numeric_df.shape[1]
+        n_rows_before = len(numeric_df)
         numeric_df = numeric_df.dropna()
-        n_dropped_rows = n_rows_before - int(len(numeric_df))
+        n_dropped_rows = n_rows_before - len(numeric_df)
         if numeric_df.empty or numeric_df.shape[1] < 2:
             return error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
         notes: list[str] = []

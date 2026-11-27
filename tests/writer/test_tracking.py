@@ -259,8 +259,8 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
     start_mock2 = MagicMock()
     start_mock2.getText.return_value = text_mock
 
-    user_redline.getPropertyValue.side_effect = lambda name: start_mock1 if name in ("RedlineStart", "RedlineEnd") else "user edit"
-    agent_redline.getPropertyValue.side_effect = lambda name: start_mock2 if name in ("RedlineStart", "RedlineEnd") else _AGENT_COMMENT
+    user_redline.getPropertyValue.side_effect = lambda name: None if name == "RedlineDateTime" else start_mock1 if name in ("RedlineStart", "RedlineEnd") else "user edit"
+    agent_redline.getPropertyValue.side_effect = lambda name: None if name == "RedlineDateTime" else start_mock2 if name in ("RedlineStart", "RedlineEnd") else _AGENT_COMMENT
 
     if undo_fails:
         ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")

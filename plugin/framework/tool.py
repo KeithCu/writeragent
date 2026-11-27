@@ -529,11 +529,20 @@ def _is_specialized_domain_tool(t: ToolBase, active_domain: str) -> bool:
     return t.is_app_specialized_tool
 
 
+class ToolSpecialBase(ToolBase):
+    """Shared base for app-specific specialized tool bases."""
+
+    tier: str = "specialized"
+    is_app_specialized_tool: ClassVar[bool] = True
+    specialized_domain: ClassVar[str | None] = None
+    specialized_domain_description: ClassVar[str | None] = None
+
+
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_subagent or host-only calls.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp", "unlisted"})
 
 
-def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
+def tool_supports_document(tool: ToolBase | type[ToolBase], *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
     if tool.uno_services is None and tool.doc_types is None:
         return True

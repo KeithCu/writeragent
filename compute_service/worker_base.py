@@ -186,8 +186,7 @@ class BaseProcessPool:
                         # Idle time starts after the handshake.
                         self._idle[w] = time.monotonic()
 
-            # 0 and None mean this pool does not evict for idle time. A subclass
-            # can still start the thread for its own TTL (shared session expiry).
+            # 0 and None mean this pool does not evict for idle time, and no reaper thread starts.
             period = self._reaper_period_sec()
             if period is not None:
                 interval = max(0.02, min(period / 6.0, 300.0))
@@ -221,8 +220,7 @@ class BaseProcessPool:
 
         0 and None both mean this pool does not evict for idle time. A zero
         interval would spin, and treating 0 as already expired would kill
-        workers that just spawned. Subclasses add their own TTL so a session
-        timer still runs when idle eviction is off.
+        workers that just spawned.
         """
         ttl = self.idle_worker_ttl_sec
         if ttl is None or ttl <= 0:
@@ -233,17 +231,16 @@ class BaseProcessPool:
         if self._is_shutdown:
             return
         now = time.monotonic()
-        idle_hits: list[BaseProcessWorker] = []
         idle_ttl = self.idle_worker_ttl_sec
         with self._cond:
             # Drop dead pids before the TTL pass so lease_any cannot pop them.
             # A dead pid is not idle: the next lease performs the handshake.
             self._prune_dead_idle_unlocked()
-            for w in list(self._idle):
-                last_active = self._idle.get(w, now)
-                # 0 and None never expire.
-                if idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl:
-                    idle_hits.append(w)
+            idle_hits = (
+                [w for w, last_active in self._idle.items() if now - last_active >= idle_ttl]
+                if idle_ttl is not None and idle_ttl > 0
+                else []
+            )
             for w in idle_hits:
                 self._idle.pop(w, None)
         for w in idle_hits:
@@ -256,7 +253,6 @@ class BaseProcessPool:
         if idle_hits:
             with self._cond:
                 self._cond.notify_all()
-        if idle_hits and idle_ttl is not None:
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, idle_ttl)
 
     def is_enabled(self) -> bool:

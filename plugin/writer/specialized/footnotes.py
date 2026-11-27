@@ -23,7 +23,7 @@ from plugin.writer.specialized_base import (
     enum_param,
     index_error,
 )
-from plugin.framework.errors import ToolExecutionError, make_tool_error
+from plugin.framework.errors import make_tool_error
 from plugin.framework.i18n import _
 from plugin.writer.edit_review import flag_tracked, flag_untracked, record_write
 from plugin.writer.search import (
@@ -45,12 +45,7 @@ _NOTE_METHODS: dict[tuple[str, str], str] = {
 
 
 def _note_api(doc: Any, note_type: str, kind: str) -> Any:
-    method_name = _NOTE_METHODS.get((note_type, kind))
-    if method_name is None:
-        raise KeyError(note_type)
-    if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-        raise ToolExecutionError(f"Document does not support {note_type}s.")
-    return getattr(doc, method_name)()
+    return getattr(doc, _NOTE_METHODS[note_type, kind])()
 
 
 def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, dict[str, Any] | None]:
@@ -96,10 +91,10 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         note_type = kwargs["note"]
-        text = str(kwargs["text"])
+        text = kwargs["text"]
         label = kwargs.get("label", "")
 
-        insert_after = str(kwargs.get("insert_after") or "")
+        insert_after = kwargs.get("insert_after") or ""
         has_search = bool(insert_after.strip())
         case_sensitive = explicit_case_sensitive(kwargs.get("case_sensitive"))
         doc = ctx.doc
@@ -112,15 +107,13 @@ class FootnotesInsert(ToolWriterFootnoteBase):
             if err is not None:
                 err.update(mode.result_fields())
                 return err
-            if rng is None:
-                return self._tool_error("Failed to find insertion point.")
+            assert rng is not None
         else:
             rng = require_selection_range(ctx)
 
         t_cursor = rng.getText().createTextCursorByRange(rng)
         t_cursor.collapseToEnd()
 
-        # Create the note instance
         service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"
         note = doc.createInstance(service_name)
         if not note:
@@ -315,12 +308,11 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         updated_props = []
         for prop_name, prop_val in props_to_update.items():
             try:
-                # UNO sometimes requires specific types like shorts for certain properties
-                # e.g., StartAt and NumberingType are shorts, but let pyuno handle the coercion mostly
+                # StartAt and NumberingType are shorts; PyUNO converts a Python int.
                 settings.setPropertyValue(prop_name, prop_val)
                 updated_props.append(prop_name)
             except Exception as e:
-                msg = f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}"
+                msg = f"Failed to set property '{prop_name}' to '{prop_val}': {e}"
                 if updated_props:
                     msg = f"{msg}. Already updated: {', '.join(updated_props)}."
                 return self._tool_error(msg, top_level={"updated_properties": updated_props})

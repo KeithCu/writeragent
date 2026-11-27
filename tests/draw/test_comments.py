@@ -105,8 +105,6 @@ class _FakePage:
         return name == _ANNOTATION_ACCESS_SVC and self._annotation_access
 
     def createAnnotationEnumeration(self):
-        if not self._anns:
-            return None
         if self._hide_new_in_enum:
             return FakeUnoEnum([])
         return FakeUnoEnum(self._anns)
@@ -247,8 +245,8 @@ def test_list_cap_hint_and_offset():
 @pytest.mark.parametrize(
     ("tool", "kwargs", "code"),
     [
-        (ListPageComments(), {"offset": True}, "INVALID_PARAM"),
-        (DeletePageComment(), {"index": True}, "INVALID_PARAM"),
+        (ListPageComments(), {"offset": -1}, "INVALID_PARAM"),
+        (DeletePageComment(), {"index": -1}, "INVALID_PARAM"),
         (AddPageComment(), {"text": "  ", "page": 0}, "INVALID_PARAM"),
     ],
 )

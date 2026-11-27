@@ -10,7 +10,7 @@ Python editor (so the webview chrome + Monaco theme track the LO UI automaticall
 
 Detection is heuristic (luminance of FieldColor) because LO exposes limited
 color tokens via UNO and "System" mode reflects the desktop at the time the
-window was created. This matches the logic in rich_text.py.
+window was created.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from plugin.framework.uno_context import get_desktop
 
 log = logging.getLogger(__name__)
 
-# Safe light fallback (matches prior defaults)
+# Light-theme fallback colors, used when StyleSettings cannot be read.
 _FALLBACK_BG = 0xE0E1E2
 _FALLBACK_USER = 0x2A6099
 _FALLBACK_ASSISTANT = 0x1E293B
@@ -78,8 +78,7 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return _window_from_doc(doc) or _window_from_desktop(ctx)
 
 
-# CrossHair: two RGB samples. Pytest keeps 0.94 — light _resolve_style uses it.
-_DEAL_THEME_COLORS = (0, 0xFFFFFF)
+# CrossHair: darken-factor samples. Pytest keeps 0.94 — light _resolve_style uses it.
 _DEAL_DARKEN_FACTORS = (0.0, 0.5, 0.94, 1.0)
 
 

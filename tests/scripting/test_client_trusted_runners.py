@@ -90,8 +90,8 @@ def test_headers_false_survives_client_path(ctx):
     assert payload["headers"] is False
     assert payload["header_row"] == 1
     assert payload["params"] == {"periods": 2}
-    rebuilt, data_range, rebuilt_context = _packet_parts(payload)
-    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"), context=rebuilt_context)
+    rebuilt, data_range, _rebuilt_context = _packet_parts(payload)
+    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"))
     assert not isinstance(parsed, dict)
     assert parsed[2] is False
     assert parsed[3] == 1
@@ -120,8 +120,8 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
     payload = mock_run.call_args.kwargs["data"]
     assert payload["headers"] == "false"
     assert payload["header_row"] == "abc"
-    rebuilt, _data_range, rebuilt_context = _packet_parts(payload)
-    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"), context=rebuilt_context)
+    rebuilt, _data_range, _rebuilt_context = _packet_parts(payload)
+    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"))
     assert isinstance(parsed, dict)
     assert parsed["status"] == "error"
     assert parsed["code"] == "INVALID_SPEC"
@@ -144,8 +144,8 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
     payload2 = mock_run2.call_args.kwargs["data"]
     assert payload2["headers"] == "false"
     assert payload2["header_row"] == 1
-    rebuilt2, _data_range2, rebuilt_context2 = _packet_parts(payload2)
-    parsed2 = parse_trusted_spec(rebuilt2, helper_names=names("forecast"), context=rebuilt_context2)
+    rebuilt2, _data_range2, _rebuilt_context2 = _packet_parts(payload2)
+    parsed2 = parse_trusted_spec(rebuilt2, helper_names=names("forecast"))
     assert not isinstance(parsed2, dict)
     assert parsed2[2] is False
     assert parsed2[3] == 1

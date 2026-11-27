@@ -43,8 +43,8 @@ _RESTRICTED_PICKLE_BUILTINS = frozenset({"dict", "list", "tuple", "set", "frozen
 class RestrictedUnpickler(AllowlistUnpickler):
     """Restricted unpickler for child->host IPC frames.
 
-    Only allows standard builtin container and scalar types (dict, list, tuple,
-    str, int, float, bytes, bool, None). Forbids all module imports and callable
+    Only the builtins in ``_RESTRICTED_PICKLE_BUILTINS`` may be named as pickle
+    globals. Forbids all module imports and callable
     reconstructors (including NumPy) so child processes running untrusted user
     code cannot execute arbitrary code on the host via pickle globals.
 
@@ -164,7 +164,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             res = error_dict(ec.WORKER_EXECUTION_ERROR, f"Unhandled error: {exc}", req_id=req.get("id"))
 
         # After an abandoned timeout the frame carries "exiting" and os._exit(1) follows the write.
-        should_exit = _lpe is not None and getattr(_lpe, "abandoned_timeout", False)
+        should_exit = _lpe is not None and _lpe.abandoned_timeout
         if should_exit:
             assert _lpe is not None
             _lpe.abandoned_timeout = False

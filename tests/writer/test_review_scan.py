@@ -92,7 +92,7 @@ def test_snapshot_redline_ids_complete():
             self._ident = ident
 
         def getPropertyValue(self, name):
-            return self._ident
+            return None if name == "RedlineDateTime" else self._ident
 
     class _Reds:
         def __init__(self, items):

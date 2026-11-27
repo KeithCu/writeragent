@@ -113,8 +113,6 @@ def is_missing_value(value: Any) -> bool:
     return False
 
 
-# is_blank_value is only None or ""; error tokens and NaN are not blank (unlike is_missing_value).
-# NA() is float nan. None and "" are not NA.
 def is_blank_value(value: Any) -> bool:
     """True for None or a stripped empty string. Errors and NaN are not blank."""
     if value is None:
@@ -178,7 +176,6 @@ def _coerce_cell(value: Any, *, parse: bool) -> Any:
 def _normalize_input_grid(data: Any) -> list[list[Any]]:
     if data is None:
         return []
-    # CalcRange / objects with .values
     if isinstance(data, CalcRange):
         return ensure_rectangular_2d(data.values)
     if isinstance(data, dict):
@@ -197,7 +194,7 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
                     for key in row:
                         if key not in keys:
                             keys.append(key)
-            return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
+            return [list(keys)] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
     # 0-D and 1-D/2-D ndarrays expand to grids; higher rank stays a single wrapped cell.
     try:
@@ -497,7 +494,7 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
                 in_range = (arr >= 1900) & (arr <= 2200)
                 if is_int.all() and in_range.all():
                     is_year = True
-        except Exception:  # noqa: S110
+        except (TypeError, ValueError):
             pass
 
     if is_year:
@@ -507,20 +504,20 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
             else pd.NaT
         )
         return pd.to_datetime(year_strs, errors="coerce").astype("datetime64[ns]")
-    else:
-        def to_serial(v: Any) -> float:
-            if pd.isna(v):
-                return float("nan")
-            try:
-                fv = float(v)
-                if np.isfinite(fv) and 0 < fv <= 2958465:
-                    return fv
-            except Exception:  # noqa: S110
-                pass
-            return float("nan")
 
-        serials = series.map(to_serial)
-        return pd.to_datetime(serials, unit="D", origin=date_origin, errors="coerce").astype("datetime64[ns]")
+    def to_serial(v: Any) -> float:
+        if pd.isna(v):
+            return float("nan")
+        try:
+            fv = float(v)
+            if np.isfinite(fv) and 0 < fv <= 2958465:
+                return fv
+        except (TypeError, ValueError):
+            pass
+        return float("nan")
+
+    serials = series.map(to_serial)
+    return pd.to_datetime(serials, unit="D", origin=date_origin, errors="coerce").astype("datetime64[ns]")
 
 
 def _num_types() -> tuple[tuple[type, ...], tuple[type, ...]]:
@@ -555,7 +552,7 @@ def coerce_int(value: Any, name: str = "value") -> int:
             whole = _whole_number(float(value.strip()))
             if whole is not None:
                 return whole
-        except (ValueError, TypeError):
+        except ValueError:
             pass
     raise HelperError("INVALID_PARAM", f"{name} must be an integer, got {value!r}")
 
@@ -581,7 +578,7 @@ def _coerce_number(value: Any) -> float | None:
         try:
             f = float(value.strip())
             return f if math.isfinite(f) else None
-        except (ValueError, TypeError):
+        except ValueError:
             pass
     return None
 
@@ -657,7 +654,7 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
             # str(None) is the column name "None", which then raised UNKNOWN_COLUMN.
             if item is None:
                 continue
-            s = item.strip() if isinstance(item, str) else str(item).strip()
+            s = str(item).strip()
             if s:
                 result.append(s)
         return result
@@ -683,7 +680,7 @@ def _id_like(series: Any) -> bool:
         diffs = np.diff(arr)
         if (diffs > 0).all() or (diffs < 0).all():
             return True
-    except Exception:  # noqa: S110
+    except (TypeError, ValueError):
         pass
     return False
 
@@ -720,7 +717,7 @@ def column_by_label(df: Any, name: Any) -> Any:
     try:
         if name in df.columns:
             return name
-    except Exception:
+    except TypeError:
         pass
     name_str = str(name)
     for col in df.columns:
@@ -748,8 +745,6 @@ def resolve_columns(
 
     if isinstance(requested, (str, int, float)):
         req_list = [requested]
-    elif isinstance(requested, (list, tuple)):
-        req_list = list(requested)
     else:
         req_list = list(requested)
 
@@ -782,8 +777,7 @@ def _apply_index_col(df: Any, index_col: int | None) -> Any:
     if index_col is None:
         return df
     idx = int(index_col)
-    cols = _column_labels(df)
-    n_cols = len(cols)
+    n_cols = len(df.columns)
     if n_cols == 0:
         raise ValueError(f"index_col {idx} is outside the columns (no columns)")
     if idx < 0 or idx >= n_cols:

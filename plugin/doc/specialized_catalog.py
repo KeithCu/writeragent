@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, NamedTuple, Sequence, cast
+from typing import Any, NamedTuple, Sequence
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -11,7 +11,7 @@ from plugin.framework.prompts import (
     SHAPE_UNITS_RULE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
 )
-from plugin.framework.tool import ToolBase, tool_supports_document
+from plugin.framework.tool import ToolSpecialBase, tool_supports_document
 
 _FOOTNOTES_DIRECT_HINT = (
     "For footnote_insert: if the task quotes or names the document anchor "
@@ -97,9 +97,15 @@ def catalog_entries_from_base(
     """
     base_cls = _special_base(agent_label)
     entries: list[dict[str, str]] = []
+    available_fn = None
+    if ctx is not None or uno_services:
+        # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
+        from plugin.vision.vision_availability import specialized_domain_available
+
+        available_fn = specialized_domain_available
     for cls in base_cls.__subclasses__():
-        domain = getattr(cls, "specialized_domain", None)
-        desc = getattr(cls, "specialized_domain_description", None)
+        domain = cls.specialized_domain
+        desc = cls.specialized_domain_description
         if not domain:
             continue
         if (for_mcp or for_discovery) and _is_chat_tier(cls):
@@ -110,22 +116,18 @@ def catalog_entries_from_base(
             continue
         if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
             continue
-        if uno_services and not tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services):
+        if uno_services and not tool_supports_document(cls, doc_type=None, uno_services_supported=uno_services):
             continue
-        if ctx is not None or uno_services:
+        if available_fn is not None and not available_fn(domain, ctx):
             # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
             # Only the enum in DelegateToSubagent.get_parameters, read with neither, keeps every domain,
             # so a venv or MCP server added later in Settings still passes validation without a restart.
-            # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
-            from plugin.vision.vision_availability import specialized_domain_available
-
-            if not specialized_domain_available(str(domain), ctx):
-                continue
-        entries.append({"domain": str(domain), "description": str(desc or "")})
+            continue
+        entries.append({"domain": domain, "description": desc or ""})
     return entries
 
 
-def _special_base(agent_label: str | None) -> Any:
+def _special_base(agent_label: str | None) -> type[ToolSpecialBase]:
     # Lazy: plugin.writer.specialized_base imports plugin.doc.specialized_base, which
     # imports this module (import cycle); the Calc and Draw bases are cross-app.
     if agent_label == "Calc":
@@ -170,8 +172,8 @@ def get_specialized_domain_catalog(
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
-def _is_chat_tier(cls: Any) -> bool:
-    return getattr(cls, "tier", None) == "chat"
+def _is_chat_tier(cls: type[ToolSpecialBase]) -> bool:
+    return cls.tier == "chat"
 
 
 def chat_tier_domains() -> frozenset[str]:
@@ -179,9 +181,9 @@ def chat_tier_domains() -> frozenset[str]:
     found: set[str] = set()
     for label in ("Writer", "Calc", "Draw"):
         for cls in _special_base(label).__subclasses__():
-            domain = getattr(cls, "specialized_domain", None)
+            domain = cls.specialized_domain
             if domain and _is_chat_tier(cls):
-                found.add(str(domain))
+                found.add(domain)
     return frozenset(found)
 
 
@@ -347,8 +349,7 @@ def apply_inner_outcome(
         if isinstance(final_ans, dict):
             text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
         else:
-            popped = payload.pop("result", "")
-            text = "" if final_ans is None else str(popped)
+            text = str(payload.pop("result", ""))
         payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
         return payload
 

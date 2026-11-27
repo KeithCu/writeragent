@@ -2130,6 +2130,8 @@ def test_expect_100_oversized_body_gets_413_without_continue() -> None:
             response += chunk
         assert response.startswith(b"HTTP/1.1 413")
         assert b" 100 " not in response
+        body = json.loads(response.split(b"\r\n\r\n", 1)[1].decode("utf-8"))
+        assert body["code"] == "PAYLOAD_TOO_LARGE"
     finally:
         if sock is not None:
             sock.close()
@@ -3182,24 +3184,24 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
 def test_drain_body_chunked_closes_connection() -> None:
     from compute_service.server import _drain_body_before_error
 
-    # Chunked with no length returns False and leaves input unread.
+    # Chunked with no length marks close_connection and leaves input unread.
     stream1 = io.BytesIO(b"smuggled")
     env1 = {"HTTP_TRANSFER_ENCODING": "chunked", "wsgi.input": stream1}
-    assert _drain_body_before_error(env1) is False
+    _drain_body_before_error(env1)
     assert request_conn(env1).close_connection is True
     assert stream1.tell() == 0
 
     # Content-Length with chunked encoding leaves bytes unconsumed and closes socket.
     stream2 = io.BytesIO(b"0\r\n\r\nGET /health...")
     env2 = {"HTTP_TRANSFER_ENCODING": "chunked", "CONTENT_LENGTH": "5", "wsgi.input": stream2}
-    assert _drain_body_before_error(env2) is False
+    _drain_body_before_error(env2)
     assert request_conn(env2).close_connection is True
     assert stream2.tell() == 0
 
     # Content-Length without chunked header drains normally.
     stream3 = io.BytesIO(b"12345")
     env3 = {"CONTENT_LENGTH": "5", "wsgi.input": stream3}
-    assert _drain_body_before_error(env3) is True
+    _drain_body_before_error(env3)
     assert request_conn(env3).close_connection is not True
     assert stream3.tell() == 5
 

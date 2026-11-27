@@ -1300,7 +1300,7 @@ def test_get_active_page_index_follows_calc_active_sheet():
     sheet1_page = MagicMock()
     sheet1.getDrawPage.return_value = sheet1_page
 
-    controller.ActiveSheet = sheet1
+    controller.getActiveSheet.return_value = sheet1
 
     draw_pages = MagicMock()
     draw_pages.getCount.return_value = 2

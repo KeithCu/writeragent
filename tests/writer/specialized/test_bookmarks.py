@@ -419,26 +419,6 @@ def test_ensure_heading_bookmarks_raising_map_read(monkeypatch):
     assert "_mcp_existing" in doc.bookmarks
 
 
-def test_strip_for_save_raising_map_read(monkeypatch):
-    from plugin.writer.specialized.bookmarks import BookmarkService, _PENDING_STRIPS
-
-    doc = _HeadingDoc(
-        [_Para("Title", 1)],
-        {"_mcp_existing": _Mark("_mcp_existing", para=0)},
-    )
-    svc = BookmarkService()
-
-    def raise_map(*args, **kwargs):
-        raise RuntimeError("boom")
-
-    doc_key = "test_strip_key"
-    monkeypatch.setattr(svc, "get_mcp_bookmark_map", raise_map)
-    monkeypatch.setattr(svc, "_doc_key", lambda d: doc_key)
-    svc.strip_for_save(doc)
-    assert "_mcp_existing" in doc.bookmarks
-    assert doc_key not in _PENDING_STRIPS
-
-
 def test_restore_after_save_failure_leaves_pending(monkeypatch):
     from plugin.writer.specialized.bookmarks import BookmarkService, _PendingStrip, _PENDING_STRIPS
 

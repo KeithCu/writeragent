@@ -200,14 +200,11 @@ def _parse_quantity_value(ureg: Any, text: str) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def _parse_unit_or_quantity(ureg: Any, text: str, *, param: str) -> Any:
-    raw = str(text or "").strip()
-    if not raw:
-        raise ValueError(f"empty {param}")
+def _parse_unit_or_quantity(ureg: Any, text: str) -> Any:
     try:
-        return ureg.Quantity(raw) if any(ch.isdigit() for ch in raw) else ureg.Quantity(f"1 {raw}")
+        return ureg.Quantity(text) if any(ch.isdigit() for ch in text) else ureg.Quantity(f"1 {text}")
     except Exception:
-        return _parse_quantity_value(ureg, raw)
+        return _parse_quantity_value(ureg, text)
 
 
 def convert_quantity(
@@ -322,8 +319,8 @@ def check_dimensionality(
 
     def _run() -> dict[str, Any]:
         ureg = get_ureg()
-        qty_a = _parse_unit_or_quantity(ureg, left_text, param="quantity_a")
-        qty_b = _parse_unit_or_quantity(ureg, right_text, param="quantity_b")
+        qty_a = _parse_unit_or_quantity(ureg, left_text)
+        qty_b = _parse_unit_or_quantity(ureg, right_text)
         compatible = qty_a.dimensionality == qty_b.dimensionality
         text = "compatible" if compatible else "incompatible"
         return ok_result(
@@ -394,8 +391,7 @@ def _vector_result(
 
 
 def _target_unit_suffixes(raw_to: Any, n: int) -> list[str]:
-    # str(raw_to) on a list is the Python repr, and that repr was written
-    # into every formatted cell and into units.
+    # Unwrap CalcRange/2D inputs per element so str(raw_to) never formats a list repr into cells or units.
     if n == 0:
         return []
     inspected = inspect_input(raw_to)
@@ -471,10 +467,10 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
 @helper("units", "parse_quantity")
 def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
-    # Blank quantity returns MISSING_PARAM here to match the direct parse_quantity API; whitespace-only strings still go through parse.
-    if is_blank_param(params.get("quantity")):
-        return error_result("MISSING_PARAM", "quantity is required", helper=name)
     raw_qty = params.get("quantity")
+    # Blank quantity returns MISSING_PARAM here to match the direct parse_quantity API; whitespace-only strings still go through parse.
+    if is_blank_param(raw_qty):
+        return error_result("MISSING_PARAM", "quantity is required", helper=name)
     if inspect_input(raw_qty).is_scalar:
         def _run() -> dict[str, Any]:
             cell = _scalar_cell(raw_qty)

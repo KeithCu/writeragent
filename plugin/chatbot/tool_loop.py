@@ -577,7 +577,7 @@ class ToolCallingMixin:
             )
             doc_text = turn_session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
-            agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": CHAT_DOCUMENT_CONTEXT_MAX_CHARS}, hypothesis_id="B")
+            agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": CHAT_DOCUMENT_CONTEXT_MAX_CHARS})
         except UnoObjectError:
             log.exception("Document unavailable")
             self._panel._append_response("\n[Document closed or unavailable.]\n")

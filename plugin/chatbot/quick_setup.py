@@ -28,10 +28,10 @@ def check_endpoint_connection(endpoint: str, api_key: str = "") -> tuple[bool, s
         return False, _("Endpoint URL cannot be empty."), []
 
     # Same model-list URL and auth headers as fetch_available_models.
-    built = _v1_models_request(endpoint, api_key)
+    built = _v1_models_request(endpoint)
     if built is None:
         return False, _("Invalid endpoint URL."), []
-    base, models_url = built[:2]
+    base, models_url = built
 
     auth_headers = _model_fetch_auth_headers(
         base,

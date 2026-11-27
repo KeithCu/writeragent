@@ -1159,7 +1159,7 @@ def test_print_preview_controller_without_view_cursor(monkeypatch):
 
     model = SimpleNamespace(getCurrentController=lambda: SimpleNamespace())
     ds = DocumentService()
-    monkeypatch.setattr(ds, "find_paragraph_element", lambda _model, _idx: object())
+    monkeypatch.setattr(ds, "find_paragraph_element", lambda _model, _idx: SimpleNamespace(getAnchor=lambda: object()))
 
     assert ds.get_page_count(model) == 0
     with pytest.raises(UnoObjectError, match="Get view cursor failed"):

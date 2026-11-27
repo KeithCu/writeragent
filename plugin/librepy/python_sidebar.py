@@ -190,7 +190,7 @@ class _PanelResizeListener(BaseWindowListener):
                 self._capture_snapshot()
             snapshot = self._snapshot
             if not snapshot:
-                log.warning("python sidebar _relayout: no snapshot, skip")
+                log.warning("python sidebar relayout_now: no snapshot, skip")
                 return
             layouts = compute_python_sidebar_layout(w, h, snapshot)
             for name, (nx, ny, nw, nh) in layouts.items():
@@ -228,7 +228,7 @@ class _Activation(BaseActivationEventListener):
         self._handler()
 
 
-def format_runtime_status(ctx: Any) -> str:
+def format_runtime_status() -> str:
     """Compact status text: session mode + venv path resolution (no package probe)."""
     mode = python_session_mode()
     mode_label = _("Shared kernel") if mode == "shared" else _("Isolated")
@@ -256,7 +256,7 @@ def _selected_index(control: Any) -> int:
 def _filter_from_combo(control: Any) -> DiagnosticFilter:
     if control is None:
         return "all"
-    text = str(control.getText() or "").strip()
+    text = control.getText().strip()
     for label, filt in _filter_choices():
         if text == label:
             return filt
@@ -522,7 +522,7 @@ class PythonSidebarController:
         if self._disposed:
             return
         doc = self._calc_document()
-        set_control_text(self._ctrl("status"), format_runtime_status(self.ctx))
+        set_control_text(self._ctrl("status"), format_runtime_status())
         if doc is None:
             return
 
@@ -530,9 +530,8 @@ class PythonSidebarController:
         selected_address = None
         if cells_ctrl is not None:
             idx = _selected_index(cells_ctrl)
-            cells_before = self._cells
-            if 0 <= idx < len(cells_before):
-                selected_address = cells_before[idx].address
+            if 0 <= idx < len(self._cells):
+                selected_address = self._cells[idx].address
 
         self._cells = list_python_cells_in_doc(doc)
         cell_lines = [c.address for c in self._cells]

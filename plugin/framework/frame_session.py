@@ -52,7 +52,7 @@ def _same_frame(left: Any, right: Any) -> bool:
         return False
     from plugin.framework.uno_context import uno_same
 
-    return bool(uno_same(left, right))
+    return uno_same(left, right)
 
 
 def session_for_frame(frame: Any) -> FrameSession | None:
@@ -77,7 +77,7 @@ def open_frame_session(frame: Any, doc_uid: str = "") -> FrameSession:
         found = session_for_frame(frame)
         if found is not None:
             if doc_uid and not found.doc_uid:
-                found.doc_uid = str(doc_uid)
+                found.doc_uid = doc_uid
             return found
     session = FrameSession(frame, doc_uid)
     if frame is not None:
@@ -135,7 +135,7 @@ class FrameSession:
 
     def __init__(self, frame: Any, doc_uid: str = "") -> None:
         self.frame = frame
-        self.doc_uid = str(doc_uid or "")
+        self.doc_uid = doc_uid
         self.panel = None
         self.focus_pin = None
         self._restore_query = True
@@ -174,8 +174,8 @@ class FrameSession:
     def note_user_left_query(self) -> None:
         """Stop restoring this frame's Ask field. Other frames are unchanged.
 
-        Stream chunks call :meth:`restore_focus`. A process-wide flag meant a
-        click in window B aborted window A's caret restore, and the reverse.
+        Stream chunks call :meth:`restore_focus`. The flag is per frame so a
+        click in window B does not stop window A's caret restore.
         """
         if not self._restore_query:
             return
@@ -220,13 +220,11 @@ class FrameSession:
         current component.
 
         Restore only while this frame's container window is the active top
-        window. While doc B streamed, every chunk called ``query.setFocus()``
-        here about 3 times with no check that B was the window the user was
-        in. VCL's GrabFocus pulls keyboard focus into a background top window,
-        so a window the user switched to was raised but never activated, and
-        its Window menu would not open until B finished. Do not clear the
-        restore flag: when the user comes back to B, chunks should keep the
-        caret in Ask again without a fresh click there.
+        window. VCL's GrabFocus pulls keyboard focus into a background top
+        window, so an unconditional ``setFocus`` from a streaming document
+        leaves the window the user switched to raised but not activated. The
+        restore flag is not cleared: when the user comes back, chunks keep the
+        caret in Ask without a fresh click.
         """
         if self._closed or not self._restore_query:
             return
@@ -255,12 +253,9 @@ class FrameSession:
         frame = self.frame
         if frame is None or not hasattr(frame, "addEventListener"):
             return False
-        try:
-            import unohelper
-            from com.sun.star.lang import XEventListener
-        except ImportError:
-            return False
-        if unohelper is None or XEventListener is None:
+        from plugin.framework.uno_listeners import HAVE_UNO
+
+        if not HAVE_UNO:
             return False
 
         session = self
@@ -474,15 +469,10 @@ class FrameSession:
         if self._query_listener is not None:
             self._remove(self._query_control, "removeFocusListener", self._query_listener)
             self.forget_listener(self._query_listener)
-        try:
-            import unohelper
-            from com.sun.star.awt import XFocusListener
-        except ImportError:
-            return
-        if unohelper is None or XFocusListener is None:
-            return
+        from plugin.framework.uno_listeners import BaseFocusListener, HAVE_UNO
 
-        from plugin.framework.uno_listeners import BaseFocusListener
+        if not HAVE_UNO:
+            return
 
         session = self
 
@@ -516,15 +506,10 @@ class FrameSession:
         for existing, _mouse, _focus in self._leave:
             if _same_frame(existing, control):
                 return
-        try:
-            import unohelper
-            from com.sun.star.awt import XFocusListener, XMouseListener
-        except ImportError:
-            return
-        if unohelper is None or XFocusListener is None or XMouseListener is None:
-            return
+        from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener, HAVE_UNO
 
-        from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener
+        if not HAVE_UNO:
+            return
 
         session = self
 
@@ -580,12 +565,9 @@ class FrameSession:
         ``getCurrentComponent()`` returned leaves a later window unsubscribed,
         so its clicks do not stop stream ``setFocus``.
         """
-        try:
-            import unohelper
-            from com.sun.star.awt import XMouseClickHandler
-        except ImportError:
-            return
-        if unohelper is None or XMouseClickHandler is None:
+        from plugin.framework.uno_listeners import BaseMouseClickHandler, HAVE_UNO
+
+        if not HAVE_UNO:
             return
 
         controller = self._controller()
@@ -596,8 +578,6 @@ class FrameSession:
         if self._click_handler is not None:
             self._remove(self._click_controller, "removeMouseClickHandler", self._click_handler)
             self.forget_listener(self._click_handler)
-
-        from plugin.framework.uno_listeners import BaseMouseClickHandler
 
         session = self
 

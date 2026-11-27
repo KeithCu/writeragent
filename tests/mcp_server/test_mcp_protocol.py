@@ -1183,7 +1183,8 @@ def test_batch_initialize_rejected():
 
 def test_tools_list_leaves_out_the_mcp_domain():
     from plugin.doc.specialized_base import DelegateToSubagent
-    from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.doc_type import TEXT_DOCUMENT_SERVICE
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
 
     register_writeragent_prompt_hooks()
@@ -1193,7 +1194,7 @@ def test_tools_list_leaves_out_the_mcp_domain():
     register_writeragent_tool_filters(registry)
 
     doc = MagicMock()
-    doc.supportsService.side_effect = lambda s: s in (ALL_DOCUMENT_SERVICES[1], "com.sun.star.document.OfficeDocument")
+    doc.supportsService.side_effect = lambda s: s in (TEXT_DOCUMENT_SERVICE, "com.sun.star.document.OfficeDocument")
     services.tools = registry
     services.get.side_effect = lambda name: getattr(services, name, None)
     services.main_thread.call.side_effect = lambda fn, *a, **k: fn(*a, **{kk: vv for kk, vv in k.items() if kk != "timeout"})

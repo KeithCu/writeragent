@@ -1320,7 +1320,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             raise
 
         try:
-            start_watchdog_thread(self.ctx, controls.get("status"))
+            start_watchdog_thread(controls.get("status"))
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
             # Stop Rec (send) and Stop (leave hands-free / cancel) look alike;
             # tooltips explain them without longer labels at 1x.

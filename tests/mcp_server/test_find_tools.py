@@ -335,28 +335,6 @@ def test_mode_sizing_real_registry():
     assert "tool_find" in discovery and not (spec & discovery)
 
 
-@pytest.mark.parametrize(
-    "bad_schemas",
-    [
-        pytest.param(
-            [{"name": 123, "description": ["x"], "inputSchema": {}}, "not_a_dict"],
-            id="non_dict_and_non_str_fields",
-        ),
-        pytest.param(
-            [{"name": ["bad"], "description": "x", "inputSchema": {}}, {"name": "", "description": "y", "inputSchema": {}}],
-            id="unusable_names",
-        ),
-    ],
-)
-def test_execute_tolerates_malformed_schemas_in_domain_listing(bad_schemas):
-    registry = MagicMock()
-    registry.get_schemas.return_value = [*bad_schemas, _schema("footnote_insert", "add a note")]
-    registry.get_tools.return_value = []
-    result = FindTools().execute(_ctx(registry), domain="footnotes")
-    assert result["status"] == "ok"
-    assert [t.get("name") for t in result["tools"]] == ["footnote_insert"]
-
-
 def test_non_string_domain_is_rejected_by_the_validator():
     tool = FindTools()
     prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": True})

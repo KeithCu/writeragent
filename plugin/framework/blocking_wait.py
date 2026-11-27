@@ -30,7 +30,7 @@ import gc
 import logging
 import queue
 import threading
-from typing import Any, Generator
+from typing import Any, Callable, Generator
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
@@ -90,7 +90,7 @@ def automatic_gc_suspended() -> Generator[None, None, None]:
             gc.collect()
 
 
-def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = True, **kwargs: Any) -> Any:
+def run_blocking_in_thread(ctx: Any, func: Callable[..., Any], *args: Any, pump_idle: bool = True, **kwargs: Any) -> Any:
     """
     Run a blocking function in a background thread.
 
@@ -123,8 +123,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     if pump_idle:
         try:
             # get_toolkit asserts the caller is the UI thread and returns a
-            # guard_uno wrapper, same as the other UNO boundaries. Building
-            # the toolkit inline skipped both.
+            # guard_uno wrapper, same as the other UNO boundaries.
             from plugin.framework.uno_context import get_toolkit
 
             toolkit = get_toolkit(ctx)
@@ -138,11 +137,11 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
         run_in_background(worker, name="blocking-thread", dedicated=True)
         # Do not take drain_owner_scope here: this helper may run under an active stream
         # drain. pump_ui_idle remains the owner-safe VCL pump path.
-        # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
-        # only wakes when the worker finishes, so it never drains the marshal
-        # queue. That deadlocked when pump_idle was True and get_toolkit failed:
-        # the worker sat in main.call waiting for this thread. Do not
-        # add a flag that skips the poll in some cases; that flag caused the bug.
+        # Always wait 0.1 s, never ``timeout=None``. With no timeout this thread
+        # only wakes when the worker finishes and never drains the marshal
+        # queue, which deadlocks when the worker sits in ``main.call`` waiting
+        # for this thread (for example when ``pump_idle`` is True and
+        # ``get_toolkit`` fails). Do not add a flag that skips the poll (#1632).
         while True:
             # Only the get waits on the queue. A worker that raised queue.Empty
             # must propagate: catching it here and calling get again with

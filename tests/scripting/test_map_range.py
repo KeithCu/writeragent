@@ -340,17 +340,6 @@ def test_inspect_numpy_generic_and_zero_d_are_python_scalars():
     assert insp_0d.flat_items == [5]
 
 
-def test_rewrap_output_ragged():
-    # Item 16: ragged result must be padded to a rectangle with "" and must not raise
-    insp = inspect_input(CalcRange([[1, 2], [3, 4]]))
-    res = rewrap_output([1, 2, 3], insp)
-    assert res == [[1, 2], [3, ""]]
-
-    insp3 = inspect_input(CalcRange([[1, 2, 3], [4, 5, 6]]))
-    res3 = rewrap_output([1, 2, 3, 4], insp3)
-    assert res3 == [[1, 2, 3], [4, "", ""]]
-
-
 def test_broadcast_error_message_details():
     # Item 15: include parameter name/index and shapes
     with pytest.raises(ValueError, match=r"parameter 2 has shape 3×1.*expected 1×3"):

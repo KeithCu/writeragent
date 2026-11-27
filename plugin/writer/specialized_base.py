@@ -21,8 +21,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.tool import ToolBase
+from plugin.framework.doc_type import DOCUMENT_SERVICES
+from plugin.framework.tool import ToolBase, ToolSpecialBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -79,7 +79,7 @@ def grouped_text_box_error(tool: ToolBase, index: str) -> dict[str, Any]:
     )
 
 
-class ToolWriterSpecialBase(ToolBase):
+class ToolWriterSpecialBase(ToolSpecialBase):
     """Base class for all specialized Writer tools.
 
     Tools deriving from this base are NOT exposed directly to the main
@@ -88,14 +88,8 @@ class ToolWriterSpecialBase(ToolBase):
     domain (e.g., 'tables', 'charts').
     """
 
-    # Not on the main chat default tool list (tier specialized); exposed via delegation only.
-    tier: str = "specialized"
-    is_app_specialized_tool: ClassVar[bool] = True
-
     # The domain name this tool belongs to (e.g., "tables").
     # Subclasses MUST override this.
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
@@ -261,7 +255,7 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     # One registration per tool name serves Writer, Calc, and Draw/Impress, and the
     # delegate catalog checks only this class.
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 
 class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase):
@@ -272,7 +266,7 @@ class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpec
     specialized_domain: ClassVar[str | None] = "mcp"
     specialized_domain_description: ClassVar[str | None] = DELEGATION_MCP_HINT
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
-    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    uno_services: list[str] | None = list(DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):

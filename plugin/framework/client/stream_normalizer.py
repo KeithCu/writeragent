@@ -19,7 +19,7 @@ from .response_normalizers import text_of
 log = logging.getLogger(__name__)
 
 # Echo reasoning on assistant messages for multi-turn tool loops (session only, not SQLite).
-# Set PRESERVE_REASONING_IN_SESSION = False to restore legacy drop-on-round-2 behavior.
+# False drops reasoning after the first tool round.
 PRESERVE_REASONING_IN_SESSION = True
 # Truncate string reasoning fields only; 0 = unlimited. Never truncates reasoning_details.
 PRESERVE_REASONING_MAX_CHARS = 32000
@@ -208,8 +208,6 @@ def extract_reasoning_replay_from_response(streaming_text: str | None = None, st
 def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pick reasoning replay keys already merged onto an assistant API response dict."""
     # crosshair: off
-    if not PRESERVE_REASONING_IN_SESSION or not response:
-        return {}
     return extract_reasoning_replay_from_response(sync_message=response)
 
 
@@ -282,7 +280,7 @@ def extract_thinking_from_delta(chunk_or_delta: object) -> str:
     """Extract reasoning/thinking text from a stream chunk or bare delta for display in UI."""
     delta = _normalize_stream_delta(chunk_or_delta)
     result = _thinking_text_from_delta(delta)
-    if not result and isinstance(delta, dict):
+    if not result:
         hints = {k: delta.get(k) for k in _THINKING_HINT_KEYS if k in delta}
         if hints:
             # Enable debug logging (writeragent_debug.log) when a provider sends thinking-shaped
@@ -313,13 +311,13 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
 @deal.ensure(lambda delta, result: type(delta) is not dict or _normalize_delta_tool_calls_ok(delta))
 def normalize_delta(delta: object) -> None:
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
-    LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
+    LiteLLM: litellm/litellm_core_utils/streaming_handler.py (role, type, arguments).
     """
     # Plain dict only. Non-dicts and dict subclasses (OrderedDict, CrossHair AttrDict) no-op.
     if type(delta) is not dict:
         return
     delta = cast("dict[str, Any]", delta)
-    # LiteLLM: streaming_handler.py ~L847 "mistral's api returns role as None"
+    # LiteLLM streaming_handler.py: "mistral's api returns role as None"
     if "role" in delta and delta["role"] is None:
         delta["role"] = "assistant"
     # Truthy non-lists (e.g. tool_calls=2) must not be iterated — CrossHair counterexample.
@@ -329,11 +327,11 @@ def normalize_delta(delta: object) -> None:
     for tc in tool_calls:
         if type(tc) is not dict:
             continue
-        # LiteLLM: streaming_handler.py ~L853 "mistral's api returns type: None"
+        # LiteLLM streaming_handler.py: "mistral's api returns type: None"
         if tc.get("type") is None:
             tc["type"] = "function"
         fn = tc.get("function")
-        # LiteLLM: streaming_handler.py ~L820 "## AZURE - check if arguments is not None"
+        # LiteLLM streaming_handler.py: "## AZURE - check if arguments is not None"
         if type(fn) is dict and fn.get("arguments") is None:
             fn["arguments"] = ""
 
@@ -479,9 +477,9 @@ def strip_think_tags(text: str | None) -> tuple[str, str | None]:
     else:
         if "<think>" in clean:
             m = _THINK_UNCLOSED_RE.search(clean)
-            if m:
-                thoughts.append(m.group(1))
-                clean = clean[: m.start()]
+            assert m is not None
+            thoughts.append(m.group(1))
+            clean = clean[: m.start()]
 
     clean = clean.strip()
     thinking = "\n\n".join(t.strip() for t in thoughts if t.strip()) if thoughts else None

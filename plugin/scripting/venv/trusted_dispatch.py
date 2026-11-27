@@ -63,12 +63,8 @@ def parse_trusted_spec(
     spec: dict[str, Any] | str,
     *,
     helper_names: frozenset[str] | set[str],
-    context: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any], bool, int, dict[str, Any]] | dict[str, Any]:
-    """Shared preamble for run_analysis / run_forecast / run_optimize.
-
-    Returns ``(helper, params, headers, header_row, context)`` or an error dict.
-    """
+) -> tuple[str, dict[str, Any], bool, int] | dict[str, Any]:
+    """Helper name, params and sheet-layout flags for the domains whose spec is ``{helper, params, headers, header_row}``."""
     resolved = resolve_spec_helper(spec, helper_names=helper_names)
     if isinstance(resolved, dict):
         return resolved
@@ -79,8 +75,7 @@ def parse_trusted_spec(
     if isinstance(layout, dict):
         return layout
     headers, header_row = layout
-    ctx = context if isinstance(context, dict) else {}
-    return helper, params, headers, header_row, ctx
+    return helper, params, headers, header_row
 
 
 def resolve_spec_helper(
@@ -125,10 +120,10 @@ def run_domain(
 
     # 1. Spec parsing
     if domain in ("analysis", "forecast", "optimize", "quant", "symbolic"):
-        parsed = parse_trusted_spec(spec, helper_names=names(domain), context=context)
+        parsed = parse_trusted_spec(spec, helper_names=names(domain))
         if isinstance(parsed, dict):
             return parsed
-        helper, params, headers, header_row, ctx = parsed
+        helper, params, headers, header_row = parsed
     elif domain == "viz":
         res = resolve_spec_helper(spec, helper_names=names("viz"))
         if isinstance(res, dict):
@@ -157,9 +152,7 @@ def run_domain(
             params = raw_params
         else:
             return error_result("INVALID_SPEC", "params must be a dict", helper=helper)
-        clean = dict(params)
-        clean.pop("output_style", None)
-        params = clean
+        params = {k: v for k, v in params.items() if k != "output_style"}
         from plugin.scripting.venv.units import get_ureg
         if get_ureg() is None:
             return missing_package_error(helper, "pint")
@@ -182,8 +175,7 @@ def run_domain(
         return error_result("UNKNOWN_DOMAIN", f"Unknown domain {domain!r}")
 
     spec_obj = get_spec(domain, helper)
-    if spec_obj is None:
-        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+    assert spec_obj is not None
 
     # 2. Pre-execution checks
     for forbid_key, forbid_code, forbid_msg in spec_obj.forbid:
@@ -199,30 +191,26 @@ def run_domain(
                 helper=helper,
             )
 
-    if spec_obj.required_present:
-        if any(k not in params for k in spec_obj.required_present):
-            return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
+    if any(k not in params for k in spec_obj.required_present):
+        return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
 
-    if spec_obj.required_truthy:
-        if any(not params.get(k) for k in spec_obj.required_truthy):
-            return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
+    if any(not params.get(k) for k in spec_obj.required_truthy):
+        return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
 
     # 3. Invocation according to bind mode
     bind = spec_obj.bind
 
+    def _layout_kwargs(fn: Any) -> dict[str, Any]:
+        sig = inspect.signature(fn)
+        sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
+        candidates = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
+        return {k: v for k, v in candidates.items() if k in sig.parameters}
+
     def _execute() -> dict[str, Any]:
         fn = bound(domain, helper)
         if bind == "present":
-            sig = inspect.signature(fn)
             present_kwargs: dict[str, Any] = {k: params[k] for k in spec_obj.allow if k in params}
-            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
-            if "headers" in sig.parameters:
-                present_kwargs["headers"] = headers
-            if "header_row" in sig.parameters:
-                present_kwargs["header_row"] = header_row
-            if "sheet_hint" in sig.parameters:
-                present_kwargs["sheet_hint"] = sheet_hint
-            return fn(data, **present_kwargs)
+            return fn(data, **present_kwargs, **_layout_kwargs(fn))
 
         if bind == "format":
             # Lazy (cycle): venv/analysis.py imports this module at its top.
@@ -237,28 +225,16 @@ def run_domain(
                 if isinstance(decimals, dict):
                     return decimals
                 return format_cells_result(helper, fn(values, symbol=symbol, decimals=decimals))
-            if helper == "format_percent":
-                decimals = _decimals(params, 1, helper)
-                if isinstance(decimals, dict):
-                    return decimals
-                return format_cells_result(helper, fn(values, decimals=decimals))
-            return error_result("UNKNOWN_HELPER", f"Unknown format helper {helper!r}", helper=helper)
+            decimals = _decimals(params, 1, helper)
+            if isinstance(decimals, dict):
+                return decimals
+            return format_cells_result(helper, fn(values, decimals=decimals))
 
         if bind == "spec":
-            sig = inspect.signature(fn)
             chart_spec = params["spec"] if isinstance(params.get("spec"), dict) else params
-            spec_kwargs: dict[str, Any] = {"spec": chart_spec}
-            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
-            if "headers" in sig.parameters:
-                spec_kwargs["headers"] = headers
-            if "header_row" in sig.parameters:
-                spec_kwargs["header_row"] = header_row
-            if "sheet_hint" in sig.parameters:
-                spec_kwargs["sheet_hint"] = sheet_hint
-            return fn(data, **spec_kwargs)
+            return fn(data, spec=chart_spec, **_layout_kwargs(fn))
 
         if bind == "time_series":
-            sig = inspect.signature(fn)
             optional = {
                 key: str(params[key]) if params.get(key) else None
                 for key in ("forecast_col", "lower_col", "upper_col", "historical_value_col")
@@ -268,14 +244,7 @@ def run_domain(
                 "value_col": str(params["value_col"]),
                 **optional,
             }
-            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
-            if "headers" in sig.parameters:
-                ts_kwargs["headers"] = headers
-            if "header_row" in sig.parameters:
-                ts_kwargs["header_row"] = header_row
-            if "sheet_hint" in sig.parameters:
-                ts_kwargs["sheet_hint"] = sheet_hint
-            return fn(data, **ts_kwargs)
+            return fn(data, **ts_kwargs, **_layout_kwargs(fn))
 
         if bind == "params":
             if helper == "fetch_historical_data":

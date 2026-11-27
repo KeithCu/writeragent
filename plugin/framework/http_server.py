@@ -35,13 +35,13 @@ log = logging.getLogger("writeragent.framework.http_server")
 
 __all__ = [
     "DualStackThreadPoolHTTPServer",
-    "_PORT_IN_USE_GUIDANCE",
+    "PORT_IN_USE_GUIDANCE",
     "format_bind_failure",
     "is_port_in_use_error",
 ]
 
 # Guidance shown in log.error and msgbox on port bind failure.
-_PORT_IN_USE_GUIDANCE = (
+PORT_IN_USE_GUIDANCE = (
     "The port is in use by another process. Close whatever is holding it, "
     "or set mcp.mcp_port in Settings (or writeragent.json) to a free port, then try again. "
     "A local preview/viewer server may default to the same port."
@@ -50,13 +50,15 @@ _PORT_IN_USE_GUIDANCE = (
 # errno.EADDRINUSE is 98 (Linux) / 48 (macOS); Windows uses winerror 10048 (WSAEADDRINUSE).
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
 _WARN_THROTTLE_SEC = 1.0
+_LISTEN_BACKLOG = 128
+_DEFAULT_MAX_QUEUED = 128
+_INITIAL_ACCEPT_BACKOFF_SEC = 0.05
 
 
 def is_port_in_use_error(exc: BaseException) -> bool:
     """True when *exc* is a bind failure because the TCP port is already taken."""
     if isinstance(exc, OSError):
-        err = getattr(exc, "errno", None)
-        if err in _PORT_IN_USE_ERRNOS:
+        if exc.errno in _PORT_IN_USE_ERRNOS:
             return True
     msg = str(exc).lower()
     return "address already in use" in msg or "only one usage of each socket address" in msg
@@ -105,7 +107,7 @@ class _RequestThreads:
     _sentinels: bool
     _pending: int
 
-    def __init__(self, max_workers: int, thread_name_prefix: str, *, max_queued: int = 128) -> None:
+    def __init__(self, max_workers: int, thread_name_prefix: str, *, max_queued: int = _DEFAULT_MAX_QUEUED) -> None:
         assert max_workers > 0
         self._max_workers = max_workers
         self._max_queued = max_queued
@@ -121,7 +123,7 @@ class _RequestThreads:
         with self._lock:
             if self._shutdown:
                 raise RuntimeError("request pool is shut down")
-            # Closing past workers + 128 bounds queue growth without rejecting normal bursts.
+            # Closing past ``_max_workers + _max_queued`` bounds queue growth without rejecting normal bursts.
             # established: the fd is already accepted (parked or ready_now).
             # The cap bounds new fds. Thread count stays at _max_workers.
             if not established and self._pending >= self._max_workers + self._max_queued:
@@ -230,7 +232,7 @@ def format_bind_failure(host: str, port: int | str, exc: BaseException) -> str:
     exc_line = f"{type(exc).__name__}: {exc}"
     lines = [f"Could not bind {endpoint} — {exc_line}"]
     if is_port_in_use_error(exc):
-        lines.append(_PORT_IN_USE_GUIDANCE)
+        lines.append(PORT_IN_USE_GUIDANCE)
     return "\n".join(lines)
 
 
@@ -264,22 +266,20 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     The request handler sets the read deadline (MCP: ``GenericRequestHandler.timeout``; compute: ``DeadlineRequestHandler``).
     """
 
-    request_queue_size: int = 128
+    request_queue_size: int = _LISTEN_BACKLOG
     allow_reuse_address: bool = os.name != "nt"
-    # ThreadingMixIn is not used. The request pool is daemon for the same reason.
-    daemon_threads: bool = True
     park_idle_connections: bool = False
 
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
     _serving: bool
-    _wake_write: Socket | None = None
-    _accept_pause_until: float = 0.0
-    _accept_backoff_sec: float = 0.05
-    _last_accept_error_warn: float = 0.0
+    _wake_write: Socket | None
+    _accept_pause_until: float
+    _accept_backoff_sec: float
+    _last_accept_error_warn: float
     executor: _RequestThreads
     _queued_lock: threading.Lock
-    _last_queue_full_warn: float = 0.0
+    _last_queue_full_warn: float
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
     sockets: list[Socket]
@@ -294,7 +294,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         max_threads: int = 8,
         *,
         thread_name_prefix: str = "http-worker",
-        max_queued: int = 128,
+        max_queued: int = _DEFAULT_MAX_QUEUED,
     ) -> None:
         self.sockets = []
         self._dual_is_shut_down = threading.Event()
@@ -302,14 +302,14 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._serving = False
         self._wake_write = None
         self._accept_pause_until = 0.0
-        self._accept_backoff_sec = 0.05
+        self._accept_backoff_sec = _INITIAL_ACCEPT_BACKOFF_SEC
         self._last_accept_error_warn = 0.0
         self._last_queue_full_warn = 0.0
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
         # timestamp. shutdown_request pops the entry on every path that
         # inserted one.
-        self._accept_times: dict[socket.socket, float] = {}
+        self._accept_times: dict[Socket, float] = {}
         # Futures that have not finished. server_close closes the socket when
         # the future is cancelled, because the worker never reaches
         # shutdown_request. Keyed by the Future the pool returns.
@@ -338,7 +338,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                     if info_family not in seen_families:
                         seen_families.add(info_family)
                         bind_addresses.append((info_family, str(sockaddr[0])))
-            except Exception:
+            except socket.gaierror:
                 bind_addresses = [(socket.AF_INET, host)]
 
         # One family failing (port taken on 127.0.0.1, ::1 free) closes what did bind and raises.
@@ -346,9 +346,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         first_error: OSError | None = None
         optional_family = {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL}
         for family, ip in bind_addresses:
-            sock: socket.socket | None = None
+            sock: Socket | None = None
             try:
-                sock = socket.socket(family, socket.SOCK_STREAM)
+                sock = Socket(family, socket.SOCK_STREAM)
                 # Set SO_REUSEADDR only when allowed (enabled on POSIX, disabled on Windows).
                 if self.allow_reuse_address:
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -396,7 +396,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         for sock in self.sockets:
             try:
                 sock.close()
-            except Exception:
+            except OSError:
                 log.debug("listening socket close failed", exc_info=True)
         self.sockets.clear()
 
@@ -430,10 +430,16 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         if not done.wait(timeout):
             log.warning("HTTP request drain exceeded %.0fs; abandoning in-flight handlers", timeout)
 
-    def _warn_due(self, attr: str, now: float) -> bool:
-        if now - getattr(self, attr) < _WARN_THROTTLE_SEC:
+    def _accept_warn_due(self, now: float) -> bool:
+        if now - self._last_accept_error_warn < _WARN_THROTTLE_SEC:
             return False
-        setattr(self, attr, now)
+        self._last_accept_error_warn = now
+        return True
+
+    def _queue_warn_due(self, now: float) -> bool:
+        if now - self._last_queue_full_warn < _WARN_THROTTLE_SEC:
+            return False
+        self._last_queue_full_warn = now
         return True
 
     def _wake_accept(self) -> None:
@@ -481,12 +487,12 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         except OSError as e:
             now = time.monotonic()
-            if self._warn_due("_last_accept_error_warn", now):
+            if self._accept_warn_due(now):
                 log.warning("Accept error (errno %s): %s; backing off", e.errno, e)
             self._accept_pause_until = now + self._accept_backoff_sec
             self._accept_backoff_sec = min(1.0, self._accept_backoff_sec * 2.0)
             return
-        self._accept_backoff_sec = 0.05
+        self._accept_backoff_sec = _INITIAL_ACCEPT_BACKOFF_SEC
         self._accept_pause_until = 0.0
         conn = raw_conn
         # Ignore socket configuration errors if client disconnected before setsockopt.
@@ -518,7 +524,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             if fileobj is wake_read:
                 assert wake_read is not None
                 _drain_wake_socket(wake_read)
-            elif key.data is None and isinstance(fileobj, socket.socket):
+            elif key.data is None and isinstance(fileobj, Socket):
                 if time.monotonic() < self._accept_pause_until:
                     continue
                 self._accept_one(fileobj)
@@ -603,25 +609,29 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         with self._queued_lock:
             self._queued.pop(fut, None)
 
+    def _close_rejected(self, request: Any) -> None:
+        try:
+            self.shutdown_request(request)
+        except Exception:
+            log.exception("Failed to close accepted connection")
+
     def process_request(self, request: Any, client_address: Any, *, established: bool = False) -> None:
         """Submit incoming request to the thread pool executor."""
         try:
             fut = self.executor.submit(self.process_request_thread, request, client_address, established=established)
-        except Exception as exc:
-            if isinstance(exc, _AcceptQueueFull):
-                now = time.monotonic()
-                if self._warn_due("_last_queue_full_warn", now):
-                    log.warning(
-                        "Accept queue full (%d pending, cap %d); closing connection",
-                        exc.pending,
-                        exc.limit,
-                    )
-            else:
-                log.exception("Failed to submit accepted connection")
-            try:
-                self.shutdown_request(request)
-            except Exception:
-                log.exception("Failed to close accepted connection")
+        except _AcceptQueueFull as exc:
+            now = time.monotonic()
+            if self._queue_warn_due(now):
+                log.warning(
+                    "Accept queue full (%d pending, cap %d); closing connection",
+                    exc.pending,
+                    exc.limit,
+                )
+            self._close_rejected(request)
+            return
+        except Exception:
+            log.exception("Failed to submit accepted connection")
+            self._close_rejected(request)
             return
         # Register before the done callback. The worker can finish during
         # submit; add_done_callback then runs immediately and pops the entry.

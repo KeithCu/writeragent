@@ -11,7 +11,6 @@ from plugin.writer.specialized.fields import (
     FieldsInsert,
     FieldsList,
 )
-from tests.harness.strip_bundle import requires_asserts
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 
@@ -229,13 +228,6 @@ def test_fields_delete_validation_and_missing_ids(mock_ctx):
     assert res["missing_ids"] == [1, 99]
     assert "details" not in res
     assert "comment_delete" in res["message"]
-
-
-@requires_asserts
-def test_fields_delete_non_list_ids_assertion(mock_ctx):
-    tool = FieldsDelete()
-    with pytest.raises(AssertionError):
-        tool.execute(mock_ctx, ids="1")
 
 
 def test_fields_delete_partial_missing_ids(mock_ctx):

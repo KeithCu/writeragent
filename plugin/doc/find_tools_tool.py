@@ -56,7 +56,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
     """
     if domain == "footnotes":
-        # Direct mode has no sub-agent executor, so the app-neutral sentence regardless of app.
+        # Direct mode has no sub-agent executor, so every app gets the app-neutral sentence.
         return loop_hint("footnotes", None)
     if domain in ("charts", "shapes", "indexes"):
         return loop_hint(domain, agent_label)
@@ -67,10 +67,10 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
             return ("python_run_script: in Calc, pass `data_range` (an A1 address) to inject "
                     "cell values as `data`; in Writer or Draw/Impress it does not inject "
                     "spreadsheet data -- use document tools for content.")
-        return (python_specialized_sub_agent_hint(agent_label) or "").strip()
+        return python_specialized_sub_agent_hint(agent_label).strip()
     if domain == "document_research":
         # MCP never advertises peer tools, so leave the peer-choice block out.
-        return (get_document_research_workflow_hint() or "").strip()
+        return get_document_research_workflow_hint().strip()
     return ""
 
 
@@ -139,7 +139,7 @@ class FindTools(ToolBase):
         if domain in _SIDEBAR_ONLY_DOMAINS or domain.replace("_", "-") in _SIDEBAR_ONLY_DOMAINS:
             out["note"] = "Sidebar-only flow; its tools are not exposed over MCP."
             return out
-        if domain not in {str(e.get("domain") or "") for e in catalog}:
+        if domain not in {e["domain"] for e in catalog}:
             return self._tool_error(
                 f"Unknown or unavailable specialized domain '{domain}'.",
                 code="UNKNOWN_DOMAIN",
@@ -153,17 +153,10 @@ class FindTools(ToolBase):
 
         schemas = drop_unavailable_domains(schemas, registry, ctx.ctx)
 
-        tools: list[dict[str, Any]] = []
-        for s in (schemas or []):
-            if not isinstance(s, dict):
-                continue
-            name = s.get("name")
-            if not isinstance(name, str) or not name:
-                continue
-            if name == FINISH_TOOL_NAME:
-                continue
-            tools.append(s)
-        tools.sort(key=lambda s: str(s.get("name") or ""))
+        tools = sorted(
+            (s for s in schemas if s["name"] != FINISH_TOOL_NAME),
+            key=lambda s: s["name"],
+        )
 
         out["tools"] = tools
         if doc is None:

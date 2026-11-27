@@ -16,7 +16,7 @@ threshold. When it frees a cycle that holds a PyUNO proxy, PyUNO_del
 destructor takes SolarMutex. If that worker is holding a Python lock the main
 thread wants (logging._lock in Logger.isEnabledFor, a handler lock,
 MainThread._claim_lock around Queue.put), the main thread, which is inside a
-VCL callback that owns SolarMutex, waits forever. That is the mr1_t6 hang.
+VCL callback that owns SolarMutex, waits forever.
 
 How: disable automatic GC once at bootstrap. A ticker thread watches the gen-0
 count and posts _collect_on_main. That runs inside the AsyncCallback notify,
@@ -65,7 +65,7 @@ def install(executor: Any) -> bool:
     """Call once, on the main thread, right after executor.set_context(ctx).
 
     Skipped when pythonloader is not loaded or AsyncCallback is unavailable
-    (eval harness, no VCL): automatic GC stays on as today.
+    (eval harness, no VCL): automatic GC stays on.
     """
     global _main_ident
     if _main_ident is not None:
