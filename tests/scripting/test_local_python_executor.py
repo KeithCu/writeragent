@@ -3113,7 +3113,8 @@ def test_user_traceback_rerun_of_same_code_stays_sandbox() -> None:
     sys.platform == "win32",
     reason="SIGALRM path; the thread-pool path has its own test",
 )
-def test_timeout_user_traceback_names_running_line() -> None:
+def _assert_spin_timeout_traceback() -> None:
+    """Run an endless ``spin()`` call to its timeout and check the full user stack is printed."""
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
     executor = LocalPythonExecutor(additional_authorized_imports=[], timeout_seconds=1)
@@ -3128,6 +3129,66 @@ def test_timeout_user_traceback_names_running_line() -> None:
         '  File "<sandbox>", line 3, in spin',
     }
     assert lines[-1].startswith("ExecutionTimeoutError: Code execution exceeded")
+
+
+def test_timeout_user_traceback_names_running_line() -> None:
+    _assert_spin_timeout_traceback()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGALRM path; the thread-pool path has its own test",
+)
+def test_timeout_traceback_keeps_frames_when_alarm_lands_during_deadline_unwind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The _Ops deadline raises first here because the real alarm is never armed; SIGALRM is then
+    # delivered while the deadline error is being recorded in the <module> frame, the point where a
+    # second timeout error would replace it and drop every recorded frame.
+    import signal
+
+    import plugin.contrib.smolagents.local_python_executor as lpe
+
+    monkeypatch.setattr(signal, "alarm", lambda _seconds: 0)
+    real_note = lpe._note_user_frame
+    fired: list[bool] = []
+
+    def note_and_alarm(exc, frame, node, **kwargs):
+        if not fired and isinstance(exc, lpe.ExecutionTimeoutError) and frame and frame[0] == "<module>":
+            fired.append(True)
+            signal.raise_signal(signal.SIGALRM)
+        real_note(exc, frame, node, **kwargs)
+
+    monkeypatch.setattr(lpe, "_note_user_frame", note_and_alarm)
+    _assert_spin_timeout_traceback()
+    assert fired
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM timeout path is Unix-only")
+def test_timeout_cancels_alarm_before_restoring_old_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An alarm still armed when the caller's handler comes back would fire under it; with SIG_DFL
+    # that kills the process.
+    import signal
+
+    from plugin.contrib.smolagents.local_python_executor import timeout
+
+    original = signal.getsignal(signal.SIGALRM)
+    real_signal = signal.signal
+    armed_at_restore: list[float] = []
+
+    def recording_signal(signum, handler):
+        if signum == signal.SIGALRM and handler == original:
+            armed_at_restore.append(signal.getitimer(signal.ITIMER_REAL)[0])
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(signal, "signal", recording_signal)
+
+    @timeout(5)
+    def run():
+        return "done"
+
+    assert run() == "done"
+    assert armed_at_restore == [0.0]
 
 
 def test_user_traceback_empty_for_parse_error() -> None:

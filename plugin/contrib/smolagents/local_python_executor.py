@@ -916,6 +916,11 @@ def timeout(timeout_seconds: Any):
             start_time = time.monotonic()
 
             def sigalrm_handler(signum, frame):
+                # WriterAgent local patch (2026-11): the _Ops deadline in evaluate_ast can raise this timeout first.
+                # Raising again while that error unwinds would replace it partway up the stack and split its
+                # user_traceback frames between the two errors, so the alarm is dropped instead.
+                if isinstance(sys.exc_info()[1], ExecutionTimeoutError):
+                    return
                 raise ExecutionTimeoutError(
                     f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                 )
@@ -975,17 +980,18 @@ def timeout(timeout_seconds: Any):
             try:
                 return func(*args, **kwargs)
             finally:
+                # WriterAgent local patch (2026-11): cancel the alarm before restoring the old handler. Otherwise an
+                # alarm expiring between the two runs under the old handler, and SIG_DFL there kills the process.
+                signal.alarm(0)
                 elapsed = time.monotonic() - start_time
                 signal.signal(signal.SIGALRM, old_handler)
                 if previous_alarm > 0:
-                    # Tip: restore the outer alarm with its remaining time under the previous handler; never cancel it.
+                    # Tip: re-arm the outer alarm with its remaining time under the previous handler; never drop it.
                     remaining = previous_alarm - elapsed
                     if remaining > 0:
                         signal.setitimer(signal.ITIMER_REAL, remaining)
                     else:
                         signal.setitimer(signal.ITIMER_REAL, 1e-6)
-                else:
-                    signal.alarm(0)
 
         return wrapper
 
