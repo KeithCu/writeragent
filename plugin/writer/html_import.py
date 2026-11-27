@@ -399,8 +399,8 @@ def _sections_at(cursor: Any) -> list[Any]:
     return out
 
 
-def _in_index(element: Any) -> bool:
-    """True when *element* (a paragraph or table) is inside an index such as a TOC."""
+def in_index(element: Any) -> bool:
+    """True when *element* (a paragraph, table or text range) is inside an index such as a TOC."""
     # DocumentIndex climbs to the enclosing index (SwXTextSection, unosect.cxx
     # WID_SECT_DOCUMENT_INDEX), so the innermost section answers for the whole chain.
     sections = _sections_at(element)
@@ -484,6 +484,30 @@ def raise_if_protected_sections(model: Any) -> None:
             % ", ".join(repr(n) for n in names),
             code="PROTECTED_SECTION",
         )
+
+
+def section_lock(text_range: Any) -> tuple[str, str] | None:
+    """``(code, message)`` when *text_range* starts or ends in a protected or linked section.
+
+    UNO writes ignore section protection, so an edit there would change text the user
+    locked, which Writer refuses by hand (``SwPaM::HasReadonlySel``,
+    ``sw/source/core/crsr/pam.cxx``). A file- or DDE-linked section is overwritten from its
+    source on the next link update (``SwIntrnlSectRefLink::DataChanged``,
+    ``sw/source/core/docnode/section.cxx``), so an edit there is lost. A protected index
+    section counts as protected.
+    """
+    for point in (text_range.getStart(), text_range.getEnd()):
+        for section in _sections_at(point):
+            name = section.getName()
+            if section.getPropertyValue("IsProtected"):
+                return "PROTECTED_SECTION", (
+                    f"The match is inside the protected section {name!r}; nothing was changed. "
+                    "Only if the user wants that text edited, unprotect it first with section_set_protection.")
+            if section.getPropertyValue("FileLink").FileURL or section.getPropertyValue("DDECommandType"):
+                return "LINKED_SECTION", (
+                    f"The match is inside the section {name!r}, which is linked to another source and is "
+                    "overwritten from it when the link updates; nothing was changed. Tell the user to edit the source.")
+    return None
 
 
 def raise_if_pending_changes_untracked(model: Any) -> None:
@@ -1586,7 +1610,7 @@ def replace_full_document(
             next(
                 (
                     el for el in iter_elements(text.createEnumeration())
-                    if not supports_service(el, "com.sun.star.text.TextTable") and not _in_index(el)
+                    if not supports_service(el, "com.sun.star.text.TextTable") and not in_index(el)
                 ),
                 cursor,
             )

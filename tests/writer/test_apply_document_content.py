@@ -1697,14 +1697,14 @@ def test_edit_selection_passes_pinned_range_to_html_import():
         return_value=html_import_styles.WriteReport(),
     ) as mock_insert, patch(
         "plugin.writer.apply_document_content.attach_edited_context",
-        side_effect=lambda res, _a: res,
+        side_effect=lambda res, _d, _a: res,
     ) as mock_attach:
         res = ApplyDocumentContent().execute(ctx, content="new", target="selection")
 
     assert res["status"] == "ok"
     mock_insert.assert_called_once_with(ctx.doc, ctx.ctx, "new", "selection", selection=pinned_rng)
     mock_attach.assert_called_once()
-    assert mock_attach.call_args[0][1] is pinned_anchor
+    assert mock_attach.call_args[0][2] is pinned_anchor
 
 
 def test_one_string_and_list_content_reach_import_the_same() -> None:
@@ -1717,7 +1717,7 @@ def test_one_string_and_list_content_reach_import_the_same() -> None:
         return_value=html_import_styles.WriteReport(),
     ) as mock_insert, patch(
         "plugin.writer.apply_document_content.attach_edited_context",
-        side_effect=lambda res, _a: res,
+        side_effect=lambda res, _d, _a: res,
     ):
         res_list = ApplyDocumentContent().execute(ctx, content=["<h1>A</h1>", "<p>B</p>"], target="end")
         res_str = ApplyDocumentContent().execute(ctx, content="<h1>A</h1>\n<p>B</p>", target="end")

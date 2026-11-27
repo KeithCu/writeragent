@@ -44,7 +44,7 @@ from plugin.doc.text_helpers import (
 from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import ToolExecutionError, make_tool_error, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.uno_context import get_ctx, get_service_manager, uno_same
+from plugin.framework.uno_context import get_ctx, get_service_manager, supports_service, uno_same
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer import html_import
 from plugin.writer.review_scan import document_has_tracked_deletions
@@ -1125,6 +1125,12 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
     if tf is not None:
         name = _safe_name(tf)
         return "text box '%s'" % name if name else "a text box"
+    # A note's text is the SwXFootnote itself; an endnote supports both services
+    # (g_ServicesFootnote, sw/source/core/unocore/unoftn.cxx), so Endnote is tested first.
+    for service, kind in (("com.sun.star.text.Endnote", "endnote"), ("com.sun.star.text.Footnote", "footnote")):
+        if supports_service(text, service):
+            mark = uno_read(lambda: text.getAnchor().getString().strip(), "")
+            return "%s %s" % (kind, mark) if mark else "a %s" % kind
     hf = _header_footer_label(text, doc, label_cache=label_cache)
     if hf:
         return hf
@@ -1132,7 +1138,7 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
 
 
 class LocationLabeler:
-    """Labels match locations (body, table cell, text box, header/footer) with cached page-style lookups."""
+    """Labels match locations (body, table cell, text box, footnote, header/footer) with cached page-style lookups."""
 
     doc: Any
     _cache: dict[int, str]
@@ -1385,6 +1391,12 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
+    """Yield ``(shape, text)`` for each draw-page shape the text-model search cannot reach.
+
+    Text frames are left out: ``doc.findAll`` already searches them (labelled ``text box``) and
+    drops hits inside pending deletions, while ``getString()`` here would return struck text as
+    live and count every frame hit twice. As-character shapes and Word text boxes are skipped too.
+    """
     try:
         draw_page = doc.getDrawPage()
     except Exception as exc:
@@ -1393,7 +1405,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         return
     for shape in iter_draw_shapes(draw_page):
         try:
-            if shape_is_as_character(shape) or shape_is_text_box(shape):
+            if shape_is_as_character(shape) or shape_is_text_box(shape) or supports_service(shape, "com.sun.star.text.TextFrame"):
                 continue
             text = shape.getString() if hasattr(shape, "getString") else ""
         except Exception as exc:
@@ -1440,11 +1452,16 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
     return sd
 
 
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> list[Any]:
+def find_ranges_regex_case(
+    doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool,
+    keep: Callable[[Any], bool] | None = None,
+) -> list[Any]:
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     deletions = TrackedDeletions(doc)
     hits = _iter_descriptor_hits(doc, sd, deletions, literal=False)
+    if keep is not None:
+        hits = filter(keep, hits)
     if not all_matches:
         hit = next(hits, None)
         return [] if hit is None else [hit]

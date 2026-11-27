@@ -291,14 +291,31 @@ def build_search_replace_response(
     return {"status": "ok", "message": msg, "replaced_count": replaced_count}
 
 
+def _outside_indexes(found: Any) -> bool:
+    return not html_import.in_index(found)
+
+
+def _section_lock(doc: Any, found: Any) -> tuple[str, str] | None:
+    """``html_import.section_lock`` for *found*; a document without sections skips the per-match read."""
+    if doc.getTextSections().hasElements() is not True:
+        return None
+    return html_import.section_lock(found)
+
+
 def _find_ranges(
     doc: Any, pattern: str, regex: bool, cs: bool | None, *, limit: int
 ) -> tuple[list[Any], search_mod.MatchMode]:
+    """Matches for target='search', leaving out hits inside a document index.
+
+    An index entry such as a TOC row repeats its heading, and the next index update
+    rebuilds it, so an edit there is lost and renaming a heading would land in the TOC.
+    """
+    keep = _outside_indexes if doc.getDocumentIndexes().hasElements() is True else None
     if regex:
         resolved_cs = search_mod.resolve_case_sensitive(cs)
-        hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=limit > 1)
+        hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=limit > 1, keep=keep)
         return hits, search_mod.MatchMode(resolved_cs, False)
-    return search_mod.find_literal_ranges(doc, pattern, case_sensitive=cs, limit=limit)
+    return search_mod.find_literal_ranges(doc, pattern, case_sensitive=cs, limit=limit, keep=keep)
 
 
 # ------------------------------------------------------------------
@@ -892,6 +909,8 @@ class ApplyDocumentContent(ToolBase):
             row: dict[str, Any] = {"occurrence": idx, "location": loc, "text": text}
             if refuse_crossing and deletions.overlaps(found):
                 row["edit_refused"] = "MATCH_CROSSES_DELETION"
+            elif (lock := _section_lock(ctx.doc, found)) is not None:
+                row["edit_refused"] = lock[0]
             if rewrites_outline:
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
@@ -1367,7 +1386,7 @@ class ApplyDocumentContent(ToolBase):
             msg = "Inserted content at beginning."
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
         res = attach_edited_context(
-            {"status": "ok", "message": msg}, anchor)
+            {"status": "ok", "message": msg}, ctx.doc, anchor)
         return html_import_styles.attach_write_report(res, report)
 
     def _edit_selection(
@@ -1407,7 +1426,7 @@ class ApplyDocumentContent(ToolBase):
                 if report.snapped_to_paragraph
                 else "An object is selected (or its shape text is being edited), not body text: inserted the content after it; the object was not changed."
             )
-        res = attach_edited_context(res, anchor)
+        res = attach_edited_context(res, ctx.doc, anchor)
         return html_import_styles.attach_write_report(
             res, report,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, ctx.doc, params))
@@ -1527,7 +1546,7 @@ class ApplyDocumentContent(ToolBase):
             resp, report, total_matches=count,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
         resp.update(hyperlink_fields(link_reports))
-        return attach_edited_context(resp, anchor)
+        return attach_edited_context(resp, doc, anchor)
 
     def _anchor_miss(
         self, doc: Any, anchor: AnchorSpec, miss_kind: search_mod.AnchorMissKind
@@ -1582,6 +1601,8 @@ class ApplyDocumentContent(ToolBase):
                 )
             elif (refused := search_mod.crossing_match_error(doc, found, recorded=recorded)) is not None:
                 res = refused
+            elif (lock := _section_lock(doc, found)) is not None:
+                res = self._tool_error(lock[1], code=lock[0])
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
             res.update(mode.result_fields())
@@ -1601,8 +1622,11 @@ class ApplyDocumentContent(ToolBase):
         first = params.occurrence or 0
         picked = ranges if params.all_matches else ranges[first : first + 1]
         editable = [r for r in picked if not deletions or not deletions.overlaps(r)]
+        lock = next((hit for r in editable if (hit := _section_lock(doc, r)) is not None), None)
         # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
-        if picked and not editable:
+        if lock is not None:
+            res = make_tool_error(lock[1], code=lock[0], top_level={"replaced_count": 0})
+        elif picked and not editable:
             res = make_tool_error(
                 search_mod.UNRECORDED_CROSSES_DELETION_MESSAGE,
                 code="MATCH_CROSSES_DELETION",
@@ -1733,7 +1757,7 @@ class ApplyDocumentContent(ToolBase):
         if occurrence is not None:
             insert_resp["occurrence"] = occurrence
         html_import_styles.attach_write_report(insert_resp, report)
-        return attach_edited_context(insert_resp, anchor)
+        return attach_edited_context(insert_resp, doc, anchor)
 
     def _edit_replace_one(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
@@ -1782,4 +1806,4 @@ class ApplyDocumentContent(ToolBase):
             resp, report, total_matches=1,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, doc, params))
         resp.update(hyperlink_fields(reports))
-        return attach_edited_context(resp, anchor)
+        return attach_edited_context(resp, doc, anchor)

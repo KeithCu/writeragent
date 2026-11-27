@@ -58,6 +58,7 @@ from plugin.writer.hyperlink_fixup import (
     write_link_look,
 )
 from plugin.writer.record_changes import is_recording_changes, tracked_change_before_point
+from plugin.writer.review_scan import document_has_tracked_insert_or_delete
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -288,6 +289,20 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 
 
+def _pending_changes_warning() -> str:
+    """Warning for an index built while the document holds pending insertions or deletions.
+
+    LibreOffice builds entry text with ``ExpandMode::HideDeletions`` whatever the display mode
+    (``SwTOXPara::GetText_Impl``, ``sw/source/core/tox/txmsrt.cxx``), so the index reads as if
+    every change were accepted and does not follow a later Reject.
+    """
+    return _(
+        "The document holds pending tracked changes, and LibreOffice builds the index as if they "
+        "were accepted: struck text is left out (a wholly struck heading leaves a blank row) and "
+        "pending insertions are included. Run index_update_all again after the user accepts or rejects them."
+    )
+
+
 class IndexesUpdateAll(ToolWriterIndexBase):
     name: str | None = "index_update_all"
     description: str = (
@@ -327,6 +342,9 @@ class IndexesUpdateAll(ToolWriterIndexBase):
             idx.update()
             refreshed.append(name)
         result: dict[str, Any] = {"status": "ok", "refreshed": refreshed, "count": count}
+        # The indexes themselves hold no Insert/Delete (refused above), so any found are in the indexed text.
+        if count > 0 and document_has_tracked_insert_or_delete(doc):
+            result["warning"] = _pending_changes_warning()
         if count > 0:
             flag_untracked(
                 result,
@@ -613,22 +631,25 @@ def _paragraph_hyperlink(para: Any) -> str:
     return uno_read(lambda: para.getPropertyValue("HyperLinkURL") or "", "")
 
 
-def toc_entry_rows(anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
+def toc_entry_rows(doc: Any, anchor: Any, *, include_links: bool = False) -> list[dict[str, Any]]:
     """Visible text and outline level (plus hyperlink when requested) for each TOC row.
 
     Walks paragraphs inside the index anchor, the same read insert and delete
     already use. Does not call ``ContentIndex.update()`` and does not export
-    the document. The ``Contents Heading`` title is not a row.
+    the document. The ``Contents Heading`` title is not a row, and neither is an
+    entry that a pending tracked deletion strikes whole: the edit tools cannot
+    find it, and Accept removes it.
 
     Links are omitted by default so models do not echo or corrupt them; the
     host rewrites outline URLs on rename and preserves existing hyperlinks.
     """
     rows: list[dict[str, Any]] = []
+    deletions = TrackedDeletions(doc)
     for para in _paragraphs_in_anchor(anchor):
         style = _para_style_name(para)
         if style == "Contents Heading":
             continue
-        text = para.getString()
+        text = deletions.text_of(para)
         if not text.strip():
             continue
         row: dict[str, Any] = {
@@ -1258,7 +1279,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         _unused_idx, anchor, position, err = _resolve_toc_target(doc, index)
         if err is not None:
             return err
-        entries = toc_entry_rows(anchor, include_links=include_links)
+        entries = toc_entry_rows(doc, anchor, include_links=include_links)
         return {
             "status": "ok",
             "index": position,
@@ -1350,6 +1371,8 @@ class IndexesCreate(ToolWriterIndexBase):
             index.CreateFromOutline = create_from_outline
 
         replaced_pending = False
+        # Read before the insert, so only changes in the text the index is built from count.
+        pending_changes = document_has_tracked_insert_or_delete(doc)
 
         def mutate(cursor: Any) -> dict[str, Any] | None:
             nonlocal replaced_pending
@@ -1398,6 +1421,8 @@ class IndexesCreate(ToolWriterIndexBase):
             )
         else:
             warning = _("The index itself is not a tracked change: rejecting changes does not remove it.")
+        if pending_changes:
+            res["warning"] = _pending_changes_warning()
         flag_untracked(res, doc, warning, replaced_pending=replaced_pending)
         return res
 

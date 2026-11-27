@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 import uno
 
-from plugin.doc.text_helpers import iter_elements, textfield_service_name
+from plugin.doc.text_helpers import TrackedDeletions, iter_elements, textfield_service_name
 from plugin.doc.udprops import (
     get_document_property,
     list_user_defined_document_properties,
@@ -97,7 +97,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
 class FieldsList(ToolWriterFieldBase):
     name: str | None = "field_list"
-    description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
+    description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates. pending_deletion=true marks a field inside a pending tracked deletion."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -105,6 +105,7 @@ class FieldsList(ToolWriterFieldBase):
         results = []
         hasher = hashlib.sha256()
         service_props: dict[str, set[str]] = {}
+        deletions = TrackedDeletions(doc)
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc, hasher):
             try:
                 content = field.getPresentation(True)
@@ -131,8 +132,12 @@ class FieldsList(ToolWriterFieldBase):
                     except Exception as e:
                         reraise_if_disposed(e)
 
-            results.append({"id": field_id, "presentation": presentation, "content": content,
-                            "location": location, "properties": props})
+            row: dict[str, Any] = {"id": field_id, "presentation": presentation, "content": content,
+                                   "location": location, "properties": props}
+            # A field inside struck text goes when the deletion is accepted.
+            if deletions.overlaps(field.getAnchor()):
+                row["pending_deletion"] = True
+            results.append(row)
 
         return {"status": "ok", "field_count": len(results), "snapshot": hasher.hexdigest(), "fields": results}
 

@@ -309,3 +309,32 @@ def test_footnote_list_hides_tracked_deletion_uno(ctx, doc):
     res = FootnotesList().execute(native_writer_tool_context(doc, ctx), note="footnote")
     assert res["status"] == "ok", res
     assert res["notes"][0]["text"] == "note nova"
+
+
+@native_test
+@with_native_doc("writer")
+def test_footnote_list_flags_note_with_struck_mark_uno(ctx, doc):
+    """A note whose mark sits in a pending deletion is flagged pending_deletion; a live note is not."""
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc.setPropertyValue("RecordChanges", False)
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    for word in ("KEEP", "GONE"):
+        text.insertString(cur, " %s" % word, False)
+        note = doc.createInstance("com.sun.star.text.Footnote")
+        text.insertTextContent(cur, note, False)
+        note.setString("NOTE-%s body" % word)
+    # The footnote mark is one character: strike " GONE" and the mark after it.
+    struck = text.createTextCursorByRange(text.getEnd())
+    struck.goLeft(len(" GONE") + 1, True)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        struck.setString("")
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    res = TestingFactory.execute_tool(doc, ctx, "footnote_list", {"note": "footnote"}, doc_type="writer")
+    assert [(n["text"], n.get("pending_deletion", False)) for n in res["notes"]] == [
+        ("NOTE-KEEP body", False), ("NOTE-GONE body", True)], res

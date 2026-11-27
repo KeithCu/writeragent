@@ -57,7 +57,7 @@ from typing import Any, Callable, ClassVar, Generator, TypeVar
 from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
 from plugin.doc.compound_undo import UndoLock, UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements, iter_portions
+from plugin.doc.text_helpers import FAILED, TrackedDeletions, go_right, iter_elements, iter_portions
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -1017,10 +1017,16 @@ def collapsed_anchor(text_range: Any) -> Any | None:
     return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
 
 
-def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
-    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
+def paragraph_window_text(doc: Any, anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
+    """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit.
+
+    Pending tracked deletions are left out, so the window reads as it will after Accept
+    (``_string_skipping_redline``); otherwise struck text is glued to the new text ("Third3rd")
+    and the model takes it for live text. A window with no deletion is the raw string.
+    """
     if anchor is None:
         return None
+    deletions = TrackedDeletions(doc)
 
     def window() -> str:
         text = anchor.getText()
@@ -1034,7 +1040,7 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        return span.getString()
+        return _string_skipping_redline(span, "Delete") if deletions.overlaps(span) else span.getString()
 
     s = uno_read(window, None)
     if not s or not s.strip():
@@ -1046,9 +1052,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
     return s
 
 
-def attach_edited_context(result: Any, anchor: Any | None) -> dict[str, Any]:
+def attach_edited_context(result: Any, doc: Any, anchor: Any | None) -> dict[str, Any]:
     """Add edited_context (the touched paragraph(s) as they now read) to a successful result."""
-    snippet = paragraph_window_text(anchor)
+    snippet = paragraph_window_text(doc, anchor)
     if snippet:
         result["edited_context"] = snippet
     return result

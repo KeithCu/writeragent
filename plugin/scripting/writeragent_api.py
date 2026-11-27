@@ -1226,7 +1226,7 @@ class _FieldProxy:
         return _result(call_host_tool("field_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
     def list(self) -> _Item:
-        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."""
+        """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates. pending_deletion=true marks a field inside a pending tracked deletion."""
         return _result(call_host_tool("field_list"))
 
     def update_all(self) -> _Item:
@@ -1281,7 +1281,7 @@ class _FootnoteProxy:
         return _result(call_host_tool("footnote_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive))
 
     def list(self, note: str) -> _Item:
-        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting.
+        """Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting. pending_deletion=true marks a note whose mark is inside a pending tracked deletion.
 
         Args:
             note (required): Whether to list footnotes or endnotes. One of: footnote, endnote.
