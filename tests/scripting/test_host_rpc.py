@@ -487,7 +487,7 @@ def test_rpc_call_drops_none_kwargs():
 def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr, patch(
+    with patch("plugin.scripting.venv_worker.get_worker_manager") as mock_mgr, patch(
         "plugin.scripting.venv_worker.get_config", return_value=""
     ):
         manager = MagicMock()

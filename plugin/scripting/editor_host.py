@@ -41,13 +41,29 @@ from typing import IO, Any, Callable, cast
 from plugin.chatbot.dialogs import msgbox_with_report
 from plugin.framework.appearance import get_monaco_theme_info
 from plugin.framework.config import get_config
+from plugin.framework.errors import best_effort
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
+from plugin.framework.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    read_pickle_frame,
+    write_packed_frame_with_timeout,
+)
+from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, python_exec_timeout
+from plugin.scripting.document_scripts import (
+    SCRIPT_PICKER_MESSAGE_TYPES,
+    build_xdl_script_picker_state,
+    document_scripts_identity,
+    get_user_scripts,
+    handle_editor_script_message,
+    resolve_run_script_selection,
+)
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -63,25 +79,10 @@ from plugin.scripting.editor_ipc import (
     target_identity_key,
 )
 from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
-from plugin.scripting.document_scripts import (
-    SCRIPT_PICKER_MESSAGE_TYPES,
-    build_xdl_script_picker_state,
-    document_scripts_identity,
-    get_user_scripts,
-    handle_editor_script_message,
-    resolve_run_script_selection,
-)
-from plugin.framework.ipc import (
-    DEFAULT_MAX_PAYLOAD_BYTES,
-    read_pickle_frame,
-    write_packed_frame_with_timeout,
-)
-from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
-from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 
 log = logging.getLogger(__name__)
 
@@ -457,10 +458,7 @@ class PersistentEditor:
         return self.sessions.get(self.focused_id)
 
     def lookup(self, session_id: str) -> EditorSessionState | None:
-        sid = (session_id or "").strip()
-        if not sid:
-            return None
-        return self.sessions.get(sid)
+        return self.sessions.get(session_id) if session_id else None
 
     def find_by_target(self, mode: str, target: dict[str, str]) -> EditorSessionState | None:
         key = target_identity_key(mode, target)
@@ -512,10 +510,6 @@ class PersistentEditor:
         if proc is None:
             return False
         return proc.poll() is None
-
-    @property
-    def proc(self) -> subprocess.Popen[bytes] | None:
-        return self._proc
 
     def start(self, proc: subprocess.Popen[bytes]) -> None:
         """Start the reader thread for the spawned process."""
@@ -576,12 +570,13 @@ class PersistentEditor:
         kind = message_type(message)
         if kind and kind not in PARENT_TO_CHILD_TYPES:
             log.warning("editor_host: type %s is not queued by the editor child", kind)
-        state = session or (self.lookup(session_id_of(message)) if session_id_of(message) else self.focused())
-        if kind and kind != "ready" and state is not None:
+        sid = session_id_of(message)
+        state = session or (self.lookup(sid) if sid else self.focused())
+        if kind and state is not None:
             message = stamp_session(
                 message,
                 session_id=state.session_id,
-                mode=state.mode or str(message.get("mode") or ""),
+                mode=state.mode,
                 target=state.target,
             )
         timed_out = False
@@ -680,7 +675,6 @@ class PersistentEditor:
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
         deadline = time.monotonic() + timeout_sec
-        proc = self._proc
         while True:
             if self._ready_event.is_set():
                 return True
@@ -695,9 +689,10 @@ class PersistentEditor:
             if remaining <= 0:
                 break
             wait_while_pumping(self._ready_event, ctx, timeout=min(0.25, remaining))
-        if not self._ready_event.is_set():
-            log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, proc is not None, self.read_stderr_tail())
-        return self._ready_event.is_set()
+        if self._ready_event.is_set():
+            return True
+        log.error("Editor ready timeout (%ss). stderr=%s", timeout_sec, self.read_stderr_tail())
+        return False
 
     @background
     def _read_loop(self) -> None:
@@ -732,9 +727,7 @@ class PersistentEditor:
             require_dict=True,
             is_alive=lambda: proc.poll() is None,
         )
-        if msg is None:
-            return None
-        return cast("dict[str, Any]", msg)
+        return cast("dict[str, Any] | None", msg)
 
     def _read_incoming(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
         while proc.poll() is None:
@@ -819,7 +812,7 @@ class PersistentEditor:
             # The queued code was read before the save; read the script again so an old copy
             # does not replace the text just saved.
             doc = load.get("run_script_doc")
-            name, code, _unused = resolve_run_script_selection(
+            name, code = resolve_run_script_selection(
                 doc, build_xdl_script_picker_state(doc, get_user_scripts())
             )
             load = {**load, "code": code, "selected_script_name": name, "script_name": name}
@@ -1050,8 +1043,7 @@ def terminate_persistent_editor() -> None:
 def _on_config_changed(**kwargs: Any) -> None:
     key = kwargs.get("key", "")
     changed = kwargs.get("keys") or ()
-    # Settings OK emits one event with key="" and the changed names in keys.
-    # Matching only key dropped a venv-path change that was saved with other fields.
+    # Settings OK emits one event with key="" and the changed names in keys, so both are checked.
     venv_changed = key == "scripting.python_venv_path" or "scripting.python_venv_path" in changed
     force_changed = (
         key == "scripting.force_internal_script_editor"
@@ -1114,7 +1106,7 @@ def monaco_editor_available() -> tuple[str | None, bool]:
         _ensure_webview_probe(exe)
         return exe, False
     if not cached[0]:
-        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, cached[1][:200] if cached[1] else "")
+        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, cached[1][:200])
     return exe, cached[0]
 
 
@@ -1173,7 +1165,10 @@ def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: st
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         box = toolkit.createMessageBox(window, _BOX_QUERYBOX, _BOX_BUTTONS_YES_NO_CANCEL, title, message)
-        result = int(box.execute())
+        try:
+            result = int(box.execute())
+        finally:
+            best_effort(box.dispose, "message box dispose failed")
         if result == _BOX_RESULT_YES:
             return "save"
         if result == _BOX_RESULT_NO:
@@ -1189,7 +1184,7 @@ def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: st
 def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
     title = product_display_name(ctx)
-    where = label.strip() if label and label.strip() else _("this editor")
+    where = label.strip() or _("this editor")
     message = _(
         "Save changes to {0}?\n\nYes saves them before switching. No discards them. Cancel keeps the current editor."
     ).format(where)
@@ -1252,9 +1247,7 @@ def _register_load_session(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )
 
-    # Opening a cell after Run Script must drop the old document UNO reference.
-    # Leaving it on _PERSISTENT_EDITOR.run_script_doc held the document until
-    # disconnect or terminate. Reset it when mode is not run_script.
+    # A non-run_script load clears run_script_doc so the editor does not keep a UNO reference to that document.
     if mode == "run_script":
         if "run_script_doc" in ipc_message:
             # Queued save-then-load still carries the document. The direct launch
@@ -1272,10 +1265,8 @@ def _register_load_session(
         existing.mode = mode
         existing.dirty = False
         existing.extra.pop(_REPLACE_CONFIRMED, None)
-        # Reuse means this target is current, so a queued switch is no longer
-        # the next buffer. Resetting dirty alone left pending_load /
-        # pending_on_save / pending_on_closed, and a queue_save_then_load still
-        # in flight then applied that stale load on a later unrelated save.
+        # Reuse makes this target current, so any queued switch is cancelled;
+        # a pending load left here would be applied by a later unrelated save.
         existing._clear_pending()
         state = existing
     else:
@@ -1351,17 +1342,11 @@ def launch_monaco_editor(
         return False
 
     _PERSISTENT_EDITOR.ctx = ctx
-    # ui is attached later, once. Enriching before the unsaved-changes gate
-    # and again in queue_save_then_load rebuilt the same catalog.
+    # ui is attached once, after the unsaved-changes gate (queue_save_then_load enriches its own copy).
     ipc_message = dict(load_message)
     closed_handler = on_closed if on_closed is not None else (lambda: None)
 
-    # Inject current LO theme so the child Monaco + toolbar chrome automatically
-    # match the LibreOffice light/dark (and basic surface color) without any
-    # user setting or toggle in the editor. This is computed from the active
-    # window's StyleSettings (same heuristic used by the chat sidebar).
-    # We always recompute on send so that switching cells or reopening picks
-    # up a theme change. See plugin/framework/appearance.py.
+    # Unless the caller supplied one, compute the theme for every load so switching cells or reopening picks up a LibreOffice theme change.
     if "theme" not in ipc_message:
         # Prefer any doc we had for the run_script case or if caller left it in msg.
         # Leave run_script_doc on the message until after the unsaved-changes
@@ -1370,9 +1355,7 @@ def launch_monaco_editor(
         ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
         log.debug("editor_host: chosen theme: %s", ipc_message["theme"])
 
-    # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
-    # focused buffer before asking dropped the other buffer: the cell editor
-    # only asked for mode calc_cell, and Run Python Script never asked.
+    # One gate covers cell, Run Script, init script and LaTeX: the user is asked before any load replaces a dirty buffer.
     # Cancel and queued save return before the dead-session purge and the
     # load. Discard is marked on the session so _register_load_session may
     # replace it.
@@ -1426,8 +1409,7 @@ def launch_monaco_editor(
 
     try:
         ipc_message = enrich_monaco_load_message(ipc_message)
-        stamped = _register_load_session(ipc_message, on_save, closed_handler)[1]
-        _PERSISTENT_EDITOR.send(stamped)
+        _activate_load(ipc_message, on_save, closed_handler)
     except DirtyBufferError:
         # The confirm gate should have queued, cancelled, or marked discard.
         # Killing the child here would throw away the buffer we just refused

@@ -50,6 +50,11 @@ from plugin.framework.deal_shim import (
     inverse_ensure,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+log = logging.getLogger(__name__)
+
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
 _DEAL_RETURN = object()
@@ -127,11 +132,6 @@ def _optional_numpy() -> Any:
         return None
     return np
 
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-log = logging.getLogger(__name__)
 
 # --- Optional Cython accelerator --------------------------------------------------
 
@@ -565,7 +565,6 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
     return images[0] if images else None
 
 
-# strip_image_payloads substitutes a placeholder (default "<image>") without removing list slots or dict keys.
 def strip_image_payloads(obj: Any, *, placeholder: Any = "<image>", _depth: int = 0) -> Any:
     """Return result with image payloads replaced by *placeholder*, preserving structure.
 
@@ -574,7 +573,6 @@ def strip_image_payloads(obj: Any, *, placeholder: Any = "<image>", _depth: int 
     ``RecursionError``. Dict keys go through ``wire_str_key`` so ``{1: .., "1": ..}``
     raises instead of silently dropping a value.
     """
-    # Depth cap and wire_str_key prevent RecursionError on cyclic trees and silent loss of colliding dict keys.
     if is_image_payload(obj):
         return placeholder
     if _depth > _MAX_IMAGE_DEPTH:
@@ -618,7 +616,6 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
             except OSError:
                 pass
         raise
-
 
 
 def _is_dataframe_envelope(envelope: object) -> bool:
@@ -672,9 +669,7 @@ def pack_dataframe_envelope(columns: list[str], data: Any) -> dict[str, Any]:
 def _nonneg_shape_dim(d: object) -> bool:
     """True when a shape extent is a real non-negative int.
 
-    ``bool`` is a subclass of ``int``, so ``isinstance(True, int)`` accepted
-    ``[True, 1]`` as a calc_range or split_grid shape. Pack writes Python
-    ints; a bare or legacy wire could pass a bool.
+    ``bool`` is a subclass of ``int``, so it is rejected explicitly: ``[True, 1]`` is not a shape.
     """
     # crosshair: off
     if isinstance(d, bool) or not isinstance(d, int):
@@ -735,8 +730,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
 @deal.post(lambda result: isinstance(result, bool))
 def _is_any_payload_envelope(obj: object) -> bool:  # pyright: ignore[reportUnusedFunction]
     # crosshair: off
-    # Body already ORs the five family detectors; a matching ensure re-ran all
-    # five on every CrossHair post.
+    # No ensure: it would repeat the five detectors the body already ORs.
     return (
         _is_split_grid_envelope(obj)
         or _is_multi_data_envelope(obj)
@@ -762,9 +756,7 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 @deal.pre(
     lambda envelope, *_unused, ncols=0, **__: _deal_wire_dict_ok(envelope)
     and isinstance(ncols, int)
-    # Same Calc column cap as ``_deal_product_grid_ok`` (pack). SHAPE_DIM (256)
-    # rejected a wide sheet after pack succeeded: PreContractError on unpack.
-    # Release strips deal, so the body already accepts this width; the pre must too.
+    # Same Calc column cap as _deal_product_grid_ok (pack), so every width pack accepts is in domain here.
     and 0 <= ncols <= DEAL_MAX_COL_INDEX + 1
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
@@ -827,19 +819,19 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
     # crosshair: off
     if is_image_payload(obj):
-        return f"image format={obj.get('format')} bytes={len(obj.get('data', b''))}"
+        return f"image format={obj.get('format')} bytes={len(obj['data'])}"
     if is_multi_data(obj):
-        items = obj.get("items") or []
+        items = obj["items"]
         return f"multi_data items={len(items)} cells={_wire_cells_for_log(obj)}"
     if is_split_grid(obj):
-        buf = obj.get("buffer") or b""
+        buf = obj["buffer"]
         strings = obj.get("strings") or {}
         return (
             f"split_grid shape={obj.get('shape')} cells={_wire_cells_for_log(obj)} "
             f"column_kinds={obj.get('column_kinds')} strings={len(strings)} raw_bytes={len(buf)}"
         )
     if is_dataframe_payload(obj):
-        cols = obj.get("columns") or []
+        cols = obj["columns"]
         inner = obj.get("data")
         cells = _wire_cells_for_log(inner) if inner is not None else "0"
         return f"dataframe cols={len(cols)} cells~{cells}"
@@ -898,9 +890,7 @@ def cell_count(shape: tuple[int, ...]) -> int:
 def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
     """force in auto/always/never and min_cells in 0.._SHAPE_DIM_CAP.
 
-    Cap is _SHAPE_DIM_CAP (CrossHair: DEAL_MAX_SHAPE_DIM, pytest: one Calc
-    column). DEAL_MAX_SHAPE_DIM (256) under pytest rejected
-    scripts/bench_serialization.py --min-cells 1000.
+    Cap is _SHAPE_DIM_CAP so bench runs with --min-cells above 256 are in domain.
     """
     return (
         force in ("auto", "always", "never")
@@ -991,17 +981,14 @@ def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
     """Cell count for size limits; works on lists or split_grid / multi_data / calc_range envelopes."""
     # crosshair: off
     # Envelope detectors + typed payload tags hit CrossHairInternal/Literal proxy errors on garbage dicts.
-    # A self-referential multi_data walked until RecursionError, and
-    # describe_wire_value then failed its deal post with TypeError. Use the
-    # same depth cap as host_unpack_data. No identity set: a shared subtree
-    # is still counted; a cycle hits 128 and raises.
+    # Depth-capped like host_unpack_data so a self-referential multi_data raises ValueError, the declared error.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: wire_cell_count maximum recursion depth exceeded")
     if is_calc_range_payload(data):
         shape = data["shape"]
         return int(shape[0]) * int(shape[1])
     if is_multi_data(data):
-        items = data.get("items") or []
+        items = data["items"]
         return sum(wire_cell_count(item, _depth=_depth + 1) for item in items)
     if is_split_grid(data):
         return cell_count(tuple(int(x) for x in data["shape"]))
@@ -1238,11 +1225,12 @@ def _validate_rectangular_grid(grid_2d: list[list[Any]]) -> int:
     if not grid_2d:
         return 0
     ncols = _split_grid_row_width(grid_2d[0])
-    for row in grid_2d[1:]:
-        if _split_grid_row_width(row) != ncols:
-            row_lens = [_split_grid_row_width(r) for r in grid_2d]
-            log.error("payload_codec: uneven row lengths in 2D grid: %s", row_lens)
-            raise ValueError(f"Uneven row lengths in data grid: {row_lens}")
+    for row_idx, row in enumerate(grid_2d[1:], start=1):
+        row_width = _split_grid_row_width(row)
+        if row_width != ncols:
+            msg = f"Uneven row lengths in data grid: row {row_idx} has {row_width} cells, expected {ncols}"
+            log.error("payload_codec: %s", msg)
+            raise ValueError(msg)
     return ncols
 
 
@@ -1322,6 +1310,8 @@ def _flatten_grid_to_components(
             nan=nan,
         )
 
+    # Mostly-numeric Calc grids: try float(val) until non-numeric forces slow path.
+    # None is handled in the fast path to avoid disabling it for empty cells.
     def _stdlib_flatten_pass(cell_iter: Iterator[tuple[int, int, Any]]) -> None:
         nonlocal has_non_numeric
         for c, idx, val in cell_iter:
@@ -1364,8 +1354,6 @@ def _flatten_grid_to_components(
             else:
                 _append_cell_slow(val, c, idx)
 
-    # Mostly-numeric Calc grids: try float(val) until non-numeric forces slow path.
-    # None is handled in the fast path to avoid disabling it for empty cells.
     def _try_accel(fn: Any, call_args: tuple[Any, ...], expected: int, *, label: str) -> bool:
         """Bind accelerator output only when the buffer length matches the shape.
 
@@ -1413,9 +1401,8 @@ def _flatten_grid_to_components(
     column_kinds: list[str] = []
     for c in range(num_cols):
         state = column_states[c]
-        # 0 (no numeric cell) and 3 are float. 1 is bool. 2 is int.
-        # Empty must not be tagged "int", which lied for text-only columns.
-        kind = ("float", "bool", "int", "float")[state] if 0 <= state <= 3 else "int"
+        # A column with no numeric cell is "float", never "int".
+        kind = ("float", "bool", "int", "float")[state]
         if not strings and column_has_none[c]:
             kind = "float"
         column_kinds.append(kind)
@@ -1632,13 +1619,11 @@ def host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[An
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
     strings = _validate_split_grid_strings(envelope, expected_cells)
-    # Uniform kind is only the empty-strings fast path. Building it for a wide
-    # mixed grid walked every column and threw the list away. Same deferral as
-    # child_unpack_split_grid.
+    # Uniform kind is needed only on the empty-strings fast path, so it is not computed for a mixed grid.
     uniform = None if strings else _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
     flat_list: list[Any]
-    if not strings and uniform is not None:
+    if uniform is not None:
         if uniform == "int":
             # Preserve NaN (as float('nan')) for int-declared columns so it surfaces as Calc error.
             # Only coerce non-NaN values to int. int(inf) raises OverflowError
@@ -1690,7 +1675,7 @@ def host_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
         out["data"] = unpacked_inner
         return out
     if is_multi_data(wire):
-        items = wire.get("items") or []
+        items = wire["items"]
         return [host_unpack_data(item, _depth=_depth + 1) for item in items]
     if is_split_grid(wire):
         return host_unpack_split_grid(wire)
@@ -1767,8 +1752,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             return arr
 
         # Path for mixed-type grids with strings: Vectorized Object-Masking Strategy.
-        #
-        # --- Why this Vectorized Object-Masking Strategy? ---.
         # Homogeneous numeric arrays (float64) cannot natively store Python 'None' or
         # string types. Converting the array to an 'object' type array at C-speed
         # (arr.astype(object)) allows holding arbitrary Python types. We then use
@@ -1800,11 +1783,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # The 'strings' dictionary is sparse and indexes values row-major (flat 1D).
         # We get a flat 1D view of the object array (zero-copy ravel) to execute
         # the direct, low-overhead string insertions without coordinate math.
-        if strings:
-            flat_obj = obj_arr.ravel()
-            for idx, val in strings.items():
-                flat_obj[idx] = val
-
+        flat_obj = obj_arr.ravel()
+        for idx, val in strings.items():
+            flat_obj[idx] = val
 
         # Convert object array to nested Python lists with native scalars
         list_result = obj_arr.tolist()
@@ -1835,7 +1816,7 @@ def _reject_temporal_ndarray(arr: Any) -> None:
     Temporal ndarrays must not enter the float64 pack path; callers get ValueError instead of epoch nanoseconds on the wire.
     """
     # crosshair: off
-    kind = getattr(getattr(arr, "dtype", None), "kind", None)
+    kind = arr.dtype.kind
     if kind in ("M", "m"):
         raise ValueError(
             "datetime64/timedelta64 cannot be packed as float64 "
@@ -1847,11 +1828,10 @@ def _reject_temporal_ndarray(arr: Any) -> None:
 def wire_str_key(key: Any, used: set[str]) -> str:
     """Stringify a dict key for the host pickle boundary.
 
-    ``{str(k): ...}`` is last-wins, so ``{1: "a", "1": "b"}`` dropped ``"a"``
-    with no error. Three egress sites each rebuilt the dict that way. The
-    second key that stringifies to an existing wire key raises before the
-    value is overwritten. An exact ``str`` is kept; a subclass such as
-    ``np.str_`` becomes a builtin ``str``.
+    ``{str(k): ...}`` is last-wins, so ``{1: "a", "1": "b"}`` would lose ``"a"``;
+    the egress sites share this helper. The second key that stringifies to an
+    existing wire key raises ValueError before its value is overwritten. An exact
+    ``str`` is kept; a subclass such as ``np.str_`` becomes a builtin ``str``.
     """
     # crosshair: off
     sk = key if type(key) is str else str(key)
@@ -1889,12 +1869,11 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         # included.
         if arr.ndim not in (1, 2):
             raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
-        kind = getattr(getattr(arr, "dtype", None), "kind", None)
+        kind = arr.dtype.kind
         if not is_numeric_wire_kind(kind):
             raise ValueError(
                 f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
             )
-        assert isinstance(kind, str)
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
         # A bool ndarray is not an integer dtype. Tag it "bool"; "float" would
         # make host unpack restore 1.0/0.0 instead of True/False.
@@ -1989,7 +1968,7 @@ def child_pack_result(
         if np is not None:
             if isinstance(result, np.ndarray):
                 shape = tuple(int(x) for x in result.shape)
-                kind = getattr(result.dtype, "kind", None)
+                kind = result.dtype.kind
                 # Before either the split_grid cast or tolist(). Both rewrite dates.
                 _reject_temporal_ndarray(result)
                 if result.ndim > 2:

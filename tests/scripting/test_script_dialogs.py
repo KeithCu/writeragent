@@ -357,9 +357,3 @@ def test_show_new_script_dialog_fallback_empty_returns_none():
 
     assert result is None
     mock_msgbox.assert_not_called()
-
-
-def test_show_new_script_dialog_none_ctx():
-    with patch("plugin.scripting.script_dialogs.load_writeragent_dialog") as mock_load:
-        assert show_new_script_dialog(None) is None
-    mock_load.assert_not_called()

@@ -19,7 +19,9 @@ import threading
 from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.config import get_config
+from plugin.framework.ipc import read_json_line, write_json_line
 from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
+from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.audio_silence_detector import (
     RECORDER_COMMAND_STOP,
@@ -30,14 +32,12 @@ from plugin.scripting.audio_silence_detector import (
     RECORDER_STATUS_SILENCE_PROGRESS,
 )
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-from plugin.framework.ipc import read_json_line, write_json_line
-from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 
@@ -74,12 +74,10 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
     cmd = [exe, _AUDIO_RECORD_MAIN, "--output", output_path]
     if silence_config is not None:
         cmd.append(f"--silence-stop-ms={max(0, silence_config.silence_stop_ms)}")
-    # text=True: read_json_line needs a text pipe, and bufsize=1 is what this
-    # child already used. Worker start() is binary bufsize=0.
+    # text=True: read_json_line needs a text pipe; ManagedSubprocess opens a text pipe line-buffered.
     # base_env is the scrubbed environment. base_env=None would copy
     # os.environ and leak the vars scrub_subprocess_env drops.
-    # register=False: shutdown_all kill_trees the registry and would skip the
-    # stop JSON. This child was never in that registry.
+    # register=False: shutdown_all kill_trees every registered child, which would skip the stop JSON and lose the WAV.
     # log_start_failure=False: a missing interpreter must stay an OSError so
     # the sidebar can prefix "Venv audio recording failed to start".
     # stderr_name_with_pid: the drain thread stays audio-rec-stderr-<pid>.
@@ -370,7 +368,7 @@ class Recording:
         self._reap(_RECORDING_REAP_TIMEOUT_SEC)
 
     def kill_tree(self) -> None:
-        """Calls kill_process_tree directly, not ManagedSubprocess.kill_tree, so Stop-during-start keeps the error path it had (no swallow-and-log arm)."""
+        """Kill the child's process tree. Calls kill_process_tree directly because ManagedSubprocess.kill_tree swallows and logs errors, and Stop-during-start needs them raised."""
         kill_process_tree(self.popen)
 
 

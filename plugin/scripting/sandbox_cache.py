@@ -40,6 +40,8 @@ def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
     return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
 
 
+# CrossHair (scripts/crosshair_domains.py) replaces these two module attributes
+# with cheaper predicates; the _pytest functions are the production and pytest versions.
 _deal_sandbox_imports_ok = _deal_sandbox_imports_ok_pytest
 
 
@@ -81,7 +83,7 @@ def validate_sandbox_ast(
                     # Keep the message short. Never leak the blocklist or extras.
                     return f"Import of {alias.name} is not allowed."
         elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
+            if node.level:
                 # Relative imports (from . import x) are not supported in the sandbox.
                 return "Relative imports are not allowed."
             module_name = node.module or ""

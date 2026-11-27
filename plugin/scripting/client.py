@@ -9,9 +9,6 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
-
 from plugin.framework.config import get_config
 from plugin.scripting.config_limits import (
     DOCLING_DOCUMENT_TIMEOUT_MARGIN_SEC,
@@ -27,6 +24,8 @@ from plugin.scripting.sheet_layout import extract_sheet_layout
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
 
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 def _split_spec(spec: Any) -> tuple[str, dict[str, Any]]:
@@ -131,7 +130,7 @@ def run_forecast(
     return _run_spec_domain("forecast", ctx, spec, data, context=context)
 
 
-# # --- Vision ---
+# --- Vision ---
 
 
 def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
@@ -141,9 +140,7 @@ def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
     killed before Docling returns its partial result. ``python_exec_timeout``
     owns the upper clamp.
     """
-    # Read vision.worker_timeout_sec via get_config for both engines.
-    # A hardcoded 120s for Paddle ignored the user override, and swallowing
-    # the lookup hid config errors.
+    # vision.worker_timeout_sec applies to both engines, and a failed config read propagates.
     custom = get_config("vision.worker_timeout_sec")
     # DOCLING_WORKER_TIMEOUT_SEC (300) is the schema default in module.yaml.
     # An explicit override (custom != 300 and custom > 0) overrides both engines.
@@ -233,7 +230,7 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    model = get_config("text_analytics_sentiment_model") or None
+    model = get_config("text_analytics_sentiment_model")
 
     helper, params = _split_spec(spec)
     if model:

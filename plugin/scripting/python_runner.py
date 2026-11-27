@@ -21,7 +21,7 @@ Monaco on_save checks and updates it on the UI thread only. It is not locked.
 from dataclasses import dataclass
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeGuard
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
@@ -43,9 +43,6 @@ from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import calc_selection_to_a1
 from plugin.calc.calc_addin_data import resolve_python_data
-
-if TYPE_CHECKING:
-    from plugin.vision.vision_egress import VisionInsertOutcome
 from plugin.calc.python.formula_edit import parse_data_binding_text
 from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 from plugin.calc.rich_html import insert_cell_html_rich
@@ -75,6 +72,9 @@ from plugin.scripting.helper_domain import (
     rps_insert_failed_outcome,
     rps_ok_outcome,
 )
+
+if TYPE_CHECKING:
+    from plugin.vision.vision_egress import VisionInsertOutcome
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -154,7 +154,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
             body = [_html_row([v]) for v in data]
         return _html_table(body, headers)
 
-    # Handle list of dicts (e.g. pandas records) -- legacy path
+    # Handle list of dicts (e.g. pandas records)
     # Dict headers must come from the first-seen union of every dict row.
     # Header strings map back to the original dict key objects so numeric keys like {1: "a"} still render cells correctly.
     if any(isinstance(row, dict) for row in data):
@@ -193,7 +193,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
     return "<br>".join(escape_for_html_insert(x) for x in data)
 
 
-def is_shape_tool_status_result(result: Any) -> bool:
+def is_shape_tool_status_result(result: Any) -> TypeGuard[dict[str, Any]]:
     """True for shape_upsert/edit status dicts that must not be HTML-dumped into Writer."""
     if not isinstance(result, dict) or not result:
         return False
@@ -230,9 +230,9 @@ def format_result_for_writer(result: Any) -> str:
         priority_keys = ("title", "summary", "summary_text", "message", "text", "result")
 
         # Use original insertion order. Skip underscores.
-        sorted_keys = [k for k in result.keys() if not str(k).startswith("_")]
+        visible_keys = [k for k in result.keys() if not str(k).startswith("_")]
 
-        for key in sorted_keys:
+        for key in visible_keys:
             val = result[key]
             if isinstance(val, list) and val:
                 table = _format_list_to_table(val)
@@ -261,12 +261,9 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     """
     if result is None:
         return
-    if is_shape_tool_status_result(result):
-        log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result.keys()))
-        return
 
     # Determine anchor cell from selection
-    controller = doc.getCurrentController() if doc else None
+    controller = doc.getCurrentController()
     selection = controller.getSelection() if controller else None
 
     start_col = 0
@@ -322,9 +319,7 @@ def _prepare_rps_execution(
 
     facts = ScriptFacts.from_source(code)
 
-    # Vision does not use py_data, so the vision branch runs before
-    # resolve_python_data. Resolving Calc data first failed when a graphic
-    # was selected and returned an early error for a vision helper.
+    # Vision does not use py_data, so this runs before resolve_python_data: with a graphic selected, resolving Calc data returns an early error.
     vis = _prepare_vision(ctx, doc, facts, t0)
     if vis is not None:
         return vis
@@ -352,11 +347,8 @@ def _prepare_rps_execution(
         or facts.imports_module("writeragent.scripting.text_analytics")
     ):
         call_spec = facts.first_run_spec("run_text_analytics") or {}
-        helper = str(call_spec.get("helper") or "full")
-        text, document_context = resolve_text_analytics_document_inputs(doc, helper)
         # topics/sentiment return list[str]. Do not str() that list.
-        assert isinstance(text, (str, list)), type(text)
-        assert isinstance(document_context, dict)
+        text, document_context = resolve_text_analytics_document_inputs(doc, call_spec.get("helper"))
         bindings = {"text": text, "document_context": document_context}
 
     try:
@@ -424,8 +416,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
 
     note = source_image_note(outcomes)
 
-    # A multi-image vision run that fails on image N must still insert
-    # results 1..N-1. Returning only the error dict dropped them.
+    # A multi-image vision run that fails on image N must still insert results 1..N-1.
     if result.get("status") == "error":
         err_msg = str(result.get("message") or _("Vision helper failed."))
         if note:
@@ -468,7 +459,7 @@ def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any])
 
 
 def try_rps_post_venv(
-    spec: "DomainWiring",
+    spec: DomainWiring,
     *,
     ctx: Any,
     doc: Any,
@@ -530,7 +521,7 @@ def _finish_script_execution(prepared: PreparedScript, response: dict[str, Any])
                 if spec.id == "viz" and try_insert_plot_result(ctx, doc, result_data):
                     return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
 
-            if isinstance(result_data, dict) and is_shape_tool_status_result(result_data):
+            if is_shape_tool_status_result(result_data):
                 log.debug("Skipping result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()))
             elif is_calc(doc):
                 insert_result_into_calc(doc, ctx, result_data)
@@ -569,7 +560,7 @@ def start_native_script_run(
     doc: Any,
     code: str,
     *,
-    on_complete: Any,
+    on_complete: Callable[[dict[str, Any]], None],
     data_range: str | None = None,
 ) -> None:
     """Run a script without blocking the UNO event thread.
@@ -698,7 +689,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         "close_label": _("Close"),
         "show_plain_text": False,
         "show_data_binding": show_binding,
-        "data_binding": initial_binding or "",
+        "data_binding": initial_binding,
         "data_binding_title": _("Select data range or enter A1 address (injected as data)."),
         "status_ok_text": run_ok_text,
         "saved_ok_text": save_ok_text,
@@ -728,7 +719,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
 
         last_name, initial_code = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, get_user_scripts())
-        )[:2]
+        )
 
         user_alerted = False
         if monaco_expected and exe:

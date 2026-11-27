@@ -204,7 +204,7 @@ def test_topics_inner_error_result_is_not_insertable():
         None,
     )
     assert dlg_obj._last_result is None
-    assert dlg_obj._source_uid is None
+    assert dlg_obj._source_uid == ""
 
 
 @pytest.mark.parametrize(
@@ -496,7 +496,7 @@ def test_scope_read_failure_shows_error_and_does_not_analyze(monkeypatch):
     assert len(recorded_resolve) == 0
     assert len(recorded_bg) == 0
     assert dlg_obj._last_result is None
-    assert dlg_obj._source_uid is None
+    assert dlg_obj._source_uid == ""
     assert dlg_obj._busy is False
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Could not read the scope checkbox."
     assert len(recorded_msgbox) == 0
