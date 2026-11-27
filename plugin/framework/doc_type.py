@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import logging
 from enum import Enum, auto
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.framework.errors import uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 log = logging.getLogger(__name__)
 
@@ -161,19 +164,29 @@ def agent_label_for_doc_type(doc_type: str | None) -> str | None:
     return _display_title(doc_type)
 
 
-def agent_label_for_context(ctx: Any) -> str:
-    """Writer / Calc / Draw label used to validate specialized domain names."""
-    raw = (getattr(ctx, "doc_type", None) or "").strip().lower()
-    titled = _display_title(raw)
+def agent_label(doc_type: str | None, uno_services: Collection[str] | None = None, doc: Any = None) -> str:
+    """Sub-agent label (Writer, Calc or Draw) that picks the specialized domain catalog.
+
+    A *doc_type* that names an app wins. Otherwise the exact UNO document service
+    names decide, then a probe of *doc* when this runs on the main thread (the probe
+    raises off it), and anything still unknown is Writer.
+    """
+    titled = _display_title(doc_type)
     if titled is not None:
         return titled
-    services = getattr(ctx, "uno_services_supported", None) or ()
-    blob = " ".join(str(svc) for svc in services)
-    if "SpreadsheetDocument" in blob:
+    services = uno_services or ()
+    if CALC_DOCUMENT_SERVICE in services:
         return "Calc"
-    if "PresentationDocument" in blob or "DrawingDocument" in blob:
+    if DRAW_DOCUMENT_SERVICE in services or IMPRESS_DOCUMENT_SERVICE in services:
         return "Draw"
-    return "Writer"
+    if TEXT_DOCUMENT_SERVICE in services or doc is None:
+        return "Writer"
+    # In-function: the compute bundle ships this module without queue_executor.
+    from plugin.framework.queue_executor import main
+
+    if not main.is_current():
+        return "Writer"
+    return _display_title(doc_type_str_from_doc(doc)) or "Writer"
 
 
 # @main_thread_only MUST be the outer decorator here so off-main

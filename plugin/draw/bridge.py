@@ -129,10 +129,7 @@ class DrawBridge:
         count = pages.getCount()
         if type(actual) is not int or actual < 0 or actual >= count:
             raise ToolExecutionError("Page index %s out of range." % actual)
-        page = pages.getByIndex(actual)
-        if page is None:
-            raise ToolExecutionError("No draw page available.")
-        return page, actual
+        return pages.getByIndex(actual), actual
 
     def get_shapes(self, page: Any | None = None) -> list[tuple[str, Any]]:
         from plugin.draw.tree import iter_shape_addresses
@@ -184,10 +181,6 @@ class DrawBridge:
         source = pages.getByIndex(index)
         # DrawingDocument / PresentationDocument implement XDrawPageDuplicator.
         new_page = self.doc.duplicate(source)
-        # duplicate() must not return None as success or switch the view. Raise before
-        # any set_current_page_index, matching move_slide's None-clone handling.
-        if new_page is None:
-            raise RuntimeError("duplicate_slide: document duplicate() returned no page")
         if switch:
             self.set_current_page_index(index + 1)
         return new_page
@@ -254,11 +247,7 @@ class DrawBridge:
         pages = self.get_pages()
         if count == 0 or index >= count:
             # insertNewByIndex(count) lands at the end (or the only slot).
-            new_page = pages.insertNewByIndex(count)
-            landed = 0 if count == 0 else count
-            if new_page is None:
-                new_page = pages.getByIndex(landed)
-            return new_page, landed
+            return pages.insertNewByIndex(count), count
         if index == 0:
             # Lands at 1. Exchange so the new slide occupies index 0 and the
             # previous first slide shifts right. The object at index 0 is what
@@ -284,10 +273,7 @@ class DrawBridge:
             return pages.getByIndex(0), 0
         # 0 < index < count: insert after the page that should precede it.
         # insertNewByIndex(index-1) lands at index.
-        new_page = pages.insertNewByIndex(index - 1)
-        if new_page is None:
-            new_page = pages.getByIndex(index)
-        return new_page, index
+        return pages.insertNewByIndex(index - 1), index
 
     def _controller_page(self) -> Any | None:
         """Page the view is showing, or None when the controller has none.
@@ -353,8 +339,6 @@ class DrawBridge:
             if is_disposal(exc):
                 raise
             log.debug("move_slide duplicate failed: %s", exc)
-            return False
-        if copy is None:
             return False
         try:
             if not self._take_page_name(source, copy):
@@ -442,8 +426,6 @@ class DrawBridge:
         rollback_failed = False
         try:
             temp = pages.insertNewByIndex(pages.getCount() - 1)
-            if temp is None:
-                raise RuntimeError("move_slide could not hold shapes during reorder")
             self._move_shapes(first_shapes, first, temp)
             done.append((first_shapes, first, temp))
             self._move_shapes(second_shapes, second, first)
@@ -748,10 +730,8 @@ class DrawBridge:
             pages = self.get_pages()
             if index < 0 or index >= pages.getCount():
                 return False
-            page = pages.getByIndex(index)
-            if hasattr(page, "Name"):
-                page.Name = name
-                return True
+            pages.getByIndex(index).Name = name
+            return True
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -909,7 +889,7 @@ def get_draw_context_for_chat(model: Any, max_context: int) -> str:
         # A blank slide is falsy (see get_active_page_index) but still has speaker notes, so test `is not None`.
         if active_page is not None:
             # Impress-specific: Speaker Notes
-            if is_impress_doc and hasattr(active_page, "getNotesPage"):
+            if is_impress_doc:
                 sn = notes_text(active_page)
                 if sn and sn.strip():
                     ctx_str += "\nSpeaker Notes:\n%s\n" % sn.strip()

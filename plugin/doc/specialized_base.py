@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
-from plugin.framework.doc_type import DOCUMENT_SERVICES
+from plugin.framework.doc_type import DOCUMENT_SERVICES, agent_label
 from plugin.framework.errors import append_warnings, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
@@ -91,7 +91,9 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
         panel = get_live_panel(uid)
         if panel is None:
             return False
-        listener = getattr(panel, "send_listener", None)
+        # The panel's send_listener and session both start as None and are set while it
+        # wires its controls, so a probe that runs during or after a failed wiring sees None.
+        listener = panel.send_listener
         if listener is None:
             return False
         # Lazy: tool_loop_actions loads the chat send state machine (chat_session,
@@ -99,12 +101,12 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
         from plugin.chatbot.tool_loop_actions import current_turn
 
         turn = current_turn(listener)
-        if turn is not None and looks_like_peer_work_envelope(getattr(turn, "active_query_text", None)):
+        if turn is not None and looks_like_peer_work_envelope(turn.active_query_text):
             return True
-        messages = getattr(getattr(listener, "session", None), "messages", None)
-        if not messages:
+        session = listener.session
+        if session is None:
             return False
-        last_user = next((m for m in reversed(list(messages)) if isinstance(m, dict) and m.get("role") == "user"), None)
+        last_user = next((m for m in reversed(session.messages) if m.get("role") == "user"), None)
         return last_user is not None and looks_like_peer_work_envelope(last_user.get("content"))
 
     try:
@@ -353,28 +355,11 @@ class DelegateToSubagent(ToolBase):
         uno_services: frozenset[str] | None = None,
         doc: Any = None,
     ) -> str:
-        """Resolve the sub-agent label ('Writer', 'Calc', or 'Draw') from doc_type or UNO services."""
-        if doc_type == "calc" or (uno_services and "com.sun.star.sheet.SpreadsheetDocument" in uno_services):
-            return "Calc"
-        if doc_type in ("draw", "impress") or (
-            uno_services
-            and (
-                "com.sun.star.drawing.DrawingDocument" in uno_services
-                or "com.sun.star.presentation.PresentationDocument" in uno_services
-            )
-        ):
-            return "Draw"
-        if doc_type == "writer" or (uno_services and "com.sun.star.text.TextDocument" in uno_services):
-            return "Writer"
-        if doc is not None and main.is_current():
-            from plugin.framework import doc_type as _doc_type
+        """Resolve the sub-agent label ('Writer', 'Calc', or 'Draw'); see ``doc_type.agent_label``.
 
-            dt = _doc_type.doc_type_str_from_doc(doc)
-            if dt == "calc":
-                return "Calc"
-            if dt in ("draw", "impress"):
-                return "Draw"
-        return "Writer"
+        ``tool_schema.to_mcp_schema`` finds gateways by this method, so it stays on the class.
+        """
+        return agent_label(doc_type, uno_services, doc)
 
     def get_description(self, doc_type: str | None = None) -> str:
         """Return the app-specific sub-agent description for *doc_type*."""

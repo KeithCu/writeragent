@@ -145,9 +145,8 @@ class DelegateReadDocument(ToolBase):
             path, url_or_err = resolve_path_or_name(ctx.ctx, ctx.doc, str(path_or_name))
             if path is None:
                 return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
-            target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
             model, doc_type, err, opened_for_document_research = main.run(
-                open_document_for_read, ctx.ctx, target
+                open_document_for_read, ctx.ctx, url_or_err
             )
         except SendCancelled:
             return user_stopped_payload()

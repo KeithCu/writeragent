@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument
+from plugin.doc.document_research import file_entry_for_path
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.tool import ToolContext
 from plugin.framework.tool import ToolRegistry
@@ -68,7 +69,7 @@ def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
 ):
     opened_model = MagicMock()
     mock_resolve.return_value = (
-        [{"path": "/tmp/Budget.ods", "url": "file:///tmp/Budget.ods", "entry_type": "file", "name": "Budget.ods"}],
+        [file_entry_for_path("/tmp/Budget.ods")],
         False,
         None,
     )
@@ -96,7 +97,7 @@ def test_grep_nearby_files_polls_stop_checker(
 ):
     opened_model = MagicMock()
     mock_resolve.return_value = (
-        [{"path": "/tmp/Budget.ods", "url": "file:///tmp/Budget.ods", "entry_type": "file", "name": "Budget.ods"}],
+        [file_entry_for_path("/tmp/Budget.ods")],
         False,
         None,
     )

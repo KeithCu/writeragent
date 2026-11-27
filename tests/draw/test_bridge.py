@@ -317,22 +317,6 @@ def test_resolve_page_in_range_runtime_error_propagates():
         bridge.resolve_page(0)
 
 
-def test_resolve_page_none_page():
-    from plugin.framework.errors import ToolExecutionError
-
-    pages = MagicMock()
-    pages.getCount.return_value = 1
-    pages.getByIndex.return_value = None
-
-    class Doc:
-        def getDrawPages(self):
-            return pages
-
-    bridge = DrawBridge(Doc())
-    with pytest.raises(ToolExecutionError, match="No draw page available."):
-        bridge.resolve_page(0)
-
-
 def test_page_size():
     from plugin.draw.bridge import page_size
 

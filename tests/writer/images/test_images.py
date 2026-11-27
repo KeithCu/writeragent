@@ -19,7 +19,7 @@ from plugin.tests.testing_utils import DisposedException, TestingFactory
 
 
 from plugin.doc.document_research_tools import ListNearbyFiles
-from plugin.doc.visual_helpers import anchor_type_index
+from plugin.doc.visual_helpers import GraphicEntry, anchor_type_index
 from plugin.framework.client.http_transport import HttpResult
 from plugin.framework.errors import DocumentDisposedError, NetworkError
 from plugin.framework.send_cancellation import SendCancellation
@@ -1055,7 +1055,7 @@ def test_image_list_reports_unreadable_image():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good), ("Bad", bad)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Good", good)), GraphicEntry(("Bad", bad))]),
     ):
         res = ImageList().execute(ctx)
 
@@ -1066,8 +1066,6 @@ def test_image_list_reports_unreadable_image():
 
 
 def test_image_list_writer_entry_copies_shape_index():
-    from plugin.doc.visual_helpers import GraphicEntry
-
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.services.document = MagicMock()
     ctx.doc.getGraphicObjects = MagicMock()
@@ -1084,7 +1082,7 @@ def test_image_list_writer_entry_copies_shape_index():
 
     indexed = GraphicEntry(("Indexed", _make_graphic()))
     indexed.shape_index = 3
-    plain = ("Plain", _make_graphic())
+    plain = GraphicEntry(("Plain", _make_graphic()))
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
@@ -1110,7 +1108,7 @@ def test_image_list_disposal_is_not_a_short_list():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Good", good))]),
     ):
         with pytest.raises(DocumentDisposedError):
             ImageList().execute(ctx)
@@ -1407,7 +1405,7 @@ def test_image_list_disposed_anchor_type_raises_document_disposed():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("PagePic", graphic))]),
     ):
         with pytest.raises(DocumentDisposedError):
             ImageList().execute(ctx)
@@ -1456,7 +1454,7 @@ def test_image_list_at_page_never_calls_gotorange():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("PagePic", graphic))]),
     ):
         res = ImageList().execute(ctx)
 
@@ -1482,7 +1480,7 @@ def test_image_list_at_page_zero_not_reported_as_page():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("PagePic", graphic))]),
     ):
         res = ImageList().execute(ctx)
 
@@ -1515,7 +1513,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("ParaPic", graphic))]),
         patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
@@ -1544,7 +1542,7 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Pic", graphic))]),
         patch("plugin.writer.images.images.cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
     ):
         res = ImageList().execute(ctx)
@@ -1575,7 +1573,7 @@ def test_image_list_page_zero_omitted():
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
-        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[GraphicEntry(("Pic", graphic))]),
         patch("plugin.writer.images.images.cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)

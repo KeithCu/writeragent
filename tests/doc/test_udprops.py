@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,6 +27,14 @@ def test_get_document_property_missing_api_returns_default():
         pass
 
     assert get_document_property(_Model(), "WriterAgentSessionID", default="x") == "x"
+
+
+def test_null_model_reads_default_and_cannot_write_without_error_log(caplog):
+    with caplog.at_level(logging.DEBUG, logger="plugin.doc.udprops"):
+        assert get_document_property(None, "WriterAgentSessionID", default="d") == "d"
+        assert get_document_property(None, "WriterAgentSessionURL") is None
+        assert set_document_property(None, "WriterAgentSessionID", "v") is False
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def test_get_document_property_disposed():

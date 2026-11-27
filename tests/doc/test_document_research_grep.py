@@ -20,6 +20,7 @@ from plugin.doc.document_research_grep import (
     grep_nearby_files,
     resolve_grep_candidates,
 )
+from plugin.doc.document_research import file_entry_for_path
 from plugin.framework.url_utils import path_to_file_url
 
 
@@ -172,8 +173,8 @@ def test_resolve_grep_candidates_open_files_first():
         mock_list.return_value = {
             "status": "ok",
             "files": [
-                {"path": closed, "name": "closed.ods", "url": "", "modified": 100.0, "size_bytes": 0, "doc_type_guess": "calc", "is_open": False},
-                {"path": open_f, "name": "open.ods", "url": "", "modified": 1.0, "size_bytes": 0, "doc_type_guess": "calc", "is_open": True},
+                file_entry_for_path(closed),
+                file_entry_for_path(open_f) | {"is_open": True},
             ],
             "truncated": False,
         }
@@ -188,7 +189,7 @@ def test_resolve_grep_candidates_open_files_first():
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
-        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        [file_entry_for_path("/tmp/Budget.ods")],
         False,
         None,
     )
@@ -217,8 +218,8 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
 def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [
-            {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
-            {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+            file_entry_for_path("/tmp/a.ods"),
+            file_entry_for_path("/tmp/b.ods"),
         ],
         False,
         None,
@@ -246,14 +247,14 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
     [
         pytest.param(
             [
-                {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
-                {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+                file_entry_for_path("/tmp/a.ods"),
+                file_entry_for_path("/tmp/b.ods"),
             ],
             False,
             id="between_files",
         ),
         pytest.param(
-            [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+            [file_entry_for_path("/tmp/a.ods")],
             True,
             id="during_last_file",
         ),
@@ -284,7 +285,7 @@ def test_grep_nearby_files_stop_checker(
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_close):
     mock_resolve.return_value = (
-        [{"path": "/tmp/bad.ods", "name": "bad.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+        [file_entry_for_path("/tmp/bad.ods")],
         False,
         None,
     )
@@ -639,7 +640,7 @@ def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search,
     from tests.framework.thread_safety import start_uno_thread_safety_session
 
     mock_resolve.return_value = (
-        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        [file_entry_for_path("/tmp/Budget.ods")],
         False,
         None,
     )
@@ -710,8 +711,8 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
 ):
     mock_resolve.return_value = (
         [
-            {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
-            {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
+            file_entry_for_path("/tmp/a.ods"),
+            file_entry_for_path("/tmp/b.ods"),
         ],
         False,
         None,
@@ -749,7 +750,7 @@ def test_grep_nearby_files_closes_when_search_raises(
     mock_resolve, mock_search, mock_open, mock_close
 ):
     mock_resolve.return_value = (
-        [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+        [file_entry_for_path("/tmp/a.ods")],
         False,
         None,
     )
@@ -954,7 +955,7 @@ def test_grep_nearby_files_no_files_scanned():
     assert res_empty["status"] == "error"
     assert res_empty["code"] == "NO_FILES_SCANNED"
 
-    unsupported = [{"path": "/tmp/photo.png", "name": "photo.png", "url": "file:///tmp/photo.png", "doc_type_guess": "image"}]
+    unsupported = [file_entry_for_path("/tmp/photo.png")]
     with patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=(unsupported, False, None)):
         res_unsupported = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="photo.png")
     assert res_unsupported["status"] == "error"

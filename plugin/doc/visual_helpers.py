@@ -586,8 +586,8 @@ class AmbiguousGraphicNameError(ValueError):
         self.shape_indices: list[int] = shape_indices or []
 
 
-def _graphics_on_page(page: Any) -> Iterator[tuple[str, Any]]:
-    """Yield ``(name, shape)`` for every graphic shape on one draw page, in page order.
+def _graphics_on_page(page: Any) -> Iterator[GraphicEntry]:
+    """Yield a ``(name, shape)`` entry for every graphic shape on one draw page, in page order.
 
     Non-graphic shapes are skipped. Errors propagate so the caller's disposal arm
     decides; a closed document must not read as "no graphics".
@@ -595,13 +595,13 @@ def _graphics_on_page(page: Any) -> Iterator[tuple[str, Any]]:
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
         if is_graphic_object(shape):
-            yield shape.getName(), shape
+            yield GraphicEntry((shape.getName(), shape))
 
 
-def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[str, Any]]:
-    """Return ``(name, object)`` pairs for document-level graphic objects."""
+def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[GraphicEntry]:
+    """Return ``(name, object)`` entries for document-level graphic objects."""
     inside = doc_type or get_visual_doc_type(doc)
-    graphics: list[tuple[str, Any]] = []
+    graphics: list[GraphicEntry] = []
 
     if inside == "calc":
         try:
@@ -609,8 +609,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
             for sheet_idx in range(sheets.getCount()):
                 sheet = sheets.getByIndex(sheet_idx)
                 sheet_name = sheet.getName()
-                for name, shape in _graphics_on_page(sheet.getDrawPage()):
-                    item = GraphicEntry((name, shape))
+                for item in _graphics_on_page(sheet.getDrawPage()):
                     item.sheet_index = sheet_idx
                     item.sheet_name = sheet_name
                     graphics.append(item)
@@ -810,7 +809,7 @@ def get_graphic_object_by_name(
     if not image_name:
         return None
     matches = [
-        (item[1], getattr(item, "sheet_index", None), getattr(item, "shape_index", None))
+        (item[1], item.sheet_index, item.shape_index)
         for item in list_graphic_objects(doc, doc_type=doc_type)
         if item[0] == image_name
     ]

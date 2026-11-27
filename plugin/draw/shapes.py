@@ -330,11 +330,6 @@ def _drawing_enum(enum_name: str, member: str) -> Any:
 
 
 class DrawShapes:
-    def _is_valid_position(self, position: Any) -> bool:
-        if not hasattr(position, "X") or not hasattr(position, "Y"):
-            return False
-        return True
-
     def _is_valid_size(self, size: Any, shape_type: str | None = None) -> bool:
         """Reject a size LibreOffice will not use as a shape box.
 
@@ -343,17 +338,11 @@ class DrawShapes:
         insertion so direction is preserved in all apps). Other shapes need
         both sides positive. Both sides zero is always invalid.
         """
-        if not hasattr(size, "Width") or not hasattr(size, "Height"):
-            return False
         width = size.Width
         height = size.Height
         if width == 0 and height == 0:
             return False
-        if _is_line_shape_type(shape_type):
-            return True
-        if width <= 0 or height <= 0:
-            return False
-        return True
+        return _is_line_shape_type(shape_type) or (width > 0 and height > 0)
 
     def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None, *, writer: bool = False) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
@@ -371,15 +360,6 @@ class DrawShapes:
         to expand ``ViewBox`` and ``Path``.
         """
         try:
-            if doc is None:
-                raise DrawError("Document is None", code="DRAW_DOC_NULL", details={"operation": "shape_upsert", "shape_type": shape_type})
-            # UNO XDrawPage can be falsy when it has zero shapes — use `is None`.
-            if page is None:
-                raise DrawError("Page is None", code="DRAW_PAGE_NULL", details={"operation": "shape_upsert", "shape_type": shape_type})
-
-            if not self._is_valid_position(position):
-                raise DrawError(f"Invalid position: {position}", code="DRAW_INVALID_POSITION", details={"position": position})
-
             if not self._is_valid_size(size, shape_type):
                 raise DrawError(f"Invalid size: {size}", code="DRAW_INVALID_SIZE", details={"size": size})
 
