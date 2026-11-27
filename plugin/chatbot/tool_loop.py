@@ -555,7 +555,7 @@ class ToolCallingMixin:
             # only after a WAV attaches. Audio cleanup reads the same fields,
             # so a mid-send combobox change marks this model, not the new one.
             started.text_model = str(api_config.get("model") or "") or None
-            started.endpoint = client._endpoint()
+            started.endpoint = client.endpoint()
         if started is None or started.session is None:
             # Clear replaced messages, or Stop aborted the turn, while this
             # send was still starting. The user row must not land on the wiped chat.
@@ -612,7 +612,7 @@ class ToolCallingMixin:
             # the LLM worker resolves it and drops the image unless True.
             b64_image = None
             text_model_id = str(api_config.get("model") or "")
-            vision = model_fetcher.has_native_vision(text_model_id, client._endpoint())
+            vision = model_fetcher.has_native_vision(text_model_id, client.endpoint())
             if vision is not False:
                 doc = self._panel._get_document_model()
                 if doc:

@@ -433,10 +433,10 @@ class BaseProviderShim:
     def __init__(self, client: Any) -> None:
         self.client = client
 
-    def _reasoning_provider(self) -> str:
+    def reasoning_provider(self) -> str:
         if self._openrouter_chat():
             return "openrouter"
-        return self.client._get_provider()
+        return self.client.provider()
 
     def _client_config(self) -> dict[str, Any]:
         config = getattr(self.client, "config", None)
@@ -456,11 +456,11 @@ class BaseProviderShim:
 
     def _url(self, suffix: str) -> str:
         """``endpoint + api_path + suffix``. Ollama and Google build their own URLs."""
-        return self.client._endpoint() + self.client._api_path() + suffix
+        return self.client.endpoint() + self.client.api_path() + suffix
 
     def _post(self, url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), headers if headers is not None else self.client._headers()
+        return "POST", path, json.dumps(data).encode("utf-8"), headers if headers is not None else self.client.headers()
 
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
@@ -489,7 +489,7 @@ class BaseProviderShim:
         # effort_payload maps effort level per provider format.
         level = self._requested_effort_level(chat_extra)
         if level:
-            fragment = effort_payload(self._reasoning_provider(), level)
+            fragment = effort_payload(self.reasoning_provider(), level)
             if "reasoning" in fragment:
                 reasoning = data.get("reasoning")
                 if isinstance(reasoning, dict):
@@ -504,11 +504,11 @@ class BaseProviderShim:
 
     def _apply_cache_route(self, data: dict[str, Any], cache_session_id: str | None) -> dict[str, str] | None:
         """Apply sticky routing body fields to *data* and return merged headers, or None."""
-        body_fields, extra_headers = cache_route(self.client._get_provider(), cache_session_id)
+        body_fields, extra_headers = cache_route(self.client.provider(), cache_session_id)
         if body_fields:
             data.update(body_fields)
         if extra_headers:
-            headers = dict(self.client._headers())
+            headers = dict(self.client.headers())
             headers.update(extra_headers)
             return headers
         return None

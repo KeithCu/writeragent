@@ -17,10 +17,10 @@ def test_anthropic_shim_tool_parsing():
     assert _parse_tool_input("[\"not an object\"]") is None
 
 class _DummyClientBase:
-    def _endpoint(self) -> str:
+    def endpoint(self) -> str:
         return "http://test"
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {}
 
     def anthropic_previous_message_id(self, cache_session_id: str | None = None) -> str | None:
@@ -457,7 +457,7 @@ def test_anthropic_single_tool_round_cache_breakpoint():
 
 def test_anthropic_omits_cache_session_id():
     class DummyClient(_DummyClientBase):
-        def _get_provider(self):
+        def provider(self):
             return "anthropic"
 
     shim = AnthropicShim(DummyClient())

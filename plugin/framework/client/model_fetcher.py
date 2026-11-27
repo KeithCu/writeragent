@@ -352,7 +352,7 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
 
 
 def _resolved_openwebui(endpoint: str) -> bool:
-    # Resolve Open WebUI by host or explicit setting matching LlmClient._api_path.
+    # Resolve Open WebUI by host or explicit setting matching LlmClient.api_path.
     return is_openwebui_endpoint(endpoint, explicit_is_openwebui=as_bool(get_config("is_openwebui")))
 
 
@@ -1644,12 +1644,12 @@ def peek_live_ollama_num_ctx(client: Any) -> int | None:
     filled the show cache. Do not start a new HTTP call here.
     """
     try:
-        if client._get_provider() != "ollama":
+        if client.provider() != "ollama":
             return None
         model_name = str(client.config.get("model") or "").strip()
         if not model_name:
             return None
-        endpoint = str(client._endpoint() or "")
+        endpoint = str(client.endpoint() or "")
         key = _catalog_memo_key(endpoint)
         memo = _catalog_memos.get(key)
         if memo is None:
@@ -1694,8 +1694,8 @@ def resolve_context_window(client: Any, model_id: str | None = None) -> int | No
     model_id = str(model_id or client.config.get("model") or "").strip() or None
     if not model_id:
         return None
-    provider = best_effort(lambda: client._get_provider(), "resolve_context_window: provider")
-    endpoint = best_effort(lambda: client._endpoint(), "resolve_context_window: endpoint")
+    provider = best_effort(lambda: client.provider(), "resolve_context_window: provider")
+    endpoint = best_effort(lambda: client.endpoint(), "resolve_context_window: endpoint")
     if provider == "ollama":
         # Issue #570: trained context_length is not the runtime window.
         # Missing num_ctx → None; do not fall back to v1 cache or catalog.

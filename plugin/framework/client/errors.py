@@ -367,7 +367,7 @@ def log_chat_request_body_diag(client: Any, path: str, body: Any, tools: Any) ->
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
     n_tools = len(tools) if isinstance(tools, list) else len(payload.get("tools") or [])
-    log.debug("Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s", payload.get("model"), payload.get("stream"), n_tools, _full_url_for_request_path(client._endpoint(), path), bool(api_key), len(api_key))
+    log.debug("Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s", payload.get("model"), payload.get("stream"), n_tools, _full_url_for_request_path(client.endpoint(), path), bool(api_key), len(api_key))
 
 
 def _prompt_char_count(messages: Any) -> int:
@@ -414,9 +414,9 @@ def log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, 
     tools = payload.get("tools")
     log.error(
         "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s n_ctx=%s prompt_chars=%s max_tokens=%s exit_code=%r",
-        client._get_provider(),
+        client.provider(),
         payload.get("model"),
-        _full_url_for_request_path(client._endpoint(), path),
+        _full_url_for_request_path(client.endpoint(), path),
         response.status,
         response.reason,
         payload.get("stream"),

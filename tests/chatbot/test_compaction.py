@@ -65,10 +65,10 @@ class DummyClient:
         self._error = error
         self.calls = []
 
-    def _get_provider(self):
+    def provider(self):
         return self._provider
 
-    def _endpoint(self):
+    def endpoint(self):
         return self._endpoint_url
 
     def request_with_tools(self, messages, **kwargs):
@@ -1268,7 +1268,7 @@ def test_resolve_context_window_provider_exceptions():
     class ExceptionClient:
         config = {"model": "openai/gpt-oss-120b"}
 
-        def _get_provider(self):
+        def provider(self):
             raise RuntimeError("provider unavailable")
 
     # Should not crash on provider exception; falls back to catalog matching
@@ -1277,10 +1277,10 @@ def test_resolve_context_window_provider_exceptions():
     class BadEndpointClient:
         config = {"model": "llama3"}
 
-        def _get_provider(self):
+        def provider(self):
             return "ollama"
 
-        def _endpoint(self):
+        def endpoint(self):
             raise RuntimeError("endpoint failed")
 
     assert MF.resolve_context_window(BadEndpointClient()) is None

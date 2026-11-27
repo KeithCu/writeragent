@@ -23,7 +23,7 @@ honoured) unless stream tokens already reached the UI. Request assembly still ow
 stripping, dev/release system prefix, date prefix on first system message,
 Anthropic/Gemini shims, OpenRouter merge (``merge_openrouter_chat_extra``), and
 logging redaction. Takes a config dict from ``get_api_config`` and UNO ``ctx``.
-Hosted providers with an empty API key raise ``AuthError`` from ``_resolve_auth``
+Hosted providers with an empty API key raise ``AuthError`` from ``resolve_auth``
 (do not catch it into ``{}``: the client would then look like ``custom`` and
 the user would see a generic HTTP 401). Local/Ollama and ``header_style=none`` keep empty keys.
 
@@ -46,7 +46,7 @@ import logging
 import os
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, NoReturn, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -115,6 +115,20 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     if isinstance(event_type, str) and event_type.startswith("response."):
         return True
     return event_type in _ANTHROPIC_STREAM_TYPES
+
+
+def _raise_unexpected(exc: Exception, path: str, log_msg: str, *, code: str | None = None) -> NoReturn:
+    """Re-raise ``exc`` as ``NetworkError`` unless it is already classified.
+
+    ``WriterAgentException`` (``AuthError``, ``NetworkError`` and the rest) and
+    document disposal propagate unchanged, so their codes reach the caller.
+    Anything else is logged with its traceback and becomes a ``NetworkError``
+    whose details carry the public request target. Call it from an ``except``.
+    """
+    if isinstance(exc, WriterAgentException) or is_disposal(exc):
+        raise exc
+    log.exception(log_msg)
+    raise NetworkError(format_error_message(exc), code=code, details={"url": public_target(path)}) from exc
 
 
 def _accepted_value_lists(param: str, error_text: str) -> list[list[str]] | None:
@@ -222,7 +236,7 @@ class LlmClient:
     def __init__(self, config: dict[str, Any], ctx: Any, cancel: SendCancellation | None = None, *, register_with_send: bool = True) -> None:
         self.config = config
         self.ctx = ctx
-        self._transport = LlmHttpTransport(self._endpoint, self._timeout, openrouter_getter=lambda: bool(self.config.get("is_openrouter")))
+        self._transport = LlmHttpTransport(self.endpoint, self._timeout, openrouter_getter=lambda: bool(self.config.get("is_openrouter")))
         self._shims: dict[str, BaseProviderShim] = {}
         self._anthropic_prev_message_id: dict[str, str] = {}
         # Stop before the first byte: close() alone is a no-op when sock is None;
@@ -273,7 +287,7 @@ class LlmClient:
                     slot["pending"] = [omitted] if omitted is not None else []
                 else:
                     slot["unsupported"] = False
-                    slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
+                    slot["pending"] = effort_retry_bodies(self._get_shim().reasoning_provider(), body_bytes)
             if not slot["pending"]:
                 return None
             if slot["unsupported"]:
@@ -289,15 +303,15 @@ class LlmClient:
 
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
-        provider = self._get_provider()
-        endpoint = self._endpoint()
+        provider = self.provider()
+        endpoint = self.endpoint()
         shim_key = f"{provider}:{endpoint}"
         if shim_key not in self._shims:
             shim_cls = get_provider_shim_class(provider)
             self._shims[shim_key] = shim_cls(self)
         return self._shims[shim_key]
 
-    def _close_connection(self) -> None:
+    def close_connection(self) -> None:
         self._transport.close()
 
     def _close_if_connection_close(self, response: Any) -> None:
@@ -311,7 +325,7 @@ class LlmClient:
             return
         conn_hdr = (response.getheader("Connection") or "").strip().lower()
         if conn_hdr == "close":
-            self._close_connection()
+            self.close_connection()
 
     def _observe_provider_http_error(self, response: Any, err_body: str, path: str, body: Any) -> str:
         """Chat-only ERROR line and llama-server 500 shape. Redaction is the transport's."""
@@ -322,7 +336,8 @@ class LlmClient:
         # text; a leftover ?key= or opaque path secret must not land in the log.
         safe_path = redact_secrets(public_target(path), [api_key])
         st = response.status
-        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", st, redact_secrets(str(err_body), secrets), self._get_provider(), safe_path, request_model)
+        provider = self.provider()
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", st, redact_secrets(str(err_body), secrets), provider, safe_path, request_model)
         n_ctx = None
         if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
@@ -330,7 +345,7 @@ class LlmClient:
             n_ctx = peek_live_ollama_num_ctx(self)
             log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
         err_msg = format_http_error_response(st, response.reason or "", err_body, context_window=n_ctx)
-        return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+        return append_zai_unknown_model_hint(err_msg, err_body, path, provider, request_model)
 
     def _wire_secrets(self) -> list[str]:
         api_key = str(self.config.get("api_key") or "").strip()
@@ -344,38 +359,38 @@ class LlmClient:
         """
         log.debug("LlmClient.stop() called")
         self._owned.cancel()
-        self._close_connection()
+        self.close_connection()
 
     def clear_stop(self) -> None:
         """Allow a reused client to send again (call on the UI thread at send start)."""
         self._owned = SendCancellation()
 
-    def _endpoint(self) -> str:
+    def endpoint(self) -> str:
         raw = self.config.get("endpoint", "http://localhost:11434")
         return normalize_endpoint_url(raw, is_openwebui=self.config.get("is_openwebui", False))
 
-    def _api_path(self) -> str:
-        return get_api_version_suffix(self._endpoint(), is_openwebui=self.config.get("is_openwebui"))
+    def api_path(self) -> str:
+        return get_api_version_suffix(self.endpoint(), is_openwebui=self.config.get("is_openwebui"))
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         """
         Build HTTP headers for API requests, including provider-aware auth.
         """
         h = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
-        h.update(build_auth_headers(self._resolve_auth()))
+        h.update(build_auth_headers(self.resolve_auth()))
         return h
 
-    def _resolve_auth(self) -> dict[str, Any]:
+    def resolve_auth(self) -> dict[str, Any]:
         """Resolve auth info from config, propagating any AuthError."""
         return resolve_auth_for_config(self.config)
 
-    def _get_provider(self) -> str:
+    def provider(self) -> str:
         """Get the provider ID from resolved auth."""
-        return self._resolve_auth()["provider"]
+        return self.resolve_auth()["provider"]
 
     def anthropic_previous_message_id(self, cache_session_id: str | None) -> str | None:
         """Return the most recent Anthropic message ID recorded for this session ID, or None."""
-        if self._get_provider() != "anthropic":
+        if self.provider() != "anthropic":
             return None
         if not cache_session_id or not isinstance(cache_session_id, str):
             return None
@@ -383,7 +398,7 @@ class LlmClient:
 
     def remember_anthropic_message_id(self, cache_session_id: str | None, message_id: str | None) -> None:
         """Store the Anthropic message ID for the given session ID when running on native Anthropic."""
-        if self._get_provider() != "anthropic":
+        if self.provider() != "anthropic":
             return
         if not cache_session_id or not isinstance(cache_session_id, str):
             return
@@ -446,7 +461,8 @@ class LlmClient:
         except (TypeError, ValueError):
             max_tokens = 512
 
-        messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        provider = self.provider()
+        messages = prepare_chat_messages(messages, provider, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         # One allow-list, including properties {}, runs here before any shim
         # builds the request. Otherwise each shim would forward the model's tool
         # call unchanged, and hallucinated kwargs on a no-arg tool would stay in
@@ -466,7 +482,7 @@ class LlmClient:
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice, cache_session_id=cache_session_id,
         )
 
-        log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===", self._get_provider(), bool(tools), stream)
+        log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===", provider, bool(tools), stream)
         # bare path: see log_target
         log.debug("URL: %s", log_target(path))
         if log.isEnabledFor(logging.DEBUG):
@@ -493,7 +509,7 @@ class LlmClient:
         active = self._request_scope(cancel)
         try:
             if is_cancelled(active):
-                self._close_connection()
+                self.close_connection()
                 raise stopped_error()
             api_key = str(self.config.get("api_key") or "").strip()
             first_body = body
@@ -519,16 +535,12 @@ class LlmClient:
                     retry_log_message=retry_log_message,
                     on_bad_request=on_bad_request,
                 )
-            except NetworkError:
-                raise
             except Exception as exc:
                 if not wrap_unexpected:
                     raise
-                err_msg = format_error_message(exc)
-                log.exception(failure_log)
-                raise NetworkError(err_msg, details={"url": public_target(path)}) from exc
+                _raise_unexpected(exc, path, failure_log)
             if slot["used"]:
-                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
+                remember_accepted_effort(self.endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
             return parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
@@ -598,7 +610,7 @@ class LlmClient:
         # 1. Check if the STT model itself supports native audio.
         # None means unknown, which ``has_native_audio`` documents as "try
         # native", so only an explicit False skips the chat attempt.
-        if has_native_audio(model_name, self._endpoint()) is not False:
+        if has_native_audio(model_name, self.endpoint()) is not False:
             log.info("Trying multimodal chat for transcription (model: %s)", model_name)
             try:
                 with open(wav_path, "rb") as f:
@@ -631,10 +643,10 @@ class LlmClient:
                 # propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
-        endpoint = self._endpoint()
-        api_path = self._api_path()
+        endpoint = self.endpoint()
+        api_path = self.api_path()
         url = endpoint + api_path + "/audio/transcriptions"
-        headers = self._headers()
+        headers = self.headers()
 
         # OpenRouter STT uses JSON + base64 input_audio, not OpenAI-style multipart/form-data.
         if is_openrouter_endpoint(endpoint, explicit_is_openrouter=self.config.get("is_openrouter")):
@@ -715,12 +727,6 @@ class LlmClient:
         slot: dict[str, Any] = {"pending": None, "body": body, "used": False, "unsupported": False}
         on_bad_request = self._effort_on_bad_request(active, slot)
 
-        body = accepted_effort_body(
-            self._get_shim()._reasoning_provider(),
-            self._endpoint(),
-            body,
-        )
-
         def consume(response: Any, budget: RetryBudget) -> str | None:
             # on_delta writes role, usage, and a buffered "<think" prefix into
             # the caller's snapshot before any callback runs. emitted_any stays
@@ -745,7 +751,7 @@ class LlmClient:
                 think_tag_splitter = ThinkTagStreamSplitter()
                 requested_model = request_model_from_body(body)
                 used_model = None
-                native_anthropic = self._get_provider() == "anthropic"
+                native_anthropic = provider == "anthropic"
                 stream_state: dict[str, Any] = {}
                 last_usage_obj: dict[str, Any] | None = None
                 last_diagnostics: Any = None
@@ -782,7 +788,7 @@ class LlmClient:
                     chunk_model = chunk.get("model")
                     if chunk_model and used_model is None:
                         used_model = str(chunk_model)
-                        log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
+                        log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", provider, requested_model, used_model)
 
                     usage_obj = chunk.get("usage")
                     if not isinstance(usage_obj, dict) or not usage_obj:
@@ -800,7 +806,7 @@ class LlmClient:
                         log.debug("streaming_loop: Stop requested.")
                         last_finish_reason = "stop"
                         # Close connection immediately on stop so response.read() does not block.
-                        self._close_connection()
+                        self.close_connection()
                         break
 
                     # Check for mid-stream provider error objects inside a 200 stream.
@@ -809,7 +815,7 @@ class LlmClient:
                         api_key = str(self.config.get("api_key") or "").strip()
                         stream_err = redact_secrets(stream_err, [api_key])
                         if (not budget.emitted_any) and stream_error_is_overload(chunk) and budget.sends_left > 1:
-                            self._close_connection()
+                            self.close_connection()
                             raise StreamOverload(stream_err)
                         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": public_target(path)})
 
@@ -823,7 +829,7 @@ class LlmClient:
                             on_delta({"usage": usage_obj})
                         continue
 
-                    content, finish_reason, thinking, delta = self._get_shim().parse_response_chunk(chunk, stream_state)
+                    content, finish_reason, thinking, delta = shim.parse_response_chunk(chunk, stream_state)
                     # Keep the provider's parsed SSE shape before normalization. Some
                     # OpenAI-compatible routes have appeared to continue one function's
                     # arguments under a new tool-call index; the completed snapshot alone
@@ -848,7 +854,7 @@ class LlmClient:
                             summarized.append(entry)
                         log.debug(
                             "streaming_loop: raw tool_call delta route_provider=%s chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s",
-                            self._get_provider(),
+                            provider,
                             chunk.get("provider"),
                             chunk.get("model"),
                             chunk.get("id"),
@@ -931,7 +937,7 @@ class LlmClient:
                     if self._stop_latched(active):
                         log.debug("streaming_loop: Stop requested after delta.")
                         last_finish_reason = "stop"
-                        self._close_connection()
+                        self.close_connection()
                         break
 
                     if finish_reason:
@@ -950,7 +956,7 @@ class LlmClient:
 
                 log.info(
                     "LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s cache_read=%s",
-                    self._get_provider(),
+                    provider,
                     requested_model,
                     used_model or requested_model,
                     last_finish_reason,
@@ -994,14 +1000,21 @@ class LlmClient:
                     # Honor Connection: close so we don't try to reuse when the server closed.
                     self._close_if_connection_close(response)
                 else:
-                    self._close_connection()
+                    self.close_connection()
             if slot["pending"] is not None:
-                remember_accepted_effort(self._endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
+                remember_accepted_effort(self.endpoint(), first_body, slot["body"], parameter_unsupported=slot["unsupported"])
             if last_finish_reason is None and self._stop_latched(active):
                 last_finish_reason = "stop"
             return last_finish_reason
 
         try:
+            # Resolving the provider and shim reads auth and can raise
+            # AuthError. Doing it inside this try lets the finally release the
+            # cancel hook _request_scope registered above; consume reads shim,
+            # provider and body only once the transport calls it.
+            provider = self.provider()
+            shim = self._get_shim()
+            body = accepted_effort_body(shim.reasoning_provider(), self.endpoint(), body)
             return self._transport.stream(
                 method,
                 path,
@@ -1019,11 +1032,7 @@ class LlmClient:
                 return "stop"
             raise
         except Exception as e:
-            if isinstance(e, WriterAgentException) or is_disposal(e):
-                raise
-            err_msg = format_error_message(e)
-            log.exception("streaming_loop: Unexpected error")
-            raise NetworkError(err_msg, details={"url": public_target(path)}) from e
+            _raise_unexpected(e, path, "streaming_loop: Unexpected error")
         finally:
             self._release_request_scope(cancel)
 
@@ -1091,7 +1100,8 @@ class LlmClient:
         """
         requested_model = model or self.config.get("model") or "default"
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
-        log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)
+        provider = self.provider()
+        log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", provider, requested_model, stream, len(messages), n_tool_defs)
         method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix, cache_session_id=cache_session_id)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
@@ -1137,28 +1147,20 @@ class LlmClient:
                 thinking_meta.update(new_streaming_thinking_meta())
 
             log.debug("stream_request_with_tools: starting stream (%d messages)", len(messages))
-            try:
-                last_finish_reason = self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
-                    on_content=append_callback,
-                    on_thinking=append_thinking_callback,
-                    on_delta=on_delta,
-                    cancel=cancel,
-                    status_callback=status_callback,
-                    reset_unemitted_attempt=_reset_unemitted_attempt,
-                    cache_session_id=cache_session_id,
-                )
-            except NetworkError:
-                raise
-            except Exception as e:
-                if isinstance(e, WriterAgentException) or is_disposal(e):
-                    raise
-                err_msg = format_error_message(e)
-                log.exception("stream_request_with_tools failed")
-                raise NetworkError(err_msg, details={"url": public_target(path)}) from e
+            # _run_streaming_loop already turns unexpected errors into NetworkError.
+            last_finish_reason = self._run_streaming_loop(
+                method,
+                path,
+                body,
+                headers,
+                on_content=append_callback,
+                on_thinking=append_thinking_callback,
+                on_delta=on_delta,
+                cancel=cancel,
+                status_callback=status_callback,
+                reset_unemitted_attempt=_reset_unemitted_attempt,
+                cache_session_id=cache_session_id,
+            )
             if last_finish_reason is None and self._stop_latched(cancel):
                 last_finish_reason = "stop"
 
@@ -1180,7 +1182,7 @@ class LlmClient:
             stopped_result: dict[str, Any] = {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
             if self._stop_latched(cancel):
                 log.debug("request_with_tools sync: Stop already requested before connect")
-                self._close_connection()
+                self.close_connection()
                 return stopped_result
             def _log_outgoing_on_retry() -> None:
                 try:
@@ -1189,7 +1191,8 @@ class LlmClient:
                 except Exception as log_exc:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
-            body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
+            shim = self._get_shim()
+            body = accepted_effort_body(shim.reasoning_provider(), self.endpoint(), body)
             try:
                 result = self._exchange_json(
                     method,
@@ -1213,27 +1216,20 @@ class LlmClient:
 
             used_model = str(result.get("model") or requested_model)
 
-            native_anthropic = self._get_provider() == "anthropic"
+            native_anthropic = provider == "anthropic"
             sync_diag = self._note_anthropic_cache_facts(result, cache_session_id) if native_anthropic else None
 
             # Use unified extraction for shims/native providers
             try:
-                raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = self._get_shim().parse_sync_response(result)
-            except NetworkError:
-                raise
+                raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = shim.parse_sync_response(result)
             except Exception as e:
                 # A malformed envelope (missing keys, wrong shape) raises
-                # KeyError/TypeError/AttributeError from the shim. Wrap those
-                # in NetworkError(code="BAD_RESPONSE") so callers that handle
-                # NetworkError see them. WriterAgentException and disposal
-                # still propagate.
-                if isinstance(e, WriterAgentException) or is_disposal(e):
-                    raise
-                err_msg = format_error_message(e)
-                log.exception("parse_sync_response failed")
-                raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": public_target(path)}) from e
+                # KeyError/TypeError/AttributeError from the shim. They become
+                # NetworkError(code="BAD_RESPONSE") so callers that handle
+                # NetworkError see them.
+                _raise_unexpected(e, path, "parse_sync_response failed", code="BAD_RESPONSE")
 
-            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
+            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", provider, requested_model, used_model, cache_read_count(usage))
             if native_anthropic:
                 self._log_anthropic_cache_diagnostics(sync_diag, usage)
             content, extracted_thinking = strip_think_tags(raw_parsed_content)

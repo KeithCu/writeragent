@@ -245,7 +245,7 @@ class EndpointImageProvider:
             if not is_openrouter:
                 completion_log = "Image generation failed"
             else:
-                if is_image_only_model(self.client._endpoint(), model):
+                if is_image_only_model(self.client.endpoint(), model):
                     completion_log = "OpenRouter dedicated image generation failed"
             if completion_log:
                 return self._run_image_completion(
@@ -338,7 +338,7 @@ class EndpointImageProvider:
 
             return [], "No image data returned from provider"
         finally:
-            self.client._close_connection()
+            self.client.close_connection()
 
 
 class ImageService:

@@ -770,6 +770,8 @@ class _EventDrain:
             # otherwise a quiet stream busy-spins addCallback.
             pending = state.q.qsize()
 
+            # Permanent diagnostic: a slice over 0.1 s blocks the UI thread long
+            # enough to notice, which usually points at a slow apply_chunk.
             elapsed = time.monotonic() - t0
             if elapsed > 0.1:
                 log.debug("event drain slice took %.3fs", elapsed)

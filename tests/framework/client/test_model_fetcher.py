@@ -1555,13 +1555,13 @@ def test_peek_ollama_num_ctx_reads_show_cache_without_http():
     memo = _get_catalog_memo(endpoint)
     memo.ollama_show[model] = {"capabilities": [], "num_ctx": 4096}
     client = MagicMock()
-    client._get_provider.return_value = "ollama"
+    client.provider.return_value = "ollama"
     client.config = {"model": model}
-    client._endpoint.return_value = endpoint
+    client.endpoint.return_value = endpoint
     try:
         with patch("plugin.framework.client.model_fetcher.query_ollama_show") as show:
             assert peek_live_ollama_num_ctx(client) == 4096
-            assert peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
+            assert peek_live_ollama_num_ctx(MagicMock(provider=MagicMock(return_value="ollama"), config={"model": "missing"}, endpoint=MagicMock(return_value=endpoint))) is None
         show.assert_not_called()
     finally:
         clear_settings_catalog_cache(endpoint)

@@ -359,7 +359,7 @@ class TestEndpointImageProvider:
         """
         config = {"endpoint": "https://openrouter.ai/api", "model": "black-forest-labs/flux.2-klein-4b", "is_openrouter": True}
         client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "openrouter"}):
+        with patch.object(client, "resolve_auth", return_value={"provider": "openrouter"}):
             method, path, body, headers = client._get_shim().build_image_request("make him a wizard", None, 1024, 1024, source_image="b64data")
         data = json.loads(body.decode("utf-8"))
         assert "image_url" not in data
@@ -369,7 +369,7 @@ class TestEndpointImageProvider:
         """Official OpenAI img2img is POST /images/edits JSON images[].image_url, not generations image_url."""
         config = {"endpoint": "https://api.openai.com", "model": "gpt-image-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
+        with patch.object(client, "resolve_auth", return_value={"provider": "openai"}):
             method, path, body, headers = client._get_shim().build_image_request("a cat", "gpt-image-2", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
             assert path.endswith("/images/generations")
@@ -394,7 +394,7 @@ class TestEndpointImageProvider:
         """dall-e-3 cannot edit; dall-e-2 edits were multipart and this client sends JSON."""
         config = {"endpoint": "https://api.openai.com", "model": model, "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
+        with patch.object(client, "resolve_auth", return_value={"provider": "openai"}):
             with pytest.raises(ValueError) as raised:
                 client._get_shim().build_image_request("make it dusk", model, 1024, 1024, source_image="b64data")
         msg = str(raised.value).lower()
@@ -406,7 +406,7 @@ class TestEndpointImageProvider:
         """Together default image models (Flash Image / FLUX.2) want reference_images, not image_url."""
         config = {"endpoint": "https://api.together.xyz", "model": "google/flash-image-2.5"}
         client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
+        with patch.object(client, "resolve_auth", return_value={"provider": "together"}):
             method, path, body, headers = client._get_shim().build_image_request("a cat", "google/flash-image-2.5", 1024, 1024)
             data = json.loads(body.decode("utf-8"))
             assert "image_url" not in data
@@ -434,7 +434,7 @@ class TestEndpointImageProvider:
         """FLUX.1 Kontext on Together documents a single image_url string."""
         config = {"endpoint": "https://api.together.xyz", "model": "black-forest-labs/FLUX.1-kontext-pro"}
         client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
+        with patch.object(client, "resolve_auth", return_value={"provider": "together"}):
             method, path, body, headers = client._get_shim().build_image_request(
                 "a lake", "black-forest-labs/FLUX.1-kontext-pro", 896, 512
             )

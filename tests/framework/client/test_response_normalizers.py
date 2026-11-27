@@ -219,8 +219,8 @@ def test_anthropic_json_object_is_a_system_hint_not_a_request_field():
     import json
 
     client = MagicMock()
-    client._endpoint.return_value = "https://api.anthropic.com"
-    client._headers.return_value = {}
+    client.endpoint.return_value = "https://api.anthropic.com"
+    client.headers.return_value = {}
     client.anthropic_previous_message_id.return_value = None
     shim = AnthropicShim(client)
     _method, _path, body, _headers = shim.build_chat_request(
@@ -250,8 +250,8 @@ def test_anthropic_build_skips_missing_tool_arguments():
     import json
 
     client = MagicMock()
-    client._endpoint.return_value = "https://api.anthropic.com"
-    client._headers.return_value = {}
+    client.endpoint.return_value = "https://api.anthropic.com"
+    client.headers.return_value = {}
     client.anthropic_previous_message_id.return_value = None
     shim = AnthropicShim(client)
     _method, _path, body, _headers = shim.build_chat_request(

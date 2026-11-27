@@ -865,7 +865,7 @@ def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
     assert test_instance.audio_wav_path is None
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
-    test_instance.client._endpoint.return_value = "https://openrouter.ai/api"
+    test_instance.client.endpoint.return_value = "https://openrouter.ai/api"
     api_config = {
         "endpoint": "https://openrouter.ai/api",
         "model": "google/gemini-3.8-flash",
@@ -1449,7 +1449,7 @@ def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked:
     fake_keystore.on_get = record_get
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
-    test_instance.client._endpoint.return_value = url
+    test_instance.client.endpoint.return_value = url
 
     real_get_config = fw_config.get_config
 
@@ -1532,7 +1532,7 @@ def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_too
     fake_keystore.on_get = stop_during_prompt
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
-    test_instance.client._endpoint.return_value = url
+    test_instance.client.endpoint.return_value = url
 
     real_get_config = fw_config.get_config
 

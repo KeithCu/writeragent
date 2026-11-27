@@ -51,7 +51,7 @@ def _client() -> LlmClient:
 
 def _teardown_client(client: LlmClient) -> None:
     client.stop()
-    client._close_connection()
+    client.close_connection()
 
 
 def _sync_run_in_background(fn: Callable[[], object], **kwargs: object) -> object:

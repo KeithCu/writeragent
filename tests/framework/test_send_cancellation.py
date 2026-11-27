@@ -120,10 +120,10 @@ def test_unregister_on_cancel_prevents_hook_execution():
 def test_llm_client_not_registered_outside_agent_session():
     config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
     outside = LlmClient(config, None)
-    with patch.object(outside, "_close_connection") as mock_outside:
+    with patch.object(outside, "close_connection") as mock_outside:
         with agent_session() as scope:
             inside = LlmClient(config, None)
-            with patch.object(inside, "_close_connection") as mock_inside:
+            with patch.object(inside, "close_connection") as mock_inside:
                 scope.cancel()
                 mock_inside.assert_called_once()
         mock_outside.assert_not_called()

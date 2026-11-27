@@ -65,8 +65,8 @@ class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini: OpenAI-compatible for chat/tools, native REST for images."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        endpoint = self.client._endpoint()
-        key = self.client._resolve_auth().get("api_key", "")
+        endpoint = self.client.endpoint()
+        key = self.client.resolve_auth().get("api_key", "")
         model_name = _google_model_id(model)
 
         # Key in x-goog-api-key, not ?key=, so it does not land in access logs
@@ -102,7 +102,7 @@ class GoogleShim(BaseProviderShim):
                 image_config["imageSize"] = res
             data = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"responseModalities": ["IMAGE", "TEXT"], "imageConfig": image_config}}
 
-        headers = dict(self.client._headers())
+        headers = dict(self.client.headers())
         if key:
             headers["x-goog-api-key"] = key
         return self._post(url, data, headers)

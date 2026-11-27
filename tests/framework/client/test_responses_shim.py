@@ -32,16 +32,16 @@ class DummyClient:
         self.config = config if config is not None else {}
         self._provider = provider
 
-    def _get_provider(self) -> str:
+    def provider(self) -> str:
         return self._provider
 
-    def _endpoint(self) -> str:
+    def endpoint(self) -> str:
         return "https://api.openai.com"
 
-    def _api_path(self) -> str:
+    def api_path(self) -> str:
         return "/v1"
 
-    def _headers(self) -> dict[str, str]:
+    def headers(self) -> dict[str, str]:
         return {"Authorization": "Bearer test"}
 
 
@@ -527,7 +527,7 @@ def test_openai_stream_parsing() -> None:
 
     for event in OPENAI_STREAM_EVENTS:
         content, finish, thinking, delta = parse_responses_chunk(
-            event, stream_state, model_name="gpt-6-astra"
+            event, stream_state
         )
         if content:
             content_acc += content
@@ -582,12 +582,10 @@ def test_gap_in_output_indexes_allocates_sequential_tool_indexes() -> None:
     _c1, _f1, _t1, d1 = parse_responses_chunk(
         {"type": "response.output_item.added", "output_index": 1, "item": {"type": "function_call", "name": "f1"}},
         state,
-        model_name="gpt-6-astra",
     )
     _c2, _f2, _t2, d2 = parse_responses_chunk(
         {"type": "response.output_item.added", "output_index": 3, "item": {"type": "function_call", "name": "f2"}},
         state,
-        model_name="gpt-6-astra",
     )
     assert d1["tool_calls"][0]["index"] == 0
     assert d2["tool_calls"][0]["index"] == 1
@@ -598,12 +596,10 @@ def test_zero_arg_tool_call_emits_empty_arguments() -> None:
     _c1, _f1, _t1, d1 = parse_responses_chunk(
         {"type": "response.output_item.added", "output_index": 0, "item": {"type": "function_call", "name": "zero_arg"}},
         state,
-        model_name="gpt-6-astra",
     )
     _c2, _f2, _t2, d2 = parse_responses_chunk(
         {"type": "response.function_call_arguments.done", "output_index": 0, "arguments": ""},
         state,
-        model_name="gpt-6-astra",
     )
     assert d1["tool_calls"][0]["index"] == 0
     assert d2["tool_calls"][0]["function"]["arguments"] == ""
@@ -614,12 +610,10 @@ def test_done_only_after_added_emits_full_arguments_string() -> None:
     _c1, _f1, _t1, d1 = parse_responses_chunk(
         {"type": "response.output_item.added", "output_index": 0, "item": {"type": "function_call", "name": "f1"}},
         state,
-        model_name="gpt-6-astra",
     )
     _c2, _f2, _t2, d2 = parse_responses_chunk(
         {"type": "response.function_call_arguments.done", "output_index": 0, "arguments": '{"a": 1}'},
         state,
-        model_name="gpt-6-astra",
     )
     assert d1["tool_calls"][0]["index"] == 0
     assert d2["tool_calls"][0]["function"]["arguments"] == '{"a": 1}'
@@ -640,7 +634,7 @@ def test_openrouter_stream_parsing() -> None:
     last_finish = None
 
     for event in OPENROUTER_STREAM_EVENTS:
-        content, finish, thinking, _d = parse_responses_chunk(event, state, model_name="gpt-6-astra")
+        content, finish, thinking, _d = parse_responses_chunk(event, state)
         if content:
             content_acc += content
         if thinking:
@@ -657,7 +651,6 @@ def test_refusal_delta_yields_content_text_and_no_finish_reason() -> None:
     content, finish, thinking, delta = parse_responses_chunk(
         {"type": "response.refusal.delta", "delta": "I cannot help with that."},
         None,
-        model_name="gpt-6-astra",
     )
     assert content == "I cannot help with that."
     assert finish is None
@@ -669,28 +662,24 @@ def test_response_incomplete_reasons() -> None:
     _c, f_len, _t, _d = parse_responses_chunk(
         {"type": "response.incomplete", "incomplete_details": {"reason": "max_output_tokens"}},
         None,
-        model_name="gpt-6-astra",
     )
     assert f_len == "length"
 
     _c, f_filter, _t, _d = parse_responses_chunk(
         {"type": "response.incomplete", "incomplete_details": {"reason": "content_filter"}},
         None,
-        model_name="gpt-6-astra",
     )
     assert f_filter == "content_filter"
 
     _c, f_other, _t, _d = parse_responses_chunk(
         {"type": "response.incomplete", "incomplete_details": {"reason": "cancelled"}},
         None,
-        model_name="gpt-6-astra",
     )
     assert f_other == "cancelled"
 
     _c, f_def, _t, _d = parse_responses_chunk(
         {"type": "response.incomplete"},
         None,
-        model_name="gpt-6-astra",
     )
     assert f_def == "length"
 
@@ -698,7 +687,7 @@ def test_response_incomplete_reasons() -> None:
 def test_response_failed_and_errors() -> None:
     event_failed = {"type": "response.failed", "response": {"error": {"message": "Invalid token"}}}
     with pytest.raises(NetworkError) as exc_info:
-        parse_responses_chunk(event_failed, None, model_name="gpt-6-astra")
+        parse_responses_chunk(event_failed, None)
     assert "Invalid token" in str(exc_info.value)
 
     assert stream_error_message(event_failed) == "Invalid token"
@@ -790,7 +779,7 @@ def test_replay_round_trip() -> None:
         "item": {"type": "reasoning", "encrypted_content": "enc_round_trip"},
     }
     state: dict[str, Any] = {"_responses_model": "gpt-6-astra"}
-    _c, _f, _t, delta = parse_responses_chunk(chunk, state, model_name="gpt-6-astra")
+    _c, _f, _t, delta = parse_responses_chunk(chunk, state)
     assert "reasoning_details" in delta
 
     # 2. Feed into stream_normalizer

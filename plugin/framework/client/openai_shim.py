@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.errors import NetworkError
 from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 from .anthropic_shim import AnthropicShim
 from .shim_helpers import openai_model_leaf, annotate_anthropic_cache
@@ -27,7 +26,6 @@ from .responses_shim import (
     is_responses_body,
     parse_responses_chunk,
     parse_responses_sync,
-    responses_failed_message,
     responses_payload,
     uses_responses_api,
 )
@@ -116,8 +114,8 @@ class OpenAIShim(BaseProviderShim):
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
-            # OpenRouter-hosted models need the OpenRouter effort vocabulary (nested reasoning.effort), so the provider comes from ``_reasoning_provider()``.
-            frag = effort_payload(self._reasoning_provider(), level)
+            # OpenRouter-hosted models need the OpenRouter effort vocabulary (nested reasoning.effort), so the provider comes from ``reasoning_provider()``.
+            frag = effort_payload(self.reasoning_provider(), level)
             mapped = frag.get("reasoning_effort") or (frag.get("reasoning") or {}).get("effort")
             data = responses_payload(
                 messages, max_tokens, temperature, tools, stream, model_name, response_format,
@@ -144,9 +142,7 @@ class OpenAIShim(BaseProviderShim):
     ) -> tuple[str, str | None, str | None, dict[str, Any]]:
         event_type = chunk.get("type")
         if isinstance(event_type, str) and event_type.startswith("response."):
-            if event_type == "response.failed":
-                raise NetworkError(responses_failed_message(chunk), code="STREAM_ERROR")
-            return parse_responses_chunk(chunk, stream_state, model_name=None)
+            return parse_responses_chunk(chunk, stream_state)
         return super().parse_response_chunk(chunk, stream_state)
 
     def parse_sync_response(
@@ -207,7 +203,7 @@ class OllamaShim(BaseProviderShim):
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. Ollama /api/generate has no steps field.
-        endpoint = self.client._endpoint()
+        endpoint = self.client.endpoint()
         url = f"{endpoint}/api/generate"
         eff_model = model or "flux"
 
