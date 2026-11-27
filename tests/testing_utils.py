@@ -796,6 +796,145 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
     _native_teardown_progress("native_doc: _reset_calc_doc done")
 
 
+# Built-in styles that tests rewrite (inserting HTML restyles Heading 1 and Heading 2, for
+# example), captured once from the first pooled document so reset can undo it. Only the short
+# list below is read and restored: touching a style makes LibreOffice build it, and building
+# Preformatted Text or Source Text puts a fixed-pitch Liberation Mono font into the document,
+# so a later test that sets that font by name would export it as Liberation Mono1.
+# Style name -> (fingerprint property names, fingerprint values, {property: (set directly, value)}).
+_WRITER_STYLE_FAMILIES = ("ParagraphStyles", "CharacterStyles")
+_WRITER_STYLE_SENTINELS: dict[str, tuple[str, ...]] = {
+    "ParagraphStyles": tuple("Heading %d" % level for level in range(1, 11))
+    + ("Title", "Subtitle", "Text Body", "Quotations", "Table Heading", "Table Contents"),
+    "CharacterStyles": ("Emphasis", "Strong Emphasis", "Internet Link"),
+}
+_WRITER_STYLE_FINGERPRINT_PROPS = (
+    "CharFontName",
+    "CharHeight",
+    "CharWeight",
+    "CharPosture",
+    "CharColor",
+    "NumberingStyleName",
+    "ParaAdjust",
+    "ParaTopMargin",
+    "ParaBottomMargin",
+    "ParaLeftMargin",
+    "ParaRightMargin",
+    "ParaFirstLineIndent",
+    "ParaBackColor",
+    "ParentStyle",
+)
+_WRITER_STYLE_BASELINE: dict[str, dict[str, tuple[tuple[str, ...], tuple[Any, ...], dict[str, tuple[bool, Any]]]]] = {}
+_PROPERTY_ATTRIBUTE_READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY
+
+
+def _writer_style_values(style: Any, names: tuple[str, ...]) -> tuple[Any, ...]:
+    try:
+        return tuple(style.getPropertyValues(names))
+    except Exception:
+        return tuple(_writer_style_value_or_none(style, name) for name in names)
+
+
+def _writer_style_value_or_none(style: Any, name: str) -> Any:
+    try:
+        return style.getPropertyValue(name)
+    except Exception:
+        return None
+
+
+def _writer_style_snapshot(style: Any) -> dict[str, tuple[bool, Any]]:
+    """Writable plain-valued properties of a style as ``{name: (set directly, value)}``."""
+    try:
+        names = tuple(
+            prop.Name
+            for prop in style.getPropertySetInfo().getProperties()
+            if not (prop.Attributes & _PROPERTY_ATTRIBUTE_READONLY)
+        )
+        states = style.getPropertyStates(names)
+    except Exception:
+        return {}
+    values = _writer_style_values(style, names)
+    out: dict[str, tuple[bool, Any]] = {}
+    for name, state, value in zip(names, states, values):
+        # Interface-valued properties (complex colors, graphics) are proxies that cannot be compared.
+        if type(value).__name__ == "pyuno":
+            continue
+        out[name] = (str(getattr(state, "value", state)) == "DIRECT_VALUE", value)
+    return out
+
+
+def _capture_writer_style_baseline(doc: Any) -> None:
+    """Record the sentinel built-in styles and the built-in style names of a fresh Writer document, once per process."""
+    if _WRITER_STYLE_BASELINE:
+        return
+    try:
+        families = doc.getStyleFamilies()
+    except Exception:
+        return
+    for family_name in _WRITER_STYLE_FAMILIES:
+        captured: dict[str, tuple[tuple[str, ...], tuple[Any, ...], dict[str, tuple[bool, Any]]]] = {}
+        try:
+            styles = families.getByName(family_name)
+            # Names only: getElementNames lists every built-in style without building it.
+            style_names = list(styles.getElementNames())
+        except Exception:
+            continue
+        if family_name == "ParagraphStyles":
+            _BUILTIN_PARA_STYLES.update(style_names)
+        elif family_name == "CharacterStyles":
+            _BUILTIN_CHAR_STYLES.update(style_names)
+        for name in _WRITER_STYLE_SENTINELS.get(family_name, ()):
+            if name not in style_names:
+                continue
+            try:
+                style = styles.getByName(name)
+                info = style.getPropertySetInfo()
+                fp_names = tuple(n for n in _WRITER_STYLE_FINGERPRINT_PROPS if info.hasPropertyByName(n))
+                captured[name] = (fp_names, _writer_style_values(style, fp_names), _writer_style_snapshot(style))
+            except Exception:
+                continue
+        _WRITER_STYLE_BASELINE[family_name] = captured
+
+
+def _restore_writer_builtin_styles(doc: Any) -> None:
+    """Put back any sentinel built-in paragraph or character style a test rewrote.
+
+    One batched read of a few key properties per style spots a changed style cheaply; only
+    those are compared property by property and restored.
+    """
+    if not _WRITER_STYLE_BASELINE:
+        return
+    try:
+        families = doc.getStyleFamilies()
+    except Exception:
+        return
+    for family_name, baseline in _WRITER_STYLE_BASELINE.items():
+        try:
+            styles = families.getByName(family_name)
+        except Exception:
+            continue
+        for name, (fp_names, fp_values, snapshot) in baseline.items():
+            try:
+                if not styles.hasByName(name):
+                    continue
+                style = styles.getByName(name)
+                if _writer_style_values(style, fp_names) == fp_values:
+                    continue
+                current = _writer_style_snapshot(style)
+                for prop, wanted in snapshot.items():
+                    if current.get(prop) == wanted:
+                        continue
+                    try:
+                        if wanted[0]:
+                            style.setPropertyValue(prop, wanted[1])
+                        else:
+                            style.setPropertyToDefault(prop)
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+
 def _reset_writer_style_families(doc) -> None:
     """Drop user HTML styles and restore built-in CharWeight (Standard can pick up bold)."""
     try:
@@ -842,6 +981,7 @@ def _reset_writer_style_families(doc) -> None:
                     styles.removeByName(name)
                 except Exception:
                     pass
+    _restore_writer_builtin_styles(doc)
 
 
 def _reset_writer_page_regions(doc) -> None:
@@ -918,8 +1058,28 @@ def _reset_writer_page_regions(doc) -> None:
         pass
 
 
+def _reset_writer_draw_page(doc) -> None:
+    """Remove shapes left on the draw page after the wipe.
+
+    Free shapes (custom, drawing, and control shapes, for example one anchored to the page) are
+    not in the text-content collections the wipe walks, and deleting the body text does not
+    remove a shape that is not anchored in it. One left behind changes the draw-page count and
+    index 0 for every later suite, and shape text joins the chat context.
+    """
+    try:
+        page = doc.getDrawPage()
+        count = int(page.getCount())
+    except Exception:
+        return
+    for index in range(count - 1, -1, -1):
+        try:
+            page.remove(page.getByIndex(index))
+        except Exception:
+            pass
+
+
 def _writer_pool_is_clean(doc) -> bool:
-    """False if wipe left text, bold, or graphics — caller should factory-load."""
+    """False if wipe left text, bold, graphics, or draw-page shapes — caller should factory-load."""
     try:
         if (doc.getText().getString() or "").strip():
             return False
@@ -928,6 +1088,8 @@ def _writer_pool_is_clean(doc) -> bool:
         if float(cursor.getPropertyValue("CharWeight") or 100) >= 135.0:
             return False
         if hasattr(doc, "getGraphicObjects") and doc.getGraphicObjects().getCount() > 0:
+            return False
+        if hasattr(doc, "getDrawPage") and doc.getDrawPage().getCount() > 0:
             return False
     except Exception:
         return False
@@ -1005,6 +1167,7 @@ def _reset_writer_doc(doc, ctx) -> None:
         except Exception:
             pass
     _reset_writer_page_regions(doc)
+    _reset_writer_draw_page(doc)
     _reset_writer_style_families(doc)
     _clear_undo(doc)
 
@@ -1285,6 +1448,8 @@ class TestingFactory:
                         doc = None
             if doc is None:
                 doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
+                if doc_type == "writer":
+                    _capture_writer_style_baseline(doc)
                 _NATIVE_DOC_POOL[key] = doc
                 _NATIVE_DOC_POOL.mark_clean(doc, True)
                 pooled = True

@@ -566,13 +566,42 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     assert discovery_suites[0]["failed"] == 1
 
 
-def test_uno_shards_cover_every_suite_file_in_sorted_order() -> None:
-    """Each discovered *_uno.py lands in one shard, shards are contiguous runs of the sorted list, and none is empty."""
+def test_uno_shards_cover_every_suite_file() -> None:
+    """Each discovered *_uno.py lands in exactly one shard, and no shard is empty."""
     repo_root = Path(__file__).resolve().parents[2]
     paths = sorted(p.relative_to(repo_root).as_posix() for p in (repo_root / "tests").rglob("test_*_uno.py"))
-    shards = [tr._uno_shard(path) for path in paths]
-    assert shards == sorted(shards)
-    assert set(shards) == set(range(1, len(tr._UNO_SHARD_CUTS) + 2))
+    assigned = tr._uno_shards_for(paths)
+    assert set(assigned) == set(paths)
+    assert set(assigned.values()) == set(range(1, tr._UNO_SHARD_COUNT + 1))
+
+
+def test_uno_shard_durations_pack_nearly_even() -> None:
+    """Recorded durations should pack into nearly equal shards; refresh the file when they drift."""
+    durations = tr._load_uno_shard_durations()
+    assigned = tr._uno_shards_for(list(durations))
+    totals = [0.0] * tr._UNO_SHARD_COUNT
+    for path, seconds in durations.items():
+        totals[assigned[path] - 1] += seconds
+    assert max(totals) - min(totals) <= 1.0
+
+
+def test_new_suite_file_does_not_move_recorded_files() -> None:
+    """A new suite path joins a shard without changing where any recorded file runs."""
+    durations = tr._load_uno_shard_durations()
+    new_paths = ["tests/writer/test_zz_new_suite_uno.py", "tests/calc/test_aa_new_suite_uno.py"]
+    assert not set(new_paths) & set(durations)
+    before = tr._uno_shards_for(list(durations))
+    after = tr._uno_shards_for([*durations, *new_paths])
+    assert {path: after[path] for path in durations} == before
+    assert all(after[path] in range(1, tr._UNO_SHARD_COUNT + 1) for path in new_paths)
+
+
+def test_deleted_suite_file_does_not_move_the_rest() -> None:
+    durations = tr._load_uno_shard_durations()
+    paths = list(durations)
+    full = tr._uno_shards_for(paths)
+    without_one = tr._uno_shards_for(paths[1:])
+    assert {path: full[path] for path in paths[1:]} == without_one
 
 
 def test_pr_ci_shard_matrix_runs_every_shard() -> None:
@@ -580,22 +609,25 @@ def test_pr_ci_shard_matrix_runs_every_shard() -> None:
     yaml = pytest.importorskip("yaml")
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-ci.yml"
     jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-    assert jobs["test-uno-shard"]["strategy"]["matrix"]["shard"] == list(range(1, len(tr._UNO_SHARD_CUTS) + 2))
+    assert jobs["test-uno-shard"]["strategy"]["matrix"]["shard"] == list(range(1, tr._UNO_SHARD_COUNT + 1))
     assert "test-uno" not in jobs
 
 
 def test_shard_option_limits_discovery_to_its_files(monkeypatch, tmp_path) -> None:
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
-    for rel in ("tests/calc/test_shard_one_uno.py", "tests/writer/test_zz_shard_three_uno.py"):
+    rels = ("tests/calc/test_shard_one_uno.py", "tests/writer/test_zz_shard_three_uno.py")
+    for rel in rels:
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("from os import no_such_writeragent_pkg_shard\n", encoding="utf-8")
 
+    assigned = tr._uno_shards_for(list(rels))
+    chosen = rels[-1]
     monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr.current_office().options, "filters", [])
     monkeypatch.setattr(tr.current_office().options, "soak_repeat", 1)
-    monkeypatch.setattr(tr.current_office().options, "shard", 3)
+    monkeypatch.setattr(tr.current_office().options, "shard", assigned[chosen])
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
@@ -619,7 +651,7 @@ def test_parse_cli_args_shard(monkeypatch) -> None:
     assert tr._parse_cli_args(["--shard", "2", "test_cells_uno"]) == ["test_cells_uno"]
     assert tr.current_office().options.shard == 2
     with pytest.raises(SystemExit):
-        tr._parse_cli_args(["--shard", str(len(tr._UNO_SHARD_CUTS) + 2)])
+        tr._parse_cli_args(["--shard", str(tr._UNO_SHARD_COUNT + 1)])
 
 
 def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
