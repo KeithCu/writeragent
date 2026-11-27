@@ -439,7 +439,7 @@ class DelegateToSubagent(ToolBase):
             from plugin.vision.vision_availability import vision_venv_configured
             from plugin.vision.vision_tools import ExtractStructureFromImage
 
-            if not vision_venv_configured(ctx.ctx):
+            if not vision_venv_configured():
                 return self._tool_error(
                     _(
                         "Local OCR requires Settings → Python venv with Docling or PaddleOCR "

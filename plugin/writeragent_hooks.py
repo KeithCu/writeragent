@@ -84,18 +84,17 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
         filter_vision_specialized_tools,
     )
 
-    def _filter_vision_tools(tool_list: list[Any], ctx: Any = None) -> list[Any]:
-        if ctx is None:
-            return tool_list
-        return filter_vision_specialized_tools(tool_list, ctx)
+    def _filter_vision_tools(tool_list: list[Any], _ctx: Any) -> list[Any]:
+        return filter_vision_specialized_tools(tool_list)
 
     def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)
 
     def _filter_unavailable_domain_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
+        # No ctx means a static listing, which keeps every domain so a venv or MCP server added later still validates.
         if context.protocol != "openai" or context.ctx is None:
             return schemas
-        return filter_unavailable_delegate_domains(schemas, context.ctx)
+        return filter_unavailable_delegate_domains(schemas)
 
     def _filter_peer_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         peer_domain = context.active_domain if context.protocol == "openai" else None

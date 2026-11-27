@@ -27,12 +27,13 @@ import subprocess
 import time
 from typing import Any, Callable
 
+from plugin.audio.tts_models import notify_tts_status
 from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
+from plugin.scripting.sandbox import configured_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 
@@ -211,14 +212,6 @@ def status_for_transcription() -> str:
     return _("Transcribing audio...")
 
 
-def resolve_stt_python() -> str | None:
-    """Venv interpreter from Settings → Python, or None when it is not set."""
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
-    if not venv_dir:
-        return None
-    return resolve_venv_python(venv_dir)
-
-
 def terminate_stt_process(managed: ManagedSubprocess | None) -> None:
     """Tree-kill a Whisper or probe child. A second call is a no-op.
 
@@ -386,16 +379,6 @@ def _local_timeout_message(cached: bool) -> str:
     )
 
 
-def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
-    log.info("%s", message)
-    if on_status is None:
-        return
-    try:
-        on_status(message)
-    except Exception as e:
-        log.debug("on_status callback failed: %s", e)
-
-
 def _transcribe_local(
     wav_path: str,
     model_name: str,
@@ -403,7 +386,7 @@ def _transcribe_local(
     *,
     on_spawn: Callable[[ManagedSubprocess], None] | None = None,
 ) -> str:
-    py_exe = resolve_stt_python()
+    py_exe = configured_venv_python()
     if not py_exe:
         raise ConfigError(
             _(
@@ -415,7 +398,7 @@ def _transcribe_local(
         raise ConfigError(_("Local Whisper script is missing from the extension."))
 
     # Surface local Whisper weight download via on_status before transcription starts.
-    _emit(on_status, _local_whisper_status(model_name))
+    notify_tts_status(_local_whisper_status(model_name), on_status)
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)
     tail = completed.stderr.strip()[-500:]

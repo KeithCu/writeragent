@@ -116,9 +116,7 @@ class SearchDialog:
             self._wire_listeners(dlg)
             self._refresh_cache_status(dlg)
 
-            query_ctrl = dlg.getControl("QueryEdit")
-            if query_ctrl is not None:
-                query_ctrl.setFocus()
+            dlg.getControl("QueryEdit").setFocus()
 
             owner = self
 
@@ -162,17 +160,14 @@ class SearchDialog:
                 # Single-line edits have no newline use for Shift+Enter.
                 if e.KeyCode != KEY_RETURN:
                     return
-                btn_search = dlg.getControl("BtnSearch")
-                if btn_search and not btn_search.getModel().Enabled:
+                if not dlg.getControl("BtnSearch").getModel().Enabled:
                     # Search is already in progress
                     return
                 owner._run_search(dlg)
 
         enter_listener = _SearchEnterKeyListener()
         for ctrl_name in ("QueryEdit", "RespEdit"):
-            ctrl = dlg.getControl(ctrl_name)
-            if ctrl is not None:
-                ctrl.addKeyListener(enter_listener)
+            dlg.getControl(ctrl_name).addKeyListener(enter_listener)
 
     def _resolve_doc_index_context(self) -> tuple[Any, tuple[Any, Any, Any, str]] | None:
         """Return (doc, resolve_index_context tuple) on the main thread, or None if no doc."""
@@ -187,8 +182,6 @@ class SearchDialog:
     def _refresh_cache_status(self, dlg: Any) -> None:
         ctx = self._ctx
         status_lbl = dlg.getControl("CacheStatusLbl")
-        if not status_lbl:
-            return
 
         def _apply_cache_status() -> None:
             def _get_status() -> str:
@@ -214,7 +207,7 @@ class SearchDialog:
                             return _("Cache Status: Not built (lancedb)")
                         return _("Cache Status: Not built")
 
-                    updated_at_str = store.meta.data.get("updated_at")
+                    updated_at_str = store.meta.updated_at
                     if updated_at_str:
                         try:
                             updated_at = float(updated_at_str)
@@ -238,9 +231,6 @@ class SearchDialog:
         resp_ctrl = dlg.getControl("RespEdit")
         results_ctrl = dlg.getControl("ResultsEdit")
 
-        if not query_ctrl or not resp_ctrl or not results_ctrl:
-            return
-
         query = (query_ctrl.getModel().Text or "").strip()
         if not query:
             msgbox(ctx, _("Search"), _("Please enter a search query."))
@@ -255,9 +245,7 @@ class SearchDialog:
             k = 7
 
         results_ctrl.getModel().Text = _("Searching...")
-        btn_search = dlg.getControl("BtnSearch")
-        if btn_search:
-            btn_search.getModel().Enabled = False
+        dlg.getControl("BtnSearch").getModel().Enabled = False
 
         def _do_background_search() -> None:
             try:
@@ -337,12 +325,8 @@ class SearchDialog:
 
     def _run_rebuild(self, dlg: Any) -> None:
         ctx = self._ctx
-        btn_rebuild = dlg.getControl("BtnRebuild")
-        results_ctrl = dlg.getControl("ResultsEdit")
-        if btn_rebuild:
-            btn_rebuild.getModel().Enabled = False
-        if results_ctrl:
-            results_ctrl.getModel().Text = _("Rebuilding cache...")
+        dlg.getControl("BtnRebuild").getModel().Enabled = False
+        dlg.getControl("ResultsEdit").getModel().Text = _("Rebuilding cache...")
 
         def _do_rebuild() -> None:
             try:
@@ -396,11 +380,9 @@ class SearchDialog:
                                 d = self._dlg
                                 if not d:
                                     return
-                                ctrl = d.getControl("ResultsEdit")
-                                if ctrl:
-                                    existing = ctrl.getModel().Text
-                                    new_text = (existing + "\n" if existing else "") + line
-                                    ctrl.getModel().Text = new_text
+                                results_model = d.getControl("ResultsEdit").getModel()
+                                existing = results_model.Text
+                                results_model.Text = (existing + "\n" if existing else "") + line
                             except Exception as exc:
                                 log.debug("search rebuild heartbeat UI update failed (%s)", type(exc).__name__)
 
@@ -448,12 +430,8 @@ class SearchDialog:
                 dlg = self._dlg
                 if not dlg:
                     return
-                results_ctrl = dlg.getControl("ResultsEdit")
-                if results_ctrl:
-                    results_ctrl.getModel().Text = text
-                btn = dlg.getControl(button)
-                if btn:
-                    btn.getModel().Enabled = True
+                dlg.getControl("ResultsEdit").getModel().Text = text
+                dlg.getControl(button).getModel().Enabled = True
             except Exception as exc:
                 log.debug("search UI update failed (%s)", type(exc).__name__)
 

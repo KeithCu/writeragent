@@ -12,6 +12,7 @@ from plugin.framework.config import (
     CONFIG_SCHEMA_COMMENT,
     _resolve_config_path_from_ctx,
     atomic_write_text,
+    configured_venv_path,
     get_api_key_for_endpoint,
     get_config,
     get_config_dict,
@@ -1924,3 +1925,10 @@ def test_cold_main_thread_get_api_key_for_endpoint_still_reads_os(fake_keystore)
     save({"api_keys_by_endpoint": {endpoint: "sk-real"}})
     keystore.reset_for_tests(fake_keystore)
     assert get_api_key_for_endpoint(endpoint) == "sk-real"
+
+
+def test_configured_venv_path_strips_and_maps_unset_to_empty():
+    save({"scripting.python_venv_path": "  /opt/venv  "})
+    assert configured_venv_path() == "/opt/venv"
+    save({"scripting.python_venv_path": ""})
+    assert configured_venv_path() == ""

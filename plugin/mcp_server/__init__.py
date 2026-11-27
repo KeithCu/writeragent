@@ -123,12 +123,6 @@ class McpModule(ModuleBase):
     _services: Any = None
     _last_start_failure: tuple[str, int, BaseException] | None = None
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.server = None
-        self.tunnel = None
-        self._last_start_failure = None
-
     def _mcp_routes_registered(self) -> bool:
         return self._registry.match("POST", "/mcp") is not None
 
@@ -155,7 +149,7 @@ class McpModule(ModuleBase):
         if mcp_enabled:
             self._register_mcp_routes(services)
 
-        reload_cors_policy_from_config(services)
+        reload_cors_policy_from_config()
 
         services.events.subscribe("config:changed", self._on_config_changed)
 
@@ -178,7 +172,7 @@ class McpModule(ModuleBase):
         if key and (not key.startswith(prefix) or suffix not in _LIFECYCLE_SUFFIXES):
             return
 
-        reload_cors_policy_from_config(self._services)
+        reload_cors_policy_from_config()
 
         enabled = get_config("mcp.mcp_enabled")
         log.info("HTTP/MCP config sync (key=%r): mcp_enabled=%s tunnel_enabled=%s tunnel_provider=%s", key or "(bulk)", enabled, get_config("mcp.tunnel_enabled"), get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
@@ -240,7 +234,7 @@ class McpModule(ModuleBase):
 
         from plugin.mcp_server.server import HttpServer
 
-        reload_cors_policy_from_config(services)
+        reload_cors_policy_from_config()
 
         with _srv_lock:
             if not is_mcp_server_running():
@@ -297,7 +291,8 @@ class McpModule(ModuleBase):
     def _quit_stop_tunnel(self) -> None:
         tunnel = self.tunnel
         assert tunnel is not None
-        tunnel.stop_for_quit()
+        # Quit does not join the post-stop reset; the arm marker retries it on the next launch.
+        tunnel.stop()
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
@@ -476,8 +471,6 @@ class McpModule(ModuleBase):
 
             def set_ctl(name: str, *, label: str | None = None, text: str | None = None, visible: bool | None = None) -> None:
                 ctrl = dlg.getControl(name)
-                if ctrl is None:
-                    return
                 if text is not None:
                     ctrl.setText(text)
                 if visible is not None:
@@ -508,13 +501,8 @@ class McpModule(ModuleBase):
                 for name in ("TunnelLabel", "TunnelUrlField", "TunnelStatusMsg"):
                     set_ctl(name, visible=False)
 
-            copy_btn = dlg.getControl("CopyBtn")
-            if copy_btn is not None:
-                copy_btn.addActionListener(CopyListener(dlg, ctx, active_url))
-
-            ok_btn = dlg.getControl("OKBtn")
-            if ok_btn is not None:
-                ok_btn.addActionListener(DismissDialogListener(dlg))
+            dlg.getControl("CopyBtn").addActionListener(CopyListener(dlg, ctx, active_url))
+            dlg.getControl("OKBtn").addActionListener(DismissDialogListener(dlg))
 
             dlg.execute()
             dlg.dispose()

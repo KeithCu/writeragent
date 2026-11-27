@@ -343,7 +343,7 @@ def insert_vision_result_into_writer(
         log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     image_name = _image_name_from_params(params)
-    delete_image = resolve_delete_image_after_insert(ctx, params)
+    delete_image = resolve_delete_image_after_insert(params)
 
     def _apply_insert() -> VisionInsertOutcome:
         # One Ctrl+Z for insert plus optional image delete. A failed delete or
@@ -383,11 +383,11 @@ def insert_vision_result(
     # Calc-only import: a Writer OCR insert does not load the Calc bridge and manipulator stack.
     from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
 
-    insert_mode = resolve_vision_insert_mode(ctx, params)
+    insert_mode = resolve_vision_insert_mode(params)
     helper = str(result.get("helper") or "")
     image_name = _image_name_from_params(params)
 
-    delete_image = resolve_delete_image_after_insert(ctx, params)
+    delete_image = resolve_delete_image_after_insert(params)
     outcome: VisionInsertOutcome = "image_deleted" if delete_image else "inserted"
     if insert_mode == "structured" and helper == "extract_structure":
         with UndoStepOrRollback(doc, _("WriterAgent: Insert OCR")):

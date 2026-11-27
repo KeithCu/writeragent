@@ -1463,7 +1463,7 @@ def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
         pytest.param("failed", id="failed"),
     ],
 )
-def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
+def test_stop_on_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
     """LibreOffice quit triggers funnel off in background without blocking."""
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -1517,7 +1517,7 @@ def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
 
         reset_cmds.clear()
         timeouts.clear()
-        mgr.stop_for_quit()
+        mgr.stop()
         if mode == "connected":
             procs[0].terminate.assert_called_once()
         _join_recorded_background(background)
@@ -1526,8 +1526,8 @@ def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
         assert not marker.exists()
 
 
-def test_stop_for_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
-    """When funnel reset sleeps, stop_for_quit returns quickly without joining."""
+def test_stop_on_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
+    """When funnel reset sleeps, stop() returns quickly without joining."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
     marker.write_text("armed\n", encoding="utf-8")
@@ -1550,7 +1550,7 @@ def test_stop_for_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         try:
-            mgr.stop_for_quit()
+            mgr.stop()
             assert started.wait(2.0)
             assert len(background) == 1
             assert background[0].is_alive()

@@ -39,6 +39,7 @@ import subprocess
 import threading
 from typing import TYPE_CHECKING, Any, Callable
 
+from plugin.audio.tts_models import notify_tts_status
 from plugin.framework.i18n import _
 from plugin.framework.send_cancellation import is_cancelled
 
@@ -219,13 +220,6 @@ def kokoro_misaki_probe_code(lang: str) -> str:
     )
 
 
-def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
-    if on_status is None:
-        log.info("%s", message)
-        return
-    on_status(message)
-
-
 RunCmd = Callable[[list[str], float], subprocess.CompletedProcess[str] | None]
 
 
@@ -310,7 +304,7 @@ def ensure_kokoro_misaki(
     if not ok:
         if is_cancelled(cancel):
             return None
-        _emit(on_status, _("Installing Kokoro phonemizer…"))
+        notify_tts_status(_("Installing Kokoro phonemizer…"), on_status, progress=True)
         if _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
             if is_cancelled(cancel):
                 return None
@@ -318,7 +312,7 @@ def ensure_kokoro_misaki(
             if not ok and spec.needs_unidic:
                 # fugashi's default dictionary is not in the wheel. Without this download,
                 # JAG2P() raises and Japanese falls back to espeak ("chinese letter").
-                _emit(on_status, _("Downloading Japanese phonemizer dictionary…"))
+                notify_tts_status(_("Downloading Japanese phonemizer dictionary…"), on_status, progress=True)
                 ok = _run_checked(
                     [py_exe, "-m", "unidic", "download"],
                     _UNIDIC_TIMEOUT_SEC,
@@ -330,10 +324,11 @@ def ensure_kokoro_misaki(
         with _probe_ok_lock:
             _probe_ok_keys.add((py_exe, lang))
         return True
-    _emit(
-        on_status,
+    notify_tts_status(
         _("Couldn't install the Kokoro phonemizer; this language may be misread. Install with: {0}").format(
             kokoro_misaki_install_hint(lang)
         ),
+        on_status,
+        progress=True,
     )
     return False

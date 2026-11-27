@@ -88,8 +88,6 @@ def test_missing_schema_key_raises_config_error(monkeypatch: pytest.MonkeyPatch)
         stt_service.get_stt_local_model()
     with pytest.raises(ConfigError):
         stt_service.uses_local_stt()
-    with pytest.raises(ConfigError):
-        stt_service.resolve_stt_python()
 
 
 def test_status_text(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,7 +145,7 @@ def test_local_transcribe_emits_on_status(monkeypatch: pytest.MonkeyPatch) -> No
         return stt_service.SttCommandResult(0, '{"status":"ok","text":"hi"}\n', "")
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
     assert stt_service._transcribe_local("/tmp/a.wav", "tiny", statuses.append) == "hi"
     assert len(statuses) == 1
@@ -156,7 +154,7 @@ def test_local_transcribe_emits_on_status(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: None)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: None)
     with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"'):
         stt_service._transcribe_local("/tmp/a.wav", "base")
 
@@ -177,7 +175,7 @@ def test_missing_package_errors_with_install_hint_and_does_not_pip(
         )
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     with pytest.raises(ConfigError, match='uv pip install faster-whisper "av<14"') as exc_info:
         stt_service._transcribe_local("/tmp/a.wav", "base")
     message = str(exc_info.value)
@@ -199,7 +197,7 @@ def test_present_package_transcribes_via_child_script(monkeypatch: pytest.Monkey
         return stt_service.SttCommandResult(0, '{"status":"ok","text":"hello world"}\n', "")
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: True)
     assert stt_service._transcribe_local("/tmp/a.wav", "small") == "hello world"
     assert calls[0][0] == py_exe
@@ -254,7 +252,7 @@ def test_timeout_mentions_download_only_when_weights_missing(monkeypatch: pytest
         return stt_service.SttCommandResult(None, "", "", timed_out=True)
 
     monkeypatch.setattr(stt_service, "_run_cmd", fake_run)
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: cached["yes"])
     with pytest.raises(ConfigError, match="timed out") as cached_exc:
         stt_service._transcribe_local("/tmp/a.wav", "base")
@@ -317,7 +315,7 @@ def test_run_cmd_closes_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_spawn_failure_reports_could_not_start(monkeypatch: pytest.MonkeyPatch) -> None:
     py_exe = "/opt/venv/bin/python"
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
 
     def fake_start(self: object) -> None:
         raise FileNotFoundError("interpreter not found")
@@ -333,7 +331,7 @@ def test_spawn_failure_reports_could_not_start(monkeypatch: pytest.MonkeyPatch) 
 
 def test_killed_child_no_json_reports_exit_code_and_smaller_model(monkeypatch: pytest.MonkeyPatch) -> None:
     py_exe = "/opt/venv/bin/python"
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(
         stt_service,
         "_run_cmd",
@@ -349,7 +347,7 @@ def test_killed_child_no_json_reports_exit_code_and_smaller_model(monkeypatch: p
 
 def test_json_error_wins_over_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
     py_exe = "/opt/venv/bin/python"
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(
         stt_service,
         "_run_cmd",
@@ -366,7 +364,7 @@ def test_json_error_wins_over_exit_code(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_empty_stdout_reports_exit_code_when_message_translated(monkeypatch: pytest.MonkeyPatch) -> None:
     py_exe = "/opt/venv/bin/python"
-    monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
+    monkeypatch.setattr(stt_service, "configured_venv_python", lambda: py_exe)
     monkeypatch.setattr(
         stt_service,
         "_",

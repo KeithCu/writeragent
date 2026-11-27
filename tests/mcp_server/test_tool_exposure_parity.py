@@ -147,7 +147,7 @@ def test_parity_holds_when_a_domains_backend_is_not_configured(label, monkeypatc
 
     ctx = object()  # any non-None ctx makes the catalog consult the availability gate
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: False)
+                        lambda: False)
 
     offered = {e["domain"] for e in prompts.get_specialized_domain_catalog(agent_label=label, ctx=ctx, for_discovery=True)}
 
@@ -181,7 +181,7 @@ def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
     from plugin.mcp_server.mcp_protocol import drop_unavailable_domains
 
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: False)
+                        lambda: False)
     registry = _FakeRegistry({"image_extract_structure": "vision", "style_list": "styles"})
     schemas = [{"name": "image_extract_structure"}, {"name": "style_list"}]
 
@@ -202,7 +202,7 @@ def test_a_configured_domain_stays_listed(monkeypatch, venv_configured, tool_nam
     from plugin.mcp_server.mcp_protocol import drop_unavailable_domains
 
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: venv_configured)
+                        lambda: venv_configured)
     registry = _FakeRegistry({tool_name: domain})
     schemas = [{"name": tool_name}]
 

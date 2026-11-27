@@ -46,9 +46,9 @@ def _resolve_user_path(raw: Path) -> Path | None:
 
 
 def _user_venv_site_package_roots() -> list[Path]:
-    from plugin.framework.config import get_config
+    from plugin.framework.config import configured_venv_path
 
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
+    venv_dir = configured_venv_path()
     if not venv_dir:
         return []
     lib = Path(venv_dir).expanduser() / "lib"

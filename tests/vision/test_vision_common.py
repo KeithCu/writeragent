@@ -32,14 +32,12 @@ def test_detect_vision_input_format_pdf_magic():
 
 
 def test_resolve_vision_insert_mode_template_overrides_config():
-    ctx = object()
-    assert resolve_vision_insert_mode(ctx, {"insert_mode": "structured"}) == "structured"
+    assert resolve_vision_insert_mode({"insert_mode": "structured"}) == "structured"
 
 
 def test_resolve_vision_insert_mode_reads_config():
-    ctx = object()
     with patch("plugin.framework.config.get_config", return_value="structured"):
-        assert resolve_vision_insert_mode(ctx, None) == "structured"
+        assert resolve_vision_insert_mode(None) == "structured"
 
 
 def test_is_css_inline_import_error():
@@ -55,12 +53,12 @@ def test_css_inline_unavailable_result():
     assert result["helper"] == "extract_text"
 
 
-def test_merge_vision_params_logs_exception_and_drops_ctx_gate():
-    # merge_vision_params must work with ctx=None; config read failures are logged, not swallowed.
+def test_merge_vision_params_logs_config_read_failure():
+    # Config read failures are logged, and the template params still apply.
     with patch("plugin.framework.config.get_config", side_effect=Exception("config read failed")), patch(
         "plugin.vision.vision_common.log.exception"
     ) as mock_log:
-        merged = merge_vision_params(None, {"lang": "de"})
+        merged = merge_vision_params({"lang": "de"})
         assert merged["lang"] == "de"
         mock_log.assert_called_once()
 
@@ -151,7 +149,7 @@ def test_merge_vision_params_reads_ocr_engine_settings():
         "vision.ocrmac_recognition": "fast",
     }
     with patch("plugin.framework.config.get_config", side_effect=lambda k: values.get(k)):
-        merged = merge_vision_params(None, None)
+        merged = merge_vision_params(None)
         assert merged == {
             "ocr_backend": "tesseract",
             "lang": "de",
@@ -160,7 +158,7 @@ def test_merge_vision_params_reads_ocr_engine_settings():
             "rapidocr_detect_orientation": False,
             "ocrmac_recognition": "fast",
         }
-        overridden = merge_vision_params(None, {"lang": "fr"})
+        overridden = merge_vision_params({"lang": "fr"})
         assert overridden == {
             "ocr_backend": "tesseract",
             "lang": "fr",
@@ -176,12 +174,12 @@ def test_resolve_delete_image_after_insert():
 
     assert "delete_image_after_insert" in VISION_CONFIG_KEYS
     with patch("plugin.framework.config.get_config", return_value=None):
-        assert resolve_delete_image_after_insert(None, None) is False
-        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": True}) is True
-        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": "false"}) is False
+        assert resolve_delete_image_after_insert(None) is False
+        assert resolve_delete_image_after_insert({"delete_image_after_insert": True}) is True
+        assert resolve_delete_image_after_insert({"delete_image_after_insert": "false"}) is False
     with patch("plugin.framework.config.get_config", side_effect=lambda k: True if k == "vision.delete_image_after_insert" else None):
-        assert resolve_delete_image_after_insert(None, None) is True
-        assert resolve_delete_image_after_insert(None, {"delete_image_after_insert": False}) is False
+        assert resolve_delete_image_after_insert(None) is True
+        assert resolve_delete_image_after_insert({"delete_image_after_insert": False}) is False
 
 
 @pytest.mark.parametrize(

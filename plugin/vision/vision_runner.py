@@ -45,7 +45,7 @@ def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
 
     call_spec = ScriptFacts.from_source(code).first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
-    return {"params": merge_vision_params(ctx, raw_params)}
+    return {"params": merge_vision_params(raw_params)}
 
 
 def discover_vision_images(doc: Any) -> list[tuple[str, Any | None]]:
@@ -138,7 +138,7 @@ def run_trusted_vision(
     *graphic* is the shape discovery found for a non-Writer image.
     """
     name = _validate_helper(helper)
-    params_dict = merge_vision_params(ctx, params)
+    params_dict = merge_vision_params(params)
 
     def _export_on_main_thread() -> tuple[bytes, dict[str, Any], dict[str, Any]]:
         # Graphic lookup, PNG export, and locale are UNO. OCR itself is not.

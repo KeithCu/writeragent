@@ -3136,7 +3136,7 @@ def _apply_fake_vision(mode: str) -> None:
             _FAKE_VISION_ORIG[(module, attr)] = getattr(module, attr)
             setattr(module, attr, value)
 
-        _patch(availability, "vision_venv_configured", lambda ctx=None: mode != "unavailable")
+        _patch(availability, "vision_venv_configured", lambda: mode != "unavailable")
         if mode == "export_fail":
             # Fail inside the real resolve_vision_image so its own error surfaces.
             def _no_export(*_a: Any, **_k: Any) -> Any:

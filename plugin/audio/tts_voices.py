@@ -36,7 +36,7 @@ class VoiceContext:
 
 def is_kokoro_voice_id(voice: str) -> bool:
     """True if voice starts with a known Kokoro prefix (e.g. af_, jf_, bm_)."""
-    clean = (voice or "").strip().lower()
+    clean = voice.strip().lower()
     return len(clean) >= 3 and clean[0] in KOKORO_VOICE_PREFIX_TO_LANG and clean[1:3] in ("f_", "m_")
 
 
@@ -63,7 +63,7 @@ def _normalize_voice_family(family: str) -> str:
     Callers pass either a key ('kokoro') or a UI label ('Kokoro (Local Neural, ONNX CPU)');
     the label form must keep working, so do not compare raw family strings.
     """
-    fam = (family or "").strip().lower()
+    fam = family.strip().lower()
     if fam in ("kokoro", "piper", "openai", "openrouter", "together", "system"):
         return fam
     return clean_provider_name(family)
@@ -90,13 +90,13 @@ def _voice_lang_matches_ui(ui_stem: str, voice_lang: str) -> bool:
 
 
 def _label_says_female(label: str) -> bool:
-    low = (label or "").lower()
+    low = label.lower()
     return "female" in low and "male" not in low.replace("female", "")
 
 
 def _kokoro_voice_is_female(voice_id: str, label: str) -> bool:
     """Kokoro ids encode gender in the second letter (``af_``, ``jf_``, ``ef_``)."""
-    vid = (voice_id or "").lower()
+    vid = voice_id.lower()
     return vid[1:3] == "f_" or _label_says_female(label)
 
 
@@ -127,7 +127,7 @@ def split_display_label(text: str) -> tuple[str, str | None]:
     Returns (head, inside) when text ends with ' (no-nested-parens)',
     otherwise (stripped_text, None).
     """
-    clean = (text or "").strip()
+    clean = text.strip()
     m = _TRAILING_PARENS.match(clean)
     if m:
         return m.group(1).strip(), m.group(2).strip()
@@ -291,7 +291,7 @@ def settings_voice_options(_services: Any = None) -> list[dict[str, str]]:
 
 def match_voice_id(voice: str, candidates: Iterable[str]) -> str | None:
     """Return matching candidate: exact match first, then first casefold match, else None."""
-    v = (voice or "").strip()
+    v = voice.strip()
     if not v:
         return None
     v_fold = v.casefold()
@@ -439,7 +439,7 @@ def voice_options_for_provider(
 
 def voice_choice_to_id(choice: str, options: Sequence[dict[str, str]] | None = None) -> str:
     """Map a Voice combo string to the stored voice id."""
-    text = (choice or "").strip()
+    text = choice.strip()
     if not text:
         return ""
     rows = options or []

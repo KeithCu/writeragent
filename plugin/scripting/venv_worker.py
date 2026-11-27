@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Generator, Literal
 
-from plugin.framework.config import get_config
+from plugin.framework.config import configured_venv_path, get_config
 from plugin.framework.thread_guard import background
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
@@ -1085,7 +1085,7 @@ def _resolve_worker_python(
 
     Config is process-global (``get_config``), so no UNO context is needed.
     """
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
+    venv_dir = configured_venv_path()
     embeddings = pool == WORKER_POOL_EMBEDDINGS
     # Embeddings cannot fall through to LibreOffice's Python. An empty path
     # is its own error; a configured path shares the venv lookup below.

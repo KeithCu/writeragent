@@ -73,7 +73,7 @@ class SearchNearbyFiles(ToolBase):
         from plugin.framework.send_cancellation import is_cancelled
 
         if is_cancelled(ctx.send_cancellation):
-            return {"status": "error", "message": "Cancelled"}
+            return self._tool_error("Cancelled", code="USER_STOPPED")
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import main
 
@@ -169,7 +169,7 @@ class SearchNearbyFiles(ToolBase):
         context_result = _resolve_context(resolve_listing_state(ctx.ctx, ctx.doc))
 
         if "error" in context_result:
-            return {"status": "error", "message": context_result["error"]}
+            return self._tool_error(context_result["error"])
 
         if context_result.get("empty"):
             return {
@@ -228,7 +228,7 @@ class SearchNearbyFiles(ToolBase):
                 combined.sort(key=lambda hit: hit.get("score", 0), reverse=True)
                 hits = combined[:k]
         except _FolderHybridSearchCancelled:
-            return {"status": "error", "message": "Cancelled"}
+            return self._tool_error("Cancelled", code="USER_STOPPED")
         except _FolderHybridSearchFailed as exc:
             return self._tool_error(exc.message, code="FOLDER_HYBRID_SEARCH_ERROR")
 

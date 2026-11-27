@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import tempfile
 
+from plugin.audio.voice_catalog import PIPER_FALLBACK_VOICE
 from plugin.framework.errors import best_effort
 
 log = logging.getLogger(__name__)
@@ -30,8 +31,6 @@ KOKORO_VOICES_FILENAME = "voices-v1.0.bin"
 
 _KOKORO_CANONICAL = ("kokoro",)
 _PIPER_CANONICAL = ("piper",)
-# Same id as voice_catalog.PIPER_FALLBACK_VOICE without importing voice_catalog.
-_PIPER_PLAIN_FALLBACK_ID = "en_US-lessac-medium"
 _KOKORO_PROBE: tuple[tuple[str, ...], ...] = (_KOKORO_CANONICAL, ("kokoro-tts",), ("pipecat", "kokoro-onnx"))
 _PIPER_PROBE: tuple[tuple[str, ...], ...] = (_PIPER_CANONICAL, ("pipecat", "piper"))
 
@@ -146,7 +145,7 @@ def kokoro_should_download(path: Path, env_var: str) -> bool:
 def resolve_piper_voice_paths(voice_id: str) -> tuple[Path, Path]:
     """Return ``({voice}.onnx, {voice}.onnx.json)``.
 
-    A voice id that is not a single filename resolves as en_US-lessac-medium.
+    A voice id that is not a single filename resolves as ``PIPER_FALLBACK_VOICE``.
     Both files must sit in the same probe directory. A lone ``.onnx`` is not
     a hit — Piper needs the json beside it, which is what the downloader
     writes. Missing pairs point at ``<cache>/piper``, not Pipecat's tree.
@@ -154,7 +153,7 @@ def resolve_piper_voice_paths(voice_id: str) -> tuple[Path, Path]:
     before this function runs.
     """
     if not _plain_piper_voice_id(voice_id):
-        voice_id = _PIPER_PLAIN_FALLBACK_ID
+        voice_id = PIPER_FALLBACK_VOICE
     onnx_name = f"{voice_id}.onnx"
     json_name = f"{voice_id}.onnx.json"
     for directory in _under_cache(_PIPER_PROBE):

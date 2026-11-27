@@ -14,11 +14,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-from plugin.framework.config import get_config
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import start_stderr_drain
-from plugin.scripting.sandbox import resolve_venv_python
+from plugin.scripting.sandbox import configured_venv_python
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +47,7 @@ def build_project_pptx(
     timeout_sec: float = _BUILD_TIMEOUT_SEC,
 ) -> tuple[Path | None, str | None]:
     """Run upstream ``svg_to_pptx.py -q`` in the configured user venv."""
-    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
-    python_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    python_exe = configured_venv_python()
     if not python_exe:
         return None, "PPTX missing; configure Python venv (Settings → Python) to build from SVG."
 

@@ -19,33 +19,6 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
     if not isinstance(params, dict):
         params = {}
 
-    if helper == "index_paragraphs":
-        from plugin.embeddings.venv.embeddings_index import index_paragraphs
-
-        return index_paragraphs(
-            str(params["db_path"]),
-            str(params["meta_path"]),
-            str(params["model"]),
-            list(params.get("rows") or []),
-            build_fts=bool(params.get("build_fts", False)),
-            build_vectors=bool(params.get("build_vectors", True)),
-            # Pass search_mode through: without it the sqlite default is used and a
-            # configured zvec, LanceDB or LlamaIndex backend is not written.
-            search_mode=str(params.get("search_mode") or "hybrid"),
-            heartbeat_fn=heartbeat_fn,
-        )
-    if helper == "delete_paragraphs":
-        from plugin.embeddings.venv.embeddings_index import delete_paragraphs
-
-        return delete_paragraphs(
-            str(params["db_path"]),
-            str(params["meta_path"]),
-            list(params.get("keys") or []),
-            model_name=str(params.get("model") or ""),
-            build_fts=bool(params.get("build_fts", False)),
-            build_vectors=bool(params.get("build_vectors", True)),
-            search_mode=str(params.get("search_mode") or "hybrid"),
-        )
     if helper == "hybrid_search":
         from plugin.embeddings.venv.embeddings_index import hybrid_search
 
@@ -59,27 +32,6 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             use_mmr=bool(params.get("use_mmr", True)),
             rerank_model=params.get("rerank_model"),
             search_mode=str(params.get("search_mode", "hybrid")),
-        )
-    if helper == "knn_search":
-        from plugin.embeddings.venv.embeddings_index import knn_search
-
-        return knn_search(
-            str(params["db_path"]),
-            str(params.get("query") or ""),
-            int(params.get("k") or 5),
-            model_name=str(params["model"]),
-            doc_url_filter=params.get("doc_url_filter"),
-            use_mmr=bool(params.get("use_mmr", True)),
-            rerank_model=params.get("rerank_model"),
-            search_mode=str(params.get("search_mode", "hybrid")),
-        )
-    if helper == "collection_stats":
-        from plugin.embeddings.venv.embeddings_index import collection_stats
-
-        return collection_stats(
-            str(params["db_path"]),
-            str(params["meta_path"]),
-            model_name=str(params.get("model") or ""),
         )
     if helper == "maintain_folder_index":
         from typing import cast, get_args
@@ -96,12 +48,12 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             heartbeat_fn=heartbeat_fn,
         )
     if helper == "warm_embedder":
-        from plugin.embeddings.venv.embeddings_index import _get_embedder
+        from plugin.embeddings.venv.embeddings_index import get_embedder
 
         model = str(params.get("model") or "").strip()
         if not model:
             raise ValueError("model is required")
-        _get_embedder(model)
+        get_embedder(model)
         return {"status": "warmed", "model": model}
 
     raise ValueError(f"Unknown embeddings_index helper: {helper}")

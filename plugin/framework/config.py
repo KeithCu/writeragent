@@ -514,6 +514,11 @@ def get_config(key: str) -> Any:
     return _copy_config_value(default)
 
 
+def configured_venv_path() -> str:
+    """Settings → Python venv path, stripped; "" when it is not set."""
+    return str(get_config("scripting.python_venv_path") or "").strip()
+
+
 def get_config_dict() -> dict[str, Any]:
     """Return a deep copy of the sparse coerced file."""
     cached = _load()

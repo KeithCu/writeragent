@@ -30,9 +30,9 @@ def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
     return {"use_mmr": True}
 
 
-def _model_or_raise(model: str, *, required: bool = True) -> str:
-    model_name = (model or "").strip()
-    if required and not model_name:
+def _model_or_raise(model: str) -> str:
+    model_name = model.strip()
+    if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     return model_name
 
@@ -53,8 +53,7 @@ def _run_embeddings_action(
         domain="embeddings_index",
         helper=helper,
         params=params,
-        # Worker params carry model from each caller; empty slug uses the shared corpus session key.
-        session_id=embedding_session_id(model or "corpus"),
+        session_id=embedding_session_id(model),
         timeout_sec=timeout_sec,
         worker_pool=WORKER_POOL_EMBEDDINGS,
         allow_heartbeat=allow_heartbeat,
@@ -86,76 +85,10 @@ def maintain_folder_index(
     return _run_embeddings_action(
         ctx,
         "maintain_folder_index",
-        {"listing_root": str(listing_root), "model": model_name, "mode": str(mode or "auto"), "search_mode": resolved_mode},
+        {"listing_root": str(listing_root), "model": model_name, "mode": mode, "search_mode": resolved_mode},
         model=model_name,
         allow_heartbeat=True,
         heartbeat_fn=heartbeat_fn,
-        cancel=cancel,
-    )
-
-
-def index_paragraphs(
-    ctx: Any,
-    db_path: str,
-    meta_path: str,
-    rows: list[dict[str, Any]],
-    *,
-    model: str,
-    build_fts: bool = False,
-    build_vectors: bool = True,
-    search_mode: str | None = None,
-    cancel: SendCancellation | None = None,
-) -> dict[str, Any]:
-    """Persist paragraph rows + vectors via the warm venv worker."""
-    model_name = _model_or_raise(model, required=build_vectors)
-    # Pass search_mode. Without it, dispatch uses the sqlite default and a
-    # configured zvec, LanceDB, or LlamaIndex backend never sees the rows.
-    resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
-    return _run_embeddings_action(
-        ctx,
-        "index_paragraphs",
-        {
-            "db_path": str(db_path),
-            "meta_path": str(meta_path),
-            "model": model_name,
-            "rows": list(rows or []),
-            "build_fts": build_fts,
-            "build_vectors": build_vectors,
-            "search_mode": resolved_mode,
-        },
-        model=model_name,
-        cancel=cancel,
-    )
-
-
-def delete_paragraphs(
-    ctx: Any,
-    db_path: str,
-    meta_path: str,
-    keys: list[dict[str, Any]],
-    *,
-    model: str,
-    build_fts: bool = False,
-    build_vectors: bool = True,
-    search_mode: str | None = None,
-    cancel: SendCancellation | None = None,
-) -> dict[str, Any]:
-    """Remove paragraph index rows via the warm venv worker."""
-    model_name = _model_or_raise(model, required=False)
-    resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
-    return _run_embeddings_action(
-        ctx,
-        "delete_paragraphs",
-        {
-            "db_path": str(db_path),
-            "meta_path": str(meta_path),
-            "keys": list(keys or []),
-            "model": model_name,
-            "build_fts": build_fts,
-            "build_vectors": build_vectors,
-            "search_mode": resolved_mode,
-        },
-        model=model_name,
         cancel=cancel,
     )
 
@@ -179,8 +112,8 @@ def hybrid_search(
         "hybrid_search",
         {
             "db_path": str(db_path),
-            "query": str(query or ""),
-            "k": int(k or 10),
+            "query": query,
+            "k": k,
             "model": model_name,
             "near_slop": int(near_slop),
             "doc_url_filter": doc_url_filter,
@@ -192,53 +125,4 @@ def hybrid_search(
     )
 
 
-def knn_search(
-    ctx: Any,
-    db_path: str,
-    query: str,
-    k: int,
-    *,
-    model: str,
-    doc_url_filter: str | None = None,
-    cancel: SendCancellation | None = None,
-) -> dict[str, Any]:
-    """Semantic search over a folder corpus.db via the warm venv worker."""
-    search_mode = configured_folder_search_mode()
-    model_name = _model_or_raise(model)
-    return _run_embeddings_action(
-        ctx,
-        "knn_search",
-        {
-            "db_path": str(db_path),
-            "query": str(query or ""),
-            "k": int(k or 5),
-            "model": model_name,
-            "doc_url_filter": doc_url_filter,
-            "search_mode": search_mode,
-            **_folder_search_rerank_options(search_mode),
-        },
-        model=model_name,
-        cancel=cancel,
-    )
-
-
-def collection_stats(
-    ctx: Any,
-    db_path: str,
-    meta_path: str,
-    *,
-    model: str = "",
-    cancel: SendCancellation | None = None,
-) -> dict[str, Any]:
-    """Lightweight corpus stats for host empty/stale checks."""
-    model_name = _model_or_raise(model, required=False)
-    return _run_embeddings_action(
-        ctx,
-        "collection_stats",
-        {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name},
-        model=model_name,
-        cancel=cancel,
-    )
-
-
-__all__ = ["collection_stats", "delete_paragraphs", "hybrid_search", "index_paragraphs", "knn_search", "maintain_folder_index"]
+__all__ = ["hybrid_search", "maintain_folder_index"]

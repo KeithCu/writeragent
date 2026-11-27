@@ -170,7 +170,7 @@ def is_extra_allowed_origin(origin: str) -> bool:
     return _is_extra_allowed_normalized(normalize_cors_origin(origin))
 
 
-def reload_cors_policy_from_config(services: Any = None) -> None:
+def reload_cors_policy_from_config() -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
     # crosshair: off
     from plugin.framework.config import get_config

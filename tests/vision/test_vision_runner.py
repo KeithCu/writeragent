@@ -89,7 +89,7 @@ def test_image_export_reraises_disposed_document(image_name, exc_factory):
 
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision")
 @patch("plugin.vision.vision_runner.resolve_vision_image")
 def test_run_trusted_vision_builds_payload(mock_resolve, mock_run_vision, _mock_merge):
@@ -113,7 +113,7 @@ def test_run_trusted_vision_rejects_unknown_helper():
     assert exc.value.code == "VISION_ERROR"
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision")
 @patch("plugin.vision.vision_runner.resolve_vision_image")
 def test_run_trusted_vision_passes_image_name_context(mock_resolve, mock_run_vision, _mock_merge):
@@ -176,7 +176,7 @@ def test_resolve_vision_image_raises_when_export_returns_none(mock_get_obj, mock
 
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.get_lo_locale", return_value="fr_FR")
 @patch("plugin.vision.vision_runner.run_vision")
 @patch("plugin.vision.vision_runner.resolve_vision_image")
@@ -213,7 +213,7 @@ def _fake_run_vision(_ctx, _doc, *, helper, params, cancel=None, on_exported=Non
         pytest.param(["Img2", "Img1"], "text-Img2\n\ntext-Img1", id="reverse_order"),
     ],
 )
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_fake_run_vision)
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run, _mock_merge, names, expected_full_text):
@@ -242,7 +242,7 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
     assert len(result["individual_results"]) == 2
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_trusted_vision")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pairs, mock_run, _mock_merge):
@@ -278,7 +278,7 @@ def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pair
     assert "images_processed" not in result["individual_results"][0]
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[])
 def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
     ctx = MagicMock()
@@ -289,7 +289,7 @@ def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
     mock_pairs.assert_called_once()
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_trusted_vision")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_merge):
@@ -324,7 +324,7 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
     assert [r["discovered_index"] for r in result["individual_results"]] == [0, 2]
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "t"})
 @patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png"))
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())])
@@ -341,7 +341,7 @@ def test_cancel_reaches_run_vision(_mock_pairs, _mock_resolve, mock_run_vision, 
     assert mock_run_vision.call_args.kwargs["cancel"] is scope
 
 
-@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_trusted_vision")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_single_image_failure_returns_its_error(mock_pairs, mock_run, _mock_merge):
@@ -394,7 +394,7 @@ def test_named_image_locale_ignores_other_selection():
     doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic) as mock_get_obj, \
-            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
+            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})), \
             patch("plugin.vision.vision_runner.run_vision") as mock_run_vision, \
             patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=b"png"):
         mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -412,7 +412,7 @@ def test_named_image_without_char_locale_uses_ui_locale_not_selection():
     doc.CurrentController.Selection.getPropertyValue.return_value = SimpleNamespace(Language="de", Country="DE", Variant="")
 
     with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic) as mock_get_obj, \
-            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), \
+            patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})), \
             patch("plugin.vision.vision_runner.run_vision") as mock_run_vision, \
             patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=b"png"), \
             patch("plugin.vision.vision_runner.get_lo_locale", return_value="en_US"):
@@ -442,7 +442,7 @@ def test_resolve_locale_keeps_region(char_locale, lo_locale, expected):
 def test_run_trusted_vision_rejects_oversized_image_before_rpc():
     with patch("plugin.vision.vision_runner.VISION_IMAGE_MAX_BYTES", 4), patch(
         "plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"12345")
-    ), patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), patch(
+    ), patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})), patch(
         "plugin.vision.vision_runner.run_vision"
     ) as rpc:
         with pytest.raises(ToolExecutionError) as exc:
@@ -476,7 +476,7 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
     with patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec), patch(
         "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
     ), patch("plugin.vision.vision_runner.resolve_vision_image", side_effect=fake_export), patch(
-        "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
+        "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})
     ), patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]), patch(
         "plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert
     ):
@@ -500,7 +500,7 @@ def test_vision_insert_marshaled_with_unscoped_scope():
         patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec),
         patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
         patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())]),
         patch("plugin.vision.vision_egress.insert_vision_result"),
     ):
@@ -527,7 +527,7 @@ def test_stop_break_reports_partial_and_stopped():
         return {"status": "ok", "helper": helper, "full_text": name, "html": f"<p>{name}</p>", "metrics": {}, "warnings": []}
 
     with (
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=mock_pairs),
         patch("plugin.vision.vision_egress.insert_vision_result"),
@@ -865,7 +865,7 @@ def test_run_and_insert_disposed_during_export_ends_the_run():
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, graphics[n]) for n in names]),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=lambda _doc, name: graphics[name]),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p=None: dict(p or {})),
         patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=_export),
         patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "helper": "extract_structure", "full_text": "ok", "html": "<p>ok</p>"}),
@@ -914,7 +914,7 @@ def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p=None: dict(p or {})),
         patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_timeout),
     ):
@@ -935,7 +935,7 @@ def test_run_and_insert_worker_timeout_stops_or_raises_via_real_rpc():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p=None: dict(p or {})),
         patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_second_timeout),
     ):
@@ -967,7 +967,7 @@ def test_run_and_insert_worker_cancelled_returns_stopped_without_failed_image():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(n, MagicMock()) for n in names]),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p=None: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p=None: dict(p or {})),
         patch("plugin.vision.vision_runner.resolve_vision_image", return_value=(MagicMock(), b"png")),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv", side_effect=fake_venv_cancel_second),
     ):
@@ -992,7 +992,7 @@ def test_run_trusted_vision_closed_document_raises_document_disposed(exc_factory
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=exc_factory()),
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
     ):
@@ -1005,7 +1005,7 @@ def test_run_trusted_vision_lookup_error_keeps_its_type():
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch(
             "plugin.doc.visual_helpers.get_graphic_object_by_name",
             side_effect=AmbiguousGraphicNameError("Several objects named 'Img1'"),
@@ -1035,7 +1035,7 @@ def test_run_trusted_vision_selected_image_errors_do_not_name_an_empty_image(
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda params: dict(params or {})),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=MagicMock()),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", **export_patch),
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
@@ -1061,7 +1061,7 @@ def test_run_trusted_vision_looks_up_a_missing_image_once(params, lookup_target,
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p: dict(p or {})),
         patch(lookup_target, return_value=None) as mock_lookup,
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
     ):
@@ -1095,7 +1095,7 @@ def test_run_and_insert_keeps_shape_across_selection_change(img_name):
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.vision.vision_runner.is_writer", return_value=False),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p: dict(p or {})),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[(img_name, shape_a)]),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=AmbiguousGraphicNameError("dup")),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=shape_b),
@@ -1134,7 +1134,7 @@ def test_run_and_insert_writer_named_image_passes_none_graphic_and_looks_up_by_n
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
         patch("plugin.vision.vision_runner.is_writer", return_value=True),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p: dict(p or {})),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", shape_sel)]),
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=shape_named) as mock_by_name,
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", side_effect=fake_export),
@@ -1161,7 +1161,7 @@ def test_run_trusted_vision_kept_shape_closed_doc_raises_disposed(img_name):
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a)),
-        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, p: dict(p or {})),
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda p: dict(p or {})),
         patch("plugin.vision.vision_runner.export_graphic_object_to_bytes", return_value=None),
         patch("plugin.vision.vision_runner.run_vision") as mock_run_vision,
     ):

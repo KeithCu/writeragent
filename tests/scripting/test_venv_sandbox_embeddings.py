@@ -36,7 +36,7 @@ def test_hybrid_search_trusted_action_dispatches(tmp_path):
 
 
 def test_warm_embedder_trusted_action():
-    with patch("plugin.embeddings.venv.embeddings_index._get_embedder") as mock_get:
+    with patch("plugin.embeddings.venv.embeddings_index.get_embedder") as mock_get:
         result = dispatch_trusted(
             {
                 "helper": "warm_embedder",

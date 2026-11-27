@@ -424,6 +424,42 @@ def test_ensure_kokoro_misaki_reports_install_failure_and_does_not_raise():
     assert len(messages) == 2
 
 
+def _failing_install_run(cmd, timeout):
+    if "-c" in cmd:
+        return subprocess.CompletedProcess(cmd, 1, "", "ModuleNotFoundError: misaki")
+    return subprocess.CompletedProcess(cmd, 1, "", "no network")
+
+
+def test_ensure_kokoro_misaki_survives_a_raising_status_callback():
+    def on_status(_message: str) -> None:
+        raise RuntimeError("sidebar gone")
+
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None):
+        ready = ensure_kokoro_misaki(
+            "/venv/bin/python", "es", on_status=on_status, run_cmd=_failing_install_run
+        )
+
+    assert ready is False
+
+
+def test_ensure_kokoro_misaki_status_uses_progress_method():
+    plain: list[str] = []
+    progress: list[str] = []
+
+    class _Status:
+        def __call__(self, message: str) -> None:
+            plain.append(message)
+
+        def progress(self, message: str) -> None:
+            progress.append(message)
+
+    with patch("plugin.audio.kokoro_g2p.shutil.which", return_value=None):
+        ensure_kokoro_misaki("/venv/bin/python", "es", on_status=_Status(), run_cmd=_failing_install_run)
+
+    assert plain == []
+    assert len(progress) == 2
+
+
 def test_ensure_kokoro_misaki_english_does_not_install():
     calls: list[list[str]] = []
 
