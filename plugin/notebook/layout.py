@@ -32,7 +32,7 @@ STYLE_MD_H2 = "Heading 2"
 STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 # Stdout left as Text Body is a cell boundary, so a re-run would keep the old paragraph.
 STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
-PARAGRAPH_BREAK: int = int(_UNO_PARAGRAPH_BREAK)
+PARAGRAPH_BREAK: int = _UNO_PARAGRAPH_BREAK
 
 IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
 _MAX_IMPORT_TEXT_CHARS = 50_000

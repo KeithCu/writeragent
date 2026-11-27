@@ -325,6 +325,7 @@ for name in (
     "com.sun.star.lang", "com.sun.star.sheet", "com.sun.star.sheet.FormulaResult", "com.sun.star.style",
     "com.sun.star.table", "com.sun.star.table.CellContentType", "com.sun.star.table.CellHoriJustify",
     "com.sun.star.task", "com.sun.star.text",
+    "com.sun.star.text.ControlCharacter",
     "com.sun.star.text.TextContentAnchorType",
     "com.sun.star.ui", "com.sun.star.uno", "com.sun.star.util", "com.sun.star.view"
 ):
@@ -345,7 +346,7 @@ def _iface(mod_name, attr):
 for mod_name in list(sys.modules):
     if mod_name.startswith("com.sun.star"):
         for attr in (
-            "AS_CHARACTER", "AT_CHARACTER", "AT_PARAGRAPH", "AT_PAGE", "AT_FRAME",
+            "AS_CHARACTER", "AT_CHARACTER", "AT_PARAGRAPH", "AT_PAGE", "AT_FRAME", "PARAGRAPH_BREAK",
             "DisposedException", "NoSuchElementException", "IllegalArgumentException",
             "RuntimeException", "Exception",
             "XDispatch", "XDispatchProvider", "XInitialization", "XServiceInfo",
