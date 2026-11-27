@@ -43,7 +43,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_context import enum_has_more, uno_same
+from plugin.framework.uno_context import enum_has_more, supports_service, uno_same
 from plugin.framework import url_utils as _url_utils
 
 log = logging.getLogger(__name__)
@@ -1627,3 +1627,12 @@ def jump_view_cursor_to_page(vc: Any, page: int) -> int | None:
 def page_not_found_message(page: int, total: int) -> str:
     """Format the error message for an out-of-range 0-based page index."""
     return f"Page {page} does not exist (document has {total} page(s); first page = 0)."
+
+
+def iter_annotations(doc: Any) -> Iterator[Any]:
+    """Yield every Annotation text field in *doc*."""
+    fields = doc.getTextFields()
+    enum = fields.createEnumeration()
+    for field in iter_elements(enum):
+        if supports_service(field, "com.sun.star.text.textfield.Annotation"):
+            yield field

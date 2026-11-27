@@ -47,7 +47,8 @@ def export_current_page_png(
 ) -> tuple[bytes | None, str | None]:
     """Export the page of *doc*'s view cursor (or page 1 when the view has no view cursor) to PNG.
 
-    Uses ``DocumentToGraphicRenderer::getCurrentPageWriter``, which falls back to page 1 when
+    Uses ``DocumentToGraphicRenderer::getCurrentPageWriter``
+    (``svtools/source/filter/DocumentToGraphicRenderer.cxx``), which falls back to page 1 when
     there is no view cursor. *page* only names the page in error text.
     """
     from com.sun.star.beans import PropertyValue

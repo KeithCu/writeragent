@@ -33,6 +33,7 @@ from plugin.doc.text_helpers import (
     get_document_length,
     get_string_without_tracked_deletions,
     is_text_table,
+    iter_annotations,
     iter_elements,
     normalize_linebreaks,
     read_visible_body,
@@ -104,10 +105,13 @@ _SPACE_CODEPOINTS = (
     0x3000,  # IDEOGRAPHIC SPACE
 )
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
-HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
+
 
 def _char_class(cps: tuple[int, ...]) -> str:
     return "[" + "".join(f"\\u{cp:04x}" for cp in cps) + "]"
+
+
+HORIZONTAL_SPACE_CLASS = _char_class((0x20, 0x09, *_SPACE_CODEPOINTS))
 
 
 # Quotes and dashes folding for lenient search. Straight or curly quotes and
@@ -205,6 +209,7 @@ def match_modes(search_string: str, case_sensitive: bool | None) -> list[MatchMo
         else (False,)
     )
     return [MatchMode(cs, f) for cs in case_ladder(case_sensitive) for f in folds]
+
 
 # Literal shape and comment search folds typographic quotes; dashes and spaces
 # stay literal here.
@@ -377,14 +382,6 @@ def build_search_not_found_response(
     When refuse_oversized is True (used by old_content replace tools), a needle covering
     more than 50% of the document body without a close mismatch returns OLD_CONTENT_TOO_LARGE.
     """
-    if not needle:
-        return {
-            "status": "error",
-            "code": "OLD_CONTENT_NOT_FOUND",
-            "message": f"{subject} not found in document. Try a shorter, unique substring.",
-            "replaced_count": 0,
-        }
-
     shape_name = drawing_shape_containing(
         doc,
         needle,
@@ -441,10 +438,8 @@ def anchor_miss_message(kind: AnchorMissKind, *, tracked_deletions: bool = False
         msg = "start_anchor not found in document."
     elif kind == "different_text":
         msg = "end_anchor after start_anchor is not in the same text, so it cannot be one range."
-    elif kind == "end":
-        msg = "end_anchor not found after start_anchor."
     else:
-        raise ValueError(f"Unknown anchor miss kind: {kind!r}")
+        msg = "end_anchor not found after start_anchor."
     hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
     return msg + hint
 
@@ -484,9 +479,6 @@ def find_text_ranges(
     A failure (closed document or UNO error) propagates; it is not an empty hit list.
     ``limit is None`` means no cap while ``limit <= 0`` returns no rows.
     """
-    if limit is not None:
-        if type(limit) is not int or limit <= 0:
-            return []
     sd = _search_descriptor(model, search, False, case_sensitive)
     body = model.getText()
     hits = (h for h in _iter_descriptor_hits(model, sd, TrackedDeletions(model)) if uno_same(h.getText(), body))
@@ -632,15 +624,6 @@ def _iter_descriptor_hits(
         yield hit
 
 
-def _collect_capped(
-    doc: Any,
-    sd: Any,
-    deletions: TrackedDeletions,
-    limit: int = MAX_SEARCH_REPLACEMENTS,
-) -> list[Any]:
-    return list(islice(_iter_descriptor_hits(doc, sd, deletions, literal=False), limit))
-
-
 def _lo_regex_descriptor(doc: Any, text: str, *, fold: bool) -> Any:
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
@@ -674,8 +657,8 @@ def _chain_hit_range(
     anchor_cursor.gotoEndOfParagraph(True)
     anchor_para_text = get_string_without_tracked_deletions(anchor_cursor, deletions.state_at(anchor_cursor))
 
-    is_anchor_first = (anchor_idx == 0)
-    is_anchor_last = (anchor_idx == len(parts) - 1)
+    is_anchor_first = anchor_idx == 0
+    is_anchor_last = anchor_idx == len(parts) - 1
 
     ok, anchor_offset_len = _paragraph_matches_part(
         anchor_para_text,
@@ -857,8 +840,6 @@ def find_literal_ranges(
     On a total miss, returns ([], modes[-1]) — the last (most lenient) pass tried.
     """
     modes = match_modes(search_string, case_sensitive)
-    if not search_string:
-        return [], modes[-1]
     deletions = TrackedDeletions(doc)
     for mode in modes:
         hits_iter = iter_literal_ranges(doc, search_string, mode, deletions)
@@ -900,7 +881,7 @@ def find_occurrence_range(
 ) -> tuple[Any | None, MatchMode]:
     """Find the occurrence-th match using the literal MatchMode ladder.
 
-    Raises IndexError if matches exist in the winning pass but occurrence is out of range.
+    Raises OccurrenceOutOfRange if matches exist in the winning pass but occurrence is out of range.
     Returns (None, last_mode) if no matches are found.
     """
     search_string = normalize_search_string_for_find(text)
@@ -947,20 +928,13 @@ def occurrence_range_or_error(
         found, mode = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
     except OccurrenceOutOfRange as exc:
         return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), exc.mode
-    except IndexError as exc:
-        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), last_mode
     if found is None:
         return None, build_search_not_found_response(doc, text, case_sensitive=case_sensitive, subject=subject), mode
     return found, None, mode
 
 
-def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
-    """True when candidate and boundary_end share the same XText container."""
-    cand_text = uno_read(lambda: candidate.getText(), None)
-    bound_text = uno_read(lambda: boundary_end.getText(), None)
-    if cand_text is None or bound_text is None:
-        return False
-    return bool(uno_read(lambda: uno_same(cand_text, bound_text), False))
+def _miss_kind(saw_different_text: bool) -> AnchorMissKind:
+    return "different_text" if saw_different_text else "end"
 
 
 def pick_end_after_start(
@@ -974,19 +948,20 @@ def pick_end_after_start(
     returned rather than 'end'. Returns (cursor, None) on success.
     """
     boundary_end = start.getEnd()
+    bound_text = uno_read(lambda: boundary_end.getText(), None)
     saw_different_text = False
     for end in ends:
-        if not _is_same_text(end, boundary_end):
+        cand_text = uno_read(lambda: end.getText(), None)
+        if cand_text is None or bound_text is None or not uno_read(lambda: uno_same(cand_text, bound_text), False):
             saw_different_text = True
             continue
-        cand_text = uno_read(lambda: end.getText(), None)
         if not starts_at_or_after(cand_text, end.getStart(), boundary_end):
             continue
         text = start.getText()
         cursor = text.createTextCursorByRange(start.getStart())
         cursor.gotoRange(end.getEnd(), True)
         return cursor, None
-    return None, "different_text" if saw_different_text else "end"
+    return None, _miss_kind(saw_different_text)
 
 
 def find_anchor_span(
@@ -1001,7 +976,7 @@ def find_anchor_span(
 
     The end search starts at the start match's end so a repeated heading reaches the next
     occurrence, and the cursor includes both anchors. If occurrence is out of range,
-    IndexError propagates from find_occurrence_range. Returns (cursor, None, mode) or
+    OccurrenceOutOfRange propagates from find_occurrence_range. Returns (cursor, None, mode) or
     (None, 'start' | 'end' | 'different_text', mode).
     """
     start, start_mode = find_occurrence_range(
@@ -1040,7 +1015,7 @@ def find_anchor_span(
         start_mode.case_sensitive and last_end.case_sensitive,
         start_mode.folded or last_end.folded,
     )
-    return None, ("different_text" if saw_different_text else "end"), combined_miss
+    return None, _miss_kind(saw_different_text), combined_miss
 
 
 def _safe_name(obj: Any) -> str:
@@ -1065,7 +1040,8 @@ def _cell_name(cur: Any, text: Any) -> str:
 
 
 # A region that is off reads as None; Left, Right, and First return the shared
-# text when their *IsShared flag is on (verified via SwXHeadFootText).
+# text when their *IsShared flag is on (sw/source/core/unocore/unostyle.cxx:
+# lcl_makeHeaderFooter / SwXHeadFootText::CreateXHeadFootText).
 _HEADER_FOOTER_TEXT_PROPS: tuple[tuple[str, str], ...] = (
     ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
     ("HeaderTextFirst", "first-page header"),
@@ -1193,8 +1169,7 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
             reraise_if_disposed(exc)
             log.debug("iter_draw_shapes: getByIndex(%s) failed", i, exc_info=True)
             continue
-        is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape"), False)
-        if is_group:
+        if is_group(shape):
             yield from iter_draw_shapes(shape)
         else:
             yield shape
@@ -1278,7 +1253,7 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int
     global _shape_regex_inflight
     inflight = _shape_regex_inflight
     if inflight is not None and inflight.is_alive():
-        log.warning("shape_text_hits: regex still running; skipping")
+        log.warning("_regex_find_hits: regex still running; skipping")
         return []
     box: dict[str, Any] = {}
 
@@ -1292,14 +1267,13 @@ def _regex_find_hits(pattern: str, text: str, flags: int) -> list[tuple[int, int
     _shape_regex_inflight = handle
     handle.join(_SHAPE_REGEX_TIMEOUT_SEC)
     if handle.is_alive():
-        log.warning("shape_text_hits: regex exceeded %ss", _SHAPE_REGEX_TIMEOUT_SEC)
+        log.warning("_regex_find_hits: regex exceeded %ss", _SHAPE_REGEX_TIMEOUT_SEC)
         return []
     err = box.get("err")
     if err is not None:
-        log.debug("shape_text_hits: regex match failed", exc_info=err)
+        log.debug("_regex_find_hits: regex match failed", exc_info=err)
         return []
-    hits = box.get("hits")
-    return hits if isinstance(hits, list) else []
+    return box["hits"]
 
 
 def iter_shape_text_spans(
@@ -1334,7 +1308,7 @@ def iter_shape_text_spans(
         def span_for_idx(idx: int) -> tuple[int, int]:
             return origins[idx], origins[idx + len(needle) - 1] + 1
 
-    step = len(needle) or 1
+    step = len(needle)
     idx = hay.find(needle)
     while idx != -1:
         yield span_for_idx(idx)
@@ -1389,8 +1363,6 @@ def replace_text_in_shape(
     # characters (emoji, rare CJK) in the shape text don't misalign the selection / corrupt text.
     left_units = len(s[:start].encode("utf-16-le")) // 2
     old_units = len(s[start:end].encode("utf-16-le")) // 2
-    if old_units <= 0:
-        return False
     try:
         cursor = xtext.createTextCursorByRange(xtext.getStart())
         if left_units:
@@ -1446,18 +1418,15 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
 
 
 def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    fields = uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED)
-    if fields is FAILED:
+    if uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED) is FAILED:
         return
-    for field in iter_elements(fields):
+    for field in iter_annotations(doc):
         try:
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
-                continue
             content = field.Content
             author = field.Author.strip()
         except Exception as exc:
             reraise_if_disposed(exc)
-            log.debug("comment_matches: annotation field unreadable", exc_info=True)
+            log.debug("iter_comment_hits: annotation field unreadable", exc_info=True)
             continue
         for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
             yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
@@ -1466,18 +1435,20 @@ def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: b
 def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Any:
     sd = doc.createSearchDescriptor()
     sd.SearchString = pattern
-    sd.SearchRegularExpression = bool(use_regex)
-    sd.SearchCaseSensitive = bool(case_sensitive)
+    sd.SearchRegularExpression = use_regex
+    sd.SearchCaseSensitive = case_sensitive
     return sd
 
 
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
+def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> list[Any]:
     # Callers validate the pattern with validate_icu_regex before searching.
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     deletions = TrackedDeletions(doc)
+    hits = _iter_descriptor_hits(doc, sd, deletions, literal=False)
     if not all_matches:
-        return next(_iter_descriptor_hits(doc, sd, deletions, literal=False), None)
-    return _collect_capped(doc, sd, deletions)
+        hit = next(hits, None)
+        return [] if hit is None else [hit]
+    return list(islice(hits, MAX_SEARCH_REPLACEMENTS))
 
 
 def old_content_covers_most(doc: Any, needle_len: int) -> bool:
@@ -1539,8 +1510,7 @@ def closest_mismatch(
         return None
 
     min_score = max(1, min(8, needle_len // 2))
-    k = min_score
-    candidate = folded_needle[:k]
+    candidate = folded_needle[:min_score]
 
     best_score = -1
     best_i = -1
@@ -1560,9 +1530,9 @@ def closest_mismatch(
         window_len = min(needle_len, hay_len - i)
         mismatch_found = False
         diff_idx = -1
-        score = k
-        comparisons += k
-        for j in range(k, window_len):
+        score = min_score
+        comparisons += min_score
+        for j in range(min_score, window_len):
             comparisons += 1
             if folded_needle[j] == folded_hay[i + j]:
                 score += 1
@@ -1649,9 +1619,7 @@ def get_search_miss_haystack(doc: Any) -> str:
             parts.append(region_text)
 
     hay = "\n".join(parts)
-    if len(hay) > MAX_MISS_HAYSTACK_CHARS:
-        return hay[:MAX_MISS_HAYSTACK_CHARS]
-    return hay
+    return hay[:MAX_MISS_HAYSTACK_CHARS]
 
 
 def search_closest_mismatch(
@@ -1661,11 +1629,7 @@ def search_closest_mismatch(
     lenient: bool = True,
 ) -> dict[str, Any] | None:
     """Find the closest matching passage in the document for a failed search needle."""
-    if not needle:
-        return None
     hay = get_search_miss_haystack(doc)
-    if not hay:
-        return None
     return closest_mismatch(needle, hay, lenient=lenient)
 
 
@@ -1676,7 +1640,7 @@ def drawing_shape_object_containing(
     use_regex: bool = False,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Any | None:
-    pattern = (search_string or "").strip()
+    pattern = search_string.strip()
     if not pattern:
         return None
     for shape, text in iter_floating_shape_texts(doc):
@@ -1700,12 +1664,7 @@ def drawing_shape_containing(
 
 
 def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    for hit, location, context in hits:
-        matches.append({"text": hit, "location": location, "context": context})
-        if len(matches) >= limit:
-            break
-    return matches
+    return [{"text": hit, "location": location, "context": context} for hit, location, context in islice(hits, limit)]
 
 
 def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = DEFAULT_SEARCH_RESULTS) -> list[dict[str, Any]]:
@@ -1753,18 +1712,17 @@ class SearchInDocument(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
-        if raw_max < 1:
+        max_results = kwargs["max_results"]
+        if max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
-        max_results = raw_max
 
         pattern = kwargs["pattern"]
         if not pattern:
             return self._tool_error("pattern is required.", code="INVALID_PARAM")
 
-        use_regex = kwargs.get("regex", False)
+        use_regex = kwargs["regex"]
         case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
-        return_offsets = kwargs.get("return_offsets", False)
+        return_offsets = kwargs["return_offsets"]
 
         if return_offsets and use_regex:
             return self._tool_error(
@@ -1936,9 +1894,9 @@ class AdvancedSearch(ToolBaseDummy):
 def _build_page_map(doc: Any) -> dict[int, int]:
     """Build a mapping of paragraph_index to 0-based page index.
 
-    No module cache is kept because documents mutate, id() can be reused, and a failed
-    walk would be cached indefinitely as {}. Uses with_view_cursor_left_body_locked
-    to ensure controllers are unlocked before restoring the view cursor.
+    The map is rebuilt on every call: a document changes between calls. Uses
+    with_view_cursor_left_body_locked to ensure controllers are unlocked before
+    restoring the view cursor.
     """
     try:
         controller = doc.getCurrentController()

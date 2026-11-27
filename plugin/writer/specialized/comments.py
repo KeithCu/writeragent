@@ -17,14 +17,14 @@
 """Writer comment / annotation tools."""
 
 import logging
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
 from plugin.framework.errors import make_tool_error, reraise_if_disposed, uno_read
 import uno
 
 from plugin.doc.paragraph_search import paragraph_entries
-from plugin.doc.text_helpers import TrackedDeletions, iter_elements
+from plugin.doc.text_helpers import TrackedDeletions, iter_annotations
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from plugin.framework.errors import name_miss_details
@@ -33,44 +33,31 @@ from ..edit_review import next_agent_edit_undo_title
 from ..search import (
     LADDER_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
-    describe_match_location,
     enclosing_paragraph_text,
     explicit_case_sensitive,
     occurrence_range_or_error,
-    parse_non_negative_int,
 )
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
 
 
-def _iter_annotations(doc: Any) -> Any:
-    fields = doc.getTextFields()
-    enum = fields.createEnumeration()
-    for field in iter_elements(enum):
-        try:
-            if field.supportsService("com.sun.star.text.textfield.Annotation"):
-                yield field
-        except Exception as exc:
-            reraise_if_disposed(exc)
-
-
 def _prop(field: Any, name: str, default: Any = "") -> Any:
     return uno_read(lambda: field.getPropertyValue(name) or default, default)
 
 
-def _annotation_reader(ctx: Any) -> Any:
+def _annotation_reader(ctx: Any) -> Callable[[Any], dict[str, Any]]:
     doc = ctx.doc
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
     text_obj = doc.getText()
     entries = paragraph_entries(para_ranges)
-    labeler = LocationLabeler(doc) if doc is not None else None
+    labeler = LocationLabeler(doc)
     deletions = TrackedDeletions(doc)
 
     def reader(field: Any) -> dict[str, Any]:
         return _read_annotation(
-            field, para_ranges, text_obj, doc_svc, deletions, doc=doc, entries=entries, labeler=labeler
+            field, para_ranges, text_obj, doc_svc, deletions, doc, entries, labeler
         )
 
     return reader
@@ -118,16 +105,12 @@ class CommentList(ToolWriterCommentBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         author_filter = kwargs.get("author_filter")
-        # prepare_tool_call has already checked that start_index is an integer; negatives clamp to 0.
+        # prepare_tool_call has already checked that start_index and max_comments are integers.
         start_index = max(0, kwargs["start_index"])
-        max_val, max_err = parse_non_negative_int(kwargs["max_comments"], name="max_comments")
-        if max_err:
-            return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
-        assert max_val is not None
-        max_comments = max(1, max_val)
+        max_comments = max(1, kwargs["max_comments"])
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
-        fields = list(_iter_annotations(doc))
+        fields = list(iter_annotations(doc))
         comments = []
         if fields:
             reader = _annotation_reader(ctx)
@@ -180,7 +163,7 @@ class AddComment(ToolBase):
             return self._tool_error("Provide content.")
 
         parent_name = (kwargs.get("parent_name") or "").strip()
-        author = (kwargs.get("author") or "WriterAgent").strip() or "WriterAgent"
+        author = kwargs["author"].strip() or "WriterAgent"
 
         # Reply path: look up the immediate parent by Name and insert at its anchor
         # (same shape as CommentResolve) without setting Resolved. Do not walk to the
@@ -213,10 +196,11 @@ class AddComment(ToolBase):
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
         found, err, mode = occurrence_range_or_error(
-            doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
+            doc, search_text, kwargs["occurrence"], case_sensitive=case_sensitive, subject="search"
         )
         if found is None:
-            res = err or self._tool_error("Anchor not found")
+            assert err is not None
+            res = err
             res.update({"matched": False, "comment_added": False})
             res.update(mode.result_fields())
             return res
@@ -248,7 +232,7 @@ class AddComment(ToolBase):
                 },
             )
 
-        prior = set(n for n in names_before if n)
+        prior = {n for n in names_before if n}
         new_name = next((n for n in names_after if n and n not in prior), "")
         return {
             "status": "ok",
@@ -280,7 +264,7 @@ class CommentDelete(ToolWriterCommentBase):
         doc = ctx.doc
         ordered = []
         children: dict[str, list[tuple[Any, Any, Any]]] = {}
-        for field in _iter_annotations(doc):
+        for field in iter_annotations(doc):
             name = field.getPropertyValue("Name")
             parent = field.getPropertyValue("ParentName")
             field_author = field.getPropertyValue("Author")
@@ -491,9 +475,9 @@ class CommentScanTasks(ToolWriterCommentBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         unresolved_only = kwargs["unresolved_only"]
-        prefix_filter = kwargs.get("prefix_filter", None)
+        prefix_filter = kwargs.get("prefix_filter")
         doc = ctx.doc
-        fields = list(_iter_annotations(doc))
+        fields = list(iter_annotations(doc))
         if not fields:
             return {"status": "ok", "tasks": [], "count": 0}
         reader = _annotation_reader(ctx)
@@ -517,8 +501,8 @@ _WORKFLOW_AUTHOR = "MCP-WORKFLOW"
 
 
 def _workflow_field(doc: Any) -> Any | None:
-    for field in _iter_annotations(doc):
-        if (field.getPropertyValue("Author") or "") == _WORKFLOW_AUTHOR:
+    for field in iter_annotations(doc):
+        if _prop(field, "Author") == _WORKFLOW_AUTHOR:
             return field
     return None
 
@@ -531,7 +515,7 @@ class CommentWorkflowGet(ToolWriterCommentBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         field = _workflow_field(ctx.doc)
         if field is not None:
-            content = field.getPropertyValue("Content") or ""
+            content = _prop(field, "Content")
             workflow = {k: v for k, v in _parse_workflow_content(content) if k is not None}
             return {"status": "ok", "workflow": workflow}
         return {"status": "ok", "workflow": None}
@@ -550,7 +534,7 @@ class CommentWorkflowSet(ToolWriterCommentBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        content = kwargs.get("content", "")
+        content = kwargs["content"]
         doc = ctx.doc
         existing = _workflow_field(doc)
         if existing is not None:
@@ -577,9 +561,9 @@ class CommentCheckStop(ToolWriterCommentBase):
         doc = ctx.doc
         stop_signals = []
         workflow_stop = False
-        for field in _iter_annotations(doc):
-            content = field.getPropertyValue("Content") or ""
-            author = field.getPropertyValue("Author") or ""
+        for field in iter_annotations(doc):
+            content = _prop(field, "Content")
+            author = _prop(field, "Author")
             resolved = field.getPropertyValue("Resolved")
             if author == _WORKFLOW_AUTHOR and content:
                 for _key, val in _parse_workflow_content(content):
@@ -594,17 +578,12 @@ class CommentCheckStop(ToolWriterCommentBase):
         return {"status": "ok", "should_stop": should_stop, "workflow_stop": workflow_stop, "stop_signals": stop_signals, "count": len(stop_signals)}
 
 
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-
 def _annotation_or_error(doc: Any, comment_name: str, **top_level: Any) -> Any:
     """The Annotation field whose Name is comment_name, or the COMMENT_NOT_FOUND error dict
     ("Comment '%s' not found. Call comment_list to see the current names.") with
     details.hint / details.similar from _comment_miss_details. top_level fields
     (comment_added=False on the reply path) sit beside code and message."""
-    for field in _iter_annotations(doc):
+    for field in iter_annotations(doc):
         if field.getPropertyValue("Name") == comment_name:
             return field
     return _comment_not_found(
@@ -621,7 +600,7 @@ def _annotation_name(field: Any) -> str:
 
 def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unset)."""
-    return [_annotation_name(field) for field in _iter_annotations(doc)]
+    return [_annotation_name(field) for field in iter_annotations(doc)]
 
 
 def _comment_miss_details(doc: Any, wanted: str) -> dict[str, Any]:
@@ -638,7 +617,7 @@ def _ensure_annotation_name(field: Any, names: list[str]) -> str:
     name = _annotation_name(field)
     if name:
         return name
-    existing = set(n for n in names if n)
+    existing = {n for n in names if n}
     stamp = int(now_aware().timestamp())
     n = len(existing) + 1
     candidate = "__Annotation__%d_%d" % (n, stamp)
@@ -699,9 +678,9 @@ def _read_annotation(
     text_obj: Any,
     doc_svc: Any,
     deletions: TrackedDeletions,
-    doc: Any = None,
-    entries: Any = None,
-    labeler: Any = None,
+    doc: Any,
+    entries: Any,
+    labeler: Any,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     entry: dict[str, Any] = {}
@@ -730,7 +709,8 @@ def _read_annotation(
         last_exc = exc
 
     if props_read == 0:
-        err_msg = str(last_exc) if last_exc is not None else "failed to read annotation"
+        assert last_exc is not None
+        err_msg = str(last_exc)
         log.warning("Failed to read annotation: %s", err_msg)
         return {"error": err_msg, "stale": True}
 
@@ -741,27 +721,22 @@ def _read_annotation(
         anchor = field.getAnchor()
         preview = ""
         if anchor is not None:
-            if labeler is not None:
-                entry["location"] = labeler.describe(anchor)
-            elif doc is not None:
-                entry["location"] = LocationLabeler(doc).describe(anchor)
-            else:
-                entry["location"] = describe_match_location(anchor, doc)
+            entry["location"] = labeler.describe(anchor)
             try:
                 anchor_text = anchor.getText()
             except Exception:
                 anchor_text = None
-            if anchor_text is not None and text_obj is not None and uno_same(anchor_text, text_obj):
+            if anchor_text is not None and uno_same(anchor_text, text_obj):
                 placed = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
                 if placed is not None:
                     entry["paragraph_index"] = placed
 
             try:
-                preview = (deletions.text_of(anchor) or "")[:80]
+                preview = deletions.text_of(anchor)[:80]
             except Exception:
                 preview = ""
             if not preview:
-                ptxt = (enclosing_paragraph_text(anchor, deletions) or "").strip()
+                ptxt = enclosing_paragraph_text(anchor, deletions).strip()
                 if ptxt:
                     preview = ptxt[:120]
                     entry["anchor_is_paragraph_context"] = True

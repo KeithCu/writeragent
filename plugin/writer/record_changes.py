@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any, Generator
+from typing import Any, Generator, Iterator
 
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import bounds_cover, iter_elements_limited, redline_bounds
@@ -40,7 +40,8 @@ def is_recording_changes(model: Any) -> bool:
     keeps the old text on Accept, so it is skipped while recording; ``replace_preserving_format``
     uses its recorded path instead of untracked run-by-run replacement.
     """
-    # RecordChanges get/set does not fail on a live document.
+    # A read failure other than disposal means the model has no RecordChanges
+    # (not a text document), which counts as not recording.
     try:
         return bool(model.getPropertyValue("RecordChanges"))
     except Exception as exc:
@@ -100,19 +101,22 @@ def insert_recorded_content(model: Any, host: Any, cursor: Any, content: Any) ->
     return True
 
 
+def _iter_redlines(doc: Any) -> Iterator[Any]:
+    redlines = doc.getRedlines()
+    return iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount()))
+
+
 def redline_spans(doc: Any) -> list[RedlineSpan]:
     """``(RedlineType, bounds)`` of every tracked change in *doc*; unreadable ones are left out.
 
     Stale once the document is edited: build a new list after a write.
     """
     spans: list[RedlineSpan] = []
-    redlines = doc.getRedlines()
-    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+    for rl in _iter_redlines(doc):
         try:
             spans.append((str(rl.getPropertyValue("RedlineType")), redline_bounds(rl)))
         except Exception as exc:
-            reraise_if_disposed(exc)
-            continue  # the redline's bounds or type could not be read
+            reraise_if_disposed(exc)  # the redline's bounds or type could not be read
     return spans
 
 
@@ -128,8 +132,7 @@ def overlaps_foreign_insertion(doc: Any, ranges: list[Any], author: str) -> bool
     too; one that cannot be compared (a table insertion) counts as overlapping.
     """
     bounds = [(r.getStart(), r.getEnd()) for r in ranges]
-    redlines = doc.getRedlines()
-    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+    for rl in _iter_redlines(doc):
         if rl.getPropertyValue("RedlineType") != "Insert" or rl.getPropertyValue("RedlineAuthor") == author:
             continue
         try:
@@ -155,8 +158,7 @@ def tracked_change_before_point(doc: Any, point: Any) -> bool:
     if cur.isStartOfParagraph() and cur.goLeft(1, False):
         prev_end = cur.getStart()
 
-    redlines = doc.getRedlines()
-    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+    for rl in _iter_redlines(doc):
         kind = rl.getPropertyValue("RedlineType")
         if kind not in ("Insert", "Delete"):
             continue
@@ -172,8 +174,7 @@ def tracked_change_before_point(doc: Any, point: Any) -> bool:
             if prev_end is not None and text.compareRegionEnds(end, prev_end) <= 0:
                 return True
         except Exception as exc:
-            reraise_if_disposed(exc)
-            continue  # another text object, or not comparable
+            reraise_if_disposed(exc)  # another text object, or not comparable
     return False
 
 
@@ -186,8 +187,7 @@ def tracked_change_spans_past(doc: Any, text_range: Any) -> bool:
     ends at or inside the span resolves to the same text. ``tracked_change_before_point``
     checks a single collapsed insertion point and would refuse safe spans.
     """
-    redlines = doc.getRedlines()
-    for rl in iter_elements_limited(redlines.createEnumeration(), int(redlines.getCount())):
+    for rl in _iter_redlines(doc):
         kind = rl.getPropertyValue("RedlineType")
         if kind not in ("Insert", "Delete"):
             continue
@@ -199,6 +199,5 @@ def tracked_change_spans_past(doc: Any, text_range: Any) -> bool:
             ):
                 return True
         except Exception as exc:
-            reraise_if_disposed(exc)
-            continue  # another text object, or not comparable
+            reraise_if_disposed(exc)  # another text object, or not comparable
     return False

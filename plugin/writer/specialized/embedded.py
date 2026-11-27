@@ -40,6 +40,9 @@ _SPREADSHEET_DOC_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
 _TEXT_EMBEDDED_OBJECT = "com.sun.star.text.TextEmbeddedObject"
 
 
+_NOT_REGISTERED = "spreadsheet embedding is not registered"
+
+
 def _spreadsheet_clsid(uno_ctx: Any) -> str:
     """Resolve the Calc spreadsheet OLE ClassID from LibreOffice embedding registry."""
     smgr = uno_ctx.getServiceManager()
@@ -51,7 +54,7 @@ def _spreadsheet_clsid(uno_ctx: Any) -> str:
     )
     class_id = str(names_access.getByName("Calc").ClassID)
     if not class_id:
-        raise ValueError("spreadsheet embedding is not registered")
+        raise ValueError(_NOT_REGISTERED)
 
     node_objects = create_property_value("nodepath", "/org.openoffice.Office.Embedding/Objects")
     objects_access = config_provider.createInstanceWithArguments(
@@ -65,13 +68,13 @@ def _spreadsheet_clsid(uno_ctx: Any) -> str:
             match_name = str(element_name)
             break
     if match_name is None:
-        raise ValueError("spreadsheet embedding is not registered")
+        raise ValueError(_NOT_REGISTERED)
 
     entry = objects_access.getByName(match_name)
-    factory = str(getattr(entry, "ObjectFactory", "") or "")
-    doc_service = str(getattr(entry, "ObjectDocumentServiceName", "") or "")
+    factory = entry.ObjectFactory or ""
+    doc_service = entry.ObjectDocumentServiceName or ""
     if factory != _EMBED_FACTORY or doc_service != _SPREADSHEET_DOC_SERVICE:
-        raise ValueError("spreadsheet embedding is not registered")
+        raise ValueError(_NOT_REGISTERED)
     return class_id
 
 
@@ -80,7 +83,7 @@ def _write_cell(cell: Any, value: Any, doc: Any) -> None:
         raise ValueError("boolean cell values are not supported")
     if value is None or value == "":
         return
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, (int, float)):
         cell.setValue(float(value))
         return
     if isinstance(value, str):
@@ -192,7 +195,7 @@ def _validate_embed_args(tool: Any, kwargs: Mapping[str, Any]) -> _EmbedRequest 
         return tool._tool_error("height must be a positive integer.", code="INVALID_PARAM", parameter="height")
 
     embed_name = kwargs.get("name")
-    if embed_name is not None and embed_name == "":
+    if embed_name == "":
         return tool._tool_error("name cannot be empty.", code="INVALID_PARAM", parameter="name")
 
     rows = len(data)
@@ -244,8 +247,8 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
     sheet = inner.getSheets().getByIndex(0)
 
     if req.size is not None:
-        # Direct host size: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
-        # blocked for 30s+ on headless CI after Calc OLE insert.
+        # Size the host frame directly: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
+        # can block for 30 s or more on a headless instance right after a Calc OLE insert.
         emb.Width = req.size.width
         emb.Height = req.size.height
 

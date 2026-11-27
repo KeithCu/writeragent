@@ -51,14 +51,16 @@ _MATH_FACTORY_URL = "private:factory/smath"
 OBJECT_REPLACEMENT = "\ufffc"
 _MATH_CLSID_NORM = MATH_CLSID.lower()
 
-# XHTML export of a Math frame keeps only draw:name as id (filter/source/xslt/odf2xhtml).
+# XHTML export of a Math frame keeps only draw:name as id
+# (filter/source/xslt/odf2xhtml/export/xhtml/body.xsl;
+# filter/source/xslt/odf2xhtml/export/common/body.xsl @draw:name | @text:id | @xml:id).
 _WRAPPER_ID_RE = re.compile(r'<(?:span|div)\b[^>]*\bid="([^"]+)"[^>]*>', re.IGNORECASE)
 _XML_ID_UNSAFE_RE = re.compile(r"[\n&<>.,;: %()\[\]/\\+]")
 
 
 def _xhtml_id(name: str) -> str:
-    """Mirror the XHTML export's id sanitizer so an OLE name can match a wrapper id."""
-    safe = _XML_ID_UNSAFE_RE.sub("_", name or "")
+    """Mirror the odf2xhtml id sanitizer (export/common/body.xsl) so an OLE name matches a wrapper id."""
+    safe = _XML_ID_UNSAFE_RE.sub("_", name)
     return f"a_{safe}" if safe[:1].isdigit() else safe
 
 
@@ -135,7 +137,7 @@ class MathExportBatch:
         return self._doc
 
     def convert_starmath_to_latex(self, starmath: str) -> MathExportResult:
-        key = (starmath or "").strip()
+        key = starmath.strip()
         cached = self._cache.get(key)
         if cached is None:
             cached = self._convert_uncached(key)
@@ -143,7 +145,7 @@ class MathExportBatch:
         return cached
 
     def _convert_uncached(self, starmath: str) -> MathExportResult:
-        if not starmath or not starmath.strip():
+        if not starmath:
             return MathExportResult(False, None, "empty_starmath")
         doc = self._ensure_doc()
         if doc is None or not self._temp_path:
@@ -151,7 +153,7 @@ class MathExportBatch:
         try:
             # Formula is a plain property on the Math model (starmath/source/unomodel.cxx
             # SmModel::_setPropertyValues HANDLE_FORMULA).
-            doc.setPropertyValue("Formula", starmath.strip())
+            doc.setPropertyValue("Formula", starmath)
             props = (
                 create_property_value("FilterName", MATHML_EXPORT_FILTER),
                 create_property_value("Overwrite", True),
@@ -186,7 +188,7 @@ def convert_starmath_to_latex(ctx: Any, starmath: str) -> MathExportResult:
 
 def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
     """Wrap TeX for ``apply_content`` / chat (``$…$`` vs ``$$…$$``)."""
-    inner = (latex or "").strip()
+    inner = latex.strip()
     if inner.startswith("$$") and inner.endswith("$$"):
         return inner
     if inner.startswith("$") and inner.endswith("$") and not inner.startswith("$$"):
@@ -201,7 +203,7 @@ def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
 def _failure_markup(error: str | None, starmath: str) -> str:
     """Non-TeX failure marker: valid HTML, so StarMath is never mistaken for TeX."""
     reason = (error or "math_export_failed").strip()[:120]
-    snippet = (starmath or "").strip()[:200]
+    snippet = starmath.strip()[:200]
     return (
         f'<span data-math-export-error="{_html_escape(reason)}">'
         f"{_html_escape(snippet)}</span>"
@@ -219,9 +221,7 @@ def _formula_replacement(
 
 def iter_writer_math_objects(model: Any) -> Iterator[WriterMathHit]:
     """Yield Math embeds in document order."""
-    text = model.getText() if hasattr(model, "getText") else None
-    if text is None:
-        return
+    text = model.getText()
     for para, state in iter_xtext_paragraphs(text, TrackedDeletions(model).state_at(text)):
         yield from _math_hits_in_paragraph(para, state)
 
@@ -332,7 +332,7 @@ def _iter_named_embeds(doc: Any) -> Iterator[tuple[str, Any]]:
     for name in names:
         obj = uno_read(lambda: container.getByName(name), None)
         if obj is not None:
-            yield str(name), obj
+            yield name, obj
 
 
 def selected_math_embeds(doc: Any) -> list[Any]:
@@ -380,7 +380,7 @@ def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
         return named
     for name, obj in _iter_named_embeds(doc):
         if uno_same(obj, embed):
-            return str(name)
+            return name
     return None
 
 
@@ -411,8 +411,8 @@ def _math_embeds_in_text_range(range_obj: Any, embed_objects: list[Any]) -> list
     found: list[Any] = []
     for obj in embed_objects:
         # compareRegionStarts throws IllegalArgumentException when a range lies
-        # in another XText (sw/source/core/unocore/unotext.cxx:955), so an anchor
-        # belonging to a different text container is safely treated as not inside.
+        # in another XText (sw/source/core/unocore/unotext.cxx SwXText::compareRegionStarts),
+        # so an anchor belonging to a different text container is safely treated as not inside.
         def _inside() -> bool:
             a = obj.getAnchor().getStart()
             return text.compareRegionStarts(sel_start, a) >= 0 and text.compareRegionStarts(a, sel_end) >= 0

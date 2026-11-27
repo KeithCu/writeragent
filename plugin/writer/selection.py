@@ -3,9 +3,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """set_selection — select a passage so the user sees it highlighted and target='selection' can
-act on it. Headless MCP clients have no way to set a selection otherwise, which made
-target='selection' a trap (see the target_resolver fix). Selection is view state and transient,
-so for headless flows set_selection and the follow-up edit should be consecutive.
+act on it. Headless MCP clients have no other way to set a selection, and target='selection'
+needs one. Selection is view state and transient, so for headless flows set_selection and the
+follow-up edit should be consecutive.
 
 In a sidebar turn, target='selection' reads the Send-time SelectionPin rather than the live
 view, so set_selection updates that pin when present; MCP contexts carry no pin.
@@ -100,7 +100,6 @@ class SetSelection(ToolBase):
         if controller is None:
             return self._tool_error("No document view is available to hold a selection.", code="TOOL_EXECUTION_ERROR")
 
-        # --- resolve the range to select ---
         if has_search:
             case_sensitive = explicit_case_sensitive(kwargs.get("case_sensitive"))
             search_str = plain_text_if_markup(str(search_text))
@@ -141,7 +140,8 @@ class SetSelection(ToolBase):
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
         )
         if found is None:
-            res = err or self._tool_error("search_text not found")
+            assert err is not None
+            res = err
         else:
             controller.select(found)
             update_selection_pin(ctx, found)
