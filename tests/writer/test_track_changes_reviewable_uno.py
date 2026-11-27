@@ -840,11 +840,7 @@ def test_streamed_append_flag_off_no_redline_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_streamed_append_no_output_restores_prior_recording_uno(ctx, doc):
-    """A no-op streamed extend still restores the user's RecordChanges state.
-
-    WriterStreamedAppendSession turns recording off while chunks stream, so an empty model result
-    must not leave the user's own tracking disabled just because there was no edit to collapse.
-    """
+    """A no-op streamed extend preserves the user's RecordChanges state."""
     _reset(doc, ctx, "Original sentence.")
     doc.setPropertyValue("RecordChanges", True)
     rng = doc.getText().createTextCursor()

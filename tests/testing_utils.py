@@ -1918,6 +1918,9 @@ class FakeUndoManager:
             self.titles.pop(0)
             self.undone += 1
 
+    def clearRedo(self) -> None:
+        return None
+
 
 def fill_five_paragraphs(text: Any) -> list[Any]:
     """Populate *text* with 5 same-style paragraphs and return the paragraph objects."""
