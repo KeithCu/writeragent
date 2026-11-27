@@ -29,9 +29,9 @@ from plugin.framework.scratch_writer import (
     is_scratch_document,
     load_scratch_document,
 )
-from plugin.framework.uno_context import get_desktop, get_service_manager
+from plugin.framework.uno_context import get_desktop, get_service_manager, uno_same
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import FORMULA, query_interface
+from plugin.calc.calc_utils import FORMULA
 import plugin.writer.html_import as html_import
 from plugin.writer.html_import_styles import normalize_character_references
 
@@ -81,21 +81,6 @@ def _take_hidden_writer(uno_ctx: Any) -> Any:
     return doc
 
 
-def _controller_get_transferable(controller: Any) -> Any:
-    """Return transferable for the current selection (Writer controller)."""
-    t = getattr(controller, "getTransferable", None)
-    if callable(t):
-        return t()
-    # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
-    xs = best_effort(
-        lambda: query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier"),
-        "getTransferable via queryInterface failed",
-    )
-    if xs is not None:
-        return xs.getTransferable()
-    raise ToolExecutionError("Writer controller does not support getTransferable; cannot paste HTML into cell.")
-
-
 def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
     """If SystemClipboard still owns *transferable*, replace it after the paste.
 
@@ -110,8 +95,7 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
         smgr: Any = get_service_manager(uno_ctx)
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
         contents = clip.getContents()
-        # Identity before ==: a thrown UNO == must not skip a real match.
-        if contents is not None and (contents is transferable or contents == transferable):
+        if contents is not None and uno_same(contents, transferable):
             # None, None drops the previous owner (lostOwnership) without a new OLE source.
             clip.setContents(None, None)
 
@@ -165,7 +149,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         sel.gotoEnd(True)
         w_ctrl.select(sel)
         step = "get transferable"
-        transferable = _controller_get_transferable(w_ctrl)
+        # A normal Writer view (SwXTextView) is an XTransferableSupplier.
+        transferable = w_ctrl.getTransferable()
         # Do not read SystemClipboard before the paste. getContents() attaches
         # the Windows OLE clipboard thread and a later desktop enum can block.
         # Release-if-ours below is the only clipboard touch.
@@ -179,10 +164,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             step = "select cell"
             c_ctrl.select(cell)
             step = "insert transferable"
-            ins = getattr(c_ctrl, "insertTransferable", None)
-            if not callable(ins):
-                raise ToolExecutionError("Calc controller does not support insertTransferable.")
-            ins(transferable)
+            # The Calc view (ScTabViewObj) is an XTransferableSupplier.
+            c_ctrl.insertTransferable(transferable)
     except ToolExecutionError:
         raise
     except Exception as e:

@@ -20,7 +20,7 @@
 import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from plugin.calc.address_utils import format_address, index_to_column, split_sheet_prefix
+from plugin.calc.address_utils import format_address, index_to_column
 from plugin.calc.datetime_wire import (
     iso8601_from_serial,
     iso_duration_from_serial,
@@ -200,16 +200,14 @@ class CellInspector:
 
     @staticmethod
     def _single_cell(cell: Any, address: str) -> tuple[Any, str]:
-        _unused, bare_address = split_sheet_prefix(address)
-        display_address = bare_address.upper()
-        if hasattr(cell, "getRangeAddress"):
-            addr = cell.getRangeAddress()
-            if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
-                raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
-            if hasattr(cell, "getCellByPosition") and not hasattr(cell, "getType"):
-                cell = cell.getCellByPosition(0, 0)
-            display_address = format_address(addr.StartColumn, addr.StartRow)
-        return cell, display_address
+        addr = cell.getRangeAddress()
+        if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
+            raise ValueError(f"Address '{address}' resolved to a cell range, not a single cell.")
+        # "A1:A1", a one-cell named range and a database range resolve to an
+        # ScCellRangeObj, which has no getType(); its (0, 0) cell does. A cell
+        # answers getCellByPosition(0, 0) with the same cell (ScCellObj derives
+        # from ScCellRangeObj, sc/inc/cellsuno.hxx).
+        return cell.getCellByPosition(0, 0), format_address(addr.StartColumn, addr.StartRow)
 
     def _resolve_single_cell(self, address: str) -> tuple[Any, str]:
         return self._single_cell(self.bridge.resolve_range_or_address(address), address)
@@ -264,8 +262,8 @@ class CellInspector:
         """
         cell_range = self.bridge.resolve_range_or_address(range_name)
 
-        addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
-        if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
+        addr = cell_range.getRangeAddress()
+        if addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow:
             cell, bare_address = self._single_cell(cell_range, range_name)
             return [[self._read_resolved_cell(cell, bare_address, range_name, include_format_info=include_format_info)]]
         # Refuse an over-cap range before fetching data/formula arrays.

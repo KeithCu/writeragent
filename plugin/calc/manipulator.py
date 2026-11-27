@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple,
 from com.sun.star.awt import FontWeight
 from com.sun.star.awt.FontSlant import ITALIC, NONE
 from com.sun.star.document import EmptyUndoStackException
-from com.sun.star.table import BorderLineStyle, CellRangeAddress, TableSortField
+from com.sun.star.table import BorderLineStyle, TableSortField
 from com.sun.star.table.CellHoriJustify import BLOCK, CENTER, LEFT, RIGHT, STANDARD
 from com.sun.star.util import MalformedNumberFormatException, NotNumericException
 
@@ -589,25 +589,6 @@ def _requests_array_formula(formula_or_values: Any, array: bool | None) -> TypeG
 # ── Helper ─────────────────────────────────────────────────────────────
 
 
-def _uno_range_address(cell_or_range: Any) -> Any:
-    """Normalize a UNO cell or range to ``CellRangeAddress``.
-
-    ``resolve_range_or_address`` returns an ``XCell`` for a single cell
-    (``getCellAddress`` only) and an ``XCellRange`` for A1:B2 / named ranges
-    (``getRangeAddress``). ``copyRange`` needs the latter shape.
-    """
-    if hasattr(cell_or_range, "getRangeAddress"):
-        return cell_or_range.getRangeAddress()
-    cell_addr = cell_or_range.getCellAddress()
-    ra = CellRangeAddress()
-    ra.Sheet = cell_addr.Sheet
-    ra.StartColumn = cell_addr.Column
-    ra.EndColumn = cell_addr.Column
-    ra.StartRow = cell_addr.Row
-    ra.EndRow = cell_addr.Row
-    return ra
-
-
 def quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     """Best-effort probe teardown that still surfaces a disposed document."""
     try:
@@ -916,7 +897,9 @@ class CellManipulator:
 
     def _resolve_range_sheet(self, range_str: str) -> tuple[Any, Any, Any]:
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        addr = _uno_range_address(cell_range)
+        # A cell and a range both expose getRangeAddress (ScCellObj derives from
+        # ScCellRangeObj, sc/inc/cellsuno.hxx).
+        addr = cell_range.getRangeAddress()
         return cell_range, addr, self.bridge.doc.getSheets().getByIndex(addr.Sheet)
 
     # ── Internal helpers ───────────────────────────────────────────────
@@ -1117,7 +1100,7 @@ class CellManipulator:
             log.info("Range %s unmerged.", range_str.upper())
             return MergeOutcome(True, 0, [])
 
-        addr = _uno_range_address(cell_range)
+        addr = cell_range.getRangeAddress()
         sc, sr, ec, er = int(addr.StartColumn), int(addr.StartRow), int(addr.EndColumn), int(addr.EndRow)
         sheet = cell_range.getSpreadsheet()
         occupied = _occupied_cells(sheet, sc, sr, ec, er, skip=[(sc, sr, sc, sr)])
@@ -1133,7 +1116,7 @@ class CellManipulator:
         # True when the range merely contains a smaller merge.
         cur = sheet.createCursorByRange(sheet.getCellRangeByPosition(sc, sr, sc, sr))
         cur.collapseToMergedArea()
-        merged_addr = _uno_range_address(cur)
+        merged_addr = cur.getRangeAddress()
         if (
             int(merged_addr.StartColumn),
             int(merged_addr.StartRow),
@@ -1154,7 +1137,7 @@ class CellManipulator:
     def plan_sort(self, range_str: str, keys: Sequence[SortKey]) -> SortPlan:
         """Resolve *range_str* and validate *keys* against its width before any sort runs."""
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        addr = _uno_range_address(cell_range)
+        addr = cell_range.getRangeAddress()
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
         height = int(addr.EndRow) - int(addr.StartRow) + 1
         # The schema's minimum is not enforced and the tool cannot know the width, so both
@@ -1698,7 +1681,7 @@ class CellManipulator:
                 return WritePlan("clear", range_str)
 
             cell_range = self.bridge.resolve_range_or_address(range_str)
-            addr = _uno_range_address(cell_range)
+            addr = cell_range.getRangeAddress()
             sheet = cell_range.getSpreadsheet()
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
@@ -2139,7 +2122,7 @@ class CellManipulator:
         """
         try:
             source_obj = self.bridge.resolve_range_or_address(source_str)
-            source_ra = _uno_range_address(source_obj)
+            source_ra = source_obj.getRangeAddress()
             _dest_obj, dest_ra, dest_sheet = self._resolve_range_sheet(dest_str)
             rows = int(source_ra.EndRow) - int(source_ra.StartRow) + 1
             cols = int(source_ra.EndColumn) - int(source_ra.StartColumn) + 1
