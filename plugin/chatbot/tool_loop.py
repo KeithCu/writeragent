@@ -226,9 +226,9 @@ def _compact_bound_session(
     # bind_spawn's current_turn can be None (no live turn); only a real
     # TurnController carries the _last_compact_* fields.
     if turn is not None:
-        turn._last_compact_reason = result.reason
-        turn._last_compact_tokens_before = result.tokens_before
-        turn._last_compact_tokens_after = result.tokens_after
+        turn.last_compact_reason = result.reason
+        turn.last_compact_tokens_before = result.tokens_before
+        turn.last_compact_tokens_after = result.tokens_after
     # The caller emits STOPPED through turn.put, which flushes.
     return result.reason != "aborted"
 
@@ -267,7 +267,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
     if (stt_model or local_stt) and retry_q is not None and turn.active_client is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
-            transcript = host._voice._transcribe_audio(host.audio_wav_path, stt_model)
+            transcript = host._voice.transcribe_audio(host.audio_wav_path, stt_model)
             if send_outcome_is_stopped(host):
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
@@ -306,7 +306,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
             else:
                 turn_session.add_user_message(combined)
             turn.active_query_text = combined
-            host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num)
+            host._tool_calling.spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num)
             return StreamErrorOutcome.SPAWNED
         except Exception:
             log.exception("STT fallback after native-audio error failed")
@@ -317,7 +317,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
 def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
     # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
     # picks up the scope via get_current_send_cancellation when created on
-    # the UI thread; spawned workers pass cancel= explicitly (_spawn_llm_worker).
+    # the UI thread; spawned workers pass cancel= explicitly (spawn_llm_worker).
     if not panel.client:
         panel.client = LlmClient(api_config, panel.ctx)
     else:
@@ -613,7 +613,7 @@ class ToolCallingMixin:
             text_model_id = str(api_config.get("model") or "")
             vision = model_fetcher.has_native_vision(text_model_id, client.endpoint())
             if vision is not False:
-                doc = self._panel._get_document_model()
+                doc = self._panel.get_document_model()
                 if doc:
                     try:
                         from plugin.writer.images.image_tools import get_selected_image_base64
@@ -642,7 +642,7 @@ class ToolCallingMixin:
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
-    def _refresh_active_tools_for_session(self) -> None:
+    def refresh_active_tools_for_session(self) -> None:
         """Recompute OpenAI tool schemas from ``session.active_specialized_domain``.
 
         In-place specialized delegation updates the session after ``delegate`` or
@@ -662,7 +662,7 @@ class ToolCallingMixin:
             active_domain = turn_session.active_specialized_domain if turn_session is not None else None
             refresh_doc = turn.model
             if refresh_doc is None:
-                refresh_doc = self._panel._get_document_model()
+                refresh_doc = self._panel.get_document_model()
             turn.active_tools = get_tools().get_schemas(
                 "openai",
                 doc_type=self._panel.cached_doc_type,
@@ -775,7 +775,7 @@ class ToolCallingMixin:
             log.exception(error_log_msg)
             emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
-    def _spawn_llm_worker(self, batched: BatchingStreamQueue, client: LlmClient, max_tokens: int, tools: list[dict[str, Any]], round_num: int, force_compact: bool = False) -> None:
+    def spawn_llm_worker(self, batched: BatchingStreamQueue, client: LlmClient, max_tokens: int, tools: list[dict[str, Any]], round_num: int, force_compact: bool = False) -> None:
         """Spawn a background thread that streams the LLM response into the batcher."""
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
@@ -817,7 +817,7 @@ class ToolCallingMixin:
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
-    def _spawn_final_stream(
+    def spawn_final_stream(
         self,
         batched: BatchingStreamQueue,
         client: LlmClient,
@@ -966,7 +966,7 @@ class ToolCallingMixin:
             return fallback
 
         # If we reached here, it's either not a modality error or STT is not configured.
-        # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
+        # Drain ERROR items are format_error_payload dicts (see spawn_llm_worker),
         # not BaseException.
         err_msg = str(e.get("message") or e.get("code") or e)
         crash_blob = "%s %s" % (err_msg, e)
@@ -1006,15 +1006,15 @@ class ToolCallingMixin:
                 and live_turn.active_client is not None
                 and is_context_overflow_error(crash_blob)
                 and should_retry_overflow(
-                    live_turn._overflow_compact_attempts,
-                    live_turn._last_compact_reason,
-                    live_turn._last_compact_tokens_before,
-                    live_turn._last_compact_tokens_after,
+                    live_turn.overflow_compact_attempts,
+                    live_turn.last_compact_reason,
+                    live_turn.last_compact_tokens_before,
+                    live_turn.last_compact_tokens_after,
                 )
             ):
-                live_turn._overflow_compact_attempts += 1
+                live_turn.overflow_compact_attempts += 1
                 self._panel._set_status("Compacting conversation...")
-                self._spawn_llm_worker(
+                self.spawn_llm_worker(
                     retry_q,
                     live_turn.active_client,
                     live_turn.active_max_tokens,
@@ -1114,7 +1114,7 @@ class ToolCallingMixin:
             # toolkit may be None in tests; the drain still arms before the first LLM worker runs.
             toolkit = get_toolkit(self._panel.ctx)
 
-            self._refresh_active_tools_for_session()
+            self.refresh_active_tools_for_session()
 
             # run_stream_drain_loop must flush the batcher on Stop so one interval of text is not lost.
             run_stream_drain_loop(
@@ -1130,7 +1130,7 @@ class ToolCallingMixin:
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
                 flush_pending=turn.batcher.flush,
-                on_drain_started=lambda: self._spawn_llm_worker(
+                on_drain_started=lambda: self.spawn_llm_worker(
                     spawn_queue(turn),
                     client,
                     turn.active_max_tokens,

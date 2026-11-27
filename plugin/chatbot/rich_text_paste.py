@@ -43,27 +43,26 @@ import uno
 from html import unescape
 from typing import Any, Sequence, cast
 
-from plugin.chatbot.chat_session import ChatSession, message_text
+from plugin.chatbot.chat_session import STOP_BANNER, ChatSession, message_text
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     ChatTheme,
     normalize_portion_font,
-    _append_rich_text_with_span,
+    append_rich_text_with_span,
     role_prefix,
     apply_chat_char_props,
     apply_rich_control_para_margins,
-    contains_html_tag,
     render_calc_cell_refs,
     span_matches_message,
     strip_legacy_ai_label,
 )
 from plugin.chatbot.rich_text_control import (
     force_rich_full_reformat,
-    _insert_string_at_rich_cursor,
+    insert_string_at_rich_cursor,
     is_automatic_char_color,
     rollback_rich_insert,
-    _scroll_rich_to_tail,
+    scroll_rich_to_tail,
     clear_control,
     get_control_text_length,
     log_rich_scroll,
@@ -74,7 +73,7 @@ from plugin.calc.navigation import (
     normalize_cell_address,
 )
 from plugin.framework.errors import best_effort, uno_read
-from plugin.framework.html_stripper import strip_html_tags
+from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import close_scratch_document, new_blank_writer
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle, enum_has_more
@@ -476,18 +475,13 @@ def session_history_items(session: ChatSession, greeting: str = "") -> list[tupl
         elif role == "assistant":
             if content:
                 text = message_text(content)
-                if text.strip() == _STOP_BANNER:
+                if text.strip() == STOP_BANNER:
                     _append_stop_banner(items, text)
                 else:
                     items.append(("assistant", text))
             elif msg.get("tool_calls"):
                 items.append(("assistant", "[Thinking...]"))
     return items
-
-
-# Body of tool_loop_actions.STOP_LINE ("\n[Stopped by user]\n"), stored by
-# close_stopped as its own assistant message.
-_STOP_BANNER = "[Stopped by user]"
 
 
 def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
@@ -502,8 +496,8 @@ def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
     """
     if items and items[-1][0] == "assistant" and items[-1][1].strip():
         prev = items[-1][1]
-        looks_html = contains_html_tag(prev)
-        joined = prev + ("<p>%s</p>" % _STOP_BANNER if looks_html else "\n\n" + _STOP_BANNER)
+        looks_html = text_has_real_html_tag(prev)
+        joined = prev + ("<p>%s</p>" % STOP_BANNER if looks_html else "\n\n" + STOP_BANNER)
         items[-1] = ("assistant", joined)
         return
     # Stop before the first token: no answer to attach to. Keep the row, without
@@ -521,7 +515,7 @@ def _replace_control_with_plain(
 ) -> None:
     """Wipe the control and write every row. The text is the message list."""
     clear_control(control)
-    _plain_append_messages(
+    plain_append_messages(
         control,
         items,
         ctx,
@@ -533,7 +527,7 @@ def _replace_control_with_plain(
 
 def rows_need_hidden_writer(rows: Sequence[tuple[str, str]]) -> bool:
     """True when any message content has real HTML tags needing hidden Writer import."""
-    return any(contains_html_tag(content) for _role, content in rows)
+    return any(text_has_real_html_tag(content) for _role, content in rows)
 
 
 def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") -> None:
@@ -559,7 +553,7 @@ def render_messages_to_hidden_doc(doc: Any, items: Sequence[tuple[str, str]], st
     for role, content in items:
         if role == "assistant":
             content = strip_legacy_ai_label(content)
-        ok, previous, added = _append_rich_text_with_span(doc, content, role=role, style_window=style_window)
+        ok, previous, added = append_rich_text_with_span(doc, content, role=role, style_window=style_window)
         if ok and span_matches_message(added, role, content):
             continue
         text_obj.setString(previous)
@@ -606,14 +600,14 @@ def paint_message_items(
     def _finish_paint() -> bool:
         if rows[-1][0] == "user":
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
-                _ensure_trailing_line_break(control)
+                ensure_blank_line_after_tail(control)
         force_rich_full_reformat(control)
-        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        scroll_rich_to_tail(control, restore_focus=restore_focus)
         return True
 
     if not rows_need_hidden_writer(rows):
         clear_control(control)
-        _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
+        plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
         return _finish_paint()
     doc = None
     try:
@@ -624,7 +618,7 @@ def paint_message_items(
             return True
         configure_hidden_writer_for_chat(doc)
         render_messages_to_hidden_doc(doc, rows, style_window=style_window)
-        if contains_html_tag(doc.getText().getString()):
+        if text_has_real_html_tag(doc.getText().getString()):
             # render_messages_to_hidden_doc already reverts a bad element.
             # If a tag is still in the body, do not copy that document.
             log.warning("paint_message_items: hidden doc still has tags; plain paint")
@@ -707,7 +701,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                 underline: bool | None = None,
             ) -> None:
                 nonlocal control_len
-                _insert_string_at_rich_cursor(model, dest_cursor, text, color, bold=bold, underline=underline)
+                insert_string_at_rich_cursor(model, dest_cursor, text, color, bold=bold, underline=underline)
                 if control_len is not None:
                     control_len += _utf16_units(text)
 
@@ -887,7 +881,7 @@ def _row_separator_suffix(text: str) -> str:
     return "\n\n"
 
 
-def _plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
+def plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap."""
     model = control.getModel() if control else None
     if model is None:
@@ -906,17 +900,17 @@ def _plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: 
             continue
         sep = _row_separator_suffix(last_text)
         if sep:
-            _insert_string_at_rich_cursor(model, cursor, sep)
+            insert_string_at_rich_cursor(model, cursor, sep)
             cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
 
         color = theme.role_color(role)
         prefix = role_prefix(role)
-        _insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
+        insert_string_at_rich_cursor(model, cursor, prefix, char_color=color, bold=True)
         cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
 
-        _insert_string_at_rich_cursor(model, cursor, plain, char_color=color, bold=False)
+        insert_string_at_rich_cursor(model, cursor, plain, char_color=color, bold=False)
         cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
 
@@ -924,15 +918,15 @@ def _plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: 
         last_text = plain
 
     if wrote and auto_scroll:
-        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        scroll_rich_to_tail(control, restore_focus=restore_focus)
         process_events_to_idle(ctx)
     return wrote
 
 
 def _finish_append_rows(control: Any, rows: Sequence[tuple[str, str]], restore_focus: Any = None) -> None:
     if rows[-1][0] == "user":
-        _ensure_trailing_line_break(control)
-    _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        ensure_blank_line_after_tail(control)
+    scroll_rich_to_tail(control, restore_focus=restore_focus)
 
 
 def _rollback_then_plain(
@@ -944,7 +938,7 @@ def _rollback_then_plain(
     restore_focus: Any,
 ) -> None:
     rollback_rich_insert(control, before)
-    if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
+    if plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
         _finish_append_rows(control, rows, restore_focus=restore_focus)
 
 
@@ -964,13 +958,13 @@ def append_formatted_rows(
     before = get_control_text_length(control)
     if before is None:
         log.warning("append_formatted_rows: control length unavailable; plain append")
-        _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
+        plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus)
         _finish_append_rows(control, rows, restore_focus=restore_focus)
         return
 
-    _ensure_message_separator(control)
+    ensure_blank_line_after_tail(control)
     if not rows_need_hidden_writer(rows):
-        if _plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus):
+        if plain_append_messages(control, rows, ctx, style_window, auto_scroll=False, restore_focus=restore_focus):
             _finish_append_rows(control, rows, restore_focus=restore_focus)
         return
 
@@ -993,7 +987,7 @@ def append_formatted_rows(
             sum(len(c) for _unused, c in rows),
         )
         doc_text = doc.getText().getString()
-        if contains_html_tag(doc_text):
+        if text_has_real_html_tag(doc_text):
             log.warning("append_formatted_rows: hidden doc still has tags; plain append")
             _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
             return
@@ -1027,11 +1021,14 @@ def append_formatted_rows(
         _close_hidden_doc(doc, "append_formatted_rows")
 
 
-def _append_row_separator(
-    control: Any,
-    phase: str,
-    caller_name: str,
-) -> None:
+def ensure_blank_line_after_tail(control: Any) -> None:
+    """Leave a blank line after the last row so the next row starts a new paragraph.
+
+    Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only
+    moves to the next line. The suffix is inserted at the end without assigning
+    ``model.Text``, which would drop the rich formatting.
+    """
+
     def _do_append() -> None:
         model = control.getModel() if control else None
         if model is None:
@@ -1042,24 +1039,10 @@ def _append_row_separator(
             return
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
-        _insert_string_at_rich_cursor(model, cursor, suffix)
-        log_rich_scroll(phase, suffix_len=len(suffix))
+        insert_string_at_rich_cursor(model, cursor, suffix)
+        log_rich_scroll("separator", suffix_len=len(suffix))
 
-    best_effort(_do_append, caller_name)
-
-
-def _ensure_message_separator(control: Any) -> None:
-    """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
-    _append_row_separator(control, "separator", "_ensure_message_separator")
-
-
-def _ensure_trailing_line_break(control: Any) -> None:
-    """Leave a blank line after the user message before assistant streaming.
-
-    Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only moves to
-    the next line. We want ``\\n\\n`` (same gap as ``_ensure_message_separator``).
-    """
-    _append_row_separator(control, "trailing_break", "_ensure_trailing_line_break")
+    best_effort(_do_append, "ensure_blank_line_after_tail")
 
 
 def append_formatted_row(
@@ -1088,16 +1071,16 @@ def append_formatted_row(
     def _finish_append_row() -> None:
         if role == "user":
             with focus_preserved(ctx, restore, restore_focus=restore_focus):
-                _ensure_trailing_line_break(control)
+                ensure_blank_line_after_tail(control)
             if auto_scroll:
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
+                scroll_rich_to_tail(control, restore_focus=restore_focus)
             log_rich_scroll("user_append_done", role=role)
         elif auto_scroll:
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            scroll_rich_to_tail(control, restore_focus=restore_focus)
 
     if not rows_need_hidden_writer([(role, text)]):
-        _ensure_message_separator(control)
-        _plain_append_messages(
+        ensure_blank_line_after_tail(control)
+        plain_append_messages(
             control, [(role, text)], ctx, style_window, auto_scroll=False, restore_focus=restore_focus,
         )
         _finish_append_row()
@@ -1107,15 +1090,15 @@ def append_formatted_row(
     before = get_control_text_length(control)
     if before is None:
         log.warning("append_formatted_row: control length unavailable")
-        _plain_append_messages(
+        plain_append_messages(
             control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
         )
         return True
-    _ensure_message_separator(control)
+    ensure_blank_line_after_tail(control)
 
     def _rollback_and_plain() -> None:
         rollback_rich_insert(control, before)
-        _plain_append_messages(
+        plain_append_messages(
             control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
         )
 
@@ -1128,7 +1111,7 @@ def append_formatted_row(
             _rollback_and_plain()
             return True
         configure_hidden_writer_for_chat(doc)
-        ok, _previous, added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
+        ok, _previous, added = append_rich_text_with_span(doc, text, role=role, style_window=style_window)
         if not ok or not span_matches_message(added, role, text):
             # Filter failed or imported span does not match message. Roll back
             # and write the stripped message.

@@ -374,7 +374,7 @@ def set_pos_size_if_changed(ctrl: Any, x: int, y: int, w: int, h: int) -> None:
         ctrl.setPosSize(x, y, w, h, 15)
 
 
-class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedClass]  # constructed from panel_wiring; covered by tests
+class PanelResizeListener(BaseWindowListener):
     """Repositions sidebar controls when the panel root is resized.
 
     Layout policy: XDL snapshot defines control sizes and bottom-band spacing;

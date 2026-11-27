@@ -5,7 +5,7 @@ from typing import Any
 
 
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
-from plugin.chatbot.panel_resize import _PanelResizeListener
+from plugin.chatbot.panel_resize import PanelResizeListener
 from plugin.framework.config import get_config
 from plugin.framework.doc_type import (
     is_calc,
@@ -108,7 +108,7 @@ def setup_rich_control_ready(
         sl = panel.send_listener
         if sl is None:
             return None
-        doc = sl._get_document_model()
+        doc = sl.get_document_model()
         if doc is not None and is_calc(doc):
             return doc
         return None
@@ -184,19 +184,19 @@ def setup_rich_control_ready(
         from plugin.chatbot.chat_sidebar_mode import greeting_for_sidebar_mode
 
         rich_greeting = greeting_for_sidebar_mode(initial_mode, model)
-        panel._render_session_history(panel.session, controls["response"], rich_greeting)
+        panel.send_listener.render_session_messages(panel.session, greeting=rich_greeting)
     except Exception:
         log.exception("Initial RichTextControl render failed")
     if panel._rich_control_listener:
         log_rich_scroll("on_ready_step", step="sync_bounds")
-        best_effort(panel._rich_control_listener._sync_bounds, "on_rich_control_ready sync bounds")
+        best_effort(panel._rich_control_listener.sync_bounds, "on_rich_control_ready sync bounds")
     log_rich_scroll("on_ready_step", step="reveal_caret")
     best_effort(lambda: widget.reveal_caret(reason="on_ready"), "on_rich_control_ready reveal caret")
 
 
-def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
+def wire_chatpanel_controls(self: Any, root_window: Any) -> None:
     """Main entry point to wire all controls for the panel."""
-    log.debug("_wireControls entered")
+    log.debug("wire_chatpanel_controls entered")
     translate_dialog(root_window)
 
     controls = {
@@ -231,7 +231,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
 
     # Helper to show errors visibly in the response area
     def _show_init_error(msg: str) -> None:
-        log.error("_wireControls ERROR: %s" % msg)
+        log.error("wire_chatpanel_controls ERROR: %s" % msg)
         with suppress_disposed("show init error on response control", logger=log, exc_info=True):
             if controls["response"] and controls["response"].getModel():
                 current = get_control_text(controls["response"])
@@ -242,7 +242,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     initialize_extension_paths(self.ctx)
 
     extra_instructions = ""
-    model = self._get_document_model()
+    model = self.get_document_model()
     try:
         doc_type = get_document_type(model)
         self._doc_type_label = doc_type_label_for_enum(doc_type)
@@ -344,7 +344,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     _restore_focus = self.frame_session.restore_focus if self.frame_session is not None else None
     _resize: Any = None
     try:
-        log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
+        log.debug("Attaching PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = self.toolpanel
 
         def _release_sidebar_on_window_dispose() -> None:
@@ -356,7 +356,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
 
             release_live_sidebar(self, controls.get("query"))
 
-        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
+        _resize = PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize.set_windows(root_window, (_tp.parent_window if _tp else None) or self.xParentWindow)
         root_window.addWindowListener(_resize)
         if _tp is not None:
@@ -412,7 +412,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
             self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)
             log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
-            log_rich_control_context("listener_attached", peer=int(bool(rich_control_listener._root_peer())))
+            log_rich_control_context("listener_attached", peer=int(bool(rich_control_listener.root_peer())))
             # GNOME sidebar deck: peer is often ready here but windowShown never fires — init
             # must not wait on the listener alone (KDE usually gets windowShown instead).
             rich_control_listener.try_eager_init()

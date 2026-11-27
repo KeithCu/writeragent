@@ -42,7 +42,7 @@ class DummyPanel:
     def exit_hands_free_record(self) -> None:
         self._record_gesture = RecordGesture(sticky=False)
 
-    def _apply_record_gesture(self, step: Any) -> None:
+    def apply_record_gesture(self, step: Any) -> None:
         pass
 
     def _begin_sticky_rerecord(self) -> None:
@@ -77,7 +77,7 @@ def test_kill_inflight_stt():
     mock_kill = MagicMock()
     panel._stt_kill = mock_kill
     controller = PanelVoiceController(panel)
-    controller._kill_inflight_stt()
+    controller.kill_inflight_stt()
     mock_kill.assert_called_once()
 
 
@@ -169,7 +169,7 @@ def test_async_stt_stop_in_flight_restores_ask_and_skips_send(tmp_path):
     panel._send_cancellation = scope
 
     posted: list[Any] = []
-    panel.queue_executor._async_callback_service = object()
+    panel.queue_executor.is_marshal_ready = lambda: True
     panel.queue_executor.post = lambda fn, **_kw: posted.append(fn)
 
     started = threading.Event()

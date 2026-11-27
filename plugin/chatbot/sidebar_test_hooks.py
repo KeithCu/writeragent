@@ -134,7 +134,7 @@ def _session_snapshot_fields(sl: Any) -> dict[str, Any]:
         ],
         "has_compaction": compaction is not None,
         # Per-turn (TurnController); None once the drain dropped the turn.
-        "last_compact_reason": getattr(getattr(sl, "_turn", None), "_last_compact_reason", None),
+        "last_compact_reason": getattr(getattr(sl, "_turn", None), "last_compact_reason", None),
     }
 
 
@@ -2715,14 +2715,14 @@ def press_change(query_override: str | None = None, *, listener: Any = None) -> 
     sl = _require_listener(listener)
     if query_override is None:
         query_override = getattr(sl, "_approval_query_for_engine", None) or ""
-    sl._events._finish_inline_web_approval(True, query_override=query_override)
+    sl._events.finish_inline_web_approval(True, query_override=query_override)
 
 
 def press_reject(*, listener: Any = None) -> None:
     """HITL Reject (Clear-button overlay). Not ``STOP_CLICKED``."""
     _require_debug()
     sl = _require_listener(listener)
-    sl._events._finish_inline_web_approval(False)
+    sl._events.finish_inline_web_approval(False)
 
 
 def approval_active(*, listener: Any = None) -> bool:

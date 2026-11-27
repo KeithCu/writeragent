@@ -550,6 +550,6 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
     elif outcome.get("stdout"):
         # Printed text is shown here even when the script also returned a value;
         # the value goes into the document.
-        msgbox(ctx, _("Output"), outcome.get("stdout"))
+        msgbox(ctx, _("Output"), outcome["stdout"])
     if lbl is not None:
         set_control_text(lbl, status_text)

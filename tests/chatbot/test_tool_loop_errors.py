@@ -67,7 +67,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.audio_wav_path = None
         self.stop_requested = False
         self._send_cancellation = None
-        self._get_document_model = MagicMock(return_value=None)
+        self.get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
         self._orphan_send_outcome = None
@@ -232,11 +232,11 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
         test_instance.sidebar_state,
         tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8),
     )
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
     test_instance._do_send_chat_with_tools = MagicMock()
     test_instance._start_tool_calling_async = MagicMock()
     test_instance._voice = MagicMock()
-    test_instance._voice._transcribe_audio = MagicMock(return_value="spoken words")
+    test_instance._voice.transcribe_audio = MagicMock(return_value="spoken words")
 
     with (
         patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
@@ -249,8 +249,8 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
     assert recovered is StreamErrorOutcome.SPAWNED
-    test_instance._voice._transcribe_audio.assert_called_once_with("/fake/path/audio.wav", "stt-model")
-    test_instance._spawn_llm_worker.assert_called_once()
+    test_instance._voice.transcribe_audio.assert_called_once_with("/fake/path/audio.wav", "stt-model")
+    test_instance.spawn_llm_worker.assert_called_once()
     test_instance._do_send_chat_with_tools.assert_not_called()
     test_instance._start_tool_calling_async.assert_not_called()
     mock_cache.assert_called_once_with("chat-model", "https://example", supported=False)
@@ -275,9 +275,9 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     live.active_client = MagicMock()
     live.active_max_tokens = 128
     live.active_tools = []
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
     test_instance._voice = MagicMock()
-    test_instance._voice._transcribe_audio = MagicMock(return_value="   ")
+    test_instance._voice.transcribe_audio = MagicMock(return_value="   ")
     test_instance.sidebar_state = dataclasses.replace(
         test_instance.sidebar_state,
         tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8),
@@ -294,7 +294,7 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     assert test_instance.audio_wav_path is None
     assert any("No speech detected" in text for text in test_instance.responses)
     assert send_outcome_terminal_display(test_instance) == ""
@@ -416,10 +416,10 @@ def _prime_active_tool_loop(instance):
     live = current_turn(instance)
     live.queue = MagicMock()
     live.batcher = None
-    live._overflow_compact_attempts = 0
-    live._last_compact_reason = None
-    live._last_compact_tokens_before = None
-    live._last_compact_tokens_after = None
+    live.overflow_compact_attempts = 0
+    live.last_compact_reason = None
+    live.last_compact_tokens_before = None
+    live.last_compact_tokens_after = None
     live.active_client = MagicMock()
     live.active_max_tokens = 128
     live.active_tools = []
@@ -451,7 +451,7 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert recovered is StreamErrorOutcome.SPAWNED
     mock_bg.assert_called_once()
     mock_compact.assert_not_called()
-    assert current_turn(test_instance)._overflow_compact_attempts == 1
+    assert current_turn(test_instance).overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
     assert send_outcome_terminal_display(test_instance) == ""
@@ -464,20 +464,20 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
 
 def test_overflow_attempt_3_falls_through(test_instance):
     _prime_active_tool_loop(test_instance)
-    current_turn(test_instance)._overflow_compact_attempts = 3
-    test_instance._spawn_llm_worker = MagicMock()
+    current_turn(test_instance).overflow_compact_attempts = 3
+    test_instance.spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     assert "[API error:" in "".join(test_instance.responses)
     assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_process_death_does_not_retry_overflow(test_instance):
     _prime_active_tool_loop(test_instance)
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
     payload = {
         "status": "error",
         "code": "HTTP_ERROR",
@@ -490,7 +490,7 @@ def test_process_death_does_not_retry_overflow(test_instance):
     recovered = _handle_stream_error(test_instance, payload)
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     from plugin.framework.client.errors import local_model_overflow_message
 
     assert local_model_overflow_message() in "".join(test_instance.responses)
@@ -513,21 +513,21 @@ def test_overflow_does_not_retry_after_failed_or_tiny_shrink(
     test_instance, reason, tokens_before, tokens_after
 ):
     _prime_active_tool_loop(test_instance)
-    current_turn(test_instance)._last_compact_reason = reason
-    current_turn(test_instance)._last_compact_tokens_before = tokens_before
-    current_turn(test_instance)._last_compact_tokens_after = tokens_after
-    test_instance._spawn_llm_worker = MagicMock()
+    current_turn(test_instance).last_compact_reason = reason
+    current_turn(test_instance).last_compact_tokens_before = tokens_before
+    current_turn(test_instance).last_compact_tokens_after = tokens_after
+    test_instance.spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_compaction_flag_false_does_not_respawn(test_instance):
     _prime_active_tool_loop(test_instance)
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(
         test_instance,
@@ -539,7 +539,7 @@ def test_compaction_flag_false_does_not_respawn(test_instance):
     )
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     from plugin.framework.client.errors import local_model_overflow_message
 
     assert local_model_overflow_message() in "".join(test_instance.responses)
@@ -548,14 +548,14 @@ def test_compaction_flag_false_does_not_respawn(test_instance):
 
 def test_force_compact_skips_host_thinking_status(test_instance):
     with patch("plugin.chatbot.tool_loop.run_in_background"):
-        test_instance._spawn_llm_worker(
+        test_instance.spawn_llm_worker(
             MagicMock(), MagicMock(), 128, [], 0, force_compact=True
         )
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
 
     test_instance.statuses.clear()
     with patch("plugin.chatbot.tool_loop.run_in_background"):
-        test_instance._spawn_llm_worker(
+        test_instance.spawn_llm_worker(
             MagicMock(), MagicMock(), 128, [], 0, force_compact=False
         )
     assert any(str(s).startswith("Thinking") for s in test_instance.statuses)
@@ -638,7 +638,7 @@ def test_llm_worker_run_compacts_inside_lane_and_sends_view(test_instance):
         return CompactResult(False, "below_threshold", 10, 10)
 
     with _worker_env(compact_side_effect=fake_compact, lane_side_effect=_TrackingLane) as (captured, client, mock_compact):
-        test_instance._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
+        test_instance.spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
         # Host Thinking is expected on the caller; the background run must not UNO.
         test_instance._set_status = MagicMock()
         captured["fn"]()
@@ -659,12 +659,12 @@ def test_llm_worker_run_compacts_inside_lane_and_sends_view(test_instance):
     "spawn_fn, get_stream_fn",
     [
         pytest.param(
-            lambda inst, q, client: inst._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0),
+            lambda inst, q, client: inst.spawn_llm_worker(q, client, 128, [{"name": "t"}], 0),
             lambda client: client.stream_request_with_tools,
             id="llm_worker",
         ),
         pytest.param(
-            lambda inst, q, client: inst._spawn_final_stream(q, client, 256),
+            lambda inst, q, client: inst.spawn_final_stream(q, client, 256),
             lambda client: client.stream_chat_response,
             id="final_stream",
         ),
@@ -693,7 +693,7 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
     current_turn(test_instance).queue = q
     current_turn(test_instance).session.messages_for_request = MagicMock(return_value=[])
     with _worker_env(compact_result=CompactResult(False, "aborted", 10, 10)) as (captured, client, mock_compact):
-        test_instance._spawn_llm_worker(q, client, 128, [], 1, force_compact=True)
+        test_instance.spawn_llm_worker(q, client, 128, [], 1, force_compact=True)
         assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
         test_instance._set_status = MagicMock()
         captured["fn"]()
@@ -708,7 +708,7 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
     view = [{"role": "user", "content": "hi"}]
     current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with _worker_env(auto_compact=False) as (captured, client, mock_compact):
-        test_instance._spawn_llm_worker(MagicMock(), client, 64, [], 0)
+        test_instance.spawn_llm_worker(MagicMock(), client, 64, [], 0)
         captured["fn"]()
 
     mock_compact.assert_not_called()
@@ -721,7 +721,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
     view = [{"role": "system", "content": "final-view"}]
     current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with _worker_env(compact_result=CompactResult(False, "below_threshold", 4, 4)) as (captured, client, mock_compact):
-        test_instance._spawn_final_stream(MagicMock(), client, 256)
+        test_instance.spawn_final_stream(MagicMock(), client, 256)
         test_instance._set_status = MagicMock()
         captured["fn"]()
 
@@ -750,7 +750,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
 
     with _worker_env(auto_compact=False) as (captured, client, _mock_compact):
         client.stream_chat_response.side_effect = fake_stream
-        test_instance._spawn_final_stream(b1, client, 256)
+        test_instance.spawn_final_stream(b1, client, 256)
         original_set_status = test_instance._set_status
         mock_set_status = MagicMock()
         test_instance._set_status = mock_set_status
@@ -783,7 +783,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
 
     with _worker_env(auto_compact=False) as (captured2, client2, _mock_compact2):
         client2.stream_chat_response.side_effect = fake_stream_abort
-        test_instance._spawn_final_stream(b2, client2, 256)
+        test_instance.spawn_final_stream(b2, client2, 256)
         captured2["fn"]()
     b2._timer.stop()
 
@@ -804,7 +804,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     mock_lane = MagicMock()
     with _worker_env(auto_compact=False, lane_side_effect=mock_lane) as (captured3, client3, _mock_compact3):
         client3.stopped.return_value = True
-        test_instance._spawn_final_stream(b3, client3, 256)
+        test_instance.spawn_final_stream(b3, client3, 256)
         captured3["fn"]()
         mock_lane.assert_not_called()
         client3.stream_chat_response.assert_not_called()
@@ -816,12 +816,12 @@ def test_final_stream_done_and_stop_partial(test_instance):
 def test_overflow_does_not_retry_when_stop_requested(test_instance):
     _prime_active_tool_loop(test_instance)
     test_instance.stop_requested = True
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
     assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
 
 
@@ -899,7 +899,7 @@ def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
 
 def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
     """A text-only model like gpt-oss-20b:nitro does not attach selected image."""
-    test_instance._get_document_model = MagicMock()
+    test_instance.get_document_model = MagicMock()
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
 
@@ -926,7 +926,7 @@ def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
 
 def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get_tools):
     """UI thread send captures selected image when vision is None without calling HTTP."""
-    test_instance._get_document_model = MagicMock()
+    test_instance.get_document_model = MagicMock()
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
 
@@ -968,7 +968,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
     for key in list(mf._catalog_memos):
         if "openrouter.ai" in key:
             mf._catalog_memos.pop(key, None)
-    test_instance._get_document_model = MagicMock()
+    test_instance.get_document_model = MagicMock()
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
     api_config = {"endpoint": endpoint, "model": model_id, "api_key": "", "chat_max_tool_rounds": 1}
@@ -1017,7 +1017,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
             patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
             patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
         ):
-            test_instance._spawn_llm_worker(MagicMock(), client, 128, [], 0)
+            test_instance.spawn_llm_worker(MagicMock(), client, 128, [], 0)
             captured["fn"]()
         assert mock_sync.call_count == 1
 
@@ -1049,7 +1049,7 @@ def test_first_send_cold_model_worker_vision_image_handling(test_instance, visio
 
     with _worker_env(auto_compact=None) as (captured, client, _mock_compact), \
          patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=vision_result) as mock_vision:
-        test_instance._spawn_llm_worker(q, client, 128, [], 0)
+        test_instance.spawn_llm_worker(q, client, 128, [], 0)
         captured["fn"]()
 
     mock_vision.assert_called_once()
@@ -1121,7 +1121,7 @@ def test_native_audio_stt_fallback_replaces_db_row_and_uses_turn_model(turn_mode
         {"role": "system", "content": "hello"},
         {"role": "user", "content": "[Voice message]"},
     ]
-    host._voice._transcribe_audio.return_value = "spoken words"
+    host._voice.transcribe_audio.return_value = "spoken words"
 
     with _audio_fallback_patches(cfg_model=cfg_model, cfg_endpoint=cfg_ep) as (mock_set_support, _mock_remove):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
@@ -1159,12 +1159,12 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
         assign_send_outcome(host, "stopped")
         return ""
 
-    host._voice._transcribe_audio.side_effect = _stopped
+    host._voice.transcribe_audio.side_effect = _stopped
     with _audio_fallback_patches() as (_mock_set_support, mock_remove):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
     assert recovered is StreamErrorOutcome.END
-    host._tool_calling._spawn_llm_worker.assert_not_called()
+    host._tool_calling.spawn_llm_worker.assert_not_called()
     mock_remove.assert_not_called()
     assert host.audio_wav_path == "/fake/a.wav"
     texts = [str(call.args[0]) for call in host._append_response.call_args_list]
@@ -1185,7 +1185,7 @@ def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instan
     live.batcher = None
     live.active_client = MagicMock()
     live.active_query_text = "hello"
-    test_instance._spawn_llm_worker = MagicMock()
+    test_instance.spawn_llm_worker = MagicMock()
 
     new_session = MockSession()
     new_snapshot = list(new_session.messages)
@@ -1195,7 +1195,7 @@ def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instan
         abort_turn(test_instance)
         return "spoken words"
 
-    test_instance._transcribe_audio = MagicMock(side_effect=_transcribe_side_effect)
+    test_instance.transcribe_audio = MagicMock(side_effect=_transcribe_side_effect)
 
     with (
         patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
@@ -1210,7 +1210,7 @@ def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instan
     assert res is StreamErrorOutcome.END
     assert new_session.messages == new_snapshot
     assert old_session.messages[-1]["content"] == audio_content
-    test_instance._spawn_llm_worker.assert_not_called()
+    test_instance.spawn_llm_worker.assert_not_called()
     mock_remove.assert_not_called()
     assert test_instance.audio_wav_path == "/fake/path/audio.wav"
 
@@ -1299,7 +1299,7 @@ def test_slash_sidebar_only_refresh_keeps_empty_tools(test_instance, mock_get_to
     turn.slash_sidebar_only = True
     turn.active_tools = []
 
-    test_instance._refresh_active_tools_for_session()
+    test_instance.refresh_active_tools_for_session()
 
     mock_get_tools.get_schemas.assert_not_called()
     assert turn.active_tools == []
@@ -1374,15 +1374,15 @@ def test_production_loop_zero_tool_edit_reply_ends_turn(test_instance):
         pending_tools=[],
         max_rounds=8,
     )
-    test_instance._tool_calling._spawn_llm_worker = MagicMock()
-    test_instance._tool_calling._refresh_active_tools_for_session = MagicMock()
+    test_instance._tool_calling.spawn_llm_worker = MagicMock()
+    test_instance._tool_calling.refresh_active_tools_for_session = MagicMock()
 
     exit_loop = test_instance._tool_calling._handle_stream_completion(
         (StreamQueueKind.STREAM_DONE, {"content": "<p>Concise text.</p>", "tool_calls": None})
     )
 
     assert exit_loop is True
-    test_instance._tool_calling._spawn_llm_worker.assert_not_called()
+    test_instance._tool_calling.spawn_llm_worker.assert_not_called()
     assert test_instance._sm_state.round_num == 0
     assert [
         (m["role"], m.get("content")) for m in session.messages if m["role"] != "system"
@@ -1486,7 +1486,7 @@ def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked:
     with _worker_env(auto_compact=False) as (captured, client, _mock_compact):
         client.config = test_instance.client.config
         current_turn(test_instance).queue = q
-        test_instance._spawn_llm_worker(batched, client, 128, [], 0)
+        test_instance.spawn_llm_worker(batched, client, 128, [], 0)
         worker_fn = captured["fn"]
         t = threading.Thread(target=worker_fn)
         t.start()
@@ -1566,7 +1566,7 @@ def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_too
         client.config = test_instance.client.config
         client.stopped.side_effect = lambda: stop_flag["stopped"]
         current_turn(test_instance).queue = q
-        test_instance._spawn_llm_worker(batched, client, 128, [], 0)
+        test_instance.spawn_llm_worker(batched, client, 128, [], 0)
         t = threading.Thread(target=captured["fn"])
         t.start()
         t.join(timeout=10)

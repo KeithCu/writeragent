@@ -1400,7 +1400,7 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
         patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
         patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing"),
     ):
-        result = panel._voice._transcribe_audio(str(wav), "base")
+        result = panel._voice.transcribe_audio(str(wav), "base")
 
     assert result == "hello"
     assert send_outcome_terminal_display(panel) == "Stopped"
@@ -1423,7 +1423,7 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     nested = {}
 
     def fake_transcribe(_path, **_kwargs):
-        nested["result"] = panel._voice._transcribe_audio(str(inner), "base")
+        nested["result"] = panel._voice.transcribe_audio(str(inner), "base")
         nested["outer_exists"] = outer.exists()
         nested["inner_exists"] = inner.exists()
         return "hello"
@@ -1433,7 +1433,7 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
         patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
         patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing"),
     ):
-        text = panel._voice._transcribe_audio(str(outer), "base")
+        text = panel._voice.transcribe_audio(str(outer), "base")
 
     assert text == "hello"
     assert nested["result"] == ""
@@ -1457,7 +1457,7 @@ class TestSTTClientReset:
             patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing..."),
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread", return_value="hello world")
         ):
-            panel._voice._transcribe_audio("fake.wav", "stt-model")
+            panel._voice.transcribe_audio("fake.wav", "stt-model")
 
         # Cancelling the scope must not call stop on the created LlmClient
         scope.cancel()
@@ -1474,7 +1474,7 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread"),
         ):
-            host._voice._transcribe_audio("fake.wav", "stt-model")
+            host._voice.transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
 
     def test_local_stt_does_not_build_llm_client(self) -> None:
@@ -1488,7 +1488,7 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
             patch("plugin.audio.stt_service.transcribe", return_value="hi"),
         ):
-            res = host._voice._transcribe_audio("fake.wav", "stt-model")
+            res = host._voice.transcribe_audio("fake.wav", "stt-model")
             assert res == "hi"
             mock_llm_client.assert_not_called()
             mock_get_api_config.assert_not_called()

@@ -55,7 +55,7 @@ class PanelEventsController:
         return bool(self._panel._panel_teardown or self._panel.ctx is None)
 
     @staticmethod
-    def _mcp_subscribe_must_defer() -> bool:
+    def mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
         from plugin.framework.queue_executor import MainThread
         from plugin.app import bootstrap_complete
@@ -65,12 +65,12 @@ class PanelEventsController:
         return not MainThread.on_python_main_thread()
 
     @staticmethod
-    def _post_to_main(fn: Any) -> None:
+    def post_to_main(fn: Any) -> None:
         from plugin.framework.queue_executor import main
 
         main.post(fn)
 
-    def _subscribe_mcp_events(self) -> None:
+    def subscribe_mcp_events(self) -> None:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
         if self._panel._panel_teardown:
             return
@@ -92,7 +92,7 @@ class PanelEventsController:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
 
         Approval mode only mutates UNO control labels/enabled flags here and restores them from
-        ``_approval_ui_backup`` in ``_finish_inline_web_approval``. It does **not** update
+        ``_approval_ui_backup`` in ``finish_inline_web_approval``. It does **not** update
         ``sidebar_state.send`` or go through :meth:`dispatch` for those temporary labels—by design.
         Do not "fix" this by routing approval chrome through the send FSM; keep backup/restore
         as the source of truth for this overlay.
@@ -104,7 +104,7 @@ class PanelEventsController:
             return
         if self._panel._approval_event is not None:
             log.warning("begin_inline_web_approval: superseding pending approval")
-            self._finish_inline_web_approval(False)
+            self.finish_inline_web_approval(False)
         self._panel._approval_event = event
         # Every inline approval card (MCP and web research) passes through begin/finish here.
         set_waiting_for_user(True)
@@ -145,7 +145,7 @@ class PanelEventsController:
         self._panel._set_status(_("Waiting for approval…"))
         log.info("Inline web approval: waiting for Accept, Change, or Reject")
 
-    def _open_web_search_change_dialog(self) -> None:
+    def open_web_search_change_dialog(self) -> None:
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
         from plugin.chatbot.dialogs import show_web_search_query_edit_dialog
 
@@ -153,10 +153,10 @@ class PanelEventsController:
         text = show_web_search_query_edit_dialog(self._panel.ctx, initial)
         if text is None:
             return
-        log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))
-        self._finish_inline_web_approval(True, query_override=text)
+        log.debug("open_web_search_change_dialog: applying edited query len=%d", len(text))
+        self.finish_inline_web_approval(True, query_override=text)
 
-    def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
+    def finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
         ev = self._panel._approval_event
         if ev is None:
             return
@@ -170,7 +170,7 @@ class PanelEventsController:
             self._panel._stop_button_action,
             self._panel._clear_button_action,
         ) = b["actions"]
-        with suppress_disposed("_finish_inline_web_approval restore", logger=log):
+        with suppress_disposed("finish_inline_web_approval restore", logger=log):
             cache = self._panel._mnemonic_cache()
             controls = b["controls"]
             for key, ctrl in (
@@ -190,7 +190,7 @@ class PanelEventsController:
         ev.approved = approved
         ev.query_override = query_override
         if approved and query_override is not None:
-            log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
+            log.debug("finish_inline_web_approval: approved with query_override len=%d", len(query_override))
         ev.set()
 
     def _on_http_server_started(self, url: str = "", **kwargs: Any) -> None:
@@ -216,7 +216,7 @@ class PanelEventsController:
                 return
             self._panel._set_status(text)
 
-        self._post_to_main(_write)
+        self.post_to_main(_write)
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""

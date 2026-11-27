@@ -183,9 +183,9 @@ class RichTextChatWidget:
         self._formatted_len = length
 
     def _append_plain(self, rows: list[tuple[str, str]]) -> None:
-        from plugin.chatbot.rich_text_paste import _plain_append_messages
+        from plugin.chatbot.rich_text_paste import plain_append_messages
 
-        _plain_append_messages(
+        plain_append_messages(
             self.control, rows, self.ctx, self.style_window,
             auto_scroll=True, restore_focus=self.restore_focus,
         )
@@ -376,7 +376,7 @@ class RichTextChatWidget:
             if not new_s.startswith(old_s):
                 return False
             if not old_s.strip():
-                # _plain_append_messages skips an empty row, so this one was
+                # plain_append_messages skips an empty row, so this one was
                 # never written. Write it whole now.
                 self._append_plain([(new_role, new_content)])
             elif len(new_s) > len(old_s):
@@ -404,7 +404,7 @@ class RichTextChatWidget:
         unknown or no longer matches the list, the whole list is repainted.
         """
         from plugin.chatbot.rich_text_paste import (
-            _ensure_message_separator,
+            ensure_blank_line_after_tail,
             append_formatted_rows,
             session_history_items,
         )
@@ -429,7 +429,7 @@ class RichTextChatWidget:
         # transcript above the cut is not wiped and refilled.
         rollback_rich_insert(self.control, self._formatted_len)
         if tail:
-            _ensure_message_separator(self.control)
+            ensure_blank_line_after_tail(self.control)
             append_formatted_rows(
                 self.ctx, self.control, self._with_cell_links(tail), style_window=self.style_window,
                 restore=self.query, restore_focus=self.restore_focus,
@@ -439,7 +439,7 @@ class RichTextChatWidget:
         # repaint: an 80px gap under the reply at Ready. One reformat per turn,
         # outside the stream drain, so it settles before the next send.
         force_rich_full_reformat(self.control)
-        _scroll_rich_to_tail(self.control, restore_focus=self.restore_focus)
+        scroll_rich_to_tail(self.control, restore_focus=self.restore_focus)
         self._set_formatted_state(items)
         return True
 
@@ -534,7 +534,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
             # d3cb23173e07 keeps the old top-left. Stock: Hidden SelectAll, no reveal_caret.
             if _model_text(rich_control):
                 _invalidate_peer(rich_control)
-                _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
+                scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         needs_bounds = _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
         if needs_bounds:
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
@@ -773,7 +773,7 @@ class RichTextControlListener(BaseWindowListener):
 
     Init is triggered two ways: ``try_eager_init()`` right after wiring (required on GNOME),
     and ``on_window_shown`` when the sidebar deck fires ``windowShown`` (typical on KDE).
-    Resize is handled by ``_PanelResizeListener`` (``last_response_rect`` + ``sync_rich_control_bounds``).
+    Resize is handled by ``PanelResizeListener`` (``last_response_rect`` + ``sync_rich_control_bounds``).
     """
 
     ctx: Any
@@ -806,7 +806,7 @@ class RichTextControlListener(BaseWindowListener):
                 log.debug("RichTextControlListener._resolved_placeholder_rect: %s", e)
         return None
 
-    def _sync_bounds(self) -> None:
+    def sync_bounds(self) -> None:
         if self._disposed or not self.rich_control or not self.placeholder_ctrl:
             return
         prev_ctrl = self.rich_control
@@ -849,7 +849,7 @@ class RichTextControlListener(BaseWindowListener):
                 reason="disposed" if self._disposed else "initialized",
             )
             return
-        peer = self._root_peer()
+        peer = self.root_peer()
         log_rich_control_context("eager_init", peer=int(bool(peer)))
         if peer:
             self._begin_deferred_init()
@@ -867,7 +867,7 @@ class RichTextControlListener(BaseWindowListener):
         if self.initialized:
             log_rich_control_context("window_shown", skipped=1, reason="initialized")
             return
-        peer = self._root_peer()
+        peer = self.root_peer()
         log_rich_control_context(
             "window_shown",
             peer=int(bool(peer)),
@@ -879,7 +879,7 @@ class RichTextControlListener(BaseWindowListener):
             return
         self._begin_deferred_init()
 
-    def _root_peer(self) -> Any | None:
+    def root_peer(self) -> Any | None:
         if self.root_window is None:
             return None
         return self.root_window.getPeer()
@@ -921,7 +921,7 @@ class RichTextControlListener(BaseWindowListener):
                     )
                 return
             self.rich_control = control
-            self._sync_bounds()
+            self.sync_bounds()
             visible = control.isVisible()
             pos = control.getPosSize()
             bounds = "%sx%s@%s,%s" % (pos.Width, pos.Height, pos.X, pos.Y)
@@ -1018,7 +1018,7 @@ def _follows_cell_link(model: Any, pos: Any) -> bool:
     return best_effort(_check, "_follows_cell_link", False)
 
 
-def _insert_string_at_rich_cursor(
+def insert_string_at_rich_cursor(
     model: Any, cursor: Any, text: str, char_color: Any = None, *, bold: bool | None = None, underline: bool | None = None
 ) -> None:
     """Insert *text* at *cursor* on a form RichText model.
@@ -1076,7 +1076,7 @@ def _insert_string_at_rich_cursor(
             elif underline is False:
                 sel.CharUnderline = 0
 
-        best_effort(_apply, "_insert_string_at_rich_cursor")
+        best_effort(_apply, "insert_string_at_rich_cursor")
     if follows_link:
         # EditEngine stretches a character attribute that ends at the insert
         # point over the new text, so a cell link tag would spread past the link.
@@ -1088,7 +1088,7 @@ def _insert_string_at_rich_cursor(
             sel.gotoRange(end_pos, True)
             mark_cell_link_range(sel, None)
 
-        best_effort(_untag, "_insert_string_at_rich_cursor: clear cell link tag")
+        best_effort(_untag, "insert_string_at_rich_cursor: clear cell link tag")
     if bold is not None or underline is not None:
         cursor.CharWeight = CHAT_FONT_WEIGHT
         cursor.CharUnderline = 0
@@ -1117,7 +1117,7 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
         return False
 
 
-def _scroll_rich_to_tail(control: Any, restore_focus: Callable[[], None] | None = None) -> None:
+def scroll_rich_to_tail(control: Any, restore_focus: Callable[[], None] | None = None) -> None:
     """SelectAll for stick-to-bottom, then collapse it, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor, which
@@ -1280,7 +1280,7 @@ def collapse_rich_selection_keep_view(control: Any) -> None:
 class RichFocusTracker:
     """Track whether the transcript viewport has focus.
 
-    ``_scroll_rich_to_tail`` skips SelectAll while it does. *on_press* runs on
+    ``scroll_rich_to_tail`` skips SelectAll while it does. *on_press* runs on
     mousePressed (the sidebar passes the frame session's
     ``note_user_left_query`` so stream chunks stop pulling focus back to Ask
     while the user selects in the transcript).
@@ -1366,12 +1366,12 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
         apply_rich_control_para_margins(cursor)
         cursor.CharBackColor = theme.bg_color
         color = theme.assistant_color if char_color is None else char_color
-        _insert_string_at_rich_cursor(model, cursor, text, color)
-        # _scroll_rich_to_tail already restores before and after SelectAll.
+        insert_string_at_rich_cursor(model, cursor, text, color)
+        # scroll_rich_to_tail already restores before and after SelectAll.
         # A third restore here repeats the second with nothing in between,
         # and each one is a GrabFocus on this frame.
         # Restore goes through *restore_focus*, which closes over the frame session.
-        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        scroll_rich_to_tail(control, restore_focus=restore_focus)
         # SelectAll scrolls synchronously (EditView::SetSelection formats via CheckIdleFormatter
         # and calls ShowCursor, editeng/source/editeng/editview.cxx). The pump only brings
         # the repaint forward when no drain owns the loop; under a drain the slice returns to

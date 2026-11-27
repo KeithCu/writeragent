@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.chatbot.panel_wiring import _install_frame_session_listeners, _wireControls
+from plugin.chatbot.panel_wiring import _install_frame_session_listeners, wire_chatpanel_controls
 
 
 def test_install_thread_violation_propagates() -> None:
@@ -66,7 +66,7 @@ def _run_wire_controls(
     wire_model_selectors: Any = None,
     wire_chat_mode_ui: Any = None,
 ) -> Any:
-    """Invoke ``_wireControls`` on a minimal host with mocked UNO controls and logging."""
+    """Invoke ``wire_chatpanel_controls`` on a minimal host with mocked UNO controls and logging."""
     from unittest.mock import patch
 
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
@@ -83,7 +83,7 @@ def _run_wire_controls(
             self.frame_session = frame_session
             self.captured: tuple[Any, Any, str, Any] = (None, None, "", None)
 
-        def _get_document_model(self) -> object:
+        def get_document_model(self) -> object:
             return object()
 
         def _wire_model_selectors(self, *args: object) -> None:
@@ -136,13 +136,13 @@ def _run_wire_controls(
         patch("plugin.chatbot.panel_wiring.translate_dialog"),
         patch("plugin.chatbot.panel_wiring.get_optional_control", side_effect=lambda _root, name: _ctrl(name)),
         patch("plugin.chatbot.panel_wiring.get_config", return_value=""),
-        patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
+        patch("plugin.chatbot.panel_wiring.PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
         patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root)
+        wire_chatpanel_controls(host, root)
     return host
 
 
@@ -289,7 +289,7 @@ def test_rich_widget_gets_sheet_names_only_for_calc() -> None:
     calc_doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "My Sheet")
 
     panel = MagicMock()
-    panel.send_listener._get_document_model.return_value = calc_doc
+    panel.send_listener.get_document_model.return_value = calc_doc
 
     calc_model = MagicMock()
     calc_model.supportsService.side_effect = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"

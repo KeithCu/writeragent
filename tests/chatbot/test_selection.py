@@ -366,9 +366,9 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
             self.dispatched: list[Any] = []
             self.synced = False
             self.flushed_restarts = 0
-            self._voice = SimpleNamespace(_flush_sticky_restart=self._flush_sticky_restart)
+            self._voice = SimpleNamespace(flush_sticky_restart=self.flush_sticky_restart)
 
-        def _flush_sticky_restart(self) -> None:
+        def flush_sticky_restart(self) -> None:
             self.flushed_restarts += 1
 
         def dispatch(self, event: Any) -> None:
@@ -551,12 +551,12 @@ def test_end_selection_cancel_kicks_queued_peer_turn(monkeypatch: pytest.MonkeyP
             self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=False, is_recording=False))
             self.started: list[tuple[str, bool]] = []
             self.flushed_restarts = 0
-            self._voice = SimpleNamespace(_flush_sticky_restart=self._flush_sticky_restart)
+            self._voice = SimpleNamespace(flush_sticky_restart=self.flush_sticky_restart)
 
         def is_busy(self) -> bool:
             return bool(self.sidebar_state.send.is_busy)
 
-        def _flush_sticky_restart(self) -> None:
+        def flush_sticky_restart(self) -> None:
             self.flushed_restarts += 1
 
         def dispatch(self, event: Any) -> None:

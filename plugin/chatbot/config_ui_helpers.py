@@ -23,7 +23,7 @@ from plugin.chatbot.dialogs import set_combo_items
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import (
     DEFAULT_MODELS,
-    _catalog_id_matches,
+    catalog_id_matches,
     get_provider_defaults,
     merge_provider_default_models,
     together_speech_ids,
@@ -72,7 +72,7 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     for m in DEFAULT_MODELS:
         ids = m.get("ids", {})
         for pid, mid in ids.items():
-            if not _catalog_id_matches(pid if pid == "openrouter" else None, str(mid), model_id):
+            if not catalog_id_matches(pid if pid == "openrouter" else None, str(mid), model_id):
                 continue
             if pid == current_provider:
                 is_known_here = True

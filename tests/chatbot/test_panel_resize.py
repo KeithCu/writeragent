@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.panel_resize import (
-    _PanelResizeListener,
+    PanelResizeListener,
     column_right_margin,
     compute_chat_panel_layout,
     fit_snapshot_min_heights,
@@ -150,7 +150,7 @@ class TestPanelResizeListenerIntegration:
         # VCL disposing means the listener is already going away, so it is not
         # removed here. The on_dispose callback runs the teardown that cancels the send.
         calls: list[str] = []
-        listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
+        listener = PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
         root = MagicMock()
         listener._root_window = root
 
@@ -163,7 +163,7 @@ class TestPanelResizeListenerIntegration:
         assert calls == ["dispose"]
 
     def test_one_arg_constructor_disposing_is_safe(self):
-        listener = _PanelResizeListener({})
+        listener = PanelResizeListener({})
         listener.disposing(None)
         listener.disposing(None)
 
@@ -174,7 +174,7 @@ class TestPanelResizeListenerIntegration:
             called.append(True)
             raise RuntimeError("deck")
 
-        listener = _PanelResizeListener({}, on_dispose=boom)
+        listener = PanelResizeListener({}, on_dispose=boom)
         with patch("plugin.chatbot.panel_resize.log.exception") as mock_log_exc:
             listener.disposing(None)
             listener.disposing(None)
@@ -193,7 +193,7 @@ class TestPanelResizeListenerIntegration:
         root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
         root.getControl.side_effect = lambda name: controls.get(name)
 
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=text_len):
             listener.relayout_now(root)
 
@@ -236,7 +236,7 @@ class TestPanelResizeListenerIntegration:
         parent.getPosSize.return_value = SimpleNamespace(Width=1115, Height=1684)
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=320, Height=400)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener._parent_window = parent
         listener.relayout_now(root)
         right = 320 - 4
@@ -254,7 +254,7 @@ class TestPanelResizeListenerIntegration:
         }
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=320, Height=400)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener.relayout_now(root)
         root.getPosSize.return_value = SimpleNamespace(Width=383, Height=485)
         listener.on_window_resized(SimpleNamespace(Source=root))
@@ -273,7 +273,7 @@ class TestPanelResizeListenerIntegration:
         }
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=1019, Height=2488)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener._viewport_w = 995
         listener.on_window_resized(SimpleNamespace(Source=root))
         root.setPosSize.assert_not_called()
@@ -289,7 +289,7 @@ class TestPanelResizeListenerIntegration:
         }
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=800, Height=500)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener._viewport_w = 995
         listener.on_window_resized(SimpleNamespace(Source=root))
         root.setPosSize.assert_not_called()
@@ -307,7 +307,7 @@ class TestPanelResizeListenerIntegration:
         parent.getPosSize.return_value = SimpleNamespace(Width=320, Height=600)
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=320, Height=1200)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener._parent_window = parent
         listener.relayout_now(root)
         send = controls["send"].getPosSize()
@@ -321,7 +321,7 @@ class TestPanelResizeListenerIntegration:
         }
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=320, Height=5000)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener.relayout_now(root)
         send = controls["send"].getPosSize()
         assert send.Y < 3000
@@ -468,7 +468,7 @@ class TestColumnFitsAtBothScales:
         controls["query_label"].getPreferredSize.return_value = SimpleNamespace(Width=67, Height=13)
         root = MagicMock()
         root.getPosSize.return_value = SimpleNamespace(Width=259, Height=600)
-        listener = _PanelResizeListener(controls)
+        listener = PanelResizeListener(controls)
         listener.relayout_now(root)
         assert controls["status"].getPosSize().Height == 21
         label = controls["query_label"].getPosSize()
@@ -499,7 +499,7 @@ def test_invalidate_measurements_remeasures_base_size():
 
     # First relayout: getPreferredSize returns None
     controls["base_size_input"].getPreferredSize.return_value = None
-    listener = _PanelResizeListener(controls)
+    listener = PanelResizeListener(controls)
     listener.relayout_now(root)
     assert listener._preferred.get("base_size_input") is None
 
@@ -519,7 +519,7 @@ def test_relayout_now_reentrant_bounded_and_extra_pass():
     root = MagicMock()
     root.getPosSize.return_value = SimpleNamespace(Width=800, Height=500)
 
-    listener = _PanelResizeListener(controls)
+    listener = PanelResizeListener(controls)
     reentrant_triggered = [False]
 
     orig_set_pos_size = controls["send"].setPosSize.side_effect

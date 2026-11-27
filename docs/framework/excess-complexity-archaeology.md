@@ -786,7 +786,7 @@ test could reach it.
   `500`. A named constant became a literal, a trade the loop makes when the name
   is used once.
 - **Kind 16 in the chatbot.** `b6a26d702`: the retry-status callback block was
-  pasted into both `_spawn_llm_worker` and `_spawn_final_stream` and became
+  pasted into both `spawn_llm_worker` and `spawn_final_stream` and became
   `_chunk_callbacks` (with new tests); `1a5c7eac1`: one "rollback then plain
   append" block repeated four times became `_rollback_then_plain`.
 - **Kind 9 variant.** `fa89826c9` `_shift_part` returned `_Part | None` and both

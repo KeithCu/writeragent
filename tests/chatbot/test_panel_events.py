@@ -101,9 +101,9 @@ class DummyEventsPanel:
             self._subscriptions = []
         self._subscriptions.append((bus, event_name, handler))
 
-    def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
+    def finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
         if hasattr(self, "_events"):
-            self._events._finish_inline_web_approval(approved, query_override=query_override)
+            self._events.finish_inline_web_approval(approved, query_override=query_override)
 
     def _on_mcp_request(self, *args: Any, **kwargs: Any) -> None:
         if hasattr(self, "_events"):
@@ -137,11 +137,11 @@ def test_relabel_button_preserves_rect():
 def test_mcp_subscribe_must_defer():
     with patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=True):
         with patch("plugin.app.bootstrap_complete", return_value=True):
-            assert PanelEventsController._mcp_subscribe_must_defer() is False
+            assert PanelEventsController.mcp_subscribe_must_defer() is False
 
     with patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=False):
         with patch("plugin.app.bootstrap_complete", return_value=False):
-            assert PanelEventsController._mcp_subscribe_must_defer() is True
+            assert PanelEventsController.mcp_subscribe_must_defer() is True
 
 
 def test_subscribe_mcp_events():
@@ -154,7 +154,7 @@ def test_subscribe_mcp_events():
     tools.services = SimpleNamespace(events=bus)
 
     with patch("plugin.app.get_tools", return_value=tools):
-        controller._subscribe_mcp_events()
+        controller.subscribe_mcp_events()
 
     assert panel._mcp_event_bus is bus
     bus.subscribe.assert_any_call("mcp:request", controller._on_mcp_request, weak=True)
@@ -171,7 +171,7 @@ def test_independent_ui_restore_for_clear():
         "actions": (ButtonAction.RECORD, ButtonAction.IGNORE, ButtonAction.IGNORE),
         "controls": {"clear": ("Clear", True)},
     }
-    controller._finish_inline_web_approval(False)
+    controller.finish_inline_web_approval(False)
     assert panel.clear_control.model.Label == "Clear"
 
 
@@ -189,7 +189,7 @@ def test_inline_web_approval_lifecycle():
     assert panel.stop_control.model.Label == "Change"
     assert panel.clear_control.model.Label == "Reject"
 
-    controller._finish_inline_web_approval(True, query_override="python 3 tutorial")
+    controller.finish_inline_web_approval(True, query_override="python 3 tutorial")
     assert getattr(ev, "approved", None) is True
     assert getattr(ev, "query_override", None) == "python 3 tutorial"
     assert ev.is_set()
@@ -218,7 +218,7 @@ def test_inline_approval_card_keeps_waiting_status_past_watchdog():
         with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
             logging_mod._watchdog_check(panel.status_control)
             assert panel.status_control.text == "Waiting for approval…"
-            controller._finish_inline_web_approval(True)
+            controller.finish_inline_web_approval(True)
             with shared["activity_lock"]:
                 shared["activity"]["last_activity"] = time.monotonic() - 40
             logging_mod._watchdog_check(panel.status_control)
@@ -248,7 +248,7 @@ def test_inline_approval_does_not_restore_hung_label():
             assert panel.status_control.text.startswith("Hung:")
             controller.begin_inline_web_approval("python tutorial", ev)
             assert panel.status_control.text == "Waiting for approval…"
-            controller._finish_inline_web_approval(True)
+            controller.finish_inline_web_approval(True)
             assert panel.status_control.text == ""
             logging_mod._watchdog_check(panel.status_control)
             assert panel.status_control.text == ""
@@ -271,7 +271,7 @@ def test_open_web_search_change_dialog():
     }
 
     with patch("plugin.chatbot.dialogs.show_web_search_query_edit_dialog", return_value="edited"):
-        controller._open_web_search_change_dialog()
+        controller.open_web_search_change_dialog()
 
     assert getattr(ev, "approved", None) is True
     assert getattr(ev, "query_override", None) == "edited"

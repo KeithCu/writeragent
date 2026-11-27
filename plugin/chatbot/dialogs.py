@@ -35,9 +35,15 @@ XDL loading rules (sidebar / extension dialogs):
 Usage from modules::
 
     from plugin.chatbot.dialogs import msgbox, copy_to_clipboard
+    from plugin.framework.i18n import _
     from plugin.framework.uno_context import get_ctx
 
-    msgbox(get_ctx(), "Title", "Hello world")
+    msgbox(get_ctx(), _("Title"), _("Hello world"))
+
+Callers translate catalog titles and messages with ``_()`` before calling a
+helper here; the helpers show both strings as given. Runtime text (exception
+text, tracebacks, file names) and brand names such as "WriterAgent" never go
+through ``_()``.
 """
 
 from __future__ import annotations
@@ -50,7 +56,7 @@ from plugin.framework.uno_listeners import BaseActionListener
 if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
-from plugin.framework.errors import best_effort, is_disposal
+from plugin.framework.errors import best_effort, is_disposal, suppress_disposed
 from plugin.framework.log_redaction import redact_urls_in_text
 from plugin.framework.logging import set_waiting_for_user
 from plugin.framework.uno_context import (
@@ -67,6 +73,14 @@ log = logging.getLogger(__name__)
 
 
 # ── Simple message box ──────────────────────────────────────────────
+
+# com.sun.star.awt.MessageBoxType / MessageBoxButtons / MessageBoxResults values.
+_BOX_QUERYBOX = 4
+_BOX_BUTTONS_YES_NO = 3
+_BOX_BUTTONS_YES_NO_CANCEL = 4
+_BOX_RESULT_OK = 1
+_BOX_RESULT_YES = 2
+_BOX_RESULT_NO = 3
 
 
 def _frame_container(ctx: Any, frame: Any = None) -> tuple[Any, Any]:
@@ -96,8 +110,8 @@ def _execute_message_box(
 
 def msgbox(
     ctx: Any,
-    title: Any,
-    message: Any,
+    title: str,
+    message: str,
     *,
     box_type: int = 1,
     parent_window: Any | None = None,
@@ -109,11 +123,12 @@ def msgbox(
         parent_window: When not None, that object is the createMessageBox parent
             and get_desktop is not called; None keeps the current frame lookup.
 
-    *message* is shown as given: callers translate catalog strings. Runtime text
-    (tracebacks, exception text) through ``_()`` breaks the DEAL_MAX_MSGID contract.
+    *title* and *message* are shown as given: callers translate catalog strings.
+    Runtime text (tracebacks, exception text) through ``_()`` breaks the
+    DEAL_MAX_MSGID contract.
     """
     # Status and Test Tunnel messages hold the public MCP URL, which is a credential.
-    logged = redact_urls_in_text(str(message))
+    logged = redact_urls_in_text(message)
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, logged)
         return
@@ -128,7 +143,7 @@ def msgbox(
                 log.info("MSGBOX (no frame) - %s: %s", title, logged)
                 return
         log.debug("msgbox execute start title=%s", title)
-        _execute_message_box(ctx, window, box_type, 1, _(title), str(message))
+        _execute_message_box(ctx, window, box_type, 1, title, message)
         process_events_to_idle(ctx)
         log.debug("msgbox execute done title=%s", title)
     except Exception:
@@ -156,18 +171,38 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         title = _("Agent requests approval")
         message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
         log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
-        # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
-        # Dispose the approval box after execute(); dispose failure must not change Yes/No.
-        # The agent-backend modal also parks the turn waiting on the user.
+        # Yes approves and No rejects. The agent-backend modal also parks the turn waiting on the user.
         set_waiting_for_user(True)
         try:
-            result = _execute_message_box(ctx, window, 4, 3, title, message)
+            result = _execute_message_box(ctx, window, _BOX_QUERYBOX, _BOX_BUTTONS_YES_NO, title, message)
         finally:
             set_waiting_for_user(False)
-        return result in (1, 2)
+        return result in (_BOX_RESULT_OK, _BOX_RESULT_YES)
     except Exception:
         log.exception("Approval dialog failed")
         return False
+
+
+def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: str) -> str:
+    """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``.
+
+    Yes means save and No means discard. With no current frame window, or when
+    the box fails, the answer is ``cancel`` so the caller keeps its buffer.
+    """
+    try:
+        _frame, window = _frame_container(ctx)
+        if window is None:
+            return "cancel"
+        result = _execute_message_box(ctx, window, _BOX_QUERYBOX, _BOX_BUTTONS_YES_NO_CANCEL, title, message)
+        if result == _BOX_RESULT_YES:
+            return "save"
+        if result == _BOX_RESULT_NO:
+            return "discard"
+        # Cancel (MessageBoxResults CANCEL = 0), closing the box, or any other result keeps the buffer as it is.
+        return "cancel"
+    except Exception:
+        log.exception("%s failed", log_label)
+        return "cancel"
 
 
 def run_dialog_with_listeners(dlg: Any, ok_listener: Any, cancel_listener: Any) -> None:
@@ -236,10 +271,11 @@ def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str
     """Modal single-line text input (no LLM / prompt controls).
 
     Used for short names (e.g. Save Script As). Returns stripped text on OK, ``None`` on Cancel.
+    *message* and *title* are shown as given: callers translate catalog strings.
     """
     def _prepare(dlg: Any) -> None:
         if title:
-            dlg.getModel().Title = _(title)
+            dlg.getModel().Title = title
         dlg.getControl("PromptLbl").getModel().Label = message
         edit = dlg.getControl("TextEdit")
         edit.setText(default or "")
@@ -333,12 +369,15 @@ class DismissDialogListener(BaseActionListener):
 
 
 def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool = False, report_title: str = "", report_extra: str = "") -> None:
-    """Show a message box; when ``reportable``, offer Copy URL and Report bug buttons."""
+    """Show a message box; when ``reportable``, offer Copy URL and Report bug buttons.
+
+    *title* and *message* are shown as given: callers translate catalog strings.
+    """
     if not reportable:
         msgbox(ctx, title, message, box_type=3)
         return
     if not ctx:
-        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, redact_urls_in_text(str(message)))
+        log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, redact_urls_in_text(message))
         return
     try:
         from plugin.chatbot.bug_report import build_github_issue_url, open_url_in_browser
@@ -355,10 +394,10 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         report_url = build_github_issue_url(title=issue_title, extra_body=extra, ctx=ctx)
 
         if title:
-            dlg.getModel().Title = _(title)
+            dlg.getModel().Title = title
 
         msg_ctrl = dlg.getControl("Msg")
-        msg_ctrl.getModel().Label = str(message)
+        msg_ctrl.getModel().Label = message
 
         copy_btn = dlg.getControl("CopyBtn")
         copy_btn.getModel().Label = _("Copy URL")
@@ -722,6 +761,17 @@ def set_control_enabled(ctrl: Any, enabled: bool) -> None:
     """Safely set the enabled state of a control or its model.
     Logs instead of crashing if the capability is missing."""
     _set_control_prop(ctrl, enabled, "setEnable", "Enabled", "set_control_enabled")
+
+
+def set_model_enabled(control: Any, enabled: bool, why: str) -> None:
+    """Set ``Enabled`` on the control's model; a disposed control is logged under *why*.
+
+    Unlike ``set_control_enabled`` this writes only the model property and skips a
+    control with no model.
+    """
+    if control and control.getModel():
+        with suppress_disposed(why, logger=log):
+            control.getModel().Enabled = enabled
 
 
 def set_control_visible(ctrl: Any, visible: bool) -> None:

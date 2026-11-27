@@ -127,7 +127,7 @@ class VenvProbeProgressDialog:
             log.warning("Failed to load PythonTestProgressDialog: %s", detail)
             msgbox(
                 self._ctx,
-                N_("Python Test"),
+                _("Python Test"),
                 _("Could not open the Python test progress dialog."),
                 box_type=3,
             )
