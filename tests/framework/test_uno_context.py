@@ -572,33 +572,26 @@ def test_get_extension_url_returns_empty_on_all_failures():
         assert get_extension_url(extension_id="test.id") == "file:///path/to/ext"
 
 
-def test_iter_open_models_unwraps_models_and_frames():
+def test_iter_open_models_skips_non_model_elements():
     from plugin.framework.uno_context import iter_open_models
 
     desktop = MagicMock()
     comps = MagicMock()
     desktop.getComponents.return_value = comps
 
-    # Direct model with getURL
     model1 = MagicMock()
     model1.getURL.return_value = "file:///tmp/doc1.odt"
 
-    # Frame with getController().getModel()
-    frame = MagicMock()
-    del frame.getURL  # Ensure it doesn't look like a model
-    controller = MagicMock()
-    model2 = MagicMock()
-    model2.getURL.return_value = "file:///tmp/doc2.odt"
-    controller.getModel.return_value = model2
-    frame.getController.return_value = controller
+    controller = MagicMock(spec=["getModel"])
+    window = MagicMock(spec=[])
 
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, False]
-    enum.nextElement.side_effect = [model1, frame]
+    enum.hasMoreElements.side_effect = [True, True, True, False]
+    enum.nextElement.side_effect = [controller, window, model1]
     comps.createEnumeration.return_value = enum
 
     models = list(iter_open_models(desktop))
-    assert models == [model1, model2]
+    assert models == [model1]
 
 
 def test_iter_open_models_stops_on_next_element_error():
@@ -720,22 +713,15 @@ def test_iter_open_models_skips_scratch_documents(monkeypatch):
     scratch_model.getURL.return_value = "private:factory/swriter"
     scratch_model.getRuntimeUID.return_value = "scratch-1"
 
-    frame = MagicMock()
-    del frame.getURL
-    frame_model = MagicMock()
-    frame_model.getURL.return_value = "file:///tmp/research_copy.odt"
-    frame_model.getRuntimeUID.return_value = "scratch-2"
-    frame.getController.return_value.getModel.return_value = frame_model
-
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, True, True, False]
-    enum.nextElement.side_effect = [scratch_model, frame, user_model]
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [scratch_model, user_model]
     comps = MagicMock()
     comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getComponents.return_value = comps
 
-    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1", "scratch-2"})
+    monkeypatch.setattr(scratch_writer, "_scratch_uids", {"scratch-1"})
     assert list(iter_open_models(desktop)) == [user_model]
 
 
@@ -885,15 +871,13 @@ def test_match_by_url_doc_type_calc():
     assert doc_type == "calc"
 
 
-def test_match_via_getController_getModel_branch():
-    # An enumerated element that exposes getController().getModel() (a frame) instead of getURL
-    # directly -- the desktop-enumeration path the URL/uid mocks otherwise skip.
-    inner = _resolve_model("file:///docs/c.odt", "uid-c")
-    frame = MagicMock(spec=["getController"])  # no getURL attr -> forces the getController branch
-    frame.getController.return_value.getModel.return_value = inner
-    doc, doc_type = _resolve_by_url([frame], "file:///docs/c.odt")
-    assert doc is inner
-    assert doc_type == "writer"
+def test_skips_controller_and_window_elements():
+    # OComponentAccess::impl_getFrameComponent yields a controller or window when a frame
+    # has no model; neither has getURL, so desktop resolution skips both.
+    controller = MagicMock(spec=["getModel"])
+    controller.getModel.return_value = _resolve_model("file:///docs/c.odt", "uid-c")
+    window = MagicMock(spec=[])
+    assert _resolve_by_url([controller, window], "file:///docs/c.odt") == (None, None)
 
 
 def test_match_by_uid_when_target_is_not_a_url():

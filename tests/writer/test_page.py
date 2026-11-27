@@ -296,7 +296,8 @@ def _page_style_doc(text_obj, shapes=()):
     families.getByName.return_value = page_styles
     page_styles.hasByName.return_value = True
     page_styles.getByName.return_value = style
-    style.getPropertyValue.side_effect = lambda n: True if n.endswith("IsOn") else text_obj
+    # Return an int for *Height* properties so numeric division works when text_obj is a plain wrapper.
+    style.getPropertyValue.side_effect = lambda n: True if n.endswith("IsOn") else (500 if "Height" in n else text_obj)
     draw_page = MagicMock()
     draw_page.getCount.return_value = len(shapes)
     draw_page.getByIndex.side_effect = lambda i: shapes[i]
@@ -553,8 +554,7 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
     base.createEnumeration.side_effect = lambda: _enum_of([_paragraph([_portion("Frame")])])
     text_obj = _EqualWrapper(base)
     other = _EqualWrapper(base)
-    doc, style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
-    style.getPropertyValue.side_effect = lambda n: True if n.endswith("IsOn") else (500 if "Height" in n else text_obj)
+    doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
 
     with patch("plugin.writer.page.xtext_to_content", return_value=""):
         res = PageGetHeaderFooterText().execute(

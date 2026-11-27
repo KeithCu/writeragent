@@ -496,9 +496,10 @@ def uno_same(a: Any, b: Any) -> bool:
     PyUNO often hands out **distinct Python wrappers** for one UNO identity,
     so bare ``is`` can miss that a draw shape's
     ``shape.getAnchor().getText()`` is the same header ``XText`` as
-    ``style.getPropertyValue("HeaderText")``. ``PyUNO_cmp`` compares the
-    wrapped UNO ``Any`` values (UNO interface identity), so ``==`` handles
-    distinct PyUNO wrappers.
+    ``style.getPropertyValue("HeaderText")``. ``PyUNO_cmp``
+    (``pyuno/source/module/pyuno.cxx``) compares the wrapped UNO ``Any``
+    values (UNO interface identity), so ``==`` handles distinct PyUNO
+    wrappers.
 
     When debug thread-guard proxying is on, ``_UnoThreadGuardProxy.__eq__``
     unwraps ``_target`` and compares ``self._target == unwrap_uno(other)``
@@ -559,15 +560,11 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
             elem = enum.nextElement()
             try:
                 model = None
+                # The enumeration yields a model, or a controller or window for a frame with no model
+                # (OComponentAccess::impl_getFrameComponent, framework/source/helper/ocomponentaccess.cxx);
+                # only models are documents.
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
                     model = elem
-                elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
-                    # OComponentAccess::impl_getFrameComponent (framework/source/helper/ocomponentaccess.cxx:135-162)
-                    # returns the model, else the controller, else the component window (never a frame).
-                    # Kept for test doubles or components that expose the model via getController().getModel().
-                    controller = elem.getController()
-                    if controller is not None:
-                        model = controller.getModel()
                 if model is not None and is_scratch_document(model):
                     continue
                 if model is not None and not strict:
