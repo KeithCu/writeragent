@@ -8,7 +8,7 @@ from __future__ import annotations
 import getpass
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import best_effort, ToolExecutionError, format_error_payload
+from plugin.framework.errors import best_effort
 from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
 from plugin.chatbot.memory import format_upsert_memory_chat_line, format_user_memory_prompt_block, MemoryTool
 
@@ -86,10 +86,9 @@ def _run_librarian_agent(
     suggested_user_name: str | None = None,
 ) -> dict[str, Any]:
     """Run one turn of the Librarian onboarding smol sub-agent."""
-    try:
-        from plugin.chatbot.smol_agent import run_smol_side_turn
-    except (ImportError, ValueError, TypeError) as e:
-        return format_error_payload(ToolExecutionError(f"Failed to load dependencies: {e}"))
+    # Weight: smol_agent pulls in smolagents and LlmClient, which chatbot tool
+    # discovery would otherwise load at startup.
+    from plugin.chatbot.smol_agent import run_smol_side_turn
 
     status_callback = ctx.status_callback
     append_thinking_callback = ctx.append_thinking_callback

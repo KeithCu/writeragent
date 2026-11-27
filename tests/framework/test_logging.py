@@ -1854,7 +1854,6 @@ def test_debug_log_file_masks_tool_passwords(tmp_path) -> None:
             }
         ],
         max_rounds=5,
-        status="Ready",
         is_stopped=False,
         async_tools=frozenset(),
     )

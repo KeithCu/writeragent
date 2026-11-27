@@ -270,7 +270,6 @@ class TurnController:
     active_tools: list[dict[str, Any]] | None
     active_execute_tool_fn: Callable[..., Any] | None
     active_query_text: str | None
-    active_supports_status: bool
     slash_sidebar_only: bool
     outcome: SendOutcome | None
     external_mcp_result_seen: bool
@@ -305,7 +304,6 @@ class TurnController:
         self.active_tools = None
         self.active_execute_tool_fn = None
         self.active_query_text = None
-        self.active_supports_status = False
         self.slash_sidebar_only = False
         self.outcome = None
         self.external_mcp_result_seen = False
@@ -431,7 +429,7 @@ class TurnController:
         persist_assistant_on_turn(host, content=STOP_LINE)
 
 
-def note_stop_partial(turn: Any, response: Any) -> None:
+def note_stop_partial(turn: TurnController, response: Any) -> None:
     """Remember assistant text from a stopped round that had no tool calls.
 
     The drain's stop callback takes no queue payload, so the text rides
@@ -453,8 +451,8 @@ def note_stop_partial(turn: Any, response: Any) -> None:
     turn._stop_partial_text = text.strip()
 
 
-def take_stop_partial(turn: Any) -> str | None:
-    if not isinstance(turn, TurnController):
+def take_stop_partial(turn: TurnController | None) -> str | None:
+    if turn is None:
         return None
     text = turn._stop_partial_text
     turn._stop_partial_text = None
@@ -475,7 +473,7 @@ def current_turn(host: Any) -> TurnController | None:
     return None
 
 
-def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
+def finalize_sidebar_assistant_response(listener: ToolLoopActionHost, *, allow_rerender: bool = True) -> None:
     """Re-import the last assistant message as HTML when rich sidebar is active.
 
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
@@ -497,9 +495,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # folding the tail into the committed assistant message.
     replaced = False
     if not send_outcome_is_error(listener) and allow_rerender:
-        rerender = getattr(listener, "rerender_rich_text_session", None)
-        if callable(rerender):
-            replaced = rerender() is True
+        replaced = listener.rerender_rich_text_session()
 
     turn = current_turn(listener)
     if turn is not None and not turn.same_messages():
@@ -511,7 +507,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # Append STOP_LINE to the control for this stopped turn. Skipping rerender
     # keeps the ramble from painting over the banner, and close_stopped only
     # persists the line on session.messages, so the control draws it here.
-    stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
+    stop_requested = listener.stop_requested or not allow_rerender
     if stop_requested and not send_outcome_is_error(listener):
         if turn is not None:
             if turn._stop_banner_appended:
@@ -519,17 +515,13 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
             turn._stop_banner_appended = True
         from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-        widget = getattr(listener, "rich_text_widget", None)
+        widget = listener.rich_text_widget
         if widget is not None:
-            run_rich = getattr(listener, "_run_rich_ui", None)
-            if callable(run_rich):
-                run_rich(lambda: widget.append_chunk(STOP_LINE))
-            else:
-                widget.append_chunk(STOP_LINE)
+            listener._run_rich_ui(lambda: widget.append_chunk(STOP_LINE))
         else:
-            control = getattr(listener, "response_control", None)
+            control = listener.response_control
             if control is not None and control.getModel():
-                cur = get_control_text(control, default="") or ""
+                cur = get_control_text(control)
                 set_control_text(control, cur + STOP_LINE)
 
 
@@ -678,7 +670,7 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
     return added
 
 
-def put_for_turn(turn: Any, item: Any) -> bool:
+def put_for_turn(turn: TurnController | None, item: Any) -> bool:
     """Workers enqueue on the controller they captured. They do not touch the transcript.
 
     Callers enqueue on the turn they captured. There is no ``host`` or
@@ -686,7 +678,7 @@ def put_for_turn(turn: Any, item: Any) -> bool:
     A worker must not assign ``turn.queue``; the drain attached the queue before spawn.
     After abort, ``put`` is a no-op.
     """
-    if not isinstance(turn, TurnController):
+    if turn is None:
         return False
     return turn.put(item)
 
@@ -725,7 +717,7 @@ def typed_api_key(client: LlmClient | None) -> str | None:
     return key or None
 
 
-def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, Any]:
+def drop_mcp_image_without_vision(res: dict[str, Any], turn: TurnController | None) -> dict[str, Any]:
     """Keep image_get's ``_mcp_image`` only when the turn's chat model is known to have vision.
 
     Discussion #2268: the sidebar sent the base64 as tool text (about 300k
@@ -735,7 +727,7 @@ def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, A
     Keeps ``_mcp_image`` only when vision is explicitly True.
     """
     vision = False
-    if isinstance(turn, TurnController) and turn.text_model:
+    if turn is not None and turn.text_model:
         model_id = turn.text_model
         typed_key = typed_api_key(turn.active_client)
         vision = has_native_vision(model_id, turn.endpoint, api_key_override=typed_key) is True
@@ -777,14 +769,21 @@ class ToolLoopActionHost(Protocol):
     _tool_calling: Any
     _tool_loop_interpreter: Any
     rich_text_widget: Any
+    response_control: Any
+    cached_doc_type: str | None
+    cached_uno_services: frozenset[str] | None
 
+    @property
+    def stop_requested(self) -> bool: ...
+    def rerender_rich_text_session(self) -> bool: ...
+    def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any: ...
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
 
 
 def build_tool_execute_fn(
-    host: Any,
+    host: ToolLoopActionHost,
     doc_type_str: str,
     active_domain: Any,
     python_tool_domain: Any,
@@ -833,7 +832,7 @@ def build_tool_execute_fn(
         if needs_web_research_ui:
             try:
                 prompt_for_web = bool(get_config("chatbot.prompt_for_web_research")) or (
-                    isinstance(captured_turn, TurnController) and captured_turn.external_mcp_result_seen
+                    captured_turn is not None and captured_turn.external_mcp_result_seen
                 )
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
@@ -890,7 +889,7 @@ def build_tool_execute_fn(
             active_domain=active_domain,
             python_tool_domain=python_tool_domain,
             send_cancellation=send_cancellation,
-            uno_services_supported=getattr(host, "cached_uno_services", None),
+            uno_services_supported=host.cached_uno_services,
             selection_pin=captured_turn.selection_pin if captured_turn is not None else None,
         )
         # ToolRegistry.execute binds keyword-only bypass_thread_guard (and
@@ -902,7 +901,7 @@ def build_tool_execute_fn(
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
         # Remote MCP text from an mcp delegation is untrusted and can steer the model into
         # exfiltrating data via search queries, so web research asks for approval for the rest of the turn.
-        if needs_mcp_ui and isinstance(captured_turn, TurnController):
+        if needs_mcp_ui and captured_turn is not None:
             captured_turn.external_mcp_result_seen = True
         # execute_safe returns DOCUMENT_DISPOSED as a dict; returning that
         # JSON would queue TOOL_DONE and the loop would keep going on a
@@ -1110,7 +1109,6 @@ class ToolLoopEffectInterpreter:
         # Same object execute_fn receives as ``doc``. It was captured on the
         # turn at spawn. A later send must not retarget this call.
         spawn_doc = turn.model
-        supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
         bound_scope = spawn_scope(host)
@@ -1147,14 +1145,13 @@ class ToolLoopEffectInterpreter:
                     "send_cancellation": bound_scope,
                     "captured_turn": turn,
                 }
-                if supports_status:
-                    call_kwargs["status_callback"] = tool_status_callback
-                    if effect.is_async:
+                call_kwargs["status_callback"] = tool_status_callback
+                if effect.is_async:
 
-                        def tool_thinking_callback(msg: str) -> None:
-                            turn.put((StreamQueueKind.TOOL_THINKING, msg))
+                    def tool_thinking_callback(msg: str) -> None:
+                        turn.put((StreamQueueKind.TOOL_THINKING, msg))
 
-                        call_kwargs["append_thinking_callback"] = tool_thinking_callback
+                    call_kwargs["append_thinking_callback"] = tool_thinking_callback
                 res = execute_tool_fn(effect.func_name, func_args, spawn_doc, host.ctx, **call_kwargs)
                 if not effect.is_async:
                     log.debug("sync tool done name=%s elapsed_ms=%.1f", effect.func_name, (time.perf_counter() - t0) * 1000.0)

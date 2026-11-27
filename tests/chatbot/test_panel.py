@@ -2576,7 +2576,6 @@ class TestPanelR14Fixes:
             round_num=0,
             pending_tools=[],
             max_rounds=1,
-            status="Thinking...",
             async_tools=frozenset(),
         )
         listener._tool_calling._sm_state = tl

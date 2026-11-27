@@ -61,7 +61,6 @@ def test_tool_loop_stop_emits_exit_loop() -> None:
         round_num=0,
         pending_tools=[],
         max_rounds=5,
-        status="Thinking...",
         is_stopped=False,
     )
     tr = tool_loop_next_state(state, ToolLoopEvent(EventKind.STOP_REQUESTED, {}))

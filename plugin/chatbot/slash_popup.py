@@ -63,7 +63,7 @@ def _defer_to_next_turn(fn: Any, *args: Any) -> None:
 
 
 def _dispose(obj: Any, msg: str) -> None:
-    if callable(getattr(obj, "dispose", None)):
+    if obj is not None:
         best_effort(obj.dispose, msg)
 
 
@@ -84,11 +84,10 @@ def _list_height(ctrl: Any, rows: int) -> int:
 
     ListBox ``getMinimumSize(0, n)`` (XTextLayoutConstrains) is VCL's
     CalcBlockSize, so qt6/kf6 and HiDPI rows (18-40px) are not clipped to
-    the 14px estimate. Mocks without it keep ``_overlay_height``.
+    the 14px estimate. A failed read keeps ``_overlay_height``.
     """
     n = min(max(rows, 1), _POPUP_MAX_ROWS)
-    fn = getattr(ctrl, "getMinimumSize", None)
-    size = uno_read(lambda: fn(0, n), None) if callable(fn) else None
+    size = uno_read(lambda: ctrl.getMinimumSize(0, n), None)
     height = getattr(size, "Height", None)
     if isinstance(height, int) and height > 0:
         return height
@@ -107,9 +106,7 @@ def _hscroll_height(ctrl: Any, rows: int, entries: int, width: int) -> int:
     Text width is read with lines > entries; with fewer lines CalcBlockSize
     pads the width by a VScroll (by a scrollbar even at 1 of 1 rows).
     """
-    fn = getattr(ctrl, "getMinimumSize", None)
-    if not callable(fn):
-        return 0
+    fn = ctrl.getMinimumSize
     n = min(max(rows, 1), _POPUP_MAX_ROWS)
     full = uno_read(lambda: fn(0, n), None)
     narrow = uno_read(lambda: fn(1, n), None)
@@ -140,8 +137,10 @@ def _printable_key_char(key_char: Any) -> str | None:
 
 def _status_top(send_listener: Any) -> int | None:
     """Top Y of the Ready/status control (dialog-local), or None."""
-    status = getattr(send_listener, "status_control", None) if send_listener is not None else None
-    if status is None or not hasattr(status, "getPosSize"):
+    if send_listener is None:
+        return None
+    status = send_listener.status_control
+    if status is None:
         return None
     return status.getPosSize().Y
 
@@ -154,7 +153,7 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
     if not callable(get_acc):
         return None
     acc = uno_read(get_acc, None)
-    fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
+    fn = getattr(acc, "getLocationOnScreen", None)
     if not callable(fn):
         return None
     pt = uno_read(fn, None)
@@ -234,18 +233,15 @@ def _row_index_at_y(y: int, n_rows: int, row_px: int = _POPUP_ROW_PX) -> int | N
     return None
 
 
-def _query_peer(query_control: Any) -> Any:
-    get_peer = getattr(query_control, "getPeer", None)
-    if not callable(get_peer):
-        log.debug("slash popup: getPeer missing query=%s", type(query_control).__name__)
-        return None
-    return uno_read(get_peer, None)
+def _query_peer(control: Any) -> Any:
+    """Peer of an XControl (Ask field or overlay parent), or None before it has one."""
+    return uno_read(control.getPeer, None)
 
 
 def _toolkit_for_peer(peer: Any) -> Any:
-    if peer is not None and hasattr(peer, "getToolkit"):
-        return uno_read(peer.getToolkit, None)
-    return None
+    if peer is None:
+        return None
+    return uno_read(peer.getToolkit, None)
 
 
 def _awt_window_constants() -> tuple[Any, Any, int, int, int] | None:
@@ -281,7 +277,7 @@ def _create_ask_peer_listbox(
     if parent is None:
         return None
     toolkit = _toolkit_for_peer(parent)
-    if toolkit is None or not hasattr(toolkit, "createWindow"):
+    if toolkit is None:
         log.debug("slash popup: no toolkit on overlay parent")
         return None
     consts = _awt_window_constants()
@@ -368,8 +364,7 @@ class SlashPopupController:
         # Do not createWindow here. Overlay is born on first `/`.
         # The XDL placeholder is only hidden. Keys go to the toolkit handler,
         # not to that control.
-        query_has_peer = callable(getattr(query_control, "getPeer", None))
-        if query_has_peer and ENABLE_SLASH:
+        if ENABLE_SLASH:
             # The sidebar FocusManager consumes Esc in panel content (focus
             # moves to the panel title). It is an Application key listener
             # too, so ours must be registered first, at panel creation, and
@@ -445,13 +440,10 @@ class SlashPopupController:
         ``getPosSize`` Ask (that deadlocks VCL). Dispatch only after the
         popup is closed, using Ask as the source of truth.
         """
-        dispatch = getattr(self.send_listener, "dispatch", None)
-        if not callable(dispatch):
-            return
         from plugin.chatbot.send_state import SendEvent, SendEventKind
 
         text = get_control_text(self.query_control) or ""
-        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
+        self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
 
     def on_query_text(self, text: str) -> bool:
         """Open or narrow the popup from the current Ask-box contents. Returns True if TEXT_UPDATED should be skipped."""
@@ -506,16 +498,12 @@ class SlashPopupController:
         self._attach_frame_keys()
         self._attach_toolkit_keys()
         # TOP host steals caret unless we return it — keep typing in Ask.
-        def _focus_ask(label: str) -> bool:
-            sf = getattr(self.query_control, "setFocus", None)
-            if callable(sf):
-                with suppress_disposed(f"slash popup {label}", logger=log):
-                    sf()
-                return True
-            return False
+        def _focus_ask(label: str) -> None:
+            with suppress_disposed(f"slash popup {label}", logger=log):
+                self.query_control.setFocus()
 
-        if _focus_ask("after TOP show"):
-            _defer_to_next_turn(_focus_ask, "idle refocus")
+        _focus_ask("after TOP show")
+        _defer_to_next_turn(_focus_ask, "idle refocus")
 
     def handle_key(
         self,
@@ -611,23 +599,21 @@ class SlashPopupController:
         return True
 
     def _bring_overlay_front(self) -> None:
-        """Raise the toolkit listbox above Ready/transcript siblings."""
-        for label, obj in (
-            ("popup_floater", self._popup_floater),
-            ("control", self.control),
-        ):
-            if obj is None:
-                continue
-            to_front = getattr(obj, "toFront", None)
-            if not callable(to_front):
-                continue
-            best_effort(to_front, f"toFront failed {label}")
+        """Raise the overlay host above Ready/transcript siblings.
+
+        Only the floatingwindow host is an XTopWindow (VCLXTopWindow,
+        toolkit/source/helper/unowrapper.cxx CreateXWindow); the listbox
+        child (VCLXListBox) has no toFront and rises with its host.
+        """
+        floater = self._popup_floater
+        if floater is not None:
+            best_effort(floater.toFront, "toFront failed popup_floater")
 
     def reposition(self) -> None:
         """Size the overlay to the match rows and park it above Ready (or Ask)."""
         query = self.query_control
         ctrl = self.control
-        if query is None or ctrl is None or not hasattr(query, "getPosSize"):
+        if query is None or ctrl is None:
             return
         with suppress_disposed("slash popup reposition", logger=log):
             qr = query.getPosSize()
@@ -649,12 +635,10 @@ class SlashPopupController:
         if ctrl is None:
             return
         labels = tuple(format_slash_popup_item(cmd) for cmd in self._matches)
-        add = getattr(ctrl, "addItems", None)
-        if callable(add):
-            try:
-                add(labels, 0)
-            except Exception:
-                log.warning("slash popup: fill addItems failed", exc_info=True)
+        try:
+            ctrl.addItems(labels, 0)
+        except Exception:
+            log.warning("slash popup: fill addItems failed", exc_info=True)
 
     def _select_row(self, idx: int) -> None:
         ctrl = self.control
@@ -662,19 +646,15 @@ class SlashPopupController:
             return
         idx = max(0, min(idx, len(self._matches) - 1))
         self._selected = idx
-        if hasattr(ctrl, "selectItemPos"):
-            with suppress_disposed("slash popup select", logger=log):
-                ctrl.selectItemPos(idx, True)
+        with suppress_disposed("slash popup select", logger=log):
+            ctrl.selectItemPos(idx, True)
 
     def _attach_key_handler(self, target: Any, label: str) -> Any:
         if target is None:
             return None
-        add = getattr(target, "addKeyHandler", None)
-        if not callable(add):
-            return None
         handler = _make_slash_key_handler(self)
         try:
-            add(handler)
+            target.addKeyHandler(handler)
             return handler
         except Exception:
             log.warning("slash popup: %s key handler attach failed", label, exc_info=True)
@@ -684,11 +664,10 @@ class SlashPopupController:
         """Catch Esc/Enter even when the TOP overlay or document has focus."""
         if "frame" in self._key_handlers:
             return
-        frame = getattr(self.send_listener, "frame", None)
-        get_controller = getattr(frame, "getController", None) if frame is not None else None
-        if not callable(get_controller):
+        frame = self.send_listener.frame
+        if frame is None:
             return
-        controller = uno_read(get_controller, None)
+        controller = uno_read(frame.getController, None)
         handler = self._attach_key_handler(controller, "frame")
         if handler is not None:
             self._key_handlers["frame"] = (controller, handler)
@@ -697,13 +676,12 @@ class SlashPopupController:
         """Esc/Enter/arrows for the open popup, ahead of the sidebar FocusManager (see __init__)."""
         if "toolkit" in self._key_handlers:
             return
-        peer = None
-        for obj in (self._popup_floater, self.control, self.query_control, self._overlay_parent):
-            if obj is None:
-                continue
-            peer = _query_peer(obj)
-            if peer is not None:
-                break
+        # The overlay host is already a window peer (toolkit.createWindow);
+        # the Ask field and overlay parent are XControls whose peer may not exist yet.
+        peer = self._popup_floater
+        for ctl in (self.query_control, self._overlay_parent):
+            if peer is None and ctl is not None:
+                peer = _query_peer(ctl)
         tk = _toolkit_for_peer(peer)
         if tk is None:
             return
@@ -715,13 +693,11 @@ class SlashPopupController:
         target, handler = self._key_handlers.pop(kind, (None, None))
         if target is None or handler is None:
             return
-        rem = getattr(target, "removeKeyHandler", None)
-        if callable(rem):
-            best_effort(lambda: rem(handler), f"{kind} key handler remove failed")
+        best_effort(lambda: target.removeKeyHandler(handler), f"{kind} key handler remove failed")
 
     def _attach_click(self) -> None:
         ctrl = self.control
-        if ctrl is None or not hasattr(ctrl, "addMouseListener"):
+        if ctrl is None:
             return
 
         host = self
@@ -745,7 +721,7 @@ class SlashPopupController:
                 host.handle_key(e.KeyCode, e.Modifiers, e.KeyChar, from_overlay=True)
 
         ctrl = self.control
-        if ctrl is None or not hasattr(ctrl, "addKeyListener"):
+        if ctrl is None:
             return
         try:
             ctrl.addKeyListener(_Keys())

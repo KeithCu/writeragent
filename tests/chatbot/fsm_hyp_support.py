@@ -115,7 +115,6 @@ def tool_loop_states(draw):
         round_num=round_num,
         pending_tools=pending,
         max_rounds=max_rounds,
-        status=draw(st.sampled_from(("Thinking...", "Running tool...", "Stopped", "Ready"))),
         is_stopped=is_stopped,
     )
 

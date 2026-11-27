@@ -88,7 +88,6 @@ class ToolLoopState(BaseState):
     round_num: int
     pending_tools: List[Dict[str, Any]]
     max_rounds: int
-    status: str
     is_stopped: bool = False
     async_tools: frozenset[str] = frozenset()
 
@@ -269,7 +268,7 @@ def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
 def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:
     effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready"))
     effects.append(ExitLoopEffect())
-    return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
+    return FsmTransition(state, effects)
 
 
 def _assistant_text_effects(content: str, payload: dict[str, Any]) -> list[Any]:
@@ -303,7 +302,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             # reach this event: the worker does not enqueue them.
             effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="stopped"))
             effects.append(ExitLoopEffect())
-            return FsmTransition(dataclasses.replace(state, is_stopped=True, status="Stopped"), effects)
+            return FsmTransition(dataclasses.replace(state, is_stopped=True), effects)
 
         case EventKind.FINAL_DONE:
             content = event_data.get("content")
@@ -326,7 +325,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
         case EventKind.ERROR:
             # The caller handles rendering the actual error message
             effects.append(ExitLoopEffect())
-            return FsmTransition(dataclasses.replace(state, status="Error"), effects)
+            return FsmTransition(state, effects)
 
         case EventKind.STREAM_DONE:
             # A non-dict payload is an empty response. ``dict.get`` returns

@@ -15,7 +15,6 @@ on the LLM worker.
 from __future__ import annotations
 
 import logging
-import inspect
 import dataclasses
 import os
 from enum import Enum
@@ -246,12 +245,12 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
     if not host.audio_wav_path or not (is_400_input_validation(error) or is_audio_unsupported_error(error)):
         return StreamErrorOutcome.NOT_HANDLED
 
-    turn = getattr(host, "_turn", None)
+    turn = current_turn(host)
     # Read text_model and endpoint from the turn captured when the audio was
     # attached. Re-reading the combobox mid-turn would mark the newly chosen
     # model unsupported instead of the model the audio was sent to.
-    turn_model = getattr(turn, "text_model", None)
-    turn_endpoint = getattr(turn, "endpoint", None)
+    turn_model = turn.text_model if turn is not None else None
+    turn_endpoint = turn.endpoint if turn is not None else None
     if not turn_model:
         turn_model = get_text_model()
         turn_endpoint = get_current_endpoint()
@@ -265,7 +264,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
     if turn is None or not turn.alive:
         return StreamErrorOutcome.NOT_HANDLED
     retry_q = spawn_queue(turn)
-    if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
+    if (stt_model or local_stt) and retry_q is not None and turn.active_client is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
             transcript = host._voice._transcribe_audio(host.audio_wav_path, stt_model)
@@ -506,7 +505,7 @@ class ToolCallingMixin:
                 active_tools = get_tools().get_schemas(
                     "openai",
                     doc_type=doc_type_str,
-                    uno_services_supported=getattr(self._panel, "cached_uno_services", None),
+                    uno_services_supported=self._panel.cached_uno_services,
                     active_domain=active_domain,
                     ctx=self._panel.ctx,
                     doc=model,
@@ -666,10 +665,10 @@ class ToolCallingMixin:
                 refresh_doc = self._panel._get_document_model()
             turn.active_tools = get_tools().get_schemas(
                 "openai",
-                doc_type=getattr(self._panel, "cached_doc_type", None),
-                uno_services_supported=getattr(self._panel, "cached_uno_services", None),
+                doc_type=self._panel.cached_doc_type,
+                uno_services_supported=self._panel.cached_uno_services,
                 active_domain=active_domain,
-                ctx=getattr(self._panel, "ctx", None),
+                ctx=self._panel.ctx,
                 doc=refresh_doc,
             )
             log_peer_tool_on_wire(turn.active_tools)
@@ -1088,7 +1087,7 @@ class ToolCallingMixin:
         async_tool_default = frozenset({"web_research", "image_generate"})
         async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=async_tool_default)
 
-        self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
+        self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, async_tools=async_tools)
 
         turn = running_turn(self._panel)
         if turn is None:
@@ -1114,10 +1113,6 @@ class ToolCallingMixin:
 
             # toolkit may be None in tests; the drain still arms before the first LLM worker runs.
             toolkit = get_toolkit(self._panel.ctx)
-
-            # Check once whether execute_tool_fn accepts status_callback
-            sig = inspect.signature(execute_tool_fn)
-            turn.active_supports_status = "status_callback" in sig.parameters or "kwargs" in sig.parameters
 
             self._refresh_active_tools_for_session()
 

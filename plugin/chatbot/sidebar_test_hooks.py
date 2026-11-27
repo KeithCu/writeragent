@@ -2391,6 +2391,8 @@ class _UrpSlashHost:
 
     query_control: Any
     response_control: Any
+    status_control: Any
+    frame: Any
     clear_listener: Any
     _stop: Any
     ctx: Any
@@ -2401,6 +2403,10 @@ class _UrpSlashHost:
         self.ctx = ctx  # overlay position probe (SlashPopupController)
         self.query_control = query
         self.response_control = response
+        # No status row or document frame over URP: the overlay sits above Ask
+        # and no frame key handler is attached.
+        self.status_control = None
+        self.frame = None
         self.slash_popup: Any = None
         self._send_cancellation: SendCancellation | None = None
         self.cached_doc_type = "writer"

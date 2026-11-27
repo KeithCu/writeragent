@@ -110,12 +110,10 @@ def cell_links_for_rows(rows: Sequence[tuple[str, str]]) -> list[tuple[str, str]
 
 def portion_cell_href(portion: Any) -> str | None:
     """Read a ``cell://`` or ``writeragent-cell://`` URL from a Writer text portion, if any."""
-    if portion is None:
-        return None
-    for prop in ("HyperLinkURL", "HyperlinkURL", "HYPERLINK"):
-        url = getattr(portion, prop, None)
-        if isinstance(url, str) and url and "cell://" in url.lower():
-            return url
+    # A portion without the property raises AttributeError in PyUNO; that portion has no link.
+    url = getattr(portion, "HyperLinkURL", None)
+    if isinstance(url, str) and url and "cell://" in url.lower():
+        return url
     return None
 
 
@@ -682,8 +680,8 @@ def _copy_formatted_from_hidden_doc_to_control(
     Returns None on success, or a short failure reason tag.
     """
     model = control.getModel()
-    if model is None or not hasattr(model, "createTextCursor"):
-        return "model_no_createTextCursor"
+    if model is None:
+        return "model_none"
 
     def _do_copy() -> str | None:
         try:
@@ -892,7 +890,7 @@ def _row_separator_suffix(text: str) -> str:
 def _plain_append_messages(control: Any, batch: Sequence[tuple[str, str]], ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap."""
     model = control.getModel() if control else None
-    if model is None or not hasattr(model, "createTextCursor"):
+    if model is None:
         return False
 
     wrote = False
@@ -1036,7 +1034,7 @@ def _append_row_separator(
 ) -> None:
     def _do_append() -> None:
         model = control.getModel() if control else None
-        if model is None or not hasattr(model, "createTextCursor"):
+        if model is None:
             return
         text = model.Text or ""
         suffix = _row_separator_suffix(text)

@@ -246,13 +246,13 @@ def _cmdline_matches_firefox_profile(pid: int, profile_dir: str) -> bool:
                 timeout=3.0,
             )
             return _cmdline_string_matches(res.stdout.strip(), profile_dir)
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return False
 
     try:
         res = ManagedSubprocess.run(["ps", "-p", str(pid), "-o", "args="], capture_output=True, text=True, timeout=2.0)
         return _cmdline_string_matches(res.stdout.strip(), profile_dir)
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
